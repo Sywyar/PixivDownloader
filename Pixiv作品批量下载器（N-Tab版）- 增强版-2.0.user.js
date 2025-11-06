@@ -495,6 +495,16 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
             return;
         }
 
+        // 重置所有状态，确保每次重新解析都是全新的开始
+        isBatchRunning = false;
+        isBatchPaused = false;
+        currentDownloadIndex = -1;
+        completedCount = 0;
+        successCount = 0;
+        failCount = 0;
+        activeDownloads = 0;
+        currentArtworkId = null;
+
         const artworks = [];
         const lines = input.split('\n').filter(line => line.trim());
 
@@ -512,7 +522,7 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
                     id: artworkId,
                     title: title,
                     url: `https://www.pixiv.net/artworks/${artworkId}`,
-                    status: 'pending',
+                    status: 'paused',
                     progress: 0,
                     currentImage: 0,
                     totalImages: 0,
@@ -531,11 +541,22 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
         downloadQueue = artworks;
         updateQueueDisplay();
         updateStatus(`解析成功: 找到 ${validCount} 个作品`, 'success');
+        
+        // 更新按钮状态
         document.getElementById('start-batch-btn').disabled = false;
+        document.getElementById('pause-batch-btn').disabled = true;
+        document.getElementById('clear-queue-btn').disabled = false;
+        
         updateStats();
 
         // 保存队列
         saveQueueState();
+        
+        console.log('N-Tab数据解析完成，队列已重置:', {
+            total: downloadQueue.length,
+            status: '所有作品初始化为暂停中状态',
+            timestamp: new Date().toISOString()
+        });
     }
 
     // 更新队列显示
@@ -637,7 +658,8 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
             'pending': '等待中',
             'downloading': '下载中',
             'completed': '已完成',
-            'failed': '失败'
+            'failed': '失败',
+            'paused': '暂停中'
         };
         return statusMap[status] || status;
     }
@@ -663,6 +685,13 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
         failCount = 0;
         activeDownloads = 0;
 
+        // 将所有暂停中状态改为等待中
+        downloadQueue.forEach(artwork => {
+            if (artwork.status === 'paused') {
+                artwork.status = 'pending';
+            }
+        });
+
         document.getElementById('start-batch-btn').disabled = true;
         document.getElementById('pause-batch-btn').disabled = false;
         document.getElementById('clear-queue-btn').disabled = true;
@@ -677,6 +706,9 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
 
         // 获取最大并发数
         const maxConcurrent = parseInt(document.getElementById('max-concurrent').value) || 1;
+
+        // 更新队列显示
+        updateQueueDisplay();
 
         // 启动并发下载
         await processDownloadQueueConcurrent(maxConcurrent);
@@ -711,81 +743,89 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
 
     // 下载工作线程
     async function processDownloadWorker() {
-        while (currentDownloadIndex < downloadQueue.length && isBatchRunning) {
+        while (isBatchRunning) {
             if (isBatchPaused) {
                 // 如果暂停，等待恢复
                 await new Promise(resolve => setTimeout(resolve, 500));
                 continue;
             }
 
-            const index = currentDownloadIndex++;
-            if (index >= downloadQueue.length) break;
+            // 检查是否还有需要下载的作品
+            const nextPendingIndex = downloadQueue.findIndex((artwork, index) => 
+                index >= currentDownloadIndex && artwork.status === 'pending'
+            );
+            
+            if (nextPendingIndex === -1) {
+                // 没有更多等待中的作品，等待一段时间再检查
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                continue;
+            }
 
-            const artwork = downloadQueue[index];
+            // 更新当前下载索引并获取作品
+            currentDownloadIndex = nextPendingIndex + 1;
+            const artwork = downloadQueue[nextPendingIndex];
 
-            if (artwork.status === 'pending' || artwork.status === 'failed') {
-                // 更新活跃下载数
-                activeDownloads++;
-                updateStats();
+            // 更新活跃下载数
+            activeDownloads++;
+            updateStats();
 
-                // 设置当前下载的作品
-                currentArtworkId = artwork.id;
-                updateCurrentDownloadDisplay();
+            // 设置当前下载的作品
+            currentArtworkId = artwork.id;
+            updateCurrentDownloadDisplay();
 
-                artwork.status = 'downloading';
-                artwork.startTime = new Date();
-                updateQueueDisplay();
-                updateStatus(`正在下载: ${artwork.title}`, 'info');
+            artwork.status = 'downloading';
+            artwork.startTime = new Date();
+            updateQueueDisplay();
+            updateStatus(`正在下载: ${artwork.title}`, 'info');
 
-                try {
-                    await downloadSingleArtwork(artwork);
+            try {
+                await downloadSingleArtwork(artwork);
 
-                    // 等待最终状态确认
-                    const finalStatus = await waitForFinalStatus(artwork.id);
-                    if (finalStatus && finalStatus.completed) {
-                        artwork.status = 'completed';
-                        artwork.endTime = new Date();
-                        successCount++;
-                        updateStatus(`✅ 完成: ${artwork.title} (${finalStatus.downloadedCount}/${finalStatus.totalImages})`, 'success');
-                    } else {
-                        artwork.status = 'failed';
-                        artwork.endTime = new Date();
-                        failCount++;
-                        updateStatus(`❌ 失败: ${artwork.title} - 下载未完成`, 'error');
-                    }
-                } catch (error) {
+                // 等待最终状态确认
+                const finalStatus = await waitForFinalStatus(artwork.id);
+                if (finalStatus && finalStatus.completed) {
+                    artwork.status = 'completed';
+                    artwork.endTime = new Date();
+                    successCount++;
+                    updateStatus(`✅ 完成: ${artwork.title} (${finalStatus.downloadedCount}/${finalStatus.totalImages})`, 'success');
+                } else {
                     artwork.status = 'failed';
                     artwork.endTime = new Date();
                     failCount++;
-                    updateStatus(`❌ 失败: ${artwork.title} - ${error.message}`, 'error');
-                } finally {
-                    // 更新活跃下载数
-                    activeDownloads--;
-                    updateStats();
-
-                    // 如果这是当前下载的作品，清除显示
-                    if (currentArtworkId === artwork.id) {
-                        currentArtworkId = null;
-                        updateCurrentDownloadDisplay();
-                    }
+                    updateStatus(`❌ 失败: ${artwork.title} - 下载未完成`, 'error');
                 }
-
-                completedCount++;
-                updateQueueDisplay();
+            } catch (error) {
+                artwork.status = 'failed';
+                artwork.endTime = new Date();
+                failCount++;
+                updateStatus(`❌ 失败: ${artwork.title} - ${error.message}`, 'error');
+            } finally {
+                // 更新活跃下载数
+                activeDownloads--;
                 updateStats();
 
-                // 保存队列状态
-                saveQueueState();
-
-                // 获取下载间隔（秒转换为毫秒）
-                const intervalSeconds = parseInt(document.getElementById('download-interval').value) || 2;
-                const intervalMs = intervalSeconds * 1000;
-
-                // 添加延迟避免请求过于频繁
-                if (isBatchRunning && !isBatchPaused) {
-                    updateStatus(`等待 ${intervalSeconds} 秒后下载下一个作品...`, 'info');
-                    await new Promise(resolve => setTimeout(resolve, intervalMs));
+                // 如果这是当前下载的作品，清除显示
+                if (currentArtworkId === artwork.id) {
+                    currentArtworkId = null;
+                    updateCurrentDownloadDisplay();
                 }
+            }
+
+            completedCount++;
+            updateQueueDisplay();
+            updateStats();
+
+            // 保存队列状态
+            saveQueueState();
+
+            // 获取下载间隔（秒转换为毫秒）
+            const intervalSeconds = parseInt(document.getElementById('download-interval').value) || 2;
+            const intervalMs = intervalSeconds * 1000;
+
+            // 添加延迟避免请求过于频繁
+            if (isBatchRunning && !isBatchPaused) {
+                updateStatus(`等待 ${intervalSeconds} 秒后下载下一个作品...`, 'info');
+                await new Promise(resolve => setTimeout(resolve, intervalMs));
             }
         }
     }
@@ -798,6 +838,13 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
         document.getElementById('pause-batch-btn').disabled = true;
         document.getElementById('start-batch-btn').disabled = false;
         
+        // 将所有等待中状态改为暂停中
+        downloadQueue.forEach(artwork => {
+            if (artwork.status === 'pending') {
+                artwork.status = 'paused';
+            }
+        });
+        
         // 检查当前是否有正在下载的作品
         const currentArtwork = downloadQueue.find(a => a.id === currentArtworkId);
         if (currentArtwork && currentArtwork.status === 'downloading') {
@@ -805,6 +852,9 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
         } else {
             updateStatus('下载已暂停，队列状态已保存', 'warning');
         }
+
+        // 更新队列显示
+        updateQueueDisplay();
 
         // 保存完整的队列状态，包括所有任务的状态
         saveQueueState();
@@ -814,6 +864,7 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
             completed: downloadQueue.filter(a => a.status === 'completed').length,
             downloading: downloadQueue.filter(a => a.status === 'downloading').length,
             pending: downloadQueue.filter(a => a.status === 'pending').length,
+            paused: downloadQueue.filter(a => a.status === 'paused').length,
             failed: downloadQueue.filter(a => a.status === 'failed').length,
             currentIndex: currentDownloadIndex
         });
@@ -1001,27 +1052,24 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
         // 创建队列副本，避免修改原始队列
         const queueToSave = JSON.parse(JSON.stringify(downloadQueue));
         
-        // 处理下载中的作品状态：先假定成功，失败时再重新标记
+        // 处理下载中的作品状态：保存时保持原状态，不修改为完成状态
         queueToSave.forEach(artwork => {
             if (artwork.status === 'downloading') {
-                // 如果作品正在下载中，先假定为成功状态
-                // 只有在实际失败时才会重新标记为失败
-                artwork.status = 'completed';
-                
-                // 确保下载数量正确
-                if (artwork.downloadedCount < artwork.totalImages && artwork.totalImages > 0) {
-                    artwork.downloadedCount = artwork.totalImages;
-                }
+                // 保持下载中状态，不修改为完成状态
+                artwork.status = 'downloading';
             }
         });
         
         const queueState = {
             queue: queueToSave,
-            currentIndex: -1, // 重置当前索引，避免恢复时从中间开始
-            completedCount: queueToSave.filter(a => a.status === 'completed').length,
+            currentIndex: currentDownloadIndex, // 保存当前索引，以便恢复时从正确位置继续
+            completedCount: completedCount,
             successCount: successCount,
             failCount: failCount,
-            activeDownloads: 0, // 重置活跃下载数
+            activeDownloads: activeDownloads,
+            isBatchRunning: isBatchRunning,
+            isBatchPaused: isBatchPaused,
+            currentArtworkId: currentArtworkId,
             timestamp: new Date().toISOString()
         };
 
@@ -1034,17 +1082,19 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
 
         if (savedState && savedState.queue && savedState.queue.length > 0) {
             downloadQueue = savedState.queue;
-            currentDownloadIndex = -1; // 从队列开始重新开始
+            currentDownloadIndex = savedState.currentIndex || -1;
             completedCount = savedState.completedCount || 0;
             successCount = savedState.successCount || 0;
             failCount = savedState.failCount || 0;
-            activeDownloads = 0; // 重置活跃下载数
-            currentArtworkId = null; // 重置当前作品ID
+            activeDownloads = savedState.activeDownloads || 0;
+            isBatchRunning = savedState.isBatchRunning || false;
+            isBatchPaused = savedState.isBatchPaused || false;
+            currentArtworkId = savedState.currentArtworkId || null;
 
-            // 确保所有作品状态正确（保存时可能已将下载中状态改为完成）
+            // 确保所有作品状态正确
             downloadQueue.forEach(artwork => {
-                // 如果作品状态为完成，但实际下载数量不足，重新标记为待处理
-                if (artwork.status === 'completed' && 
+                // 如果作品状态为下载中，但实际下载数量不足，重新标记为等待中
+                if (artwork.status === 'downloading' && 
                     artwork.downloadedCount < artwork.totalImages && 
                     artwork.totalImages > 0) {
                     artwork.status = 'pending';
@@ -1054,18 +1104,24 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
             updateQueueDisplay();
             updateStats();
             updateCurrentDownloadDisplay();
-            document.getElementById('start-batch-btn').disabled = false;
+            
+            // 更新按钮状态
+            document.getElementById('start-batch-btn').disabled = isBatchRunning;
+            document.getElementById('pause-batch-btn').disabled = !isBatchRunning || isBatchPaused;
+            document.getElementById('clear-queue-btn').disabled = downloadQueue.length === 0;
 
             // 详细显示队列状态
             const completedCountVal = downloadQueue.filter(a => a.status === 'completed').length;
             const downloadingCount = downloadQueue.filter(a => a.status === 'downloading').length;
             const pendingCount = downloadQueue.filter(a => a.status === 'pending').length;
+            const pausedCount = downloadQueue.filter(a => a.status === 'paused').length;
             const failedCount = downloadQueue.filter(a => a.status === 'failed').length;
             
             let statusMessage = `发现保存的下载队列: `;
             if (completedCountVal > 0) statusMessage += `✅${completedCountVal} `;
             if (downloadingCount > 0) statusMessage += `📥${downloadingCount} `;
             if (pendingCount > 0) statusMessage += `⏳${pendingCount} `;
+            if (pausedCount > 0) statusMessage += `⏸️${pausedCount} `;
             if (failedCount > 0) statusMessage += `❌${failedCount} `;
             
             updateStatus(statusMessage, 'info');
@@ -1075,9 +1131,12 @@ https://www.pixiv.net/artworks/136536736 | #第五人格 お誘い - こめり�
                 completed: completedCount,
                 downloading: downloadingCount,
                 pending: pendingCount,
+                paused: pausedCount,
                 failed: failedCount,
                 currentIndex: currentDownloadIndex,
                 currentArtworkId: currentArtworkId,
+                isBatchRunning: isBatchRunning,
+                isBatchPaused: isBatchPaused,
                 timestamp: savedState.timestamp
             });
         } else {
