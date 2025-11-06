@@ -15,7 +15,7 @@
 // @run-at       document-start
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     // 配置后端服务地址
@@ -66,7 +66,7 @@
                 headers: {
                     'Referer': 'https://www.pixiv.net/'
                 },
-                onload: function(response) {
+                onload: function (response) {
                     try {
                         const data = JSON.parse(response.responseText);
                         if (data.error) {
@@ -80,7 +80,7 @@
                         reject(e);
                     }
                 },
-                onerror: function(error) {
+                onerror: function (error) {
                     reject(error);
                 }
             });
@@ -103,7 +103,7 @@
                     'Content-Type': 'application/json'
                 },
                 data: JSON.stringify(requestData),
-                onload: function(response) {
+                onload: function (response) {
                     try {
                         const data = JSON.parse(response.responseText);
                         if (response.status === 200 && data.success) {
@@ -115,7 +115,7 @@
                         reject(e);
                     }
                 },
-                onerror: function(error) {
+                onerror: function (error) {
                     reject(error);
                 }
             });
@@ -129,13 +129,13 @@
                 method: 'GET',
                 url: 'http://localhost:6999/api/download/status',
                 timeout: 3000,
-                onload: function(response) {
+                onload: function (response) {
                     resolve(response.status === 200);
                 },
-                onerror: function() {
+                onerror: function () {
                     resolve(false);
                 },
-                ontimeout: function() {
+                ontimeout: function () {
                     resolve(false);
                 }
             });
@@ -242,7 +242,7 @@
         const statusDiv = document.createElement('div');
         statusDiv.innerHTML = isDownloaded ?
             '✅ 已下载过此作品' :
-        '⬇️ 可下载此作品';
+            '⬇️ 可下载此作品';
         statusDiv.style.cssText = `
             font-weight: bold;
             margin-bottom: 8px;
@@ -315,7 +315,7 @@
             if (statusDiv) {
                 statusDiv.innerHTML = available ?
                     '✅ 后端服务可用' :
-                '❌ 后端服务未启动';
+                    '❌ 后端服务未启动';
                 statusDiv.style.color = available ? '#28a745' : '#dc3545';
             }
         });
@@ -343,7 +343,7 @@
                     lastUrl = url;
                     setTimeout(createDownloadUI, 500);
                 }
-            }).observe(document, { subtree: true, childList: true });
+            }).observe(document, {subtree: true, childList: true});
 
         } catch (error) {
             console.log('初始化下载UI失败:', error);
@@ -355,7 +355,7 @@
     GM_registerMenuCommand('通过后端下载当前作品', downloadImages);
 
     // 添加快捷键支持 (Ctrl+Shift+J)
-    document.addEventListener('keydown', function(e) {
+    document.addEventListener('keydown', function (e) {
         if (e.ctrlKey && e.shiftKey && e.key === 'J') {
             e.preventDefault();
             downloadImages();

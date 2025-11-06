@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
@@ -24,16 +25,25 @@ public class DownloadService {
     @Autowired
     private DownloadConfig downloadConfig;
 
+    // 存储下载状态
+    private final ConcurrentHashMap<Long, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
+
     @Async
     public void downloadImages(Long artworkId, java.util.List<String> imageUrls, String referer, String cookie) {
+        // 初始化下载状态
+        DownloadStatus status = new DownloadStatus(artworkId, imageUrls.size());
+        downloadStatusMap.put(artworkId, status);
+
         try {
             // 获取下一个文件夹索引
             int folderIndex = getNextFolderIndex();
             String folderName = String.valueOf(folderIndex);
+            status.setFolderName(folderName);
 
             // 创建文件夹结构
             Path downloadPath = Paths.get(downloadConfig.getRootFolder(), folderName);
             Files.createDirectories(downloadPath);
+            status.setDownloadPath(downloadPath.toString());
 
             AtomicInteger successCount = new AtomicInteger(0);
 
@@ -55,7 +65,16 @@ public class DownloadService {
 
             // 下载所有图片
             for (int i = 0; i < imageUrls.size(); i++) {
+                if (status.isCancelled()) {
+                    break; // 如果下载被取消，停止下载
+                }
+
                 String imageUrl = imageUrls.get(i);
+
+                // 重要修复：在开始下载每张图片前更新当前图片索引
+                status.setCurrentImageIndex(i);
+                status.setDownloadedCount(successCount.get()); // 更新已下载数量
+
                 try {
                     String extension = getFileExtension(imageUrl);
                     String filename = artworkId + "_" + i + "." + extension;
@@ -63,6 +82,7 @@ public class DownloadService {
 
                     if (downloadImage(httpClient, imageUrl, filePath, referer, cookie)) {
                         successCount.incrementAndGet();
+                        status.setDownloadedCount(successCount.get()); // 更新成功下载数量
                     }
 
                     // 延迟避免请求过快
@@ -78,6 +98,12 @@ public class DownloadService {
             // 记录下载信息
             recordDownload(artworkId, folderName, successCount.get());
 
+            // 更新下载状态为完成
+            status.setCompleted(true);
+            status.setSuccessCount(successCount.get());
+            status.setFailedCount(imageUrls.size() - successCount.get());
+            status.setCurrentImageIndex(-1); // 完成后重置索引
+
             System.out.println("下载完成: 作品 " + artworkId +
                     ", 成功下载 " + successCount.get() + "/" + imageUrls.size() +
                     " 张图片到 " + downloadPath);
@@ -85,8 +111,35 @@ public class DownloadService {
         } catch (Exception e) {
             System.err.println("下载过程出错: " + e.getMessage());
             e.printStackTrace();
+            status.setCompleted(true);
+            status.setFailed(true);
+            status.setErrorMessage(e.getMessage());
+        } finally {
+            // 下载完成后，保留状态一段时间供查询，然后清理
+            new Thread(() -> {
+                try {
+                    Thread.sleep(300000); // 保留5分钟
+                    downloadStatusMap.remove(artworkId);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }).start();
         }
     }
+
+    // 获取下载状态
+    public DownloadStatus getDownloadStatus(Long artworkId) {
+        return downloadStatusMap.get(artworkId);
+    }
+
+    // 取消下载
+    public void cancelDownload(Long artworkId) {
+        DownloadStatus status = downloadStatusMap.get(artworkId);
+        if (status != null) {
+            status.setCancelled(true);
+        }
+    }
+
 
     private boolean downloadImage(CloseableHttpClient httpClient, String imageUrl, Path filePath, String referer, String cookie) {
         int maxRetries = 3;

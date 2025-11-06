@@ -42,4 +42,34 @@ public class DownloadController {
     public ResponseEntity<DownloadResponse> getStatus() {
         return ResponseEntity.ok(new DownloadResponse(true, "服务运行正常"));
     }
+
+    // 新增：获取作品下载状态
+    @GetMapping("/status/{artworkId}")
+    public ResponseEntity<DownloadStatusResponse> getDownloadStatus(@PathVariable Long artworkId) {
+        DownloadStatus status = downloadService.getDownloadStatus(artworkId);
+        if (status == null) {
+            return ResponseEntity.ok(new DownloadStatusResponse(false, "未找到该作品的下载状态", artworkId));
+        }
+
+        return ResponseEntity.ok(new DownloadStatusResponse(
+                true,
+                status.getStatusDescription(),
+                artworkId,
+                status.getTotalImages(),
+                status.getDownloadedCount(),
+                status.getCurrentImageIndex(),
+                status.isCompleted(),
+                status.isFailed(),
+                status.isCancelled(),
+                status.getProgressPercentage(),
+                status.getDownloadPath()
+        ));
+    }
+
+    // 新增：取消下载
+    @PostMapping("/cancel/{artworkId}")
+    public ResponseEntity<DownloadResponse> cancelDownload(@PathVariable Long artworkId) {
+        downloadService.cancelDownload(artworkId);
+        return ResponseEntity.ok(new DownloadResponse(true, "下载任务已取消"));
+    }
 }
