@@ -2,9 +2,15 @@ package top.sywyar.pixivdownload.download;
 
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import lombok.Getter;
+import lombok.Setter;
+
 import java.util.List;
 
+@Setter
+@Getter
 public class DownloadRequest {
+    // getters and setters
     @NotNull(message = "作品ID不能为空")
     private Long artworkId;
 
@@ -16,16 +22,4 @@ public class DownloadRequest {
     // 新增Cookie字段
     private String cookie;
 
-    // getters and setters
-    public Long getArtworkId() { return artworkId; }
-    public void setArtworkId(Long artworkId) { this.artworkId = artworkId; }
-
-    public List<String> getImageUrls() { return imageUrls; }
-    public void setImageUrls(List<String> imageUrls) { this.imageUrls = imageUrls; }
-
-    public String getReferer() { return referer; }
-    public void setReferer(String referer) { this.referer = referer; }
-
-    public String getCookie() { return cookie; }
-    public void setCookie(String cookie) { this.cookie = cookie; }
 }

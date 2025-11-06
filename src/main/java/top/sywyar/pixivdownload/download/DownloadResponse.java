@@ -1,6 +1,14 @@
 package top.sywyar.pixivdownload.download;
 
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
+
+@Setter
+@Getter
+@AllArgsConstructor
 public class DownloadResponse {
+    // getters and setters
     private boolean success;
     private String message;
     private String downloadPath;
@@ -11,24 +19,4 @@ public class DownloadResponse {
         this.success = success;
         this.message = message;
     }
-
-    public DownloadResponse(boolean success, String message, String downloadPath, int downloadedCount) {
-        this.success = success;
-        this.message = message;
-        this.downloadPath = downloadPath;
-        this.downloadedCount = downloadedCount;
-    }
-
-    // getters and setters
-    public boolean isSuccess() { return success; }
-    public void setSuccess(boolean success) { this.success = success; }
-
-    public String getMessage() { return message; }
-    public void setMessage(String message) { this.message = message; }
-
-    public String getDownloadPath() { return downloadPath; }
-    public void setDownloadPath(String downloadPath) { this.downloadPath = downloadPath; }
-
-    public int getDownloadedCount() { return downloadedCount; }
-    public void setDownloadedCount(int downloadedCount) { this.downloadedCount = downloadedCount; }
 }

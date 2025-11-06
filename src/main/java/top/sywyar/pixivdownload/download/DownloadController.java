@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download;
 
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -8,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/download")
 @CrossOrigin(origins = "*") // 允许跨域请求
+@Slf4j
 public class DownloadController {
 
     @Autowired
@@ -51,6 +53,7 @@ public class DownloadController {
             return ResponseEntity.ok(new DownloadStatusResponse(false, "未找到该作品的下载状态", artworkId));
         }
 
+        log.info("artworkId: {},totalImages: {},downloadedCount: {}", artworkId, status.getTotalImages(), status.getDownloadedCount());
         return ResponseEntity.ok(new DownloadStatusResponse(
                 true,
                 status.getStatusDescription(),

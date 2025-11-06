@@ -1,8 +1,14 @@
 package top.sywyar.pixivdownload.download;
 
+import lombok.Getter;
+import lombok.Setter;
+
 import java.time.LocalDateTime;
 
+@Setter
+@Getter
 public class DownloadStatus {
+    // getters and setters
     private Long artworkId;
     private int totalImages;
     private int downloadedCount;
@@ -28,49 +34,6 @@ public class DownloadStatus {
         this.failed = false;
         this.cancelled = false;
     }
-
-    // getters and setters
-    public Long getArtworkId() { return artworkId; }
-    public void setArtworkId(Long artworkId) { this.artworkId = artworkId; }
-
-    public int getTotalImages() { return totalImages; }
-    public void setTotalImages(int totalImages) { this.totalImages = totalImages; }
-
-    public int getDownloadedCount() { return downloadedCount; }
-    public void setDownloadedCount(int downloadedCount) { this.downloadedCount = downloadedCount; }
-
-    public int getCurrentImageIndex() { return currentImageIndex; }
-    public void setCurrentImageIndex(int currentImageIndex) { this.currentImageIndex = currentImageIndex; }
-
-    public boolean isCompleted() { return completed; }
-    public void setCompleted(boolean completed) { this.completed = completed; }
-
-    public boolean isFailed() { return failed; }
-    public void setFailed(boolean failed) { this.failed = failed; }
-
-    public boolean isCancelled() { return cancelled; }
-    public void setCancelled(boolean cancelled) { this.cancelled = cancelled; }
-
-    public String getErrorMessage() { return errorMessage; }
-    public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
-
-    public String getFolderName() { return folderName; }
-    public void setFolderName(String folderName) { this.folderName = folderName; }
-
-    public String getDownloadPath() { return downloadPath; }
-    public void setDownloadPath(String downloadPath) { this.downloadPath = downloadPath; }
-
-    public int getSuccessCount() { return successCount; }
-    public void setSuccessCount(int successCount) { this.successCount = successCount; }
-
-    public int getFailedCount() { return failedCount; }
-    public void setFailedCount(int failedCount) { this.failedCount = failedCount; }
-
-    public LocalDateTime getStartTime() { return startTime; }
-    public void setStartTime(LocalDateTime startTime) { this.startTime = startTime; }
-
-    public LocalDateTime getEndTime() { return endTime; }
-    public void setEndTime(LocalDateTime endTime) { this.endTime = endTime; }
 
     // 计算进度百分比
     public double getProgressPercentage() {

@@ -1,0 +1,18 @@
+<configuration scan="true" scanPeriod="30 seconds">
+    <conversionRule conversionWord="mdcColor"
+                    class="top.sywyar.pixivdownload.logback.MdcColorConverter"/>
+
+    <property name="console_pattern"
+              value="%d{HH:mm:ss.SSS} %mdcColor(%-5level) %cyan([%thread]) %blue(%logger{36}) - %mdcColor(%msg) %n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${console_pattern}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
