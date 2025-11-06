@@ -87,7 +87,7 @@ public class DownloadService {
 
                 try {
                     String extension = getFileExtension(imageUrl);
-                    String filename = artworkId + "_" + i + "." + extension;
+                    String filename = artworkId + "_p" + i + "." + extension;
                     Path filePath = downloadPath.resolve(filename);
 
                     if (downloadImage(httpClient, imageUrl, filePath, referer, cookie)) {

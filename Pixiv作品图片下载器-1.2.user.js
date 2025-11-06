@@ -159,7 +159,7 @@
                 const imageUrl = imageUrls[i];
                 const extension = imageUrl.split('.').pop();
                 // 修改这里：移除文件夹路径，直接使用文件名
-                const filename = `${artworkId}_${i}.${extension}`;
+                const filename = `${artworkId}_p${i}.${extension}`;
 
                 try {
                     await new Promise((resolve, reject) => {
@@ -284,7 +284,7 @@
         const statusDiv = document.createElement('div');
         statusDiv.innerHTML = isDownloaded ?
             '✅ 已下载过此作品' :
-        '⬇️ 可下载此作品';
+            '⬇️ 可下载此作品';
         statusDiv.style.cssText = `
             font-weight: bold;
             margin-bottom: 8px;
