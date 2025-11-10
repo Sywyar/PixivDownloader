@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download;
+package top.sywyar.pixivdownload.download.controller;
 
 import com.sywyar.superjsonobject.SuperJsonObject;
 import jakarta.validation.Valid;
@@ -6,6 +6,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.download.request.DownloadRequest;
+import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.DownloadStatus;
+import top.sywyar.pixivdownload.download.response.DownloadResponse;
+import top.sywyar.pixivdownload.download.response.DownloadStatusResponse;
+import top.sywyar.pixivdownload.download.response.DownloadedResponse;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/download")
@@ -89,6 +97,20 @@ public class DownloadController {
                 .setMoveFolder(moved ? artwork.getAsSuperJsonObject("moved").getAsString("moveFolder") : null)
                 .setMoveTime(moved ? artwork.getAsSuperJsonObject("moved").getAsLong("moveTime") : null)
                 .build());
+    }
+
+    @PostMapping("/downloaded/move/{artworkId}")
+    public ResponseEntity<String> moveArtWork(
+            @PathVariable Long artworkId,
+            @RequestBody Map<String, Object> requestBody) {
+
+        String movePath = (String) requestBody.get("movePath");
+        Long moveTime = Long.valueOf(requestBody.get("moveTime").toString());
+
+        downloadService.moveArtWork(artworkId, movePath, moveTime);
+
+
+        return ResponseEntity.ok("已尝试记录移动操作");
     }
 
     // 新增：取消下载

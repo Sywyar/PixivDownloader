@@ -13,6 +13,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import top.sywyar.pixivdownload.download.config.DownloadConfig;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -49,8 +50,9 @@ public class DownloadService {
 
         try {
             // 获取下一个文件夹索引
-            int folderIndex = getNextFolderIndex();
-            String folderName = String.valueOf(folderIndex == Integer.MAX_VALUE ? "temp" : folderIndex);
+            /*int folderIndex = getNextFolderIndex();
+            String folderName = String.valueOf(folderIndex == Integer.MAX_VALUE ? "temp" : folderIndex);*/
+            String folderName = String.valueOf(artworkId);
             status.setFolderName(folderName);
 
             // 创建文件夹结构
@@ -176,8 +178,10 @@ public class DownloadService {
     private void initDownloadHistory() throws IOException {
         if (download_history == null) {
             Path recordFile = Paths.get(downloadConfig.getRootFolder(), "download_history.json");
-            Files.createFile(recordFile);
-            SuperJsonObject.Writer((new SuperJsonObject()).toString(), recordFile.toString());
+            if (!Files.exists(recordFile)) {
+                Files.createFile(recordFile);
+                SuperJsonObject.Writer((new SuperJsonObject()).toString(), recordFile.toString());
+            }
             download_history = new SuperJsonObject(recordFile.toFile());
         }
     }
@@ -260,13 +264,13 @@ public class DownloadService {
         return Integer.MAX_VALUE;
     }
 
-    private synchronized void recordDownload(Long artworkId, String title, String folderPath, int count) {
+    @Async("downloadHistoryFileTaskExecutor")
+    protected void recordDownload(Long artworkId, String title, String folderPath, int count) {
         try {
             initDownloadHistory();
             SuperJsonObject downloaded = download_history.getOrDefault("downloaded", new SuperJsonObject());
 
             SuperJsonObject artwork = new SuperJsonObject();
-            //artwork.addProperty("artworkId", artworkId);
             artwork.addProperty("title", title);
             artwork.addProperty("folder", Path.of(folderPath).toAbsolutePath().toString());
             artwork.addProperty("count", count);
@@ -278,6 +282,31 @@ public class DownloadService {
             download_history.save();
         } catch (Exception e) {
             log.error("记录下载历史失败: {}", e.getMessage(), e);
+        }
+
+    }
+
+    @Async("downloadHistoryFileTaskExecutor")
+    public void moveArtWork(Long artworkId, String movePath, Long moveTime) {
+        try {
+            initDownloadHistory();
+            SuperJsonObject downloaded = download_history.getOrDefault("downloaded", new SuperJsonObject());
+            if (!downloaded.has(String.valueOf(artworkId))) {
+                return;
+            }
+
+            SuperJsonObject artwork = downloaded.getAsSuperJsonObject(String.valueOf(artworkId));
+            artwork.addProperty("moved", true);
+            artwork.addProperty("moveFolder", movePath);
+            artwork.addProperty("moveTime", moveTime);
+
+            downloaded.add(String.valueOf(artworkId), artwork);
+            download_history.add("downloaded", downloaded);
+
+            download_history.save();
+
+        } catch (Exception e) {
+            log.error("移动记录失败: {}", e.getMessage(), e);
         }
     }
 }

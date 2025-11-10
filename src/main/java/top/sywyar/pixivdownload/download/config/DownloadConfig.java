@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download;
+package top.sywyar.pixivdownload.download.config;
 
 import lombok.Getter;
 import lombok.Setter;

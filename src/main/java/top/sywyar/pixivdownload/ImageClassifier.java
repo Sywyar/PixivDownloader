@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.*;
+import org.springframework.web.client.RestTemplate;
 
 import javax.swing.*;
 import java.awt.*;
@@ -8,8 +10,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.util.Arrays;
-import java.util.Comparator;
+import java.util.*;
 import java.util.List;
 
 @Slf4j
@@ -460,6 +461,12 @@ public class ImageClassifier extends JFrame {
                 File targetFile = new File(targetFolder, currentImage.getName());
 
                 Files.move(currentImage.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+                try {
+                    sendMoveArtWorkInfo(Long.valueOf(currentImage.toPath().getParent().getFileName().toString()), targetFolder.toPath().toString());
+                } catch (Exception e) {
+                    log.error("记录失败", e);
+                }
             } else {
                 // 多张图片，创建数字递增文件夹
                 int nextFolderNumber = findNextFolderNumber(targetFolder);
@@ -473,6 +480,12 @@ public class ImageClassifier extends JFrame {
                 for (File image : currentImages) {
                     File targetFile = new File(numberedFolder, image.getName());
                     Files.move(image.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                }
+
+                try {
+                    sendMoveArtWorkInfo(Long.valueOf(currentImages.get(0).toPath().getParent().getFileName().toString()), targetFolder.toPath().toString());
+                } catch (Exception e) {
+                    log.error("记录失败", e);
                 }
 
             }
@@ -521,6 +534,30 @@ public class ImageClassifier extends JFrame {
                 thumbnailLabels[i].setText("所有文件夹已处理完毕");
             }
             statusLabel.setText("状态: 所有文件夹已处理完毕");
+        }
+    }
+
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    private void sendMoveArtWorkInfo(Long artWork, String movePath) {
+        String url = "http://localhost:6999/api/download/downloaded/move/" + artWork;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON); // 保持JSON类型
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("movePath", movePath);
+        body.put("moveTime", System.currentTimeMillis() / 1000);
+
+        HttpEntity<Map<String, Object>> requestEntity =
+                new HttpEntity<>(body, headers);
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.POST, requestEntity, String.class);
+            log.info("Response: {}", response.getBody());
+        } catch (Exception e) {
+            log.error("发送请求失败: {}", e.getMessage());
         }
     }
 

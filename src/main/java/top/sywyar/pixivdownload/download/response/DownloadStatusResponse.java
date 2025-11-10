@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download;
+package top.sywyar.pixivdownload.download.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
