@@ -12,11 +12,13 @@ import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.DownloadStatusResponse;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
+import top.sywyar.pixivdownload.download.response.ThumbnailResponse;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/download")
+@RequestMapping("/api")
 @CrossOrigin(origins = "*") // 允许跨域请求
 @Slf4j
 public class DownloadController {
@@ -24,7 +26,7 @@ public class DownloadController {
     @Autowired
     private DownloadService downloadService;
 
-    @PostMapping("/pixiv")
+    @PostMapping("download/pixiv")
     public ResponseEntity<DownloadResponse> downloadPixivImages(@Valid @RequestBody DownloadRequest request) {
         try {
             // 异步处理下载任务
@@ -50,13 +52,13 @@ public class DownloadController {
         }
     }
 
-    @GetMapping("/status")
+    @GetMapping("download/status")
     public ResponseEntity<DownloadResponse> getStatus() {
         return ResponseEntity.ok(new DownloadResponse(true, "服务运行正常"));
     }
 
-    // 新增：获取作品下载状态
-    @GetMapping("/status/{artworkId}")
+    //获取作品下载状态
+    @GetMapping("download/status/{artworkId}")
     public ResponseEntity<DownloadStatusResponse> getDownloadStatus(@PathVariable Long artworkId) {
         DownloadStatus status = downloadService.getDownloadStatus(artworkId);
         if (status == null) {
@@ -77,6 +79,18 @@ public class DownloadController {
                 status.getProgressPercentage(),
                 status.getDownloadPath()
         ));
+    }
+
+    @GetMapping("download/status/active")
+    public ResponseEntity<List<Long>> getActiveDownload() {
+        return ResponseEntity.ok(downloadService.getDownloadStatus());
+    }
+
+    //取消下载
+    @PostMapping("/cancel/{artworkId}")
+    public ResponseEntity<DownloadResponse> cancelDownload(@PathVariable Long artworkId) {
+        downloadService.cancelDownload(artworkId);
+        return ResponseEntity.ok(new DownloadResponse(true, "下载任务已取消"));
     }
 
     @GetMapping("/downloaded/{artworkId}")
@@ -109,14 +123,23 @@ public class DownloadController {
 
         downloadService.moveArtWork(artworkId, movePath, moveTime);
 
-
         return ResponseEntity.ok("已尝试记录移动操作");
     }
 
-    // 新增：取消下载
-    @PostMapping("/cancel/{artworkId}")
-    public ResponseEntity<DownloadResponse> cancelDownload(@PathVariable Long artworkId) {
-        downloadService.cancelDownload(artworkId);
-        return ResponseEntity.ok(new DownloadResponse(true, "下载任务已取消"));
+    @GetMapping("/downloaded/history")
+    public ResponseEntity<List<String>> getHistory() {
+        return ResponseEntity.ok(downloadService.getDownloadedRecord());
+    }
+
+    @GetMapping("/downloaded/thumbnail/{artworkId}/{page}")
+    public ResponseEntity<ThumbnailResponse> getThumbnail(
+            @PathVariable Long artworkId,
+            @PathVariable int page) {
+        ThumbnailResponse image;
+        if ((image = downloadService.getThumbnail(artworkId, page)) != null) {
+            return ResponseEntity.ok(image);
+        }else {
+            return ResponseEntity.status(404).build();
+        }
     }
 }

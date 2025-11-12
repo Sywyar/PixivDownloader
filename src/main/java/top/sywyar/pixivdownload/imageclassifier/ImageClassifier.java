@@ -1026,11 +1026,13 @@ public class ImageClassifier extends JFrame {
                 File currentImage = currentImages.get(0);
                 File targetFile = new File(targetFolder, currentImage.getName());
 
+                Long artworkId = Long.valueOf(currentImage.toPath().getParent().getFileName().toString());
+
                 Files.move(currentImage.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 
                 if (serverRunning) {
                     try {
-                        sendMoveArtWorkInfo(Long.valueOf(currentImage.toPath().getParent().getFileName().toString()), targetFolder.toPath().toString());
+                        sendMoveArtWorkInfo(artworkId, targetFolder.toPath().toString());
                     } catch (Exception e) {
                         log.error("记录失败", e);
                     }
@@ -1044,6 +1046,8 @@ public class ImageClassifier extends JFrame {
                     numberedFolder.mkdirs();
                 }
 
+                Long artworkId = Long.valueOf(currentImages.get(0).toPath().getParent().getFileName().toString());
+
                 // 移动所有图片到数字文件夹
                 for (File image : currentImages) {
                     File targetFile = new File(numberedFolder, image.getName());
@@ -1052,7 +1056,7 @@ public class ImageClassifier extends JFrame {
 
                 if (serverRunning) {
                     try {
-                        sendMoveArtWorkInfo(Long.valueOf(currentImages.get(0).toPath().getParent().getFileName().toString()), targetFolder.toPath().toString());
+                        sendMoveArtWorkInfo(artworkId, numberedFolder.toPath().toString());
                     } catch (Exception e) {
                         log.error("记录失败", e);
                     }
@@ -1111,7 +1115,7 @@ public class ImageClassifier extends JFrame {
 
     private void sendMoveArtWorkInfo(Long artWork, String movePath) {
         String serverUrl = config.getProperty("server.url", "http://localhost:6999");
-        String url = serverUrl + "/api/download/downloaded/move/" + artWork;
+        String url = serverUrl + "/api/downloaded/move/" + artWork;
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON); // 保持JSON类型

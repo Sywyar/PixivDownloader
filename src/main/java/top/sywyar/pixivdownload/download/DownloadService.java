@@ -14,13 +14,16 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.download.response.ThumbnailResponse;
+import top.sywyar.pixivdownload.imageclassifier.ThumbnailManager;
 
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -78,6 +81,8 @@ public class DownloadService {
                     .setProxy(proxy)
                     .build();
 
+            HashSet<String> fileExtensions = new HashSet<>();
+
             // 下载所有图片
             for (int i = 0; i < imageUrls.size(); i++) {
                 if (status.isCancelled()) {
@@ -86,7 +91,7 @@ public class DownloadService {
 
                 String imageUrl = imageUrls.get(i);
 
-                // 重要修复：在开始下载每张图片前更新当前图片索引
+                //在开始下载每张图片前更新当前图片索引
                 status.setCurrentImageIndex(i);
                 status.setDownloadedCount(successCount.get()); // 更新已下载数量
 
@@ -95,6 +100,7 @@ public class DownloadService {
 
                 try {
                     String extension = getFileExtension(imageUrl);
+                    fileExtensions.add(extension);
                     String filename = artworkId + "_p" + i + "." + extension;
                     Path filePath = downloadPath.resolve(filename);
                     if (downloadImage(httpClient, imageUrl, filePath, referer, cookie)) {
@@ -118,7 +124,7 @@ public class DownloadService {
             httpClient.close();
 
             // 记录下载信息
-            recordDownload(artworkId, title, status.getDownloadPath(), successCount.get());
+            recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions, successCount.get());
 
             // 更新下载状态为完成
             status.setCompleted(true);
@@ -146,43 +152,6 @@ public class DownloadService {
                     Thread.currentThread().interrupt();
                 }
             }).start();
-        }
-    }
-
-    // 获取下载状态
-    public DownloadStatus getDownloadStatus(Long artworkId) {
-        return downloadStatusMap.get(artworkId);
-    }
-
-    // 取消下载
-    public void cancelDownload(Long artworkId) {
-        DownloadStatus status = downloadStatusMap.get(artworkId);
-        if (status != null) {
-            status.setCancelled(true);
-        }
-    }
-
-    public SuperJsonObject getDownloadedRecord(Long artworkId) {
-        try {
-            initDownloadHistory();
-
-            SuperJsonObject downloaded = download_history.getOrDefault("downloaded", new SuperJsonObject());
-            return downloaded.getOrDefault(String.valueOf(artworkId), null);
-        } catch (IOException e) {
-            log.error("作品：{}，下载历史获取失败", artworkId, e);
-            return null;
-        }
-
-    }
-
-    private void initDownloadHistory() throws IOException {
-        if (download_history == null) {
-            Path recordFile = Paths.get(downloadConfig.getRootFolder(), "download_history.json");
-            if (!Files.exists(recordFile)) {
-                Files.createFile(recordFile);
-                SuperJsonObject.Writer((new SuperJsonObject()).toString(), recordFile.toString());
-            }
-            download_history = new SuperJsonObject(recordFile.toFile());
         }
     }
 
@@ -247,6 +216,26 @@ public class DownloadService {
         return false;
     }
 
+    // 获取下载状态
+    public DownloadStatus getDownloadStatus(Long artworkId) {
+        return downloadStatusMap.get(artworkId);
+    }
+
+    public List<Long> getDownloadStatus() {
+        List<Long> downloadStatus = new LinkedList<>();
+        downloadStatusMap.forEachKey(10, downloadStatus::add);
+        return downloadStatus;
+    }
+
+    // 取消下载
+    public void cancelDownload(Long artworkId) {
+        DownloadStatus status = downloadStatusMap.get(artworkId);
+        if (status != null) {
+            status.setCancelled(true);
+        }
+    }
+
+
     private String getFileExtension(String url) {
         if (!StringUtils.hasText(url)) return "jpg";
         String[] parts = url.split("\\.");
@@ -265,15 +254,29 @@ public class DownloadService {
     }
 
     @Async("downloadHistoryFileTaskExecutor")
-    protected void recordDownload(Long artworkId, String title, String folderPath, int count) {
+    protected void initDownloadHistory() throws IOException {
+        if (download_history == null) {
+            Path recordFile = Paths.get(downloadConfig.getRootFolder(), "download_history.json");
+            if (!Files.exists(recordFile)) {
+                Files.createFile(recordFile);
+                SuperJsonObject.Writer((new SuperJsonObject()).toString(), recordFile.toString());
+            }
+            download_history = new SuperJsonObject(recordFile.toFile());
+        }
+    }
+
+    @Async("downloadHistoryFileTaskExecutor")
+    protected void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions, int count) {
         try {
             initDownloadHistory();
+
             SuperJsonObject downloaded = download_history.getOrDefault("downloaded", new SuperJsonObject());
 
             SuperJsonObject artwork = new SuperJsonObject();
             artwork.addProperty("title", title);
             artwork.addProperty("folder", Path.of(folderPath).toAbsolutePath().toString());
             artwork.addProperty("count", count);
+            artwork.addProperty("extensions", String.join(",", fileExtensions));
             artwork.addProperty("time", System.currentTimeMillis() / 1000);
 
             downloaded.add(String.valueOf(artworkId), artwork);
@@ -309,4 +312,121 @@ public class DownloadService {
             log.error("移动记录失败: {}", e.getMessage(), e);
         }
     }
+
+
+    public List<String> getDownloadedRecord() {
+        try {
+            initDownloadHistory();
+            List<String> downloaded = new LinkedList<>();
+
+            SuperJsonObject downloadedRecord = download_history.deepCopy().getOrDefault("downloaded", new SuperJsonObject());
+
+            downloadedRecord.asMap().forEach((k, v) -> downloaded.add(String.valueOf(k)));
+
+            return downloaded;
+        } catch (IOException e) {
+            log.error("获取历史下载错误：: {}", e.getMessage(), e);
+            return new LinkedList<>();
+        }
+    }
+
+    public SuperJsonObject getDownloadedRecord(Long artworkId) {
+        try {
+            initDownloadHistory();
+
+            SuperJsonObject downloaded = download_history.deepCopy().getOrDefault("downloaded", new SuperJsonObject());
+            return downloaded.getOrDefault(String.valueOf(artworkId), null);
+        } catch (IOException e) {
+            log.error("作品：{}，下载历史获取失败", artworkId, e);
+            return null;
+        }
+    }
+
+    public ThumbnailResponse getThumbnail(Long artworkId, int page) {
+        try {
+            initDownloadHistory();
+
+            SuperJsonObject downloaded = download_history.deepCopy().getOrDefault("downloaded", new SuperJsonObject());
+            if (!downloaded.has(String.valueOf(artworkId))) {
+                throw new RuntimeException("找不到作品");
+            }
+
+            SuperJsonObject artwork = downloaded.getAsSuperJsonObject(String.valueOf(artworkId));
+
+            String dirPath;
+            if (artwork.has("moved") && artwork.getAsBoolean("moved")) {
+                dirPath = artwork.getAsString("moveFolder");
+            } else {
+                dirPath = artwork.getAsString("folder");
+            }
+
+            File imageFile;
+            String extension = artwork.getAsString("extensions");
+            if (artwork.getAsInt("count") == 1) {
+                if (page != 0) {
+                    return new ThumbnailResponse(false, null, null, 0, 0, 0, artworkId + "作品没有第" + page + "页");
+                }
+
+                imageFile = Paths.get(dirPath, artworkId + "_p0." + extension).toFile();
+            } else {
+                String fileName = artworkId + "_p" + page;
+
+                String[] extensions = extension.split(",");
+                if (extensions.length > 1) {
+                    imageFile = findFileByName(dirPath, fileName);
+                    if (imageFile == null) {
+                        return new ThumbnailResponse(false, null, null, 0, 0, 0, artworkId + "作品找不到" + fileName);
+                    }
+                    extension = getFileExtension(imageFile.getName());
+                } else {
+                    imageFile = Paths.get(dirPath, fileName + "." + extension).toFile();
+                }
+            }
+            BufferedImage image = ThumbnailManager.getThumbnail(imageFile, -1, -1);
+
+            ByteArrayOutputStream bass = new ByteArrayOutputStream();
+            ImageIO.write(image, extension, bass);
+
+            String base64Image = Base64.getEncoder().encodeToString(bass.toByteArray());
+
+            return new ThumbnailResponse(true, base64Image, extension, base64Image.length(), image.getWidth(), image.getHeight(), "成功获取图片缩略图");
+        } catch (IOException e) {
+            log.error("获取缩略图失败，作品：{}，页码：{}，原因：{}", artworkId, page, e.getMessage(), e);
+            return new ThumbnailResponse(false, null, null, 0, 0, 0, "获取缩略图失败，原因:" + e.getMessage());
+        }
+    }
+
+    public static File findFileByName(String directoryPath, String fileName) {
+        File directory = new File(directoryPath);
+
+        if (!directory.exists() || !directory.isDirectory()) {
+            return null;
+        }
+
+        // 列出目录中的所有文件
+        File[] files = directory.listFiles();
+
+        if (files != null) {
+            for (File file : files) {
+                if (file.isFile()) {
+                    // 获取不带扩展名的文件名
+                    String baseName = getBaseName(file.getName());
+                    // 如果匹配，返回该文件
+                    if (baseName.equals(fileName)) {
+                        return file;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String getBaseName(String fileName) {
+        int dotIndex = fileName.lastIndexOf('.');
+        if (dotIndex > 0) {
+            return fileName.substring(0, dotIndex);
+        }
+        return fileName;
+    }
+
 }

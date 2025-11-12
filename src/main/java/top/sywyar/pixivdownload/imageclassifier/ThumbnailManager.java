@@ -19,7 +19,7 @@ import java.util.concurrent.Executors;
  * How to integrate (summary):
  * - Create a single ThumbnailManager instance in your main window/class.
  * - Replace direct ImageIcon creation in updateThumbnails() with calls to
- *   thumbnailManager.loadThumbnail(imageFile, thumbnailLabels[i], thumbW, thumbH);
+ * thumbnailManager.loadThumbnail(imageFile, thumbnailLabels[i], thumbW, thumbH);
  * - Optionally call thumbnailManager.prefetch(nextGroupFiles, thumbW, thumbH) to warm the cache.
  * - Call thumbnailManager.shutdown() when your application/window is closing.
  */
@@ -46,7 +46,7 @@ public class ThumbnailManager {
         this.executor = Executors.newFixedThreadPool(threads);
     }
 
-    private BufferedImage highQualityScale(BufferedImage src, int targetW, int targetH) {
+    private static BufferedImage highQualityScale(BufferedImage src, int targetW, int targetH) {
         int w = src.getWidth();
         int h = src.getHeight();
 
@@ -75,7 +75,34 @@ public class ThumbnailManager {
             img = tmp;
         } while (w != targetW || h != targetH);
 
+        try {
+            ImageIO.write(img, "jpg", new File("E:\\SBei\\Kfz\\Project\\Java\\PixivDownload/137140083_p0.jpg "));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
         return img;
+    }
+
+    public static BufferedImage getThumbnail(File image, int thumbW, int thumbH) throws IOException {
+        BufferedImage src = ImageIO.read(image);
+
+        if (thumbW == -1) {
+            thumbW = src.getWidth() / 3;
+        }
+
+        if (thumbH == -1) {
+            thumbH = src.getHeight() / 3;
+        }
+
+        if (src == null) throw new IOException("无法解码图片: " + image);
+
+        int[] sized = fitTo(src.getWidth(), src.getHeight(), thumbW, thumbH);
+        int w = sized[0];
+        int h = sized[1];
+
+        // High-quality scaling using Graphics2D (faster and better control than getScaledInstance)
+        return highQualityScale(src, w, h);
     }
 
     /**
@@ -110,15 +137,7 @@ public class ThumbnailManager {
         // Submit a background task to read+scale the image and update the label
         executor.submit(() -> {
             try {
-                BufferedImage src = ImageIO.read(imageFile);
-                if (src == null) throw new IOException("无法解码图片: " + imageFile);
-
-                int[] sized = fitTo(src.getWidth(), src.getHeight(), thumbW, thumbH);
-                int w = sized[0];
-                int h = sized[1];
-
-                // High-quality scaling using Graphics2D (faster and better control than getScaledInstance)
-                BufferedImage dst = highQualityScale(src, w, h);
+                BufferedImage dst = getThumbnail(imageFile, thumbW, thumbH);
                 ImageIcon icon = new ImageIcon(dst);
                 cache.put(key, icon);
 

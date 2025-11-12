@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pixiv 缩略图查看器</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    body {
+      background-color: #f5f5f5;
+      color: #333;
+      line-height: 1.6;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background-color: white;
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+      padding: 30px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #2c3e50;
+      border-bottom: 2px solid #3498db;
+      padding-bottom: 15px;
+    }
+
+    .input-section {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 30px;
+      flex-wrap: wrap;
+    }
+
+    .input-group {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #2c3e50;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 16px;
+      transition: border 0.3s;
+    }
+
+    input:focus {
+      border-color: #3498db;
+      outline: none;
+    }
+
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      padding: 12px 25px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      transition: background-color 0.3s;
+      align-self: flex-end;
+      min-width: 120px;
+    }
+
+    button:hover {
+      background-color: #2980b9;
+    }
+
+    .loading {
+      display: none;
+      text-align: center;
+      margin: 20px 0;
+    }
+
+    .spinner {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #3498db;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 15px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .results-section {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 30px;
+    }
+
+    .image-container {
+      flex: 1;
+      min-width: 300px;
+      text-align: center;
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .image-container h2 {
+      margin-bottom: 15px;
+      color: #2c3e50;
+    }
+
+    .thumbnail {
+      max-width: 100%;
+      max-height: 500px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      margin-bottom: 15px;
+    }
+
+    .response-container {
+      flex: 1;
+      min-width: 300px;
+      background-color: #f8f9fa;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .response-container h2 {
+      margin-bottom: 15px;
+      color: #2c3e50;
+    }
+
+    .response-data {
+      background-color: #2c3e50;
+      color: #ecf0f1;
+      padding: 15px;
+      border-radius: 5px;
+      overflow-x: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+
+    .error-message {
+      color: #e74c3c;
+      background-color: #fadbd8;
+      padding: 15px;
+      border-radius: 5px;
+      margin-top: 20px;
+      display: none;
+    }
+
+    .info-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .info-item {
+      background-color: #e8f4fc;
+      padding: 12px;
+      border-radius: 5px;
+      border-left: 4px solid #3498db;
+    }
+
+    .info-label {
+      font-weight: 600;
+      color: #2c3e50;
+      margin-bottom: 5px;
+    }
+
+    .info-value {
+      color: #34495e;
+    }
+
+    @media (max-width: 768px) {
+      .results-section {
+        flex-direction: column;
+      }
+
+      .input-section {
+        flex-direction: column;
+      }
+
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Pixiv 缩略图查看器</h1>
+
+  <div class="input-section">
+    <div class="input-group">
+      <label for="artworkId">作品 ID:</label>
+      <input type="number" id="artworkId" placeholder="输入作品ID，例如：12345678">
+    </div>
+    <div class="input-group">
+      <label for="page">页码:</label>
+      <input type="number" id="page" placeholder="输入页码，例如：0" value="0">
+    </div>
+    <button id="fetchBtn">获取缩略图</button>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>正在请求数据...</p>
+  </div>
+
+  <div class="error-message" id="errorMessage"></div>
+
+  <div class="results-section" id="resultsSection" style="display: none;">
+    <div class="image-container">
+      <h2>缩略图预览</h2>
+      <img id="thumbnailImage" class="thumbnail" alt="缩略图">
+      <div class="info-grid" id="imageInfo"></div>
+    </div>
+
+    <div class="response-container">
+      <h2>API 响应数据</h2>
+      <pre id="responseData" class="response-data"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const fetchBtn = document.getElementById('fetchBtn');
+    const artworkIdInput = document.getElementById('artworkId');
+    const pageInput = document.getElementById('page');
+    const loading = document.getElementById('loading');
+    const errorMessage = document.getElementById('errorMessage');
+    const resultsSection = document.getElementById('resultsSection');
+    const thumbnailImage = document.getElementById('thumbnailImage');
+    const responseData = document.getElementById('responseData');
+    const imageInfo = document.getElementById('imageInfo');
+
+    fetchBtn.addEventListener('click', fetchThumbnail);
+
+    // 按回车键触发获取
+    artworkIdInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') fetchThumbnail();
+    });
+
+    pageInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') fetchThumbnail();
+    });
+
+    function fetchThumbnail() {
+      const artworkId = artworkIdInput.value.trim();
+      const page = pageInput.value.trim();
+
+      if (!artworkId) {
+        showError('请输入作品ID');
+        return;
+      }
+
+      if (!page) {
+        showError('请输入页码');
+        return;
+      }
+
+      // 显示加载中
+      loading.style.display = 'block';
+      errorMessage.style.display = 'none';
+      resultsSection.style.display = 'none';
+
+      // 构建API URL
+      const apiUrl = `/api/downloaded/thumbnail/${artworkId}/${page}`;
+
+      // 发送请求
+      fetch(apiUrl)
+              .then(response => {
+                if (!response.ok) {
+                  if (response.status === 404) {
+                    throw new Error('未找到指定的缩略图');
+                  } else {
+                    throw new Error(`HTTP错误: ${response.status}`);
+                  }
+                }
+                return response.json();
+              })
+              .then(data => {
+                // 处理响应数据
+                displayResults(data);
+              })
+              .catch(error => {
+                showError(error.message);
+              })
+              .finally(() => {
+                loading.style.display = 'none';
+              });
+    }
+
+    function displayResults(data) {
+      // 显示响应数据
+      responseData.textContent = JSON.stringify(data, null, 2);
+
+      // 显示图片
+      if (data.success && data.image) {
+        // 假设image字段是Base64编码的图片数据
+        // 根据扩展名设置正确的MIME类型
+        const mimeType = getMimeType(data.extension);
+        thumbnailImage.src = `data:${mimeType};base64,${data.image}`;
+        thumbnailImage.alt = `作品 ${artworkIdInput.value} 第 ${pageInput.value} 页`;
+
+        // 显示图片信息
+        imageInfo.innerHTML = `
+                        <div class="info-item">
+                            <div class="info-label">扩展名</div>
+                            <div class="info-value">${data.extension || '未知'}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">文件大小</div>
+                            <div class="info-value">${formatFileSize(data.fileSize)}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">尺寸</div>
+                            <div class="info-value">${data.width} × ${data.height}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">请求状态</div>
+                            <div class="info-value">${data.success ? '成功' : '失败'}</div>
+                        </div>
+                        <div class="info-item">
+                            <div class="info-label">消息</div>
+                            <div class="info-value">${data.message || '无'}</div>
+                        </div>
+                    `;
+      } else {
+        thumbnailImage.src = '';
+        thumbnailImage.alt = '无可用图片';
+        imageInfo.innerHTML = '<p>没有可用的图片数据</p>';
+      }
+
+      // 显示结果区域
+      resultsSection.style.display = 'flex';
+    }
+
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.style.display = 'block';
+      resultsSection.style.display = 'none';
+      loading.style.display = 'none';
+    }
+
+    function getMimeType(extension) {
+      const mimeTypes = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'webp': 'image/webp',
+        'bmp': 'image/bmp'
+      };
+
+      return mimeTypes[extension?.toLowerCase()] || 'image/jpeg';
+    }
+
+    function formatFileSize(bytes) {
+      if (!bytes) return '未知';
+
+      if (bytes < 1024) {
+        return bytes + ' B';
+      } else if (bytes < 1024 * 1024) {
+        return (bytes / 1024).toFixed(2) + ' KB';
+      } else {
+        return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+      }
+    }
+  });
+</script>
+</body>
+</html>
