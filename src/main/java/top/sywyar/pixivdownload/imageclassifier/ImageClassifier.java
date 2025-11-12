@@ -438,7 +438,7 @@ public class ImageClassifier extends JFrame {
         gbc.gridx = 1;
         gbc.gridy = 1;
         JCheckBox showSkipButtonCheckBox = new JCheckBox();
-        showSkipButtonCheckBox.setSelected(Boolean.parseBoolean(config.getProperty("show.skip.button", "true")));
+        showSkipButtonCheckBox.setSelected(Boolean.parseBoolean(config.getProperty("show.skip.button", "false")));
         basicPanel.add(showSkipButtonCheckBox, gbc);
 
         // 服务器网址设置

@@ -50,39 +50,55 @@ public class ThumbnailManager {
         int w = src.getWidth();
         int h = src.getHeight();
 
+        // 根据原图是否带透明决定目标类型
+        int imageType = src.getColorModel().hasAlpha() ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
         BufferedImage img = src;
 
-        // 多步缩放，每次减半，能最大程度保持细节
-        do {
+        // 多步缩放保持质量
+        while (w != targetW || h != targetH) {
+            int nextW = w;
+            int nextH = h;
+
             if (w > targetW) {
-                w = Math.max(w / 2, targetW);
+                nextW = Math.max(w / 2, targetW);
             }
             if (h > targetH) {
-                h = Math.max(h / 2, targetH);
+                nextH = Math.max(h / 2, targetH);
             }
 
-            BufferedImage tmp = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+            // 注意这里防止宽高被错误拉伸
+            BufferedImage tmp = new BufferedImage(nextW, nextH, imageType);
             Graphics2D g2 = tmp.createGraphics();
 
-            // 使用最高质量 Bicubic
             g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
             g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-            g2.drawImage(img, 0, 0, w, h, null);
+            // 关键：用 drawImage 的四参数版本，防止拉伸时空白
+            g2.drawImage(img, 0, 0, nextW, nextH, 0, 0, w, h, null);
             g2.dispose();
 
             img = tmp;
-        } while (w != targetW || h != targetH);
-
-        try {
-            ImageIO.write(img, "jpg", new File("E:\\SBei\\Kfz\\Project\\Java\\PixivDownload/137140083_p0.jpg "));
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+            w = nextW;
+            h = nextH;
         }
 
-        return img;
+        // 转成与保存格式兼容的类型（JPG不支持透明）
+        BufferedImage finalImg;
+        if (imageType == BufferedImage.TYPE_INT_ARGB) {
+            finalImg = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = finalImg.createGraphics();
+            g.setColor(Color.WHITE); // 背景填充白色
+            g.fillRect(0, 0, targetW, targetH);
+            g.drawImage(img, 0, 0, null);
+            g.dispose();
+        } else {
+            finalImg = img;
+        }
+
+        return finalImg;
     }
+
 
     public static BufferedImage getThumbnail(File image, int thumbW, int thumbH) throws IOException {
         BufferedImage src = ImageIO.read(image);
