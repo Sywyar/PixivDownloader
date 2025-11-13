@@ -34,7 +34,7 @@
         }
 
         .dashboard-header .text-muted {
-            color: #ffffff !important; /* 将副标题改为白色 */
+            color: #ffffff !important;
         }
 
         .stat-card {
@@ -280,9 +280,9 @@
             max-width: 200px;
             overflow: visible;
             text-overflow: unset;
-            white-space: normal; /* 改为normal允许换行 */
+            white-space: normal;
             color: #ffffff;
-            word-wrap: break-word; /* 添加这个属性确保长单词也能换行 */
+            word-wrap: break-word;
         }
 
         .time-badge {
@@ -322,31 +322,26 @@
             gap: 1rem;
         }
 
-        /* 确保表格整体背景色正确 */
         .table-responsive {
             background-color: transparent;
             border-radius: 0 0 10px 10px;
             overflow: hidden;
         }
 
-        /* 表格行交替颜色效果 */
         .table-striped tbody tr:nth-of-type(odd) {
             background-color: rgba(255, 255, 255, 0.02);
         }
 
-        /* 活跃下载列表字体颜色 */
         #activeDownloadsList {
             color: #ffffff;
         }
 
-        /* 活跃下载列表中的文本 */
         #activeDownloadsList strong,
         #activeDownloadsList span,
         #activeDownloadsList .progress {
             color: #ffffff;
         }
 
-        /* 修复模态框遮罩问题 */
         .modal-backdrop {
             z-index: 1040;
         }
@@ -355,7 +350,6 @@
             z-index: 1050;
         }
 
-        /* 活跃下载样式优化 */
         .active-downloads-container {
             padding: 0.5rem;
         }
@@ -510,7 +504,6 @@
             color: #adb5bd;
         }
 
-        /* 活跃下载为空时的样式 */
         #emptyActiveState {
             padding: 2rem 1rem;
         }
@@ -520,6 +513,118 @@
             margin-bottom: 1rem;
             opacity: 0.5;
             color: var(--primary-color);
+        }
+
+        /* 优化图片预览样式 */
+        .thumbnail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 12px;
+            padding: 10px;
+            max-height: 500px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 8px;
+        }
+
+        .thumbnail-item {
+            position: relative;
+            border-radius: 6px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+            aspect-ratio: 3/4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: pointer;
+        }
+
+        .thumbnail-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(111, 66, 193, 0.3);
+            border-color: var(--primary-color);
+        }
+
+        .thumbnail-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.3s ease;
+        }
+
+        .thumbnail-item:hover .thumbnail-img {
+            transform: scale(1.05);
+        }
+
+        .thumbnail-index {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-size: 0.75rem;
+            padding: 4px;
+            text-align: center;
+            backdrop-filter: blur(5px);
+        }
+
+        .thumbnail-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #adb5bd;
+        }
+
+        .thumbnail-loading .spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 1s ease-in-out infinite;
+            margin-bottom: 8px;
+        }
+
+        .thumbnail-error {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #dc3545;
+            padding: 10px;
+        }
+
+        .thumbnail-error i {
+            font-size: 1.5rem;
+            margin-bottom: 5px;
+        }
+
+        .thumbnail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .thumbnail-count {
+            font-size: 0.9rem;
+            color: #adb5bd;
+        }
+
+        .thumbnail-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .modal-body {
+            max-height: 70vh;
+            overflow-y: auto;
         }
     </style>
 </head>
@@ -803,7 +908,6 @@
         }
     }
 
-
     // 检查是否有下载完成并刷新历史记录
     async function checkCompletedDownloads() {
         const previousCount = localStorage.getItem('previousActiveCount') || 0;
@@ -814,7 +918,6 @@
         }
         localStorage.setItem('previousActiveCount', activeDownloads.length);
     }
-
 
     // 初始化仪表板
     function initializeDashboard() {
@@ -839,12 +942,10 @@
     }
 
     // 更新仪表板
-    // 更新仪表板（常规更新）
     function updateDashboard() {
         updateLastUpdatedTime();
         loadStatistics();
     }
-
 
     // 更新最后更新时间
     function updateLastUpdatedTime() {
@@ -1238,7 +1339,7 @@
         }
     }
 
-    // 查看缩略图
+    // 查看缩略图 - 使用新的紧凑样式
     async function viewThumbnails(artworkId) {
         try {
             // 获取作品信息以确定图片数量
@@ -1250,25 +1351,31 @@
             // 创建缩略图网格
             const modalBody = document.getElementById('artworkModalBody');
             let thumbnailsHtml = `
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h6 class="mb-0">图片预览 (共 ${artwork.count} 张)</h6>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="viewArtworkDetails(${artwork.artworkId})">
-                        <i class="fas fa-arrow-left me-1"></i>返回详情
-                    </button>
+                <div class="thumbnail-header">
+                    <div>
+                        <h6 class="mb-0">图片预览</h6>
+                        <div class="thumbnail-count">共 ${artwork.count} 张图片</div>
+                    </div>
+                    <div class="thumbnail-actions">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="viewArtworkDetails(${artwork.artworkId})">
+                            <i class="fas fa-arrow-left me-1"></i>返回详情
+                        </button>
+                    </div>
                 </div>
-                <div class="row">
-                `;
+                <div class="thumbnail-grid">
+            `;
 
             // 加载所有缩略图
             for (let i = 0; i < artwork.count; i++) {
                 thumbnailsHtml += `
-                    <div class="col-3 mb-3">
-                        <div class="thumbnail-container" style="cursor: pointer;" onclick="viewFullImage(${artwork.artworkId}, ${i})">
-                            <div class="loading-spinner"></div>
+                    <div class="thumbnail-item" onclick="viewFullImage(${artwork.artworkId}, ${i})">
+                        <div class="thumbnail-loading">
+                            <div class="spinner"></div>
+                            <span>加载中</span>
                         </div>
-                        <div class="text-center small mt-1">第 ${i + 1} 张</div>
+                        <div class="thumbnail-index">${i + 1}</div>
                     </div>
-                    `;
+                `;
             }
 
             thumbnailsHtml += '</div>';
@@ -1286,25 +1393,43 @@
         }
     }
 
-    // 加载缩略图
+    // 加载缩略图 - 适配新的样式
     async function loadThumbnail(artworkId, page) {
         try {
             const response = await fetch(`/api/downloaded/thumbnail/${artworkId}/${page}`);
             if (!response.ok) throw new Error('获取缩略图失败');
 
             const imageData = await response.json();
+            const thumbnailItems = document.querySelectorAll('.thumbnail-item');
+            const thumbnailItem = thumbnailItems[page];
+
             if (imageData.success && imageData.image) {
-                const thumbnailContainer = document.querySelector(`.thumbnail-container[onclick="viewFullImage(${artworkId}, ${page})"]`);
-                if (thumbnailContainer) {
-                    thumbnailContainer.innerHTML = `<img src="data:image/${imageData.extension};base64,${imageData.image}" class="thumbnail" alt="缩略图">`;
-                }
+                thumbnailItem.innerHTML = `
+                    <img src="data:image/${imageData.extension};base64,${imageData.image}" class="thumbnail-img" alt="缩略图">
+                    <div class="thumbnail-index">${page + 1}</div>
+                `;
+            } else {
+                thumbnailItem.innerHTML = `
+                    <div class="thumbnail-error">
+                        <i class="fas fa-exclamation-circle"></i>
+                        <span>加载失败</span>
+                    </div>
+                `;
+                thumbnailItem.style.cursor = 'default';
+                thumbnailItem.onclick = null;
             }
         } catch (error) {
             console.error(`加载缩略图 ${artworkId}-${page} 时出错:`, error);
-            const thumbnailContainer = document.querySelector(`.thumbnail-container[onclick="viewFullImage(${artworkId}, ${page})"]`);
-            if (thumbnailContainer) {
-                thumbnailContainer.innerHTML = '<div class="text-center text-muted"><i class="fas fa-exclamation-circle"></i></div>';
-            }
+            const thumbnailItems = document.querySelectorAll('.thumbnail-item');
+            const thumbnailItem = thumbnailItems[page];
+            thumbnailItem.innerHTML = `
+                <div class="thumbnail-error">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <span>加载失败</span>
+                </div>
+            `;
+            thumbnailItem.style.cursor = 'default';
+            thumbnailItem.onclick = null;
         }
     }
 
