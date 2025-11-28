@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv N-Tab 批量下载器
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  解析 N-Tab 导出，批量提交作品给本地后端下载，支持并发/间隔/暂停(让当前完成)/继续/强制清除/持久化保存/SSE 实时进度。
 // @author       Rewritten by ChatGPT
 // @match        https://www.pixiv.net/
@@ -667,6 +667,7 @@
             const buttons = [
                 { id: 'parse-btn', text: '📋 解析N-Tab数据', bgColor: '#007bff', onClick: () => this.manager.parseAndSetFromText(this.elements.textarea.value) },
                 { id: 'start-btn', text: '🚀 开始批量下载', bgColor: '#28a745', onClick: () => this.handleStart() },
+                { id: 'retry-failed-btn', text: '🔁 重新下载失败的作品', bgColor: '#17a2b8', onClick: () => this.handleRetryFailed() },
                 { id: 'pause-btn', text: '⏸️ 暂停下载', bgColor: '#ffc107', onClick: () => this.handlePause(), disabled: true },
                 { id: 'clear-btn', text: '🗑️ 清除队列', bgColor: '#6c757d', onClick: () => this.handleClear() }
             ];
@@ -789,6 +790,36 @@
                 this.manager.resume();
                 this.elements.pauseBtn.innerText = '⏸️ 暂停下载';
             }
+        }
+
+        handleRetryFailed() {
+            if (!this.manager) return;
+
+            const failedItems = this.manager.queue.filter(q => q.status === 'failed');
+
+            if (failedItems.length === 0) {
+                alert('当前没有失败的作品！');
+                return;
+            }
+
+            // 只保留失败作品
+            this.manager.queue = failedItems.map(f => ({
+                ...f,
+                status: 'idle',
+                startTime: null,
+                endTime: null,
+                downloadedCount: 0,
+                totalImages: 0,
+                lastMessage: ''
+            }));
+
+            this.manager.saveToStorage();
+            this.renderQueue(this.manager.queue);
+
+            alert(`已保留 ${failedItems.length} 个失败作品，开始重新下载。`);
+
+            // 自动重新开始
+            this.handleStart();
         }
 
         async handleClear() {
