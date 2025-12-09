@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Pixiv N-Tab 批量下载器
+// @name         Pixiv N-Tab 批量下载器 (修复版)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
-// @description  解析 N-Tab 导出，批量提交作品给本地后端下载，支持并发/间隔/暂停(让当前完成)/继续/强制清除/持久化保存/SSE 实时进度。
+// @version      1.1.3
+// @description  解析 N-Tab 导出，批量提交作品给本地后端下载，支持严格的下载状态校验（修复下载失败显示完成的Bug）。
 // @author       Rewritten by ChatGPT
 // @match        https://www.pixiv.net/
 // @grant        GM_xmlhttpRequest
@@ -32,7 +32,7 @@
         DEFAULT_INTERVAL: 2,
         DEFAULT_CONCURRENT: 1,
         MAX_CONCURRENT: 5,
-        STATUS_TIMEOUT_MS: 300000,  // 等待最终状态超时 (5min)
+        STATUS_TIMEOUT_MS: 300000,
         BACKEND_CHECK_TIMEOUT: 3000,
         STORAGE_KEY: 'pixiv_ntab_batch_v1',
         SKIP_HISTORY_KEY: 'pixiv_ntab_skip_history'
@@ -53,7 +53,7 @@
         return e;
     }
 
-    /* ========== API 封装（使用 GM_xmlhttpRequest） ========== */
+    /* ========== API 封装 ========== */
     const Api = {
         checkBackend() {
             return new Promise(resolve => {
@@ -67,7 +67,6 @@
                 });
             });
         },
-
         getArtworkPages(artworkId) {
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
@@ -85,7 +84,6 @@
                 });
             });
         },
-
         sendDownloadRequest(artworkId, imageUrls, title) {
             return new Promise((resolve, reject) => {
                 const payload = { artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/' };
@@ -105,7 +103,6 @@
                 });
             });
         },
-
         getDownloadStatus(artworkId) {
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
@@ -118,20 +115,16 @@
                 });
             });
         },
-
         cancelDownload(artworkId) {
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: 'POST',
                     url: `${CONFIG.CANCEL_URL}/${artworkId}`,
-                    onload: (res) => {
-                        try { resolve(JSON.parse(res.responseText)); } catch (e) { resolve(null); }
-                    },
-                    onerror: (e) => { resolve(null); }
+                    onload: (res) => { try { resolve(JSON.parse(res.responseText)); } catch (e) { resolve(null); } },
+                    onerror: () => { resolve(null); }
                 });
             });
         },
-
         checkDownloaded(artworkId) {
             return new Promise((resolve) => {
                 GM_xmlhttpRequest({
@@ -141,13 +134,11 @@
                         try {
                             if (res.status === 200) {
                                 const data = JSON.parse(res.responseText);
-                                resolve(!!data.artworkId); // 如果返回了作品ID，说明已下载
+                                resolve(!!data.artworkId);
                             } else {
                                 resolve(false);
                             }
-                        } catch (e) {
-                            resolve(false);
-                        }
+                        } catch (e) { resolve(false); }
                     },
                     onerror: () => resolve(false),
                     ontimeout: () => resolve(false)
@@ -159,10 +150,9 @@
     /* ========== SSE 管理器 ========== */
     class SSEManager {
         constructor() {
-            this.sources = new Map(); // artworkId -> EventSource
-            this.listeners = new Map(); // artworkId -> [fn,...]
+            this.sources = new Map();
+            this.listeners = new Map();
         }
-
         open(artworkId) {
             try {
                 this.close(artworkId);
@@ -170,33 +160,22 @@
                 src.addEventListener('download-status', (e) => {
                     try {
                         const data = JSON.parse(e.data);
-                        (this.listeners.get(String(artworkId)) || []).forEach(fn => {
-                            try { fn(data); } catch (err) { console.error(err); }
-                        });
-                    } catch (err) { console.warn('SSE parse fail', err); }
+                        (this.listeners.get(String(artworkId)) || []).forEach(fn => fn(data));
+                    } catch (err) { }
                 });
-                src.onerror = (err) => {
-                    // 不自动重连，避免对后端压力。用户可重试。
-                    console.warn('SSE error for', artworkId, err);
-                };
                 this.sources.set(String(artworkId), src);
-            } catch (err) {
-                console.error('SSE open failed', err);
-            }
+            } catch (err) { console.error('SSE open failed', err); }
         }
-
         close(artworkId) {
             const key = String(artworkId);
             const s = this.sources.get(key);
             if (s) { try { s.close(); } catch (e) {} this.sources.delete(key); }
             this.listeners.delete(key);
         }
-
         closeAll() {
             for (const k of Array.from(this.sources.keys())) this.close(k);
             this.listeners.clear();
         }
-
         addListener(artworkId, fn) {
             const key = String(artworkId);
             if (!this.listeners.has(key)) this.listeners.set(key, []);
@@ -204,23 +183,17 @@
         }
     }
 
-    /* ========== 下载管理器：队列／并发／状态持久化／UI 更新 ========== */
+    /* ========== 下载管理器 ========== */
     class DownloadManager {
         constructor(ui) {
             this.ui = ui;
-            this.queue = []; // 每项 { id, title, url, status, totalImages, downloadedCount, startTime, endTime, lastMessage }
+            this.queue = [];
             this.isRunning = false;
             this.isPaused = false;
             this.sse = new SSEManager();
             this.stopRequested = false;
             this.activeWorkers = 0;
-            this.stats = {
-                completed: 0,
-                success: 0,
-                failed: 0,
-                active: 0,
-                skipped: 0
-            };
+            this.stats = { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
             this.skipHistory = GM_getValue(CONFIG.SKIP_HISTORY_KEY, false);
         }
 
@@ -231,14 +204,12 @@
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed.queue)) {
                     this.queue = parsed.queue;
-                    this.isRunning = !!parsed.isRunning;
+                    this.isRunning = false; // 启动时默认暂停，避免自动跑
                     this.isPaused = !!parsed.isPaused;
                     this.stats = parsed.stats || { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
                     this.skipHistory = parsed.skipHistory !== undefined ? parsed.skipHistory : this.skipHistory;
                 }
-            } catch (e) {
-                console.warn('loadFromStorage fail', e);
-            }
+            } catch (e) { console.warn('loadFromStorage fail', e); }
         }
 
         saveToStorage() {
@@ -252,14 +223,14 @@
                     savedAt: new Date().toISOString()
                 };
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(snapshot));
-            } catch (e) { console.warn('save fail', e); }
+            } catch (e) { }
         }
 
         deleteStorage() {
             try {
                 GM_deleteValue(CONFIG.STORAGE_KEY);
                 GM_deleteValue(CONFIG.SKIP_HISTORY_KEY);
-            } catch (e) { console.warn('delete storage fail', e); }
+            } catch (e) { }
         }
 
         setSkipHistory(skip) {
@@ -269,12 +240,11 @@
         }
 
         setQueue(items) {
-            // items: [{id, title, url}]
             this.queue = items.map(it => ({
                 id: String(it.id),
                 title: it.title || `作品 ${it.id}`,
                 url: it.url || `https://www.pixiv.net/artworks/${it.id}`,
-                status: 'idle', // idle | pending | downloading | completed | failed | paused | skipped
+                status: 'idle',
                 totalImages: 0,
                 downloadedCount: 0,
                 startTime: null,
@@ -306,14 +276,11 @@
             if (this.queue.length === 0) {
                 this.ui.setStatus('队列为空', 'error'); return;
             }
-
             const backendOk = await Api.checkBackend();
             if (!backendOk) {
-                alert('后端服务不可用。请确保后端在 localhost:6999 上运行。');
+                alert('后端服务不可用。');
                 return;
             }
-
-            // 标记尚未处理的项为 pending（但不要触碰正在下载的）
             this.queue.forEach(q => {
                 if (['idle','failed','paused'].includes(q.status)) q.status = 'pending';
             });
@@ -332,7 +299,6 @@
                 workers.push(this.workerLoop(intervalSec * 1000));
             }
             await Promise.all(workers);
-            // 所有 worker 完成
             this.isRunning = false;
             this.saveToStorage();
             this.ui.setStatus('批量下载结束', 'info');
@@ -343,36 +309,23 @@
             this.activeWorkers++;
             try {
                 while (this.isRunning && !this.stopRequested) {
-                    // don't start new if paused
-                    if (this.isPaused) {
-                        await this._sleep(300);
-                        continue;
-                    }
+                    if (this.isPaused) { await this._sleep(300); continue; }
                     const next = this._getNextPending();
                     if (!next) {
-                        // 所有项是否都完成或失败？
                         if (this.queue.every(q => ['completed','failed','idle','paused','skipped'].includes(q.status))) break;
-                        await this._sleep(500);
-                        continue;
+                        await this._sleep(500); continue;
                     }
                     try {
                         await this._processSingle(next);
-                    } catch (e) {
-                        console.error('_processSingle error', e);
-                    } finally {
-                        // 间隔后继续下一项
-                        await this._sleep(intervalMs);
-                    }
+                    } catch (e) { console.error('_processSingle error', e); }
+                    finally { await this._sleep(intervalMs); }
                 }
-            } finally {
-                this.activeWorkers--;
-            }
+            } finally { this.activeWorkers--; }
         }
 
         _getNextPending() {
             const idx = this.queue.findIndex(q => q.status === 'pending');
             if (idx === -1) return null;
-            // 标记为 downloading — 重要：点击暂停后我们不再 start 新任务，因为 isPaused 会阻止 worker loop
             this.queue[idx].status = 'downloading';
             this.queue[idx].startTime = new Date().toISOString();
             this.saveToStorage();
@@ -380,8 +333,8 @@
             return { idx, item: this.queue[idx] };
         }
 
+        /* ========== 核心修复点：processSingle ========== */
         async _processSingle({ idx, item }) {
-            // 新增：检查是否跳过历史下载
             if (this.skipHistory) {
                 const isDownloaded = await Api.checkDownloaded(item.id);
                 if (isDownloaded) {
@@ -392,7 +345,7 @@
                     this.saveToStorage();
                     this.ui.renderQueue(this.queue);
                     this.ui.setStatus(`跳过：${item.title}（已下载过）`, 'warning');
-                    return; // 直接返回，不进行下载
+                    return;
                 }
             }
 
@@ -406,35 +359,46 @@
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
-                // SSE 监听
                 this.sse.open(item.id);
                 const ssePromise = this._waitForFinalStatusBySSE(item.id, CONFIG.STATUS_TIMEOUT_MS);
-
-                // 发送后端下载请求（不阻塞 SSE）
                 await Api.sendDownloadRequest(item.id, urls, item.title);
-
-                // 等待 SSE 最终结果或 timeout
                 const final = await ssePromise;
+
+                // --- 修复开始：校验 downloadedCount ---
                 if (final && final.completed) {
-                    item.status = 'completed';
-                    item.downloadedCount = final.downloadedCount || item.totalImages;
-                    item.endTime = new Date().toISOString();
-                    item.lastMessage = '完成';
-                    this.ui.setStatus(`完成：${item.title}`, 'success');
+                    // 后端返回完成，但必须检查是否真的下载了所有图片
+                    const dCount = final.downloadedCount !== undefined ? final.downloadedCount : item.totalImages;
+                    item.downloadedCount = dCount;
+
+                    if (dCount < item.totalImages) {
+                        // 下载数小于总数，判定为失败
+                        item.status = 'failed';
+                        item.lastMessage = `下载不完整: ${dCount}/${item.totalImages}`;
+                        this.ui.setStatus(`失败：${item.title} (文件缺失)`, 'error');
+                    } else {
+                        // 成功
+                        item.status = 'completed';
+                        item.lastMessage = '完成';
+                        this.ui.setStatus(`完成：${item.title}`, 'success');
+                    }
                 } else if (final && final.failed) {
                     item.status = 'failed';
-                    item.endTime = new Date().toISOString();
                     item.lastMessage = final.message || '失败';
                     this.ui.setStatus(`失败：${item.title} - ${item.lastMessage}`, 'error');
                 } else {
-                    // 超时或 SSE 不可得 -> 退回后端查询一次
+                    // 兜底查询
                     try {
-                        const backendState = await Api.getDownloadStatus(item.id);
-                        if (backendState && backendState.completed) {
-                            item.status = 'completed';
-                            item.downloadedCount = backendState.downloadedCount || item.totalImages;
-                            item.endTime = new Date().toISOString();
-                            item.lastMessage = '通过后端查询确认完成';
+                        const check = await Api.getDownloadStatus(item.id);
+                        if (check && check.completed) {
+                            const dCount = check.downloadedCount !== undefined ? check.downloadedCount : 0;
+                            item.downloadedCount = dCount;
+                            if (dCount < item.totalImages) {
+                                item.status = 'failed';
+                                item.lastMessage = `后端已结束但文件缺失 (${dCount}/${item.totalImages})`;
+                            } else {
+                                item.status = 'completed';
+                                item.lastMessage = '完成(Check)';
+                            }
                         } else {
                             item.status = 'failed';
                             item.lastMessage = '未知（超时或后端未完成）';
@@ -444,12 +408,13 @@
                         item.lastMessage = '状态查询错误';
                     }
                 }
+                // --- 修复结束 ---
+
             } catch (err) {
                 item.status = 'failed';
                 item.lastMessage = err.message || String(err);
                 this.ui.setStatus(`错误：${item.title} - ${item.lastMessage}`, 'error');
             } finally {
-                // 无论如何，确保关闭该作品的 SSE、保存状态并更新 UI（满足第1点）
                 try { this.sse.close(item.id); } catch (e) {}
                 item.endTime = item.endTime || new Date().toISOString();
                 this.updateStats();
@@ -462,98 +427,69 @@
         _waitForFinalStatusBySSE(artworkId, timeoutMs) {
             return new Promise((resolve) => {
                 let resolved = false;
-                const key = String(artworkId);
                 const timer = setTimeout(() => {
                     if (resolved) return;
                     resolved = true;
-                    resolve(null); // timeout
+                    resolve(null);
                 }, timeoutMs);
-
                 const handler = (data) => {
-                    // data expected: { artworkId, completed, failed, cancelled, downloadedCount, totalImages, message }
                     if (data && (data.completed || data.failed || data.cancelled)) {
                         if (resolved) return;
                         resolved = true;
                         clearTimeout(timer);
                         resolve(data);
                     } else {
-                        // 进度更新，更新队列显示
-                        const q = this.queue.find(x => x.id === key);
-                        if (q) {
-                            if (data.downloadedCount !== undefined) q.downloadedCount = data.downloadedCount;
-                            if (data.totalImages !== undefined) q.totalImages = data.totalImages;
+                        const q = this.queue.find(x => x.id === String(artworkId));
+                        if (q && data.downloadedCount !== undefined) {
+                            q.downloadedCount = data.downloadedCount;
                             this.saveToStorage();
                             this.ui.renderQueue(this.queue);
                         }
                     }
                 };
-
-                this.sse.addListener(key, handler);
+                this.sse.addListener(String(artworkId), handler);
             });
         }
 
         pause() {
             if (!this.isRunning) return;
             this.isPaused = true;
-            // 只把 pending -> paused，正在 downloading 的保持其状态直到其完成或失败
             this.queue.forEach(q => { if (q.status === 'pending') q.status = 'paused'; });
             this.saveToStorage();
             this.ui.updateButtonsState(this.isRunning, this.isPaused);
-            this.ui.setStatus('已暂停（正在进行的作品会继续完成）', 'warning');
+            this.ui.setStatus('已暂停', 'warning');
         }
 
         resume() {
             if (!this.isRunning) {
-                // 如果之前没有运行，直接 start（使用 UI 中的参数）
                 const interval = Math.max(1, parseInt(this.ui.elements.interval.value) || CONFIG.DEFAULT_INTERVAL);
                 const concurrent = Math.max(1, Math.min(CONFIG.MAX_CONCURRENT, parseInt(this.ui.elements.concurrent.value) || CONFIG.DEFAULT_CONCURRENT));
                 return this.start(interval, concurrent);
             }
             this.isPaused = false;
-            // paused -> pending
             this.queue.forEach(q => { if (q.status === 'paused') q.status = 'pending'; });
             this.saveToStorage();
             this.ui.updateButtonsState(this.isRunning, this.isPaused);
             this.ui.setStatus('继续下载', 'info');
         }
 
-        /**
-         * stopAndClear(force)
-         * force = true: 强制停止所有活动（关闭 SSE、尝试向后端 cancel）、删除持久化并清空队列
-         * force = false: 仅当队列已停止时清空
-         */
         async stopAndClear(force = false) {
             if (!force) {
-                // 仅在没有正在进行时允许普通清空
                 if (this.queue.some(q => q.status === 'downloading')) {
                     if (!confirm('当前有正在下载的作品，是否强制停止并清除？（取消将保留队列）')) return;
                 }
             }
-
-            // 立即阻止 worker 启动新任务
             this.stopRequested = true;
             this.isRunning = false;
             this.isPaused = false;
             this.ui.updateButtonsState(this.isRunning, this.isPaused);
-
-            // 强制关闭所有 SSE 连接
             this.sse.closeAll();
-
-            // 尝试向后端发出取消请求（对每个正在 downloading 的项）
-            const downloadingItems = this.queue.filter(q => q.status === 'downloading' || q.status === 'pending' || q.status === 'paused');
-            for (const q of downloadingItems) {
-                try {
-                    await Api.cancelDownload(q.id);
-                } catch (e) {
-                    // 忽略错误
-                }
-            }
-
-            // 清空队列以及持久化
+            this.queue.forEach(q => {
+               if(q.status==='downloading'||q.status==='pending') Api.cancelDownload(q.id).catch(()=>{});
+            });
             this.queue = [];
             this.stats = { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
-            try { this.deleteStorage(); } catch (e) { console.warn('delete storage fail', e); }
-
+            try { this.deleteStorage(); } catch (e) {}
             this.ui.renderQueue(this.queue);
             this.ui.setStatus('已强制清除队列并删除持久化数据', 'info');
         }
@@ -566,7 +502,6 @@
             this.stats.completed = this.stats.success + this.stats.failed + this.stats.skipped;
             this.ui.updateStats(this.stats);
         }
-
         _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
     }
 
@@ -579,7 +514,8 @@
         }
 
         _build() {
-            this._removeIfExists();
+            const e = document.getElementById('pixiv-batch-downloader-ui');
+            if (e) e.remove();
 
             const container = $el('div', {
                 id: 'pixiv-batch-downloader-ui',
@@ -594,76 +530,34 @@
 
             // 标题
             const title = $el('div', {
-                html: '🎨 N-Tab批量下载器 v1.1.1',
-                style: {
-                    fontWeight: 'bold', marginBottom: '15px', color: '#333',
-                    textAlign: 'center', fontSize: '16px', borderBottom: '2px solid #eee',
-                    paddingBottom: '10px'
-                }
+                html: '🎨 N-Tab批量下载器 v1.1.3 (Fixed)',
+                style: { fontWeight: 'bold', marginBottom: '15px', color: '#333', textAlign: 'center', fontSize: '16px', borderBottom: '2px solid #eee', paddingBottom: '10px' }
             });
 
-            // 状态显示
-            const status = $el('div', {
-                id: 'batch-status',
-                innerText: '准备就绪',
-                style: {
-                    marginBottom: '10px', color: '#666', fontSize: '12px', textAlign: 'center'
-                }
-            });
+            const status = $el('div', { id: 'batch-status', innerText: '准备就绪', style: { marginBottom: '10px', color: '#666', fontSize: '12px', textAlign: 'center' } });
+            const stats = $el('div', { id: 'batch-stats', innerText: '队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0', style: { marginBottom: '10px', color: '#007bff', fontSize: '12px', textAlign: 'center', fontWeight: 'bold' } });
 
-            // 统计信息
-            const stats = $el('div', {
-                id: 'batch-stats',
-                innerText: '队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0',
-                style: {
-                    marginBottom: '10px', color: '#007bff', fontSize: '12px',
-                    textAlign: 'center', fontWeight: 'bold'
-                }
-            });
-
-            // 输入区域
             const inputSection = $el('div', { style: { marginBottom: '15px' } });
-            const textarea = $el('textarea', {
-                id: 'ntab-data-input',
-                placeholder: `粘贴 N-Tab 导出的内容（每行包含https://www.pixiv.net/artworks/ID）`,
-                style: {
-                    width: '100%', height: '120px', marginBottom: '10px', padding: '8px',
-                    border: '1px solid #ddd', borderRadius: '4px', fontSize: '12px', resize: 'vertical'
-                }
-            });
+            const textarea = $el('textarea', { id: 'ntab-data-input', placeholder: `粘贴 N-Tab 导出的内容...`, style: { width: '100%', height: '120px', marginBottom: '10px', padding: '8px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '12px', resize: 'vertical' } });
             inputSection.appendChild(textarea);
 
-            // 设置区域
             const settings = $el('div', { style: { marginBottom: '15px' } });
             settings.innerHTML = `
                 <div style="display: flex; align-items: center; margin-bottom: 10px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">下载间隔(秒):</label>
-                    <input type="number" id="download-interval" value="${CONFIG.DEFAULT_INTERVAL}"
-                           min="1" max="60" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
-                </div>
-                <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                    <label style="font-size: 12px; margin-right: 10px; width: 120px;">实时通知:</label>
-                    <span style="font-size: 12px; color: #28a745;">SSE已启用</span>
+                    <input type="number" id="download-interval" value="${CONFIG.DEFAULT_INTERVAL}" min="1" max="60" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
                 </div>
                 <div style="display: flex; align-items: center; margin-bottom: 10px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">最大并发数:</label>
-                    <input type="number" id="max-concurrent" value="${CONFIG.DEFAULT_CONCURRENT}"
-                           min="1" max="${CONFIG.MAX_CONCURRENT}" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
+                    <input type="number" id="max-concurrent" value="${CONFIG.DEFAULT_CONCURRENT}" min="1" max="${CONFIG.MAX_CONCURRENT}" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
                 </div>
                 <div style="display: flex; align-items: center; margin-bottom: 10px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">跳过历史下载:</label>
-                    <input type="checkbox" id="skip-history" 
-                           style="width: 16px; height: 16px;">
+                    <input type="checkbox" id="skip-history" style="width: 16px; height: 16px;">
                 </div>
             `;
 
-            // 按钮区域
-            const buttonContainer = $el('div', {
-                style: {
-                    display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px'
-                }
-            });
-
+            const buttonContainer = $el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px' } });
             const buttons = [
                 { id: 'parse-btn', text: '📋 解析N-Tab数据', bgColor: '#007bff', onClick: () => this.manager.parseAndSetFromText(this.elements.textarea.value) },
                 { id: 'start-btn', text: '🚀 开始批量下载', bgColor: '#28a745', onClick: () => this.handleStart() },
@@ -671,42 +565,18 @@
                 { id: 'pause-btn', text: '⏸️ 暂停下载', bgColor: '#ffc107', onClick: () => this.handlePause(), disabled: true },
                 { id: 'clear-btn', text: '🗑️ 清除队列', bgColor: '#6c757d', onClick: () => this.handleClear() }
             ];
-
             buttons.forEach(btnConfig => {
-                const button = this._createButton(btnConfig);
+                const button = $el('button', { id: btnConfig.id, innerText: btnConfig.text, style: { width: '100%', background: btnConfig.bgColor, color: btnConfig.bgColor === '#ffc107' ? 'black' : 'white', border: 'none', padding: '10px', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' } });
+                button.disabled = !!btnConfig.disabled;
+                button.addEventListener('click', btnConfig.onClick);
                 buttonContainer.appendChild(button);
             });
 
-            // 当前下载显示
-            const currentDownload = $el('div', {
-                id: 'current-download',
-                style: {
-                    marginBottom: '10px', padding: '8px', background: '#f8f9fa',
-                    borderRadius: '5px', borderLeft: '4px solid #007bff', fontSize: '11px'
-                }
-            });
+            const currentDownload = $el('div', { id: 'current-download', style: { marginBottom: '10px', padding: '8px', background: '#f8f9fa', borderRadius: '5px', borderLeft: '4px solid #007bff', fontSize: '11px' } });
             currentDownload.innerHTML = '<strong>当前下载:</strong> 无';
 
-            // 队列显示
-            const queueContainer = $el('div', {
-                id: 'queue-container',
-                style: {
-                    maxHeight: '250px', overflowY: 'auto', border: '1px solid #ddd',
-                    borderRadius: '5px', padding: '10px', marginBottom: '10px',
-                    background: '#f8f9fa', fontSize: '11px'
-                }
-            });
+            const queueContainer = $el('div', { id: 'queue-container', style: { maxHeight: '250px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '5px', padding: '10px', marginBottom: '10px', background: '#f8f9fa', fontSize: '11px' } });
 
-            // 后端状态
-            const backendStatus = $el('div', {
-                id: 'batch-backend-status',
-                innerText: '检查后端状态...',
-                style: {
-                    fontSize: '11px', color: '#888', textAlign: 'center', marginBottom: '5px'
-                }
-            });
-
-            // 组装所有元素
             container.appendChild(title);
             container.appendChild(status);
             container.appendChild(stats);
@@ -715,12 +585,9 @@
             container.appendChild(buttonContainer);
             container.appendChild(currentDownload);
             container.appendChild(queueContainer);
-            container.appendChild(backendStatus);
-
             document.body.appendChild(container);
             this.root = container;
 
-            // 记录元素
             this.elements = {
                 textarea: textarea,
                 interval: container.querySelector('#download-interval'),
@@ -732,37 +599,14 @@
                 clearBtn: container.querySelector('#clear-btn'),
                 status: status,
                 stats: stats,
-                backendStatus: backendStatus,
                 queueContainer: queueContainer,
                 currentDownload: currentDownload
             };
         }
 
-        _createButton({ id, text, bgColor, onClick, disabled = false }) {
-            const button = $el('button', {
-                id: id,
-                innerText: text,
-                style: {
-                    width: '100%', background: bgColor, color: bgColor === '#ffc107' ? 'black' : 'white',
-                    border: 'none', padding: '10px', borderRadius: '5px', cursor: 'pointer', fontSize: '14px'
-                }
-            });
-            button.disabled = disabled;
-            button.addEventListener('click', onClick);
-            return button;
-        }
-
-        _removeIfExists() {
-            const e = document.getElementById('pixiv-batch-downloader-ui');
-            if (e) e.remove();
-        }
-
         bindManager(manager) {
             this.manager = manager;
-            // 设置跳过历史复选框的初始状态
             this.elements.skipHistory.checked = manager.skipHistory;
-
-            // 添加事件监听
             this.elements.skipHistory.addEventListener('change', (e) => {
                 this.manager.setSkipHistory(e.target.checked);
             });
@@ -771,13 +615,6 @@
         async handleStart() {
             const interval = Math.max(1, parseInt(this.elements.interval.value) || CONFIG.DEFAULT_INTERVAL);
             const concurrent = Math.max(1, Math.min(CONFIG.MAX_CONCURRENT, parseInt(this.elements.concurrent.value) || CONFIG.DEFAULT_CONCURRENT));
-            this.setStatus('正在检查后端...', 'info');
-            const ok = await Api.checkBackend();
-            this.updateBackendStatus(ok);
-            if (!ok) {
-                alert('后端不可用，请启动后重试');
-                return;
-            }
             this.manager.start(interval, concurrent);
         }
 
@@ -794,64 +631,27 @@
 
         handleRetryFailed() {
             if (!this.manager) return;
-
             const failedItems = this.manager.queue.filter(q => q.status === 'failed');
-
-            if (failedItems.length === 0) {
-                alert('当前没有失败的作品！');
-                return;
-            }
-
-            // 只保留失败作品
-            this.manager.queue = failedItems.map(f => ({
-                ...f,
-                status: 'idle',
-                startTime: null,
-                endTime: null,
-                downloadedCount: 0,
-                totalImages: 0,
-                lastMessage: ''
-            }));
-
+            if (failedItems.length === 0) { alert('当前没有失败的作品！'); return; }
+            this.manager.queue = failedItems.map(f => ({ ...f, status: 'idle', startTime: null, endTime: null, downloadedCount: 0, totalImages: 0, lastMessage: '' }));
             this.manager.saveToStorage();
             this.renderQueue(this.manager.queue);
-
             alert(`已保留 ${failedItems.length} 个失败作品，开始重新下载。`);
-
-            // 自动重新开始
             this.handleStart();
         }
 
         async handleClear() {
-            if (confirm('确认强制清除队列？这会立即停止所有下载（并尝试取消后端任务）并删除本地持久化状态。')) {
-                await this.manager.stopAndClear(true);
-            }
+            if (confirm('确认强制清除队列？')) await this.manager.stopAndClear(true);
         }
 
         renderQueue(queue) {
             const node = this.elements.queueContainer;
             node.innerHTML = '<div style="font-weight: bold; margin-bottom: 5px;">下载队列:</div>';
-
-            if (!queue || queue.length === 0) {
-                node.innerHTML += '<div style="color: #666; text-align: center;">队列为空</div>';
-                return;
-            }
-
+            if (!queue || queue.length === 0) { node.innerHTML += '<div style="color: #666; text-align: center;">队列为空</div>'; return; }
             for (const q of queue) {
-                const item = $el('div', {
-                    style: {
-                        padding: '5px', marginBottom: '3px', background: 'white', fontSize: '10px',
-                        borderLeft: `3px solid ${this._colorByStatus(q.status)}`
-                    }
-                });
-
+                const item = $el('div', { style: { padding: '5px', marginBottom: '3px', background: 'white', fontSize: '10px', borderLeft: `3px solid ${this._colorByStatus(q.status)}` } });
                 const progressHtml = this._createProgressHtml(q);
-
-                item.innerHTML = `
-                    <div><strong>${escapeHtml(q.title)}</strong></div>
-                    <div>ID: ${q.id} | 状态: ${this._statusText(q.status)}</div>
-                    ${progressHtml}
-                `;
+                item.innerHTML = `<div><strong>${escapeHtml(q.title)}</strong></div><div>ID: ${q.id} | 状态: ${this._statusText(q.status)}</div>${progressHtml}`;
                 node.appendChild(item);
             }
         }
@@ -860,37 +660,17 @@
             if (q.totalImages <= 0) return '';
             const downloadedCount = q.downloadedCount || 0;
             const progressPercent = Math.min(Math.round((downloadedCount / q.totalImages) * 100), 100);
-
-            return `
-                <div style="margin-top: 3px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 9px; margin-bottom: 2px;">
-                        <span>已下载: ${downloadedCount}/${q.totalImages}</span>
-                        <span>${progressPercent}%</span>
-                    </div>
-                    <div style="width: 100%; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden;">
-                        <div style="height: 100%; background: #007bff; width: ${progressPercent}%; transition: width 0.3s ease;"></div>
-                    </div>
-                </div>
-            `;
+            return `<div style="margin-top: 3px;"><div style="display: flex; justify-content: space-between; font-size: 9px; margin-bottom: 2px;"><span>已下载: ${downloadedCount}/${q.totalImages}</span><span>${progressPercent}%</span></div><div style="width: 100%; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden;"><div style="height: 100%; background: #007bff; width: ${progressPercent}%; transition: width 0.3s ease;"></div></div></div>`;
         }
 
         setStatus(msg, type = 'info') {
             this.elements.status.innerText = msg;
-            const color = {
-                'info': '#007bff',
-                'success': '#28a745',
-                'error': '#dc3545',
-                'warning': '#ffc107'
-            }[type] || '#666';
-            this.elements.status.style.color = color;
+            this.elements.status.style.color = { 'info': '#007bff', 'success': '#28a745', 'error': '#dc3545', 'warning': '#ffc107' }[type] || '#666';
         }
 
         updateStats(stats) {
-            const pendingCount = this.manager.queue.filter(q =>
-                q.status === 'pending' || q.status === 'idle' || q.status === 'paused'
-            ).length;
-            this.elements.stats.textContent =
-                `队列: ${pendingCount} | 成功: ${stats.success} | 失败: ${stats.failed} | 进行中: ${stats.active} | 跳过: ${stats.skipped}`;
+            const pendingCount = this.manager.queue.filter(q => q.status === 'pending' || q.status === 'idle' || q.status === 'paused').length;
+            this.elements.stats.textContent = `队列: ${pendingCount} | 成功: ${stats.success} | 失败: ${stats.failed} | 进行中: ${stats.active} | 跳过: ${stats.skipped}`;
         }
 
         updateButtonsState(isRunning, isPaused) {
@@ -901,88 +681,33 @@
 
         setCurrent(item) {
             const container = this.elements.currentDownload;
-            if (!item) {
-                container.innerHTML = '<strong>当前下载:</strong> 无';
-                return;
-            }
-
+            if (!item) { container.innerHTML = '<strong>当前下载:</strong> 无'; return; }
             const progressHtml = this._createCurrentProgressHtml(item);
-            container.innerHTML = `
-                <strong>当前下载:</strong> ${item.title} (ID: ${item.id})
-                ${progressHtml}
-            `;
+            container.innerHTML = `<strong>当前下载:</strong> ${item.title} (ID: ${item.id})${progressHtml}`;
         }
 
         _createCurrentProgressHtml(item) {
             if (item.totalImages <= 0) return '';
             const downloadedCount = item.downloadedCount || 0;
             const progressPercent = Math.min(Math.round((downloadedCount / item.totalImages) * 100), 100);
-
-            return `
-                <div style="margin-top: 5px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 3px;">
-                        <span>已下载 ${downloadedCount} 张 / 共 ${item.totalImages} 张</span>
-                        <span>${progressPercent}%</span>
-                    </div>
-                    <div style="width: 100%; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;">
-                        <div style="height: 100%; background: #28a745; width: ${progressPercent}%; transition: width 0.3s ease;"></div>
-                    </div>
-                </div>
-            `;
+            return `<div style="margin-top: 5px;"><div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 3px;"><span>已下载 ${downloadedCount} 张 / 共 ${item.totalImages} 张</span><span>${progressPercent}%</span></div><div style="width: 100%; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;"><div style="height: 100%; background: #28a745; width: ${progressPercent}%; transition: width 0.3s ease;"></div></div></div>`;
         }
 
-        updateBackendStatus(available) {
-            this.elements.backendStatus.innerHTML = available ? '✅ 后端服务可用' : '❌ 后端服务未启动';
-            this.elements.backendStatus.style.color = available ? '#28a745' : '#dc3545';
-        }
-
-        _colorByStatus(status) {
-            const colorMap = {
-                'completed': '#28a745',
-                'downloading': '#007bff',
-                'failed': '#dc3545',
-                'paused': '#6c757d',
-                'skipped': '#ffa500'
-            };
-            return colorMap[status] || '#6c757d';
-        }
-
-        _statusText(status) {
-            const statusMap = {
-                'idle': '等待中',
-                'pending': '等待中',
-                'downloading': '下载中',
-                'completed': '已完成',
-                'failed': '失败',
-                'paused': '暂停中',
-                'skipped': '已跳过'
-            };
-            return statusMap[status] || status;
-        }
+        _colorByStatus(status) { return { 'completed': '#28a745', 'downloading': '#007bff', 'failed': '#dc3545', 'paused': '#6c757d', 'skipped': '#ffa500' }[status] || '#6c757d'; }
+        _statusText(status) { return { 'idle': '等待中', 'pending': '等待中', 'downloading': '下载中', 'completed': '已完成', 'failed': '失败', 'paused': '暂停中', 'skipped': '已跳过' }[status] || status; }
     }
 
-    /* ========== utils ========== */
-    function escapeHtml(s) {
-        return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-    }
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 
-    /* ========== 主流程 ========== */
     const ui = new UI();
     const manager = new DownloadManager(ui);
     ui.bindManager(manager);
-    manager.loadFromStorage(); // 如果有上次保存的队列则加载
+    manager.loadFromStorage();
     ui.renderQueue(manager.queue);
     ui.setStatus('就绪');
 
-    // 菜单命令：在油猴菜单中打开 UI
     GM_registerMenuCommand('打开 Pixiv N-Tab 批量下载器', () => {
         const root = document.getElementById('pixiv-batch-downloader-ui');
-        if (root) {
-            root.style.display = 'block';
-            window.scrollTo(0, 0);
-        } else {
-            location.reload();
-        }
+        if (root) { root.style.display = 'block'; window.scrollTo(0, 0); } else { location.reload(); }
     });
-
 })();

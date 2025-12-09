@@ -72,7 +72,7 @@ public class DownloadedResponse {
             if (flag && flag2) {
                 return new DownloadedResponse(artworkId, title, folder, count, time, moved, moveFolder, moveTime);
             } else {
-                throw new RuntimeException("缺少必要值");
+                throw new RuntimeException("缺少必要值，artworkId = " + artworkId + ",title=" + title);
             }
         }
     }
