@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Pixiv User 批量下载器 (N-Tab UI 风格版)
 // @namespace    http://tampermonkey.net/
-// @version      1.6.0
-// @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Go/Java 后端。界面复刻 N-Tab 风格。修复下载失败却显示完成的Bug。
+// @version      1.7.0
+// @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Go 后端。界面复刻 N-Tab 风格。优化暂停逻辑：确保当前任务完成后再停止。
 // @author       Rewritten by ChatGPT
 // @match        https://www.pixiv.net/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[Pixiv Batch] Script Loaded (v1.6.0 - Strict Status Check)');
+    console.log('[Pixiv Batch] Script Loaded (v1.7.0 - Graceful Pause)');
 
     /* ========== 配置 ========== */
     const CONFIG = {
@@ -197,7 +197,7 @@
         }
     };
 
-    /* ========== SSE ========== */
+    /* ========== SSE 管理器 ========== */
     class SSEManager {
         constructor() {
             this.sources = new Map();
@@ -232,7 +232,7 @@
         }
     }
 
-    /* ========== Manager (修复核心) ========== */
+    /* ========== 下载管理器 ========== */
     class DownloadManager {
         constructor(ui) {
             this.ui = ui;
@@ -242,6 +242,7 @@
             this.isPaused = false;
             this.sse = new SSEManager();
             this.stopRequested = false;
+            this.activeWorkers = 0; // 追踪活跃 Worker 数量
             this.stats = { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
 
             this.globalSettings = {
@@ -337,10 +338,12 @@
             const intervalSec = this.globalSettings.interval;
             const maxConcurrent = this.globalSettings.concurrent;
 
+            // 只重置 idle/failed/paused 的项目
             this.queue.forEach(q => { if (['idle','failed','paused'].includes(q.status)) q.status = 'pending'; });
             this.isRunning = true;
             this.isPaused = false;
             this.stopRequested = false;
+            this.activeWorkers = 0;
             this.updateStats();
             this.ui.updateButtonsState(true, false);
             this.saveToStorage();
@@ -353,6 +356,7 @@
             }
             await Promise.all(workers);
 
+            // 所有 Worker 结束
             this.isRunning = false;
             this.saveToStorage();
             this.ui.setStatus('批量下载结束', 'info');
@@ -360,17 +364,35 @@
         }
 
         async workerLoop(intervalMs) {
-            while (this.isRunning && !this.stopRequested) {
-                if (this.isPaused) { await this._sleep(500); continue; }
-                const next = this._getNextPending();
-                if (!next) {
-                    if (this.queue.every(q => ['completed','failed','idle','paused','skipped'].includes(q.status))) break;
-                    await this._sleep(500); continue;
+            this.activeWorkers++;
+            try {
+                while (this.isRunning && !this.stopRequested) {
+                    if (this.isPaused) {
+                        // 如果暂停，进入等待，不领取新任务
+                        await this._sleep(500);
+                        continue;
+                    }
+
+                    const next = this._getNextPending();
+                    if (!next) {
+                        // 没有待办任务，检查是否全部完成
+                        if (this.queue.every(q => ['completed','failed','idle','paused','skipped'].includes(q.status))) break;
+                        await this._sleep(500);
+                        continue;
+                    }
+
+                    // *** 关键：这里 await 保证了必须等当前任务处理完，循环才会继续 ***
+                    try {
+                        await this._processSingle(next);
+                    } catch (e) {
+                        console.error(e);
+                    } finally {
+                        // 完成任务后，休息间隔
+                        await this._sleep(intervalMs);
+                    }
                 }
-                try {
-                    await this._processSingle(next);
-                } catch (e) { console.error(e); }
-                finally { await this._sleep(intervalMs); }
+            } finally {
+                this.activeWorkers--;
             }
         }
 
@@ -384,8 +406,8 @@
             return { idx, item: this.queue[idx] };
         }
 
-        // --- 核心修复：更严格的完成状态判断 ---
         async _processSingle({ item }) {
+            // 跳过逻辑...
             if (this.globalSettings.skipHistory) {
                 const isDownloaded = await Api.checkDownloaded(item.id);
                 if (isDownloaded) {
@@ -434,13 +456,11 @@
 
                 const final = await ssePromise;
 
-                // === 修复开始：校验 downloadedCount ===
+                // 校验下载数量
                 if (final && final.completed) {
                     const dCount = final.downloadedCount !== undefined ? final.downloadedCount : item.totalImages;
                     item.downloadedCount = dCount;
-
                     if (dCount < item.totalImages) {
-                        // 即使 completed=true, 如果数量不够，也判为 failed
                         item.status = 'failed';
                         item.lastMessage = `失败: 仅下载 ${dCount}/${item.totalImages}`;
                         this.ui.setStatus(`失败：${item.title} (文件缺失)`, 'error');
@@ -454,7 +474,6 @@
                     item.lastMessage = final.message || '失败';
                     this.ui.setStatus(`失败：${item.title}`, 'error');
                 } else {
-                    // 兜底查询
                     const check = await Api.getDownloadStatus(item.id);
                     if (check && check.completed) {
                         const dCount = check.downloadedCount !== undefined ? check.downloadedCount : 0;
@@ -471,7 +490,6 @@
                         item.lastMessage = '状态查询超时';
                     }
                 }
-                // === 修复结束 ===
 
             } catch (e) {
                 item.status = 'failed';
@@ -512,19 +530,31 @@
         pause() {
             if (!this.isRunning) return;
             this.isPaused = true;
+            // pending -> paused (让还没开始的任务暂停)
             this.queue.forEach(q => { if (q.status === 'pending') q.status = 'paused'; });
             this.saveToStorage();
+
+            // 计算正在运行的任务
+            const activeCount = this.queue.filter(q => q.status === 'downloading').length;
             this.ui.updateButtonsState(true, true);
-            this.ui.setStatus('已暂停', 'warning');
+
+            if (activeCount > 0) {
+                this.ui.setStatus(`正在暂停... (等待 ${activeCount} 个当前任务完成)`, 'warning');
+            } else {
+                this.ui.setStatus('已暂停', 'warning');
+            }
         }
+
         resume() {
             if (!this.isRunning) { this.start(); return; }
             this.isPaused = false;
+            // paused -> pending
             this.queue.forEach(q => { if (q.status === 'paused') q.status = 'pending'; });
             this.saveToStorage();
             this.ui.updateButtonsState(true, false);
             this.ui.setStatus('继续下载', 'info');
         }
+
         stopAndClear(force) {
             this.stopRequested = true;
             this.isRunning = false;
@@ -537,6 +567,7 @@
             this.ui.updateButtonsState(false, false);
             this.ui.setStatus('已强制清除队列', 'info');
         }
+
         updateStats() {
             this.stats.success = this.queue.filter(q => q.status === 'completed').length;
             this.stats.failed = this.queue.filter(q => q.status === 'failed').length;
