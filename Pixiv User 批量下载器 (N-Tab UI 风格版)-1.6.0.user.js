@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Pixiv User 批量下载器 (N-Tab UI 风格版)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.0
-// @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Go 后端。界面复刻 N-Tab 风格。优化暂停逻辑：确保当前任务完成后再停止。
+// @version      1.7.2
+// @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Go 后端。界面复刻 N-Tab 风格。优化暂停逻辑：确保当前任务完成后再停止。已加入全局 username 机制。在标题显示用户名。
 // @author       Rewritten by ChatGPT
 // @match        https://www.pixiv.net/*
 // @grant        GM_xmlhttpRequest
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    console.log('[Pixiv Batch] Script Loaded (v1.7.0 - Graceful Pause)');
+    console.log('[Pixiv Batch] Script Loaded (v1.7.2 - Username in title)');
 
     /* ========== 配置 ========== */
     const CONFIG = {
@@ -40,30 +40,13 @@
         KEY_CONCURRENT: 'pixiv_global_concurrent'
     };
 
+    // ====== 全局 username 变量 ======
+    let username = null;
+
     function getCurrentUserId() {
         const match = location.href.match(/users\/(\d+)/);
         return match ? match[1] : null;
     }
-
-    function getUsernameFromPage() {
-        // 方式1：从 og:title 读取（最准确）
-        const meta = document.querySelector('meta[property="og:title"]');
-        if (meta && meta.content) return meta.content.trim();
-
-        // 方式2：从 <title> 读取
-        const title = document.querySelector('title');
-        if (title) {
-            const m = title.innerText.match(/(.+?) - pixiv/);
-            if (m) return m[0].trim();
-        }
-
-        // 方式3：从用户名 DOM（适配 React Pixiv 用户页）
-        const h1 = document.querySelector('h1');
-        if (h1) return h1.innerText.trim();
-
-        return null; // 失败时返回 null
-    }
-
 
     /* ========== DOM 帮助函数 ========== */
     function $el(tag, props = {}, children = []) {
@@ -106,41 +89,51 @@
                 });
             });
         },
-        getUserMeta(userId) {
-            return new Promise((resolve, reject) => {
-                // 拼接用户页面的 URL
-                const userUrl = `https://www.pixiv.net/users/${userId}`;
+        async getUserMeta(userId) {
+            try {
+                // 从URL提取用户ID（保底）
+                const userIdMatch = String(userId).match(/(\d+)/);
+                if (!userIdMatch || !userIdMatch[1]) {
+                    console.error('无法从userId提取数字ID:', userId);
+                    return null;
+                }
 
-                GM_xmlhttpRequest({
+                const uid = userIdMatch[1];
+
+                const apiUrl = `https://www.pixiv.net/ajax/user/${uid}?lang=zh`;
+
+                const response = await fetch(apiUrl, {
                     method: 'GET',
-                    url: userUrl,
-                    headers: { Referer: 'https://www.pixiv.net/' },
-                    onload: (res) => {
-                        try {
-                            const parser = new DOMParser();
-                            const doc = parser.parseFromString(res.responseText, 'text/html');
-
-                            // 解析用户名（通常在 <title> 标签或页面的某个部分）
-                            const titleElement = doc.querySelector('title');
-                            let username = userId;  // 默认使用 userId
-
-                            if (titleElement) {
-                                // 从页面标题中提取用户名，例如 "Pixiv - Username"
-                                const titleText = titleElement.innerText;
-                                const match = titleText.match(/- (.+)$/);
-                                if (match) {
-                                    username = match[0];  // 提取用户名
-                                }
-                            }
-
-                            resolve({ name: username });
-                        } catch (e) {
-                            reject(new Error('获取用户名失败'));
-                        }
-                    },
-                    onerror: (err) => reject(new Error('请求失败: ' + err)),
+                    credentials: 'include', // 包含cookies，保持登录状态
+                    headers: {
+                        'Accept': 'application/json',
+                        'User-Agent': navigator.userAgent,
+                        'Referer': window.location.href
+                    }
                 });
-            });
+
+                if (!response.ok) {
+                    console.error(`API请求失败: ${response.status}`);
+                    return null;
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    console.error('API返回错误:', data.message);
+                    return null;
+                }
+
+                if (data.body && data.body.name) {
+                    console.log('API获取的用户名:', data.body.name);
+                    return data.body.name;
+                }
+
+                return null;
+            } catch (error) {
+                console.error('获取用户名失败:', error);
+                return null;
+            }
         },
         getAllUserArtworkIds(userId) {
             return new Promise((resolve, reject) => {
@@ -203,12 +196,16 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, username, isR18) {
+        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, isR18) {
             return new Promise((resolve, reject) => {
                 const payload = {
-                    artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/', other: {
-                        isUserDownload: true,  // Always true as per the requirement
-                        username: username,
+                    artworkId: parseInt(artworkId),
+                    imageUrls,
+                    title,
+                    referer: 'https://www.pixiv.net/',
+                    other: {
+                        userDownload: true,
+                        username: usernameParam,
                         isR18: isR18
                     }
                 };
@@ -328,6 +325,7 @@
         constructor(ui) {
             this.ui = ui;
             this.userId = null;
+            this.userName = null; // 新增：存储用户名
             this.queue = [];
             this.isRunning = false;
             this.isPaused = false;
@@ -349,9 +347,18 @@
                 if (this.isRunning) this.stopAndClear(false);
             }
             this.userId = userId;
+            this.userName = null; // 重置用户名
             this.loadFromStorage();
             this.ui.renderQueue(this.queue);
-            this.ui.setStatus(`已加载用户 ${userId} 的队列`, 'info');
+            this.ui.setUserInfo(this.userId, this.userName); // 使用新方法更新UI
+        }
+
+        setUserName(name) {
+            this.userName = name;
+            // 更新UI显示
+            if (this.ui) {
+                this.ui.setUserInfo(this.userId, this.userName);
+            }
         }
 
         get storageKey() {
@@ -571,15 +578,12 @@
                 this.sse.open(item.id);
                 const ssePromise = this._waitForFinalStatusBySSE(item.id, CONFIG.STATUS_TIMEOUT_MS);
 
-                const userId = getCurrentUserId(); // 数字 userID
-                let username = getUsernameFromPage(); // 从页面读取用户名
-
-                if (!username) username = userId; // 失败时使用 userId
-
                 // 判断是否是 R18 内容
                 const isR18 = meta.xRestrict !== undefined && meta.xRestrict > 0;
 
                 this.ui.setStatus(`下载中：${item.title}`, 'info');
+
+                // 使用全局 username（可能为 null — 后端可处理；若需要强制填充请在 start() 前检查）
                 await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18);
 
                 const final = await ssePromise;
@@ -766,8 +770,10 @@
                 }
             });
 
+            // 标题部分 - 使用动态生成
             const title = $el('div', {
-                html: '🖼️ Pixiv User 批量下载器',
+                id: 'batch-ui-title',
+                innerText: '🖼️ Pixiv User 批量下载器',
                 style: {
                     fontWeight: 'bold',
                     marginBottom: '15px',
@@ -929,9 +935,20 @@
             if (this.root) this.syncSettings();
         }
 
-        setUserId(uid) {
+        // 新增方法：更新用户信息显示
+        setUserInfo(uid, userName = null) {
             this.ensureMounted();
-            if (this.elements.title) this.elements.title.innerText = `🖼️ User: ${uid} (批量下载)`;
+            if (this.elements.title) {
+                let displayText;
+                if (userName) {
+                    // 显示格式：User: 用户名(用户ID)
+                    displayText = `User: ${userName}(${uid}) (批量下载)`;
+                } else {
+                    // 如果还没有获取到用户名，只显示用户ID
+                    displayText = `User: ${uid} (批量下载)`;
+                }
+                this.elements.title.innerText = `🖼️ ${displayText}`;
+            }
         }
 
         async handleFetch(onlyNew) {
@@ -1074,8 +1091,20 @@
             ui.ensureMounted();
             if (lastUid !== uid) {
                 lastUid = uid;
-                ui.setUserId(uid);
+                // 先更新用户ID
                 manager.initForUser(uid);
+                ui.setUserInfo(uid); // 初始只显示ID
+
+                // 异步获取用户名并更新UI
+                Api.getUserMeta(uid).then(name => {
+                    username = name || uid;   // 获取失败就用 userId
+                    manager.setUserName(username); // 更新manager中的用户名
+                    console.log("[Pixiv Batch] Loaded username:", username);
+                }).catch(err => {
+                    username = uid;
+                    manager.setUserName(uid);
+                    console.warn("[Pixiv Batch] 获取用户名异常，使用 uid 作为 username", err);
+                });
             }
         } else {
             ui.hide();
