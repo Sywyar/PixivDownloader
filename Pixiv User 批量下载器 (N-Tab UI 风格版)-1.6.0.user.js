@@ -45,6 +45,26 @@
         return match ? match[1] : null;
     }
 
+    function getUsernameFromPage() {
+        // 方式1：从 og:title 读取（最准确）
+        const meta = document.querySelector('meta[property="og:title"]');
+        if (meta && meta.content) return meta.content.trim();
+
+        // 方式2：从 <title> 读取
+        const title = document.querySelector('title');
+        if (title) {
+            const m = title.innerText.match(/(.+?) - pixiv/);
+            if (m) return m[0].trim();
+        }
+
+        // 方式3：从用户名 DOM（适配 React Pixiv 用户页）
+        const h1 = document.querySelector('h1');
+        if (h1) return h1.innerText.trim();
+
+        return null; // 失败时返回 null
+    }
+
+
     /* ========== DOM 帮助函数 ========== */
     function $el(tag, props = {}, children = []) {
         const e = document.createElement(tag);
@@ -52,8 +72,7 @@
             if (k === 'style') {
                 if (typeof v === 'string') e.style.cssText = v;
                 else Object.assign(e.style, v);
-            }
-            else if (k === 'html') e.innerHTML = v;
+            } else if (k === 'html') e.innerHTML = v;
             else e[k] = v;
         });
         (Array.isArray(children) ? children : [children]).forEach(c => {
@@ -64,7 +83,13 @@
     }
 
     function escapeHtml(s) {
-        return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+        return String(s).replace(/[&<>"']/g, c => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;'
+        })[c]);
     }
 
     /* ========== API 封装 ========== */
@@ -81,12 +106,48 @@
                 });
             });
         },
+        getUserMeta(userId) {
+            return new Promise((resolve, reject) => {
+                // 拼接用户页面的 URL
+                const userUrl = `https://www.pixiv.net/users/${userId}`;
+
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: userUrl,
+                    headers: { Referer: 'https://www.pixiv.net/' },
+                    onload: (res) => {
+                        try {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(res.responseText, 'text/html');
+
+                            // 解析用户名（通常在 <title> 标签或页面的某个部分）
+                            const titleElement = doc.querySelector('title');
+                            let username = userId;  // 默认使用 userId
+
+                            if (titleElement) {
+                                // 从页面标题中提取用户名，例如 "Pixiv - Username"
+                                const titleText = titleElement.innerText;
+                                const match = titleText.match(/- (.+)$/);
+                                if (match) {
+                                    username = match[0];  // 提取用户名
+                                }
+                            }
+
+                            resolve({ name: username });
+                        } catch (e) {
+                            reject(new Error('获取用户名失败'));
+                        }
+                    },
+                    onerror: (err) => reject(new Error('请求失败: ' + err)),
+                });
+            });
+        },
         getAllUserArtworkIds(userId) {
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/user/${userId}/profile/all`,
-                    headers: { Referer: 'https://www.pixiv.net/' },
+                    headers: {Referer: 'https://www.pixiv.net/'},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
@@ -96,7 +157,9 @@
                             if (data.body.manga) ids.push(...Object.keys(data.body.manga));
                             ids.sort((a, b) => b - a);
                             resolve(ids);
-                        } catch (e) { reject(e); }
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -107,13 +170,15 @@
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/illust/${artworkId}`,
-                    headers: { Referer: 'https://www.pixiv.net/' },
+                    headers: {Referer: 'https://www.pixiv.net/'},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
                             if (data.error) reject(new Error(data.message));
                             else resolve(data.body);
-                        } catch (e) { reject(e); }
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -124,32 +189,42 @@
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/illust/${artworkId}/pages`,
-                    headers: { Referer: 'https://www.pixiv.net/' },
+                    headers: {Referer: 'https://www.pixiv.net/'},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
                             if (data.error) reject(new Error(data.message));
                             else resolve((data.body || []).map(p => p.urls.original));
-                        } catch (e) { reject(e); }
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title) {
+        sendDownloadRequest(artworkId, imageUrls, title, username, isR18) {
             return new Promise((resolve, reject) => {
-                const payload = { artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/' };
+                const payload = {
+                    artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/', other: {
+                        isUserDownload: true,  // Always true as per the requirement
+                        username: username,
+                        isR18: isR18
+                    }
+                };
                 GM_xmlhttpRequest({
                     method: 'POST',
                     url: CONFIG.BACKEND_URL,
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {'Content-Type': 'application/json'},
                     data: JSON.stringify(payload),
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
                             if (res.status === 200) resolve(data);
                             else reject(new Error(data.message || '后端返回失败'));
-                        } catch (e) { reject(e); }
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -161,7 +236,11 @@
                     method: 'GET',
                     url: `${CONFIG.STATUS_URL}/${artworkId}`,
                     onload: (res) => {
-                        try { resolve(JSON.parse(res.responseText)); } catch (e) { reject(e); }
+                        try {
+                            resolve(JSON.parse(res.responseText));
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -188,7 +267,9 @@
                                 const data = JSON.parse(res.responseText);
                                 resolve(!!data.artworkId);
                             } else resolve(false);
-                        } catch (e) { resolve(false); }
+                        } catch (e) {
+                            resolve(false);
+                        }
                     },
                     onerror: () => resolve(false),
                     ontimeout: () => resolve(false)
@@ -203,6 +284,7 @@
             this.sources = new Map();
             this.listeners = new Map();
         }
+
         open(artworkId) {
             this.close(artworkId);
             try {
@@ -211,20 +293,29 @@
                     try {
                         const data = JSON.parse(e.data);
                         (this.listeners.get(String(artworkId)) || []).forEach(fn => fn(data));
-                    } catch (err) { }
+                    } catch (err) {
+                    }
                 });
                 this.sources.set(String(artworkId), src);
-            } catch (err) { console.error('SSE Error', err); }
+            } catch (err) {
+                console.error('SSE Error', err);
+            }
         }
+
         close(artworkId) {
             const key = String(artworkId);
             const s = this.sources.get(key);
-            if (s) { s.close(); this.sources.delete(key); }
+            if (s) {
+                s.close();
+                this.sources.delete(key);
+            }
             this.listeners.delete(key);
         }
+
         closeAll() {
             for (const k of Array.from(this.sources.keys())) this.close(k);
         }
+
         addListener(artworkId, fn) {
             const key = String(artworkId);
             if (!this.listeners.has(key)) this.listeners.set(key, []);
@@ -243,7 +334,7 @@
             this.sse = new SSEManager();
             this.stopRequested = false;
             this.activeWorkers = 0; // 追踪活跃 Worker 数量
-            this.stats = { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
+            this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
 
             this.globalSettings = {
                 interval: GM_getValue(CONFIG.KEY_INTERVAL, CONFIG.DEFAULT_INTERVAL) || CONFIG.DEFAULT_INTERVAL,
@@ -263,21 +354,28 @@
             this.ui.setStatus(`已加载用户 ${userId} 的队列`, 'info');
         }
 
-        get storageKey() { return `pixiv_user_${this.userId}_queue_v1`; }
+        get storageKey() {
+            return `pixiv_user_${this.userId}_queue_v1`;
+        }
 
         loadFromStorage() {
             if (!this.userId) return;
             try {
                 const raw = GM_getValue(this.storageKey, null);
-                if (!raw) { this.queue = []; return; }
+                if (!raw) {
+                    this.queue = [];
+                    return;
+                }
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed.queue)) {
                     this.queue = parsed.queue;
                     this.isPaused = !!parsed.isPaused;
-                    this.stats = parsed.stats || { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
+                    this.stats = parsed.stats || {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
                     this.updateStats();
                 }
-            } catch (e) { this.queue = []; }
+            } catch (e) {
+                this.queue = [];
+            }
         }
 
         saveToStorage() {
@@ -291,14 +389,29 @@
                     savedAt: new Date().toISOString()
                 };
                 GM_setValue(this.storageKey, JSON.stringify(snapshot));
-            } catch (e) { }
+            } catch (e) {
+            }
         }
 
-        deleteStorage() { if (this.userId) GM_deleteValue(this.storageKey); }
+        deleteStorage() {
+            if (this.userId) GM_deleteValue(this.storageKey);
+        }
 
-        setSkipHistory(val) { this.globalSettings.skipHistory = val; GM_setValue(CONFIG.KEY_SKIP_HISTORY, val); }
-        setR18Only(val) { this.globalSettings.r18Only = val; GM_setValue(CONFIG.KEY_R18_ONLY, val); }
-        setInterval(val) { this.globalSettings.interval = parseInt(val) || CONFIG.DEFAULT_INTERVAL; GM_setValue(CONFIG.KEY_INTERVAL, this.globalSettings.interval); }
+        setSkipHistory(val) {
+            this.globalSettings.skipHistory = val;
+            GM_setValue(CONFIG.KEY_SKIP_HISTORY, val);
+        }
+
+        setR18Only(val) {
+            this.globalSettings.r18Only = val;
+            GM_setValue(CONFIG.KEY_R18_ONLY, val);
+        }
+
+        setInterval(val) {
+            this.globalSettings.interval = parseInt(val) || CONFIG.DEFAULT_INTERVAL;
+            GM_setValue(CONFIG.KEY_INTERVAL, this.globalSettings.interval);
+        }
+
         setConcurrent(val) {
             let num = parseInt(val) || CONFIG.DEFAULT_CONCURRENT;
             if (num > CONFIG.MAX_CONCURRENT) num = CONFIG.MAX_CONCURRENT;
@@ -332,14 +445,22 @@
         }
 
         async start() {
-            if (this.queue.length === 0) { this.ui.setStatus('队列为空', 'error'); return; }
-            if (!await Api.checkBackend()) { alert('后端服务不可用'); return; }
+            if (this.queue.length === 0) {
+                this.ui.setStatus('队列为空', 'error');
+                return;
+            }
+            if (!await Api.checkBackend()) {
+                alert('后端服务不可用');
+                return;
+            }
 
             const intervalSec = this.globalSettings.interval;
             const maxConcurrent = this.globalSettings.concurrent;
 
             // 只重置 idle/failed/paused 的项目
-            this.queue.forEach(q => { if (['idle','failed','paused'].includes(q.status)) q.status = 'pending'; });
+            this.queue.forEach(q => {
+                if (['idle', 'failed', 'paused'].includes(q.status)) q.status = 'pending';
+            });
             this.isRunning = true;
             this.isPaused = false;
             this.stopRequested = false;
@@ -376,7 +497,7 @@
                     const next = this._getNextPending();
                     if (!next) {
                         // 没有待办任务，检查是否全部完成
-                        if (this.queue.every(q => ['completed','failed','idle','paused','skipped'].includes(q.status))) break;
+                        if (this.queue.every(q => ['completed', 'failed', 'idle', 'paused', 'skipped'].includes(q.status))) break;
                         await this._sleep(500);
                         continue;
                     }
@@ -403,11 +524,10 @@
             this.queue[idx].startTime = new Date().toISOString();
             this.saveToStorage();
             this.ui.renderQueue(this.queue);
-            return { idx, item: this.queue[idx] };
+            return {idx, item: this.queue[idx]};
         }
 
-        async _processSingle({ item }) {
-            // 跳过逻辑...
+        async _processSingle({item}) {
             if (this.globalSettings.skipHistory) {
                 const isDownloaded = await Api.checkDownloaded(item.id);
                 if (isDownloaded) {
@@ -451,8 +571,16 @@
                 this.sse.open(item.id);
                 const ssePromise = this._waitForFinalStatusBySSE(item.id, CONFIG.STATUS_TIMEOUT_MS);
 
+                const userId = getCurrentUserId(); // 数字 userID
+                let username = getUsernameFromPage(); // 从页面读取用户名
+
+                if (!username) username = userId; // 失败时使用 userId
+
+                // 判断是否是 R18 内容
+                const isR18 = meta.xRestrict !== undefined && meta.xRestrict > 0;
+
                 this.ui.setStatus(`下载中：${item.title}`, 'info');
-                await Api.sendDownloadRequest(item.id, urls, item.title);
+                await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18);
 
                 const final = await ssePromise;
 
@@ -509,11 +637,18 @@
             return new Promise((resolve) => {
                 let resolved = false;
                 const timer = setTimeout(() => {
-                    if (!resolved) { resolved = true; resolve(null); }
+                    if (!resolved) {
+                        resolved = true;
+                        resolve(null);
+                    }
                 }, timeoutMs);
                 const handler = (data) => {
                     if (data && (data.completed || data.failed || data.cancelled)) {
-                        if (!resolved) { resolved = true; clearTimeout(timer); resolve(data); }
+                        if (!resolved) {
+                            resolved = true;
+                            clearTimeout(timer);
+                            resolve(data);
+                        }
                     } else if (data && data.downloadedCount !== undefined) {
                         const q = this.queue.find(x => x.id === String(artworkId));
                         if (q) {
@@ -531,7 +666,9 @@
             if (!this.isRunning) return;
             this.isPaused = true;
             // pending -> paused (让还没开始的任务暂停)
-            this.queue.forEach(q => { if (q.status === 'pending') q.status = 'paused'; });
+            this.queue.forEach(q => {
+                if (q.status === 'pending') q.status = 'paused';
+            });
             this.saveToStorage();
 
             // 计算正在运行的任务
@@ -546,10 +683,15 @@
         }
 
         resume() {
-            if (!this.isRunning) { this.start(); return; }
+            if (!this.isRunning) {
+                this.start();
+                return;
+            }
             this.isPaused = false;
             // paused -> pending
-            this.queue.forEach(q => { if (q.status === 'paused') q.status = 'pending'; });
+            this.queue.forEach(q => {
+                if (q.status === 'paused') q.status = 'pending';
+            });
             this.saveToStorage();
             this.ui.updateButtonsState(true, false);
             this.ui.setStatus('继续下载', 'info');
@@ -561,7 +703,7 @@
             this.isPaused = false;
             this.sse.closeAll();
             this.queue = [];
-            this.stats = { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
+            this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
             this.deleteStorage();
             this.ui.renderQueue(this.queue);
             this.ui.updateButtonsState(false, false);
@@ -575,7 +717,10 @@
             this.stats.active = this.queue.filter(q => q.status === 'downloading').length;
             this.ui.updateStats(this.stats);
         }
-        _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+        _sleep(ms) {
+            return new Promise(r => setTimeout(r, ms));
+        }
     }
 
     /* ========== UI ========== */
@@ -623,13 +768,33 @@
 
             const title = $el('div', {
                 html: '🖼️ Pixiv User 批量下载器',
-                style: { fontWeight: 'bold', marginBottom: '15px', color: '#333', textAlign: 'center', fontSize: '16px', borderBottom: '2px solid #eee', paddingBottom: '10px' }
+                style: {
+                    fontWeight: 'bold',
+                    marginBottom: '15px',
+                    color: '#333',
+                    textAlign: 'center',
+                    fontSize: '16px',
+                    borderBottom: '2px solid #eee',
+                    paddingBottom: '10px'
+                }
             });
 
-            const status = $el('div', { innerText: '准备就绪', style: { marginBottom: '10px', color: '#666', fontSize: '12px', textAlign: 'center' } });
-            const stats = $el('div', { innerText: '队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0', style: { marginBottom: '10px', color: '#007bff', fontSize: '12px', textAlign: 'center', fontWeight: 'bold' } });
+            const status = $el('div', {
+                innerText: '准备就绪',
+                style: {marginBottom: '10px', color: '#666', fontSize: '12px', textAlign: 'center'}
+            });
+            const stats = $el('div', {
+                innerText: '队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0',
+                style: {
+                    marginBottom: '10px',
+                    color: '#007bff',
+                    fontSize: '12px',
+                    textAlign: 'center',
+                    fontWeight: 'bold'
+                }
+            });
 
-            const settings = $el('div', { style: { marginBottom: '15px' } });
+            const settings = $el('div', {style: {marginBottom: '15px'}});
             settings.innerHTML = `
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">下载间隔(秒):</label>
@@ -651,30 +816,82 @@
                 </div>
             `;
 
-            const buttonContainer = $el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px' } });
+            const buttonContainer = $el('div', {
+                style: {
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    marginBottom: '10px'
+                }
+            });
             const buttons = [
-                { id: 'fetch-all-btn', text: '📥 获取该画师所有作品', bgColor: '#17a2b8', onClick: () => this.handleFetch(false) },
-                { id: 'fetch-new-btn', text: '🆕 获取并仅下载新作品', bgColor: '#6610f2', onClick: () => this.handleFetch(true) },
-                { id: 'start-btn', text: '🚀 开始批量下载', bgColor: '#28a745', onClick: () => this.handleStart() },
-                { id: 'retry-btn', text: '🔁 重新下载失败的作品', bgColor: '#17a2b8', onClick: () => this.handleRetry() },
-                { id: 'pause-btn', text: '⏸️ 暂停下载', bgColor: '#ffc107', onClick: () => this.handlePause(), disabled: true },
-                { id: 'clear-btn', text: '🗑️ 清除队列', bgColor: '#6c757d', onClick: () => this.handleClear() }
+                {
+                    id: 'fetch-all-btn',
+                    text: '📥 获取该画师所有作品',
+                    bgColor: '#17a2b8',
+                    onClick: () => this.handleFetch(false)
+                },
+                {
+                    id: 'fetch-new-btn',
+                    text: '🆕 获取并仅下载新作品',
+                    bgColor: '#6610f2',
+                    onClick: () => this.handleFetch(true)
+                },
+                {id: 'start-btn', text: '🚀 开始批量下载', bgColor: '#28a745', onClick: () => this.handleStart()},
+                {id: 'retry-btn', text: '🔁 重新下载失败的作品', bgColor: '#17a2b8', onClick: () => this.handleRetry()},
+                {
+                    id: 'pause-btn',
+                    text: '⏸️ 暂停下载',
+                    bgColor: '#ffc107',
+                    onClick: () => this.handlePause(),
+                    disabled: true
+                },
+                {id: 'clear-btn', text: '🗑️ 清除队列', bgColor: '#6c757d', onClick: () => this.handleClear()}
             ];
 
             buttons.forEach(btnConfig => {
                 const button = $el('button', {
                     id: btnConfig.id, innerText: btnConfig.text,
-                    style: { width: '100%', background: btnConfig.bgColor, color: btnConfig.bgColor === '#ffc107' ? 'black' : 'white', border: 'none', padding: '10px', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }
+                    style: {
+                        width: '100%',
+                        background: btnConfig.bgColor,
+                        color: btnConfig.bgColor === '#ffc107' ? 'black' : 'white',
+                        border: 'none',
+                        padding: '10px',
+                        borderRadius: '5px',
+                        cursor: 'pointer',
+                        fontSize: '14px'
+                    }
                 });
                 button.disabled = !!btnConfig.disabled;
                 button.addEventListener('click', btnConfig.onClick);
                 buttonContainer.appendChild(button);
             });
 
-            const currentDownload = $el('div', { style: { marginBottom: '10px', padding: '8px', background: '#f8f9fa', borderRadius: '5px', borderLeft: '4px solid #007bff', fontSize: '11px' } });
+            const currentDownload = $el('div', {
+                style: {
+                    marginBottom: '10px',
+                    padding: '8px',
+                    background: '#f8f9fa',
+                    borderRadius: '5px',
+                    borderLeft: '4px solid #007bff',
+                    fontSize: '11px'
+                }
+            });
             currentDownload.innerHTML = '<strong>当前下载:</strong> 无';
 
-            const queueContainer = $el('div', { style: { maxHeight: '250px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '5px', padding: '10px', marginBottom: '10px', background: '#f8f9fa', fontSize: '11px' } });
+            const queueContainer = $el('div', {
+                style: {
+                    maxHeight: '250px',
+                    overflowY: 'auto',
+                    border: '1px solid #ddd',
+                    borderRadius: '5px',
+                    padding: '10px',
+                    marginBottom: '10px',
+                    background: '#f8f9fa',
+                    fontSize: '11px'
+                }
+            });
 
             container.appendChild(title);
             container.appendChild(status);
@@ -714,7 +931,7 @@
 
         setUserId(uid) {
             this.ensureMounted();
-            if(this.elements.title) this.elements.title.innerText = `🖼️ User: ${uid} (批量下载)`;
+            if (this.elements.title) this.elements.title.innerText = `🖼️ User: ${uid} (批量下载)`;
         }
 
         async handleFetch(onlyNew) {
@@ -730,50 +947,83 @@
                     this.manager.setSkipHistory(true);
                     this.handleStart();
                 }
-            } catch (e) { this.setStatus('获取列表失败: ' + e.message, 'error'); }
+            } catch (e) {
+                this.setStatus('获取列表失败: ' + e.message, 'error');
+            }
         }
 
-        handleStart() { this.manager.start(); }
-        handlePause() { if (this.manager.isPaused) this.manager.resume(); else this.manager.pause(); }
+        handleStart() {
+            this.manager.start();
+        }
+
+        handlePause() {
+            if (this.manager.isPaused) this.manager.resume(); else this.manager.pause();
+        }
 
         handleRetry() {
             const failed = this.manager.queue.filter(q => q.status === 'failed');
             if (!failed.length) return alert('当前没有失败的作品！');
-            failed.forEach(q => { q.status = 'pending'; q.lastMessage = ''; q.startTime = null; q.endTime = null; });
+            failed.forEach(q => {
+                q.status = 'pending';
+                q.lastMessage = '';
+                q.startTime = null;
+                q.endTime = null;
+            });
             this.manager.saveToStorage();
             this.renderQueue(this.manager.queue);
             this.handleStart();
         }
 
-        handleClear() { if (confirm('确认强制清除队列？')) this.manager.stopAndClear(false); }
+        handleClear() {
+            if (confirm('确认强制清除队列？')) this.manager.stopAndClear(false);
+        }
 
         renderQueue(queue) {
             const node = this.elements.queueContainer;
             node.innerHTML = '<div style="font-weight: bold; margin-bottom: 5px;">下载队列:</div>';
-            if (!queue || queue.length === 0) { node.innerHTML += '<div style="color: #666; text-align: center;">队列为空</div>'; return; }
+            if (!queue || queue.length === 0) {
+                node.innerHTML += '<div style="color: #666; text-align: center;">队列为空</div>';
+                return;
+            }
             for (const q of queue) {
-                const item = $el('div', { style: { padding: '5px', marginBottom: '3px', background: 'white', fontSize: '10px', borderLeft: `3px solid ${this._colorByStatus(q.status)}` } });
+                const item = $el('div', {
+                    style: {
+                        padding: '5px',
+                        marginBottom: '3px',
+                        background: 'white',
+                        fontSize: '10px',
+                        borderLeft: `3px solid ${this._colorByStatus(q.status)}`
+                    }
+                });
                 const progressHtml = this._createProgressHtml(q);
-                item.innerHTML = `<div><strong>${escapeHtml(q.title || 'ID: '+q.id)}</strong></div><div>ID: ${q.id} | 状态: ${this._statusText(q.status)}</div>${progressHtml}`;
+                item.innerHTML = `<div><strong>${escapeHtml(q.title || 'ID: ' + q.id)}</strong></div><div>ID: ${q.id} | 状态: ${this._statusText(q.status)}</div>${progressHtml}`;
                 node.appendChild(item);
             }
         }
 
         setCurrent(item) {
             const container = this.elements.currentDownload;
-            if (!item) { container.innerHTML = '<strong>当前下载:</strong> 无'; return; }
+            if (!item) {
+                container.innerHTML = '<strong>当前下载:</strong> 无';
+                return;
+            }
             const progressHtml = this._createProgressHtml(item, true);
             container.innerHTML = `<strong>当前下载:</strong> ${escapeHtml(item.title)} (ID: ${item.id})${progressHtml}`;
         }
 
         updateStats(stats) {
-            const pendingCount = this.manager.queue.filter(q => ['pending','paused','idle'].includes(q.status)).length;
+            const pendingCount = this.manager.queue.filter(q => ['pending', 'paused', 'idle'].includes(q.status)).length;
             this.elements.stats.textContent = `队列: ${pendingCount} | 成功: ${stats.success} | 失败: ${stats.failed} | 进行中: ${stats.active} | 跳过: ${stats.skipped}`;
         }
 
         setStatus(msg, type = 'info') {
             this.elements.status.innerText = msg;
-            const color = { 'info': '#007bff', 'success': '#28a745', 'error': '#dc3545', 'warning': '#ffc107' }[type] || '#666';
+            const color = {
+                'info': '#007bff',
+                'success': '#28a745',
+                'error': '#dc3545',
+                'warning': '#ffc107'
+            }[type] || '#666';
             this.elements.status.style.color = color;
         }
 
@@ -783,14 +1033,33 @@
             this.elements.pauseBtn.innerText = isPaused ? '▶️ 继续下载' : '⏸️ 暂停下载';
         }
 
-        _colorByStatus(status) { return { 'completed': '#28a745', 'downloading': '#007bff', 'failed': '#dc3545', 'paused': '#6c757d', 'skipped': '#ffa500' }[status] || '#6c757d'; }
-        _statusText(status) { return { 'idle': '等待中', 'pending': '等待中', 'downloading': '下载中', 'completed': '已完成', 'failed': '失败', 'paused': '暂停中', 'skipped': '已跳过' }[status] || status; }
+        _colorByStatus(status) {
+            return {
+                'completed': '#28a745',
+                'downloading': '#007bff',
+                'failed': '#dc3545',
+                'paused': '#6c757d',
+                'skipped': '#ffa500'
+            }[status] || '#6c757d';
+        }
+
+        _statusText(status) {
+            return {
+                'idle': '等待中',
+                'pending': '等待中',
+                'downloading': '下载中',
+                'completed': '已完成',
+                'failed': '失败',
+                'paused': '暂停中',
+                'skipped': '已跳过'
+            }[status] || status;
+        }
 
         _createProgressHtml(q, isMain = false) {
             if (q.totalImages <= 0) return '';
             const downloadedCount = q.downloadedCount || 0;
             const progressPercent = Math.min(Math.round((downloadedCount / q.totalImages) * 100), 100);
-            return `<div style="margin-top: 3px;"><div style="display: flex; justify-content: space-between; font-size: 9px; margin-bottom: 2px;"><span>已下载: ${downloadedCount}/${q.totalImages}</span><span>${progressPercent}%</span></div><div style="width: 100%; height: ${isMain?'6px':'4px'}; background: #e0e0e0; border-radius: 2px; overflow: hidden;"><div style="height: 100%; background: ${isMain?'#28a745':'#007bff'}; width: ${progressPercent}%; transition: width 0.3s ease;"></div></div></div>`;
+            return `<div style="margin-top: 3px;"><div style="display: flex; justify-content: space-between; font-size: 9px; margin-bottom: 2px;"><span>已下载: ${downloadedCount}/${q.totalImages}</span><span>${progressPercent}%</span></div><div style="width: 100%; height: ${isMain ? '6px' : '4px'}; background: #e0e0e0; border-radius: 2px; overflow: hidden;"><div style="height: 100%; background: ${isMain ? '#28a745' : '#007bff'}; width: ${progressPercent}%; transition: width 0.3s ease;"></div></div></div>`;
         }
     }
 
@@ -814,5 +1083,8 @@
         }
     }, 1000);
 
-    GM_registerMenuCommand('强制打开下载面板', () => { ui.ensureMounted(); if(ui.root) ui.root.style.display='block'; });
+    GM_registerMenuCommand('强制打开下载面板', () => {
+        ui.ensureMounted();
+        if (ui.root) ui.root.style.display = 'block';
+    });
 })();

@@ -15,6 +15,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.ImageResponse;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
 import top.sywyar.pixivdownload.imageclassifier.ThumbnailManager;
@@ -61,7 +62,7 @@ public class DownloadService {
     private SuperJsonObject timeArtwork;
 
     @Async
-    public void downloadImages(Long artworkId, String title, java.util.List<String> imageUrls, String referer, String cookie) {
+    public void downloadImages(Long artworkId, String title, java.util.List<String> imageUrls, String referer, DownloadRequest.Other other, String cookie) {
         // 初始化下载状态
         DownloadStatus status = new DownloadStatus(artworkId, title, imageUrls.size());
         downloadStatusMap.put(artworkId, status);
@@ -74,10 +75,18 @@ public class DownloadService {
             /*int folderIndex = getNextFolderIndex();
             String folderName = String.valueOf(folderIndex == Integer.MAX_VALUE ? "temp" : folderIndex);*/
             String folderName = String.valueOf(artworkId);
-            status.setFolderName(folderName);
 
             // 创建文件夹结构
-            Path downloadPath = Paths.get(downloadConfig.getRootFolder(), folderName);
+            Path downloadPath = Paths.get(downloadConfig.getRootFolder());
+            if (other.isUserDownload()) {
+                downloadPath = Paths.get(downloadPath.toString(), other.getUsername());
+
+                if (other.isR18()) {
+                    downloadPath = Paths.get(downloadPath.toString(), "r18");
+                }
+            }
+            downloadPath = Paths.get(downloadPath.toString(), folderName);
+            status.setFolderName(Paths.get(downloadConfig.getRootFolder()).relativize(downloadPath).toString());
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
 

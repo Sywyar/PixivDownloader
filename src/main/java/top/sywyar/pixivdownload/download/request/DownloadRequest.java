@@ -22,7 +22,16 @@ public class DownloadRequest {
 
     private String referer = "https://www.pixiv.net/";
 
+    private Other other = new Other();
+
     // 新增Cookie字段
     private String cookie;
 
+    @Getter
+    @Setter
+    public static class Other{
+        private boolean isUserDownload;
+        private String username;
+        private boolean isR18;
+    }
 }

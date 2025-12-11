@@ -31,6 +31,7 @@ public class DownloadController {
                     request.getTitle(),
                     request.getImageUrls(),
                     request.getReferer(),
+                    request.getOther(),
                     request.getCookie()  // 传递Cookie
             );
 

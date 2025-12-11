@@ -51,6 +51,11 @@
             else if (c) e.appendChild(c);
         });
         return e;
+
+        function getCurrentUserId() {
+            const match = location.href.match(/users\/(\d+)/);
+            return match ? match[1] : null;
+        }
     }
 
     /* ========== API 封装 ========== */
@@ -86,7 +91,9 @@
         },
         sendDownloadRequest(artworkId, imageUrls, title) {
             return new Promise((resolve, reject) => {
-                const payload = { artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/' };
+                const payload = { artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/',other:{
+                        userDownload: false
+                    } };
                 GM_xmlhttpRequest({
                     method: 'POST',
                     url: CONFIG.BACKEND_URL,
@@ -364,9 +371,7 @@
                 await Api.sendDownloadRequest(item.id, urls, item.title);
                 const final = await ssePromise;
 
-                // --- 修复开始：校验 downloadedCount ---
                 if (final && final.completed) {
-                    // 后端返回完成，但必须检查是否真的下载了所有图片
                     const dCount = final.downloadedCount !== undefined ? final.downloadedCount : item.totalImages;
                     item.downloadedCount = dCount;
 
