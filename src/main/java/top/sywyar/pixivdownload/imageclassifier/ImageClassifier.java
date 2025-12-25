@@ -961,9 +961,8 @@ public class ImageClassifier extends JFrame {
                     totalGroups));
 
             // 更新窗口标题显示当前进度
-            setTitle(String.format("图片分类工具 - %s/%s - %d 张图片",
-                    currentFolder.getName(),
-                    subFolders.get(subFolders.size() - 1).getName(),
+            setTitle(String.format("图片分类工具 - 共%s个文件夹 - %d 张图片",
+                    subFolders.size() - currentFolderIndex,
                     currentImages.size()));
         }
     }
