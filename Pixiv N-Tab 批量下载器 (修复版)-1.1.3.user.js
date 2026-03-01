@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv N-Tab 批量下载器 (修复版)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.3
+// @version      1.1.4
 // @description  解析 N-Tab 导出，批量提交作品给本地后端下载，支持严格的下载状态校验（修复下载失败显示完成的Bug）。
 // @author       Rewritten by ChatGPT
 // @match        https://www.pixiv.net/
@@ -35,7 +35,8 @@
         STATUS_TIMEOUT_MS: 300000,
         BACKEND_CHECK_TIMEOUT: 3000,
         STORAGE_KEY: 'pixiv_ntab_batch_v1',
-        SKIP_HISTORY_KEY: 'pixiv_ntab_skip_history'
+        SKIP_HISTORY_KEY: 'pixiv_ntab_skip_history',
+        R18_ONLY_KEY: 'pixiv_ntab_r18_only'
     };
 
     /* ========== 简单 DOM 帮助函数 ========== */
@@ -83,6 +84,23 @@
                             const data = JSON.parse(res.responseText);
                             if (data.error) reject(new Error(data.message || 'pixiv ajax error'));
                             else resolve((data.body || []).map(p => p.urls.original));
+                        } catch (e) { reject(e); }
+                    },
+                    onerror: reject
+                });
+            });
+        },
+        getArtworkMeta(artworkId) {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `https://www.pixiv.net/ajax/illust/${artworkId}`,
+                    headers: { Referer: 'https://www.pixiv.net/' },
+                    onload: (res) => {
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            if (data.error) reject(new Error(data.message || 'pixiv ajax error'));
+                            else resolve(data.body);
                         } catch (e) { reject(e); }
                     },
                     onerror: reject
@@ -202,6 +220,7 @@
             this.activeWorkers = 0;
             this.stats = { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
             this.skipHistory = GM_getValue(CONFIG.SKIP_HISTORY_KEY, false);
+            this.r18Only = GM_getValue(CONFIG.R18_ONLY_KEY, false);
         }
 
         loadFromStorage() {
@@ -215,6 +234,7 @@
                     this.isPaused = !!parsed.isPaused;
                     this.stats = parsed.stats || { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
                     this.skipHistory = parsed.skipHistory !== undefined ? parsed.skipHistory : this.skipHistory;
+                    this.r18Only = parsed.r18Only !== undefined ? parsed.r18Only : this.r18Only;
                 }
             } catch (e) { console.warn('loadFromStorage fail', e); }
         }
@@ -227,6 +247,7 @@
                     isPaused: this.isPaused,
                     stats: this.stats,
                     skipHistory: this.skipHistory,
+                    r18Only: this.r18Only,
                     savedAt: new Date().toISOString()
                 };
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(snapshot));
@@ -237,12 +258,19 @@
             try {
                 GM_deleteValue(CONFIG.STORAGE_KEY);
                 GM_deleteValue(CONFIG.SKIP_HISTORY_KEY);
+                GM_deleteValue(CONFIG.R18_ONLY_KEY);
             } catch (e) { }
         }
 
         setSkipHistory(skip) {
             this.skipHistory = skip;
             GM_setValue(CONFIG.SKIP_HISTORY_KEY, skip);
+            this.saveToStorage();
+        }
+
+        setR18Only(r18Only) {
+            this.r18Only = r18Only;
+            GM_setValue(CONFIG.R18_ONLY_KEY, r18Only);
             this.saveToStorage();
         }
 
@@ -352,6 +380,32 @@
                     this.saveToStorage();
                     this.ui.renderQueue(this.queue);
                     this.ui.setStatus(`跳过：${item.title}（已下载过）`, 'warning');
+                    return;
+                }
+            }
+
+            if (this.r18Only) {
+                try {
+                    const meta = await Api.getArtworkMeta(item.id);
+                    const restriction = meta.xRestrict !== undefined ? meta.xRestrict : 0;
+                    if (restriction === 0) {
+                        item.status = 'skipped';
+                        item.lastMessage = '已跳过（非R18）';
+                        item.endTime = new Date().toISOString();
+                        this.updateStats();
+                        this.saveToStorage();
+                        this.ui.renderQueue(this.queue);
+                        this.ui.setStatus(`跳过：${item.title}（非R18）`, 'warning');
+                        return;
+                    }
+                } catch (e) {
+                    item.status = 'failed';
+                    item.lastMessage = '获取作品信息失败';
+                    item.endTime = new Date().toISOString();
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
+                    this.ui.setStatus(`错误：${item.title} - 获取作品信息失败`, 'error');
                     return;
                 }
             }
@@ -560,6 +614,10 @@
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">跳过历史下载:</label>
                     <input type="checkbox" id="skip-history" style="width: 16px; height: 16px;">
                 </div>
+                <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                    <label style="font-size: 12px; margin-right: 10px; width: 120px; color: #d63384;">仅下载R18作品:</label>
+                    <input type="checkbox" id="r18-only" style="width: 16px; height: 16px;">
+                </div>
             `;
 
             const buttonContainer = $el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px' } });
@@ -598,6 +656,7 @@
                 interval: container.querySelector('#download-interval'),
                 concurrent: container.querySelector('#max-concurrent'),
                 skipHistory: container.querySelector('#skip-history'),
+                r18Only: container.querySelector('#r18-only'),
                 parseBtn: container.querySelector('#parse-btn'),
                 startBtn: container.querySelector('#start-btn'),
                 pauseBtn: container.querySelector('#pause-btn'),
@@ -612,8 +671,12 @@
         bindManager(manager) {
             this.manager = manager;
             this.elements.skipHistory.checked = manager.skipHistory;
+            this.elements.r18Only.checked = manager.r18Only;
             this.elements.skipHistory.addEventListener('change', (e) => {
                 this.manager.setSkipHistory(e.target.checked);
+            });
+            this.elements.r18Only.addEventListener('change', (e) => {
+                this.manager.setR18Only(e.target.checked);
             });
         }
 

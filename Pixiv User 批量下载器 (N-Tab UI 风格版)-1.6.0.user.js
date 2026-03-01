@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv User 批量下载器 (N-Tab UI 风格版)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.2
+// @version      1.7.3
 // @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Go 后端。界面复刻 N-Tab 风格。优化暂停逻辑：确保当前任务完成后再停止。已加入全局 username 机制。在标题显示用户名。
 // @author       Rewritten by ChatGPT
 // @match        https://www.pixiv.net/*
@@ -852,6 +852,7 @@
                     onClick: () => this.handlePause(),
                     disabled: true
                 },
+                {id: 'export-btn', text: '📤 导出列表', bgColor: '#007bff', onClick: () => this.handleExport()},
                 {id: 'clear-btn', text: '🗑️ 清除队列', bgColor: '#6c757d', onClick: () => this.handleClear()}
             ];
 
@@ -993,6 +994,25 @@
 
         handleClear() {
             if (confirm('确认强制清除队列？')) this.manager.stopAndClear(false);
+        }
+
+        handleExport() {
+            if (!this.manager.queue || this.manager.queue.length === 0) {
+                alert('队列为空，无内容可导出');
+                return;
+            }
+            
+            const exportContent = this.manager.queue.map(item => `https://www.pixiv.net/artworks/${item.id}`).join('\n');
+            const blob = new Blob([exportContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `pixiv_works_list_${this.manager.userId || 'unknown'}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            this.setStatus('导出成功', 'success');
         }
 
         renderQueue(queue) {
