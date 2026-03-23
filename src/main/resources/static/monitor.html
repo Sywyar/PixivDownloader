@@ -3,803 +3,950 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pixiv下载数据大屏</title>
+    <title>PIXIV // DOWNLOAD MONITOR</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* ── Variables ─────────────────────────────────────────── */
         :root {
-            --primary-color: #6f42c1;
-            --secondary-color: #6610f2;
-            --success-color: #20c997;
-            --info-color: #0dcaf0;
-            --warning-color: #fd7e14;
-            --danger-color: #dc3545;
-            --dark-color: #343a40;
-            --light-color: #f8f9fa;
+            --bg:           #060612;
+            --surface:      #0b0b1f;
+            --surface2:     #101030;
+            --cyan:         #00e5ff;
+            --cyan-dim:     rgba(0, 229, 255, 0.15);
+            --cyan-glow:    0 0 8px rgba(0,229,255,0.6), 0 0 24px rgba(0,229,255,0.2);
+            --purple:       #7c3aed;
+            --purple-dim:   rgba(124, 58, 237, 0.15);
+            --green:        #00ff88;
+            --green-dim:    rgba(0, 255, 136, 0.15);
+            --amber:        #f59e0b;
+            --red:          #ef4444;
+            --border:       rgba(0, 229, 255, 0.12);
+            --border-bright:rgba(0, 229, 255, 0.45);
+            --text:         #94a3b8;
+            --text-bright:  #e2e8f0;
+            --text-dim:     #334155;
+            --font:         'JetBrains Mono', 'Courier New', monospace;
         }
+
+        /* ── Reset / Base ──────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; }
 
         body {
-            background-color: #1a1a2e;
-            color: #ffffff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            background-image:
+                linear-gradient(rgba(0,229,255,0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,229,255,0.025) 1px, transparent 1px);
+            background-size: 44px 44px;
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 13px;
             overflow-x: hidden;
+            min-height: 100vh;
         }
 
-        .dashboard-header {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 1rem 0;
-            margin-bottom: 2rem;
+        /* scanline overlay */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent 0px, transparent 1px,
+                rgba(0,0,0,0.06) 1px, rgba(0,0,0,0.06) 2px
+            );
+            pointer-events: none;
+            z-index: 9999;
         }
 
-        .dashboard-header .text-muted {
-            color: #ffffff !important;
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: var(--surface); }
+        ::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 2px; }
+
+        /* ── Typography ────────────────────────────────────────── */
+        a { color: var(--cyan); text-decoration: none; }
+        code {
+            font-family: var(--font);
+            color: var(--cyan);
+            background: var(--cyan-dim);
+            padding: 1px 6px;
+            border-radius: 3px;
+            font-size: 0.85em;
+        }
+
+        /* ── Glitch ────────────────────────────────────────────── */
+        .glitch {
+            position: relative;
+            display: inline-block;
+        }
+        .glitch::before,
+        .glitch::after {
+            content: attr(data-text);
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+        }
+        .glitch::before {
+            color: #ff2d78;
+            animation: glitch-a 4s steps(1) infinite;
+        }
+        .glitch::after {
+            color: var(--cyan);
+            animation: glitch-b 4s steps(1) infinite;
+        }
+        @keyframes glitch-a {
+            0%,85%,100% { clip-path: inset(0 0 100% 0); transform: translate(0); }
+            87%  { clip-path: inset(8% 0 55% 0);  transform: translate(-3px, 1px); }
+            89%  { clip-path: inset(40% 0 30% 0); transform: translate(3px, -1px); }
+            91%  { clip-path: inset(65% 0 10% 0); transform: translate(-2px); }
+        }
+        @keyframes glitch-b {
+            0%,85%,100% { clip-path: inset(0 0 100% 0); transform: translate(0); }
+            88%  { clip-path: inset(15% 0 50% 0); transform: translate(2px, -1px); }
+            90%  { clip-path: inset(55% 0 15% 0); transform: translate(-3px); }
+            92%  { clip-path: inset(75% 0 5% 0);  transform: translate(1px, 2px); }
+        }
+
+        /* ── Panel / Card ──────────────────────────────────────── */
+        .panel {
+            position: relative;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 1.25rem;
+            margin-bottom: 1.25rem;
+        }
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: -1px; left: -1px;
+            width: 14px; height: 14px;
+            border-top: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+        }
+        .panel::after {
+            content: '';
+            position: absolute;
+            bottom: -1px; right: -1px;
+            width: 14px; height: 14px;
+            border-bottom: 2px solid var(--cyan);
+            border-right: 2px solid var(--cyan);
+        }
+
+        .panel-label {
+            position: absolute;
+            top: -0.6rem;
+            left: 1rem;
+            background: var(--bg);
+            padding: 0 0.5rem;
+            font-size: 0.65rem;
+            letter-spacing: 0.18em;
+            color: var(--cyan);
+            text-transform: uppercase;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 0.75rem;
+            margin-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.7rem;
+            letter-spacing: 0.1em;
+            color: var(--cyan);
+            text-transform: uppercase;
+        }
+
+        /* ── Header ────────────────────────────────────────────── */
+        .site-header {
+            border-bottom: 1px solid var(--border);
+            padding: 0.9rem 0;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(180deg, rgba(0,229,255,0.03) 0%, transparent 100%);
+        }
+
+        .header-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-bright);
+            letter-spacing: 0.05em;
+            margin: 0;
+            line-height: 1;
+        }
+
+        .header-subtitle {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            letter-spacing: 0.12em;
+            margin-top: 0.3rem;
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.7rem;
+            letter-spacing: 0.1em;
+            color: var(--text);
+        }
+
+        .live-dot {
+            width: 7px;
+            height: 7px;
+            background: var(--green);
+            border-radius: 50%;
+            box-shadow: 0 0 6px var(--green);
+            animation: blink 2s ease-in-out infinite;
+            flex-shrink: 0;
+        }
+        @keyframes blink {
+            0%,100% { opacity: 1; }
+            50%      { opacity: 0.3; }
+        }
+
+        .last-updated {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            letter-spacing: 0.08em;
+        }
+        #lastUpdatedTime { color: var(--cyan); }
+
+        /* ── Stat Cards ────────────────────────────────────────── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.25rem;
         }
 
         .stat-card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 10px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            border-left: 4px solid var(--primary-color);
-            transition: transform 0.3s, box-shadow 0.3s;
-            color: #ffffff;
+            position: relative;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 1.1rem 1.25rem 0.9rem;
+            transition: border-color 0.3s, box-shadow 0.3s;
         }
-
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: -1px; left: -1px;
+            width: 10px; height: 10px;
+            border-top: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+        }
+        .stat-card::after {
+            content: '';
+            position: absolute;
+            bottom: -1px; right: -1px;
+            width: 10px; height: 10px;
+            border-bottom: 2px solid var(--cyan);
+            border-right: 2px solid var(--cyan);
+        }
         .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            border-color: var(--border-bright);
+            box-shadow: var(--cyan-glow);
         }
 
-        .stat-card .stat-value {
-            font-size: 2rem;
+        .stat-label {
+            font-size: 0.62rem;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin: 0 0 0.5rem;
+        }
+
+        .stat-value {
+            font-size: 2.2rem;
             font-weight: 700;
+            color: var(--cyan);
+            text-shadow: var(--cyan-glow);
             margin: 0;
-            color: #ffffff;
+            line-height: 1;
+            letter-spacing: -0.02em;
         }
 
-        .stat-card .stat-label {
-            font-size: 0.9rem;
-            color: #adb5bd;
-            margin: 0;
-        }
-
-        .card {
-            background: rgba(255, 255, 255, 0.05);
-            border: none;
-            border-radius: 10px;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            color: #ffffff;
-        }
-
-        .card-header {
-            background: rgba(255, 255, 255, 0.08);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            font-weight: 600;
-            padding: 1rem 1.25rem;
-            border-radius: 10px 10px 0 0 !important;
-            color: #ffffff;
-        }
-
+        /* ── Table ─────────────────────────────────────────────── */
         .table {
-            color: #ffffff;
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 0.8rem;
             margin-bottom: 0;
-            background-color: transparent;
+            border-color: transparent;
+        }
+
+        .table thead tr {
+            border-bottom: 1px solid var(--border);
         }
 
         .table th {
-            border-top: none;
-            font-weight: 600;
-            color: #adb5bd;
-            background: rgba(255, 255, 255, 0.05);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(0,229,255,0.04);
+            color: var(--text-dim);
+            font-size: 0.62rem;
+            font-weight: 500;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            border: none;
+            padding: 0.6rem 0.75rem;
+            white-space: nowrap;
         }
 
         .table th.sortable-th {
             cursor: pointer;
             user-select: none;
-            white-space: nowrap;
+            transition: color 0.2s, background 0.2s;
         }
-
         .table th.sortable-th:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: #ffffff;
+            color: var(--cyan);
+            background: rgba(0,229,255,0.07);
         }
-
-        .table th.sortable-th.sort-active {
-            color: #ffffff;
+        .table th.sort-active {
+            color: var(--cyan);
         }
 
         .sort-icon {
             display: inline-block;
             font-style: normal;
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             margin-left: 4px;
-            opacity: 0.5;
-            vertical-align: middle;
+            opacity: 0.45;
         }
-
         .sort-active .sort-icon {
             opacity: 1;
-            color: var(--primary-color);
+            color: var(--cyan);
         }
 
         .table td {
-            border-color: rgba(255, 255, 255, 0.1);
+            border-color: var(--border);
+            border-top: none;
+            border-left: none;
+            border-right: none;
+            padding: 0.6rem 0.75rem;
             vertical-align: middle;
-            padding: 0.75rem;
-            background-color: transparent;
-            color: #ffffff;
-        }
-
-        .table tbody tr {
-            transition: background-color 0.2s;
+            color: var(--text);
             background-color: transparent;
         }
+        .table tbody tr { transition: background 0.15s; }
+        .table tbody tr:hover td { background-color: rgba(0,229,255,0.04); }
 
-        .table tbody tr:hover {
-            background-color: rgba(111, 66, 193, 0.1);
+        .artwork-id-cell {
+            color: var(--cyan);
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+        .artwork-title {
+            max-width: 200px;
+            word-wrap: break-word;
+            white-space: normal;
+            color: var(--text-bright);
         }
 
-        .progress {
-            height: 8px;
-            background-color: rgba(255, 255, 255, 0.1);
-            margin-top: 5px;
-            border-radius: 4px;
+        .count-badge {
+            display: inline-block;
+            background: var(--purple-dim);
+            color: var(--purple);
+            border: 1px solid rgba(124,58,237,0.3);
+            padding: 1px 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
         }
 
-        .progress-bar {
-            background-color: var(--primary-color);
-            border-radius: 4px;
+        .time-cell .date { color: var(--text); font-size: 0.75rem; }
+        .time-cell .time { color: var(--text-dim); font-size: 0.7rem; margin-top: 1px; }
+
+        /* ── Status Badges ─────────────────────────────────────── */
+        .status-badge {
+            display: inline-block;
+            font-size: 0.6rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            padding: 2px 8px;
+            border-width: 1px;
+            border-style: solid;
+            text-transform: uppercase;
+        }
+        .status-completed {
+            background: var(--cyan-dim);
+            color: var(--cyan);
+            border-color: rgba(0,229,255,0.35);
+        }
+        .status-moved {
+            background: var(--purple-dim);
+            color: #a78bfa;
+            border-color: rgba(124,58,237,0.35);
+        }
+        .status-active {
+            background: var(--green-dim);
+            color: var(--green);
+            border-color: rgba(0,255,136,0.35);
+        }
+        .status-failed {
+            background: rgba(239,68,68,0.12);
+            color: var(--red);
+            border-color: rgba(239,68,68,0.35);
+        }
+        .status-cancelled {
+            background: rgba(100,116,139,0.12);
+            color: #64748b;
+            border-color: rgba(100,116,139,0.35);
         }
 
-        .thumbnail-container {
-            width: 80px;
-            height: 80px;
-            overflow: hidden;
-            border-radius: 5px;
-            background-color: rgba(255, 255, 255, 0.05);
-            display: flex;
+        /* ── Action Buttons ────────────────────────────────────── */
+        .action-buttons { display: flex; gap: 0.4rem; }
+
+        .btn-term {
+            display: inline-flex;
             align-items: center;
             justify-content: center;
-            transition: transform 0.2s;
+            background: transparent;
+            border: 1px solid var(--border-bright);
+            color: var(--cyan);
+            padding: 3px 9px;
+            font-family: var(--font);
+            font-size: 0.65rem;
+            letter-spacing: 0.08em;
+            cursor: pointer;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        .btn-term:hover {
+            background: var(--cyan-dim);
+            box-shadow: var(--cyan-glow);
+        }
+        .btn-term.btn-info-term {
+            border-color: rgba(124,58,237,0.5);
+            color: #a78bfa;
+        }
+        .btn-term.btn-info-term:hover {
+            background: var(--purple-dim);
+            box-shadow: 0 0 8px rgba(124,58,237,0.5);
         }
 
-        .thumbnail-container:hover {
-            transform: scale(1.05);
-        }
-
-        .thumbnail {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: cover;
-        }
-
-        .status-badge {
-            padding: 0.35em 0.65em;
-            font-size: 0.75em;
-            font-weight: 600;
-            border-radius: 0.25rem;
-        }
-
-        .status-active {
-            background-color: rgba(32, 201, 151, 0.2);
-            color: var(--success-color);
-        }
-
-        .status-completed {
-            background-color: rgba(13, 202, 240, 0.2);
-            color: var(--info-color);
-        }
-
-        .status-failed {
-            background-color: rgba(220, 53, 69, 0.2);
-            color: var(--danger-color);
-        }
-
-        .status-cancelled {
-            background-color: rgba(108, 117, 125, 0.2);
-            color: var(--dark-color);
-        }
-
-        .status-moved {
-            background-color: rgba(111, 66, 193, 0.2);
-            color: var(--primary-color);
-        }
-
-        .search-box {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 5px;
-            color: #ffffff;
-            padding: 0.5rem 1rem;
-        }
-
-        .search-box:focus {
-            background: rgba(255, 255, 255, 0.08);
-            border-color: var(--primary-color);
-            color: #ffffff;
-            box-shadow: 0 0 0 0.2rem rgba(111, 66, 193, 0.25);
-        }
-
+        /* ── Pagination ────────────────────────────────────────── */
+        .pagination { gap: 3px; }
         .pagination .page-link {
-            background-color: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #ffffff;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 0.72rem;
+            padding: 4px 10px;
+            line-height: 1.4;
+            border-radius: 0;
+            transition: all 0.2s;
         }
-
         .pagination .page-link:hover {
-            background-color: rgba(111, 66, 193, 0.2);
-            border-color: var(--primary-color);
-            color: #ffffff;
+            background: var(--cyan-dim);
+            border-color: var(--border-bright);
+            color: var(--cyan);
         }
-
         .pagination .page-item.active .page-link {
-            background-color: var(--primary-color);
-            border-color: var(--primary-color);
+            background: var(--cyan-dim);
+            border-color: var(--cyan);
+            color: var(--cyan);
+            box-shadow: var(--cyan-glow);
+        }
+        .pagination .page-item.disabled .page-link {
+            background: transparent;
+            border-color: var(--text-dim);
+            color: var(--text-dim);
+            opacity: 0.4;
         }
 
-        .last-updated {
-            font-size: 0.8rem;
-            color: #adb5bd;
+        /* ── Search Box ────────────────────────────────────────── */
+        .search-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            color: var(--text-bright);
+            padding: 4px 10px;
+            font-family: var(--font);
+            font-size: 0.75rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .search-box:focus {
+            outline: none;
+            background: var(--surface2);
+            border-color: var(--border-bright);
+            color: var(--text-bright);
+            box-shadow: var(--cyan-glow);
+        }
+        .search-box::placeholder { color: var(--text-dim); }
+
+        .btn-refresh {
+            background: transparent;
+            border: 1px solid var(--border-bright);
+            color: var(--cyan);
+            padding: 4px 10px;
+            font-family: var(--font);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: background 0.2s, box-shadow 0.2s;
+            border-radius: 0;
+        }
+        .btn-refresh:hover {
+            background: var(--cyan-dim);
+            box-shadow: var(--cyan-glow);
         }
 
+        /* ── Chart Container ───────────────────────────────────── */
         .chart-container {
             position: relative;
-            height: 300px;
+            height: 220px;
             width: 100%;
         }
 
-        .loading-spinner {
-            display: inline-block;
-            width: 1rem;
-            height: 1rem;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            border-top-color: #fff;
-            animation: spin 1s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .btn-primary {
-            background-color: var(--primary-color);
-            border-color: var(--primary-color);
-        }
-
-        .btn-primary:hover {
-            background-color: var(--secondary-color);
-            border-color: var(--secondary-color);
-        }
-
-        .modal-content {
-            background-color: #2d3748;
-            color: #ffffff;
-            border-radius: 10px;
-        }
-
-        .modal-header {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 10px 10px 0 0;
-            color: #ffffff;
-        }
-
-        .modal-footer {
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 0 0 10px 10px;
-        }
-
-        .btn-close {
-            filter: invert(1);
-        }
-
-        .image-modal img {
-            max-width: 100%;
-            max-height: 80vh;
-            border-radius: 5px;
-        }
-
-        .artwork-title {
-            max-width: 200px;
-            overflow: visible;
-            text-overflow: unset;
-            white-space: normal;
-            color: #ffffff;
-            word-wrap: break-word;
-        }
-
-        .time-badge {
-            background: rgba(255, 255, 255, 0.05);
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            color: #ffffff;
-        }
-
-        .action-buttons {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        .download-item {
-            border-left: 3px solid var(--primary-color);
-            padding-left: 1rem;
-            color: #ffffff;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 3rem 1rem;
-            color: #adb5bd;
-        }
-
-        .empty-state i {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            opacity: 0.5;
-        }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 1rem;
-        }
-
-        .table-responsive {
-            background-color: transparent;
-            border-radius: 0 0 10px 10px;
-            overflow: hidden;
-        }
-
-        .table-striped tbody tr:nth-of-type(odd) {
-            background-color: rgba(255, 255, 255, 0.02);
-        }
-
-        #activeDownloadsList {
-            color: #ffffff;
-        }
-
-        #activeDownloadsList strong,
-        #activeDownloadsList span,
-        #activeDownloadsList .progress {
-            color: #ffffff;
-        }
-
-        .modal-backdrop {
-            z-index: 1040;
-        }
-
-        .modal {
-            z-index: 1050;
-        }
-
-        .active-downloads-container {
-            padding: 0.5rem;
-        }
+        /* ── Active Downloads ──────────────────────────────────── */
+        .active-downloads-container { padding: 0.1rem 0; }
 
         .active-download-item {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 0.75rem;
-            border-left: 4px solid var(--primary-color);
+            background: rgba(0,229,255,0.03);
+            border: 1px solid var(--border);
+            border-left: 3px solid var(--cyan);
+            padding: 0.85rem 0.9rem;
+            margin-bottom: 0.6rem;
             transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
         }
-
         .active-download-item:hover {
-            background: rgba(255, 255, 255, 0.08);
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            background: rgba(0,229,255,0.06);
+            box-shadow: var(--cyan-glow);
         }
-
-        .active-download-item:last-child {
-            margin-bottom: 0;
-        }
+        .active-download-item:last-child { margin-bottom: 0; }
 
         .active-download-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.6rem;
         }
 
-        .artwork-title {
+        .download-artwork-title {
             font-weight: 700;
-            font-size: 1.1rem;
-            color: var(--primary-color);
-            margin-bottom: 0.25rem;
-        }
-
-        .artwork-id {
-            font-size: 0.9rem;
-            color: #ffffff;
-            line-height: 1.3;
-            max-width: 200px;
+            font-size: 0.8rem;
+            color: var(--cyan);
+            max-width: 180px;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
 
-        .active-download-source {
-            font-size: 0.75rem;
-            color: #adb5bd;
-            margin-top: 0.25rem;
+        .download-artwork-id {
+            font-size: 0.72rem;
+            color: var(--text);
+            margin-top: 2px;
         }
 
-        .download-progress-container {
-            margin-top: 0.5rem;
+        .active-download-source {
+            font-size: 0.62rem;
+            color: var(--text-dim);
+            letter-spacing: 0.1em;
+            margin-top: 2px;
         }
 
         .progress-info {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 0.5rem;
+            margin-bottom: 5px;
         }
-
-        .progress-count {
-            font-size: 0.85rem;
-            color: #adb5bd;
-        }
-
+        .progress-count { font-size: 0.7rem; color: var(--text-dim); }
         .progress-percentage {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--primary-color);
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: var(--cyan);
         }
 
         .active-download-progress {
-            height: 6px;
-            background-color: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
+            height: 3px;
+            background: rgba(255,255,255,0.06);
             overflow: hidden;
         }
-
         .active-download-progress-bar {
             height: 100%;
-            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
-            border-radius: 3px;
+            background: linear-gradient(90deg, var(--cyan), #7c3aed);
+            box-shadow: 0 0 8px rgba(0,229,255,0.7);
             transition: width 0.5s ease;
             position: relative;
         }
-
         .active-download-progress-bar::after {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            right: 0;
+            inset: 0;
             background-image: linear-gradient(
-                    -45deg,
-                    rgba(255, 255, 255, 0.2) 25%,
-                    transparent 25%,
-                    transparent 50%,
-                    rgba(255, 255, 255, 0.2) 50%,
-                    rgba(255, 255, 255, 0.2) 75%,
-                    transparent 75%,
-                    transparent
+                -45deg,
+                rgba(255,255,255,0.25) 25%, transparent 25%,
+                transparent 50%, rgba(255,255,255,0.25) 50%,
+                rgba(255,255,255,0.25) 75%, transparent 75%, transparent
             );
-            background-size: 10px 10px;
-            animation: move 1s linear infinite;
+            background-size: 8px 8px;
+            animation: bar-move 0.8s linear infinite;
         }
-
-        @keyframes move {
-            0% {
-                background-position: 0 0;
-            }
-            100% {
-                background-position: 10px 0;
-            }
+        @keyframes bar-move {
+            from { background-position: 0 0; }
+            to   { background-position: 8px 0; }
         }
 
         .download-status {
             display: flex;
             align-items: center;
-            margin-top: 0.75rem;
-            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            font-size: 0.65rem;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
         }
-
         .status-indicator {
-            width: 8px;
-            height: 8px;
+            width: 6px;
+            height: 6px;
+            background: var(--green);
             border-radius: 50%;
-            background-color: var(--primary-color);
-            margin-right: 0.5rem;
+            box-shadow: 0 0 6px var(--green);
+            margin-right: 6px;
             animation: pulse 2s infinite;
         }
-
         @keyframes pulse {
-            0% {
-                box-shadow: 0 0 0 0 rgba(111, 66, 193, 0.7);
-            }
-            70% {
-                box-shadow: 0 0 0 5px rgba(111, 66, 193, 0);
-            }
-            100% {
-                box-shadow: 0 0 0 0 rgba(111, 66, 193, 0);
-            }
+            0%   { box-shadow: 0 0 0 0 rgba(0,255,136,0.7); }
+            70%  { box-shadow: 0 0 0 5px rgba(0,255,136,0); }
+            100% { box-shadow: 0 0 0 0 rgba(0,255,136,0); }
         }
 
-        .status-text {
-            color: #adb5bd;
+        /* ── Empty States ──────────────────────────────────────── */
+        .empty-state {
+            text-align: center;
+            padding: 2.5rem 1rem;
+            color: var(--text-dim);
         }
-
-        #emptyActiveState {
-            padding: 2rem 1rem;
+        .empty-state i {
+            font-size: 2rem;
+            margin-bottom: 0.75rem;
+            display: block;
+            opacity: 0.35;
+            color: var(--cyan);
         }
-
-        #emptyActiveState i {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-            opacity: 0.5;
-            color: var(--primary-color);
+        .empty-state h5 {
+            font-size: 0.8rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            margin-bottom: 0.35rem;
         }
+        .empty-state p { font-size: 0.72rem; margin: 0; }
 
-        /* 优化图片预览样式 */
+        /* ── Thumbnail Grid ────────────────────────────────────── */
         .thumbnail-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-            gap: 12px;
-            padding: 10px;
-            max-height: 500px;
+            grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+            gap: 10px;
+            padding: 8px;
+            max-height: 460px;
             overflow-y: auto;
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: 8px;
+            background: rgba(0,0,0,0.2);
         }
-
         .thumbnail-item {
             position: relative;
-            border-radius: 6px;
+            border: 1px solid var(--border);
             overflow: hidden;
-            background: rgba(255, 255, 255, 0.05);
-            transition: all 0.3s ease;
+            background: var(--surface2);
+            transition: all 0.25s ease;
             aspect-ratio: 3/4;
             display: flex;
             align-items: center;
             justify-content: center;
-            border: 1px solid rgba(255, 255, 255, 0.1);
             cursor: pointer;
         }
-
         .thumbnail-item:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 5px 15px rgba(111, 66, 193, 0.3);
-            border-color: var(--primary-color);
+            border-color: var(--border-bright);
+            box-shadow: var(--cyan-glow);
         }
-
         .thumbnail-img {
             width: 100%;
             height: 100%;
             object-fit: cover;
             transition: transform 0.3s ease;
         }
-
-        .thumbnail-item:hover .thumbnail-img {
-            transform: scale(1.05);
-        }
-
+        .thumbnail-item:hover .thumbnail-img { transform: scale(1.06); }
         .thumbnail-index {
             position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            font-size: 0.75rem;
-            padding: 4px;
+            bottom: 0; left: 0; right: 0;
+            background: rgba(0,0,0,0.75);
+            color: var(--text-dim);
+            font-size: 0.62rem;
+            padding: 3px;
             text-align: center;
-            backdrop-filter: blur(5px);
+            letter-spacing: 0.08em;
         }
-
         .thumbnail-loading {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            color: #adb5bd;
+            color: var(--text-dim);
+            gap: 6px;
+            font-size: 0.62rem;
         }
-
         .thumbnail-loading .spinner {
-            width: 24px;
-            height: 24px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(0,229,255,0.2);
+            border-top-color: var(--cyan);
             border-radius: 50%;
-            border-top-color: var(--primary-color);
-            animation: spin 1s ease-in-out infinite;
-            margin-bottom: 8px;
+            animation: spin 0.8s linear infinite;
         }
-
+        @keyframes spin { to { transform: rotate(360deg); } }
         .thumbnail-error {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            color: #dc3545;
-            padding: 10px;
+            color: var(--red);
+            gap: 4px;
+            font-size: 0.62rem;
+            padding: 8px;
         }
-
-        .thumbnail-error i {
-            font-size: 1.5rem;
-            margin-bottom: 5px;
-        }
-
         .thumbnail-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             padding-bottom: 10px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            border-bottom: 1px solid var(--border);
         }
+        .thumbnail-count { font-size: 0.72rem; color: var(--text-dim); }
 
-        .thumbnail-count {
-            font-size: 0.9rem;
-            color: #adb5bd;
+        /* ── Modals ────────────────────────────────────────────── */
+        .modal-content {
+            background: var(--surface);
+            border: 1px solid var(--border-bright);
+            border-radius: 0;
+            color: var(--text);
+            font-family: var(--font);
+            box-shadow: 0 0 40px rgba(0,229,255,0.15);
         }
-
-        .thumbnail-actions {
-            display: flex;
-            gap: 10px;
+        .modal-header {
+            background: rgba(0,229,255,0.04);
+            border-bottom: 1px solid var(--border);
+            padding: 0.85rem 1.25rem;
         }
-
+        .modal-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--cyan);
+        }
         .modal-body {
             max-height: 70vh;
             overflow-y: auto;
+            padding: 1.25rem;
+        }
+        .modal-footer {
+            border-top: 1px solid var(--border);
+            padding: 0.75rem 1.25rem;
+        }
+        .btn-close { filter: invert(1) sepia(1) saturate(5) hue-rotate(155deg); opacity: 0.7; }
+        .btn-close:hover { opacity: 1; }
+
+        .detail-section h6 {
+            font-size: 0.62rem;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--cyan);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.4rem;
+            margin-bottom: 0.75rem;
+        }
+        .detail-list { list-style: none; padding: 0; margin: 0; }
+        .detail-list li {
+            display: flex;
+            gap: 0.75rem;
+            padding: 0.35rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            font-size: 0.78rem;
+        }
+        .detail-list li:last-child { border-bottom: none; }
+        .detail-key {
+            color: var(--text-dim);
+            white-space: nowrap;
+            min-width: 6rem;
+            flex-shrink: 0;
+        }
+        .detail-val { color: var(--text-bright); word-break: break-all; }
+
+        .image-modal img {
+            max-width: 100%;
+            max-height: 80vh;
+        }
+
+        /* ── Misc Bootstrap overrides ──────────────────────────── */
+        .card-footer {
+            background: rgba(0,229,255,0.03);
+            border-top: 1px solid var(--border);
+            padding: 0.6rem 1rem;
+        }
+        .table-responsive { background: transparent; overflow-x: auto; }
+        .badge.bg-primary { background: var(--cyan-dim) !important; color: var(--cyan); border: 1px solid rgba(0,229,255,0.3); font-family: var(--font); font-size: 0.65rem; letter-spacing: 0.05em; border-radius: 0; }
+        .modal-backdrop { backdrop-filter: blur(2px); }
+        .modal { z-index: 1050; }
+        .modal-backdrop { z-index: 1040; }
+
+        /* ── Responsive tweaks ─────────────────────────────────── */
+        @media (max-width: 768px) {
+            .stat-value { font-size: 1.6rem; }
+            .header-title { font-size: 1rem; }
+            .artwork-title { max-width: 120px; }
         }
     </style>
 </head>
 <body>
-<div class="dashboard-header">
-    <div class="container">
-        <div class="row align-items-center">
-            <div class="col-md-6">
-                <h1 class="h3 mb-0">
-                    <i class="fas fa-chart-line me-2"></i>Pixiv下载数据大屏
+
+<!-- ═══════════════════════════════ HEADER ═══════════════════════════════ -->
+<header class="site-header">
+    <div class="container-fluid px-4">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1 class="header-title">
+                    <span class="glitch" data-text="PIXIV // DOWNLOAD MONITOR">PIXIV // DOWNLOAD MONITOR</span>
                 </h1>
-                <p class="mb-0 text-muted">实时监控下载状态与历史记录</p>
+                <div class="header-subtitle">&gt;&gt; REALTIME MONITORING / STATUS &amp; HISTORY</div>
             </div>
-            <div class="col-md-6 text-end">
-                <span class="last-updated">最后更新: <span id="lastUpdatedTime">--:--:--</span></span>
+            <div class="header-status">
+                <div class="live-dot"></div>
+                <span style="color:var(--green);letter-spacing:.1em">LIVE</span>
+                <span style="margin-left:.75rem;" class="last-updated">UPDATED&nbsp;<span id="lastUpdatedTime">--:--:--</span></span>
             </div>
         </div>
     </div>
-</div>
+</header>
 
-<div class="container">
-    <!-- 统计信息 -->
-    <div class="stats-grid mb-4">
+<div class="container-fluid px-4">
+
+    <!-- ════════════ STAT CARDS ════════════ -->
+    <div class="stats-grid">
         <div class="stat-card">
-            <p class="stat-label">总下载作品</p>
+            <p class="stat-label">// Total Artworks</p>
             <h2 class="stat-value" id="totalArtworks">0</h2>
         </div>
         <div class="stat-card">
-            <p class="stat-label">总下载图片</p>
+            <p class="stat-label">// Total Images</p>
             <h2 class="stat-value" id="totalImages">0</h2>
         </div>
         <div class="stat-card">
-            <p class="stat-label">已移动作品</p>
+            <p class="stat-label">// Moved</p>
             <h2 class="stat-value" id="totalMoved">0</h2>
         </div>
         <div class="stat-card">
-            <p class="stat-label">活跃下载</p>
+            <p class="stat-label">// Active Downloads</p>
             <h2 class="stat-value" id="activeDownloads">0</h2>
         </div>
     </div>
 
-    <div class="row">
-        <!-- 左侧：下载历史 -->
+    <!-- ════════════ MAIN ROW ════════════ -->
+    <div class="row g-3">
+
+        <!-- LEFT: Download History -->
         <div class="col-lg-8">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="fas fa-history me-2"></i>下载历史</span>
-                    <div class="d-flex">
-                        <input type="text" class="search-box me-2" id="searchInput" placeholder="搜索作品ID或标题...">
-                        <button class="btn btn-sm btn-primary" id="refreshHistory">
+            <div class="panel" style="padding:0; overflow:hidden;">
+                <div class="panel-header" style="padding:.75rem 1rem; margin:0;">
+                    <span><i class="fas fa-database me-1" style="font-size:.65rem;"></i>DOWNLOAD HISTORY</span>
+                    <div class="d-flex gap-2">
+                        <input type="text" class="search-box" id="searchInput" placeholder="search id / title...">
+                        <button class="btn-refresh" id="refreshHistory" title="Refresh">
                             <i class="fas fa-sync-alt"></i>
                         </button>
                     </div>
                 </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover table-striped mb-0">
-                            <thead>
-                            <tr>
-                                <th width="15%" id="th-artworkId" class="sortable-th" onclick="sortBy('artworkId')">作品ID <i id="sort-artworkId" class="sort-icon">↕</i></th>
-                                <th width="25%" id="th-title"     class="sortable-th" onclick="sortBy('title')">标题 <i id="sort-title" class="sort-icon">↕</i></th>
-                                <th width="10%" id="th-count"     class="sortable-th" onclick="sortBy('count')">图片数量 <i id="sort-count" class="sort-icon">↕</i></th>
-                                <th width="20%" id="th-time"      class="sortable-th sort-active" onclick="sortBy('time')">下载时间 <i id="sort-time" class="sort-icon">↓</i></th>
-                                <th width="15%" id="th-moved"     class="sortable-th" onclick="sortBy('moved')">状态 <i id="sort-moved" class="sort-icon">↕</i></th>
-                                <th width="15%">操作</th>
-                            </tr>
-                            </thead>
-                            <tbody id="historyTableBody">
-                            <!-- 历史记录将在这里动态生成 -->
-                            </tbody>
-                        </table>
-                    </div>
-                    <div id="emptyHistoryState" class="empty-state d-none">
-                        <i class="fas fa-inbox"></i>
-                        <h5>暂无下载历史</h5>
-                        <p class="text-muted">还没有任何作品被下载</p>
-                    </div>
+
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                        <tr>
+                            <th width="14%" id="th-artworkId" class="sortable-th" onclick="sortBy('artworkId')">ARTWORK ID <i id="sort-artworkId" class="sort-icon">↕</i></th>
+                            <th width="26%" id="th-title"     class="sortable-th" onclick="sortBy('title')">TITLE <i id="sort-title" class="sort-icon">↕</i></th>
+                            <th width="10%" id="th-count"     class="sortable-th" onclick="sortBy('count')">IMGS <i id="sort-count" class="sort-icon">↕</i></th>
+                            <th width="18%" id="th-time"      class="sortable-th sort-active" onclick="sortBy('time')">DATE <i id="sort-time" class="sort-icon">↓</i></th>
+                            <th width="14%" id="th-moved"     class="sortable-th" onclick="sortBy('moved')">STATUS <i id="sort-moved" class="sort-icon">↕</i></th>
+                            <th width="18%">OPS</th>
+                        </tr>
+                        </thead>
+                        <tbody id="historyTableBody"></tbody>
+                    </table>
                 </div>
+
+                <div id="emptyHistoryState" class="empty-state d-none">
+                    <i class="fas fa-inbox"></i>
+                    <h5>No Download History</h5>
+                    <p class="text-muted">No artworks downloaded yet.</p>
+                </div>
+
                 <div class="card-footer">
                     <nav>
-                        <ul class="pagination pagination-sm justify-content-center mb-0" id="pagination">
-                            <!-- 分页将在这里动态生成 -->
-                        </ul>
+                        <ul class="pagination pagination-sm justify-content-center mb-0" id="pagination"></ul>
                     </nav>
                 </div>
             </div>
         </div>
 
-        <!-- 右侧：下载状态和统计 -->
+        <!-- RIGHT: Active Downloads + Chart -->
         <div class="col-lg-4">
-            <!-- 活跃下载 -->
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="fas fa-sync-alt me-2"></i>活跃下载</span>
+
+            <!-- Active Downloads -->
+            <div class="panel" style="padding:0; overflow:hidden;">
+                <div class="panel-header" style="padding:.75rem 1rem; margin:0;">
+                    <span><i class="fas fa-bolt me-1" style="font-size:.65rem;"></i>ACTIVE DOWNLOADS</span>
                     <span class="badge bg-primary" id="activeCount">0</span>
                 </div>
-                <div class="card-body p-0">
-                    <div id="activeDownloadsList" class="active-downloads-container">
-                        <!-- 活跃下载将在这里动态生成 -->
-                    </div>
+                <div style="padding:.75rem;">
+                    <div id="activeDownloadsList" class="active-downloads-container"></div>
                     <div id="emptyActiveState" class="empty-state d-none">
                         <i class="fas fa-check-circle"></i>
-                        <h5>暂无活跃下载</h5>
-                        <p class="text-muted">当前没有正在进行的下载任务</p>
+                        <h5>Queue Empty</h5>
+                        <p>No active download tasks.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- 下载统计图表 -->
-            <div class="card">
-                <div class="card-header"><i class="fas fa-chart-bar me-2"></i>下载统计</div>
-                <div class="card-body">
+            <!-- Chart -->
+            <div class="panel" style="padding:0; overflow:hidden;">
+                <div class="panel-header" style="padding:.75rem 1rem; margin:0;">
+                    <span><i class="fas fa-chart-bar me-1" style="font-size:.65rem;"></i>MONTHLY IMAGES</span>
+                </div>
+                <div style="padding:.75rem;">
                     <div class="chart-container">
                         <canvas id="downloadStatsChart"></canvas>
                     </div>
                 </div>
             </div>
+
         </div>
     </div>
-</div>
 
-<!-- 作品详情模态框 -->
+</div><!-- /container -->
+
+<!-- ═══════════════════════════ ARTWORK MODAL ═══════════════════════════ -->
 <div class="modal fade" id="artworkModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">作品详情</h5>
+                <h5 class="modal-title"><i class="fas fa-file-image me-2"></i>ARTWORK DETAIL</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body" id="artworkModalBody">
-                <!-- 作品详情将在这里动态生成 -->
-            </div>
+            <div class="modal-body" id="artworkModalBody"></div>
         </div>
     </div>
 </div>
 
-<!-- 图片查看模态框 -->
+<!-- ════════════════════════ IMAGE PREVIEW MODAL ════════════════════════ -->
 <div class="modal fade image-modal" id="imageModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">图片预览</h5>
+                <h5 class="modal-title"><i class="fas fa-expand-alt me-2"></i>IMAGE PREVIEW</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body text-center">
-                <img id="modalImage" src="" alt="预览图片">
+                <img id="modalImage" src="" alt="preview" style="max-width:100%;max-height:80vh;">
             </div>
         </div>
     </div>
@@ -808,13 +955,13 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     // ===================== 状态 =====================
-    let currentPage = 1;          // 1-indexed
+    let currentPage = 1;
     let totalPages = 1;
     let totalElements = 0;
     const PAGE_SIZE = 10;
 
     let searchQuery = '';
-    let allArtworksCache = null;  // 全量数据缓存，用于图表和搜索
+    let allArtworksCache = null;
 
     let sortKey = 'time';
     let sortDir = 'desc';
@@ -915,7 +1062,7 @@
         } catch (e) { console.error('统计加载失败', e); }
     }
 
-    // ===================== 全量数据（图表 + 表格 + 搜索） =====================
+    // ===================== 全量数据 =====================
     async function loadAllDataForChart() {
         try {
             const res = await fetch('/api/downloaded/history/paged?page=0&size=9999');
@@ -927,7 +1074,7 @@
         } catch (e) {
             console.error('数据加载失败', e);
             document.getElementById('historyTableBody').innerHTML =
-                '<tr><td colspan="6" class="text-center text-danger">加载失败，请点击刷新重试</td></tr>';
+                '<tr><td colspan="6" class="text-center" style="color:var(--red);padding:2rem;">LOAD FAILED — CLICK REFRESH TO RETRY</td></tr>';
         }
     }
 
@@ -978,7 +1125,7 @@
         });
     }
 
-    // ===================== 从缓存渲染表格（含分页） =====================
+    // ===================== 从缓存渲染（含分页） =====================
     function renderFromCache() {
         if (!allArtworksCache) return;
         const sorted = getSortedCache();
@@ -1023,27 +1170,25 @@
         emptyState.classList.add('d-none');
         tbody.innerHTML = artworks.map(artwork => {
             const dt          = formatDateTime(artwork.time);
-            const status      = artwork.moved ? '已移动' : '已下载';
+            const status      = artwork.moved ? 'MOVED' : 'DONE';
             const statusClass = artwork.moved ? 'status-moved' : 'status-completed';
-            const title       = escapeHtml(artwork.title || '未知标题');
+            const title       = escapeHtml(artwork.title || '—');
             return `
             <tr>
-                <td><strong>${artwork.artworkId}</strong></td>
+                <td class="artwork-id-cell">${artwork.artworkId}</td>
                 <td class="artwork-title" title="${title}">${title}</td>
-                <td><span class="badge bg-secondary">${artwork.count}</span></td>
-                <td>
-                    <div>${dt.date}</div>
-                    <div class="time-badge">${dt.time}</div>
+                <td><span class="count-badge">${artwork.count}</span></td>
+                <td class="time-cell">
+                    <div class="date">${dt.date}</div>
+                    <div class="time">${dt.time}</div>
                 </td>
                 <td><span class="status-badge ${statusClass}">${status}</span></td>
                 <td>
                     <div class="action-buttons">
-                        <button class="btn btn-sm btn-outline-primary"
-                            onclick="viewArtworkDetails(${artwork.artworkId})" title="查看详情">
+                        <button class="btn-term" onclick="viewArtworkDetails(${artwork.artworkId})" title="详情">
                             <i class="fas fa-eye"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-info"
-                            onclick="viewThumbnails(${artwork.artworkId})" title="查看图片">
+                        <button class="btn-term btn-info-term" onclick="viewThumbnails(${artwork.artworkId})" title="图片">
                             <i class="fas fa-images"></i>
                         </button>
                     </div>
@@ -1052,7 +1197,7 @@
         }).join('');
     }
 
-    // ===================== 分页渲染 =====================
+    // ===================== 分页 =====================
     function renderPagination() {
         const pagination = document.getElementById('pagination');
         if (totalPages <= 1) { pagination.innerHTML = ''; return; }
@@ -1090,7 +1235,7 @@
         renderFromCache();
     }
 
-    // ===================== 图表（全量数据） =====================
+    // ===================== 图表 =====================
     function updateChart(artworks) {
         const ctx = document.getElementById('downloadStatsChart').getContext('2d');
 
@@ -1113,19 +1258,31 @@
                 datasets: [{
                     label: '每月下载图片数',
                     data,
-                    backgroundColor: 'rgba(111, 66, 193, 0.7)',
-                    borderColor:     'rgba(111, 66, 193, 1)',
-                    borderWidth: 1
+                    backgroundColor: 'rgba(0, 229, 255, 0.15)',
+                    borderColor:     'rgba(0, 229, 255, 0.8)',
+                    borderWidth: 1,
+                    hoverBackgroundColor: 'rgba(0, 229, 255, 0.3)',
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#adb5bd' } },
-                    x: {                    grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#adb5bd' } }
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: 'rgba(0,229,255,0.06)' },
+                        ticks: { color: '#475569', font: { family: 'JetBrains Mono', size: 10 } },
+                        border: { color: 'rgba(0,229,255,0.1)' }
+                    },
+                    x: {
+                        grid: { color: 'rgba(0,229,255,0.06)' },
+                        ticks: { color: '#475569', font: { family: 'JetBrains Mono', size: 10 } },
+                        border: { color: 'rgba(0,229,255,0.1)' }
+                    }
                 },
-                plugins: { legend: { labels: { color: '#adb5bd' } } }
+                plugins: {
+                    legend: { labels: { color: '#475569', font: { family: 'JetBrains Mono', size: 10 } } }
+                }
             }
         });
     }
@@ -1144,12 +1301,11 @@
             prevActiveCount = activeDownloads.length;
             activeDownloads = details.filter(d => d && !d.completed && !d.failed && !d.cancelled);
 
-            document.getElementById('activeCount').textContent    = activeDownloads.length;
+            document.getElementById('activeCount').textContent     = activeDownloads.length;
             document.getElementById('activeDownloads').textContent = activeDownloads.length;
             renderActiveDownloads();
             updateLastUpdatedTime();
 
-            // 有下载刚完成，刷新历史和统计
             if (prevActiveCount > 0 && activeDownloads.length < prevActiveCount) {
                 loadStatistics();
                 currentPage = 1;
@@ -1174,15 +1330,15 @@
             return `
             <div class="active-download-item">
                 <div class="active-download-header">
-                    <div class="artwork-info">
-                        <div class="artwork-title" title="${escapeHtml(d.title)}">${escapeHtml(d.title || '未知标题')}</div>
-                        <div class="artwork-id">${d.artworkId}</div>
-                        <div class="active-download-source">pixiv</div>
+                    <div>
+                        <div class="download-artwork-title" title="${escapeHtml(d.title)}">${escapeHtml(d.title || '—')}</div>
+                        <div class="download-artwork-id">#${d.artworkId}</div>
+                        <div class="active-download-source">pixiv.net</div>
                     </div>
                 </div>
-                <div class="download-progress-container">
+                <div>
                     <div class="progress-info">
-                        <span class="progress-count">${d.downloadedCount || 0}/${d.totalImages || 0}</span>
+                        <span class="progress-count">${d.downloadedCount || 0} / ${d.totalImages || 0}</span>
                         <span class="progress-percentage">${progress.toFixed(1)}%</span>
                     </div>
                     <div class="active-download-progress">
@@ -1191,7 +1347,7 @@
                 </div>
                 <div class="download-status">
                     <div class="status-indicator"></div>
-                    <span class="status-text">下载中...</span>
+                    <span>DOWNLOADING...</span>
                 </div>
             </div>`;
         }).join('');
@@ -1204,43 +1360,41 @@
             if (!res.ok) throw new Error();
             const artwork = await res.json();
 
-            const dt      = formatDateTime(artwork.time);
-            const moveDt  = artwork.moveTime ? formatDateTime(artwork.moveTime).full : null;
+            const dt     = formatDateTime(artwork.time);
+            const moveDt = artwork.moveTime ? formatDateTime(artwork.moveTime).full : null;
 
             document.getElementById('artworkModalBody').innerHTML = `
-            <div class="row">
-                <div class="col-md-6">
-                    <h6><i class="fas fa-info-circle me-2"></i>作品信息</h6>
-                    <ul class="list-unstyled">
-                        <li class="mb-2"><strong>作品ID:</strong> ${artwork.artworkId}</li>
-                        <li class="mb-2"><strong>标题:</strong> ${escapeHtml(artwork.title || '未知标题')}</li>
-                        <li class="mb-2"><strong>图片数量:</strong> <span class="badge bg-secondary">${artwork.count}</span></li>
-                        <li class="mb-2"><strong>下载时间:</strong> ${dt.full}</li>
-                        <li class="mb-2"><strong>状态:</strong>
-                            <span class="status-badge ${artwork.moved ? 'status-moved' : 'status-completed'}">
-                                ${artwork.moved ? '已移动' : '已下载'}
-                            </span>
-                        </li>
+            <div class="row g-3">
+                <div class="col-md-6 detail-section">
+                    <h6><i class="fas fa-info-circle me-2"></i>ARTWORK INFO</h6>
+                    <ul class="detail-list">
+                        <li><span class="detail-key">Artwork ID</span><span class="detail-val" style="color:var(--cyan)">${artwork.artworkId}</span></li>
+                        <li><span class="detail-key">Title</span><span class="detail-val">${escapeHtml(artwork.title || '—')}</span></li>
+                        <li><span class="detail-key">Images</span><span class="detail-val"><span class="count-badge">${artwork.count}</span></span></li>
+                        <li><span class="detail-key">Downloaded</span><span class="detail-val">${dt.full}</span></li>
+                        <li><span class="detail-key">Status</span><span class="detail-val"><span class="status-badge ${artwork.moved ? 'status-moved' : 'status-completed'}">${artwork.moved ? 'MOVED' : 'DONE'}</span></span></li>
                     </ul>
                 </div>
-                <div class="col-md-6">
-                    <h6><i class="fas fa-folder me-2"></i>存储信息</h6>
-                    <ul class="list-unstyled">
-                        <li class="mb-2"><strong>原始文件夹:</strong><br>
-                            <code class="text-break">${escapeHtml(artwork.folder)}</code>
+                <div class="col-md-6 detail-section">
+                    <h6><i class="fas fa-folder me-2"></i>STORAGE</h6>
+                    <ul class="detail-list">
+                        <li style="flex-direction:column;gap:.3rem;">
+                            <span class="detail-key">Original Path</span>
+                            <code class="text-break" style="font-size:.75rem;">${escapeHtml(artwork.folder)}</code>
                         </li>
                         ${artwork.moved ? `
-                        <li class="mb-2"><strong>移动后文件夹:</strong><br>
-                            <code class="text-break">${escapeHtml(artwork.moveFolder)}</code>
+                        <li style="flex-direction:column;gap:.3rem;">
+                            <span class="detail-key">Moved To</span>
+                            <code class="text-break" style="font-size:.75rem;">${escapeHtml(artwork.moveFolder)}</code>
                         </li>
-                        <li class="mb-2"><strong>移动时间:</strong> ${moveDt}</li>
+                        <li><span class="detail-key">Moved At</span><span class="detail-val">${moveDt}</span></li>
                         ` : ''}
                     </ul>
                 </div>
             </div>
             <div class="mt-3 text-center">
-                <button class="btn btn-primary" onclick="viewThumbnails(${artwork.artworkId})">
-                    <i class="fas fa-images me-1"></i>查看图片
+                <button class="btn-term" onclick="viewThumbnails(${artwork.artworkId})">
+                    <i class="fas fa-images me-1"></i>VIEW IMAGES
                 </button>
             </div>`;
 
@@ -1258,24 +1412,21 @@
             if (!res.ok) throw new Error();
             const artwork = await res.json();
 
-            // 每张图片用唯一 id，避免异步并发时错位
             document.getElementById('artworkModalBody').innerHTML = `
             <div class="thumbnail-header">
                 <div>
-                    <h6 class="mb-0">图片预览</h6>
-                    <div class="thumbnail-count">共 ${artwork.count} 张图片</div>
+                    <div style="font-size:.7rem;letter-spacing:.15em;text-transform:uppercase;color:var(--cyan);">IMAGE PREVIEW</div>
+                    <div class="thumbnail-count">${artwork.count} images</div>
                 </div>
-                <div class="thumbnail-actions">
-                    <button class="btn btn-sm btn-outline-secondary" onclick="viewArtworkDetails(${artworkId})">
-                        <i class="fas fa-arrow-left me-1"></i>返回详情
-                    </button>
-                </div>
+                <button class="btn-term" onclick="viewArtworkDetails(${artworkId})">
+                    <i class="fas fa-arrow-left me-1"></i>BACK
+                </button>
             </div>
             <div class="thumbnail-grid">
                 ${Array.from({ length: artwork.count }, (_, i) => `
                 <div class="thumbnail-item" id="thumb-${artworkId}-${i}"
                      onclick="viewFullImage(${artworkId}, ${i})">
-                    <div class="thumbnail-loading"><div class="spinner"></div><span>加载中</span></div>
+                    <div class="thumbnail-loading"><div class="spinner"></div><span style="font-size:.6rem">loading</span></div>
                     <div class="thumbnail-index">${i + 1}</div>
                 </div>`).join('')}
             </div>`;
@@ -1300,11 +1451,11 @@
             const data = await res.json();
             if (data.success && data.image) {
                 item.innerHTML = `
-                <img src="data:image/${data.extension};base64,${data.image}" class="thumbnail-img" alt="缩略图">
+                <img src="data:image/${data.extension};base64,${data.image}" class="thumbnail-img" alt="thumb">
                 <div class="thumbnail-index">${page + 1}</div>`;
             } else throw new Error(data.message);
         } catch (e) {
-            item.innerHTML = `<div class="thumbnail-error"><i class="fas fa-exclamation-circle"></i><span>加载失败</span></div>`;
+            item.innerHTML = `<div class="thumbnail-error"><i class="fas fa-exclamation-circle"></i><span>ERR</span></div>`;
             item.style.cursor = 'default';
             item.onclick = null;
         }
