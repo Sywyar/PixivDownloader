@@ -774,9 +774,66 @@
         }
         .detail-val { color: var(--text-bright); word-break: break-all; }
 
+        .image-modal .modal-content {
+            background: rgba(0,0,0,0.96);
+            border: none;
+            height: 100%;
+        }
+        .image-modal .modal-body {
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
         .image-modal img {
-            max-width: 100%;
-            max-height: 80vh;
+            max-width: calc(100% - 120px);
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .img-nav-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0,0,0,0.5);
+            border: 1px solid rgba(0,229,255,0.25);
+            color: var(--cyan);
+            width: 48px;
+            height: 88px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-family: var(--font);
+            transition: background 0.2s, border-color 0.2s;
+            z-index: 10;
+        }
+        .img-nav-btn:hover:not(:disabled) {
+            background: rgba(0,229,255,0.12);
+            border-color: var(--border-bright);
+        }
+        .img-nav-btn:disabled { opacity: 0.18; cursor: default; }
+        .img-nav-btn.prev { left: 12px; }
+        .img-nav-btn.next { right: 12px; }
+        .img-counter {
+            position: absolute;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            letter-spacing: .12em;
+            background: rgba(0,0,0,0.6);
+            padding: 3px 12px;
+            pointer-events: none;
+        }
+        .img-close-btn {
+            position: absolute;
+            top: 10px;
+            right: 12px;
+            z-index: 20;
         }
 
         /* ── Misc Bootstrap overrides ──────────────────────────── */
@@ -939,14 +996,18 @@
 
 <!-- ════════════════════════ IMAGE PREVIEW MODAL ════════════════════════ -->
 <div class="modal fade image-modal" id="imageModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-fullscreen m-0">
         <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-expand-alt me-2"></i>IMAGE PREVIEW</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body text-center">
-                <img id="modalImage" src="" alt="preview" style="max-width:100%;max-height:80vh;">
+            <div class="modal-body">
+                <div id="imgCounter" class="img-counter"></div>
+                <button type="button" class="btn-close img-close-btn" data-bs-dismiss="modal" aria-label="Close"></button>
+                <button id="imgPrevBtn" class="img-nav-btn prev" onclick="navigateFullImg(-1)">
+                    <i class="fas fa-chevron-left"></i>
+                </button>
+                <img id="modalImage" src="" alt="preview">
+                <button id="imgNextBtn" class="img-nav-btn next" onclick="navigateFullImg(1)">
+                    <i class="fas fa-chevron-right"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -974,6 +1035,17 @@
     let activeUpdateInterval;
     let artworkModal = null;
     let imageModal = null;
+
+    let thumbArtworkId = null;
+    let thumbCurrentPage = 1;
+    let thumbTotalPages = 1;
+    let thumbCount = 0;
+    const THUMB_PAGE_SIZE = 24;
+
+    let fullImgArtworkId = null;
+    let fullImgPage = 0;
+    let fullImgTotal = 0;
+    let fullImgLoading = false;
 
     // ===================== 工具 =====================
     function escapeHtml(str) {
@@ -1008,6 +1080,12 @@
         initDashboard();
         updateInterval       = setInterval(updateDashboard, 5000);
         activeUpdateInterval = setInterval(updateActiveDownloads, 2000);
+
+        document.addEventListener('keydown', e => {
+            if (!document.getElementById('imageModal').classList.contains('show')) return;
+            if (e.key === 'ArrowLeft')  navigateFullImg(-1);
+            if (e.key === 'ArrowRight') navigateFullImg(1);
+        });
     });
 
     document.addEventListener('visibilitychange', () => {
@@ -1412,6 +1490,11 @@
             if (!res.ok) throw new Error();
             const artwork = await res.json();
 
+            thumbArtworkId   = artworkId;
+            thumbCount       = artwork.count;
+            thumbTotalPages  = Math.ceil(thumbCount / THUMB_PAGE_SIZE) || 1;
+            thumbCurrentPage = 1;
+
             document.getElementById('artworkModalBody').innerHTML = `
             <div class="thumbnail-header">
                 <div>
@@ -1422,24 +1505,71 @@
                     <i class="fas fa-arrow-left me-1"></i>BACK
                 </button>
             </div>
-            <div class="thumbnail-grid">
-                ${Array.from({ length: artwork.count }, (_, i) => `
-                <div class="thumbnail-item" id="thumb-${artworkId}-${i}"
-                     onclick="viewFullImage(${artworkId}, ${i})">
-                    <div class="thumbnail-loading"><div class="spinner"></div><span style="font-size:.6rem">loading</span></div>
-                    <div class="thumbnail-index">${i + 1}</div>
-                </div>`).join('')}
-            </div>`;
+            <div id="thumbnailGrid" class="thumbnail-grid"></div>
+            <div id="thumbPagination" style="margin-top:10px;display:flex;justify-content:center;"></div>`;
 
             artworkModal.show();
-
-            for (let i = 0; i < artwork.count; i++) {
-                loadThumbnail(artworkId, i);
-            }
+            renderThumbnailPage();
         } catch (e) {
             console.error('加载缩略图失败', e);
             alert('加载缩略图失败');
         }
+    }
+
+    function renderThumbnailPage() {
+        const artworkId = thumbArtworkId;
+        const start = (thumbCurrentPage - 1) * THUMB_PAGE_SIZE;
+        const end   = Math.min(start + THUMB_PAGE_SIZE, thumbCount);
+        const grid  = document.getElementById('thumbnailGrid');
+        if (!grid) return;
+
+        grid.innerHTML = Array.from({ length: end - start }, (_, i) => {
+            const idx = start + i;
+            return `
+            <div class="thumbnail-item" id="thumb-${artworkId}-${idx}"
+                 onclick="viewFullImage(${artworkId}, ${idx})">
+                <div class="thumbnail-loading"><div class="spinner"></div><span style="font-size:.6rem">loading</span></div>
+                <div class="thumbnail-index">${idx + 1}</div>
+            </div>`;
+        }).join('');
+
+        renderThumbPagination();
+
+        for (let i = start; i < end; i++) {
+            loadThumbnail(artworkId, i);
+        }
+    }
+
+    function renderThumbPagination() {
+        const container = document.getElementById('thumbPagination');
+        if (!container) return;
+        if (thumbTotalPages <= 1) { container.innerHTML = ''; return; }
+
+        const maxVisible = 5;
+        let start = Math.max(1, thumbCurrentPage - Math.floor(maxVisible / 2));
+        let end   = Math.min(thumbTotalPages, start + maxVisible - 1);
+        if (end - start + 1 < maxVisible) start = Math.max(1, end - maxVisible + 1);
+
+        let html = `<ul class="pagination pagination-sm mb-0" style="gap:3px;">`;
+        html += `<li class="page-item ${thumbCurrentPage === 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changeThumbPage(${thumbCurrentPage - 1}); return false;"><i class="fas fa-chevron-left"></i></a>
+        </li>`;
+        for (let i = start; i <= end; i++) {
+            html += `<li class="page-item ${i === thumbCurrentPage ? 'active' : ''}">
+                <a class="page-link" href="#" onclick="changeThumbPage(${i}); return false;">${i}</a>
+            </li>`;
+        }
+        html += `<li class="page-item ${thumbCurrentPage === thumbTotalPages ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="changeThumbPage(${thumbCurrentPage + 1}); return false;"><i class="fas fa-chevron-right"></i></a>
+        </li></ul>`;
+
+        container.innerHTML = html;
+    }
+
+    function changeThumbPage(page) {
+        if (page < 1 || page > thumbTotalPages) return;
+        thumbCurrentPage = page;
+        renderThumbnailPage();
     }
 
     async function loadThumbnail(artworkId, page) {
@@ -1463,19 +1593,53 @@
 
     // ===================== 原图预览 =====================
     async function viewFullImage(artworkId, page) {
-        try {
-            const res = await fetch(`/api/downloaded/image/${artworkId}/${page}`);
-            if (!res.ok) throw new Error();
-            const data = await res.json();
-            if (data.success && data.image) {
-                document.getElementById('modalImage').src =
-                    `data:image/${data.extension};base64,${data.image}`;
-                imageModal.show();
-            } else throw new Error(data.message);
-        } catch (e) {
-            console.error('加载完整图片失败', e);
-            alert('加载图片失败');
+        fullImgArtworkId = artworkId;
+        fullImgPage      = page;
+        fullImgTotal     = (thumbArtworkId === artworkId) ? thumbCount : 0;
+        const ok = await loadFullImage();
+        if (ok) imageModal.show();
+    }
+
+    function loadFullImage() {
+        if (fullImgLoading) return Promise.resolve(false);
+        fullImgLoading = true;
+        const img = document.getElementById('modalImage');
+        img.src = '';
+        return new Promise((resolve) => {
+            img.onload = () => {
+                updateImgNav();
+                fullImgLoading = false;
+                resolve(true);
+            };
+            img.onerror = () => {
+                console.error('加载完整图片失败');
+                alert('加载图片失败');
+                fullImgLoading = false;
+                resolve(false);
+            };
+            img.src = `/api/downloaded/rawfile/${fullImgArtworkId}/${fullImgPage}`;
+        });
+    }
+
+    async function navigateFullImg(delta) {
+        const newPage = fullImgPage + delta;
+        if (newPage < 0) return;
+        if (fullImgTotal > 0 && newPage >= fullImgTotal) return;
+        fullImgPage = newPage;
+        await loadFullImage();
+    }
+
+    function updateImgNav() {
+        const counter = document.getElementById('imgCounter');
+        const prevBtn = document.getElementById('imgPrevBtn');
+        const nextBtn = document.getElementById('imgNextBtn');
+        if (counter) {
+            counter.textContent = fullImgTotal > 0
+                ? `${fullImgPage + 1} / ${fullImgTotal}`
+                : `# ${fullImgPage + 1}`;
         }
+        if (prevBtn) prevBtn.disabled = fullImgPage === 0;
+        if (nextBtn) nextBtn.disabled = fullImgTotal > 0 && fullImgPage === fullImgTotal - 1;
     }
 </script>
 </body>
