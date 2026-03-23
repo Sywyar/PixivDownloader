@@ -23,12 +23,16 @@ import top.sywyar.pixivdownload.imageclassifier.ThumbnailManager;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 @Slf4j
 @Service
@@ -92,41 +96,135 @@ public class DownloadService {
 
             HashSet<String> fileExtensions = new HashSet<>();
 
-            // 下载所有图片
-            for (int i = 0; i < imageUrls.size(); i++) {
-                if (status.isCancelled()) {
-                    break; // 如果下载被取消，停止下载
-                }
-
-                String imageUrl = imageUrls.get(i);
-
-                //在开始下载每张图片前更新当前图片索引
-                status.setCurrentImageIndex(i);
-                status.setDownloadedCount(successCount.get()); // 更新已下载数量
-
-                // 发送图片开始下载状态更新
+            if (other.isUgoira() && other.getUgoiraZipUrl() != null) {
+                // === 动图 (ugoira) 处理：下载ZIP → 提取帧 → ffmpeg 合成 WebP ===
+                fileExtensions.add("webp");
+                status.setCurrentImageIndex(0);
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));
 
+                Path zipPath = downloadPath.resolve("_ugoira_frames.zip");
+                Path tempDir = downloadPath.resolve("_frames_tmp");
+                log.info("正在压缩：作品 {}", artworkId);
                 try {
-                    String extension = getFileExtension(imageUrl);
-                    fileExtensions.add(extension);
-                    String filename = artworkId + "_p" + i + "." + extension;
-                    Path filePath = downloadPath.resolve(filename);
-                    if (downloadImage(httpClient, imageUrl, filePath, referer, cookie)) {
-                        successCount.incrementAndGet();
-                        status.setDownloadedCount(successCount.get()); // 更新成功下载数量
+                    boolean zipOk = downloadImage(httpClient, other.getUgoiraZipUrl(), zipPath, referer, cookie);
+                    if (!zipOk) {
+                        log.error("作品：{}，动图ZIP下载失败", artworkId);
+                    } else {
+                        Files.createDirectories(tempDir);
 
-                        log.info("作品：{}，下载进度：{}/{}", artworkId, successCount.get(), imageUrls.size());
+                        // 解压帧到临时目录，按文件名有序排列
+                        TreeMap<String, Path> frameFiles = new TreeMap<>();
+                        try (ZipInputStream zis = new ZipInputStream(
+                                new FileInputStream(zipPath.toFile()), StandardCharsets.UTF_8)) {
+                            ZipEntry entry;
+                            while ((entry = zis.getNextEntry()) != null) {
+                                if (!entry.isDirectory()) {
+                                    Path framePath = tempDir.resolve(entry.getName());
+                                    try (FileOutputStream fos = new FileOutputStream(framePath.toFile())) {
+                                        byte[] buf = new byte[8192];
+                                        int len;
+                                        while ((len = zis.read(buf)) != -1) fos.write(buf, 0, len);
+                                    }
+                                    frameFiles.put(entry.getName(), framePath);
+                                }
+                                zis.closeEntry();
+                            }
+                        }
 
-                        // 发送图片下载完成状态更新
-                        eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));
+                        if (frameFiles.isEmpty()) {
+                            log.error("作品：{}，ZIP内无帧文件", artworkId);
+                        } else {
+                            List<Map.Entry<String, Path>> orderedFrames = new ArrayList<>(frameFiles.entrySet());
+                            List<Integer> delays = other.getUgoiraDelays();
+                            if (delays == null || delays.size() != orderedFrames.size()) {
+                                delays = Collections.nCopies(orderedFrames.size(), 100);
+                            }
+
+                            // 保存第一帧作为缩略图（供后端 thumbnail 接口使用）
+                            Files.copy(orderedFrames.get(0).getValue(),
+                                    downloadPath.resolve(artworkId + "_p0_thumb.jpg"),
+                                    StandardCopyOption.REPLACE_EXISTING);
+
+                            // 生成 ffmpeg concat 文件列表（支持可变帧延迟）
+                            Path listFile = tempDir.resolve("frames.txt");
+                            StringBuilder sb = new StringBuilder();
+                            for (int i = 0; i < orderedFrames.size(); i++) {
+                                String fp = orderedFrames.get(i).getValue().toAbsolutePath()
+                                        .toString().replace("\\", "/");
+                                sb.append("file '").append(fp).append("'\n");
+                                sb.append("duration ").append(delays.get(i) / 1000.0).append("\n");
+                            }
+                            // ffmpeg concat 需要重复最后一帧才能正确应用末帧时长
+                            sb.append("file '").append(
+                                    orderedFrames.get(orderedFrames.size() - 1).getValue()
+                                            .toAbsolutePath().toString().replace("\\", "/"))
+                                    .append("'\n");
+                            Files.writeString(listFile, sb.toString(), StandardCharsets.UTF_8);
+
+                            Path webpPath = downloadPath.resolve(artworkId + "_p0.webp");
+                            ProcessBuilder pb = new ProcessBuilder(
+                                    "ffmpeg", "-y",
+                                    "-f", "concat", "-safe", "0",
+                                    "-i", listFile.toAbsolutePath().toString(),
+                                    "-vcodec", "libwebp",
+                                    "-quality", "90",
+                                    "-loop", "0",
+                                    "-an",
+                                    webpPath.toAbsolutePath().toString()
+                            );
+                            pb.redirectErrorStream(true);
+                            Process process = pb.start();
+                            process.getInputStream().transferTo(OutputStream.nullOutputStream());
+                            int exitCode = process.waitFor();
+
+                            if (exitCode == 0) {
+                                successCount.set(1);
+                            } else {
+                                log.error("作品：{}，ffmpeg 执行失败，退出码：{}", artworkId, exitCode);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("作品：{}，动图处理异常: {}", artworkId, e.getMessage(), e);
+                } finally {
+                    try { Files.deleteIfExists(zipPath); } catch (Exception ignored) {}
+                    try {
+                        Files.walk(tempDir).sorted(Comparator.reverseOrder())
+                                .map(Path::toFile).forEach(File::delete);
+                    } catch (Exception ignored) {}
+                }
+
+                status.setDownloadedCount(successCount.get());
+                eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));
+
+            } else {
+                // === 普通图片下载 ===
+                for (int i = 0; i < imageUrls.size(); i++) {
+                    if (status.isCancelled()) {
+                        break;
                     }
 
-                    // 延迟避免请求过快
-                    Thread.sleep(downloadConfig.getDelayMs());
+                    String imageUrl = imageUrls.get(i);
 
-                } catch (Exception e) {
-                    System.err.println("下载图片失败: " + imageUrl + ", 错误: " + e.getMessage());
+                    status.setCurrentImageIndex(i);
+                    status.setDownloadedCount(successCount.get());
+                    eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));
+
+                    try {
+                        String extension = getFileExtension(imageUrl);
+                        fileExtensions.add(extension);
+                        String filename = artworkId + "_p" + i + "." + extension;
+                        Path filePath = downloadPath.resolve(filename);
+                        if (downloadImage(httpClient, imageUrl, filePath, referer, cookie)) {
+                            successCount.incrementAndGet();
+                            status.setDownloadedCount(successCount.get());
+                            log.info("作品：{}，下载进度：{}/{}", artworkId, successCount.get(), imageUrls.size());
+                            eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));
+                        }
+                        Thread.sleep(downloadConfig.getDelayMs());
+                    } catch (Exception e) {
+                        System.err.println("下载图片失败: " + imageUrl + ", 错误: " + e.getMessage());
+                    }
                 }
             }
 
@@ -324,6 +422,28 @@ public class DownloadService {
                 }
             }
 
+            boolean isApng = "apng".equals(extension);
+            boolean isWebp = "webp".equals(extension);
+
+            // 动图（WebP / APNG）完整图请求：直接返回原始字节，由 rawfile 端点处理更高效
+            // 此处 thumbnail=false 路径保留为备用
+            if ((isWebp || isApng) && !thumbnail) {
+                byte[] fileBytes = Files.readAllBytes(imageFile.toPath());
+                String base64Image = Base64.getEncoder().encodeToString(fileBytes);
+                String fmt = isApng ? "png" : "webp";
+                return new ImageResponse(true, base64Image, fmt, base64Image.length(), 0, 0, "成功获取动图");
+            }
+
+            // WebP 缩略图：使用伴随的 _p0_thumb.jpg 文件
+            if (isWebp) {
+                File thumbFile = Paths.get(dirPath, artworkId + "_p0_thumb.jpg").toFile();
+                if (!thumbFile.exists()) {
+                    return new ImageResponse(false, null, null, 0, 0, 0, "找不到动图缩略图");
+                }
+                imageFile = thumbFile;
+                extension = "jpg";
+            }
+
             BufferedImage image;
             if (thumbnail) {
                 image = ThumbnailManager.getThumbnail(imageFile, -1, -1);
@@ -331,14 +451,47 @@ public class DownloadService {
                 image = ImageIO.read(imageFile);
             }
 
+            // APNG缩略图：从第一帧生成，写为PNG；普通图直接用原扩展名
+            String writeFormat = isApng ? "png" : extension;
             ByteArrayOutputStream bass = new ByteArrayOutputStream();
-            ImageIO.write(image, extension, bass);
+            ImageIO.write(image, writeFormat, bass);
             String base64Image = Base64.getEncoder().encodeToString(bass.toByteArray());
 
-            return new ImageResponse(true, base64Image, extension, base64Image.length(), image.getWidth(), image.getHeight(), "成功获取图片缩略图");
+            return new ImageResponse(true, base64Image, writeFormat, base64Image.length(), image.getWidth(), image.getHeight(), "成功获取图片缩略图");
         } catch (Exception e) {
             log.error("获取图片失败，作品：{}，页码：{}，是否缩略：{}，原因：{}", artworkId, page, thumbnail, e.getMessage(), e);
             return new ImageResponse(false, null, null, 0, 0, 0, "获取图片失败，原因:" + e.getMessage());
+        }
+    }
+
+    public File getImageFile(Long artworkId, int page) {
+        try {
+            ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
+            if (artwork == null) return null;
+
+            int count = artwork.count();
+            if (count <= page || page < 0) return null;
+
+            String dirPath = artwork.moved() ? artwork.moveFolder() : artwork.folder();
+            String extension = artwork.extensions();
+
+            File imageFile;
+            if (count == 1) {
+                imageFile = Paths.get(dirPath, artworkId + "_p0." + extension).toFile();
+            } else {
+                String fileName = artworkId + "_p" + page;
+                String[] extensions = extension.split(",");
+                if (extensions.length > 1) {
+                    imageFile = findFileByName(dirPath, fileName);
+                } else {
+                    imageFile = Paths.get(dirPath, fileName + "." + extension).toFile();
+                }
+            }
+
+            return (imageFile != null && imageFile.exists()) ? imageFile : null;
+        } catch (Exception e) {
+            log.error("获取图片文件失败，作品：{}，页码：{}", artworkId, page, e);
+            return null;
         }
     }
 

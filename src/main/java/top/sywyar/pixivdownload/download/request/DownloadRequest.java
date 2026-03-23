@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.download.request;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
@@ -30,8 +31,14 @@ public class DownloadRequest {
     @Getter
     @Setter
     public static class Other{
+        @JsonProperty("isUserDownload")
         private boolean isUserDownload;
         private String username;
+        @JsonProperty("isR18")
         private boolean isR18;
+        @JsonProperty("isUgoira")
+        private boolean isUgoira;
+        private String ugoiraZipUrl;
+        private List<Integer> ugoiraDelays;
     }
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.1
 // @description  通过Java后端服务下载Pixiv作品图片
 // @author       You
 // @match        https://www.pixiv.net/*
@@ -87,13 +87,53 @@
         });
     }
 
+    // 获取作品元数据
+    async function getArtworkMeta(artworkId) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `https://www.pixiv.net/ajax/illust/${artworkId}`,
+                headers: { 'Referer': 'https://www.pixiv.net/' },
+                onload: function (response) {
+                    try {
+                        const data = JSON.parse(response.responseText);
+                        if (data.error) reject(new Error(data.message));
+                        else resolve(data.body);
+                    } catch (e) { reject(e); }
+                },
+                onerror: reject
+            });
+        });
+    }
+
+    // 获取动图元数据
+    async function getUgoiraMeta(artworkId) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `https://www.pixiv.net/ajax/illust/${artworkId}/ugoira_meta`,
+                headers: { 'Referer': 'https://www.pixiv.net/' },
+                onload: function (response) {
+                    try {
+                        const data = JSON.parse(response.responseText);
+                        if (data.error) reject(new Error(data.message));
+                        else resolve(data.body);
+                    } catch (e) { reject(e); }
+                },
+                onerror: reject
+            });
+        });
+    }
+
     // 发送下载请求到后端
-    async function sendDownloadRequest(artworkId, imageUrls) {
+    async function sendDownloadRequest(artworkId, title, imageUrls, other) {
         return new Promise((resolve, reject) => {
             const requestData = {
                 artworkId: parseInt(artworkId),
+                title: title,
                 imageUrls: imageUrls,
-                referer: 'https://www.pixiv.net/'
+                referer: 'https://www.pixiv.net/',
+                other: other || {}
             };
 
             GM_xmlhttpRequest({
@@ -176,7 +216,26 @@
             // 显示下载开始提示
             alert(`开始下载作品 ${artworkId} 的图片...`);
 
-            const imageUrls = await getImageUrls(artworkId);
+            // 获取作品元数据（用于标题和类型检测）
+            const meta = await getArtworkMeta(artworkId);
+            const title = (meta && meta.illustTitle) ? meta.illustTitle : `Artwork ${artworkId}`;
+
+            let imageUrls;
+            let other = {};
+
+            if (meta && meta.illustType === 2) {
+                // 动图作品：获取ugoira元数据，下载ZIP并在后端合成APNG
+                const ugoiraMeta = await getUgoiraMeta(artworkId);
+                const zipSrc = ugoiraMeta.originalSrc || ugoiraMeta.src;
+                imageUrls = [zipSrc];
+                other = {
+                    isUgoira: true,
+                    ugoiraZipUrl: zipSrc,
+                    ugoiraDelays: ugoiraMeta.frames.map(f => f.delay)
+                };
+            } else {
+                imageUrls = await getImageUrls(artworkId);
+            }
 
             if (imageUrls.length === 0) {
                 alert('未找到图片');
@@ -184,13 +243,13 @@
             }
 
             // 发送下载请求到后端
-            const response = await sendDownloadRequest(artworkId, imageUrls);
+            const response = await sendDownloadRequest(artworkId, title, imageUrls, other);
 
-            // 记录下载信息（这里我们不知道具体的文件夹编号，后端会记录）
             markAsDownloaded(artworkId, '后端处理中', imageUrls.length);
             updateDownloadUI();
 
-            alert(`下载任务已提交到后端处理！\n图片数量: ${imageUrls.length}张\n${response.message}`);
+            const typeHint = other.isUgoira ? '动图（将合成为APNG）' : `图片数量: ${imageUrls.length}张`;
+            alert(`下载任务已提交到后端处理！\n${typeHint}\n${response.message}`);
 
         } catch (error) {
             console.error('下载失败:', error);

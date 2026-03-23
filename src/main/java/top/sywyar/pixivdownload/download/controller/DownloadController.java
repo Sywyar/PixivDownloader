@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.download.controller;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.download.DownloadService;
@@ -11,6 +12,8 @@ import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.*;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.util.*;
 
 @RestController
@@ -202,6 +205,34 @@ public class DownloadController {
             return ResponseEntity.ok(image);
         } else {
             return ResponseEntity.status(404).build();
+        }
+    }
+
+    @GetMapping("/downloaded/rawfile/{artworkId}/{page}")
+    public ResponseEntity<byte[]> getRawFile(
+            @PathVariable Long artworkId,
+            @PathVariable int page) {
+        try {
+            File file = downloadService.getImageFile(artworkId, page);
+            if (file == null) return ResponseEntity.notFound().build();
+
+            byte[] bytes = Files.readAllBytes(file.toPath());
+            String name = file.getName().toLowerCase();
+            MediaType mediaType;
+            if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
+                mediaType = MediaType.IMAGE_JPEG;
+            } else if (name.endsWith(".gif")) {
+                mediaType = MediaType.IMAGE_GIF;
+            } else if (name.endsWith(".webp")) {
+                mediaType = MediaType.parseMediaType("image/webp");
+            } else {
+                mediaType = MediaType.IMAGE_PNG; // png / apng
+            }
+
+            return ResponseEntity.ok().contentType(mediaType).body(bytes);
+        } catch (Exception e) {
+            log.error("获取原始图片失败，作品：{}，页码：{}", artworkId, page, e);
+            return ResponseEntity.status(500).build();
         }
     }
 

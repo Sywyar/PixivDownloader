@@ -835,6 +835,27 @@
             right: 12px;
             z-index: 20;
         }
+        .img-spinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 52px;
+            height: 52px;
+            border: 3px solid rgba(0,229,255,0.15);
+            border-top-color: var(--cyan);
+            border-radius: 50%;
+            animation: imgSpin 0.7s linear infinite;
+            z-index: 15;
+            display: none;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+        }
+        .img-spinner.active {
+            display: block;
+        }
+        @keyframes imgSpin {
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
 
         /* ── Misc Bootstrap overrides ──────────────────────────── */
         .card-footer {
@@ -1004,6 +1025,7 @@
                 <button id="imgPrevBtn" class="img-nav-btn prev" onclick="navigateFullImg(-1)">
                     <i class="fas fa-chevron-left"></i>
                 </button>
+                <div id="imgSpinner" class="img-spinner"></div>
                 <img id="modalImage" src="" alt="preview">
                 <button id="imgNextBtn" class="img-nav-btn next" onclick="navigateFullImg(1)">
                     <i class="fas fa-chevron-right"></i>
@@ -1604,14 +1626,21 @@
         if (fullImgLoading) return Promise.resolve(false);
         fullImgLoading = true;
         const img = document.getElementById('modalImage');
+        const spinner = document.getElementById('imgSpinner');
         img.src = '';
+        img.style.opacity = '0';
+        spinner.classList.add('active');
         return new Promise((resolve) => {
             img.onload = () => {
+                spinner.classList.remove('active');
+                img.style.opacity = '1';
                 updateImgNav();
                 fullImgLoading = false;
                 resolve(true);
             };
             img.onerror = () => {
+                spinner.classList.remove('active');
+                img.style.opacity = '1';
                 console.error('加载完整图片失败');
                 alert('加载图片失败');
                 fullImgLoading = false;

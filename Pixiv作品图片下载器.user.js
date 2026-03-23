@@ -113,6 +113,24 @@
         });
     }
 
+    // 检测作品类型
+    async function getArtworkType(artworkId) {
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `https://www.pixiv.net/ajax/illust/${artworkId}`,
+                headers: { 'Referer': 'https://www.pixiv.net/' },
+                onload: function(response) {
+                    try {
+                        const data = JSON.parse(response.responseText);
+                        resolve(data.error ? 0 : (data.body.illustType || 0));
+                    } catch (e) { resolve(0); }
+                },
+                onerror: function() { resolve(0); }
+            });
+        });
+    }
+
     // 下载图片
     async function downloadImages() {
         const artworkId = getArtworkId();
@@ -139,6 +157,13 @@
         try {
             // 显示下载开始提示
             alert(`开始下载作品 ${artworkId} 的图片...`);
+
+            // 检测动图
+            const illustType = await getArtworkType(artworkId);
+            if (illustType === 2) {
+                alert(`作品 ${artworkId} 是动图（ugoira）。\n此版本不支持动图合成，请使用「Pixiv作品图片下载器（Java后端版）」下载动图，后端会自动合成为无损APNG格式。`);
+                return;
+            }
 
             const imageUrls = await getImageUrls(artworkId);
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv User 批量下载器 (N-Tab UI 风格版)
 // @namespace    http://tampermonkey.net/
-// @version      1.7.3
+// @version      1.8.0
 // @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Go 后端。界面复刻 N-Tab 风格。优化暂停逻辑：确保当前任务完成后再停止。已加入全局 username 机制。在标题显示用户名。
 // @author       Rewritten by ChatGPT
 // @match        https://www.pixiv.net/*
@@ -196,18 +196,43 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, isR18) {
+        getUgoiraMeta(artworkId) {
             return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `https://www.pixiv.net/ajax/illust/${artworkId}/ugoira_meta`,
+                    headers: {Referer: 'https://www.pixiv.net/'},
+                    onload: (res) => {
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            if (data.error) reject(new Error(data.message));
+                            else resolve(data.body);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    },
+                    onerror: reject
+                });
+            });
+        },
+        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, isR18, ugoiraData) {
+            return new Promise((resolve, reject) => {
+                const other = {
+                    userDownload: true,
+                    username: usernameParam,
+                    isR18: isR18
+                };
+                if (ugoiraData) {
+                    other.isUgoira = true;
+                    other.ugoiraZipUrl = ugoiraData.zipUrl;
+                    other.ugoiraDelays = ugoiraData.delays;
+                }
                 const payload = {
                     artworkId: parseInt(artworkId),
                     imageUrls,
                     title,
                     referer: 'https://www.pixiv.net/',
-                    other: {
-                        userDownload: true,
-                        username: usernameParam,
-                        isR18: isR18
-                    }
+                    other
                 };
                 GM_xmlhttpRequest({
                     method: 'POST',
@@ -569,22 +594,37 @@
                     }
                 }
 
-                const urls = await Api.getArtworkPages(item.id);
-                if (!urls || !urls.length) throw new Error('无图片URL');
-                item.totalImages = urls.length;
+                // 判断是否是 R18 内容
+                const isR18 = meta.xRestrict !== undefined && meta.xRestrict > 0;
+
+                let urls;
+                let ugoiraData = null;
+
+                if (meta.illustType === 2) {
+                    // 动图作品：获取ugoira元数据，由后端下载ZIP并合成APNG
+                    const ugoiraMeta = await Api.getUgoiraMeta(item.id);
+                    const zipSrc = ugoiraMeta.originalSrc || ugoiraMeta.src;
+                    ugoiraData = {
+                        zipUrl: zipSrc,
+                        delays: ugoiraMeta.frames.map(f => f.delay)
+                    };
+                    urls = [zipSrc];
+                    item.totalImages = 1;
+                } else {
+                    urls = await Api.getArtworkPages(item.id);
+                    if (!urls || !urls.length) throw new Error('无图片URL');
+                    item.totalImages = urls.length;
+                }
+
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
                 this.sse.open(item.id);
                 const ssePromise = this._waitForFinalStatusBySSE(item.id, CONFIG.STATUS_TIMEOUT_MS);
 
-                // 判断是否是 R18 内容
-                const isR18 = meta.xRestrict !== undefined && meta.xRestrict > 0;
-
                 this.ui.setStatus(`下载中：${item.title}`, 'info');
 
-                // 使用全局 username（可能为 null — 后端可处理；若需要强制填充请在 start() 前检查）
-                await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18);
+                await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18, ugoiraData);
 
                 const final = await ssePromise;
 

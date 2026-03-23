@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv N-Tab 批量下载器 (修复版)
 // @namespace    http://tampermonkey.net/
-// @version      1.1.4
+// @version      1.2.1
 // @description  解析 N-Tab 导出，批量提交作品给本地后端下载，支持严格的下载状态校验（修复下载失败显示完成的Bug）。
 // @author       Rewritten by ChatGPT
 // @match        https://www.pixiv.net/
@@ -107,11 +107,32 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title) {
+        getUgoiraMeta(artworkId) {
             return new Promise((resolve, reject) => {
-                const payload = { artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/',other:{
-                        userDownload: false
-                    } };
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `https://www.pixiv.net/ajax/illust/${artworkId}/ugoira_meta`,
+                    headers: { Referer: 'https://www.pixiv.net/' },
+                    onload: (res) => {
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            if (data.error) reject(new Error(data.message || 'pixiv ajax error'));
+                            else resolve(data.body);
+                        } catch (e) { reject(e); }
+                    },
+                    onerror: reject
+                });
+            });
+        },
+        sendDownloadRequest(artworkId, imageUrls, title, ugoiraData) {
+            return new Promise((resolve, reject) => {
+                const other = { userDownload: false };
+                if (ugoiraData) {
+                    other.isUgoira = true;
+                    other.ugoiraZipUrl = ugoiraData.zipUrl;
+                    other.ugoiraDelays = ugoiraData.delays;
+                }
+                const payload = { artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/', other };
                 GM_xmlhttpRequest({
                     method: 'POST',
                     url: CONFIG.BACKEND_URL,
@@ -384,10 +405,16 @@
                 }
             }
 
-            if (this.r18Only) {
-                try {
-                    const meta = await Api.getArtworkMeta(item.id);
-                    const restriction = meta.xRestrict !== undefined ? meta.xRestrict : 0;
+            this.ui.setCurrent(item);
+            this.ui.setStatus(`获取作品信息：${item.title}`, 'info');
+            try {
+                // 必须先获取 meta：illustType===2 表示动图，pages API 对动图只返回 1 张 JPG 缩略图
+                // 不能依赖 pages 返回空来判断动图，必须用 illustType 判断
+                const meta = await Api.getArtworkMeta(item.id);
+                if (meta && meta.illustTitle) item.title = meta.illustTitle;
+
+                if (this.r18Only) {
+                    const restriction = meta ? (meta.xRestrict || 0) : 0;
                     if (restriction === 0) {
                         item.status = 'skipped';
                         item.lastMessage = '已跳过（非R18）';
@@ -398,31 +425,36 @@
                         this.ui.setStatus(`跳过：${item.title}（非R18）`, 'warning');
                         return;
                     }
-                } catch (e) {
-                    item.status = 'failed';
-                    item.lastMessage = '获取作品信息失败';
-                    item.endTime = new Date().toISOString();
-                    this.updateStats();
-                    this.saveToStorage();
-                    this.ui.renderQueue(this.queue);
-                    this.ui.setStatus(`错误：${item.title} - 获取作品信息失败`, 'error');
-                    return;
                 }
-            }
 
-            this.ui.setCurrent(item);
-            this.ui.setStatus(`开始下载：${item.title}`, 'info');
-            try {
-                const urls = await Api.getArtworkPages(item.id);
-                if (!Array.isArray(urls) || urls.length === 0) throw new Error('未获取到图片 URL');
-                item.totalImages = urls.length;
+                this.ui.setStatus(`开始下载：${item.title}`, 'info');
+
+                let urls;
+                let ugoiraData = null;
+
+                if (meta && meta.illustType === 2) {
+                    // 动图：pages API 仅返回缩略图 JPG，必须走 ugoira_meta 获取 ZIP
+                    const ugoiraMeta = await Api.getUgoiraMeta(item.id);
+                    const zipSrc = ugoiraMeta.originalSrc || ugoiraMeta.src;
+                    ugoiraData = {
+                        zipUrl: zipSrc,
+                        delays: ugoiraMeta.frames.map(f => f.delay)
+                    };
+                    urls = [zipSrc];
+                    item.totalImages = 1;
+                } else {
+                    urls = await Api.getArtworkPages(item.id);
+                    if (!Array.isArray(urls) || urls.length === 0) throw new Error('未获取到图片 URL');
+                    item.totalImages = urls.length;
+                }
+
                 item.downloadedCount = 0;
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
                 this.sse.open(item.id);
                 const ssePromise = this._waitForFinalStatusBySSE(item.id, CONFIG.STATUS_TIMEOUT_MS);
-                await Api.sendDownloadRequest(item.id, urls, item.title);
+                await Api.sendDownloadRequest(item.id, urls, item.title, ugoiraData);
                 const final = await ssePromise;
 
                 if (final && final.completed) {
@@ -589,7 +621,7 @@
 
             // 标题
             const title = $el('div', {
-                html: '🎨 N-Tab批量下载器 v1.1.3 (Fixed)',
+                html: '🎨 N-Tab批量下载器 v1.2.1 (支持动图)',
                 style: { fontWeight: 'bold', marginBottom: '15px', color: '#333', textAlign: 'center', fontSize: '16px', borderBottom: '2px solid #eee', paddingBottom: '10px' }
             });
 

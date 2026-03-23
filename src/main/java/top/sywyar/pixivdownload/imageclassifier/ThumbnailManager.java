@@ -126,6 +126,17 @@ public class ThumbnailManager {
      * If a cached thumbnail exists it is used immediately.
      */
     public void loadThumbnail(File imageFile, JLabel targetLabel, int thumbW, int thumbH) {
+        loadThumbnail(imageFile, targetLabel, thumbW, thumbH, null);
+    }
+
+    public void loadThumbnail(File imageFile, JLabel targetLabel, int thumbW, int thumbH, String badgeText) {
+        // WebP 动图：使用伴随的 _thumb.jpg 文件供 ImageIO 解码
+        if (imageFile != null && imageFile.getName().toLowerCase().endsWith(".webp")) {
+            String base = imageFile.getName().substring(0, imageFile.getName().lastIndexOf('.'));
+            File thumb = new File(imageFile.getParent(), base + "_thumb.jpg");
+            if (thumb.exists()) imageFile = thumb;
+        }
+
         if (imageFile == null || !imageFile.exists()) {
             SwingUtilities.invokeLater(() -> {
                 targetLabel.setIcon(null);
@@ -139,7 +150,7 @@ public class ThumbnailManager {
         if (cached != null) {
             SwingUtilities.invokeLater(() -> {
                 targetLabel.setIcon(cached);
-                targetLabel.setText(null);
+                applyBadge(targetLabel, badgeText);
             });
             return;
         }
@@ -151,16 +162,17 @@ public class ThumbnailManager {
         });
 
         // Submit a background task to read+scale the image and update the label
+        File finalImageFile = imageFile;
         executor.submit(() -> {
             try {
-                BufferedImage dst = getThumbnail(imageFile, thumbW, thumbH);
+                BufferedImage dst = getThumbnail(finalImageFile, thumbW, thumbH);
                 ImageIcon icon = new ImageIcon(dst);
                 cache.put(key, icon);
 
                 // Update label on EDT
                 SwingUtilities.invokeLater(() -> {
                     targetLabel.setIcon(icon);
-                    targetLabel.setText(null);
+                    applyBadge(targetLabel, badgeText);
                 });
             } catch (Exception e) {
                 // on error show a small message instead of freezing the UI
@@ -170,6 +182,16 @@ public class ThumbnailManager {
                 });
             }
         });
+    }
+
+    private static void applyBadge(JLabel label, String badgeText) {
+        if (badgeText != null && !badgeText.isEmpty()) {
+            label.setText("<html><center><font color='#FF6600'><b>" + badgeText + "</b></font></center></html>");
+            label.setVerticalTextPosition(SwingConstants.BOTTOM);
+            label.setHorizontalTextPosition(SwingConstants.CENTER);
+        } else {
+            label.setText(null);
+        }
     }
 
     /**
