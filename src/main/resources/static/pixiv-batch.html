@@ -185,7 +185,12 @@
 </head>
 <body>
 
-<header>Pixiv 批量下载器</header>
+<header style="display:flex;justify-content:space-between;align-items:center;">
+  <span>Pixiv 批量下载器</span>
+  <button id="logout-btn" style="display:none;padding:5px 12px;font-size:12px;font-weight:bold;
+    border:1px solid rgba(255,255,255,.6);border-radius:4px;background:transparent;
+    color:white;cursor:pointer;" onclick="doLogout()">退出登录</button>
+</header>
 
 <div class="page">
 
@@ -202,7 +207,7 @@
       <button class="btn-sm" id="cookie-toggle">显示</button>
       <button class="btn-sm" id="cookie-save" style="background:#e8f5e9;border-color:#28a745;">保存</button>
     </div>
-    <div class="cookie-hint">Cookie 仅保存在本地 localStorage 中。支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。推荐使用 <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" rel="noopener">Cookie-Editor</a> 插件导出 Cookie。</div>
+    <div class="cookie-hint" id="cookie-hint">支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。推荐使用 <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" rel="noopener">Cookie-Editor</a> 插件导出 Cookie。</div>
   </div>
 
   <!-- Mode tabs -->
@@ -312,16 +317,78 @@ let state = {
   settings: { interval: 2, intervalUnit: 's', imageDelay: 0, imageDelayUnit: 'ms', concurrent: 1, skipHistory: false, r18Only: false }
 };
 
-const BASE = 'http://localhost:6999';
+const BASE = '';  // 使用相对路径，自动适配访问地址
 const STATUS_TIMEOUT_MS = 300000;
+
+/* ============================================================
+   模式检测 & 存储抽象（solo=服务器，multi=localStorage）
+============================================================ */
+let appMode = 'multi';   // 'solo' | 'multi'，init() 中确定
+let serverState = {};    // solo 模式下的状态内存镜像
+
+async function detectMode() {
+  try {
+    const res = await fetch('/api/setup/status');
+    if (res.ok) {
+      const data = await res.json();
+      appMode = data.mode === 'solo' ? 'solo' : 'multi';
+    }
+  } catch { appMode = 'multi'; }
+}
+
+async function loadServerState() {
+  try {
+    const res = await fetch(BASE + '/api/batch/state');
+    if (res.ok) serverState = await res.json();
+  } catch {}
+}
+
+let _saveTimer = null;
+function scheduleServerSave() {
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    fetch(BASE + '/api/batch/state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(serverState),
+      credentials: 'same-origin'
+    }).catch(() => {});
+  }, 400);
+}
+
+/** 统一存储读取：solo 模式读服务器内存，multi 模式读 localStorage */
+function storeGet(key) {
+  if (appMode === 'solo') {
+    const v = serverState[key];
+    return v != null ? String(v) : null;
+  }
+  return localStorage.getItem(key);
+}
+
+function storeSet(key, value) {
+  if (appMode === 'solo') { serverState[key] = value; scheduleServerSave(); }
+  else localStorage.setItem(key, value);
+}
+
+function storeRemove(key) {
+  if (appMode === 'solo') { delete serverState[key]; scheduleServerSave(); }
+  else localStorage.removeItem(key);
+}
+
+async function doLogout() {
+  try {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  } catch {}
+  window.location.href = '/login.html';
+}
 
 /* ============================================================
    API
 ============================================================ */
-function getCookieFmt() { return localStorage.getItem('pixiv_cookie_fmt') || 'header'; }
+function getCookieFmt() { return storeGet('pixiv_cookie_fmt') || 'header'; }
 
 function setCookieFmt(fmt) {
-  localStorage.setItem('pixiv_cookie_fmt', fmt);
+  storeSet('pixiv_cookie_fmt', fmt);
   ['header','json','netscape'].forEach(f => {
     document.getElementById('fmt-' + f).classList.toggle('active', f === fmt);
   });
@@ -349,7 +416,7 @@ function parseCookieToHeaderString(raw, fmt) {
 }
 
 function getCookie() {
-  const raw = localStorage.getItem('pixiv_cookie') || '';
+  const raw = storeGet('pixiv_cookie') || '';
   return parseCookieToHeaderString(raw, getCookieFmt());
 }
 
@@ -957,7 +1024,7 @@ function switchMode(mode) {
   document.getElementById('tab-user').classList.toggle('active', mode === 'user');
   document.getElementById('panel-ntab').classList.toggle('active', mode === 'ntab');
   document.getElementById('panel-user').classList.toggle('active', mode === 'user');
-  localStorage.setItem('pixiv_mode', mode);
+  storeSet('pixiv_mode', mode);
   loadQueueForMode();
 }
 
@@ -1057,23 +1124,21 @@ function storageKey() {
 }
 
 function saveQueue() {
-  try {
-    if (state.mode === 'user' && state.userId) {
-      localStorage.setItem('pixiv_batch_last_user_id', state.userId);
-      if (state.username) localStorage.setItem('pixiv_batch_last_username', state.username);
-    }
-    localStorage.setItem(storageKey(), JSON.stringify({
-      queue: state.queue,
-      isPaused: state.isPaused,
-      stats: state.stats,
-      savedAt: new Date().toISOString()
-    }));
-  } catch {}
+  if (state.mode === 'user' && state.userId) {
+    storeSet('pixiv_batch_last_user_id', state.userId);
+    if (state.username) storeSet('pixiv_batch_last_username', state.username);
+  }
+  storeSet(storageKey(), JSON.stringify({
+    queue: state.queue,
+    isPaused: state.isPaused,
+    stats: state.stats,
+    savedAt: new Date().toISOString()
+  }));
 }
 
 function loadQueueForMode() {
   try {
-    const raw = localStorage.getItem(storageKey());
+    const raw = storeGet(storageKey());
     if (!raw) { state.queue = []; renderQueue(); updateStats(); return; }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed.queue)) {
@@ -1096,16 +1161,16 @@ function loadQueueForMode() {
 }
 
 function clearSavedQueue() {
-  try { localStorage.removeItem(storageKey()); } catch {}
+  storeRemove(storageKey());
 }
 
 function saveSettings() {
-  localStorage.setItem('pixiv_batch_settings', JSON.stringify(state.settings));
+  storeSet('pixiv_batch_settings', JSON.stringify(state.settings));
 }
 
 function loadSettings() {
   try {
-    const raw = localStorage.getItem('pixiv_batch_settings');
+    const raw = storeGet('pixiv_batch_settings');
     if (raw) Object.assign(state.settings, JSON.parse(raw));
   } catch {}
   document.getElementById('s-interval').value         = state.settings.interval;
@@ -1133,9 +1198,18 @@ function syncSettings() {
 /* ============================================================
    初始化
 ============================================================ */
-function init() {
+async function init() {
+  // 检测使用模式，solo 模式则从服务器加载状态
+  await detectMode();
+  if (appMode === 'solo') {
+    await loadServerState();
+    document.getElementById('logout-btn').style.display = 'block';
+    document.getElementById('cookie-hint').textContent =
+      'Cookie 保存在服务器，所有设备共享同一配置。支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。';
+  }
+
   // Cookie
-  const savedCookie = localStorage.getItem('pixiv_cookie') || '';
+  const savedCookie = storeGet('pixiv_cookie') || '';
   document.getElementById('cookie-input').value = savedCookie;
   setCookieFmt(getCookieFmt());
 
@@ -1146,7 +1220,7 @@ function init() {
       setStatus('Cookie 保存失败：' + result.error, 'error');
       return;
     }
-    localStorage.setItem('pixiv_cookie', raw);
+    storeSet('pixiv_cookie', raw);
     if (result.warnings.length) {
       setStatus(`Cookie 已保存（${result.count} 个字段）⚠ ${result.warnings.join('；')}`, 'warning');
     } else {
@@ -1169,13 +1243,13 @@ function init() {
   });
 
   // Mode
-  const savedMode = localStorage.getItem('pixiv_mode') || 'ntab';
+  const savedMode = storeGet('pixiv_mode') || 'ntab';
   state.mode = savedMode;
 
   // 在 switchMode 前先恢复 userId，否则 user 模式下 storageKey() 用空串找不到队列
   if (savedMode === 'user') {
-    const savedUserId = localStorage.getItem('pixiv_batch_last_user_id') || '';
-    const savedUsername = localStorage.getItem('pixiv_batch_last_username') || '';
+    const savedUserId   = storeGet('pixiv_batch_last_user_id')   || '';
+    const savedUsername = storeGet('pixiv_batch_last_username')  || '';
     if (savedUserId) {
       state.userId = savedUserId;
       state.username = savedUsername;

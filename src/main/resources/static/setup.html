@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixiv 批量下载器 — 初始配置</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f5f5f5; color: #333; font-size: 14px;
+  }
+  header {
+    background: #28a745; color: white;
+    padding: 14px 20px; font-size: 18px; font-weight: bold; letter-spacing: .5px;
+  }
+  .page { max-width: 600px; margin: 28px auto; padding: 0 16px 40px; }
+  .card {
+    background: white; border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.12);
+    padding: 20px; margin-bottom: 14px;
+  }
+  .card-title {
+    font-weight: bold; font-size: 13px; color: #555;
+    margin-bottom: 14px; text-transform: uppercase; letter-spacing: .4px;
+  }
+  .welcome-text { color: #555; font-size: 13px; line-height: 1.6; }
+
+  /* Form fields */
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12px; color: #555; margin-bottom: 4px; font-weight: bold; }
+  .field input[type=text],
+  .field input[type=password] {
+    width: 100%; padding: 8px 10px;
+    border: 1px solid #ddd; border-radius: 5px;
+    font-size: 13px; transition: border-color .15s;
+  }
+  .field input:focus { outline: none; border-color: #28a745; }
+
+  /* Mode selection */
+  .mode-option {
+    border: 2px solid #ddd; border-radius: 6px;
+    padding: 12px 14px; margin-bottom: 10px; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .mode-option:hover { border-color: #aaa; }
+  .mode-option.selected { border-color: #28a745; background: #f0fff4; }
+  .mode-option label {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-weight: bold; font-size: 13px; margin-bottom: 5px;
+  }
+  .mode-option label input[type=radio] { width: 15px; height: 15px; cursor: pointer; }
+  .mode-desc { font-size: 12px; color: #666; line-height: 1.5; padding-left: 23px; }
+
+  /* Buttons */
+  .btn {
+    display: block; width: 100%; padding: 10px;
+    border: none; border-radius: 5px; cursor: pointer;
+    font-size: 14px; font-weight: bold; color: white; transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-green { background: #28a745; }
+
+  /* Status message */
+  #status-msg {
+    text-align: center; font-size: 13px;
+    min-height: 20px; margin-bottom: 10px;
+    padding: 6px 0;
+  }
+</style>
+</head>
+<body>
+
+<header>Pixiv 批量下载器 — 初始配置</header>
+
+<div class="page">
+
+  <div class="card">
+    <div class="card-title">欢迎使用</div>
+    <p class="welcome-text">
+      检测到这是首次运行，请完成以下初始配置。<br>
+      配置完成后将不会再次显示此页面。
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-title">管理员账号</div>
+    <div class="field">
+      <label>用户名</label>
+      <input type="text" id="username" placeholder="设置管理员用户名" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>密码（至少 6 位）</label>
+      <input type="password" id="password" placeholder="设置密码" autocomplete="new-password">
+    </div>
+    <div class="field">
+      <label>确认密码</label>
+      <input type="password" id="confirm-password" placeholder="再次输入密码" autocomplete="new-password">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">使用模式</div>
+    <div class="mode-option selected" id="opt-solo" onclick="selectMode('solo')">
+      <label>
+        <input type="radio" name="mode" value="solo" checked>
+        自用模式
+      </label>
+      <div class="mode-desc">
+        仅供个人使用。访问需要登录验证，可选择是否保持登录状态。
+        所有配置（Cookie、设置、队列）统一保存在服务器，多设备共享同一状态。
+      </div>
+    </div>
+    <div class="mode-option" id="opt-multi" onclick="selectMode('multi')">
+      <label>
+        <input type="radio" name="mode" value="multi">
+        多人使用模式
+      </label>
+      <div class="mode-desc">
+        多人共享服务。无需登录，每个用户的配置独立保存在各自浏览器的本地存储中，互不干扰。
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="status-msg"></div>
+    <button class="btn btn-green" id="submit-btn" onclick="submitSetup()">完成配置</button>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+function selectMode(mode) {
+  document.querySelector(`input[value="${mode}"]`).checked = true;
+  document.getElementById('opt-solo').classList.toggle('selected', mode === 'solo');
+  document.getElementById('opt-multi').classList.toggle('selected', mode === 'multi');
+}
+
+function showStatus(msg, color) {
+  const el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.style.color = color || '#666';
+}
+
+async function submitSetup() {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const confirm  = document.getElementById('confirm-password').value;
+  const mode     = document.querySelector('input[name="mode"]:checked').value;
+
+  if (!username) { showStatus('请填写用户名', '#dc3545'); return; }
+  if (password.length < 6) { showStatus('密码长度至少 6 位', '#dc3545'); return; }
+  if (password !== confirm) { showStatus('两次密码输入不一致', '#dc3545'); return; }
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  showStatus('正在保存配置...', '#007bff');
+
+  try {
+    const res = await fetch('/api/setup/init', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, mode })
+    });
+    const data = await res.json();
+    if (!res.ok) { showStatus(data.error || '配置失败', '#dc3545'); btn.disabled = false; return; }
+
+    showStatus('配置完成！正在跳转...', '#28a745');
+    setTimeout(() => {
+      window.location.href = mode === 'solo' ? '/login.html' : '/pixiv-batch.html';
+    }, 800);
+  } catch (e) {
+    showStatus('网络错误：' + e.message, '#dc3545');
+    btn.disabled = false;
+  }
+}
+
+// 回车提交
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitSetup();
+});
+
+// 若已配置完成则跳转
+(async () => {
+  try {
+    const res = await fetch('/api/setup/status');
+    const data = await res.json();
+    if (data.setupComplete) {
+      window.location.href = data.mode === 'solo' ? '/login.html' : '/pixiv-batch.html';
+    }
+  } catch {}
+})();
+</script>
+</body>
+</html>
