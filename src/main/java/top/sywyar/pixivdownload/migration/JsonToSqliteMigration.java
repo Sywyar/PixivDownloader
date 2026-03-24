@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 
 import java.io.File;
 import java.nio.file.Paths;
+import java.util.function.Consumer;
 
 /**
  * 将旧版 JSON 文件数据迁移到 SQLite 数据库。
@@ -32,6 +33,10 @@ public class JsonToSqliteMigration {
     private String rootFolder;
 
     public MigrationResult migrate() {
+        return migrate(null);
+    }
+
+    public MigrationResult migrate(Consumer<String> progressReporter) {
         File historyFile = Paths.get(rootFolder, "download_history.json").toFile();
         File statisticsFile = Paths.get(rootFolder, "statistics.json").toFile();
 
@@ -40,6 +45,7 @@ public class JsonToSqliteMigration {
         if (!historyFile.exists()) {
             String msg = "download_history.json 不存在，无需迁移";
             log.info(msg);
+            report(progressReporter, msg);
             return new MigrationResult(true, 0, 0, msg);
         }
 
@@ -49,6 +55,9 @@ public class JsonToSqliteMigration {
         try {
             SuperJsonObject history = new SuperJsonObject(historyFile);
             SuperJsonObject downloaded = history.getOrDefault("downloaded", new SuperJsonObject());
+            int total = downloaded.asMap().size();
+
+            report(progressReporter, String.format("共找到 %d 条记录，开始迁移...", total));
 
             for (var entry : downloaded.asMap().entrySet()) {
                 long artworkId;
@@ -62,27 +71,33 @@ public class JsonToSqliteMigration {
 
                 if (pixivDatabase.hasArtwork(artworkId)) {
                     skipped++;
-                    continue;
+                } else {
+                    SuperJsonObject artwork = downloaded.getAsSuperJsonObject(entry.getKey());
+                    String title = artwork.getAsString("title");
+                    String folder = artwork.getAsString("folder");
+                    int count = artwork.getAsInt("count");
+                    String extensions = artwork.getAsString("extensions");
+                    long time = artwork.has("time")
+                            ? artwork.getAsLong("time")
+                            : pixivDatabase.getUniqueTime();
+
+                    pixivDatabase.insertArtwork(artworkId, title, folder, count, extensions, time);
+
+                    if (artwork.has("moved") && artwork.getAsBoolean("moved")) {
+                        String moveFolder = artwork.getAsString("moveFolder");
+                        long moveTime = artwork.getAsLong("moveTime");
+                        pixivDatabase.updateArtworkMove(artworkId, moveFolder, moveTime);
+                    }
+
+                    migrated++;
                 }
 
-                SuperJsonObject artwork = downloaded.getAsSuperJsonObject(entry.getKey());
-                String title = artwork.getAsString("title");
-                String folder = artwork.getAsString("folder");
-                int count = artwork.getAsInt("count");
-                String extensions = artwork.getAsString("extensions");
-                long time = artwork.has("time")
-                        ? artwork.getAsLong("time")
-                        : pixivDatabase.getUniqueTime();
-
-                pixivDatabase.insertArtwork(artworkId, title, folder, count, extensions, time);
-
-                if (artwork.has("moved") && artwork.getAsBoolean("moved")) {
-                    String moveFolder = artwork.getAsString("moveFolder");
-                    long moveTime = artwork.getAsLong("moveTime");
-                    pixivDatabase.updateArtworkMove(artworkId, moveFolder, moveTime);
+                int done = migrated + skipped;
+                if (total > 0 && done % 100 == 0) {
+                    int percent = done * 100 / total;
+                    report(progressReporter, String.format("进度: %d/%d (%d%%)，已迁移 %d 条，跳过 %d 条",
+                            done, total, percent, migrated, skipped));
                 }
-
-                migrated++;
             }
 
             // 迁移统计数据（仅在数据库统计全为 0 时写入，避免覆盖新数据）
@@ -103,11 +118,20 @@ public class JsonToSqliteMigration {
 
             String msg = String.format("迁移完成：成功迁移 %d 条，跳过 %d 条", migrated, skipped);
             log.info(msg);
+            report(progressReporter, msg);
             return new MigrationResult(true, migrated, skipped, msg);
 
         } catch (Exception e) {
             log.error("迁移失败: {}", e.getMessage(), e);
-            return new MigrationResult(false, migrated, skipped, "迁移失败: " + e.getMessage());
+            String msg = "迁移失败: " + e.getMessage();
+            report(progressReporter, msg);
+            return new MigrationResult(false, migrated, skipped, msg);
+        }
+    }
+
+    private void report(Consumer<String> reporter, String message) {
+        if (reporter != null) {
+            reporter.accept(message);
         }
     }
 

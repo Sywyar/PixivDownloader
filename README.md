@@ -441,8 +441,24 @@ pixiv-download/
 
 如果之前使用过基于 JSON 文件的旧版本（`download_history.json`、`statistics.json`、`timeArtwork.json`），可通过以下接口将数据迁移至 SQLite：
 
+**普通模式（返回 JSON 结果，无进度）：**
 ```bash
 curl -X POST http://localhost:6999/api/migration/json-to-sqlite
 ```
 
-此操作是幂等的，可多次调用，不会产生重复数据。
+**流式模式（实时显示进度，推荐数据量大时使用）：**
+```bash
+curl -N http://localhost:6999/api/migration/json-to-sqlite/stream
+```
+
+`-N` 参数禁用 curl 缓冲，使进度信息实时输出。示例输出：
+
+```
+data: 共找到 3500 条记录，开始迁移...
+data: 进度: 100/3500 (2%)，已迁移 98 条，跳过 2 条
+data: 进度: 200/3500 (5%)，已迁移 195 条，跳过 5 条
+...
+data: 迁移完成：成功迁移 3450 条，跳过 50 条
+```
+
+两个接口均为幂等操作，可多次调用，不会产生重复数据。
