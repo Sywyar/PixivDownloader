@@ -779,17 +779,36 @@
 
         ensureMounted() {
             if (document.getElementById('pixiv-user-batch-ui')) {
-                if (this.root && this.root.style.display === 'none') {
-                    this.root.style.display = 'block';
+                const fab = document.getElementById('user-batch-mini-fab');
+                if (this._collapsed) {
+                    if (fab) fab.style.display = 'block';
+                } else {
+                    if (this.root) this.root.style.display = 'block';
+                    if (fab) fab.style.display = 'none';
                 }
                 return;
             }
+            this._collapsed = false;
             this._build();
             this.syncSettings();
         }
 
         hide() {
             if (this.root) this.root.style.display = 'none';
+            const fab = document.getElementById('user-batch-mini-fab');
+            if (fab) fab.style.display = 'none';
+        }
+
+        toggleCollapse() {
+            this._collapsed = !this._collapsed;
+            const fab = document.getElementById('user-batch-mini-fab');
+            if (this._collapsed) {
+                if (this.root) this.root.style.display = 'none';
+                if (fab) fab.style.display = 'block';
+            } else {
+                if (this.root) this.root.style.display = 'block';
+                if (fab) fab.style.display = 'none';
+            }
         }
 
         syncSettings() {
@@ -813,20 +832,35 @@
                 }
             });
 
-            // 标题部分 - 使用动态生成
+            // 标题行（含收起按钮）
+            const titleRow = $el('div', {
+                style: { display: 'flex', alignItems: 'center', marginBottom: '15px', borderBottom: '2px solid #eee', paddingBottom: '10px' }
+            });
+            const collapseBtn = $el('button', {
+                innerText: '◀',
+                title: '收起',
+                style: { background: 'none', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', padding: '2px 6px', color: '#666', flexShrink: '0' }
+            });
             const title = $el('div', {
                 id: 'batch-ui-title',
                 innerText: '🖼️ Pixiv User 批量下载器',
-                style: {
-                    fontWeight: 'bold',
-                    marginBottom: '15px',
-                    color: '#333',
-                    textAlign: 'center',
-                    fontSize: '16px',
-                    borderBottom: '2px solid #eee',
-                    paddingBottom: '10px'
-                }
+                style: { fontWeight: 'bold', color: '#333', textAlign: 'center', fontSize: '16px', flex: '1' }
             });
+            collapseBtn.addEventListener('click', () => this.toggleCollapse());
+            titleRow.appendChild(collapseBtn);
+            titleRow.appendChild(title);
+
+            // 收起后的悬浮按钮
+            const existingFab = document.getElementById('user-batch-mini-fab');
+            if (existingFab) existingFab.remove();
+            const miniFab = $el('button', {
+                id: 'user-batch-mini-fab',
+                innerText: '🖼️',
+                title: 'User批量下载器',
+                style: { display: 'none', position: 'fixed', top: '110px', right: '20px', zIndex: '1000001', background: '#28a745', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', lineHeight: '40px', textAlign: 'center', padding: '0' }
+            });
+            miniFab.addEventListener('click', () => this.toggleCollapse());
+            document.body.appendChild(miniFab);
 
             const status = $el('div', {
                 innerText: '准备就绪',
@@ -895,7 +929,8 @@
                     onClick: () => this.handlePause(),
                     disabled: true
                 },
-                {id: 'export-btn', text: '📤 导出列表', bgColor: '#007bff', onClick: () => this.handleExport()},
+                {id: 'export-btn', text: '📤 导出下载列表', bgColor: '#007bff', onClick: () => this.handleExport()},
+                {id: 'export-failed-btn', text: '📋 导出未下载列表', bgColor: '#6610f2', onClick: () => this.handleExportFailed()},
                 {id: 'clear-btn', text: '🗑️ 清除队列', bgColor: '#6c757d', onClick: () => this.handleClear()}
             ];
 
@@ -943,7 +978,7 @@
                 }
             });
 
-            container.appendChild(title);
+            container.appendChild(titleRow);
             container.appendChild(status);
             container.appendChild(stats);
             container.appendChild(settings);
@@ -1033,6 +1068,25 @@
             this.manager.saveToStorage();
             this.renderQueue(this.manager.queue);
             this.handleStart();
+        }
+
+        handleExportFailed() {
+            const items = this.manager.queue.filter(q => q.status !== 'completed');
+            if (items.length === 0) {
+                alert('没有未下载的作品');
+                return;
+            }
+            const exportContent = items.map(item => `https://www.pixiv.net/artworks/${item.id}`).join('\n');
+            const blob = new Blob([exportContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `pixiv_undownloaded_list_${this.manager.userId || 'unknown'}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            this.setStatus(`已导出 ${items.length} 个未下载作品`, 'success');
         }
 
         handleClear() {

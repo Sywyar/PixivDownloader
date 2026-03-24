@@ -4,7 +4,7 @@
 // @version      1.2.1
 // @description  解析 N-Tab 导出，批量提交作品给本地后端下载，支持严格的下载状态校验（修复下载失败显示完成的Bug）。
 // @author       Rewritten by ChatGPT
-// @match        https://www.pixiv.net/
+// @match        https://www.pixiv.net/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -19,6 +19,7 @@
 (function () {
     'use strict';
 
+    // artworks 页由单作品脚本处理
     if (/^https:\/\/www\.pixiv\.net\/artworks\/\d+/.test(location.href)) {
         return;
     }
@@ -623,11 +624,34 @@
                 }
             });
 
-            // 标题
-            const title = $el('div', {
-                html: '🎨 N-Tab批量下载器 v1.2.1 (支持动图)',
-                style: { fontWeight: 'bold', marginBottom: '15px', color: '#333', textAlign: 'center', fontSize: '16px', borderBottom: '2px solid #eee', paddingBottom: '10px' }
+            // 标题行（含收起按钮）
+            const titleRow = $el('div', {
+                style: { display: 'flex', alignItems: 'center', marginBottom: '15px', borderBottom: '2px solid #eee', paddingBottom: '10px' }
             });
+            const collapseBtn = $el('button', {
+                innerText: '◀',
+                title: '收起',
+                style: { background: 'none', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', padding: '2px 6px', color: '#666', flexShrink: '0' }
+            });
+            const titleText = $el('div', {
+                html: '🎨 N-Tab批量下载器 v1.2.1 (支持动图)',
+                style: { fontWeight: 'bold', color: '#333', textAlign: 'center', fontSize: '16px', flex: '1' }
+            });
+            collapseBtn.addEventListener('click', () => this.toggleCollapse());
+            titleRow.appendChild(collapseBtn);
+            titleRow.appendChild(titleText);
+
+            // 收起后的悬浮按钮
+            const existingFab = document.getElementById('ntab-mini-fab');
+            if (existingFab) existingFab.remove();
+            const miniFab = $el('button', {
+                id: 'ntab-mini-fab',
+                innerText: '🎨',
+                title: 'N-Tab批量下载器',
+                style: { display: 'none', position: 'fixed', top: '60px', right: '20px', zIndex: '10001', background: '#28a745', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', lineHeight: '40px', textAlign: 'center', padding: '0' }
+            });
+            miniFab.addEventListener('click', () => this.toggleCollapse());
+            document.body.appendChild(miniFab);
 
             const status = $el('div', { id: 'batch-status', innerText: '准备就绪', style: { marginBottom: '10px', color: '#666', fontSize: '12px', textAlign: 'center' } });
             const stats = $el('div', { id: 'batch-stats', innerText: '队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0', style: { marginBottom: '10px', color: '#007bff', fontSize: '12px', textAlign: 'center', fontWeight: 'bold' } });
@@ -662,6 +686,8 @@
                 { id: 'start-btn', text: '🚀 开始批量下载', bgColor: '#28a745', onClick: () => this.handleStart() },
                 { id: 'retry-failed-btn', text: '🔁 重新下载失败的作品', bgColor: '#17a2b8', onClick: () => this.handleRetryFailed() },
                 { id: 'pause-btn', text: '⏸️ 暂停下载', bgColor: '#ffc107', onClick: () => this.handlePause(), disabled: true },
+                { id: 'export-all-btn', text: '📤 导出下载列表', bgColor: '#007bff', onClick: () => this.handleExportAll() },
+                { id: 'export-failed-btn', text: '📋 导出未下载列表', bgColor: '#6610f2', onClick: () => this.handleExportFailed() },
                 { id: 'clear-btn', text: '🗑️ 清除队列', bgColor: '#6c757d', onClick: () => this.handleClear() }
             ];
             buttons.forEach(btnConfig => {
@@ -676,7 +702,7 @@
 
             const queueContainer = $el('div', { id: 'queue-container', style: { maxHeight: '250px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '5px', padding: '10px', marginBottom: '10px', background: '#f8f9fa', fontSize: '11px' } });
 
-            container.appendChild(title);
+            container.appendChild(titleRow);
             container.appendChild(status);
             container.appendChild(stats);
             container.appendChild(inputSection);
@@ -797,6 +823,51 @@
             return `<div style="margin-top: 5px;"><div style="display: flex; justify-content: space-between; font-size: 10px; margin-bottom: 3px;"><span>已下载 ${downloadedCount} 张 / 共 ${item.totalImages} 张</span><span>${progressPercent}%</span></div><div style="width: 100%; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;"><div style="height: 100%; background: #28a745; width: ${progressPercent}%; transition: width 0.3s ease;"></div></div></div>`;
         }
 
+        toggleCollapse() {
+            this._collapsed = !this._collapsed;
+            const fab = document.getElementById('ntab-mini-fab');
+            if (this._collapsed) {
+                this.root.style.display = 'none';
+                if (fab) fab.style.display = 'block';
+            } else {
+                this.root.style.display = 'block';
+                if (fab) fab.style.display = 'none';
+            }
+        }
+
+        handleExportAll() {
+            if (!this.manager.queue || this.manager.queue.length === 0) {
+                alert('队列为空，无内容可导出');
+                return;
+            }
+            const lines = this.manager.queue.map(item => `https://www.pixiv.net/artworks/${item.id} | ${item.title}`);
+            this._downloadTxt(lines.join('\n'), 'pixiv_ntab_all_list.txt');
+            this.setStatus(`已导出 ${lines.length} 个作品`, 'success');
+        }
+
+        handleExportFailed() {
+            const items = this.manager.queue.filter(q => q.status !== 'completed');
+            if (items.length === 0) {
+                alert('没有未下载的作品');
+                return;
+            }
+            const lines = items.map(item => `https://www.pixiv.net/artworks/${item.id} | ${item.title}`);
+            this._downloadTxt(lines.join('\n'), 'pixiv_ntab_undownloaded_list.txt');
+            this.setStatus(`已导出 ${lines.length} 个未下载作品`, 'success');
+        }
+
+        _downloadTxt(content, filename) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
         _colorByStatus(status) { return { 'completed': '#28a745', 'downloading': '#007bff', 'failed': '#dc3545', 'paused': '#6c757d', 'skipped': '#ffa500' }[status] || '#6c757d'; }
         _statusText(status) { return { 'idle': '等待中', 'pending': '等待中', 'downloading': '下载中', 'completed': '已完成', 'failed': '失败', 'paused': '暂停中', 'skipped': '已跳过' }[status] || status; }
     }
@@ -814,4 +885,18 @@
         const root = document.getElementById('pixiv-batch-downloader-ui');
         if (root) { root.style.display = 'block'; window.scrollTo(0, 0); } else { location.reload(); }
     });
+
+    // 进入 User 页面时自动收起 N-Tab 面板
+    (function watchUserPages() {
+        const isUserPage = (href) => /\/users\/\d+/.test(href);
+        // 初始检测
+        if (isUserPage(location.href) && !ui._collapsed) ui.toggleCollapse();
+        let lastHref = location.href;
+        setInterval(() => {
+            if (location.href !== lastHref) {
+                lastHref = location.href;
+                if (isUserPage(location.href) && !ui._collapsed) ui.toggleCollapse();
+            }
+        }, 500);
+    })();
 })();
