@@ -30,13 +30,15 @@
         CHECK_DOWNLOADED_URL: "http://localhost:6999/api/downloaded",
         DEFAULT_INTERVAL: 2,
         DEFAULT_CONCURRENT: 1,
-        MAX_CONCURRENT: 5,
         STATUS_TIMEOUT_MS: 300000,
 
         // 全局持久化 Keys
         KEY_SKIP_HISTORY: 'pixiv_global_skip_history',
         KEY_R18_ONLY: 'pixiv_global_r18_only',
         KEY_INTERVAL: 'pixiv_global_interval',
+        KEY_INTERVAL_UNIT: 'pixiv_global_interval_unit',
+        KEY_IMAGE_DELAY: 'pixiv_global_image_delay',
+        KEY_IMAGE_DELAY_UNIT: 'pixiv_global_image_delay_unit',
         KEY_CONCURRENT: 'pixiv_global_concurrent'
     };
 
@@ -215,12 +217,13 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, isR18, ugoiraData) {
+        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, isR18, ugoiraData, delayMs) {
             return new Promise((resolve, reject) => {
                 const other = {
                     userDownload: true,
                     username: usernameParam,
-                    isR18: isR18
+                    isR18: isR18,
+                    delayMs: delayMs || 0
                 };
                 if (ugoiraData) {
                     other.isUgoira = true;
@@ -361,6 +364,9 @@
 
             this.globalSettings = {
                 interval: GM_getValue(CONFIG.KEY_INTERVAL, CONFIG.DEFAULT_INTERVAL) || CONFIG.DEFAULT_INTERVAL,
+                intervalUnit: GM_getValue(CONFIG.KEY_INTERVAL_UNIT, 's') || 's',
+                imageDelay: GM_getValue(CONFIG.KEY_IMAGE_DELAY, 0),
+                imageDelayUnit: GM_getValue(CONFIG.KEY_IMAGE_DELAY_UNIT, 'ms') || 'ms',
                 concurrent: GM_getValue(CONFIG.KEY_CONCURRENT, CONFIG.DEFAULT_CONCURRENT) || CONFIG.DEFAULT_CONCURRENT,
                 skipHistory: GM_getValue(CONFIG.KEY_SKIP_HISTORY, false),
                 r18Only: GM_getValue(CONFIG.KEY_R18_ONLY, false)
@@ -400,7 +406,10 @@
                 }
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed.queue)) {
-                    this.queue = parsed.queue;
+                    // 刷新后 downloading 状态的任务已中断，重置为 idle 以便重新下载
+                    this.queue = parsed.queue.map(q =>
+                        q.status === 'downloading' ? {...q, status: 'idle', lastMessage: '刷新后重置'} : q
+                    );
                     this.isPaused = !!parsed.isPaused;
                     this.stats = parsed.stats || {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
                     this.updateStats();
@@ -440,13 +449,37 @@
         }
 
         setInterval(val) {
-            this.globalSettings.interval = parseInt(val) || CONFIG.DEFAULT_INTERVAL;
+            this.globalSettings.interval = Math.max(0, parseFloat(val) || 0);
             GM_setValue(CONFIG.KEY_INTERVAL, this.globalSettings.interval);
+        }
+
+        setIntervalUnit(unit) {
+            this.globalSettings.intervalUnit = unit;
+            GM_setValue(CONFIG.KEY_INTERVAL_UNIT, unit);
+        }
+
+        getIntervalMs() {
+            const { interval, intervalUnit } = this.globalSettings;
+            return intervalUnit === 's' ? Math.round(interval * 1000) : Math.round(interval);
+        }
+
+        setImageDelay(val) {
+            this.globalSettings.imageDelay = Math.max(0, parseFloat(val) || 0);
+            GM_setValue(CONFIG.KEY_IMAGE_DELAY, this.globalSettings.imageDelay);
+        }
+
+        setImageDelayUnit(unit) {
+            this.globalSettings.imageDelayUnit = unit;
+            GM_setValue(CONFIG.KEY_IMAGE_DELAY_UNIT, unit);
+        }
+
+        getImageDelayMs() {
+            const { imageDelay, imageDelayUnit } = this.globalSettings;
+            return imageDelayUnit === 's' ? Math.round(imageDelay * 1000) : Math.round(imageDelay);
         }
 
         setConcurrent(val) {
             let num = parseInt(val) || CONFIG.DEFAULT_CONCURRENT;
-            if (num > CONFIG.MAX_CONCURRENT) num = CONFIG.MAX_CONCURRENT;
             if (num < 1) num = 1;
             this.globalSettings.concurrent = num;
             GM_setValue(CONFIG.KEY_CONCURRENT, num);
@@ -486,7 +519,7 @@
                 return;
             }
 
-            const intervalSec = this.globalSettings.interval;
+            const intervalMs = this.getIntervalMs();
             const maxConcurrent = this.globalSettings.concurrent;
 
             // 只重置 idle/failed/paused 的项目
@@ -501,11 +534,11 @@
             this.ui.updateButtonsState(true, false);
             this.saveToStorage();
             this.ui.renderQueue(this.queue);
-            this.ui.setStatus(`开始下载 (并发:${maxConcurrent}, 间隔:${intervalSec}s)`, 'info');
+            this.ui.setStatus(`开始下载 (并发:${maxConcurrent}, 间隔:${intervalMs}ms)`, 'info');
 
             const workers = [];
-            for (let i = 0; i < Math.max(1, Math.min(maxConcurrent, 5)); i++) {
-                workers.push(this.workerLoop(intervalSec * 1000));
+            for (let i = 0; i < Math.max(1, maxConcurrent); i++) {
+                workers.push(this.workerLoop(intervalMs));
             }
             await Promise.all(workers);
 
@@ -585,6 +618,7 @@
                 const meta = await Api.getArtworkMeta(item.id);
                 const safeTitle = (meta && meta.illustTitle) ? meta.illustTitle : `Artwork ${item.id}`;
                 item.title = safeTitle;
+                this.saveToStorage();
 
                 if (this.globalSettings.r18Only) {
                     const restriction = meta.xRestrict !== undefined ? meta.xRestrict : 0;
@@ -630,7 +664,7 @@
 
                 this.ui.setStatus(`下载中：${item.title}`, 'info');
 
-                await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18, ugoiraData);
+                await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18, ugoiraData, this.getImageDelayMs());
                 item.lastMessage = '下载中，等待完成...';
                 this.ui.renderQueue(this.queue);
 
@@ -798,6 +832,7 @@
             }
             this._collapsed = false;
             this._build();
+            document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'user' }));
             this.syncSettings();
         }
 
@@ -816,6 +851,7 @@
             } else {
                 if (this.root) this.root.style.display = 'block';
                 if (fab) fab.style.display = 'none';
+                document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'user' }));
             }
         }
 
@@ -826,6 +862,15 @@
             this.elements.r18Only.checked = s.r18Only;
             this.elements.interval.value = s.interval;
             this.elements.concurrent.value = s.concurrent;
+            if (this.elements.intervalUnitBtn) {
+                this.elements.intervalUnitBtn.textContent = s.intervalUnit || 's';
+            }
+            if (this.elements.imageDelay) {
+                this.elements.imageDelay.value = s.imageDelay ?? 0;
+            }
+            if (this.elements.imageDelayUnitBtn) {
+                this.elements.imageDelayUnitBtn.textContent = s.imageDelayUnit || 'ms';
+            }
         }
 
         _build() {
@@ -888,13 +933,20 @@
             const settings = $el('div', {style: {marginBottom: '15px'}});
             settings.innerHTML = `
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
-                    <label style="font-size: 12px; margin-right: 10px; width: 120px;">下载间隔(秒):</label>
-                    <input type="number" id="download-interval" min="1" max="60" value="${CONFIG.DEFAULT_INTERVAL}"
-                           style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
+                    <label style="font-size: 12px; margin-right: 10px; width: 120px;">作品间隔:</label>
+                    <input type="number" id="download-interval" min="0" value="${CONFIG.DEFAULT_INTERVAL}"
+                           style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px 0 0 4px;">
+                    <button id="interval-unit-btn" style="padding: 4px 7px; font-size: 12px; font-weight: bold; border: 1px solid #ddd; border-left: none; border-radius: 0 4px 4px 0; background: #f0f0f0; cursor: pointer;">s</button>
+                </div>
+                <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                    <label style="font-size: 12px; margin-right: 10px; width: 120px;">图片间隔:</label>
+                    <input type="number" id="image-delay" min="0" value="0"
+                           style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px 0 0 4px;">
+                    <button id="image-delay-unit-btn" style="padding: 4px 7px; font-size: 12px; font-weight: bold; border: 1px solid #ddd; border-left: none; border-radius: 0 4px 4px 0; background: #f0f0f0; cursor: pointer;">ms</button>
                 </div>
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">最大并发数:</label>
-                    <input type="number" id="max-concurrent" min="1" max="${CONFIG.MAX_CONCURRENT}" value="${CONFIG.DEFAULT_CONCURRENT}"
+                    <input type="number" id="max-concurrent" min="1" value="${CONFIG.DEFAULT_CONCURRENT}"
                            style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
                 </div>
                 <div style="display: flex; align-items: center;">
@@ -1000,6 +1052,7 @@
             this.elements = {
                 title, status, stats, currentDownload, queueContainer,
                 interval: container.querySelector('#download-interval'),
+                imageDelay: container.querySelector('#image-delay'),
                 concurrent: container.querySelector('#max-concurrent'),
                 skipHistory: container.querySelector('#skip-history'),
                 r18Only: container.querySelector('#r18-only'),
@@ -1014,7 +1067,49 @@
             bindChange(this.elements.skipHistory, (e) => this.manager && this.manager.setSkipHistory(e.target.checked));
             bindChange(this.elements.r18Only, (e) => this.manager && this.manager.setR18Only(e.target.checked));
             bindChange(this.elements.interval, (e) => this.manager && this.manager.setInterval(e.target.value));
+            bindChange(this.elements.imageDelay, (e) => this.manager && this.manager.setImageDelay(e.target.value));
             bindChange(this.elements.concurrent, (e) => this.manager && this.manager.setConcurrent(e.target.value));
+
+            // 图片间隔单位切换
+            const imageDelayUnitBtn = container.querySelector('#image-delay-unit-btn');
+            if (imageDelayUnitBtn) {
+                imageDelayUnitBtn.addEventListener('click', () => {
+                    if (!this.manager) return;
+                    const cur = parseFloat(this.elements.imageDelay.value) || 0;
+                    const curUnit = this.manager.globalSettings.imageDelayUnit;
+                    if (curUnit === 's') {
+                        this.manager.setImageDelayUnit('ms');
+                        this.elements.imageDelay.value = Math.round(cur * 1000);
+                        imageDelayUnitBtn.textContent = 'ms';
+                    } else {
+                        this.manager.setImageDelayUnit('s');
+                        this.elements.imageDelay.value = +(cur / 1000).toFixed(3);
+                        imageDelayUnitBtn.textContent = 's';
+                    }
+                    this.manager.setImageDelay(this.elements.imageDelay.value);
+                });
+                this.elements.imageDelayUnitBtn = imageDelayUnitBtn;
+            }
+
+            const unitBtn = container.querySelector('#interval-unit-btn');
+            if (unitBtn) {
+                unitBtn.addEventListener('click', () => {
+                    if (!this.manager) return;
+                    const cur = parseFloat(this.elements.interval.value) || 0;
+                    const curUnit = this.manager.globalSettings.intervalUnit;
+                    if (curUnit === 's') {
+                        this.manager.setIntervalUnit('ms');
+                        this.elements.interval.value = Math.round(cur * 1000);
+                        unitBtn.textContent = 'ms';
+                    } else {
+                        this.manager.setIntervalUnit('s');
+                        this.elements.interval.value = +(cur / 1000).toFixed(3);
+                        unitBtn.textContent = 's';
+                    }
+                    this.manager.setInterval(this.elements.interval.value);
+                });
+                this.elements.intervalUnitBtn = unitBtn;
+            }
         }
 
         bindManager(manager) {
@@ -1241,5 +1336,12 @@
     GM_registerMenuCommand('强制打开下载面板', () => {
         ui.ensureMounted();
         if (ui.root) ui.root.style.display = 'block';
+    });
+
+    // 当 N-Tab 面板展开时，自动收起本面板
+    document.addEventListener('pixiv_panel_active', e => {
+        if (e.detail === 'ntab' && ui && !ui._collapsed) {
+            ui.toggleCollapse();
+        }
     });
 })();

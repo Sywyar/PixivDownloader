@@ -103,10 +103,17 @@
   .setting-item label { font-size: 12px; color: #555; white-space: nowrap; }
   .setting-item input[type=number] {
     width: 56px; padding: 4px 6px;
-    border: 1px solid #ddd; border-radius: 4px; font-size: 13px;
+    border: 1px solid #ddd; border-radius: 4px 0 0 4px; font-size: 13px;
   }
   .setting-item input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; }
   .r18-label { color: #d63384 !important; }
+  .unit-toggle {
+    padding: 4px 7px; font-size: 12px; font-weight: bold;
+    border: 1px solid #ddd; border-left: none; border-radius: 0 4px 4px 0;
+    background: #f0f0f0; cursor: pointer; white-space: nowrap;
+    transition: background .15s;
+  }
+  .unit-toggle:hover { background: #e0e0f0; }
 
   /* ---- Buttons ---- */
   .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -231,12 +238,18 @@
     <div class="card-title">下载设置</div>
     <div class="settings-grid">
       <div class="setting-item">
-        <label>下载间隔(秒):</label>
-        <input type="number" id="s-interval" min="1" max="60" value="2">
+        <label>作品间隔:</label>
+        <input type="number" id="s-interval" min="0" value="2">
+        <button class="unit-toggle" id="s-interval-unit" onclick="toggleIntervalUnit()">s</button>
+      </div>
+      <div class="setting-item">
+        <label>图片间隔:</label>
+        <input type="number" id="s-image-delay" min="0" value="0">
+        <button class="unit-toggle" id="s-image-delay-unit" onclick="toggleImageDelayUnit()">ms</button>
       </div>
       <div class="setting-item">
         <label>最大并发数:</label>
-        <input type="number" id="s-concurrent" min="1" max="5" value="1">
+        <input type="number" id="s-concurrent" min="1" value="1" style="border-radius:4px;">
       </div>
       <div class="setting-item">
         <input type="checkbox" id="s-skip">
@@ -296,7 +309,7 @@ let state = {
   sseMap: {},
   sseListeners: {},
   stats: { success: 0, failed: 0, active: 0, skipped: 0 },
-  settings: { interval: 2, concurrent: 1, skipHistory: false, r18Only: false }
+  settings: { interval: 2, intervalUnit: 's', imageDelay: 0, imageDelayUnit: 'ms', concurrent: 1, skipHistory: false, r18Only: false }
 };
 
 const BASE = 'http://localhost:6999';
@@ -439,8 +452,53 @@ async function checkDownloaded(artworkId) {
   } catch { return false; }
 }
 
+function getIntervalMs() {
+  const { interval, intervalUnit } = state.settings;
+  return intervalUnit === 's' ? Math.round(interval * 1000) : Math.round(interval);
+}
+
+function getImageDelayMs() {
+  const { imageDelay, imageDelayUnit } = state.settings;
+  return imageDelayUnit === 's' ? Math.round(imageDelay * 1000) : Math.round(imageDelay);
+}
+
+function toggleImageDelayUnit() {
+  const btn = document.getElementById('s-image-delay-unit');
+  const input = document.getElementById('s-image-delay');
+  const cur = parseFloat(input.value) || 0;
+  if (state.settings.imageDelayUnit === 's') {
+    state.settings.imageDelayUnit = 'ms';
+    input.value = Math.round(cur * 1000);
+    btn.textContent = 'ms';
+  } else {
+    state.settings.imageDelayUnit = 's';
+    input.value = +(cur / 1000).toFixed(3);
+    btn.textContent = 's';
+  }
+  state.settings.imageDelay = parseFloat(input.value) || 0;
+  saveSettings();
+}
+
+function toggleIntervalUnit() {
+  const btn = document.getElementById('s-interval-unit');
+  const input = document.getElementById('s-interval');
+  const cur = parseFloat(input.value) || 0;
+  if (state.settings.intervalUnit === 's') {
+    state.settings.intervalUnit = 'ms';
+    input.value = Math.round(cur * 1000);
+    btn.textContent = 'ms';
+  } else {
+    state.settings.intervalUnit = 's';
+    input.value = +(cur / 1000).toFixed(3);
+    btn.textContent = 's';
+  }
+  state.settings.interval = parseFloat(input.value) || 0;
+  saveSettings();
+}
+
 async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, isR18, ugoiraData) {
-  const other = { userDownload: isUserDownload, username: username || '', isR18: !!isR18 };
+  const delayMs = getImageDelayMs();
+  const other = { userDownload: isUserDownload, username: username || '', isR18: !!isR18, delayMs };
   if (ugoiraData) {
     other.isUgoira = true;
     other.ugoiraZipUrl = ugoiraData.zipUrl;
@@ -525,7 +583,8 @@ async function start() {
   if (state.queue.length === 0) { setStatus('队列为空', 'error'); return; }
   if (!await checkBackend()) { alert('后端服务不可用，请确认后端已启动'); return; }
 
-  const { interval, concurrent } = state.settings;
+  const { concurrent } = state.settings;
+  const intervalMs = getIntervalMs();
   state.queue.forEach(q => {
     if (['idle', 'failed', 'paused'].includes(q.status)) q.status = 'pending';
   });
@@ -538,11 +597,11 @@ async function start() {
   updateButtonsState();
   saveQueue();
   renderQueue();
-  setStatus(`开始下载 (并发:${concurrent}, 间隔:${interval}s)`, 'info');
+  setStatus(`开始下载 (并发:${concurrent}, 间隔:${intervalMs}ms)`, 'info');
 
   const workers = [];
-  for (let i = 0; i < Math.max(1, Math.min(concurrent, 5)); i++) {
-    workers.push(workerLoop(interval * 1000));
+  for (let i = 0; i < Math.max(1, concurrent); i++) {
+    workers.push(workerLoop(intervalMs));
   }
   await Promise.all(workers);
 
@@ -552,7 +611,7 @@ async function start() {
   updateButtonsState();
 }
 
-async function workerLoop(intervalMs) {
+async function workerLoop(intervalMs) { // intervalMs already in ms
   state.activeWorkers++;
   try {
     while (state.isRunning && !state.stopRequested) {
@@ -999,6 +1058,10 @@ function storageKey() {
 
 function saveQueue() {
   try {
+    if (state.mode === 'user' && state.userId) {
+      localStorage.setItem('pixiv_batch_last_user_id', state.userId);
+      if (state.username) localStorage.setItem('pixiv_batch_last_username', state.username);
+    }
     localStorage.setItem(storageKey(), JSON.stringify({
       queue: state.queue,
       isPaused: state.isPaused,
@@ -1045,15 +1108,23 @@ function loadSettings() {
     const raw = localStorage.getItem('pixiv_batch_settings');
     if (raw) Object.assign(state.settings, JSON.parse(raw));
   } catch {}
-  document.getElementById('s-interval').value   = state.settings.interval;
-  document.getElementById('s-concurrent').value  = state.settings.concurrent;
-  document.getElementById('s-skip').checked      = state.settings.skipHistory;
-  document.getElementById('s-r18').checked       = state.settings.r18Only;
+  document.getElementById('s-interval').value         = state.settings.interval;
+  document.getElementById('s-concurrent').value        = state.settings.concurrent;
+  document.getElementById('s-skip').checked            = state.settings.skipHistory;
+  document.getElementById('s-r18').checked             = state.settings.r18Only;
+  document.getElementById('s-image-delay').value       = state.settings.imageDelay ?? 0;
+  const unit = state.settings.intervalUnit || 's';
+  state.settings.intervalUnit = unit;
+  document.getElementById('s-interval-unit').textContent = unit;
+  const imgUnit = state.settings.imageDelayUnit || 'ms';
+  state.settings.imageDelayUnit = imgUnit;
+  document.getElementById('s-image-delay-unit').textContent = imgUnit;
 }
 
 function syncSettings() {
-  state.settings.interval    = Math.max(1, parseInt(document.getElementById('s-interval').value)   || 2);
-  state.settings.concurrent  = Math.max(1, Math.min(5, parseInt(document.getElementById('s-concurrent').value) || 1));
+  state.settings.interval    = Math.max(0, parseFloat(document.getElementById('s-interval').value) || 0);
+  state.settings.imageDelay  = Math.max(0, parseFloat(document.getElementById('s-image-delay').value) || 0);
+  state.settings.concurrent  = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
   state.settings.skipHistory = document.getElementById('s-skip').checked;
   state.settings.r18Only     = document.getElementById('s-r18').checked;
   saveSettings();
@@ -1100,6 +1171,20 @@ function init() {
   // Mode
   const savedMode = localStorage.getItem('pixiv_mode') || 'ntab';
   state.mode = savedMode;
+
+  // 在 switchMode 前先恢复 userId，否则 user 模式下 storageKey() 用空串找不到队列
+  if (savedMode === 'user') {
+    const savedUserId = localStorage.getItem('pixiv_batch_last_user_id') || '';
+    const savedUsername = localStorage.getItem('pixiv_batch_last_username') || '';
+    if (savedUserId) {
+      state.userId = savedUserId;
+      state.username = savedUsername;
+      document.getElementById('user-id-input').value = savedUserId;
+      document.getElementById('user-info-display').textContent =
+          savedUsername ? `用户：${savedUsername}（ID: ${savedUserId}）` : `ID: ${savedUserId}`;
+    }
+  }
+
   switchMode(savedMode);
 
   // Settings

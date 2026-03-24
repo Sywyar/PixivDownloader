@@ -12,6 +12,5 @@ import org.springframework.context.annotation.Configuration;
 public class DownloadConfig {
     // getters and setters
     private String rootFolder = "pixiv-download";
-    private int delayMs = 1000;
 
 }

@@ -221,7 +221,7 @@ public class DownloadService {
                             log.info("作品：{}，下载进度：{}/{}", artworkId, successCount.get(), imageUrls.size());
                             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));
                         }
-                        Thread.sleep(downloadConfig.getDelayMs());
+                        if (other.getDelayMs() > 0) Thread.sleep(other.getDelayMs());
                     } catch (Exception e) {
                         System.err.println("下载图片失败: " + imageUrl + ", 错误: " + e.getMessage());
                     }

@@ -40,5 +40,6 @@ public class DownloadRequest {
         private boolean isUgoira;
         private String ugoiraZipUrl;
         private List<Integer> ugoiraDelays;
+        private int delayMs = 0;
     }
 }

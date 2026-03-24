@@ -32,12 +32,14 @@
         SSE_BASE: "http://localhost:6999/api/sse/download",        // /{artworkId}
         DEFAULT_INTERVAL: 2,
         DEFAULT_CONCURRENT: 1,
-        MAX_CONCURRENT: 5,
         STATUS_TIMEOUT_MS: 300000,
         BACKEND_CHECK_TIMEOUT: 3000,
         STORAGE_KEY: 'pixiv_ntab_batch_v1',
         SKIP_HISTORY_KEY: 'pixiv_ntab_skip_history',
-        R18_ONLY_KEY: 'pixiv_ntab_r18_only'
+        R18_ONLY_KEY: 'pixiv_ntab_r18_only',
+        INTERVAL_UNIT_KEY: 'pixiv_ntab_interval_unit',
+        IMAGE_DELAY_KEY: 'pixiv_ntab_image_delay',
+        IMAGE_DELAY_UNIT_KEY: 'pixiv_ntab_image_delay_unit'
     };
 
     /* ========== 简单 DOM 帮助函数 ========== */
@@ -125,9 +127,9 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, ugoiraData) {
+        sendDownloadRequest(artworkId, imageUrls, title, ugoiraData, delayMs) {
             return new Promise((resolve, reject) => {
-                const other = { userDownload: false };
+                const other = { userDownload: false, delayMs: delayMs || 0 };
                 if (ugoiraData) {
                     other.isUgoira = true;
                     other.ugoiraZipUrl = ugoiraData.zipUrl;
@@ -330,7 +332,20 @@
             this.ui.setStatus(`解析完成：找到 ${items.length} 个作品`, 'success');
         }
 
-        async start(intervalSec = CONFIG.DEFAULT_INTERVAL, maxConcurrent = CONFIG.DEFAULT_CONCURRENT) {
+        getIntervalMs() {
+            const unit = GM_getValue(CONFIG.INTERVAL_UNIT_KEY, 's');
+            const val = parseFloat(this.ui.elements.interval.value) || 0;
+            return unit === 's' ? Math.round(val * 1000) : Math.round(val);
+        }
+
+        getImageDelayMs() {
+            const unit = GM_getValue(CONFIG.IMAGE_DELAY_UNIT_KEY, 'ms');
+            const val = parseFloat(this.ui.elements.imageDelay ? this.ui.elements.imageDelay.value : 0) || 0;
+            return unit === 's' ? Math.round(val * 1000) : Math.round(val);
+        }
+
+        async start(intervalMs, maxConcurrent = CONFIG.DEFAULT_CONCURRENT) {
+            if (intervalMs === undefined) intervalMs = this.getIntervalMs();
             if (this.queue.length === 0) {
                 this.ui.setStatus('队列为空', 'error'); return;
             }
@@ -351,10 +366,9 @@
             this.ui.renderQueue(this.queue);
             this.ui.setStatus('开始批量下载', 'info');
 
-            const workerCount = Math.max(1, Math.min(maxConcurrent, CONFIG.MAX_CONCURRENT));
             const workers = [];
-            for (let i = 0; i < workerCount; i++) {
-                workers.push(this.workerLoop(intervalSec * 1000));
+            for (let i = 0; i < Math.max(1, maxConcurrent); i++) {
+                workers.push(this.workerLoop(intervalMs));
             }
             await Promise.all(workers);
             this.isRunning = false;
@@ -463,7 +477,7 @@
 
                 this.sse.open(item.id);
                 const ssePromise = this._waitForFinalStatusBySSE(item.id, CONFIG.STATUS_TIMEOUT_MS);
-                await Api.sendDownloadRequest(item.id, urls, item.title, ugoiraData);
+                await Api.sendDownloadRequest(item.id, urls, item.title, ugoiraData, this.getImageDelayMs());
                 item.lastMessage = '下载中，等待完成...';
                 this.ui.renderQueue(this.queue);
                 const final = await ssePromise;
@@ -564,9 +578,8 @@
 
         resume() {
             if (!this.isRunning) {
-                const interval = Math.max(1, parseInt(this.ui.elements.interval.value) || CONFIG.DEFAULT_INTERVAL);
-                const concurrent = Math.max(1, Math.min(CONFIG.MAX_CONCURRENT, parseInt(this.ui.elements.concurrent.value) || CONFIG.DEFAULT_CONCURRENT));
-                return this.start(interval, concurrent);
+                const concurrent = Math.max(1, parseInt(this.ui.elements.concurrent.value) || CONFIG.DEFAULT_CONCURRENT);
+                return this.start(this.getIntervalMs(), concurrent);
             }
             this.isPaused = false;
             this.queue.forEach(q => { if (q.status === 'paused') q.status = 'pending'; });
@@ -669,12 +682,18 @@
             const settings = $el('div', { style: { marginBottom: '15px' } });
             settings.innerHTML = `
                 <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                    <label style="font-size: 12px; margin-right: 10px; width: 120px;">下载间隔(秒):</label>
-                    <input type="number" id="download-interval" value="${CONFIG.DEFAULT_INTERVAL}" min="1" max="60" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
+                    <label style="font-size: 12px; margin-right: 10px; width: 120px;">作品间隔:</label>
+                    <input type="number" id="download-interval" value="${CONFIG.DEFAULT_INTERVAL}" min="0" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px 0 0 4px;">
+                    <button id="interval-unit-btn" style="padding: 4px 7px; font-size: 12px; font-weight: bold; border: 1px solid #ddd; border-left: none; border-radius: 0 4px 4px 0; background: #f0f0f0; cursor: pointer;">s</button>
+                </div>
+                <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                    <label style="font-size: 12px; margin-right: 10px; width: 120px;">图片间隔:</label>
+                    <input type="number" id="image-delay" value="0" min="0" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px 0 0 4px;">
+                    <button id="image-delay-unit-btn" style="padding: 4px 7px; font-size: 12px; font-weight: bold; border: 1px solid #ddd; border-left: none; border-radius: 0 4px 4px 0; background: #f0f0f0; cursor: pointer;">ms</button>
                 </div>
                 <div style="display: flex; align-items: center; margin-bottom: 10px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">最大并发数:</label>
-                    <input type="number" id="max-concurrent" value="${CONFIG.DEFAULT_CONCURRENT}" min="1" max="${CONFIG.MAX_CONCURRENT}" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
+                    <input type="number" id="max-concurrent" value="${CONFIG.DEFAULT_CONCURRENT}" min="1" style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px;">
                 </div>
                 <div style="display: flex; align-items: center; margin-bottom: 10px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">跳过历史下载:</label>
@@ -722,6 +741,9 @@
             this.elements = {
                 textarea: textarea,
                 interval: container.querySelector('#download-interval'),
+                intervalUnitBtn: container.querySelector('#interval-unit-btn'),
+                imageDelay: container.querySelector('#image-delay'),
+                imageDelayUnitBtn: container.querySelector('#image-delay-unit-btn'),
                 concurrent: container.querySelector('#max-concurrent'),
                 skipHistory: container.querySelector('#skip-history'),
                 r18Only: container.querySelector('#r18-only'),
@@ -734,6 +756,43 @@
                 queueContainer: queueContainer,
                 currentDownload: currentDownload
             };
+
+            // 恢复已存单位并绑定切换事件
+            const savedUnit = GM_getValue(CONFIG.INTERVAL_UNIT_KEY, 's');
+            if (this.elements.intervalUnitBtn) {
+                this.elements.intervalUnitBtn.textContent = savedUnit;
+                this.elements.intervalUnitBtn.addEventListener('click', () => {
+                    const curUnit = GM_getValue(CONFIG.INTERVAL_UNIT_KEY, 's');
+                    const cur = parseFloat(this.elements.interval.value) || 0;
+                    if (curUnit === 's') {
+                        GM_setValue(CONFIG.INTERVAL_UNIT_KEY, 'ms');
+                        this.elements.interval.value = Math.round(cur * 1000);
+                        this.elements.intervalUnitBtn.textContent = 'ms';
+                    } else {
+                        GM_setValue(CONFIG.INTERVAL_UNIT_KEY, 's');
+                        this.elements.interval.value = +(cur / 1000).toFixed(3);
+                        this.elements.intervalUnitBtn.textContent = 's';
+                    }
+                });
+            }
+
+            const savedImgUnit = GM_getValue(CONFIG.IMAGE_DELAY_UNIT_KEY, 'ms');
+            if (this.elements.imageDelayUnitBtn) {
+                this.elements.imageDelayUnitBtn.textContent = savedImgUnit;
+                this.elements.imageDelayUnitBtn.addEventListener('click', () => {
+                    const curUnit = GM_getValue(CONFIG.IMAGE_DELAY_UNIT_KEY, 'ms');
+                    const cur = parseFloat(this.elements.imageDelay.value) || 0;
+                    if (curUnit === 's') {
+                        GM_setValue(CONFIG.IMAGE_DELAY_UNIT_KEY, 'ms');
+                        this.elements.imageDelay.value = Math.round(cur * 1000);
+                        this.elements.imageDelayUnitBtn.textContent = 'ms';
+                    } else {
+                        GM_setValue(CONFIG.IMAGE_DELAY_UNIT_KEY, 's');
+                        this.elements.imageDelay.value = +(cur / 1000).toFixed(3);
+                        this.elements.imageDelayUnitBtn.textContent = 's';
+                    }
+                });
+            }
         }
 
         bindManager(manager) {
@@ -749,9 +808,8 @@
         }
 
         async handleStart() {
-            const interval = Math.max(1, parseInt(this.elements.interval.value) || CONFIG.DEFAULT_INTERVAL);
-            const concurrent = Math.max(1, Math.min(CONFIG.MAX_CONCURRENT, parseInt(this.elements.concurrent.value) || CONFIG.DEFAULT_CONCURRENT));
-            this.manager.start(interval, concurrent);
+            const concurrent = Math.max(1, parseInt(this.elements.concurrent.value) || CONFIG.DEFAULT_CONCURRENT);
+            this.manager.start(this.manager.getIntervalMs(), concurrent);
         }
 
         handlePause() {
@@ -839,6 +897,7 @@
             } else {
                 this.root.style.display = 'block';
                 if (fab) fab.style.display = 'none';
+                document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'ntab' }));
             }
         }
 
@@ -906,4 +965,11 @@
             }
         }, 500);
     })();
+
+    // 当 User 面板展开时，自动收起本面板
+    document.addEventListener('pixiv_panel_active', e => {
+        if (e.detail === 'user' && !ui._collapsed) {
+            ui.toggleCollapse();
+        }
+    });
 })();
