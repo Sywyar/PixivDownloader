@@ -344,6 +344,12 @@ td.c-path { font-family: monospace; color: #8b949e; max-width: 160px; overflow: 
   <span id="server-status" class="s-chk">服务器: 检测中...</span>
 </div>
 
+<!-- Restore-permission banner -->
+<div id="restore-banner" style="display:none;padding:6px 12px;background:#0d2b1e;border-bottom:1px solid #238636;font-size:12px;color:#56d364;align-items:center;gap:10px;flex-shrink:0;">
+  <span>检测到 <b id="restore-count">0</b> 个已保存的目录绑定，需要重新授权访问</span>
+  <button class="b-success" id="btn-restore-handles" style="padding:3px 10px;font-size:12px;">恢复访问权限</button>
+</div>
+
 <!-- Main -->
 <div id="main">
 
@@ -538,9 +544,17 @@ function renderCategories() {
   config.targets.forEach((t, i) => {
     const el = document.createElement('div');
     el.className = 'cat-item';
+    const handle = targetHandles[i];
+    const displayPath = t.path || (handle ? handle.name : '');
+    let subHtml = '';
+    if (handle) {
+      subHtml += `<div class="cat-path" style="color:#56d364;">✓ ${esc(displayPath)}</div>`;
+    } else if (t.path) {
+      subHtml += `<div class="cat-path">${esc(t.path)}</div>`;
+    }
     el.innerHTML =
       `<div><span class="cat-num">${i}</span><span class="cat-remark">${esc(t.remark)}</span></div>` +
-      (t.path ? `<div class="cat-path">${esc(t.path)}</div>` : '');
+      subHtml;
     el.addEventListener('click', () => {
       document.getElementById('target-input').value = i;
       updateRemarkLabel();
@@ -930,6 +944,140 @@ async function sendMoveInfo(artworkId, movePath) {
 }
 
 // ══════════════════════════════════════════
+//  IndexedDB persistence for FileSystemDirectoryHandle
+// ══════════════════════════════════════════
+const IDB_NAME    = 'classifier-handles';
+const IDB_STORE   = 'handles';
+const IDB_VERSION = 1;
+
+function openIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(IDB_STORE);
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function idbPut(key, value) {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror    = e => { db.close(); reject(e.target.error); };
+  });
+}
+
+async function idbDelete(key) {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror    = e => { db.close(); reject(e.target.error); };
+  });
+}
+
+async function idbGetAll() {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx    = db.transaction(IDB_STORE, 'readonly');
+    const store = tx.objectStore(IDB_STORE);
+    const keys  = [], vals = [];
+    store.openCursor().onsuccess = e => {
+      const cursor = e.target.result;
+      if (cursor) { keys.push(cursor.key); vals.push(cursor.value); cursor.continue(); }
+      else resolve({ keys, vals });
+    };
+    tx.onerror = e => { db.close(); reject(e.target.error); };
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function idbClear() {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).clear();
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror    = e => { db.close(); reject(e.target.error); };
+  });
+}
+
+// Persist all current targetHandles to IDB (called on save settings)
+async function syncHandlesToDB() {
+  try {
+    await idbClear();
+    const writes = Object.entries(targetHandles).map(([k, h]) => idbPut(Number(k), h));
+    await Promise.all(writes);
+  } catch (e) {
+    console.warn('syncHandlesToDB failed:', e);
+  }
+}
+
+// On load: restore handles from IDB.
+// Handles with 'granted' permission are silently loaded.
+// Handles in 'prompt' state are collected for banner display.
+async function initHandles() {
+  let pendingCount = 0;
+  try {
+    const { keys, vals } = await idbGetAll();
+    for (let i = 0; i < keys.length; i++) {
+      const idx    = keys[i];
+      const handle = vals[i];
+      try {
+        const perm = await handle.queryPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          targetHandles[idx] = handle;
+        } else {
+          // 'prompt' — store temporarily, requires user gesture to activate
+          targetHandles[idx] = handle;
+          pendingCount++;
+        }
+      } catch {
+        // handle invalid, skip
+      }
+    }
+  } catch (e) {
+    console.warn('initHandles failed:', e);
+  }
+
+  renderCategories();
+  renderFoldersTable();
+
+  if (pendingCount > 0) {
+    document.getElementById('restore-count').textContent = pendingCount;
+    const banner = document.getElementById('restore-banner');
+    banner.style.display = 'flex';
+  }
+}
+
+// Called when user clicks "恢复访问权限" banner button.
+// Iterates handles that need permission and calls requestPermission (requires user gesture).
+async function restorePendingHandles() {
+  let restored = 0;
+  for (const [idxStr, handle] of Object.entries(targetHandles)) {
+    try {
+      const perm = await handle.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') {
+        const result = await handle.requestPermission({ mode: 'readwrite' });
+        if (result === 'granted') restored++;
+      } else {
+        restored++;
+      }
+    } catch { /* skip */ }
+  }
+  document.getElementById('restore-banner').style.display = 'none';
+  renderCategories();
+  renderFoldersTable();
+  if (restored > 0) {
+    const bar = document.getElementById('status-bar');
+    bar.textContent = `已恢复 ${restored} 个目录的访问权限`;
+  }
+}
+
+// ══════════════════════════════════════════
 //  Settings modal
 // ══════════════════════════════════════════
 let workTargets    = [];  // editing copy
@@ -955,6 +1103,7 @@ function saveSettings() {
   config.showSkipButton = document.getElementById('cfg-show-skip').checked;
   config.targets       = workTargets;
   persistConfig();
+  syncHandlesToDB();  // persist handles for next session
 
   document.getElementById('btn-skip').style.display = config.showSkipButton ? '' : 'none';
   renderCategories();
@@ -970,10 +1119,18 @@ function renderFoldersTable() {
     const tr = document.createElement('tr');
     if (i === selectedRow) tr.className = 'sel';
     tr.dataset.i = i;
+    const handle = targetHandles[i];
+    const displayPath = t.path || (handle ? handle.name : '');
+    let pathHtml = '';
+    if (handle) {
+      pathHtml = `<span style="color:#56d364;">✓ ${esc(displayPath)}</span>`;
+    } else {
+      pathHtml = esc(t.path || '');
+    }
     tr.innerHTML =
       `<td class="c-num">${i}</td>` +
       `<td>${esc(t.remark)}</td>` +
-      `<td class="c-path">${esc(t.path || '')}</td>`;
+      `<td class="c-path">${pathHtml}</td>`;
     tr.addEventListener('click', () => { selectedRow = i; renderFoldersTable(); });
     tbody.appendChild(tr);
   });
@@ -1022,6 +1179,8 @@ function esc(s) {
 // ══════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
   initGrid();
+  initHandles();  // restore persisted FileSystemDirectoryHandle objects from IndexedDB
+  document.getElementById('btn-restore-handles').addEventListener('click', restorePendingHandles);
   renderCategories();
   updateRemarkLabel();
   checkServer();
@@ -1062,18 +1221,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (selectedRow < 0) { alert('请先选择一行'); return; }
     if (!confirm('确定删除选中的文件夹？')) return;
     workTargets.splice(selectedRow, 1);
+    // Shift targetHandles: remove deleted index, shift down all higher indices
+    delete targetHandles[selectedRow];
+    const newHandles = {};
+    Object.entries(targetHandles).forEach(([k, h]) => {
+      const ki = Number(k);
+      if (ki > selectedRow) newHandles[ki - 1] = h;
+      else if (ki < selectedRow) newHandles[ki] = h;
+    });
+    targetHandles = newHandles;
     selectedRow = Math.min(selectedRow, workTargets.length - 1);
     renderFoldersTable();
   });
   document.getElementById('btn-move-up').addEventListener('click', () => {
     if (selectedRow <= 0) return;
     [workTargets[selectedRow - 1], workTargets[selectedRow]] = [workTargets[selectedRow], workTargets[selectedRow - 1]];
+    [targetHandles[selectedRow - 1], targetHandles[selectedRow]] = [targetHandles[selectedRow], targetHandles[selectedRow - 1]];
     selectedRow--;
     renderFoldersTable();
   });
   document.getElementById('btn-move-down').addEventListener('click', () => {
     if (selectedRow < 0 || selectedRow >= workTargets.length - 1) return;
     [workTargets[selectedRow + 1], workTargets[selectedRow]] = [workTargets[selectedRow], workTargets[selectedRow + 1]];
+    [targetHandles[selectedRow + 1], targetHandles[selectedRow]] = [targetHandles[selectedRow], targetHandles[selectedRow + 1]];
     selectedRow++;
     renderFoldersTable();
   });
@@ -1081,9 +1251,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (selectedRow < 0) { alert('请先选择一行'); return; }
     try {
       const h = await window.showDirectoryPicker({ mode: 'readwrite' });
-      // Map to the working index — note: saved index may shift after reorder; bind after saving is safer
       targetHandles[selectedRow] = h;
-      alert(`已为「${workTargets[selectedRow].remark}」绑定目录: ${h.name}`);
+      idbPut(selectedRow, h).catch(e => console.warn('idbPut failed:', e));
+      renderFoldersTable();   // 刷新设置表格，显示绑定状态
+      renderCategories();     // 刷新左侧分类说明，显示绑定状态
     } catch (e) { if (e.name !== 'AbortError') alert('绑定失败: ' + e.message); }
   });
 
