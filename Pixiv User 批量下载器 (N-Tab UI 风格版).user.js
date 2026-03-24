@@ -560,11 +560,14 @@
         }
 
         async _processSingle({item}) {
+            item.lastMessage = '正在检查历史记录...';
+            this.ui.renderQueue(this.queue);
+
             if (this.globalSettings.skipHistory) {
                 const isDownloaded = await Api.checkDownloaded(item.id);
                 if (isDownloaded) {
                     item.status = 'skipped';
-                    item.lastMessage = '已跳过（历史存在）';
+                    item.lastMessage = '跳过 — 历史记录中已存在';
                     item.endTime = new Date().toISOString();
                     this.updateStats();
                     this.saveToStorage();
@@ -573,8 +576,10 @@
                 }
             }
 
+            item.lastMessage = '正在获取作品信息...';
             this.ui.setCurrent(item);
             this.ui.setStatus(`获取信息：${item.id}`, 'info');
+            this.ui.renderQueue(this.queue);
 
             try {
                 const meta = await Api.getArtworkMeta(item.id);
@@ -585,7 +590,7 @@
                     const restriction = meta.xRestrict !== undefined ? meta.xRestrict : 0;
                     if (restriction === 0) {
                         item.status = 'skipped';
-                        item.lastMessage = '已跳过（非R18）';
+                        item.lastMessage = '跳过 — 非 R18 内容';
                         item.endTime = new Date().toISOString();
                         this.updateStats();
                         this.saveToStorage();
@@ -616,6 +621,7 @@
                     item.totalImages = urls.length;
                 }
 
+                item.lastMessage = '正在获取图片地址...';
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
@@ -625,6 +631,8 @@
                 this.ui.setStatus(`下载中：${item.title}`, 'info');
 
                 await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18, ugoiraData);
+                item.lastMessage = '下载中，等待完成...';
+                this.ui.renderQueue(this.queue);
 
                 const final = await ssePromise;
 
@@ -634,16 +642,16 @@
                     item.downloadedCount = dCount;
                     if (dCount < item.totalImages) {
                         item.status = 'failed';
-                        item.lastMessage = `失败: 仅下载 ${dCount}/${item.totalImages}`;
+                        item.lastMessage = `失败 — 仅 ${dCount}/${item.totalImages} 张已下载`;
                         this.ui.setStatus(`失败：${item.title} (文件缺失)`, 'error');
                     } else {
                         item.status = 'completed';
-                        item.lastMessage = '完成';
+                        item.lastMessage = `已完成，共 ${dCount} 张`;
                         this.ui.setStatus(`完成：${item.title}`, 'success');
                     }
                 } else if (final && final.failed) {
                     item.status = 'failed';
-                    item.lastMessage = final.message || '失败';
+                    item.lastMessage = `失败 — ${final.message || '后端报告失败'}`;
                     this.ui.setStatus(`失败：${item.title}`, 'error');
                 } else {
                     const check = await Api.getDownloadStatus(item.id);
@@ -652,20 +660,20 @@
                         item.downloadedCount = dCount;
                         if (dCount < item.totalImages) {
                             item.status = 'failed';
-                            item.lastMessage = `后端已结束但文件缺失 (${dCount}/${item.totalImages})`;
+                            item.lastMessage = `失败 — 文件缺失 (${dCount}/${item.totalImages})`;
                         } else {
                             item.status = 'completed';
-                            item.lastMessage = '完成(Check)';
+                            item.lastMessage = `已完成（确认），共 ${dCount} 张`;
                         }
                     } else {
                         item.status = 'failed';
-                        item.lastMessage = '状态查询超时';
+                        item.lastMessage = '失败 — 超时未收到完成状态';
                     }
                 }
 
             } catch (e) {
                 item.status = 'failed';
-                item.lastMessage = e.message;
+                item.lastMessage = `失败 — ${e.message}`;
                 this.ui.setStatus(`错误：${item.title}`, 'error');
             } finally {
                 this.sse.close(item.id);
@@ -1130,7 +1138,8 @@
                     }
                 });
                 const progressHtml = this._createProgressHtml(q);
-                item.innerHTML = `<div><strong>${escapeHtml(q.title || 'ID: ' + q.id)}</strong></div><div>ID: ${q.id} | 状态: ${this._statusText(q.status)}</div>${progressHtml}`;
+                const desc = q.lastMessage || this._statusText(q.status);
+                item.innerHTML = `<div><strong>${escapeHtml(q.title || 'ID: ' + q.id)}</strong></div><div>ID: ${q.id} | <span style="color:${this._colorByStatus(q.status)};font-weight:bold;">${escapeHtml(desc)}</span></div>${progressHtml}`;
                 node.appendChild(item);
             }
         }

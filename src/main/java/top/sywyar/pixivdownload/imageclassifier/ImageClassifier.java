@@ -630,8 +630,7 @@ public class ImageClassifier extends JFrame {
                 folderRemarks.add(tableModel.getValueAt(i, 2).toString());
             }
 
-            saveConfig();
-            loadConfig(); // 重新加载配置
+            saveConfig(); // Fix 5: 移除冗余的 loadConfig()，内存状态已由上方代码正确更新
 
             // 更新UI
             skipFolderButton.setVisible(showSkipButtonCheckBox.isSelected());
@@ -808,13 +807,8 @@ public class ImageClassifier extends JFrame {
         }
     }
 
-    // 新增跳过文件夹方法
+    // Fix 1: 无论文件夹是否有图片均允许跳过，避免空图片文件夹造成 UI 死锁
     private void skipCurrentFolder() {
-        if (currentImages == null || currentImages.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "当前文件夹没有图片可跳过", "提示", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-
         moveToNextFolder();
     }
 
@@ -998,81 +992,111 @@ public class ImageClassifier extends JFrame {
             return;
         }
 
+        int index;
         try {
-            int index = Integer.parseInt(targetFolderNum);
-            if (index < 0 || index >= targetFolders.size()) {
+            index = Integer.parseInt(targetFolderNum);
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this, "请输入有效的文件夹编号", "错误", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        if (index < 0 || index >= targetFolders.size()) {
+            JOptionPane.showMessageDialog(this,
+                    "请输入0-" + (targetFolders.size() - 1) + "之间的数字",
+                    "错误", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        // Fix 3: 提前校验文件夹名是否为合法作品 ID，给出明确错误提示，不再误导用户
+        String currentFolderName = subFolders.get(currentFolderIndex).getName();
+        Long artworkId;
+        try {
+            artworkId = Long.parseLong(currentFolderName);
+        } catch (NumberFormatException e) {
+            JOptionPane.showMessageDialog(this,
+                    "当前文件夹名称「" + currentFolderName + "」不是有效的作品 ID（非数字）。\n请使用「跳过此文件夹」处理。",
+                    "错误", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        String targetFolderPath = targetFolders.get(index);
+        File targetFolder = new File(targetFolderPath);
+
+        if (!targetFolder.exists()) {
+            if (!targetFolder.mkdirs()) {
                 JOptionPane.showMessageDialog(this,
-                        "请输入0-" + (targetFolders.size() - 1) + "之间的数字",
+                        "无法创建目标文件夹: " + targetFolderPath,
                         "错误", JOptionPane.ERROR_MESSAGE);
                 return;
             }
+        }
 
-            // 获取目标文件夹路径
-            String targetFolderPath = targetFolders.get(index);
-            File targetFolder = new File(targetFolderPath);
+        File destDir;
+        File numberedFolder = null;
 
-            // 确保目标文件夹存在
-            if (!targetFolder.exists()) {
-                if (!targetFolder.mkdirs()) {
-                    JOptionPane.showMessageDialog(this,
-                            "无法创建目标文件夹: " + targetFolderPath,
-                            "错误", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-            }
-
-            // 根据图片数量决定移动方式
+        try {
             if (currentImages.size() == 1) {
-                // 只有一张图片，直接移动到目标文件夹
-                File currentImage = currentImages.get(0);
-                File targetFile = new File(targetFolder, currentImage.getName());
-
-                Long artworkId = Long.valueOf(currentImage.toPath().getParent().getFileName().toString());
-
-                Files.move(currentImage.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-
-                if (serverRunning) {
-                    try {
-                        sendMoveArtWorkInfo(artworkId, targetFolder.toPath().toString());
-                    } catch (Exception e) {
-                        log.error("记录失败", e);
-                    }
-                }
+                destDir = targetFolder;
             } else {
-                // 多张图片，创建数字递增文件夹
                 int nextFolderNumber = findNextFolderNumber(targetFolder);
-                File numberedFolder = new File(targetFolder, String.valueOf(nextFolderNumber));
-
-                if (!numberedFolder.exists()) {
-                    numberedFolder.mkdirs();
+                numberedFolder = new File(targetFolder, String.valueOf(nextFolderNumber));
+                if (!numberedFolder.mkdirs()) {
+                    throw new IOException("无法创建子文件夹: " + numberedFolder.getAbsolutePath());
                 }
-
-                Long artworkId = Long.valueOf(currentImages.get(0).toPath().getParent().getFileName().toString());
-
-                // 移动所有图片到数字文件夹
-                for (File image : currentImages) {
-                    File targetFile = new File(numberedFolder, image.getName());
-                    Files.move(image.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                }
-
-                if (serverRunning) {
-                    try {
-                        sendMoveArtWorkInfo(artworkId, numberedFolder.toPath().toString());
-                    } catch (Exception e) {
-                        log.error("记录失败", e);
-                    }
-                }
-
+                destDir = numberedFolder;
             }
 
-            // 移动到下一个文件夹
+            final String moveReportPath = destDir.toPath().toString();
+            final File finalNumberedFolder = numberedFolder;
+            List<File[]> copyPairs = new ArrayList<>(); // [src, dest]
+
+            // Fix 2 Phase 1: 复制所有图片到目标目录
+            try {
+                for (File image : currentImages) {
+                    File destFile = new File(destDir, image.getName());
+                    Files.copy(image.toPath(), destFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    copyPairs.add(new File[]{image, destFile});
+                }
+            } catch (IOException copyErr) {
+                // 回滚：删除已复制到目标目录的文件
+                for (File[] pair : copyPairs) {
+                    try { Files.deleteIfExists(pair[1].toPath()); } catch (IOException re) { log.error("回滚删除失败: {}", re.getMessage()); }
+                }
+                if (finalNumberedFolder != null) finalNumberedFolder.delete();
+                throw copyErr;
+            }
+
+            // Fix 2 Phase 2: 删除源文件（所有复制已成功）
+            try {
+                for (File[] pair : copyPairs) {
+                    Files.delete(pair[0].toPath());
+                }
+            } catch (IOException delErr) {
+                // 回滚：删除目标目录中已复制的文件（源文件仍完整）
+                for (File[] pair : copyPairs) {
+                    try { Files.deleteIfExists(pair[1].toPath()); } catch (IOException re) { log.error("回滚删除失败: {}", re.getMessage()); }
+                }
+                if (finalNumberedFolder != null) {
+                    File[] remaining = finalNumberedFolder.listFiles();
+                    if (remaining == null || remaining.length == 0) finalNumberedFolder.delete();
+                }
+                throw delErr;
+            }
+
+            // 上报服务器
+            if (serverRunning) {
+                try { sendMoveArtWorkInfo(artworkId, moveReportPath); }
+                catch (Exception e) { log.error("记录失败", e); }
+            }
+
             moveToNextFolder();
 
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "移动文件时出错: " + e.getMessage(),
+            JOptionPane.showMessageDialog(this, "移动文件时出错（已回滚）: " + e.getMessage(),
                     "错误", JOptionPane.ERROR_MESSAGE);
-        } catch (NumberFormatException e) {
-            JOptionPane.showMessageDialog(this, "请输入有效的文件夹编号", "错误", JOptionPane.ERROR_MESSAGE);
+            // 重新从磁盘加载以反映实际状态
+            loadImagesFromCurrentFolder();
+            updateThumbnails();
         }
     }
 
@@ -1088,8 +1112,8 @@ public class ImageClassifier extends JFrame {
     private void moveToNextFolder() {
         // 删除已处理的文件夹
         File currentFolder = subFolders.get(currentFolderIndex);
-        if (currentFolder.listFiles() == null || currentFolder.listFiles().length == 0) {
-            // 文件夹为空，删除它
+        File[] remainingFiles = currentFolder.listFiles(); // Fix 4: 避免二次调用 listFiles()
+        if (remainingFiles == null || remainingFiles.length == 0) {
             currentFolder.delete();
         }
 
