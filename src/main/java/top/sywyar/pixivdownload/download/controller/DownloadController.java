@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +13,9 @@ import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.*;
+import top.sywyar.pixivdownload.quota.MultiModeConfig;
+import top.sywyar.pixivdownload.quota.UserQuotaService;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -25,9 +30,44 @@ public class DownloadController {
     @Autowired
     private DownloadService downloadService;
 
+    @Autowired
+    private SetupService setupService;
+
+    @Autowired
+    private UserQuotaService userQuotaService;
+
+    @Autowired
+    private MultiModeConfig multiModeConfig;
+
     @PostMapping("/download/pixiv")
-    public ResponseEntity<DownloadResponse> downloadPixivImages(@Valid @RequestBody DownloadRequest request) {
+    public ResponseEntity<?> downloadPixivImages(
+            @Valid @RequestBody DownloadRequest request,
+            HttpServletRequest httpRequest) {
         try {
+            String userUuid = null;
+
+            // 多人模式且配额启用时，检查下载配额
+            if ("multi".equals(setupService.getMode()) && multiModeConfig.getQuota().isEnabled()) {
+                userUuid = extractUserUuid(httpRequest);
+                UserQuotaService.QuotaCheckResult check =
+                        userQuotaService.checkAndReserve(userUuid);
+
+                if (!check.allowed()) {
+                    // 配额不足：触发打包，返回 429
+                    String archiveToken = userQuotaService.triggerArchive(userUuid);
+                    Map<String, Object> body = new HashMap<>();
+                    body.put("quotaExceeded", true);
+                    body.put("message", "已达到下载限额，请下载已打包的文件后等待配额重置");
+                    body.put("archiveToken", archiveToken);
+                    body.put("archiveExpireSeconds",
+                            (long) multiModeConfig.getQuota().getArchiveExpireMinutes() * 60);
+                    body.put("artworksUsed", check.artworksUsed());
+                    body.put("maxArtworks", check.maxArtworks());
+                    body.put("resetSeconds", check.resetSeconds());
+                    return ResponseEntity.status(429).body(body);
+                }
+            }
+
             // 异步处理下载任务
             downloadService.downloadImages(
                     request.getArtworkId(),
@@ -35,7 +75,8 @@ public class DownloadController {
                     request.getImageUrls(),
                     request.getReferer(),
                     request.getOther(),
-                    request.getCookie()
+                    request.getCookie(),
+                    userUuid
             );
 
             return ResponseEntity.ok(new DownloadResponse(
@@ -50,6 +91,23 @@ public class DownloadController {
                     new DownloadResponse(false, "下载请求处理失败: " + e.getMessage())
             );
         }
+    }
+
+    /** 提取用户 UUID：优先 cookie，其次 X-User-UUID 请求头，最后基于 IP+UA 生成 */
+    private String extractUserUuid(HttpServletRequest req) {
+        Cookie[] cookies = req.getCookies();
+        if (cookies != null) {
+            for (Cookie c : cookies) {
+                if ("pixiv_user_id".equals(c.getName()) && c.getValue() != null
+                        && !c.getValue().isBlank()) {
+                    return c.getValue();
+                }
+            }
+        }
+        String headerUuid = req.getHeader("X-User-UUID");
+        if (headerUuid != null && !headerUuid.isBlank()) return headerUuid;
+        return UserQuotaService.generateUuidFromFingerprint(
+                req.getRemoteAddr(), req.getHeader("User-Agent"));
     }
 
     @GetMapping("/download/status")

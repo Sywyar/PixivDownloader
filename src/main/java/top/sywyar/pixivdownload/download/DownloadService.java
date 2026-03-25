@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.ImageResponse;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
 import top.sywyar.pixivdownload.imageclassifier.ThumbnailManager;
+import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -47,11 +48,16 @@ public class DownloadService {
     @Autowired
     private PixivDatabase pixivDatabase;
 
+    @Autowired(required = false)
+    private UserQuotaService userQuotaService;
+
     // 存储下载状态
     private final ConcurrentHashMap<Long, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
 
     @Async
-    public void downloadImages(Long artworkId, String title, List<String> imageUrls, String referer, DownloadRequest.Other other, String cookie) {
+    public void downloadImages(Long artworkId, String title, List<String> imageUrls,
+                               String referer, DownloadRequest.Other other, String cookie,
+                               String userUuid) {
         // 初始化下载状态
         DownloadStatus status = new DownloadStatus(artworkId, title, imageUrls.size());
         downloadStatusMap.put(artworkId, status);
@@ -229,6 +235,11 @@ public class DownloadService {
             }
 
             httpClient.close();
+
+            // 多人模式：记录已下载的文件夹（用于配额超出时打包）
+            if (userUuid != null && userQuotaService != null) {
+                userQuotaService.recordFolder(userUuid, downloadPath);
+            }
 
             // 记录下载信息
             recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions, successCount.get());

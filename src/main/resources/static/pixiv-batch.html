@@ -181,6 +181,59 @@
     border-radius: 4px; background: #f9f9f9; cursor: pointer;
   }
   .btn-sm:hover { background: #eee; }
+
+  /* ---- Quota bar ---- */
+  #quota-bar {
+    display: none;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.12);
+    padding: 10px 16px;
+    margin-bottom: 14px;
+    font-size: 12px;
+    color: #555;
+  }
+  #quota-bar .qb-row { display: flex; align-items: center; gap: 10px; }
+  #quota-bar .qb-label { white-space: nowrap; }
+  #quota-bar .qb-fill-bg {
+    flex: 1; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;
+  }
+  #quota-bar .qb-fill {
+    height: 100%; background: #28a745; border-radius: 3px; transition: width .4s;
+  }
+  #quota-bar .qb-fill.warn { background: #ffc107; }
+  #quota-bar .qb-fill.danger { background: #dc3545; }
+  #quota-bar .qb-reset { font-size: 11px; color: #888; margin-top: 3px; }
+
+  /* ---- Archive card ---- */
+  #archive-card {
+    display: none;
+    background: #fff8e1;
+    border: 2px solid #ffc107;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+  }
+  #archive-card .ac-title {
+    font-weight: bold; font-size: 13px; color: #856404; margin-bottom: 8px;
+  }
+  #archive-card .ac-status { font-size: 12px; color: #666; margin-bottom: 8px; }
+  #archive-card .ac-countdown {
+    font-size: 11px; color: #888; margin-top: 6px;
+  }
+  #archive-card .ac-expired {
+    font-size: 13px; color: #dc3545; font-weight: bold;
+  }
+  #archive-card .btn-download {
+    display: inline-block;
+    padding: 7px 16px; background: #28a745; color: white;
+    border: none; border-radius: 5px; cursor: pointer;
+    font-size: 13px; font-weight: bold; text-decoration: none;
+  }
+  #archive-card .btn-download:hover { opacity: .85; }
+  #archive-card .btn-download:disabled {
+    background: #aaa; cursor: not-allowed;
+  }
 </style>
 </head>
 <body>
@@ -279,6 +332,28 @@
     </div>
   </div>
 
+  <!-- Quota bar (only shown in multi mode with quota enabled) -->
+  <div id="quota-bar">
+    <div class="qb-row">
+      <span class="qb-label">下载配额：<span id="qb-used">0</span>/<span id="qb-max">50</span> 个作品</span>
+      <div class="qb-fill-bg"><div class="qb-fill" id="qb-fill" style="width:0%"></div></div>
+    </div>
+    <div class="qb-reset" id="qb-reset"></div>
+  </div>
+
+  <!-- Archive download card -->
+  <div id="archive-card">
+    <div class="ac-title" id="ac-title">已达到下载限额</div>
+    <div class="ac-status" id="ac-status">正在打包已下载文件，请稍候...</div>
+    <div id="ac-dl-area" style="display:none;">
+      <a id="ac-dl-btn" class="btn-download" href="#" download>下载压缩包</a>
+      <div class="ac-countdown" id="ac-countdown"></div>
+    </div>
+    <div id="ac-expired-area" style="display:none;">
+      <div class="ac-expired">下载链接已过期</div>
+    </div>
+  </div>
+
   <!-- Status -->
   <div class="card" style="padding:12px 16px;">
     <div id="status-bar">准备就绪</div>
@@ -319,6 +394,168 @@ let state = {
 
 const BASE = '';  // 使用相对路径，自动适配访问地址
 const STATUS_TIMEOUT_MS = 300000;
+
+/* ============================================================
+   配额 & 压缩包
+============================================================ */
+let quotaInfo = { enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0 };
+let archiveCountdownTimer = null;
+let archivePollTimer = null;
+let quotaResetTimer = null;
+let quotaExceededHandled = false;
+
+async function initQuota() {
+  try {
+    const res = await fetch(BASE + '/api/quota/init', { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.enabled) return;
+    quotaInfo = { enabled: true, artworksUsed: data.artworksUsed, maxArtworks: data.maxArtworks,
+                  resetSeconds: data.resetSeconds };
+    renderQuotaBar();
+    startQuotaResetCountdown();
+    // 恢复已有的压缩包链接
+    if (data.archive && data.archive.token) {
+      showArchiveCard(data.archive.token, data.archive.expireSeconds, data.archive.status === 'ready');
+    }
+  } catch {}
+}
+
+function renderQuotaBar() {
+  if (!quotaInfo.enabled) return;
+  document.getElementById('quota-bar').style.display = 'block';
+  document.getElementById('qb-used').textContent = quotaInfo.artworksUsed;
+  document.getElementById('qb-max').textContent = quotaInfo.maxArtworks;
+  const pct = Math.min(100, Math.round(quotaInfo.artworksUsed / quotaInfo.maxArtworks * 100));
+  const fill = document.getElementById('qb-fill');
+  fill.style.width = pct + '%';
+  fill.className = 'qb-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
+  document.getElementById('qb-reset').textContent =
+    quotaInfo.resetSeconds > 0 ? '配额重置剩余：' + formatSeconds(quotaInfo.resetSeconds) : '';
+}
+
+function startQuotaResetCountdown() {
+  clearInterval(quotaResetTimer);
+  if (quotaInfo.resetSeconds <= 0) return;
+  quotaResetTimer = setInterval(() => {
+    if (quotaInfo.resetSeconds > 0) quotaInfo.resetSeconds--;
+    renderQuotaBar();
+    if (quotaInfo.resetSeconds <= 0) clearInterval(quotaResetTimer);
+  }, 1000);
+}
+
+function handleQuotaExceeded(data) {
+  quotaInfo.artworksUsed = data.artworksUsed || quotaInfo.artworksUsed;
+  renderQuotaBar();
+
+  // 标记所有未开始/等待中的队列项为失败
+  state.queue.forEach(q => {
+    if (['pending', 'idle', 'paused'].includes(q.status)) {
+      q.status = 'failed';
+      q.lastMessage = '失败 - 达到限额';
+      q.endTime = q.endTime || new Date().toISOString();
+    }
+  });
+  state.stopRequested = true;
+  state.isRunning = false;
+  updateStats();
+  saveQueue();
+  renderQueue();
+  updateButtonsState();
+  setStatus('已达到下载限额', 'error');
+
+  const token = data.archiveToken;
+  const expireSeconds = data.archiveExpireSeconds || 3600;
+  showArchiveCard(token, expireSeconds, false);
+}
+
+function showArchiveCard(token, expireSeconds, ready, title = '已达到下载限额') {
+  clearInterval(archiveCountdownTimer);
+  clearInterval(archivePollTimer);
+
+  document.getElementById('archive-card').style.display = 'block';
+  document.getElementById('ac-title').textContent = title;
+  document.getElementById('ac-expired-area').style.display = 'none';
+  document.getElementById('ac-dl-area').style.display = 'none';
+
+  if (ready) {
+    activateArchiveDownload(token, expireSeconds);
+  } else {
+    document.getElementById('ac-status').textContent = '正在打包已下载文件，请稍候...';
+    pollArchiveReady(token, expireSeconds);
+  }
+}
+
+function pollArchiveReady(token, expireSeconds) {
+  archivePollTimer = setInterval(async () => {
+    try {
+      const res = await fetch(BASE + '/api/archive/status/' + token);
+      const data = await res.json();
+      if (data.status === 'ready') {
+        clearInterval(archivePollTimer);
+        activateArchiveDownload(token, data.expireSeconds || expireSeconds);
+      } else if (data.status === 'expired') {
+        clearInterval(archivePollTimer);
+        showArchiveExpired();
+      } else if (data.status === 'empty') {
+        clearInterval(archivePollTimer);
+        document.getElementById('ac-status').textContent = '暂无可打包文件（当前下载仍在进行中，完成后自动包含）';
+      }
+    } catch {}
+  }, 2000);
+}
+
+function activateArchiveDownload(token, expireSeconds) {
+  document.getElementById('ac-status').textContent = '压缩包已就绪，请在有效期内下载：';
+  const dlArea = document.getElementById('ac-dl-area');
+  dlArea.style.display = 'block';
+  const btn = document.getElementById('ac-dl-btn');
+  btn.href = BASE + '/api/archive/download/' + token;
+  btn.removeAttribute('disabled');
+
+  let remaining = Math.max(0, parseInt(expireSeconds));
+  document.getElementById('ac-countdown').textContent = '下载链接有效期：' + formatSeconds(remaining);
+  archiveCountdownTimer = setInterval(() => {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(archiveCountdownTimer);
+      showArchiveExpired();
+    } else {
+      document.getElementById('ac-countdown').textContent = '下载链接有效期：' + formatSeconds(remaining);
+    }
+  }, 1000);
+}
+
+function showArchiveExpired() {
+  document.getElementById('ac-dl-area').style.display = 'none';
+  document.getElementById('ac-expired-area').style.display = 'block';
+  document.getElementById('ac-status').textContent = '';
+}
+
+async function autoPackAfterQueue() {
+  try {
+    const res = await fetch(BASE + '/api/quota/pack', {
+      method: 'POST',
+      credentials: 'same-origin'
+    });
+    if (res.status === 204) return; // 无文件可打包（可能已被打包或源文件已删除）
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.archiveToken) {
+      setStatus('批量下载结束，正在打包文件...', 'info');
+      showArchiveCard(data.archiveToken, data.archiveExpireSeconds || 3600, false, '下载完成，正在打包');
+    }
+  } catch {}
+}
+
+function formatSeconds(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(sec).padStart(2,'0') + 's';
+  return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+}
 
 /* ============================================================
    模式检测 & 存储抽象（solo=服务器，multi=localStorage）
@@ -582,9 +819,19 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
   const res = await fetch(`${BASE}/api/download/pixiv`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
     body: JSON.stringify(payload)
   });
   const data = await res.json();
+  if (res.status === 429 && data.quotaExceeded) {
+    if (!quotaExceededHandled) {
+      quotaExceededHandled = true;
+      handleQuotaExceeded(data);
+    }
+    const err = new Error('quota_exceeded');
+    err.quotaData = data;
+    throw err;
+  }
   if (!res.ok) throw new Error(data.message || '后端返回失败');
   return data;
 }
@@ -629,15 +876,36 @@ function addSSEListener(artworkId, fn) {
 function waitForFinalStatusBySSE(artworkId, timeoutMs) {
   return new Promise(resolve => {
     let resolved = false;
-    let timer = setTimeout(() => { if (!resolved) { resolved = true; resolve(null); } }, timeoutMs);
+    let timer = null;
+    let pollTimer = null;
+
+    const finish = (data) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      clearInterval(pollTimer);
+      resolve(data);
+    };
+
+    timer = setTimeout(() => finish(null), timeoutMs);
+
+    // 每5秒轮询一次，防止 SSE 事件丢失导致任务卡死
+    pollTimer = setInterval(async () => {
+      if (resolved) { clearInterval(pollTimer); return; }
+      try {
+        const status = await getDownloadStatus(String(artworkId));
+        if (status && (status.completed || status.failed)) finish(status);
+      } catch {}
+    }, 5000);
+
     addSSEListener(artworkId, data => {
       if (data && (data.completed || data.failed || data.cancelled)) {
-        if (!resolved) { resolved = true; clearTimeout(timer); resolve(data); }
+        finish(data);
       } else if (data && data.downloadedCount !== undefined) {
         const q = state.queue.find(x => x.id === String(artworkId));
         if (q) { q.downloadedCount = data.downloadedCount; renderQueue(); setCurrent(q); }
         clearTimeout(timer);
-        timer = setTimeout(() => { if (!resolved) { resolved = true; resolve(null); } }, timeoutMs);
+        timer = setTimeout(() => finish(null), timeoutMs);
       }
     });
   });
@@ -659,6 +927,7 @@ async function start() {
   state.isPaused = false;
   state.stopRequested = false;
   state.activeWorkers = 0;
+  quotaExceededHandled = false;
 
   updateStats();
   updateButtonsState();
@@ -676,6 +945,14 @@ async function start() {
   saveQueue();
   setStatus('批量下载结束', 'info');
   updateButtonsState();
+
+  // 多人模式：队列完成后自动打包已下载文件（配额超限时已在 handleQuotaExceeded 中触发打包，不重复）
+  if (quotaInfo.enabled) {
+    const completed = state.queue.filter(q => q.status === 'completed').length;
+    if (completed > 0) {
+      autoPackAfterQueue();
+    }
+  }
 }
 
 async function workerLoop(intervalMs) { // intervalMs already in ms
@@ -784,6 +1061,11 @@ async function processSingle(item) {
         item.status = 'completed';
         item.lastMessage = `已完成，共 ${dCount} 张`;
         setStatus(`完成：${item.title}`, 'success');
+        // 刷新配额显示（每完成一个作品计 1）
+        if (quotaInfo.enabled) {
+          quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
+          renderQuotaBar();
+        }
       }
     } else if (final && final.failed) {
       item.status = 'failed';
@@ -812,9 +1094,15 @@ async function processSingle(item) {
       }
     }
   } catch (e) {
-    item.status = 'failed';
-    item.lastMessage = `失败 — ${e.message}`;
-    setStatus(`错误：${item.id} — ${e.message}`, 'error');
+    if (e.message === 'quota_exceeded') {
+      // 已在 handleQuotaExceeded 中处理，item 已标记为失败，不需要重复处理
+      item.status = 'failed';
+      item.lastMessage = '失败 - 达到限额';
+    } else {
+      item.status = 'failed';
+      item.lastMessage = `失败 — ${e.message}`;
+      setStatus(`错误：${item.id} — ${e.message}`, 'error');
+    }
   } finally {
     closeSSE(item.id);
     item.endTime = item.endTime || new Date().toISOString();
@@ -1201,6 +1489,10 @@ function syncSettings() {
 async function init() {
   // 检测使用模式，solo 模式则从服务器加载状态
   await detectMode();
+  // 多人模式：初始化配额状态
+  if (appMode === 'multi') {
+    await initQuota();
+  }
   if (appMode === 'solo') {
     await loadServerState();
     document.getElementById('logout-btn').style.display = 'block';

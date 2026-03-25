@@ -28,6 +28,9 @@
         CANCEL_URL: "http://localhost:6999/api/download/cancel",
         SSE_BASE: "http://localhost:6999/api/sse/download",
         CHECK_DOWNLOADED_URL: "http://localhost:6999/api/downloaded",
+        QUOTA_INIT_URL: "http://localhost:6999/api/quota/init",
+        ARCHIVE_STATUS_BASE: "http://localhost:6999/api/archive/status",
+        ARCHIVE_DOWNLOAD_BASE: "http://localhost:6999/api/archive/download",
         DEFAULT_INTERVAL: 2,
         DEFAULT_CONCURRENT: 1,
         STATUS_TIMEOUT_MS: 300000,
@@ -39,8 +42,13 @@
         KEY_INTERVAL_UNIT: 'pixiv_global_interval_unit',
         KEY_IMAGE_DELAY: 'pixiv_global_image_delay',
         KEY_IMAGE_DELAY_UNIT: 'pixiv_global_image_delay_unit',
-        KEY_CONCURRENT: 'pixiv_global_concurrent'
+        KEY_CONCURRENT: 'pixiv_global_concurrent',
+        KEY_USER_UUID: 'pixiv_user_uuid'
     };
+
+    // ====== 配额状态 ======
+    let quotaInfo = { enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0 };
+    let userUUID = GM_getValue(CONFIG.KEY_USER_UUID, null);
 
     // ====== 全局 username 变量 ======
     let username = null;
@@ -237,16 +245,25 @@
                     referer: 'https://www.pixiv.net/',
                     other
                 };
+                const headers = {'Content-Type': 'application/json'};
+                if (userUUID) headers['X-User-UUID'] = userUUID;
                 GM_xmlhttpRequest({
                     method: 'POST',
                     url: CONFIG.BACKEND_URL,
-                    headers: {'Content-Type': 'application/json'},
+                    headers,
                     data: JSON.stringify(payload),
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
-                            if (res.status === 200) resolve(data);
-                            else reject(new Error(data.message || '后端返回失败'));
+                            if (res.status === 429 && data.quotaExceeded) {
+                                const err = new Error('quota_exceeded');
+                                err.quotaData = data;
+                                reject(err);
+                            } else if (res.status === 200) {
+                                resolve(data);
+                            } else {
+                                reject(new Error(data.message || '后端返回失败'));
+                            }
                         } catch (e) {
                             reject(e);
                         }
@@ -298,6 +315,44 @@
                     },
                     onerror: () => resolve(false),
                     ontimeout: () => resolve(false)
+                });
+            });
+        },
+
+        initQuota() {
+            const headers = { 'Content-Type': 'application/json' };
+            if (userUUID) headers['X-User-UUID'] = userUUID;
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: CONFIG.QUOTA_INIT_URL,
+                    headers,
+                    onload: (res) => {
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            if (data.uuid) {
+                                userUUID = data.uuid;
+                                GM_setValue(CONFIG.KEY_USER_UUID, userUUID);
+                            }
+                            resolve(data);
+                        } catch { resolve({}); }
+                    },
+                    onerror: () => resolve({}),
+                    ontimeout: () => resolve({})
+                });
+            });
+        },
+
+        pollArchiveStatus(token) {
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${CONFIG.ARCHIVE_STATUS_BASE}/${token}`,
+                    onload: (res) => {
+                        try { resolve(JSON.parse(res.responseText)); } catch { resolve({}); }
+                    },
+                    onerror: () => resolve({}),
+                    ontimeout: () => resolve({})
                 });
             });
         }
@@ -361,6 +416,7 @@
             this.stopRequested = false;
             this.activeWorkers = 0; // 追踪活跃 Worker 数量
             this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
+            this._quotaExceededHandled = false;
 
             this.globalSettings = {
                 interval: GM_getValue(CONFIG.KEY_INTERVAL, CONFIG.DEFAULT_INTERVAL) || CONFIG.DEFAULT_INTERVAL,
@@ -530,6 +586,7 @@
             this.isPaused = false;
             this.stopRequested = false;
             this.activeWorkers = 0;
+            this._quotaExceededHandled = false;
             this.updateStats();
             this.ui.updateButtonsState(true, false);
             this.saveToStorage();
@@ -547,6 +604,36 @@
             this.saveToStorage();
             this.ui.setStatus('批量下载结束', 'info');
             this.ui.updateButtonsState(false, false);
+
+            // 多人模式：队列完成后自动打包（配额超限时已在 _processSingle 中触发，不重复）
+            const completed = this.queue.filter(q => q.status === 'completed').length;
+            if (quotaInfo.enabled && completed > 0) {
+                this._autoPackAfterQueue();
+            }
+        }
+
+        async _autoPackAfterQueue() {
+            try {
+                const data = await new Promise((resolve) => {
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (userUUID) headers['X-User-UUID'] = userUUID;
+                    GM_xmlhttpRequest({
+                        method: 'POST',
+                        url: 'http://localhost:6999/api/quota/pack',
+                        headers,
+                        onload: (res) => {
+                            if (res.status === 204) { resolve(null); return; }
+                            try { resolve(JSON.parse(res.responseText)); } catch { resolve(null); }
+                        },
+                        onerror: () => resolve(null),
+                        ontimeout: () => resolve(null)
+                    });
+                });
+                if (data && data.archiveToken) {
+                    this.ui.setStatus('批量下载结束，正在打包文件...', 'info');
+                    this.ui.showQuotaExceeded(data, '下载完成，正在打包');
+                }
+            } catch {}
         }
 
         async workerLoop(intervalMs) {
@@ -682,6 +769,11 @@
                         item.status = 'completed';
                         item.lastMessage = `已完成，共 ${dCount} 张`;
                         this.ui.setStatus(`完成：${item.title}`, 'success');
+                        // 刷新配额显示（每完成一个作品计 1）
+                        if (quotaInfo.enabled) {
+                            quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
+                            this.ui.updateQuotaBar(quotaInfo);
+                        }
                     }
                 } else if (final && final.failed) {
                     item.status = 'failed';
@@ -706,9 +798,30 @@
                 }
 
             } catch (e) {
-                item.status = 'failed';
-                item.lastMessage = `失败 — ${e.message}`;
-                this.ui.setStatus(`错误：${item.title}`, 'error');
+                if (e.message === 'quota_exceeded') {
+                    item.status = 'failed';
+                    item.lastMessage = '失败 - 达到限额';
+                    if (!this._quotaExceededHandled) {
+                        this._quotaExceededHandled = true;
+                        // 标记所有未开始的队列项
+                        this.queue.forEach(q => {
+                            if (['pending', 'idle', 'paused'].includes(q.status)) {
+                                q.status = 'failed';
+                                q.lastMessage = '失败 - 达到限额';
+                            }
+                        });
+                        this.stopRequested = true;
+                        this.isRunning = false;
+                        this.ui.setStatus('已达到下载限额', 'error');
+                        if (e.quotaData) {
+                            this.ui.showQuotaExceeded(e.quotaData);
+                        }
+                    }
+                } else {
+                    item.status = 'failed';
+                    item.lastMessage = `失败 — ${e.message}`;
+                    this.ui.setStatus(`错误：${item.title}`, 'error');
+                }
             } finally {
                 this.sse.close(item.id);
                 item.endTime = new Date().toISOString();
@@ -722,20 +835,31 @@
         _waitForFinalStatusBySSE(artworkId, timeoutMs) {
             return new Promise((resolve) => {
                 let resolved = false;
-                let timer = setTimeout(onTimeout, timeoutMs);
-                function onTimeout() {
-                    if (!resolved) {
-                        resolved = true;
-                        resolve(null);
-                    }
-                }
+                let timer = null;
+                let pollTimer = null;
+
+                const finish = (data) => {
+                    if (resolved) return;
+                    resolved = true;
+                    clearTimeout(timer);
+                    clearInterval(pollTimer);
+                    resolve(data);
+                };
+
+                timer = setTimeout(() => finish(null), timeoutMs);
+
+                // 每5秒轮询一次，防止 SSE 事件丢失导致任务卡死
+                pollTimer = setInterval(async () => {
+                    if (resolved) { clearInterval(pollTimer); return; }
+                    try {
+                        const status = await Api.getDownloadStatus(String(artworkId));
+                        if (status && (status.completed || status.failed)) finish(status);
+                    } catch {}
+                }, 5000);
+
                 const handler = (data) => {
                     if (data && (data.completed || data.failed || data.cancelled)) {
-                        if (!resolved) {
-                            resolved = true;
-                            clearTimeout(timer);
-                            resolve(data);
-                        }
+                        finish(data);
                     } else if (data && data.downloadedCount !== undefined) {
                         const q = this.queue.find(x => x.id === String(artworkId));
                         if (q) {
@@ -744,7 +868,7 @@
                             this.ui.setCurrent(q);
                         }
                         clearTimeout(timer);
-                        timer = setTimeout(onTimeout, timeoutMs);
+                        timer = setTimeout(() => finish(null), timeoutMs);
                     }
                 };
                 this.sse.addListener(String(artworkId), handler);
@@ -817,6 +941,8 @@
         constructor() {
             this.root = null;
             this.elements = {};
+            this._archivePollTimer = null;
+            this._archiveCountdownTimer = null;
         }
 
         ensureMounted() {
@@ -1038,11 +1164,28 @@
                 }
             });
 
+            // 配额栏（多人模式启用时显示）
+            const quotaBar = $el('div', {
+                id: 'pixiv-quota-bar',
+                style: { display: 'none', marginBottom: '10px', padding: '6px 8px',
+                         background: '#f8f9fa', borderRadius: '5px', fontSize: '11px', color: '#555' }
+            });
+
+            // 压缩包下载卡片（配额超出时显示）
+            const archiveCard = $el('div', {
+                id: 'pixiv-archive-card',
+                style: { display: 'none', marginBottom: '10px', padding: '10px',
+                         background: '#fff8e1', border: '2px solid #ffc107',
+                         borderRadius: '5px', fontSize: '12px' }
+            });
+
             container.appendChild(titleRow);
             container.appendChild(status);
             container.appendChild(stats);
             container.appendChild(settings);
             container.appendChild(buttonContainer);
+            container.appendChild(quotaBar);
+            container.appendChild(archiveCard);
             container.appendChild(currentDownload);
             container.appendChild(queueContainer);
 
@@ -1115,6 +1258,120 @@
         bindManager(manager) {
             this.manager = manager;
             if (this.root) this.syncSettings();
+        }
+
+        // ---- 配额 UI 方法 ----
+
+        updateQuotaBar(info) {
+            const bar = document.getElementById('pixiv-quota-bar');
+            if (!bar || !info || !info.enabled) return;
+            const pct = Math.min(100, Math.round(info.artworksUsed / info.maxArtworks * 100));
+            const color = pct >= 90 ? '#dc3545' : pct >= 70 ? '#ffc107' : '#28a745';
+            const resetTxt = info.resetSeconds > 0
+                ? ` | 重置剩余：${this._fmtSeconds(info.resetSeconds)}` : '';
+            bar.style.display = 'block';
+            bar.innerHTML = `<div style="display:flex;align-items:center;gap:6px;">
+              <span style="white-space:nowrap;">配额：${info.artworksUsed}/${info.maxArtworks} 个作品</span>
+              <div style="flex:1;height:5px;background:#e0e0e0;border-radius:3px;overflow:hidden;">
+                <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;"></div>
+              </div>
+              <span style="white-space:nowrap;color:#888;font-size:10px;">${pct}%${resetTxt}</span>
+            </div>`;
+        }
+
+        showQuotaExceeded(data, title = '已达到下载限额') {
+            clearInterval(this._archivePollTimer);
+            clearInterval(this._archiveCountdownTimer);
+            const card = document.getElementById('pixiv-archive-card');
+            if (!card) return;
+            card.style.display = 'block';
+            card.innerHTML = `<div style="font-weight:bold;color:#856404;margin-bottom:6px;">${title}</div>
+              <div id="pixiv-ac-status" style="font-size:11px;color:#666;">正在打包已下载文件，请稍候...</div>
+              <div id="pixiv-ac-dl" style="display:none;margin-top:6px;"></div>
+              <div id="pixiv-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">下载链接已过期</div>`;
+
+            const token = data.archiveToken;
+            const expireSec = data.archiveExpireSeconds || 3600;
+            this._pollArchive(token, expireSec);
+        }
+
+        restoreArchiveCard(token, expireSec, ready) {
+            clearInterval(this._archivePollTimer);
+            clearInterval(this._archiveCountdownTimer);
+            const card = document.getElementById('pixiv-archive-card');
+            if (!card) return;
+            card.style.display = 'block';
+            card.innerHTML = `<div style="font-weight:bold;color:#856404;margin-bottom:6px;">已有未下载的压缩包</div>
+              <div id="pixiv-ac-status" style="font-size:11px;color:#666;"></div>
+              <div id="pixiv-ac-dl" style="display:none;margin-top:6px;"></div>
+              <div id="pixiv-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">下载链接已过期</div>`;
+            if (ready) {
+                this._activateArchiveDl(token, expireSec);
+            } else {
+                document.getElementById('pixiv-ac-status').textContent = '正在打包已下载文件，请稍候...';
+                this._pollArchive(token, expireSec);
+            }
+        }
+
+        _pollArchive(token, expireSec) {
+            clearInterval(this._archivePollTimer);
+            this._archivePollTimer = setInterval(async () => {
+                const data = await Api.pollArchiveStatus(token);
+                if (data.status === 'ready') {
+                    clearInterval(this._archivePollTimer);
+                    this._activateArchiveDl(token, data.expireSeconds || expireSec);
+                } else if (data.status === 'expired') {
+                    clearInterval(this._archivePollTimer);
+                    const expired = document.getElementById('pixiv-ac-expired');
+                    const status = document.getElementById('pixiv-ac-status');
+                    if (expired) expired.style.display = 'block';
+                    if (status) status.textContent = '';
+                } else if (data.status === 'empty') {
+                    clearInterval(this._archivePollTimer);
+                    const status = document.getElementById('pixiv-ac-status');
+                    if (status) status.textContent = '暂无可打包文件';
+                }
+            }, 2000);
+        }
+
+        _activateArchiveDl(token, expireSec) {
+            clearInterval(this._archiveCountdownTimer);
+            const statusEl = document.getElementById('pixiv-ac-status');
+            const dlEl = document.getElementById('pixiv-ac-dl');
+            if (statusEl) statusEl.textContent = '压缩包已就绪：';
+            if (dlEl) {
+                dlEl.style.display = 'block';
+                const filename = 'pixiv_download_' + token.substring(0, 8) + '.zip';
+                dlEl.innerHTML = `<a href="${CONFIG.ARCHIVE_DOWNLOAD_BASE}/${token}" download="${filename}"
+                  style="display:inline-block;padding:5px 12px;background:#28a745;color:white;
+                         border-radius:4px;text-decoration:none;font-size:12px;font-weight:bold;">
+                  下载压缩包
+                </a>
+                <span id="pixiv-ac-countdown" style="font-size:10px;color:#888;margin-left:8px;"></span>`;
+                let remaining = Math.max(0, parseInt(expireSec));
+                const el = () => document.getElementById('pixiv-ac-countdown');
+                if (el()) el().textContent = '有效期：' + this._fmtSeconds(remaining);
+                this._archiveCountdownTimer = setInterval(() => {
+                    remaining--;
+                    if (remaining <= 0) {
+                        clearInterval(this._archiveCountdownTimer);
+                        const expired = document.getElementById('pixiv-ac-expired');
+                        if (dlEl) dlEl.style.display = 'none';
+                        if (expired) expired.style.display = 'block';
+                    } else {
+                        if (el()) el().textContent = '有效期：' + this._fmtSeconds(remaining);
+                    }
+                }, 1000);
+            }
+        }
+
+        _fmtSeconds(s) {
+            s = Math.max(0, Math.round(s));
+            const h = Math.floor(s / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const sec = s % 60;
+            if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(sec).padStart(2,'0') + 's';
+            return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
         }
 
         // 新增方法：更新用户信息显示
@@ -1305,6 +1562,39 @@
     const manager = new DownloadManager(ui);
     ui.bindManager(manager);
 
+    // 初始化配额（仅执行一次）
+    let quotaInitDone = false;
+    let quotaResetTimer = null;
+    function startQuotaResetCountdown() {
+        clearInterval(quotaResetTimer);
+        if (quotaInfo.resetSeconds <= 0) return;
+        quotaResetTimer = setInterval(() => {
+            if (quotaInfo.resetSeconds > 0) quotaInfo.resetSeconds--;
+            ui.updateQuotaBar(quotaInfo);
+            if (quotaInfo.resetSeconds <= 0) clearInterval(quotaResetTimer);
+        }, 1000);
+    }
+    function maybeInitQuota() {
+        if (quotaInitDone) return;
+        quotaInitDone = true;
+        Api.initQuota().then(data => {
+            if (!data.enabled) return;
+            quotaInfo = {
+                enabled: true,
+                artworksUsed: data.artworksUsed || 0,
+                maxArtworks: data.maxArtworks || 50,
+                resetSeconds: data.resetSeconds || 0
+            };
+            ui.updateQuotaBar(quotaInfo);
+            startQuotaResetCountdown();
+            // 恢复已有的压缩包链接
+            if (data.archive && data.archive.token) {
+                ui.restoreArchiveCard(data.archive.token, data.archive.expireSeconds,
+                    data.archive.status === 'ready');
+            }
+        }).catch(() => {});
+    }
+
     let lastUid = null;
     setInterval(() => {
         const uid = getCurrentUserId();
@@ -1326,6 +1616,9 @@
                     manager.setUserName(uid);
                     console.warn("[Pixiv Batch] 获取用户名异常，使用 uid 作为 username", err);
                 });
+
+                // 初始化配额
+                maybeInitQuota();
             }
         } else {
             ui.hide();

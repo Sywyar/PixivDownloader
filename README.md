@@ -26,6 +26,7 @@
 - [目录结构](#目录结构)
 - [数据库结构](#数据库结构)
 - [旧版数据迁移](#旧版数据迁移)
+- [首次配置](#首次配置)
 
 ---
 
@@ -41,6 +42,9 @@
 - **监控面板**：Web 页面展示下载历史、统计信息、图片预览
 - **移动记录**：支持记录作品文件移动后的新路径
 - **图片分类工具（Web 版）**：浏览器内对已下载的作品文件夹进行批量分类移动，支持两阶段原子性移动（失败自动回滚）、配置目标分类目录、键盘快捷键操作
+- **首次启动引导**：首次运行时自动打开浏览器进入配置向导，设置管理员账号与使用模式
+- **自用/多人两种模式**：自用模式需登录（支持保持登录），Cookie/设置/队列统一存服务器多设备共享；多人模式无需登录，各自浏览器本地独立存储
+- **多人模式配额与自动打包**：多人模式下可为每个访客设置作品下载限额，达到限额时自动将已下载文件打包为 ZIP，访客可在限额重置前下载压缩包取走文件
 
 ---
 
@@ -142,6 +146,8 @@ java -jar target/PixivDownload-0.0.1-SNAPSHOT.jar
 
 后端启动后默认监听 `http://localhost:6999`。
 
+**首次启动**时程序会自动打开浏览器并跳转到 `http://localhost:6999/setup.html` 配置向导页面（见[首次配置](#首次配置)）。
+
 **下载目录**默认为程序运行目录下的 `pixiv-download/` 文件夹，可在配置文件中修改（见[配置说明](#配置说明)）。
 
 ### 4. 安装油猴脚本
@@ -159,6 +165,26 @@ java -jar target/PixivDownload-0.0.1-SNAPSHOT.jar
 ---
 
 ## 使用方法
+
+### 首次配置
+
+**首次启动**后端时，程序会自动打开浏览器跳转到配置向导 `/setup.html`。
+
+1. **设置管理员账号**：填写用户名和密码（密码至少 6 位），用于后续登录
+2. **选择使用模式**：
+   - **自用模式**：仅个人使用，访问所有页面需要先登录。Cookie、设置、下载队列统一保存在服务器端，多设备共享同一状态。
+   - **多人使用模式**：多人共享服务器，无需登录。每个访客的配置独立保存在各自浏览器的 `localStorage` 中，互不干扰。
+3. 点击 **「完成配置」** 保存。配置写入 `pixiv-download/setup_config.json` 后不再显示此页面。
+
+> 完成配置后如需重新初始化，删除 `pixiv-download/setup_config.json` 并重启服务即可。
+
+### 登录（自用模式）
+
+配置为自用模式后，访问任意页面会自动跳转到 `/login.html`。
+
+- 输入管理员用户名和密码
+- 勾选 **「保持登录状态（30 天）」** 可记住登录，否则关闭浏览器后 Session 2 小时过期
+- 登录成功后页面右上角显示 **「退出登录」** 按钮
 
 ### 单作品下载
 
@@ -191,10 +217,17 @@ java -jar target/PixivDownload-0.0.1-SNAPSHOT.jar
 
 ### Web 批量下载页面
 
-访问 `http://localhost:6999/pixiv-batch.html`
+访问 `http://localhost:6999/pixiv-batch.html`（自用模式需先登录）
 
 - 输入 Pixiv 用户 ID 和 Cookie，在网页端直接触发批量下载
 - 后端通过代理 Pixiv API（`/api/pixiv/*`）获取作品列表，无需油猴脚本
+
+**Cookie 存储位置：**
+
+| 模式 | Cookie 保存位置 |
+|------|----------------|
+| 自用模式 | 服务器端（`batch_state.json`），多设备共享 |
+| 多人模式 | 浏览器 `localStorage`，各访客独立 |
 
 **获取 Cookie 的方法：**
 
@@ -213,8 +246,6 @@ java -jar target/PixivDownload-0.0.1-SNAPSHOT.jar
 2. 刷新页面，找到任意 `www.pixiv.net` 的请求
 3. 在请求头中复制 `Cookie` 字段的完整值
 4. 在页面 Cookie 输入框上方保持格式为 **Header String**，粘贴并保存
-
-> Cookie 仅保存在本地 `localStorage` 中，不会上传至任何服务器。
 
 ### 下载监控页面
 
@@ -268,18 +299,34 @@ java -jar target/PixivDownload-0.0.1-SNAPSHOT.jar
 
 ## 配置说明
 
-编辑 `src/main/resources/application.properties`：
+后端首次启动时会在**程序运行目录**下自动生成 `config.yaml` 配置文件，之后每次启动均从该文件读取配置。直接编辑 `config.yaml` 后重启服务即可生效。
 
-```properties
+```yaml
 # 服务端口
-server.port=6999
+server:
+  port: 6999
 
-# 图片保存根目录（相对路径或绝对路径）
-download.root-folder=pixiv-download
+# 下载配置
+download:
+  # 图片保存根目录（相对路径或绝对路径）
+  root-folder: pixiv-download
+  # 每张图片下载后的等待时间（毫秒），防止请求过快
+  delay-ms: 1000
 
-# 每张图片下载后的等待时间（毫秒），防止请求过快
-download.delay-ms=1000
+# 多人模式配额设置（仅多人模式下生效）
+multi-mode:
+  quota:
+    # 是否启用配额限制
+    enabled: false
+    # 每个访客每个周期内最多可下载的作品数
+    max-artworks: 10
+    # 配额重置周期（小时）
+    reset-period-hours: 24
+    # 达到限额后自动打包，压缩包有效期（分钟）
+    archive-expire-minutes: 60
 ```
+
+> `src/main/resources/application.properties` 仅包含 `spring.config.import=optional:file:./config.yaml`，无需手动修改。
 
 ---
 
@@ -343,6 +390,40 @@ download.delay-ms=1000
 
 > 代理接口需通过请求头 `X-Pixiv-Cookie` 传入 Pixiv Cookie。
 
+### 初始配置与认证
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/setup/status` | 查询配置状态（setupComplete、mode） |
+| `POST` | `/api/setup/init` | 完成首次配置（username、password、mode） |
+| `POST` | `/api/auth/login` | 登录（username、password、rememberMe） |
+| `POST` | `/api/auth/logout` | 退出登录，清除 Session |
+| `GET` | `/api/auth/check` | 检查当前 Session 是否有效 |
+
+> 以上接口无需认证，始终公开可访问。
+
+### 多人模式配额与打包（多人模式）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/quota/init` | 获取当前访客配额状态（已用/上限/重置时间），同时分配 UUID |
+| `POST` | `/api/quota/pack` | 手动触发将当前访客已下载文件打包为 ZIP |
+| `GET` | `/api/archive/status/{token}` | 查询打包任务状态（pending/ready） |
+| `GET` | `/api/archive/download/{token}` | 下载已打包的 ZIP 文件 |
+
+> - 下载限额达到时，`POST /api/download/pixiv` 返回 HTTP 429，响应体包含 `archiveToken`、`resetSeconds` 等字段
+> - 压缩包存储在 `{download.root-folder}/_archives/{token}.zip`，打包后源文件夹会被删除
+> - 访客 UUID 优先取 `pixiv_user_id` Cookie，其次 `X-User-UUID` 请求头，最后由 IP+UA 自动生成
+
+### 批量下载页面状态（自用模式）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/batch/state` | 获取服务器端页面状态（Cookie/设置/队列） |
+| `POST` | `/api/batch/state` | 保存页面状态至服务器 |
+
+> 状态持久化至 `{download.root-folder}/batch_state.json`，服务重启后自动恢复。
+
 ---
 
 ## 目录结构
@@ -374,11 +455,24 @@ PixivDownload/
 │   ├── migration/
 │   │   ├── JsonToSqliteMigration.java      # 旧 JSON 迁移工具
 │   │   └── MigrationController.java        # 迁移触发接口
+│   ├── quota/
+│   │   ├── MultiModeConfig.java            # 配额配置（@ConfigurationProperties）
+│   │   ├── UserQuotaService.java           # 配额追踪、打包触发、过期清理
+│   │   └── ArchiveController.java          # /api/quota/* 和 /api/archive/* 接口
+│   ├── config/
+│   │   └── AppConfigGenerator.java         # 启动时自动生成 config.yaml
+│   ├── setup/
+│   │   ├── SetupService.java               # 配置存储、密码哈希、Session 管理
+│   │   ├── SetupController.java            # /api/setup/* 和 /api/auth/* 接口
+│   │   ├── AuthFilter.java                 # 请求认证过滤器
+│   │   └── BrowserLauncher.java            # 首次启动自动打开浏览器
 │   └── logback/MdcColorConverter.java      # 日志颜色扩展
 ├── src/main/resources/
 │   ├── application.properties             # 配置文件
 │   ├── logback.xml                        # 日志配置
 │   └── static/
+│       ├── setup.html                     # 首次配置向导页面
+│       ├── login.html                     # 登录页面（自用模式）
 │       ├── monitor.html                   # 下载监控面板
 │       ├── pixiv-batch.html               # Web 批量下载页面
 │       └── classifier.html                # 图片分类工具（Web 版）
@@ -388,10 +482,20 @@ PixivDownload/
 └── pom.xml
 ```
 
-**下载文件保存结构：**
+**运行目录文件：**
+```
+（程序运行目录）
+└── config.yaml                    # 运行配置（首次启动自动生成，可手动修改）
+```
+
+**数据文件保存结构：**
 ```
 pixiv-download/
 ├── pixiv_download.db          # SQLite 数据库
+├── setup_config.json          # 初始配置（管理员账号、使用模式）
+├── batch_state.json           # 批量下载页面状态（仅自用模式）
+├── _archives/                 # 多人模式自动打包目录
+│   └── {token}.zip            # 打包文件（到期自动清理）
 ├── {artworkId}/               # 普通作品
 │   ├── {artworkId}_p0.jpg
 │   └── {artworkId}_p1.jpg

@@ -76,6 +76,10 @@ public class PixivDatabase {
         );
     }
 
+    public void deleteArtwork(long artworkId) {
+        jdbcTemplate.update("DELETE FROM artworks WHERE artwork_id = ?", artworkId);
+    }
+
     public boolean hasArtwork(long artworkId) {
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM artworks WHERE artwork_id = ?", Integer.class, artworkId

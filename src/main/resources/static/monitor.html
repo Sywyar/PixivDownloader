@@ -486,6 +486,98 @@
             opacity: 0.4;
         }
 
+        /* ── Format Filter Popup ───────────────────────────────── */
+        .fmt-filter-popup {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            background: var(--surface);
+            border: 1px solid var(--border-bright);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6), var(--cyan-glow);
+            padding: .7rem;
+            min-width: 150px;
+        }
+        .fmt-filter-popup.show { display: block; }
+        .fmt-filter-header {
+            font-size: .58rem;
+            letter-spacing: .18em;
+            color: var(--cyan);
+            text-transform: uppercase;
+            margin-bottom: .5rem;
+            padding-bottom: .35rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .fmt-filter-options { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .5rem; }
+        .fmt-filter-option {
+            display: flex;
+            align-items: center;
+            gap: .45rem;
+            cursor: pointer;
+            user-select: none;
+            padding: 2px 0;
+        }
+        .fmt-filter-option input[type=checkbox] {
+            accent-color: var(--cyan);
+            cursor: pointer;
+            width: 12px; height: 12px;
+            flex-shrink: 0;
+        }
+        .fmt-filter-actions { border-top: 1px solid var(--border); padding-top: .45rem; }
+        .th-filter-active { color: var(--cyan) !important; background: rgba(0,229,255,0.07) !important; }
+
+        /* ── Page Grid Popup ───────────────────────────────────── */
+        .page-grid-popup {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            background: var(--surface);
+            border: 1px solid var(--border-bright);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6), var(--cyan-glow);
+            padding: .7rem;
+        }
+        .page-grid-popup.show { display: block; }
+        .page-grid-header {
+            font-size: .58rem;
+            letter-spacing: .18em;
+            color: var(--cyan);
+            text-transform: uppercase;
+            margin-bottom: .55rem;
+            padding-bottom: .35rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .page-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 3px;
+        }
+        .page-grid-item {
+            width: 30px; height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: .68rem;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            color: var(--text);
+            transition: all .15s;
+            font-family: var(--font);
+            background: transparent;
+        }
+        .page-grid-item:hover {
+            background: var(--cyan-dim);
+            border-color: var(--border-bright);
+            color: var(--cyan);
+        }
+        .page-grid-item.pg-active {
+            background: var(--cyan-dim);
+            border-color: var(--cyan);
+            color: var(--cyan);
+            box-shadow: var(--cyan-glow);
+        }
+
         /* ── Search Box ────────────────────────────────────────── */
         .search-box {
             background: var(--surface);
@@ -973,7 +1065,7 @@
                             <th width="13%" id="th-artworkId"   class="sortable-th" onclick="sortBy('artworkId')">ARTWORK ID <i id="sort-artworkId" class="sort-icon">↕</i></th>
                             <th width="24%" id="th-title"       class="sortable-th" onclick="sortBy('title')">TITLE <i id="sort-title" class="sort-icon">↕</i></th>
                             <th width="8%"  id="th-count"       class="sortable-th" onclick="sortBy('count')">IMGS <i id="sort-count" class="sort-icon">↕</i></th>
-                            <th width="11%" id="th-extensions"  class="sortable-th" onclick="sortBy('extensions')">FORMAT <i id="sort-extensions" class="sort-icon">↕</i></th>
+                            <th width="11%" id="th-extensions"  class="sortable-th" onclick="toggleFormatFilter(event)">FORMAT <i id="sort-extensions" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
                             <th width="16%" id="th-time"        class="sortable-th sort-active" onclick="sortBy('time')">DATE <i id="sort-time" class="sort-icon">↓</i></th>
                             <th width="12%" id="th-moved"       class="sortable-th" onclick="sortBy('moved')">STATUS <i id="sort-moved" class="sort-icon">↕</i></th>
                             <th width="16%">OPS</th>
@@ -990,8 +1082,11 @@
                 </div>
 
                 <div class="card-footer">
-                    <nav>
-                        <ul class="pagination pagination-sm justify-content-center mb-0" id="pagination"></ul>
+                    <nav style="display:flex;align-items:center;justify-content:center;gap:.5rem;">
+                        <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
+                        <button class="btn-term" id="pageGridBtn" onclick="togglePageGrid(event)" title="Jump to page" style="padding:4px 8px;display:none;">
+                            <i class="fas fa-th" style="font-size:.7rem;"></i>
+                        </button>
                     </nav>
                 </div>
             </div>
@@ -1032,6 +1127,11 @@
     </div>
 
 </div><!-- /container -->
+
+<!-- Format Filter Popup -->
+<div id="formatFilterPopup" class="fmt-filter-popup" onclick="event.stopPropagation()"></div>
+<!-- Page Grid Popup -->
+<div id="pageGridPopup" class="page-grid-popup"></div>
 
 <!-- ═══════════════════════════ ARTWORK MODAL ═══════════════════════════ -->
 <div class="modal fade" id="artworkModal" tabindex="-1" aria-hidden="true">
@@ -1079,6 +1179,7 @@
 
     let sortKey = 'time';
     let sortDir = 'desc';
+    let formatFilter = new Set(); // 格式筛选，空=显示全部
 
     let downloadStatsChart = null;
     let activeDownloads = [];
@@ -1123,6 +1224,12 @@
         artworkModal = new bootstrap.Modal(document.getElementById('artworkModal'));
         imageModal   = new bootstrap.Modal(document.getElementById('imageModal'));
 
+        // 点击外部关闭弹出框
+        document.addEventListener('click', () => {
+            document.getElementById('formatFilterPopup')?.classList.remove('show');
+            document.getElementById('pageGridPopup')?.classList.remove('show');
+        });
+
         ['artworkModal', 'imageModal'].forEach(id => {
             document.getElementById(id).addEventListener('hidden.bs.modal', () => {
                 document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
@@ -1163,8 +1270,10 @@
             document.getElementById('searchInput').value = '';
             sortKey = 'time';
             sortDir = 'desc';
+            formatFilter = new Set();
             currentPage = 1;
             document.getElementById('pagination').style.display = '';
+            updateFormatFilterIcon();
             loadStatistics();
             loadAllDataForChart();
         });
@@ -1241,7 +1350,7 @@
     }
 
     function renderSortHeaders() {
-        const cols = ['artworkId', 'title', 'count', 'extensions', 'time', 'moved'];
+        const cols = ['artworkId', 'title', 'count', 'time', 'moved'];
         cols.forEach(col => {
             const th   = document.getElementById(`th-${col}`);
             const icon = document.getElementById(`sort-${col}`);
@@ -1259,7 +1368,17 @@
     // ===================== 从缓存渲染（含分页） =====================
     function renderFromCache() {
         if (!allArtworksCache) return;
-        const sorted = getSortedCache();
+        let sorted = getSortedCache();
+
+        // 应用格式筛选
+        if (formatFilter.size > 0) {
+            sorted = sorted.filter(a => {
+                if (!a.extensions) return false;
+                return a.extensions.split(',').some(f => formatFilter.has(f.trim().toLowerCase()));
+            });
+        }
+
+        const gridBtn = document.getElementById('pageGridBtn');
         if (searchQuery) {
             const q = searchQuery;
             const filtered = sorted.filter(a =>
@@ -1267,6 +1386,7 @@
                 (a.title && a.title.toLowerCase().includes(q))
             );
             document.getElementById('pagination').style.display = 'none';
+            if (gridBtn) gridBtn.style.display = 'none';
             renderArtworkTable(filtered);
         } else {
             totalElements = sorted.length;
@@ -1334,7 +1454,13 @@
     // ===================== 分页 =====================
     function renderPagination() {
         const pagination = document.getElementById('pagination');
-        if (totalPages <= 1) { pagination.innerHTML = ''; return; }
+        const gridBtn    = document.getElementById('pageGridBtn');
+        if (totalPages <= 1) {
+            pagination.innerHTML = '';
+            if (gridBtn) gridBtn.style.display = 'none';
+            return;
+        }
+        if (gridBtn) gridBtn.style.display = '';
 
         const maxVisible = 5;
         let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
@@ -1703,6 +1829,115 @@
         }
         if (prevBtn) prevBtn.disabled = fullImgPage === 0;
         if (nextBtn) nextBtn.disabled = fullImgTotal > 0 && fullImgPage === fullImgTotal - 1;
+    }
+
+    // ===================== 格式筛选弹框 =====================
+    function toggleFormatFilter(event) {
+        event.stopPropagation();
+        const popup = document.getElementById('formatFilterPopup');
+        if (popup.classList.contains('show')) {
+            popup.classList.remove('show');
+            return;
+        }
+
+        // 收集所有可用格式
+        const formats = new Set();
+        if (allArtworksCache) {
+            allArtworksCache.forEach(a => {
+                if (a.extensions) {
+                    a.extensions.split(',').forEach(f => formats.add(f.trim().toLowerCase()));
+                }
+            });
+        }
+        const sortedFormats = [...formats].sort();
+
+        popup.innerHTML = `
+            <div class="fmt-filter-header">FORMAT FILTER</div>
+            <div class="fmt-filter-options">
+                ${sortedFormats.length ? sortedFormats.map(f => `
+                    <label class="fmt-filter-option">
+                        <input type="checkbox" value="${f}" ${formatFilter.has(f) ? 'checked' : ''}
+                               onchange="onFormatFilterChange()">
+                        <span class="fmt-badge fmt-${f}">${f.toUpperCase()}</span>
+                    </label>
+                `).join('') : '<span style="font-size:.7rem;color:var(--text-dim)">No data</span>'}
+            </div>
+            <div class="fmt-filter-actions">
+                <button class="btn-term" style="font-size:.6rem;padding:2px 8px;width:100%;" onclick="clearFormatFilter()">CLEAR ALL</button>
+            </div>`;
+
+        // 定位在 FORMAT 列头下方
+        const th = document.getElementById('th-extensions');
+        const rect = th.getBoundingClientRect();
+        popup.style.top  = (rect.bottom + 4) + 'px';
+        popup.style.left = rect.left + 'px';
+        popup.classList.add('show');
+    }
+
+    function onFormatFilterChange() {
+        const checkboxes = document.querySelectorAll('#formatFilterPopup input[type=checkbox]');
+        formatFilter = new Set([...checkboxes].filter(cb => cb.checked).map(cb => cb.value));
+        currentPage = 1;
+        updateFormatFilterIcon();
+        renderFromCache();
+    }
+
+    function clearFormatFilter() {
+        formatFilter = new Set();
+        document.querySelectorAll('#formatFilterPopup input[type=checkbox]').forEach(cb => cb.checked = false);
+        currentPage = 1;
+        updateFormatFilterIcon();
+        renderFromCache();
+    }
+
+    function updateFormatFilterIcon() {
+        const icon = document.getElementById('sort-extensions');
+        const th   = document.getElementById('th-extensions');
+        if (!icon) return;
+        const active = formatFilter.size > 0;
+        icon.innerHTML = `<i class="fas fa-filter" style="font-size:.55rem;opacity:${active ? 1 : .45};color:${active ? 'var(--cyan)' : 'inherit'}"></i>`;
+        if (th) th.classList.toggle('th-filter-active', active);
+    }
+
+    // ===================== 页码网格弹框 =====================
+    function togglePageGrid(event) {
+        event.stopPropagation();
+        const popup = document.getElementById('pageGridPopup');
+        if (popup.classList.contains('show')) {
+            popup.classList.remove('show');
+            return;
+        }
+        renderPageGrid(popup);
+        popup.classList.add('show');
+
+        // 定位：在网格按钮正上方（或下方）
+        const btn  = document.getElementById('pageGridBtn');
+        const bRect = btn.getBoundingClientRect();
+        const pRect = popup.getBoundingClientRect();
+        let left = bRect.right - pRect.width;
+        if (left < 8) left = 8;
+        let top = bRect.top - pRect.height - 6;
+        if (top < 8) top = bRect.bottom + 6;
+        popup.style.left = left + 'px';
+        popup.style.top  = top  + 'px';
+    }
+
+    function renderPageGrid(popup) {
+        let html = `<div class="page-grid-header">
+            <span>PAGE SELECT</span>
+            <span style="color:var(--text-dim);font-size:.6rem;">${currentPage} / ${totalPages}</span>
+        </div><div class="page-grid">`;
+        for (let i = 1; i <= totalPages; i++) {
+            html += `<button class="page-grid-item ${i === currentPage ? 'pg-active' : ''}"
+                onclick="changePageFromGrid(${i})">${i}</button>`;
+        }
+        html += `</div>`;
+        popup.innerHTML = html;
+    }
+
+    function changePageFromGrid(page) {
+        document.getElementById('pageGridPopup').classList.remove('show');
+        changePage(page);
     }
 </script>
 </body>

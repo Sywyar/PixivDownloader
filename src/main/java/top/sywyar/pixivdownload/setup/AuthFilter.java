@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import java.io.IOException;
 import java.net.URLEncoder;
@@ -51,8 +52,9 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 多人模式：无需认证
+        // 多人模式：无需认证，但为用户分配 UUID cookie（用于配额追踪）
         if ("multi".equals(setupService.getMode())) {
+            ensureUserUuidCookie(req, res);
             chain.doFilter(req, res);
             return;
         }
@@ -76,7 +78,9 @@ public class AuthFilter extends OncePerRequestFilter {
             || path.equals("/login.html")
             || path.equals("/favicon.ico")
             || path.startsWith("/api/setup/")
-            || path.startsWith("/api/auth/");
+            || path.startsWith("/api/auth/")
+            || path.startsWith("/api/quota/")
+            || path.startsWith("/api/archive/");
     }
 
     private boolean isApi(String path) {
@@ -91,5 +95,28 @@ public class AuthFilter extends OncePerRequestFilter {
             }
         }
         return req.getHeader("X-Session-Token");
+    }
+
+    /** 多人模式：若没有 pixiv_user_id cookie，则基于 IP+UA 生成并写入 */
+    private void ensureUserUuidCookie(HttpServletRequest req, HttpServletResponse res) {
+        Cookie[] cookies = req.getCookies();
+        if (cookies != null) {
+            for (Cookie c : cookies) {
+                if ("pixiv_user_id".equals(c.getName()) && c.getValue() != null
+                        && !c.getValue().isBlank()) {
+                    return; // 已有 UUID，无需重新生成
+                }
+            }
+        }
+        // 检查自定义请求头（油猴脚本场景）
+        String headerUuid = req.getHeader("X-User-UUID");
+        String uuid = (headerUuid != null && !headerUuid.isBlank())
+                ? headerUuid
+                : UserQuotaService.generateUuidFromFingerprint(
+                        req.getRemoteAddr(), req.getHeader("User-Agent"));
+        Cookie cookie = new Cookie("pixiv_user_id", uuid);
+        cookie.setPath("/");
+        cookie.setMaxAge(30 * 24 * 3600);
+        res.addCookie(cookie);
     }
 }

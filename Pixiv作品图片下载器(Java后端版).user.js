@@ -20,6 +20,13 @@
 
     // 配置后端服务地址
     const BACKEND_URL = "http://localhost:6999/api/download/pixiv";
+    const QUOTA_INIT_URL = "http://localhost:6999/api/quota/init";
+    const ARCHIVE_STATUS_BASE = "http://localhost:6999/api/archive/status";
+    const ARCHIVE_DOWNLOAD_BASE = "http://localhost:6999/api/archive/download";
+    const KEY_USER_UUID = 'pixiv_user_uuid';
+
+    let userUUID = GM_getValue(KEY_USER_UUID, null);
+    let quotaInfo = { enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0 };
 
     // 等待页面加载完成
     function waitForPageLoad() {
@@ -125,6 +132,31 @@
         });
     }
 
+    // 初始化配额
+    function initQuota() {
+        const headers = { 'Content-Type': 'application/json' };
+        if (userUUID) headers['X-User-UUID'] = userUUID;
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: QUOTA_INIT_URL,
+                headers,
+                onload: (res) => {
+                    try {
+                        const data = JSON.parse(res.responseText);
+                        if (data.uuid) {
+                            userUUID = data.uuid;
+                            GM_setValue(KEY_USER_UUID, userUUID);
+                        }
+                        resolve(data);
+                    } catch { resolve({}); }
+                },
+                onerror: () => resolve({}),
+                ontimeout: () => resolve({})
+            });
+        });
+    }
+
     // 发送下载请求到后端
     async function sendDownloadRequest(artworkId, title, imageUrls, other) {
         return new Promise((resolve, reject) => {
@@ -135,18 +167,22 @@
                 referer: 'https://www.pixiv.net/',
                 other: other || {}
             };
+            const headers = { 'Content-Type': 'application/json' };
+            if (userUUID) headers['X-User-UUID'] = userUUID;
 
             GM_xmlhttpRequest({
                 method: 'POST',
                 url: BACKEND_URL,
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers,
                 data: JSON.stringify(requestData),
                 onload: function (response) {
                     try {
                         const data = JSON.parse(response.responseText);
-                        if (response.status === 200 && data.success) {
+                        if (response.status === 429 && data.quotaExceeded) {
+                            const err = new Error('quota_exceeded');
+                            err.quotaData = data;
+                            reject(err);
+                        } else if (response.status === 200 && data.success) {
                             resolve(data);
                         } else {
                             reject(new Error(data.message || '下载请求失败'));
@@ -246,14 +282,23 @@
             const response = await sendDownloadRequest(artworkId, title, imageUrls, other);
 
             markAsDownloaded(artworkId, '后端处理中', imageUrls.length);
+            // 刷新配额显示
+            if (quotaInfo.enabled) {
+                quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
+            }
             updateDownloadUI();
 
             const typeHint = other.isUgoira ? '动图（将合成为WebP）' : `图片数量: ${imageUrls.length}张`;
             alert(`下载任务已提交到后端处理！\n${typeHint}\n${response.message}`);
 
         } catch (error) {
-            console.error('下载失败:', error);
-            alert('下载失败: ' + error.message);
+            if (error.message === 'quota_exceeded' && error.quotaData) {
+                console.warn('已达到下载限额');
+                showQuotaExceededUI(error.quotaData);
+            } else {
+                console.error('下载失败:', error);
+                alert('下载失败: ' + error.message);
+            }
         }
     }
 
@@ -360,13 +405,34 @@
             text-align: center;
         `;
 
+        // 配额栏
+        const quotaBarDiv = document.createElement('div');
+        quotaBarDiv.id = 'pixiv-single-quota-bar';
+        quotaBarDiv.style.cssText = 'display:none;margin-bottom:6px;padding:5px 6px;background:#f8f9fa;border-radius:4px;font-size:11px;color:#555;';
+
+        // 压缩包下载卡片
+        const archiveCardDiv = document.createElement('div');
+        archiveCardDiv.id = 'pixiv-single-archive-card';
+        archiveCardDiv.style.cssText = 'display:none;margin-bottom:8px;padding:8px;background:#fff8e1;border:2px solid #ffc107;border-radius:4px;font-size:11px;';
+
         container.appendChild(titleDiv);
         container.appendChild(statusDiv);
         container.appendChild(button);
         container.appendChild(artworkIdDiv);
         container.appendChild(backendStatusDiv);
         container.appendChild(infoDiv);
+        container.appendChild(quotaBarDiv);
+        container.appendChild(archiveCardDiv);
         document.body.appendChild(container);
+
+        // 渲染配额栏
+        if (quotaInfo.enabled) renderSingleQuotaBar();
+
+        // 恢复已有压缩包卡片（如果有）
+        if (window._pixivSingleArchiveState) {
+            const s = window._pixivSingleArchiveState;
+            renderSingleArchiveCard(s.token, s.expireSec, s.ready);
+        }
 
         // 检查后端状态
         checkBackendStatus().then(available => {
@@ -378,6 +444,115 @@
                 statusDiv.style.color = available ? '#28a745' : '#dc3545';
             }
         });
+    }
+
+    // 渲染配额栏
+    function renderSingleQuotaBar() {
+        const bar = document.getElementById('pixiv-single-quota-bar');
+        if (!bar || !quotaInfo.enabled) return;
+        const pct = Math.min(100, Math.round(quotaInfo.artworksUsed / quotaInfo.maxArtworks * 100));
+        const color = pct >= 90 ? '#dc3545' : pct >= 70 ? '#ffc107' : '#28a745';
+        bar.style.display = 'block';
+        bar.innerHTML = `<div style="display:flex;align-items:center;gap:5px;">
+          <span style="white-space:nowrap;">配额：${quotaInfo.artworksUsed}/${quotaInfo.maxArtworks}</span>
+          <div style="flex:1;height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden;">
+            <div style="height:100%;width:${pct}%;background:${color};border-radius:2px;"></div>
+          </div>
+          <span style="color:#888;">${pct}%</span>
+        </div>`;
+    }
+
+    function renderSingleArchiveCard(token, expireSec, ready) {
+        window._pixivSingleArchiveState = { token, expireSec, ready };
+        const card = document.getElementById('pixiv-single-archive-card');
+        if (!card) return;
+        card.style.display = 'block';
+        card.innerHTML = `<div style="font-weight:bold;color:#856404;margin-bottom:4px;">已达到下载限额</div>
+          <div id="pixiv-single-ac-status" style="color:#666;">${ready ? '压缩包已就绪：' : '正在打包已下载文件，请稍候...'}</div>
+          <div id="pixiv-single-ac-dl" style="display:${ready ? 'block' : 'none'};margin-top:4px;"></div>
+          <div id="pixiv-single-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">下载链接已过期</div>`;
+        if (ready) {
+            activateSingleArchiveDl(token, expireSec);
+        } else {
+            pollSingleArchive(token, expireSec);
+        }
+    }
+
+    function pollSingleArchive(token, expireSec) {
+        const timer = setInterval(() => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `${ARCHIVE_STATUS_BASE}/${token}`,
+                onload: (res) => {
+                    try {
+                        const data = JSON.parse(res.responseText);
+                        if (data.status === 'ready') {
+                            clearInterval(timer);
+                            activateSingleArchiveDl(token, data.expireSeconds || expireSec);
+                        } else if (data.status === 'expired') {
+                            clearInterval(timer);
+                            const expired = document.getElementById('pixiv-single-ac-expired');
+                            const status = document.getElementById('pixiv-single-ac-status');
+                            if (expired) expired.style.display = 'block';
+                            if (status) status.textContent = '';
+                        } else if (data.status === 'empty') {
+                            clearInterval(timer);
+                            const status = document.getElementById('pixiv-single-ac-status');
+                            if (status) status.textContent = '暂无可打包文件';
+                        }
+                    } catch {}
+                },
+                onerror: () => {}
+            });
+        }, 2000);
+    }
+
+    function activateSingleArchiveDl(token, expireSec) {
+        const statusEl = document.getElementById('pixiv-single-ac-status');
+        const dlEl = document.getElementById('pixiv-single-ac-dl');
+        if (statusEl) statusEl.textContent = '压缩包已就绪：';
+        if (dlEl) {
+            dlEl.style.display = 'block';
+            const filename = 'pixiv_download_' + token.substring(0, 8) + '.zip';
+            dlEl.innerHTML = `<a href="${ARCHIVE_DOWNLOAD_BASE}/${token}" download="${filename}"
+              style="display:inline-block;padding:4px 10px;background:#28a745;color:white;
+                     border-radius:4px;text-decoration:none;font-size:11px;font-weight:bold;">
+              下载压缩包
+            </a>
+            <span id="pixiv-single-ac-countdown" style="font-size:10px;color:#888;margin-left:6px;"></span>`;
+            let remaining = Math.max(0, parseInt(expireSec));
+            const fmtSec = (s) => {
+                s = Math.max(0, Math.round(s));
+                const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+                if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(sec).padStart(2,'0') + 's';
+                return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+            };
+            const el = () => document.getElementById('pixiv-single-ac-countdown');
+            if (el()) el().textContent = '有效期：' + fmtSec(remaining);
+            const timer = setInterval(() => {
+                remaining--;
+                if (remaining <= 0) {
+                    clearInterval(timer);
+                    const expired = document.getElementById('pixiv-single-ac-expired');
+                    if (dlEl) dlEl.style.display = 'none';
+                    if (expired) expired.style.display = 'block';
+                } else {
+                    if (el()) el().textContent = '有效期：' + fmtSec(remaining);
+                }
+            }, 1000);
+        }
+    }
+
+    function showQuotaExceededUI(data) {
+        window._pixivSingleArchiveState = null;
+        const card = document.getElementById('pixiv-single-archive-card');
+        if (card) {
+            renderSingleArchiveCard(data.archiveToken, data.archiveExpireSeconds || 3600, false);
+        } else {
+            // UI 还未创建，暂存状态，等下次 createDownloadUI 时恢复
+            window._pixivSingleArchiveState = { token: data.archiveToken, expireSec: data.archiveExpireSeconds || 3600, ready: false };
+            updateDownloadUI();
+        }
     }
 
     // 更新下载UI状态
@@ -418,6 +593,27 @@
         if (e.ctrlKey && e.shiftKey && e.key === 'J') {
             e.preventDefault();
             downloadImages();
+        }
+    });
+
+    // 初始化配额信息
+    initQuota().then(data => {
+        if (data && data.enabled) {
+            quotaInfo = {
+                enabled: true,
+                artworksUsed: data.artworksUsed || 0,
+                maxArtworks: data.maxArtworks || 50,
+                resetSeconds: data.resetSeconds || 0
+            };
+            // 恢复已有压缩包
+            if (data.archive && data.archive.token) {
+                window._pixivSingleArchiveState = {
+                    token: data.archive.token,
+                    expireSec: data.archive.expireSeconds || 3600,
+                    ready: data.archive.status === 'ready'
+                };
+            }
+            renderSingleQuotaBar();
         }
     });
 
