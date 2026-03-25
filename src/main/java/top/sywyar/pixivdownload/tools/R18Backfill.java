@@ -89,7 +89,9 @@ public class R18Backfill {
                 .setSocketTimeout(15000)
                 .setConnectionRequestTimeout(5000)
                 .build();
-        var clientBuilder = HttpClients.custom().setDefaultRequestConfig(reqConfig);
+        var clientBuilder = HttpClients.custom()
+                .setDefaultRequestConfig(reqConfig)
+                .disableCookieManagement();  // 禁用 Cookie，确保每次请求都是纯匿名状态
         if (useProxy) clientBuilder.setProxy(new HttpHost(proxyHost, proxyPort));
         CloseableHttpClient http = clientBuilder.build();
 
