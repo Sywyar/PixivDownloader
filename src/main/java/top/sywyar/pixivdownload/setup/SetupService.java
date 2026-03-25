@@ -29,8 +29,11 @@ public class SetupService {
     private volatile String passwordHash = null;
     private volatile String salt     = null;
 
-    /** token → expiry timestamp (ms) */
+    /** token → expiry timestamp (ms)，内存中同时保存短期和长期 session */
     private final ConcurrentHashMap<String, Long> sessions = new ConcurrentHashMap<>();
+
+    /** 需要持久化的长期 session token 集合 */
+    private final ConcurrentHashMap<String, Long> persistentSessions = new ConcurrentHashMap<>();
 
     private static final long SESSION_SHORT = 2L  * 3600 * 1000;       // 2 小时
     private static final long SESSION_LONG  = 30L * 24 * 3600 * 1000;  // 30 天
@@ -52,7 +55,23 @@ public class SetupService {
             this.username       = (String) map.get("username");
             this.passwordHash   = (String) map.get("passwordHash");
             this.salt           = (String) map.get("salt");
-            log.info("Setup config loaded: mode={}", this.mode);
+
+            // 还原持久化 session，过滤已过期的
+            Object raw = map.get("sessions");
+            if (raw instanceof Map<?, ?> savedSessions) {
+                long now = System.currentTimeMillis();
+                savedSessions.forEach((k, v) -> {
+                    if (k instanceof String token && v instanceof Number expiry) {
+                        if (expiry.longValue() > now) {
+                            sessions.put(token, expiry.longValue());
+                            persistentSessions.put(token, expiry.longValue());
+                        }
+                    }
+                });
+                log.info("Setup config loaded: mode={}, restored {} session(s)", this.mode, persistentSessions.size());
+            } else {
+                log.info("Setup config loaded: mode={}", this.mode);
+            }
         } catch (IOException e) {
             log.warn("Failed to load setup config: {}", e.getMessage());
         }
@@ -65,6 +84,13 @@ public class SetupService {
         map.put("username",      username);
         map.put("passwordHash",  passwordHash);
         map.put("salt",          salt);
+        // 只持久化未过期的长期 session
+        long now = System.currentTimeMillis();
+        Map<String, Long> toSave = new LinkedHashMap<>();
+        persistentSessions.forEach((token, expiry) -> {
+            if (expiry > now) toSave.put(token, expiry);
+        });
+        map.put("sessions", toSave);
         Files.createDirectories(configFile.getParent());
         objectMapper.writeValue(configFile.toFile(), map);
     }
@@ -100,6 +126,10 @@ public class SetupService {
         String token = UUID.randomUUID().toString();
         long expiry = System.currentTimeMillis() + (remember ? SESSION_LONG : SESSION_SHORT);
         sessions.put(token, expiry);
+        if (remember) {
+            persistentSessions.put(token, expiry);
+            try { save(); } catch (IOException e) { log.warn("保存 session 失败: {}", e.getMessage()); }
+        }
         return token;
     }
 
@@ -107,12 +137,22 @@ public class SetupService {
         if (token == null || token.isBlank()) return false;
         Long exp = sessions.get(token);
         if (exp == null) return false;
-        if (System.currentTimeMillis() > exp) { sessions.remove(token); return false; }
+        if (System.currentTimeMillis() > exp) {
+            sessions.remove(token);
+            if (persistentSessions.remove(token) != null) {
+                try { save(); } catch (IOException e) { log.warn("清理过期 session 失败: {}", e.getMessage()); }
+            }
+            return false;
+        }
         return true;
     }
 
     public void removeSession(String token) {
-        if (token != null) sessions.remove(token);
+        if (token == null) return;
+        sessions.remove(token);
+        if (persistentSessions.remove(token) != null) {
+            try { save(); } catch (IOException e) { log.warn("移除 session 失败: {}", e.getMessage()); }
+        }
     }
 
     // ---- 工具 ----------------------------------------------------------

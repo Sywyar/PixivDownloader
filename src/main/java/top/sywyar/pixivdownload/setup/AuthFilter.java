@@ -42,6 +42,23 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        // /api/downloaded/ 接口：POST /move/ 仅限本地 IP；其余接口本地 IP 直接放行，非本地走 session 校验
+        if (path.startsWith("/api/downloaded/")) {
+            if ("POST".equalsIgnoreCase(method) && path.contains("/downloaded/move/")) {
+                if (!isLocalAddress(req.getRemoteAddr())) {
+                    res.sendError(403, "Forbidden: local access only");
+                    return;
+                }
+                chain.doFilter(req, res);
+                return;
+            }
+            if (isLocalAddress(req.getRemoteAddr())) {
+                chain.doFilter(req, res);
+                return;
+            }
+            // 非本地 IP 继续走下方 session 校验
+        }
+
         // 未完成初始配置 → 跳转 setup 页面
         if (!setupService.isSetupComplete()) {
             if (isApi(path)) {
@@ -80,11 +97,18 @@ public class AuthFilter extends OncePerRequestFilter {
             || path.startsWith("/api/setup/")
             || path.startsWith("/api/auth/")
             || path.startsWith("/api/quota/")
-            || path.startsWith("/api/archive/");
+            || path.startsWith("/api/archive/")
+            || path.equals("/api/download/status");        // 健康检查，供外部工具探测服务是否在线
     }
 
     private boolean isApi(String path) {
         return path.startsWith("/api/");
+    }
+
+    private boolean isLocalAddress(String remoteAddr) {
+        return "127.0.0.1".equals(remoteAddr)
+            || "0:0:0:0:0:0:0:1".equals(remoteAddr)
+            || "::1".equals(remoteAddr);
     }
 
     private String extractToken(HttpServletRequest req) {
