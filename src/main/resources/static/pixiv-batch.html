@@ -1399,7 +1399,7 @@ function renderQueue() {
     const R18Label = q.isR18 === true
       ? `<span style="background:#dc3545;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">R18</span>`
       : q.isR18 === false
-        ? ''
+        ? `<span style="background:#198754;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">SFW</span>`
         : `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">未知</span>`;
     return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
       <div class="q-title">${esc(q.title)}${srcLabel}${R18Label}</div>
