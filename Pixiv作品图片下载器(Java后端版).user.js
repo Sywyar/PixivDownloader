@@ -19,11 +19,16 @@
     'use strict';
 
     // 配置后端服务地址
-    const BACKEND_URL = "http://localhost:6999/api/download/pixiv";
-    const QUOTA_INIT_URL = "http://localhost:6999/api/quota/init";
-    const ARCHIVE_STATUS_BASE = "http://localhost:6999/api/archive/status";
-    const ARCHIVE_DOWNLOAD_BASE = "http://localhost:6999/api/archive/download";
+    const KEY_SERVER_URL = 'pixiv_server_base';
+    let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
+
     const KEY_USER_UUID = 'pixiv_user_uuid';
+
+    // 动态 URL 计算
+    const getBackendURL = () => serverBase + '/api/download/pixiv';
+    const getQuotaInitURL = () => serverBase + '/api/quota/init';
+    const getArchiveStatusBase = () => serverBase + '/api/archive/status';
+    const getArchiveDownloadBase = () => serverBase + '/api/archive/download';
 
     let userUUID = GM_getValue(KEY_USER_UUID, null);
     let quotaInfo = { enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0 };
@@ -139,7 +144,7 @@
         return new Promise((resolve) => {
             GM_xmlhttpRequest({
                 method: 'GET',
-                url: QUOTA_INIT_URL,
+                url: getQuotaInitURL(),
                 headers,
                 onload: (res) => {
                     try {
@@ -172,7 +177,7 @@
 
             GM_xmlhttpRequest({
                 method: 'POST',
-                url: BACKEND_URL,
+                url: getBackendURL(),
                 headers,
                 data: JSON.stringify(requestData),
                 onload: function (response) {
@@ -203,7 +208,7 @@
         return new Promise((resolve) => {
             GM_xmlhttpRequest({
                 method: 'GET',
-                url: 'http://localhost:6999/api/download/status',
+                url: serverBase + '/api/download/status',
                 timeout: 3000,
                 onload: function (response) {
                     resolve(response.status === 200);
@@ -229,7 +234,7 @@
         // 检查后端服务是否可用
         const isBackendAvailable = await checkBackendStatus();
         if (!isBackendAvailable) {
-            alert('后端下载服务未启动！\n请确保Java Spring程序正在localhost:6999运行');
+            alert(`后端下载服务未启动！\n请确保Java Spring程序正在 ${serverBase} 运行`);
             return;
         }
 
@@ -482,7 +487,7 @@
         const timer = setInterval(() => {
             GM_xmlhttpRequest({
                 method: 'GET',
-                url: `${ARCHIVE_STATUS_BASE}/${token}`,
+                url: `${getArchiveStatusBase()}/${token}`,
                 onload: (res) => {
                     try {
                         const data = JSON.parse(res.responseText);
@@ -514,7 +519,7 @@
         if (dlEl) {
             dlEl.style.display = 'block';
             const filename = 'pixiv_download_' + token.substring(0, 8) + '.zip';
-            dlEl.innerHTML = `<a href="${ARCHIVE_DOWNLOAD_BASE}/${token}" download="${filename}"
+            dlEl.innerHTML = `<a href="${getArchiveDownloadBase()}/${token}" download="${filename}"
               style="display:inline-block;padding:4px 10px;background:#28a745;color:white;
                      border-radius:4px;text-decoration:none;font-size:11px;font-weight:bold;">
               下载压缩包
@@ -587,6 +592,14 @@
 
     // 注册菜单命令
     GM_registerMenuCommand('通过后端下载当前作品', downloadImages);
+    GM_registerMenuCommand('⚙️ 设置服务器地址', () => {
+        const input = prompt('请输入后端服务器地址（不含末尾斜杠）:', serverBase);
+        if (input !== null) {
+            serverBase = input.trim().replace(/\/$/, '') || 'http://localhost:6999';
+            GM_setValue(KEY_SERVER_URL, serverBase);
+            alert('服务器地址已更新为: ' + serverBase);
+        }
+    });
 
     // 添加快捷键支持 (Ctrl+Shift+J)
     document.addEventListener('keydown', function (e) {

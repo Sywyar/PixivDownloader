@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
+import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
@@ -39,11 +40,28 @@ public class DownloadController {
     @Autowired
     private MultiModeConfig multiModeConfig;
 
+    @Autowired
+    private PixivDatabase pixivDatabase;
+
     @PostMapping("/download/pixiv")
     public ResponseEntity<?> downloadPixivImages(
             @Valid @RequestBody DownloadRequest request,
             HttpServletRequest httpRequest) {
         try {
+            // 多人模式：never-delete/timed-delete 模式下，已下载过的作品直接返回成功，不消耗配额
+            if ("multi".equals(setupService.getMode())) {
+                String pdMode = multiModeConfig.getPostDownloadMode();
+                if ("never-delete".equals(pdMode) || "timed-delete".equals(pdMode)) {
+                    if (pixivDatabase.hasArtwork(request.getArtworkId())) {
+                        Map<String, Object> body = new HashMap<>();
+                        body.put("success", true);
+                        body.put("alreadyDownloaded", true);
+                        body.put("message", "作品已下载，无需重复下载");
+                        return ResponseEntity.ok(body);
+                    }
+                }
+            }
+
             String userUuid = null;
 
             // 多人模式且配额启用时，检查下载配额

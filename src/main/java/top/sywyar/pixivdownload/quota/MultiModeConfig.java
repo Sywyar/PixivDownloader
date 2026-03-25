@@ -13,6 +13,19 @@ public class MultiModeConfig {
 
     private Quota quota = new Quota();
 
+    /**
+     * 下载后处理模式：
+     * <ul>
+     *   <li>pack-and-delete — 配额超出时打包并立即删除源文件（默认）</li>
+     *   <li>never-delete    — 打包后保留源文件；再次请求同一作品视为已完成</li>
+     *   <li>timed-delete    — 打包后保留源文件；超过 deleteAfterHours 后自动删除</li>
+     * </ul>
+     */
+    private String postDownloadMode = "pack-and-delete";
+
+    /** timed-delete 模式：作品下载完成后多少小时自动删除源文件 */
+    private int deleteAfterHours = 72;
+
     @Getter
     @Setter
     public static class Quota {

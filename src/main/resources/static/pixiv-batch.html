@@ -1039,15 +1039,22 @@ async function processSingle(item) {
     item.downloadedCount = 0;
     saveQueue(); renderQueue();
 
-    openSSE(item.id);
-    const ssePromise = waitForFinalStatusBySSE(item.id, STATUS_TIMEOUT_MS);
-
     setStatus(`下载中：${item.title}`, 'info');
-    await sendDownload(
+    const dlData = await sendDownload(
       item.id, urls, item.title,
       isUserMode, state.username || state.userId,
       isR18, ugoiraData
     );
+    if (dlData && dlData.alreadyDownloaded) {
+      item.status = 'skipped';
+      item.lastMessage = '跳过 — 已下载（服务器确认）';
+      item.endTime = new Date().toISOString();
+      updateStats(); saveQueue(); renderQueue();
+      setStatus(`跳过：${item.title}（已下载）`, 'info');
+      return;
+    }
+    openSSE(item.id);
+    const ssePromise = waitForFinalStatusBySSE(item.id, STATUS_TIMEOUT_MS);
     item.lastMessage = '下载中，等待完成...';
     renderQueue();
 

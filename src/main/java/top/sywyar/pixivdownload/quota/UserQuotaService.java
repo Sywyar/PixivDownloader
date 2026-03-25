@@ -7,6 +7,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 
 import java.io.*;
@@ -183,27 +184,12 @@ public class UserQuotaService {
             entry.setStatus("ready");
             log.info("压缩包 {} 创建完成: {}", token, archivePath);
 
-            // 打包后删除源文件及对应的下载历史记录
-            for (Path folder : folders) {
-                // 删除磁盘文件
-                try {
-                    Files.walk(folder)
-                            .sorted(Comparator.reverseOrder())
-                            .map(Path::toFile)
-                            .forEach(File::delete);
-                    log.info("已删除源文件夹: {}", folder);
-                } catch (Exception e) {
-                    log.warn("删除源文件夹失败: {}", folder, e);
-                }
-                // 删除 artworks 表中对应记录（folder 名即 artworkId）
-                try {
-                    long artworkId = Long.parseLong(folder.getFileName().toString());
-                    pixivDatabase.deleteArtwork(artworkId);
-                    log.info("已删除下载历史记录: artworkId={}", artworkId);
-                } catch (NumberFormatException ignored) {
-                    // 文件夹名不是纯数字（如用户名子目录），跳过
-                } catch (Exception e) {
-                    log.warn("删除下载历史记录失败: folder={}", folder, e);
+            // pack-and-delete 模式：打包后立即删除源文件及下载历史记录
+            // never-delete / timed-delete 模式：保留源文件，不删除历史记录
+            String pdMode = config.getPostDownloadMode();
+            if (!"never-delete".equals(pdMode) && !"timed-delete".equals(pdMode)) {
+                for (Path folder : folders) {
+                    deleteArtworkFolder(folder);
                 }
             }
             quota.getDownloadedFolders().removeAll(folders);
@@ -244,6 +230,40 @@ public class UserQuotaService {
             }
             return false;
         });
+    }
+
+    /** timed-delete 模式：每小时扫描并删除超过 deleteAfterHours 的作品文件 */
+    @Scheduled(fixedRate = 3_600_000)
+    public void cleanupTimedDeleteArtworks() {
+        if (!"timed-delete".equals(config.getPostDownloadMode())) return;
+        long cutoffSec = System.currentTimeMillis() / 1000 - (long) config.getDeleteAfterHours() * 3600;
+        List<ArtworkRecord> oldArtworks = pixivDatabase.getArtworksOlderThan(cutoffSec);
+        if (oldArtworks.isEmpty()) return;
+        log.info("timed-delete: 发现 {} 个超期作品，开始清理", oldArtworks.size());
+        for (ArtworkRecord artwork : oldArtworks) {
+            deleteArtworkFolder(Paths.get(artwork.folder()));
+        }
+    }
+
+    /** 删除作品文件夹及其下载历史记录（统计数据不受影响）。*/
+    private void deleteArtworkFolder(Path folder) {
+        try {
+            if (Files.exists(folder)) {
+                Files.walk(folder).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                log.info("已删除源文件夹: {}", folder);
+            }
+        } catch (Exception e) {
+            log.warn("删除源文件夹失败: {}", folder, e);
+        }
+        try {
+            long artworkId = Long.parseLong(folder.getFileName().toString());
+            pixivDatabase.deleteArtwork(artworkId);
+            log.info("已删除下载历史记录: artworkId={}", artworkId);
+        } catch (NumberFormatException ignored) {
+            // 文件夹名不是纯数字（如用户名子目录），跳过
+        } catch (Exception e) {
+            log.warn("删除下载历史记录失败: folder={}", folder, e);
+        }
     }
 
     // ---- UUID 工具 ---------------------------------------------------------------

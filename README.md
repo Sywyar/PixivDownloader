@@ -45,6 +45,8 @@
 - **首次启动引导**：首次运行时自动打开浏览器进入配置向导，设置管理员账号与使用模式
 - **自用/多人两种模式**：自用模式需登录（支持保持登录），Cookie/设置/队列统一存服务器多设备共享；多人模式无需登录，各自浏览器本地独立存储
 - **多人模式配额与自动打包**：多人模式下可为每个访客设置作品下载限额，达到限额时自动将已下载文件打包为 ZIP，访客可在限额重置前下载压缩包取走文件
+- **多人模式三种下载后处理模式**：`pack-and-delete`（打包后删除源文件）、`never-delete`（永不删除，后端自动跳过已下载作品）、`timed-delete`（超时后自动清理，同样跳过已下载）
+- **服务器地址可配置**：三个油猴脚本均支持在设置面板或菜单中自定义后端服务器地址，无需修改脚本源码，多脚本共享同一地址设置
 
 ---
 
@@ -162,6 +164,10 @@ java -jar target/PixivDownload-0.0.1-SNAPSHOT.jar
 
 **安装方法：** 打开 Tampermonkey 管理面板 → 新建脚本 → 将 `.user.js` 文件内容粘贴进去保存，或直接将文件拖入 Tampermonkey 管理面板。
 
+**配置服务器地址：** 三个脚本默认连接 `http://localhost:6999`，三脚本共享同一地址设置（GM storage key: `pixiv_server_base`）。
+- **N-Tab / 用户批量脚本**：悬浮面板设置区域最下方有「服务器地址」输入框，修改后失去焦点自动保存
+- **单作品脚本**：点击浏览器地址栏右侧 Tampermonkey 图标 → 菜单中选择「⚙️ 设置服务器地址」，在弹窗中输入新地址
+
 ---
 
 ## 使用方法
@@ -203,8 +209,10 @@ java -jar target/PixivDownload-0.0.1-SNAPSHOT.jar
    - **仅 R18**：只下载 R18 作品
    - **下载间隔**：设置每个作品之间的等待秒数（默认 2 秒）
    - **并发数**：同时进行的下载任务数（默认 1，最多 5）
+   - **服务器地址**：设置面板最下方可修改后端地址
 4. R18 作品会自动保存在 `{root}/{username}/r18/{artworkId}/` 目录下
 5. 普通作品保存在 `{root}/{username}/{artworkId}/` 目录下
+6. 并发下载时同一作品不会被重复提交（前端去重）；下载进度通过 SSE 实时获取，断联时自动轮询兜底
 
 ### N-Tab 书签批量下载
 
@@ -303,30 +311,40 @@ java -jar target/PixivDownload-0.0.1-SNAPSHOT.jar
 
 ```yaml
 # 服务端口
-server:
-  port: 6999
+server.port: 6999
 
-# 下载配置
-download:
-  # 图片保存根目录（相对路径或绝对路径）
-  root-folder: pixiv-download
-  # 每张图片下载后的等待时间（毫秒），防止请求过快
-  delay-ms: 1000
+# 图片保存根目录（相对路径或绝对路径）
+download.root-folder: pixiv-download
 
-# 多人模式配额设置（仅多人模式下生效）
-multi-mode:
-  quota:
-    # 是否启用配额限制
-    enabled: false
-    # 每个访客每个周期内最多可下载的作品数
-    max-artworks: 10
-    # 配额重置周期（小时）
-    reset-period-hours: 24
-    # 达到限额后自动打包，压缩包有效期（分钟）
-    archive-expire-minutes: 60
+# 每张图片下载后的等待时间（毫秒），防止请求过快
+download.delay-ms: 1000
+
+# ---- 以下配置仅多人模式下生效 ----
+
+# 是否启用下载配额限制
+multi-mode.quota.enabled: false
+
+# 每个访客每个周期内最多可下载的作品数
+multi-mode.quota.max-artworks: 10
+
+# 配额重置周期（小时）
+multi-mode.quota.reset-period-hours: 24
+
+# 达到限额后自动打包，压缩包有效期（分钟）
+multi-mode.quota.archive-expire-minutes: 60
+
+# 下载完成后的文件处理模式，三选一：
+#   pack-and-delete  打包 ZIP 后删除源文件（默认）
+#   never-delete     永不删除，后端对已下载作品直接返回成功（跳过重复下载）
+#   timed-delete     超过 delete-after-hours 小时后自动删除，同样跳过已下载
+multi-mode.post-download-mode: pack-and-delete
+
+# timed-delete 模式：超过多少小时后删除源文件（默认 72 小时）
+multi-mode.delete-after-hours: 72
 ```
 
 > `src/main/resources/application.properties` 仅包含 `spring.config.import=optional:file:./config.yaml`，无需手动修改。
+> 配置文件为**扁平 dot-notation 格式**，与早期版本的嵌套 YAML 格式不同，升级时请注意替换。
 
 ---
 
@@ -412,8 +430,10 @@ multi-mode:
 | `GET` | `/api/archive/download/{token}` | 下载已打包的 ZIP 文件 |
 
 > - 下载限额达到时，`POST /api/download/pixiv` 返回 HTTP 429，响应体包含 `archiveToken`、`resetSeconds` 等字段
-> - 压缩包存储在 `{download.root-folder}/_archives/{token}.zip`，打包后源文件夹会被删除
+> - 压缩包存储在 `{download.root-folder}/_archives/{token}.zip`；`pack-and-delete` 模式打包后删除源文件，`never-delete` / `timed-delete` 模式保留源文件
+> - `never-delete` / `timed-delete` 模式下，已下载过的作品请求直接返回 `{"success":true,"alreadyDownloaded":true}`，不消耗配额
 > - 访客 UUID 优先取 `pixiv_user_id` Cookie，其次 `X-User-UUID` 请求头，最后由 IP+UA 自动生成
+> - 统计数据（statistics 表）不受文件删除影响
 
 ### 批量下载页面状态（自用模式）
 

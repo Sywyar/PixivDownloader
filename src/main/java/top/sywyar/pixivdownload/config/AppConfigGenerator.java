@@ -25,20 +25,25 @@ public class AppConfigGenerator {
             # 修改后需要重启服务才能生效
             # ========================================================
 
-            server:
-              port: 6999                    # 服务监听端口
+            server.port: 6999                              # 服务监听端口
 
-            download:
-              root-folder: pixiv-download   # 下载根目录（相对或绝对路径）
-              delay-ms: 1000                # 每张图片下载间隔 (ms)
+            download.root-folder: pixiv-download           # 下载根目录（相对或绝对路径）
+            download.delay-ms: 1000                        # 每张图片下载间隔 (ms)
 
-            # ---- 多人模式配额配置（仅 multi 模式有效）----
-            multi-mode:
-              quota:
-                enabled: true              # 是否启用下载配额限制
-                max-artworks: 50           # 每用户每周期最多下载作品数
-                reset-period-hours: 24     # 配额重置周期（小时）
-                archive-expire-minutes: 60 # 压缩包下载链接有效时间（分钟）
+            # ---- 多人模式配置（仅 multi 模式有效）----
+
+            multi-mode.quota.enabled: true                 # 是否启用下载配额限制
+            multi-mode.quota.max-artworks: 50              # 每用户每周期最多下载作品数
+            multi-mode.quota.reset-period-hours: 24        # 配额重置周期（小时）
+            multi-mode.quota.archive-expire-minutes: 60    # 压缩包下载链接有效时间（分钟）
+
+            # 下载后处理模式（三选一）：
+            #   pack-and-delete  打包后删除源文件（默认）
+            #   never-delete     打包后保留源文件；再次下载同一作品直接返回已完成
+            #   timed-delete     打包后保留源文件；超过 delete-after-hours 后自动删除
+            multi-mode.post-download-mode: pack-and-delete
+
+            multi-mode.delete-after-hours: 72              # timed-delete 模式：下载后多少小时自动删除（小时）
             """;
 
     @PostConstruct

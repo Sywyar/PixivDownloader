@@ -22,15 +22,18 @@
     console.log('[Pixiv Batch] Script Loaded (v1.8.0)');
 
     /* ========== 配置 ========== */
+    const KEY_SERVER_URL = 'pixiv_server_base';
+    let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
+
     const CONFIG = {
-        BACKEND_URL: "http://localhost:6999/api/download/pixiv",
-        STATUS_URL: "http://localhost:6999/api/download/status",
-        CANCEL_URL: "http://localhost:6999/api/download/cancel",
-        SSE_BASE: "http://localhost:6999/api/sse/download",
-        CHECK_DOWNLOADED_URL: "http://localhost:6999/api/downloaded",
-        QUOTA_INIT_URL: "http://localhost:6999/api/quota/init",
-        ARCHIVE_STATUS_BASE: "http://localhost:6999/api/archive/status",
-        ARCHIVE_DOWNLOAD_BASE: "http://localhost:6999/api/archive/download",
+        get BACKEND_URL() { return serverBase + '/api/download/pixiv'; },
+        get STATUS_URL() { return serverBase + '/api/download/status'; },
+        get CANCEL_URL() { return serverBase + '/api/download/cancel'; },
+        get SSE_BASE() { return serverBase + '/api/sse/download'; },
+        get CHECK_DOWNLOADED_URL() { return serverBase + '/api/downloaded'; },
+        get QUOTA_INIT_URL() { return serverBase + '/api/quota/init'; },
+        get ARCHIVE_STATUS_BASE() { return serverBase + '/api/archive/status'; },
+        get ARCHIVE_DOWNLOAD_BASE() { return serverBase + '/api/archive/download'; },
         DEFAULT_INTERVAL: 2,
         DEFAULT_CONCURRENT: 1,
         STATUS_TIMEOUT_MS: 300000,
@@ -619,7 +622,7 @@
                     if (userUUID) headers['X-User-UUID'] = userUUID;
                     GM_xmlhttpRequest({
                         method: 'POST',
-                        url: 'http://localhost:6999/api/quota/pack',
+                        url: serverBase + '/api/quota/pack',
                         headers,
                         onload: (res) => {
                             if (res.status === 204) { resolve(null); return; }
@@ -749,12 +752,20 @@
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
+                this.ui.setStatus(`下载中：${item.title}`, 'info');
+                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18, ugoiraData, this.getImageDelayMs());
+                if (dlData && dlData.alreadyDownloaded) {
+                    item.status = 'skipped';
+                    item.lastMessage = '跳过 — 已下载（服务器确认）';
+                    item.endTime = new Date().toISOString();
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
+                    this.ui.setStatus(`跳过：${item.title}（已下载）`, 'info');
+                    return;
+                }
                 this.sse.open(item.id);
                 const ssePromise = this._waitForFinalStatusBySSE(item.id, CONFIG.STATUS_TIMEOUT_MS);
-
-                this.ui.setStatus(`下载中：${item.title}`, 'info');
-
-                await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18, ugoiraData, this.getImageDelayMs());
                 item.lastMessage = '下载中，等待完成...';
                 this.ui.renderQueue(this.queue);
 
@@ -1086,6 +1097,10 @@
                         <input type="checkbox" id="r18-only" style="vertical-align: middle;"> 仅下载R18作品
                     </label>
                 </div>
+                <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                    <label style="font-size: 12px; margin-right: 10px; width: 120px;">服务器地址:</label>
+                    <input type="text" id="server-base-url" value="${serverBase}" placeholder="http://localhost:6999" style="flex: 1; padding: 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
+                </div>
             `;
 
             const buttonContainer = $el('div', {
@@ -1202,6 +1217,7 @@
                 concurrent: container.querySelector('#max-concurrent'),
                 skipHistory: container.querySelector('#skip-history'),
                 r18Only: container.querySelector('#r18-only'),
+                serverBaseInput: container.querySelector('#server-base-url'),
                 startBtn: container.querySelector('#start-btn'),
                 pauseBtn: container.querySelector('#pause-btn')
             };
@@ -1255,6 +1271,14 @@
                     this.manager.setInterval(this.elements.interval.value);
                 });
                 this.elements.intervalUnitBtn = unitBtn;
+            }
+
+            const serverBaseInput = container.querySelector('#server-base-url');
+            if (serverBaseInput) {
+                serverBaseInput.addEventListener('change', (e) => {
+                    serverBase = e.target.value.trim().replace(/\/$/, '') || 'http://localhost:6999';
+                    GM_setValue(KEY_SERVER_URL, serverBase);
+                });
             }
         }
 

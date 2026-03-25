@@ -121,6 +121,29 @@ public class PixivDatabase {
         );
     }
 
+    public List<ArtworkRecord> getArtworksOlderThan(long beforeTimeSec) {
+        return jdbcTemplate.query(
+                "SELECT artwork_id, title, folder, count, extensions, time, moved, move_folder, move_time FROM artworks WHERE time < ?",
+                (rs, rowNum) -> {
+                    boolean moved = rs.getInt("moved") == 1;
+                    long moveTimeVal = rs.getLong("move_time");
+                    Long moveTime = rs.wasNull() ? null : moveTimeVal;
+                    return new ArtworkRecord(
+                            rs.getLong("artwork_id"),
+                            rs.getString("title"),
+                            rs.getString("folder"),
+                            rs.getInt("count"),
+                            rs.getString("extensions"),
+                            rs.getLong("time"),
+                            moved,
+                            rs.getString("move_folder"),
+                            moveTime
+                    );
+                },
+                beforeTimeSec
+        );
+    }
+
     public long countArtworks() {
         Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM artworks", Long.class);
         return count != null ? count : 0;
