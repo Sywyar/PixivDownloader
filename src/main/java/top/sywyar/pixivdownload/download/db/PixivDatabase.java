@@ -6,6 +6,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.List;
 
 @Slf4j
@@ -90,22 +92,7 @@ public class PixivDatabase {
     public ArtworkRecord getArtwork(long artworkId) {
         List<ArtworkRecord> results = jdbcTemplate.query(
                 "SELECT artwork_id, title, folder, count, extensions, time, moved, move_folder, move_time FROM artworks WHERE artwork_id = ?",
-                (rs, rowNum) -> {
-                    boolean moved = rs.getInt("moved") == 1;
-                    long moveTimeVal = rs.getLong("move_time");
-                    Long moveTime = rs.wasNull() ? null : moveTimeVal;
-                    return new ArtworkRecord(
-                            rs.getLong("artwork_id"),
-                            rs.getString("title"),
-                            rs.getString("folder"),
-                            rs.getInt("count"),
-                            rs.getString("extensions"),
-                            rs.getLong("time"),
-                            moved,
-                            rs.getString("move_folder"),
-                            moveTime
-                    );
-                },
+                this::mapArtworkRecord,
                 artworkId
         );
         return results.isEmpty() ? null : results.get(0);
@@ -124,22 +111,7 @@ public class PixivDatabase {
     public List<ArtworkRecord> getArtworksOlderThan(long beforeTimeSec) {
         return jdbcTemplate.query(
                 "SELECT artwork_id, title, folder, count, extensions, time, moved, move_folder, move_time FROM artworks WHERE time < ?",
-                (rs, rowNum) -> {
-                    boolean moved = rs.getInt("moved") == 1;
-                    long moveTimeVal = rs.getLong("move_time");
-                    Long moveTime = rs.wasNull() ? null : moveTimeVal;
-                    return new ArtworkRecord(
-                            rs.getLong("artwork_id"),
-                            rs.getString("title"),
-                            rs.getString("folder"),
-                            rs.getInt("count"),
-                            rs.getString("extensions"),
-                            rs.getLong("time"),
-                            moved,
-                            rs.getString("move_folder"),
-                            moveTime
-                    );
-                },
+                this::mapArtworkRecord,
                 beforeTimeSec
         );
     }
@@ -147,6 +119,30 @@ public class PixivDatabase {
     public long countArtworks() {
         Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM artworks", Long.class);
         return count != null ? count : 0;
+    }
+
+    public List<Long> getArtworkIdsSortedByTimeDescPaged(int offset, int size) {
+        return jdbcTemplate.queryForList(
+                "SELECT artwork_id FROM artworks ORDER BY time DESC LIMIT ? OFFSET ?",
+                Long.class, size, offset
+        );
+    }
+
+    private ArtworkRecord mapArtworkRecord(ResultSet rs, int rowNum) throws SQLException {
+        boolean moved = rs.getInt("moved") == 1;
+        long moveTimeVal = rs.getLong("move_time");
+        Long moveTime = rs.wasNull() ? null : moveTimeVal;
+        return new ArtworkRecord(
+                rs.getLong("artwork_id"),
+                rs.getString("title"),
+                rs.getString("folder"),
+                rs.getInt("count"),
+                rs.getString("extensions"),
+                rs.getLong("time"),
+                moved,
+                rs.getString("move_folder"),
+                moveTime
+        );
     }
 
     public void incrementStats(int imageCount) {

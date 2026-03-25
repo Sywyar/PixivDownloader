@@ -534,6 +534,8 @@
             border: 1px solid var(--border-bright);
             box-shadow: 0 8px 32px rgba(0,0,0,0.6), var(--cyan-glow);
             padding: .7rem;
+            max-height: calc(100vh - 80px);
+            overflow-y: auto;
         }
         .page-grid-popup.show { display: block; }
         .page-grid-header {
@@ -547,6 +549,11 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            z-index: 1;
+            padding-top: .1rem;
         }
         .page-grid {
             display: grid;
@@ -1910,14 +1917,24 @@
         renderPageGrid(popup);
         popup.classList.add('show');
 
-        // 定位：在网格按钮正上方（或下方）
-        const btn  = document.getElementById('pageGridBtn');
+        // 定位：优先显示在按钮上方，空间不足则显示在下方，始终保持在视口内
+        const btn   = document.getElementById('pageGridBtn');
         const bRect = btn.getBoundingClientRect();
         const pRect = popup.getBoundingClientRect();
+        const vw    = window.innerWidth;
+        const vh    = window.innerHeight;
+
+        // 水平：右对齐按钮，超出边界则夹紧
         let left = bRect.right - pRect.width;
         if (left < 8) left = 8;
+        if (left + pRect.width > vw - 8) left = vw - pRect.width - 8;
+
+        // 垂直：优先在按钮上方，否则在下方，最后夹紧至视口
         let top = bRect.top - pRect.height - 6;
         if (top < 8) top = bRect.bottom + 6;
+        if (top + pRect.height > vh - 8) top = vh - pRect.height - 8;
+        if (top < 8) top = 8;
+
         popup.style.left = left + 'px';
         popup.style.top  = top  + 'px';
     }

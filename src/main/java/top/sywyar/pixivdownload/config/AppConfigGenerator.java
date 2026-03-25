@@ -28,7 +28,12 @@ public class AppConfigGenerator {
             server.port: 6999                              # 服务监听端口
 
             download.root-folder: pixiv-download           # 下载根目录（相对或绝对路径）
-            download.delay-ms: 1000                        # 每张图片下载间隔 (ms)
+
+            # ---- 代理配置 ----
+
+            proxy.enabled: true                            # 是否启用 HTTP 代理
+            proxy.host: 127.0.0.1                          # 代理服务器地址
+            proxy.port: 7890                               # 代理服务器端口
 
             # ---- 多人模式配置（仅 multi 模式有效）----
 

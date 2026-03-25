@@ -12,6 +12,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
@@ -31,6 +32,9 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -43,6 +47,9 @@ public class DownloadService {
     private DownloadConfig downloadConfig;
 
     @Autowired
+    private ProxyConfig proxyConfig;
+
+    @Autowired
     private ApplicationEventPublisher eventPublisher;
 
     @Autowired
@@ -53,6 +60,7 @@ public class DownloadService {
 
     // 存储下载状态
     private final ConcurrentHashMap<Long, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService cleanupScheduler = Executors.newSingleThreadScheduledExecutor();
 
     @Async
     public void downloadImages(Long artworkId, String title, List<String> imageUrls,
@@ -91,14 +99,14 @@ public class DownloadService {
                     .setConnectionRequestTimeout(30000)
                     .build();
 
-            HttpHost proxy = new HttpHost("127.0.0.1", 7890);
-
-            CloseableHttpClient httpClient = HttpClients.custom()
+            var clientBuilder = HttpClients.custom()
                     .setDefaultRequestConfig(requestConfig)
                     .setMaxConnTotal(20)
-                    .setMaxConnPerRoute(10)
-                    .setProxy(proxy)
-                    .build();
+                    .setMaxConnPerRoute(10);
+            if (proxyConfig.isEnabled()) {
+                clientBuilder.setProxy(new HttpHost(proxyConfig.getHost(), proxyConfig.getPort()));
+            }
+            CloseableHttpClient httpClient = clientBuilder.build();
 
             HashSet<String> fileExtensions = new HashSet<>();
 
@@ -280,15 +288,8 @@ public class DownloadService {
             status.setFailed(true);
             status.setErrorMessage(e.getMessage());
         } finally {
-            // 下载完成后，保留状态一段时间供查询，然后清理
-            new Thread(() -> {
-                try {
-                    Thread.sleep(300000); // 保留5分钟
-                    downloadStatusMap.remove(artworkId);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-            }).start();
+            // 下载完成后，保留状态5分钟供查询，然后清理
+            cleanupScheduler.schedule(() -> downloadStatusMap.remove(artworkId), 5, TimeUnit.MINUTES);
         }
     }
 
@@ -562,5 +563,13 @@ public class DownloadService {
 
     public List<Long> getSortTimeArtwork() {
         return pixivDatabase.getArtworkIdsSortedByTimeDesc();
+    }
+
+    public List<Long> getSortTimeArtworkPaged(int page, int size) {
+        return pixivDatabase.getArtworkIdsSortedByTimeDescPaged(page * size, size);
+    }
+
+    public long getArtworkCount() {
+        return pixivDatabase.countArtworks();
     }
 }

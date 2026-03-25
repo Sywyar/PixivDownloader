@@ -77,7 +77,7 @@ Pixiv 网站（浏览器）
 │  SQLite: pixiv_download.db               │
 └──────────────────────────────────────────┘
     │
-    ▼  HTTP 代理 127.0.0.1:7890
+    ▼  HTTP 代理（地址由 proxy.host/port 配置，默认 127.0.0.1:7890）
 ┌──────────┐
 │ 代理软件  │  (Clash / v2rayN 等)
 └──────────┘
@@ -95,7 +95,7 @@ i.pximg.net / www.pixiv.net
 | Java | 17+ | 运行 Spring Boot 后端 |
 | Maven | 3.6+ | 构建项目（或使用自带的 mvnw） |
 | ffmpeg | 任意最新版 | 动图合成，需在系统 PATH 中可用 |
-| 代理软件 | — | 监听 `127.0.0.1:7890`，用于访问 Pixiv CDN |
+| 代理软件 | — | 用于访问 Pixiv CDN，地址和端口可在 `config.yaml` 中配置 |
 | 浏览器扩展 | Tampermonkey | 安装油猴脚本 |
 
 ---
@@ -104,15 +104,20 @@ i.pximg.net / www.pixiv.net
 
 ### 1. 代理软件
 
-后端硬编码通过 `127.0.0.1:7890` HTTP 代理访问 Pixiv。请确保你的代理软件（Clash、v2rayN 等）：
+后端通过 HTTP 代理访问 Pixiv CDN 和 API，代理地址在 `config.yaml` 中配置（默认 `127.0.0.1:7890`）：
+
+```yaml
+proxy.enabled: true       # false 则完全不走代理
+proxy.host: 127.0.0.1
+proxy.port: 7890
+```
+
+请确保你的代理软件（Clash、v2rayN 等）：
 
 - 已正确配置可访问 Pixiv 的节点
-- 本地 HTTP 代理监听端口为 **7890**
+- 本地 HTTP 代理监听端口与 `proxy.port` 一致
 
-> 如需修改代理端口，编辑 `DownloadService.java` 和 `PixivProxyController.java` 中的代理配置：
-> ```java
-> HttpHost proxy = new HttpHost("127.0.0.1", 7890); // 修改此处端口
-> ```
+修改 `config.yaml` 后**重启服务**即可生效，无需修改代码。
 
 ### 2. ffmpeg（动图支持）
 
@@ -270,6 +275,20 @@ java -jar target/PixivDownload-0.0.1-SNAPSHOT.jar
 
 对已下载好的作品文件夹进行分类整理，功能与桌面版 `ImageClassifier.java` 一致。
 
+### 图片分类工具（桌面版）
+
+`ImageClassifier.java` 是一个独立的 Java Swing 桌面程序，**不通过浏览器访问**，需单独运行。
+
+**启动方式：**
+
+```bash
+# 直接运行 main 方法（IDE 中右键 → Run）
+# 或编译后执行：
+java -cp target/PixivDownload-0.0.1-SNAPSHOT.jar top.sywyar.pixivdownload.imageclassifier.ImageClassifier
+```
+
+首次运行时会在程序运行目录生成 `image_classifier.properties` 配置文件，在程序内「设置」面板中可配置目标分类目录和服务器地址。后端服务在线时，分类操作会自动向后端上报新路径；后端离线时仅本地移动文件，不上报。
+
 > **浏览器要求**：需要支持 [File System Access API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API) 的浏览器，推荐 **Chrome / Edge** 最新版。Firefox 暂不支持。
 
 **基本工作流：**
@@ -316,8 +335,16 @@ server.port: 6999
 # 图片保存根目录（相对路径或绝对路径）
 download.root-folder: pixiv-download
 
-# 每张图片下载后的等待时间（毫秒），防止请求过快
-download.delay-ms: 1000
+# ---- 代理配置 ----
+
+# 是否启用 HTTP 代理（访问 Pixiv CDN 需要代理）
+proxy.enabled: true
+
+# 代理服务器地址
+proxy.host: 127.0.0.1
+
+# 代理服务器端口
+proxy.port: 7890
 
 # ---- 以下配置仅多人模式下生效 ----
 
@@ -451,14 +478,17 @@ multi-mode.delete-after-hours: 72
 ```
 PixivDownload/
 ├── src/main/java/top/sywyar/pixivdownload/
-│   ├── config/CorsConfig.java              # 全局跨域配置
+│   ├── config/
+│   │   ├── CorsConfig.java                 # 全局跨域配置
+│   │   ├── ProxyConfig.java                # 代理配置（@ConfigurationProperties）
+│   │   └── AppConfigGenerator.java         # 启动时自动生成 config.yaml
 │   ├── download/
 │   │   ├── DownloadService.java            # 核心下载逻辑（异步）
 │   │   ├── DownloadStatus.java             # 下载状态模型
 │   │   ├── DownloadProgressEvent.java      # SSE 进度事件
 │   │   ├── config/
 │   │   │   ├── AsyncConfig.java            # 启用异步
-│   │   │   └── DownloadConfig.java         # rootFolder/delayMs 配置
+│   │   │   └── DownloadConfig.java         # rootFolder 配置
 │   │   ├── controller/
 │   │   │   ├── DownloadController.java     # 下载 REST API
 │   │   │   ├── PixivProxyController.java   # Pixiv API 代理
@@ -479,8 +509,6 @@ PixivDownload/
 │   │   ├── MultiModeConfig.java            # 配额配置（@ConfigurationProperties）
 │   │   ├── UserQuotaService.java           # 配额追踪、打包触发、过期清理
 │   │   └── ArchiveController.java          # /api/quota/* 和 /api/archive/* 接口
-│   ├── config/
-│   │   └── AppConfigGenerator.java         # 启动时自动生成 config.yaml
 │   ├── setup/
 │   │   ├── SetupService.java               # 配置存储、密码哈希、Session 管理
 │   │   ├── SetupController.java            # /api/setup/* 和 /api/auth/* 接口

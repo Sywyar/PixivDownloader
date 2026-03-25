@@ -9,8 +9,10 @@ import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.config.ProxyConfig;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -28,16 +30,19 @@ public class PixivProxyController {
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Autowired
+    private ProxyConfig proxyConfig;
+
     private String proxyGet(String url, String cookie) throws Exception {
-        HttpHost proxy = new HttpHost("127.0.0.1", 7890);
         RequestConfig requestConfig = RequestConfig.custom()
                 .setConnectTimeout(15000)
                 .setSocketTimeout(30000)
                 .build();
-        try (CloseableHttpClient client = HttpClients.custom()
-                .setProxy(proxy)
-                .setDefaultRequestConfig(requestConfig)
-                .build()) {
+        var clientBuilder = HttpClients.custom().setDefaultRequestConfig(requestConfig);
+        if (proxyConfig.isEnabled()) {
+            clientBuilder.setProxy(new HttpHost(proxyConfig.getHost(), proxyConfig.getPort()));
+        }
+        try (CloseableHttpClient client = clientBuilder.build()) {
             HttpGet request = new HttpGet(url);
             request.setHeader("Referer", PIXIV_REFERER);
             request.setHeader("User-Agent",

@@ -185,7 +185,7 @@ public class DownloadController {
         for (Long artworkId : artworkIds) {
             ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
             if (artwork == null) {
-                return ResponseEntity.ok(null);
+                continue;
             }
             downloadedResponses.add(new DownloadedResponse.DownloadedResponseBuilder()
                     .setArtworkId(artwork.artworkId())
@@ -237,15 +237,11 @@ public class DownloadController {
         try {
             List<DownloadedResponse> downloadedResponses = new LinkedList<>();
 
-            List<Long> artWorkIds = downloadService.getSortTimeArtwork();
+            long totalElements = downloadService.getArtworkCount();
+            List<Long> artWorkIds = downloadService.getSortTimeArtworkPaged(page, size);
 
-            long totalElements = artWorkIds.size();
-
-            for (int i = page * size; i < (page + 1) * size; i++) {
-                if (i >= artWorkIds.size()) {
-                    break;
-                }
-                DownloadedResponse response = getArtWorkDownloadedResponse(artWorkIds.get(i));
+            for (Long artworkId : artWorkIds) {
+                DownloadedResponse response = getArtWorkDownloadedResponse(artworkId);
                 if (response != null) {
                     downloadedResponses.add(response);
                 }

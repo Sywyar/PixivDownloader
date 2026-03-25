@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -24,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 public class SSEController {
 
     private final ConcurrentHashMap<Long, SseEmitter> emitters = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, ScheduledFuture<?>> heartbeatTasks = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
 
     // 不再直接依赖DownloadService，通过事件监听器处理进度更新
@@ -38,16 +40,19 @@ public class SSEController {
 
         // 设置完成和超时处理
         emitter.onCompletion(() -> {
+            cancelHeartbeat(artworkId);
             safeRemoveEmitter(artworkId);
             log.info("SSE连接完成: {}", artworkId);
         });
 
         emitter.onTimeout(() -> {
+            cancelHeartbeat(artworkId);
             safeRemoveEmitter(artworkId);
             log.error("SSE连接超时: {}", artworkId);
         });
 
         emitter.onError((e) -> {
+            cancelHeartbeat(artworkId);
             safeRemoveEmitter(artworkId);
             log.error("SSE连接错误: {}, {}", artworkId, e.getMessage());
         });
@@ -55,8 +60,8 @@ public class SSEController {
         // 立即发送初始状态
         sendStatusUpdate(artworkId);
 
-        // 定期发送心跳
-        scheduler.scheduleAtFixedRate(() -> {
+        // 定期发送心跳，记录 Future 以便连接关闭时取消
+        ScheduledFuture<?> heartbeat = scheduler.scheduleAtFixedRate(() -> {
             try {
                 if (isEmitterValid(artworkId)) {
                     emitter.send(SseEmitter.event()
@@ -65,9 +70,11 @@ public class SSEController {
                             .data("ping"));
                 }
             } catch (IOException e) {
+                cancelHeartbeat(artworkId);
                 safeRemoveEmitter(artworkId);
             }
         }, 30, 30, TimeUnit.SECONDS);
+        heartbeatTasks.put(artworkId, heartbeat);
 
         return emitter;
     }
@@ -85,6 +92,11 @@ public class SSEController {
             log.error("关闭SSE连接时出错: {},", artworkId, e);
             return ResponseEntity.status(500).body("关闭连接时出错: " + e.getMessage());
         }
+    }
+
+    private void cancelHeartbeat(Long artworkId) {
+        ScheduledFuture<?> task = heartbeatTasks.remove(artworkId);
+        if (task != null) task.cancel(false);
     }
 
     /**
