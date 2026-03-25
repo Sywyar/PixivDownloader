@@ -1019,7 +1019,7 @@ async function processSingle(item) {
     }
 
     const isR18 = (meta.xRestrict || 0) > 0;
-    const isUserMode = state.mode === 'user';
+    const isUserMode = item.source === 'user';
     let urls, ugoiraData = null;
 
     item.lastMessage = '正在获取图片地址...';
@@ -1042,7 +1042,7 @@ async function processSingle(item) {
     setStatus(`下载中：${item.title}`, 'info');
     const dlData = await sendDownload(
       item.id, urls, item.title,
-      isUserMode, state.username || state.userId,
+      isUserMode, item.username || state.username || state.userId,
       isR18, ugoiraData
     );
     if (dlData && dlData.alreadyDownloaded) {
@@ -1177,11 +1177,11 @@ function parseNTab() {
     }
   }
   if (!items.length) { setStatus('未解析到任何作品链接', 'error'); return; }
-  const added = addItemsToQueue(items.map(x => x.id), items);
+  const added = addItemsToQueue(items.map(x => x.id), items, 'ntab', '');
   setStatus(`解析完成：共 ${items.length} 个，新增 ${added} 个`, 'success');
 }
 
-function addItemsToQueue(idList, metaList) {
+function addItemsToQueue(idList, metaList, source, username) {
   const existing = new Set(state.queue.map(q => q.id));
   let added = 0;
   const meta = metaList || [];
@@ -1192,7 +1192,9 @@ function addItemsToQueue(idList, metaList) {
     state.queue.push({
       id,
       title: m.title || `作品 ${id}`,
-      status: 'idle',
+      status: state.isRunning ? 'pending' : 'idle',
+      source: source || 'ntab',
+      username: username || '',
       totalImages: 0,
       downloadedCount: 0,
       startTime: null,
@@ -1204,6 +1206,23 @@ function addItemsToQueue(idList, metaList) {
   updateStats();
   saveQueue();
   renderQueue();
+  // 下载进行中但 workers 已全部退出时，重启 workers 处理新加入的任务
+  if (state.isRunning && added > 0 && state.activeWorkers === 0) {
+    const concurrent = Math.max(1, state.settings.concurrent);
+    const intervalMs = getIntervalMs();
+    const workers = [];
+    for (let i = 0; i < concurrent; i++) workers.push(workerLoop(intervalMs));
+    Promise.all(workers).then(() => {
+      state.isRunning = false;
+      saveQueue();
+      setStatus('批量下载结束', 'info');
+      updateButtonsState();
+      if (quotaInfo.enabled) {
+        const completed = state.queue.filter(q => q.status === 'completed').length;
+        if (completed > 0) autoPackAfterQueue();
+      }
+    });
+  }
   return added;
 }
 
@@ -1299,7 +1318,7 @@ async function fetchUserArtworks(onlyNew) {
   try {
     const ids = await getUserArtworks(userId);
     if (!ids.length) { setStatus('该用户暂无作品', 'warning'); return; }
-    const added = addItemsToQueue(ids);
+    const added = addItemsToQueue(ids, null, 'user', state.username || state.userId);
     setStatus(`获取成功：共 ${ids.length} 个作品，新增 ${added} 个`, 'success');
 
     if (onlyNew) {
@@ -1324,7 +1343,6 @@ function switchMode(mode) {
   document.getElementById('panel-ntab').classList.toggle('active', mode === 'ntab');
   document.getElementById('panel-user').classList.toggle('active', mode === 'user');
   storeSet('pixiv_mode', mode);
-  loadQueueForMode();
 }
 
 function setStatus(msg, type = 'info') {
@@ -1374,8 +1392,11 @@ function renderQueue() {
           <div class="prog-bg"><div class="prog-fill" style="width:${pct(q)}%;background:${statusColor(q.status)}"></div></div>
          </div>` : '';
     const desc = q.lastMessage || statusText(q.status);
+    const srcLabel = q.source === 'user'
+      ? `<span style="background:#007bff;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">User</span>`
+      : `<span style="background:#6610f2;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">N-Tab</span>`;
     return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
-      <div class="q-title">${esc(q.title)}</div>
+      <div class="q-title">${esc(q.title)}${srcLabel}</div>
       <div class="q-meta">ID: ${q.id} | <span style="color:${statusColor(q.status)};font-weight:bold;">${esc(desc)}</span></div>
       ${prog}
     </div>`;
@@ -1416,17 +1437,12 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
    持久化
 ============================================================ */
 function storageKey() {
-  if (state.mode === 'user' && state.userId) {
-    return `pixiv_batch_user_${state.userId}_queue`;
-  }
-  return 'pixiv_batch_ntab_queue';
+  return 'pixiv_batch_queue';
 }
 
 function saveQueue() {
-  if (state.mode === 'user' && state.userId) {
-    storeSet('pixiv_batch_last_user_id', state.userId);
-    if (state.username) storeSet('pixiv_batch_last_username', state.username);
-  }
+  if (state.userId) storeSet('pixiv_batch_last_user_id', state.userId);
+  if (state.username) storeSet('pixiv_batch_last_username', state.username);
   storeSet(storageKey(), JSON.stringify({
     queue: state.queue,
     isPaused: state.isPaused,

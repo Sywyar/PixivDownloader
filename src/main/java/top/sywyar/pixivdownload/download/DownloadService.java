@@ -78,7 +78,7 @@ public class DownloadService {
 
             // 创建文件夹结构
             Path downloadPath = Paths.get(downloadConfig.getRootFolder());
-            if (other.isUserDownload()) {
+            if (other.isUserDownload() && !downloadConfig.isUserFlatFolder()) {
                 downloadPath = Paths.get(downloadPath.toString(), other.getUsername());
 
                 if (other.isR18()) {

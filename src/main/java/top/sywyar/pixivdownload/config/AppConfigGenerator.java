@@ -28,6 +28,7 @@ public class AppConfigGenerator {
             server.port: 6999                              # 服务监听端口
 
             download.root-folder: pixiv-download           # 下载根目录（相对或绝对路径）
+            download.user-flat-folder: false               # User 模式目录结构：false=按用户名分目录，true=与 N-Tab 相同的扁平结构
 
             # ---- 代理配置 ----
 
