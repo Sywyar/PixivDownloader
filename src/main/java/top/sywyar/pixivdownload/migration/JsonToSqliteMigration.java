@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.migration;
 
-import com.sywyar.superjsonobject.SuperJsonObject;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,6 +10,8 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 
 import java.io.File;
 import java.nio.file.Paths;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.function.Consumer;
 
 /**
@@ -25,6 +28,8 @@ import java.util.function.Consumer;
 @Slf4j
 @Component
 public class JsonToSqliteMigration {
+
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
     private PixivDatabase pixivDatabase;
@@ -53,13 +58,15 @@ public class JsonToSqliteMigration {
         int skipped = 0;
 
         try {
-            SuperJsonObject history = new SuperJsonObject(historyFile);
-            SuperJsonObject downloaded = history.getOrDefault("downloaded", new SuperJsonObject());
-            int total = downloaded.asMap().size();
+            JsonNode history = objectMapper.readTree(historyFile);
+            JsonNode downloaded = history.path("downloaded");
+            int total = downloaded.size();
 
             report(progressReporter, String.format("共找到 %d 条记录，开始迁移...", total));
 
-            for (var entry : downloaded.asMap().entrySet()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = downloaded.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
                 long artworkId;
                 try {
                     artworkId = Long.parseLong(entry.getKey());
@@ -72,20 +79,20 @@ public class JsonToSqliteMigration {
                 if (pixivDatabase.hasArtwork(artworkId)) {
                     skipped++;
                 } else {
-                    SuperJsonObject artwork = downloaded.getAsSuperJsonObject(entry.getKey());
-                    String title = artwork.getAsString("title");
-                    String folder = artwork.getAsString("folder");
-                    int count = artwork.getAsInt("count");
-                    String extensions = artwork.getAsString("extensions");
+                    JsonNode artwork = entry.getValue();
+                    String title = artwork.path("title").asText(null);
+                    String folder = artwork.path("folder").asText(null);
+                    int count = artwork.path("count").asInt();
+                    String extensions = artwork.path("extensions").asText(null);
                     long time = artwork.has("time")
-                            ? artwork.getAsLong("time")
+                            ? artwork.path("time").asLong()
                             : pixivDatabase.getUniqueTime();
 
                     pixivDatabase.insertArtwork(artworkId, title, folder, count, extensions, time, null);
 
-                    if (artwork.has("moved") && artwork.getAsBoolean("moved")) {
-                        String moveFolder = artwork.getAsString("moveFolder");
-                        long moveTime = artwork.getAsLong("moveTime");
+                    if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
+                        String moveFolder = artwork.path("moveFolder").asText(null);
+                        long moveTime = artwork.path("moveTime").asLong();
                         pixivDatabase.updateArtworkMove(artworkId, moveFolder, moveTime);
                     }
 
@@ -104,10 +111,10 @@ public class JsonToSqliteMigration {
             if (statisticsFile.exists()) {
                 int[] currentStats = pixivDatabase.getStats();
                 if (currentStats[0] == 0 && currentStats[1] == 0 && currentStats[2] == 0) {
-                    SuperJsonObject stats = new SuperJsonObject(statisticsFile);
-                    int totalArtworks = stats.has("totalArtworks") ? stats.getAsInt("totalArtworks") : 0;
-                    int totalImages = stats.has("totalImages") ? stats.getAsInt("totalImages") : 0;
-                    int totalMoved = stats.has("totalMoved") ? stats.getAsInt("totalMoved") : 0;
+                    JsonNode stats = objectMapper.readTree(statisticsFile);
+                    int totalArtworks = stats.has("totalArtworks") ? stats.path("totalArtworks").asInt() : 0;
+                    int totalImages = stats.has("totalImages") ? stats.path("totalImages").asInt() : 0;
+                    int totalMoved = stats.has("totalMoved") ? stats.path("totalMoved").asInt() : 0;
                     pixivDatabase.setStats(totalArtworks, totalImages, totalMoved);
                     log.info("迁移统计数据: totalArtworks={}, totalImages={}, totalMoved={}",
                             totalArtworks, totalImages, totalMoved);
