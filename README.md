@@ -21,8 +21,10 @@
   - [N-Tab 书签批量下载](#n-tab-书签批量下载)
   - [Web 批量下载页面](#web-批量下载页面)
   - [下载监控页面](#下载监控页面)
-- [工具](#工具)-
-  - [图片分类工具（桌面版）](#图片分类工具)
+- [工具](#工具)
+  - [图片分类工具](#图片分类工具)
+  - [R18 补全工具](#R18-补全工具)
+  - [文件夹路径检查工具](#文件夹路径检查工具)
   - [旧版数据迁移工具](#旧版数据迁移工具)
 - [配置说明](#配置说明)
 - [免责声明](#免责声明)
@@ -132,15 +134,15 @@ proxy.port: 7890   # 修改为你的代理软件实际监听端口
 1. 打开任意 Pixiv 用户主页（`https://www.pixiv.net/users/{userId}`）
 2. 页面角落会出现悬浮控制面板，包含以下选项：
 
-| 选项 | 说明 |
-|------|------|
-| 开始 / 暂停 | 控制批量任务 |
-| 跳过已下载 | 自动跳过数据库中已存在的作品，断点续传 |
-| 仅 R18 | 只下载 R18 作品 |
-| 下载间隔 | 每个作品之间的等待秒数（默认 2 秒，建议不要设置过短） |
-| 并发数 | 同时进行的下载任务数（默认 1，最多 5） |
+| 选项      | 说明                           |
+|---------|------------------------------|
+| 开始 / 暂停 | 控制批量任务                       |
+| 跳过已下载   | 自动跳过数据库中已存在的作品，断点续传          |
+| 仅 R18   | 只下载 R18 作品                   |
+| 下载间隔    | 每个作品之间的等待秒数（默认 2 秒，建议不要设置过短） |
+| 并发数     | 同时进行的下载任务数（默认 1，最多 5）        |
 
-3. 普通作品保存在 `pixiv-download/{username}/{artworkId}/`，R18 作品保存在 `pixiv-download/{username}/r18/{artworkId}/`
+3. 普通作品保存在 `pixiv-download/{username}/{artworkId}/`，R18 作品保存在 `pixiv-download/{username}/R18/{artworkId}/`
 4. 下载进度通过 SSE 实时获取，断联时自动轮询兜底，同一作品不会被重复提交
 
 ### N-Tab 书签批量下载
@@ -204,6 +206,65 @@ java -cp PixivDownload-vX.X.X.jar top.sywyar.pixivdownload.imageclassifier.Image
 | 目标文件夹 | 新增/编辑/删除分类目录，格式：路径 + 备注名称 |
 
 > 后端服务在线时，分类操作会自动向后端上报新路径；后端离线时仅本地移动文件。
+
+### R18 补全工具
+
+`R18Backfill` 是命令行工具，用于批量补全数据库中 `R18` 字段为 NULL 的作品记录。它通过 Pixiv AJAX 接口（无需登录）查询每个作品的限制级别，自动写入数据库。
+
+**启动方式：**
+
+```bash
+java -cp PixivDownload-vX.X.X.jar top.sywyar.pixivdownload.tools.R18Backfill [选项]
+```
+
+**可用选项：**
+
+| 选项 | 默认值 | 说明 |
+|------|--------|------|
+| `--db <path>` | `pixiv-download/pixiv_download.db` | 数据库文件路径 |
+| `--proxy <host:port>` | `127.0.0.1:7890` | HTTP 代理地址 |
+| `--no-proxy` | — | 不使用代理 |
+| `--delay <ms>` | `800` | 每次请求间隔（毫秒） |
+| `--dry-run` | — | 只打印结果，不写入数据库 |
+
+**示例：**
+
+```bash
+# 使用默认配置运行
+java -cp PixivDownload-vX.X.X.jar top.sywyar.pixivdownload.tools.R18Backfill
+
+# 试运行（不写入数据库）
+java -cp PixivDownload-vX.X.X.jar top.sywyar.pixivdownload.tools.R18Backfill --dry-run
+
+# 指定数据库路径，不使用代理
+java -cp PixivDownload-vX.X.X.jar top.sywyar.pixivdownload.tools.R18Backfill --db D:/data/pixiv_download.db --no-proxy
+```
+
+> 遇到 HTTP 429（触发限流）时工具会自动停止，已处理的结果已写入数据库，重新运行会从未补全的记录继续。
+
+---
+
+### 文件夹路径检查工具
+
+`FolderChecker` 是 Java Swing 桌面工具，用于检查数据库中记录的作品文件夹路径是否仍可访问。当手动移动过文件夹导致数据库路径失效时，可用此工具批量发现并修复。
+
+**启动方式：**
+
+```bash
+java -cp PixivDownload-vX.X.X.jar top.sywyar.pixivdownload.tools.FolderChecker
+```
+
+**使用步骤：**
+
+1. 在顶部 **Database** 输入框填写数据库路径，或点击 **Browse...** 选择 `pixiv_download.db` 文件
+2. 点击 **Check Folders**，工具扫描所有作品记录并列出路径不可访问的条目（状态栏显示异常数量）
+3. 点击列表中的某一行选中，底部 **New Path** 输入框会自动填入当前路径
+4. 修改为正确路径（或点击 **Browse...** 选择目录），点击 **Update DB** 写入数据库
+5. 更新后列表自动刷新
+
+> 已移动的作品检查 `move_folder` 字段；未移动的作品检查 `folder` 字段。每行的 **Copy ID** 按钮可将作品 ID 复制到剪贴板。
+
+---
 
 ### 旧版数据迁移工具
 

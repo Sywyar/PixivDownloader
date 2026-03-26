@@ -4,6 +4,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -24,9 +25,11 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api")
-@CrossOrigin(origins = "*") // 允许跨域请求
 @Slf4j
 public class DownloadController {
+
+    private static final Pattern UUID_PATTERN =
+            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     @Autowired
     private DownloadService downloadService;
@@ -48,6 +51,18 @@ public class DownloadController {
             @Valid @RequestBody DownloadRequest request,
             HttpServletRequest httpRequest) {
         try {
+            // SSRF 防护：同步校验所有下载 URL，非法 URL 立即返回 400
+            try {
+                if (request.getOther().isUgoira() && request.getOther().getUgoiraZipUrl() != null) {
+                    DownloadService.validatePixivUrl(request.getOther().getUgoiraZipUrl());
+                } else {
+                    for (String url : request.getImageUrls()) DownloadService.validatePixivUrl(url);
+                }
+            } catch (SecurityException e) {
+                return ResponseEntity.badRequest().body(
+                        new DownloadResponse(false, "URL 不合法: " + e.getMessage()));
+            }
+
             // 多人模式：never-delete/timed-delete 模式下，已下载过的作品直接返回成功，不消耗配额
             if ("multi".equals(setupService.getMode())) {
                 String pdMode = multiModeConfig.getPostDownloadMode();
@@ -123,7 +138,7 @@ public class DownloadController {
             }
         }
         String headerUuid = req.getHeader("X-User-UUID");
-        if (headerUuid != null && !headerUuid.isBlank()) return headerUuid;
+        if (headerUuid != null && !headerUuid.isBlank() && UUID_PATTERN.matcher(headerUuid).matches()) return headerUuid;
         return UserQuotaService.generateUuidFromFingerprint(
                 req.getRemoteAddr(), req.getHeader("User-Agent"));
     }

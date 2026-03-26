@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.setup;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -23,11 +24,13 @@ public class SetupService {
     private final Path configFile;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
+
     private volatile boolean setupComplete = false;
     private volatile String mode     = null;  // "solo" | "multi"
     private volatile String username = null;
     private volatile String passwordHash = null;
-    private volatile String salt     = null;
+    private volatile String salt     = null;  // 仅旧 SHA-256 哈希需要（向后兼容用）
 
     /** token → expiry timestamp (ms)，内存中同时保存短期和长期 session */
     private final ConcurrentHashMap<String, Long> sessions = new ConcurrentHashMap<>();
@@ -104,8 +107,8 @@ public class SetupService {
     // ---- 初始化配置 -----------------------------------------------------
 
     public void init(String uname, String pwd, String usageMode) throws IOException {
-        this.salt         = UUID.randomUUID().toString().replace("-", "");
-        this.passwordHash = hash(pwd, this.salt);
+        this.salt         = null;  // BCrypt 不需要单独的 salt 字段
+        this.passwordHash = BCRYPT.encode(pwd);
         this.username     = uname;
         this.mode         = usageMode;
         this.setupComplete = true;
@@ -116,8 +119,20 @@ public class SetupService {
     // ---- 登录验证 -------------------------------------------------------
 
     public boolean checkLogin(String uname, String pwd) {
-        return username != null && username.equals(uname)
-                && passwordHash != null && passwordHash.equals(hash(pwd, salt));
+        if (username == null || !username.equals(uname) || passwordHash == null) return false;
+        // BCrypt 哈希以 $2a$/$2b$/$2y$ 开头；旧版为 64 位 hex（SHA-256）
+        if (passwordHash.startsWith("$2")) {
+            return BCRYPT.matches(pwd, passwordHash);
+        }
+        // 向后兼容：旧 SHA-256 哈希验证通过后自动升级为 BCrypt
+        if (passwordHash.equals(legacySha256Hash(pwd, salt))) {
+            this.salt         = null;
+            this.passwordHash = BCRYPT.encode(pwd);
+            try { save(); } catch (IOException e) { log.warn("升级密码哈希失败: {}", e.getMessage()); }
+            log.info("密码哈希已从 SHA-256 升级为 BCrypt");
+            return true;
+        }
+        return false;
     }
 
     // ---- Session 管理 --------------------------------------------------
@@ -157,10 +172,11 @@ public class SetupService {
 
     // ---- 工具 ----------------------------------------------------------
 
-    private String hash(String password, String s) {
+    /** 旧版 SHA-256 哈希，仅用于向后兼容验证，不再用于新密码存储 */
+    private static String legacySha256Hash(String password, String s) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            md.update((s + password).getBytes(StandardCharsets.UTF_8));
+            md.update(((s == null ? "" : s) + password).getBytes(StandardCharsets.UTF_8));
             StringBuilder sb = new StringBuilder();
             for (byte b : md.digest()) sb.append(String.format("%02x", b));
             return sb.toString();

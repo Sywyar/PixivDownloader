@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
@@ -15,11 +16,16 @@ import top.sywyar.pixivdownload.quota.UserQuotaService;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 
 @Component
 @Order(1)
 @Slf4j
 public class AuthFilter extends OncePerRequestFilter {
+
+    /** 标准 UUID 格式（小写或大写 hex，8-4-4-4-12）*/
+    private static final Pattern UUID_PATTERN =
+            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     @Autowired
     private SetupService setupService;
@@ -96,9 +102,10 @@ public class AuthFilter extends OncePerRequestFilter {
             || path.equals("/favicon.ico")
             || path.startsWith("/api/setup/")
             || path.startsWith("/api/auth/")
-            || path.startsWith("/api/quota/")
-            || path.startsWith("/api/archive/")
-            || path.equals("/api/download/status");        // 健康检查，供外部工具探测服务是否在线
+            || path.equals("/api/quota/init")
+            || path.startsWith("/api/archive/status/")
+            || path.startsWith("/api/archive/download/")
+            || path.equals("/api/download/status");
     }
 
     private boolean isApi(String path) {
@@ -108,7 +115,8 @@ public class AuthFilter extends OncePerRequestFilter {
     private boolean isLocalAddress(String remoteAddr) {
         return "127.0.0.1".equals(remoteAddr)
             || "0:0:0:0:0:0:0:1".equals(remoteAddr)
-            || "::1".equals(remoteAddr);
+            || "::1".equals(remoteAddr)
+            || "::ffff:127.0.0.1".equals(remoteAddr);   // IPv4-mapped IPv6 修复
     }
 
     private String extractToken(HttpServletRequest req) {
@@ -132,15 +140,17 @@ public class AuthFilter extends OncePerRequestFilter {
                 }
             }
         }
-        // 检查自定义请求头（油猴脚本场景）
+        // 检查自定义请求头（油猴脚本场景），验证格式防止注入
         String headerUuid = req.getHeader("X-User-UUID");
-        String uuid = (headerUuid != null && !headerUuid.isBlank())
-                ? headerUuid
-                : UserQuotaService.generateUuidFromFingerprint(
-                        req.getRemoteAddr(), req.getHeader("User-Agent"));
-        Cookie cookie = new Cookie("pixiv_user_id", uuid);
-        cookie.setPath("/");
-        cookie.setMaxAge(30 * 24 * 3600);
-        res.addCookie(cookie);
+        String uuid;
+        if (headerUuid != null && !headerUuid.isBlank() && UUID_PATTERN.matcher(headerUuid).matches()) {
+            uuid = headerUuid;
+        } else {
+            uuid = UserQuotaService.generateUuidFromFingerprint(
+                    req.getRemoteAddr(), req.getHeader("User-Agent"));
+        }
+        // SameSite=Strict 防止 CSRF；HttpOnly 防止 JS 读取
+        res.addHeader(HttpHeaders.SET_COOKIE,
+                "pixiv_user_id=" + uuid + "; Path=/; Max-Age=" + (30 * 24 * 3600) + "; SameSite=Strict; HttpOnly");
     }
 }

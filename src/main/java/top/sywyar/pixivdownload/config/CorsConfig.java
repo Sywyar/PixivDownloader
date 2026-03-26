@@ -14,8 +14,9 @@ public class CorsConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         CorsConfiguration config = new CorsConfiguration();
         
-        // 允许所有来源（生产环境应该限制）
-        config.addAllowedOriginPattern("*");
+        // 仅允许 Pixiv 网站（油猴脚本跨域请求来源）
+        config.addAllowedOrigin("https://www.pixiv.net");
+        config.addAllowedOrigin("https://pixiv.net");
         
         // 允许所有HTTP方法
         config.addAllowedMethod("*");

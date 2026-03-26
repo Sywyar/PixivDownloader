@@ -25,6 +25,8 @@ import top.sywyar.pixivdownload.quota.UserQuotaService;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -112,6 +114,7 @@ public class DownloadService {
 
             if (other.isUgoira() && other.getUgoiraZipUrl() != null) {
                 // === 动图 (ugoira) 处理：下载ZIP → 提取帧 → ffmpeg 合成 WebP ===
+                validatePixivUrl(other.getUgoiraZipUrl());
                 fileExtensions.add("webp");
                 status.setCurrentImageIndex(0);
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));
@@ -132,12 +135,19 @@ public class DownloadService {
 
                             // 解压帧到临时目录，按文件名有序排列
                             TreeMap<String, Path> frameFiles = new TreeMap<>();
+                            Path normalizedTempDir = tempDir.normalize();
                             try (ZipInputStream zis = new ZipInputStream(
                                     new FileInputStream(zipPath.toFile()), StandardCharsets.UTF_8)) {
                                 ZipEntry entry;
                                 while ((entry = zis.getNextEntry()) != null) {
                                     if (!entry.isDirectory()) {
-                                        Path framePath = tempDir.resolve(entry.getName());
+                                        // Zip Slip 防护：确保解压路径不逃出 tempDir
+                                        Path framePath = normalizedTempDir.resolve(entry.getName()).normalize();
+                                        if (!framePath.startsWith(normalizedTempDir)) {
+                                            log.warn("作品：{}，跳过危险ZIP条目（Zip Slip）: {}", artworkId, entry.getName());
+                                            zis.closeEntry();
+                                            continue;
+                                        }
                                         try (FileOutputStream fos = new FileOutputStream(framePath.toFile())) {
                                             byte[] buf = new byte[8192];
                                             int len;
@@ -231,6 +241,7 @@ public class DownloadService {
 
             } else {
                 // === 普通图片下载 ===
+                for (String url : imageUrls) validatePixivUrl(url);
                 for (int i = 0; i < imageUrls.size(); i++) {
                     if (status.isCancelled()) {
                         break;
@@ -574,5 +585,27 @@ public class DownloadService {
 
     public long getArtworkCount() {
         return pixivDatabase.countArtworks();
+    }
+
+    /**
+     * SSRF 防护：仅允许向 Pixiv 图床（*.pximg.net）发起 HTTPS 请求。
+     * 防止攻击者利用下载接口探测内网或访问任意 URL。
+     * public static 供 Controller 在同步阶段提前校验，Service 内保留为纵深防御。
+     */
+    public static void validatePixivUrl(String url) {
+        if (url == null || url.isBlank()) return;
+        try {
+            URI uri = new URI(url);
+            String scheme = uri.getScheme();
+            String host   = uri.getHost();
+            if (!"https".equalsIgnoreCase(scheme)) {
+                throw new SecurityException("只允许 HTTPS 协议的下载 URL: " + url);
+            }
+            if (host == null || !host.endsWith(".pximg.net")) {
+                throw new SecurityException("下载 URL 的域名不在白名单内: " + host);
+            }
+        } catch (URISyntaxException e) {
+            throw new SecurityException("无效的下载 URL: " + url);
+        }
     }
 }

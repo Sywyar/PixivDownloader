@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.download.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
 import org.apache.http.client.config.RequestConfig;
@@ -13,9 +15,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.config.ProxyConfig;
+import top.sywyar.pixivdownload.quota.MultiModeConfig;
+import top.sywyar.pixivdownload.quota.UserQuotaService;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * 代理 Pixiv AJAX API，供 pixiv-batch.html 使用。
@@ -23,15 +29,71 @@ import java.util.*;
  */
 @RestController
 @RequestMapping("/api/pixiv")
-@CrossOrigin(origins = "*")
 @Slf4j
 public class PixivProxyController {
 
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
+    private static final Pattern UUID_PATTERN =
+            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Autowired
     private ProxyConfig proxyConfig;
+
+    @Autowired
+    private SetupService setupService;
+
+    @Autowired
+    private UserQuotaService userQuotaService;
+
+    @Autowired
+    private MultiModeConfig multiModeConfig;
+
+    /**
+     * 多人模式访问控制：
+     * - 要求 UUID 已存在（cookie 或 X-User-UUID 请求头），不接受自动生成的匿名访问
+     * - 在 resetPeriodHours 窗口内最多 maxArtworks 次代理请求
+     * 返回 null 表示校验通过；返回 ResponseEntity 表示应直接返回该错误。
+     * solo 模式已由 AuthFilter 完成认证，直接返回 null。
+     */
+    private ResponseEntity<?> checkMultiModeAccess(HttpServletRequest request) {
+        if (!"multi".equals(setupService.getMode())) {
+            return null; // solo 模式，AuthFilter 已验证 session
+        }
+        String uuid = extractExistingUuid(request);
+        if (uuid == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "missing user UUID"));
+        }
+        if (multiModeConfig.getQuota().isEnabled()
+                && !userQuotaService.checkAndReserveProxy(uuid)) {
+            int max = multiModeConfig.getQuota().getMaxArtworks();
+            int hours = multiModeConfig.getQuota().getResetPeriodHours();
+            return ResponseEntity.status(429).body(Map.of(
+                    "error", "proxy rate limit exceeded",
+                    "maxRequests", max,
+                    "windowHours", hours
+            ));
+        }
+        return null;
+    }
+
+    /** 仅读取已存在的 UUID，不自动生成 */
+    private String extractExistingUuid(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie c : cookies) {
+                if ("pixiv_user_id".equals(c.getName()) && c.getValue() != null
+                        && !c.getValue().isBlank()) {
+                    return c.getValue();
+                }
+            }
+        }
+        String headerUuid = request.getHeader("X-User-UUID");
+        if (headerUuid != null && !headerUuid.isBlank() && UUID_PATTERN.matcher(headerUuid).matches()) {
+            return headerUuid;
+        }
+        return null;
+    }
 
     private String proxyGet(String url, String cookie) throws Exception {
         RequestConfig requestConfig = RequestConfig.custom()
@@ -59,7 +121,10 @@ public class PixivProxyController {
     @GetMapping("/user/{userId}/artworks")
     public ResponseEntity<?> getUserArtworks(
             @PathVariable String userId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
         try {
             String body = proxyGet(
                     "https://www.pixiv.net/ajax/user/" + userId + "/profile/all", cookie);
@@ -83,7 +148,10 @@ public class PixivProxyController {
     @GetMapping("/user/{userId}/meta")
     public ResponseEntity<?> getUserMeta(
             @PathVariable String userId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
         try {
             String body = proxyGet(
                     "https://www.pixiv.net/ajax/user/" + userId + "?lang=zh", cookie);
@@ -103,7 +171,10 @@ public class PixivProxyController {
     @GetMapping("/artwork/{artworkId}/meta")
     public ResponseEntity<?> getArtworkMeta(
             @PathVariable String artworkId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
         try {
             String body = proxyGet(
                     "https://www.pixiv.net/ajax/illust/" + artworkId, cookie);
@@ -127,7 +198,10 @@ public class PixivProxyController {
     @GetMapping("/artwork/{artworkId}/pages")
     public ResponseEntity<?> getArtworkPages(
             @PathVariable String artworkId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
         try {
             String body = proxyGet(
                     "https://www.pixiv.net/ajax/illust/" + artworkId + "/pages", cookie);
@@ -151,7 +225,10 @@ public class PixivProxyController {
     @GetMapping("/artwork/{artworkId}/ugoira")
     public ResponseEntity<?> getUgoiraMeta(
             @PathVariable String artworkId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
         try {
             String body = proxyGet(
                     "https://www.pixiv.net/ajax/illust/" + artworkId + "/ugoira_meta", cookie);

@@ -115,6 +115,61 @@ public class UserQuotaService {
                 resetSeconds, archiveInfo);
     }
 
+    // ---- 代理请求频率限制 --------------------------------------------------------
+
+    /**
+     * 检查并预留代理请求次数。
+     * 在 resetPeriodHours 窗口内，同一用户最多发起 maxArtworks 次代理请求。
+     * 返回 true 表示允许；返回 false 表示已达上限。
+     */
+    public boolean checkAndReserveProxy(String uuid) {
+        UserQuota quota = quotaMap.computeIfAbsent(uuid, UserQuota::new);
+        MultiModeConfig.Quota cfg = config.getQuota();
+
+        synchronized (quota) {
+            long now = System.currentTimeMillis();
+            long periodMs = (long) cfg.getResetPeriodHours() * 3_600_000L;
+
+            // 与下载配额共用同一周期：若周期过期则整体重置
+            if (now - quota.getPeriodStart() >= periodMs) {
+                quota.reset();
+            }
+
+            if (quota.getProxyCount().get() >= cfg.getMaxArtworks()) {
+                return false;
+            }
+            quota.getProxyCount().incrementAndGet();
+            return true;
+        }
+    }
+
+    // ---- 打包频率限制 ------------------------------------------------------------
+
+    /**
+     * 检查并预留打包次数。
+     * 在 archiveExpireMinutes 窗口内，同一用户最多触发 maxArtworks 次打包。
+     * 返回 true 表示允许；返回 false 表示已达上限。
+     */
+    public boolean checkAndReservePack(String uuid) {
+        UserQuota quota = quotaMap.computeIfAbsent(uuid, UserQuota::new);
+        MultiModeConfig.Quota cfg = config.getQuota();
+
+        synchronized (quota) {
+            long now = System.currentTimeMillis();
+            long windowMs = (long) cfg.getArchiveExpireMinutes() * 60_000L;
+
+            if (now - quota.getPackWindowStart() >= windowMs) {
+                quota.resetPackWindow();
+            }
+
+            if (quota.getPackCount().get() >= cfg.getMaxArtworks()) {
+                return false;
+            }
+            quota.getPackCount().incrementAndGet();
+            return true;
+        }
+    }
+
     // ---- 压缩包管理 --------------------------------------------------------------
 
     /**
@@ -292,15 +347,29 @@ public class UserQuotaService {
         private final Set<Path> downloadedFolders = ConcurrentHashMap.newKeySet();
         private volatile String archiveToken = null;
 
+        /** 打包频率限制：在 archiveExpireMinutes 窗口内的打包次数 */
+        private final AtomicInteger packCount = new AtomicInteger(0);
+        private volatile long packWindowStart = System.currentTimeMillis();
+
+        /** 代理请求频率限制：在 resetPeriodHours 窗口内的代理请求次数 */
+        private final AtomicInteger proxyCount = new AtomicInteger(0);
+
         public UserQuota(String uuid) { this.uuid = uuid; }
 
         public void setArchiveToken(String token) { this.archiveToken = token; }
 
         public synchronized void reset() {
             artworksUsed.set(0);
+            proxyCount.set(0);
             periodStart = System.currentTimeMillis();
             downloadedFolders.clear();
             archiveToken = null;
+        }
+
+        /** 重置打包次数窗口 */
+        public void resetPackWindow() {
+            packCount.set(0);
+            packWindowStart = System.currentTimeMillis();
         }
     }
 

@@ -5,13 +5,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
 @RestController
-@CrossOrigin(origins = "*")
 @Slf4j
 public class SetupController {
 
@@ -68,11 +68,10 @@ public class SetupController {
         }
 
         String token = setupService.createSession(remember);
-        Cookie cookie = new Cookie("pixiv_session", token);
-        cookie.setPath("/");
-        cookie.setHttpOnly(true);
-        if (remember) cookie.setMaxAge(30 * 24 * 3600);
-        response.addCookie(cookie);
+        // SameSite=Strict 防止 CSRF
+        String maxAge = remember ? "; Max-Age=" + (30 * 24 * 3600) : "";
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                "pixiv_session=" + token + "; Path=/; HttpOnly" + maxAge + "; SameSite=Strict");
 
         return ResponseEntity.ok(Map.of("ok", true));
     }
@@ -84,10 +83,8 @@ public class SetupController {
         String token = extractToken(request);
         setupService.removeSession(token);
 
-        Cookie cookie = new Cookie("pixiv_session", "");
-        cookie.setPath("/");
-        cookie.setMaxAge(0);
-        response.addCookie(cookie);
+        response.addHeader(HttpHeaders.SET_COOKIE,
+                "pixiv_session=; Path=/; HttpOnly; Max-Age=0; SameSite=Strict");
 
         return ResponseEntity.ok(Map.of("ok", true));
     }
