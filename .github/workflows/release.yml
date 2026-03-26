@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn package -DskipTests
+
+      - name: Rename JAR
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          mv target/PixivDownload-*.jar target/PixivDownload-${VERSION}.jar
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/PixivDownload-${{ github.ref_name }}.jar
+            *.user.js
+          generate_release_notes: true
