@@ -1018,7 +1018,7 @@ async function processSingle(item) {
       return;
     }
 
-    const isR18 = (meta.xRestrict || 0) > 0;
+    const isR18 = Number(meta.xRestrict ?? meta.xrestrict ?? 0) > 0;
     item.isR18 = isR18;
     const isUserMode = item.source === 'user';
     let urls, ugoiraData = null;

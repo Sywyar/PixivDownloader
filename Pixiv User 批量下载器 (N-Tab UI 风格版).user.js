@@ -712,7 +712,7 @@
                 this.saveToStorage();
 
                 if (this.globalSettings.r18Only) {
-                    const restriction = meta.xRestrict !== undefined ? meta.xRestrict : 0;
+                    const restriction = meta ? (meta.xRestrict ?? meta.xrestrict ?? 0) : 0;
                     if (restriction === 0) {
                         item.status = 'skipped';
                         item.lastMessage = '跳过 — 非 R18 内容';
@@ -725,7 +725,7 @@
                 }
 
                 // 判断是否是 R18 内容
-                const isR18 = meta.xRestrict !== undefined && meta.xRestrict > 0;
+                const isR18 = meta ? (meta.xRestrict ?? meta.xrestrict ?? 0) : 0;
 
                 let urls;
                 let ugoiraData = null;

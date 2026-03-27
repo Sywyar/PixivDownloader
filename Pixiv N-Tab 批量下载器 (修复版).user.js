@@ -524,7 +524,7 @@
                 if (meta && meta.illustTitle) item.title = meta.illustTitle;
 
                 if (this.r18Only) {
-                    const restriction = meta ? (meta.xRestrict || 0) : 0;
+                    const restriction = meta ? (meta.xRestrict ?? meta.xrestrict ?? 0) : 0;
                     if (restriction === 0) {
                         item.status = 'skipped';
                         item.lastMessage = '跳过 — 非 R18 内容';
