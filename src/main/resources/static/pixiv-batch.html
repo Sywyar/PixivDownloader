@@ -1010,7 +1010,8 @@ async function processSingle(item) {
     const meta = await getArtworkMeta(item.id);
     item.title = meta.illustTitle || `作品 ${item.id}`;
 
-    if (state.settings.R18Only && !(meta.xRestrict > 0)) {
+    const isR18 = Number(meta.xRestrict ?? meta.xrestrict ?? 0) > 0;
+    if (state.settings.R18Only && !isR18) {
       item.status = 'skipped';
       item.lastMessage = '跳过 — 非 R18 内容';
       item.endTime = new Date().toISOString();
@@ -1018,7 +1019,6 @@ async function processSingle(item) {
       return;
     }
 
-    const isR18 = Number(meta.xRestrict ?? meta.xrestrict ?? 0) > 0;
     item.isR18 = isR18;
     const isUserMode = item.source === 'user';
     let urls, ugoiraData = null;

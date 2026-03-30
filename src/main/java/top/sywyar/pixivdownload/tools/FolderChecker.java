@@ -156,7 +156,7 @@ public class FolderChecker {
                 if (selectedRow >= 0 && selectedRow < brokenArtworks.size()) {
                     ArtworkInfo info = brokenArtworks.get(selectedRow);
                     selectedIdLabel.setText("Selected ID: " + info.artworkId());
-                    newPathField.setText(info.checkPath() != null ? info.checkPath() : "");
+                    //newPathField.setText(info.checkPath() != null ? info.checkPath() : "");
                 } else {
                     selectedIdLabel.setText("Selected ID: (none)");
                 }
