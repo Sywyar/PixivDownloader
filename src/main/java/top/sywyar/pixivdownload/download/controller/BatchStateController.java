@@ -1,10 +1,13 @@
 package top.sywyar.pixivdownload.download.controller;
 
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.download.request.BatchStateRequest;
+import top.sywyar.pixivdownload.download.response.BatchStateResponse;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;
@@ -21,40 +24,36 @@ public class BatchStateController {
     private volatile String cachedState = "{}";
     private final SetupService setupService;
 
-    public BatchStateController(@Value("${download.root-folder:pixiv-download}") String rootFolder,
+    public BatchStateController(DownloadConfig downloadConfig,
                                 SetupService setupService) {
         this.setupService = setupService;
-        this.stateFile = Path.of(rootFolder, "batch_state.json");
-        try {
-            if (Files.exists(stateFile)) {
-                cachedState = Files.readString(stateFile, StandardCharsets.UTF_8);
-                log.info("Loaded batch state from {}", stateFile);
-            }
-        } catch (IOException e) {
-            log.warn("Failed to load batch state: {}", e.getMessage());
+        this.stateFile = Path.of(downloadConfig.getRootFolder(), "batch_state.json");
+    }
+
+    @PostConstruct
+    public void loadState() throws IOException {
+        if (Files.exists(stateFile)) {
+            cachedState = Files.readString(stateFile, StandardCharsets.UTF_8);
+            log.info("Loaded batch state from {}", stateFile);
         }
     }
 
     @GetMapping(value = "/state", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<String> getState() {
+    public ResponseEntity<BatchStateResponse> getState() {
         if (!"solo".equals(setupService.getMode())) {
             return ResponseEntity.status(403).build();
         }
-        return ResponseEntity.ok(cachedState);
+        return ResponseEntity.ok(new BatchStateResponse(cachedState));
     }
 
     @PostMapping(value = "/state", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Void> saveState(@RequestBody String body) {
+    public ResponseEntity<Void> saveState(@RequestBody BatchStateRequest request) throws IOException {
         if (!"solo".equals(setupService.getMode())) {
             return ResponseEntity.status(403).build();
         }
-        cachedState = body;
-        try {
-            Files.createDirectories(stateFile.getParent());
-            Files.writeString(stateFile, body, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            log.warn("Failed to save batch state: {}", e.getMessage());
-        }
+        cachedState = request.getState().toString();
+        Files.createDirectories(stateFile.getParent());
+        Files.writeString(stateFile, cachedState, StandardCharsets.UTF_8);
         return ResponseEntity.ok().build();
     }
 }

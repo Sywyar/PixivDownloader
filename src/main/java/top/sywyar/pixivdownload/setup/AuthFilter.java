@@ -1,36 +1,36 @@
 package top.sywyar.pixivdownload.setup;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
+import top.sywyar.pixivdownload.common.NetworkUtils;
+import top.sywyar.pixivdownload.common.SessionUtils;
+import top.sywyar.pixivdownload.common.UuidUtils;
+import top.sywyar.pixivdownload.download.response.ErrorResponse;
 
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.regex.Pattern;
+import java.time.Duration;
 
 @Component
 @Order(1)
 @Slf4j
+@RequiredArgsConstructor
 public class AuthFilter extends OncePerRequestFilter {
 
-    /** 标准 UUID 格式（小写或大写 hex，8-4-4-4-12）*/
-    private static final Pattern UUID_PATTERN =
-            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
-
     private final SetupService setupService;
-
-    public AuthFilter(SetupService setupService) {
-        this.setupService = setupService;
-    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res,
@@ -53,14 +53,14 @@ public class AuthFilter extends OncePerRequestFilter {
         // /api/downloaded/ 接口：POST /move/ 仅限本地 IP；其余接口本地 IP 直接放行，非本地走 session 校验
         if (path.startsWith("/api/downloaded/")) {
             if ("POST".equalsIgnoreCase(method) && path.contains("/downloaded/move/")) {
-                if (!isLocalAddress(req.getRemoteAddr())) {
-                    res.sendError(403, "Forbidden: local access only");
+                if (!NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
+                    sendJsonError(res, 403, "Forbidden: local access only");
                     return;
                 }
                 chain.doFilter(req, res);
                 return;
             }
-            if (isLocalAddress(req.getRemoteAddr())) {
+            if (NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
                 chain.doFilter(req, res);
                 return;
             }
@@ -70,7 +70,7 @@ public class AuthFilter extends OncePerRequestFilter {
         // 未完成初始配置 → 跳转 setup 页面
         if (!setupService.isSetupComplete()) {
             if (isApi(path)) {
-                res.sendError(503, "Setup required");
+                sendJsonError(res, 503, "Setup required");
             } else {
                 res.sendRedirect("/setup.html");
             }
@@ -85,12 +85,12 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         // 自用模式：校验 session
-        String token = extractToken(req);
+        String token = SessionUtils.extractToken(req);
         if (setupService.isValidSession(token)) {
             chain.doFilter(req, res);
         } else {
             if (isApi(path)) {
-                res.sendError(401, "Unauthorized");
+                sendJsonError(res, 401, "Unauthorized");
             } else {
                 String redirect = URLEncoder.encode(path, StandardCharsets.UTF_8);
                 res.sendRedirect("/login.html?redirect=" + redirect);
@@ -114,45 +114,34 @@ public class AuthFilter extends OncePerRequestFilter {
         return path.startsWith("/api/");
     }
 
-    private boolean isLocalAddress(String remoteAddr) {
-        return "127.0.0.1".equals(remoteAddr)
-            || "0:0:0:0:0:0:0:1".equals(remoteAddr)
-            || "::1".equals(remoteAddr)
-            || "::ffff:127.0.0.1".equals(remoteAddr);   // IPv4-mapped IPv6 修复
+    private void sendJsonError(HttpServletResponse res, int status, String message) throws IOException {
+        ObjectMapper mapper = new ObjectMapper();
+        res.setStatus(status);
+        res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        res.setCharacterEncoding("UTF-8");
+        res.getWriter().write(mapper.writeValueAsString(new ErrorResponse(message)));
     }
 
-    private String extractToken(HttpServletRequest req) {
-        Cookie[] cookies = req.getCookies();
-        if (cookies != null) {
-            for (Cookie c : cookies) {
-                if ("pixiv_session".equals(c.getName())) return c.getValue();
-            }
-        }
-        return req.getHeader("X-Session-Token");
-    }
-
-    /** 多人模式：若没有 pixiv_user_id cookie，则基于 IP+UA 生成并写入 */
+    /** 多人模式：若没有 pixiv_user_id cookie，则基于请求头或 IP+UA 生成并写入 */
     private void ensureUserUuidCookie(HttpServletRequest req, HttpServletResponse res) {
+        // 已有 cookie，无需重新生成
         Cookie[] cookies = req.getCookies();
         if (cookies != null) {
             for (Cookie c : cookies) {
                 if ("pixiv_user_id".equals(c.getName()) && c.getValue() != null
                         && !c.getValue().isBlank()) {
-                    return; // 已有 UUID，无需重新生成
+                    return;
                 }
             }
         }
-        // 检查自定义请求头（油猴脚本场景），验证格式防止注入
-        String headerUuid = req.getHeader("X-User-UUID");
-        String uuid;
-        if (headerUuid != null && !headerUuid.isBlank() && UUID_PATTERN.matcher(headerUuid).matches()) {
-            uuid = headerUuid;
-        } else {
-            uuid = UserQuotaService.generateUuidFromFingerprint(
-                    req.getRemoteAddr(), req.getHeader("User-Agent"));
-        }
-        // SameSite=Strict 防止 CSRF；HttpOnly 防止 JS 读取
-        res.addHeader(HttpHeaders.SET_COOKIE,
-                "pixiv_user_id=" + uuid + "; Path=/; Max-Age=" + (30 * 24 * 3600) + "; SameSite=Strict; HttpOnly");
+        // 从请求头或 IP+UA 指纹获取/生成 UUID，并写入 cookie
+        String uuid = UuidUtils.extractOrGenerateUuid(req);
+        ResponseCookie cookie = ResponseCookie.from("pixiv_user_id", uuid)
+                .path("/")
+                .maxAge(Duration.ofDays(30))
+                .sameSite("Strict")
+                .httpOnly(true)
+                .build();
+        res.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
 }

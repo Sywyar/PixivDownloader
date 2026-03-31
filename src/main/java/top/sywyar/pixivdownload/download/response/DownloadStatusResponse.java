@@ -1,14 +1,11 @@
 package top.sywyar.pixivdownload.download.response;
 
-import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
-import lombok.Setter;
 
-@Setter
 @Getter
-@AllArgsConstructor
+@Builder
 public class DownloadStatusResponse {
-    // getters and setters
     private boolean success;
     private String message;
     private Long artworkId;
@@ -21,12 +18,4 @@ public class DownloadStatusResponse {
     private boolean cancelled;
     private double progressPercentage;
     private String downloadPath;
-
-    public DownloadStatusResponse(boolean success, String message, Long artworkId, String title) {
-        this.success = success;
-        this.message = message;
-        this.artworkId = artworkId;
-        this.title = title;
-    }
-
 }

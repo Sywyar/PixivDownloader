@@ -2,13 +2,13 @@ package top.sywyar.pixivdownload.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.http.HttpHost;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.util.EntityUtils;
+import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.util.Timeout;
 import org.sqlite.SQLiteConfig;
 
 import java.sql.Connection;
@@ -85,14 +85,14 @@ public class R18Backfill {
 
         // ---- 初始化 HttpClient ----
         RequestConfig reqConfig = RequestConfig.custom()
-                .setConnectTimeout(15000)
-                .setSocketTimeout(15000)
-                .setConnectionRequestTimeout(5000)
+                .setConnectTimeout(Timeout.ofSeconds(15))
+                .setResponseTimeout(Timeout.ofSeconds(15))
+                .setConnectionRequestTimeout(Timeout.ofSeconds(5))
                 .build();
         var clientBuilder = HttpClients.custom()
                 .setDefaultRequestConfig(reqConfig)
-                .disableCookieManagement();  // 禁用 Cookie，确保每次请求都是纯匿名状态
-        if (useProxy) clientBuilder.setProxy(new HttpHost(proxyHost, proxyPort));
+                .disableCookieManagement();
+        if (useProxy) clientBuilder.setProxy(new HttpHost("http", proxyHost, proxyPort));
         CloseableHttpClient http = clientBuilder.build();
 
         ObjectMapper mapper = new ObjectMapper();
@@ -168,40 +168,38 @@ public class R18Backfill {
         req.setHeader("Referer", "https://www.pixiv.net/");
         req.setHeader("Accept-Language", "ja,en;q=0.9");
 
-        try (CloseableHttpResponse resp = http.execute(req)) {
-            int status = resp.getStatusLine().getStatusCode();
-            String body = EntityUtils.toString(resp.getEntity(), "UTF-8");
+        try {
+            return http.execute(req, resp -> {
+                int status = resp.getCode();
+                String body = EntityUtils.toString(resp.getEntity(), "UTF-8");
 
-            if (status == 429) return new R18Result(ResultType.RATE_LIMITED, "HTTP 429 Too Many Requests");
-            if (status == 404) return new R18Result(ResultType.DELETED, "HTTP 404");
+                if (status == 429) return new R18Result(ResultType.RATE_LIMITED, "HTTP 429 Too Many Requests");
+                if (status == 404) return new R18Result(ResultType.DELETED, "HTTP 404");
 
-            JsonNode root = mapper.readTree(body);
-            boolean isError = root.path("error").asBoolean(false);
+                JsonNode root = mapper.readTree(body);
+                boolean isError = root.path("error").asBoolean(false);
 
-            if (!isError) {
-                // 正常响应，直接读 xRestrict
-                int xRestrict = root.path("body").path("xRestrict").asInt(0);
-                return new R18Result(xRestrict > 0 ? ResultType.R18 : ResultType.SFW, null);
-            }
-
-            // 响应为 error，解析 message
-            String message = root.path("message").asText("");
-            String msgLower = message.toLowerCase();
-
-            for (String kw : R18_KEYWORDS) {
-                if (msgLower.contains(kw.toLowerCase())) {
-                    return new R18Result(ResultType.R18, message);
+                if (!isError) {
+                    int xRestrict = root.path("body").path("xRestrict").asInt(0);
+                    return new R18Result(xRestrict > 0 ? ResultType.R18 : ResultType.SFW, null);
                 }
-            }
-            for (String kw : DELETED_KEYWORDS) {
-                if (msgLower.contains(kw.toLowerCase())) {
-                    return new R18Result(ResultType.DELETED, message);
+
+                String message = root.path("message").asText("");
+                String msgLower = message.toLowerCase();
+
+                for (String kw : R18_KEYWORDS) {
+                    if (msgLower.contains(kw.toLowerCase())) {
+                        return new R18Result(ResultType.R18, message);
+                    }
                 }
-            }
+                for (String kw : DELETED_KEYWORDS) {
+                    if (msgLower.contains(kw.toLowerCase())) {
+                        return new R18Result(ResultType.DELETED, message);
+                    }
+                }
 
-            // message 无法识别
-            return new R18Result(ResultType.SKIP, "未知错误: " + message);
-
+                return new R18Result(ResultType.SKIP, "未知错误: " + message);
+            });
         } catch (Exception e) {
             return new R18Result(ResultType.SKIP, "请求异常: " + e.getMessage());
         }

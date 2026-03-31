@@ -1,54 +1,42 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.download.request.ArtworkBatchRequest;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
+import top.sywyar.pixivdownload.download.request.MoveArtworkRequest;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
-import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api")
 @Slf4j
+@RequiredArgsConstructor
 public class DownloadController {
-
-    private static final Pattern UUID_PATTERN =
-            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     private final DownloadService downloadService;
     private final SetupService setupService;
     private final UserQuotaService userQuotaService;
     private final MultiModeConfig multiModeConfig;
     private final PixivDatabase pixivDatabase;
-
-    public DownloadController(DownloadService downloadService,
-                              SetupService setupService,
-                              UserQuotaService userQuotaService,
-                              MultiModeConfig multiModeConfig,
-                              PixivDatabase pixivDatabase) {
-        this.downloadService = downloadService;
-        this.setupService = setupService;
-        this.userQuotaService = userQuotaService;
-        this.multiModeConfig = multiModeConfig;
-        this.pixivDatabase = pixivDatabase;
-    }
 
     @PostMapping("/download/pixiv")
     public ResponseEntity<?> downloadPixivImages(
@@ -104,34 +92,22 @@ public class DownloadController {
                 userUuid
         );
 
-        return ResponseEntity.ok(new DownloadResponse(
-                true,
-                "下载任务已开始处理",
-                "正在下载到作品 " + request.getArtworkId() + " 文件夹",
-                request.getImageUrls().size()
-        ));
+        return ResponseEntity.ok(DownloadResponse.builder()
+                .success(true)
+                .message("下载任务已开始处理")
+                .downloadPath("正在下载到作品 " + request.getArtworkId() + " 文件夹")
+                .downloadedCount(request.getImageUrls().size())
+                .build());
     }
 
     /** 提取用户 UUID：优先 cookie，其次 X-User-UUID 请求头，最后基于 IP+UA 生成 */
     private String extractUserUuid(HttpServletRequest req) {
-        Cookie[] cookies = req.getCookies();
-        if (cookies != null) {
-            for (Cookie c : cookies) {
-                if ("pixiv_user_id".equals(c.getName()) && c.getValue() != null
-                        && !c.getValue().isBlank()) {
-                    return c.getValue();
-                }
-            }
-        }
-        String headerUuid = req.getHeader("X-User-UUID");
-        if (headerUuid != null && !headerUuid.isBlank() && UUID_PATTERN.matcher(headerUuid).matches()) return headerUuid;
-        return UserQuotaService.generateUuidFromFingerprint(
-                req.getRemoteAddr(), req.getHeader("User-Agent"));
+        return UuidUtils.extractOrGenerateUuid(req);
     }
 
     @GetMapping("/download/status")
     public ResponseEntity<DownloadResponse> getStatus() {
-        return ResponseEntity.ok(new DownloadResponse(true, "服务运行正常"));
+        return ResponseEntity.ok(DownloadResponse.builder().success(true).message("服务运行正常").build());
     }
 
     //获取作品下载状态
@@ -139,36 +115,37 @@ public class DownloadController {
     public ResponseEntity<DownloadStatusResponse> getDownloadStatus(@PathVariable Long artworkId) {
         DownloadStatus status = downloadService.getDownloadStatus(artworkId);
         if (status == null) {
-            return ResponseEntity.ok(new DownloadStatusResponse(false, "未找到该作品的下载状态", artworkId, null));
+            return ResponseEntity.ok(DownloadStatusResponse.builder()
+                    .success(false).message("未找到该作品的下载状态").artworkId(artworkId).build());
         }
 
         log.info("artworkId: {},totalImages: {},downloadedCount: {}", artworkId, status.getTotalImages(), status.getDownloadedCount());
-        return ResponseEntity.ok(new DownloadStatusResponse(
-                true,
-                status.getStatusDescription(),
-                artworkId,
-                status.getTitle(),
-                status.getTotalImages(),
-                status.getDownloadedCount(),
-                status.getCurrentImageIndex(),
-                status.isCompleted(),
-                status.isFailed(),
-                status.isCancelled(),
-                status.getProgressPercentage(),
-                status.getDownloadPath()
-        ));
+        return ResponseEntity.ok(DownloadStatusResponse.builder()
+                .success(true)
+                .message(status.getStatusDescription())
+                .artworkId(artworkId)
+                .title(status.getTitle())
+                .totalImages(status.getTotalImages())
+                .downloadedCount(status.getDownloadedCount())
+                .currentImageIndex(status.getCurrentImageIndex())
+                .completed(status.isCompleted())
+                .failed(status.isFailed())
+                .cancelled(status.isCancelled())
+                .progressPercentage(status.getProgressPercentage())
+                .downloadPath(status.getDownloadPath())
+                .build());
     }
 
     @GetMapping("download/status/active")
-    public ResponseEntity<List<Long>> getActiveDownload() {
-        return ResponseEntity.ok(downloadService.getDownloadStatus());
+    public ResponseEntity<ActiveDownloadResponse> getActiveDownload() {
+        return ResponseEntity.ok(new ActiveDownloadResponse(downloadService.getDownloadStatus()));
     }
 
     //取消下载
     @PostMapping("/cancel/{artworkId}")
     public ResponseEntity<DownloadResponse> cancelDownload(@PathVariable Long artworkId) {
         downloadService.cancelDownload(artworkId);
-        return ResponseEntity.ok(new DownloadResponse(true, "下载任务已取消"));
+        return ResponseEntity.ok(DownloadResponse.builder().success(true).message("下载任务已取消").build());
     }
 
     @GetMapping("/downloaded/{artworkId}")
@@ -181,37 +158,32 @@ public class DownloadController {
     }
 
     @PostMapping("/downloaded/batch")
-    public ResponseEntity<List<DownloadedResponse>> getBatchArtworks(@RequestBody List<Long> artworkIds) {
+    public ResponseEntity<BatchArtworksResponse> getBatchArtworks(@RequestBody ArtworkBatchRequest request) {
         List<DownloadedResponse> downloadedResponses = new LinkedList<>();
-        for (Long artworkId : artworkIds) {
+        for (Long artworkId : request.getArtworkIds()) {
             ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
             if (artwork == null) {
                 continue;
             }
-            downloadedResponses.add(new DownloadedResponse.DownloadedResponseBuilder()
-                    .setArtworkId(artwork.artworkId())
-                    .setTitle(artwork.title())
-                    .setFolder(artwork.folder())
-                    .setCount(artwork.count())
-                    .setExtensions(artwork.extensions())
-                    .setTime(artwork.time())
-                    .setMoved(artwork.moved())
-                    .setMoveFolder(artwork.moveFolder())
-                    .setMoveTime(artwork.moveTime())
-                    .setR18(artwork.isR18())
+            downloadedResponses.add(DownloadedResponse.builder()
+                    .artworkId(artwork.artworkId())
+                    .title(artwork.title())
+                    .folder(artwork.folder())
+                    .count(artwork.count())
+                    .extensions(artwork.extensions())
+                    .time(artwork.time())
+                    .moved(artwork.moved())
+                    .moveFolder(artwork.moveFolder())
+                    .moveTime(artwork.moveTime())
+                    .isR18(artwork.isR18())
                     .build());
         }
-        return ResponseEntity.ok(downloadedResponses);
+        return ResponseEntity.ok(new BatchArtworksResponse(downloadedResponses));
     }
 
     @GetMapping("/downloaded/statistics")
     public ResponseEntity<StatisticsResponse> getStatistics() {
-        StatisticsResponse response = downloadService.getStatistics();
-        if (response.isSuccess()) {
-            return ResponseEntity.ok(response);
-        } else {
-            return ResponseEntity.badRequest().body(response);
-        }
+        return ResponseEntity.ok(downloadService.getStatistics());
     }
 
     @GetMapping("/downloaded/by-move-folder")
@@ -226,16 +198,15 @@ public class DownloadController {
     @PostMapping("/downloaded/move/{artworkId}")
     public ResponseEntity<DownloadResponse> moveArtWork(
             @PathVariable Long artworkId,
-            @RequestBody Map<String, Object> requestBody) {
-        String movePath = ((String) requestBody.get("movePath")).replaceAll("[/\\\\]+$", "");
-        Long moveTime = Long.valueOf(requestBody.get("moveTime").toString());
-        downloadService.moveArtWork(artworkId, movePath, moveTime);
-        return ResponseEntity.ok(new DownloadResponse(true, "已尝试记录移动操作"));
+            @Valid @RequestBody MoveArtworkRequest request) {
+        String movePath = request.getMovePath().replaceAll("[/\\\\]+$", "");
+        downloadService.moveArtWork(artworkId, movePath, request.getMoveTime());
+        return ResponseEntity.ok(DownloadResponse.builder().success(true).message("已尝试记录移动操作").build());
     }
 
     @GetMapping("/downloaded/history")
-    public ResponseEntity<List<String>> getHistory() {
-        return ResponseEntity.ok(downloadService.getDownloadedRecord());
+    public ResponseEntity<HistoryResponse> getHistory() {
+        return ResponseEntity.ok(new HistoryResponse(downloadService.getDownloadedRecord()));
     }
 
     @GetMapping("/downloaded/history/paged")
@@ -260,19 +231,15 @@ public class DownloadController {
     @GetMapping("/downloaded/thumbnail/{artworkId}/{page}")
     public ResponseEntity<ImageResponse> getThumbnail(
             @PathVariable Long artworkId,
-            @PathVariable int page) {
-        ImageResponse image;
-        if ((image = downloadService.getImageResponse(artworkId, page, true)) != null) {
-            return ResponseEntity.ok(image);
-        } else {
-            return ResponseEntity.status(404).build();
-        }
+            @PathVariable int page) throws IOException {
+        ImageResponse image = downloadService.getImageResponse(artworkId, page, true);
+        return image != null ? ResponseEntity.ok(image) : ResponseEntity.status(404).build();
     }
 
     @GetMapping("/downloaded/rawfile/{artworkId}/{page}")
     public ResponseEntity<byte[]> getRawFile(
             @PathVariable Long artworkId,
-            @PathVariable int page) throws Exception {
+            @PathVariable int page) throws IOException {
         File file = downloadService.getImageFile(artworkId, page);
         if (file == null) return ResponseEntity.notFound().build();
 
@@ -295,13 +262,9 @@ public class DownloadController {
     @GetMapping("/downloaded/image/{artworkId}/{page}")
     public ResponseEntity<ImageResponse> getImage(
             @PathVariable Long artworkId,
-            @PathVariable int page) {
-        ImageResponse image;
-        if ((image = downloadService.getImageResponse(artworkId, page, false)) != null) {
-            return ResponseEntity.ok(image);
-        } else {
-            return ResponseEntity.status(404).build();
-        }
+            @PathVariable int page) throws IOException {
+        ImageResponse image = downloadService.getImageResponse(artworkId, page, false);
+        return image != null ? ResponseEntity.ok(image) : ResponseEntity.status(404).build();
     }
 
     public DownloadedResponse getArtWorkDownloadedResponse(Long artworkId) {
@@ -309,17 +272,17 @@ public class DownloadController {
         if (artwork == null) {
             return null;
         }
-        return new DownloadedResponse.DownloadedResponseBuilder()
-                .setArtworkId(artwork.artworkId())
-                .setTitle(artwork.title())
-                .setFolder(artwork.folder())
-                .setCount(artwork.count())
-                .setExtensions(artwork.extensions())
-                .setTime(artwork.time())
-                .setMoved(artwork.moved())
-                .setMoveFolder(artwork.moveFolder())
-                .setMoveTime(artwork.moveTime())
-                .setR18(artwork.isR18())
+        return DownloadedResponse.builder()
+                .artworkId(artwork.artworkId())
+                .title(artwork.title())
+                .folder(artwork.folder())
+                .count(artwork.count())
+                .extensions(artwork.extensions())
+                .time(artwork.time())
+                .moved(artwork.moved())
+                .moveFolder(artwork.moveFolder())
+                .moveTime(artwork.moveTime())
+                .isR18(artwork.isR18())
                 .build();
     }
 }

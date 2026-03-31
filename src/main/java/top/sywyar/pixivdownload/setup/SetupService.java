@@ -1,10 +1,11 @@
 package top.sywyar.pixivdownload.setup;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.download.config.DownloadConfig;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -13,7 +14,6 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -22,11 +22,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SetupService {
 
     private final Path configFile;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
 
     private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
 
+    @Getter
     private volatile boolean setupComplete = false;
+    @Getter
     private volatile String mode     = null;  // "solo" | "multi"
     private volatile String username = null;
     private volatile String passwordHash = null;
@@ -41,34 +43,31 @@ public class SetupService {
     private static final long SESSION_SHORT = 2L  * 3600 * 1000;       // 2 小时
     private static final long SESSION_LONG  = 30L * 24 * 3600 * 1000;  // 30 天
 
-    public SetupService(@Value("${download.root-folder:pixiv-download}") String rootFolder) {
-        this.configFile = Path.of(rootFolder, "setup_config.json");
+    public SetupService(DownloadConfig downloadConfig, ObjectMapper objectMapper) {
+        this.configFile = Path.of(downloadConfig.getRootFolder(), "setup_config.json");
+        this.objectMapper = objectMapper;
         load();
     }
 
     // ---- 配置加载/保存 -----------------------------------------------
 
-    @SuppressWarnings("unchecked")
     private void load() {
         if (!Files.exists(configFile)) return;
         try {
-            Map<String, Object> map = objectMapper.readValue(configFile.toFile(), Map.class);
-            this.setupComplete  = Boolean.TRUE.equals(map.get("setupComplete"));
-            this.mode           = (String) map.get("mode");
-            this.username       = (String) map.get("username");
-            this.passwordHash   = (String) map.get("passwordHash");
-            this.salt           = (String) map.get("salt");
+            SetupConfig config = objectMapper.readValue(configFile.toFile(), SetupConfig.class);
+            this.setupComplete = config.isSetupComplete();
+            this.mode          = config.getMode();
+            this.username      = config.getUsername();
+            this.passwordHash  = config.getPasswordHash();
+            this.salt          = config.getSalt();
 
             // 还原持久化 session，过滤已过期的
-            Object raw = map.get("sessions");
-            if (raw instanceof Map<?, ?> savedSessions) {
+            if (config.getSessions() != null) {
                 long now = System.currentTimeMillis();
-                savedSessions.forEach((k, v) -> {
-                    if (k instanceof String token && v instanceof Number expiry) {
-                        if (expiry.longValue() > now) {
-                            sessions.put(token, expiry.longValue());
-                            persistentSessions.put(token, expiry.longValue());
-                        }
+                config.getSessions().forEach((token, expiry) -> {
+                    if (expiry > now) {
+                        sessions.put(token, expiry);
+                        persistentSessions.put(token, expiry);
                     }
                 });
                 log.info("Setup config loaded: mode={}, restored {} session(s)", this.mode, persistentSessions.size());
@@ -81,28 +80,24 @@ public class SetupService {
     }
 
     private void save() throws IOException {
-        Map<String, Object> map = new LinkedHashMap<>();
-        map.put("setupComplete", setupComplete);
-        map.put("mode",          mode);
-        map.put("username",      username);
-        map.put("passwordHash",  passwordHash);
-        map.put("salt",          salt);
+        SetupConfig config = new SetupConfig();
+        config.setSetupComplete(setupComplete);
+        config.setMode(mode);
+        config.setUsername(username);
+        config.setPasswordHash(passwordHash);
+        config.setSalt(salt);
+
         // 只持久化未过期的长期 session
         long now = System.currentTimeMillis();
-        Map<String, Long> toSave = new LinkedHashMap<>();
+        LinkedHashMap<String, Long> toSave = new LinkedHashMap<>();
         persistentSessions.forEach((token, expiry) -> {
             if (expiry > now) toSave.put(token, expiry);
         });
-        map.put("sessions", toSave);
+        config.setSessions(toSave);
+
         Files.createDirectories(configFile.getParent());
-        objectMapper.writeValue(configFile.toFile(), map);
+        objectMapper.writeValue(configFile.toFile(), config);
     }
-
-    // ---- 公开状态 -------------------------------------------------------
-
-    public boolean isSetupComplete() { return setupComplete; }
-
-    public String getMode() { return mode; }
 
     // ---- 初始化配置 -----------------------------------------------------
 

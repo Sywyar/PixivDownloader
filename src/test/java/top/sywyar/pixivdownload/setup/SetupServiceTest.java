@@ -1,7 +1,9 @@
 package top.sywyar.pixivdownload.setup;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.download.config.DownloadConfig;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -18,7 +20,13 @@ class SetupServiceTest {
 
     @BeforeEach
     void setUp() {
-        setupService = new SetupService(tempDir.toString());
+        setupService = createSetupService();
+    }
+
+    private SetupService createSetupService() {
+        DownloadConfig config = new DownloadConfig();
+        config.setRootFolder(tempDir.toString());
+        return new SetupService(config, new ObjectMapper());
     }
 
     // ========== 初始状态 ==========
@@ -51,7 +59,7 @@ class SetupServiceTest {
             setupService.init("admin", "password123", "multi");
 
             // 创建新的 SetupService 实例，模拟重启
-            SetupService reloaded = new SetupService(tempDir.toString());
+            SetupService reloaded = createSetupService();
 
             assertThat(reloaded.isSetupComplete()).isTrue();
             assertThat(reloaded.getMode()).isEqualTo("multi");
@@ -142,7 +150,7 @@ class SetupServiceTest {
         void shouldPersistLongSession() {
             String token = setupService.createSession(true);
 
-            SetupService reloaded = new SetupService(tempDir.toString());
+            SetupService reloaded = createSetupService();
             assertThat(reloaded.isValidSession(token)).isTrue();
         }
 
@@ -151,7 +159,7 @@ class SetupServiceTest {
         void shouldNotPersistShortSession() {
             String token = setupService.createSession(false);
 
-            SetupService reloaded = new SetupService(tempDir.toString());
+            SetupService reloaded = createSetupService();
             assertThat(reloaded.isValidSession(token)).isFalse();
         }
 

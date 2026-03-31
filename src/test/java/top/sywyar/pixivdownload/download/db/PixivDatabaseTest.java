@@ -1,7 +1,9 @@
 package top.sywyar.pixivdownload.download.db;
 
+import org.apache.ibatis.mapping.Environment;
+import org.apache.ibatis.session.*;
+import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.*;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import java.util.List;
@@ -12,8 +14,8 @@ import static org.assertj.core.api.Assertions.*;
 class PixivDatabaseTest {
 
     private PixivDatabase pixivDatabase;
-    private JdbcTemplate jdbcTemplate;
     private SingleConnectionDataSource dataSource;
+    private SqlSession sqlSession;
 
     @BeforeEach
     void setUp() {
@@ -21,13 +23,23 @@ class PixivDatabaseTest {
         dataSource.setDriverClassName("org.sqlite.JDBC");
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
-        jdbcTemplate = new JdbcTemplate(dataSource);
-        pixivDatabase = new PixivDatabase(jdbcTemplate);
+
+        Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
+        Configuration config = new Configuration(env);
+        config.setMapUnderscoreToCamelCase(true);
+        config.addMapper(PixivMapper.class);
+
+        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
+        sqlSession = factory.openSession(true); // auto-commit
+        PixivMapper mapper = sqlSession.getMapper(PixivMapper.class);
+
+        pixivDatabase = new PixivDatabase(mapper);
         pixivDatabase.init();
     }
 
     @AfterEach
     void tearDown() {
+        sqlSession.close();
         dataSource.destroy();
     }
 

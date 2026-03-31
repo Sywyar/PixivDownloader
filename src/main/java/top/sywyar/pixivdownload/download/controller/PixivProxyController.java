@@ -2,28 +2,25 @@ package top.sywyar.pixivdownload.download.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.http.HttpHost;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.config.ProxyConfig;
+import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.quota.response.ProxyRateLimitResponse;
 import top.sywyar.pixivdownload.setup.SetupService;
 
-import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
 
 /**
  * 代理 Pixiv AJAX API，供 pixiv-batch.html 使用。
@@ -32,27 +29,17 @@ import java.util.regex.Pattern;
 @RestController
 @RequestMapping("/api/pixiv")
 @Slf4j
+@RequiredArgsConstructor
 public class PixivProxyController {
 
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
-    private static final Pattern UUID_PATTERN =
-            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
-    private final ProxyConfig proxyConfig;
+    private final ObjectMapper objectMapper;
+    private final RestTemplate restTemplate;
     private final SetupService setupService;
     private final UserQuotaService userQuotaService;
     private final MultiModeConfig multiModeConfig;
-
-    public PixivProxyController(ProxyConfig proxyConfig,
-                                SetupService setupService,
-                                UserQuotaService userQuotaService,
-                                MultiModeConfig multiModeConfig) {
-        this.proxyConfig = proxyConfig;
-        this.setupService = setupService;
-        this.userQuotaService = userQuotaService;
-        this.multiModeConfig = multiModeConfig;
-    }
 
     /**
      * 多人模式访问控制：
@@ -65,7 +52,7 @@ public class PixivProxyController {
         if (!"multi".equals(setupService.getMode())) {
             return null; // solo 模式，AuthFilter 已验证 session
         }
-        String uuid = extractExistingUuid(request);
+        String uuid = UuidUtils.extractExistingUuid(request);
         if (uuid == null) {
             return ResponseEntity.status(401).body(new ErrorResponse("missing user UUID"));
         }
@@ -79,52 +66,24 @@ public class PixivProxyController {
         return null;
     }
 
-    /** 仅读取已存在的 UUID，不自动生成 */
-    private String extractExistingUuid(HttpServletRequest request) {
-        Cookie[] cookies = request.getCookies();
-        if (cookies != null) {
-            for (Cookie c : cookies) {
-                if ("pixiv_user_id".equals(c.getName()) && c.getValue() != null
-                        && !c.getValue().isBlank()) {
-                    return c.getValue();
-                }
-            }
+    private String proxyGet(String url, String cookie) throws IOException {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Referer", PIXIV_REFERER);
+        headers.set("User-Agent", USER_AGENT);
+        if (cookie != null && !cookie.trim().isEmpty()) {
+            headers.set("Cookie", cookie);
         }
-        String headerUuid = request.getHeader("X-User-UUID");
-        if (headerUuid != null && !headerUuid.isBlank() && UUID_PATTERN.matcher(headerUuid).matches()) {
-            return headerUuid;
-        }
-        return null;
-    }
 
-    private String proxyGet(String url, String cookie) throws Exception {
-        RequestConfig requestConfig = RequestConfig.custom()
-                .setConnectTimeout(15000)
-                .setSocketTimeout(30000)
-                .build();
-        var clientBuilder = HttpClients.custom().setDefaultRequestConfig(requestConfig);
-        if (proxyConfig.isEnabled()) {
-            clientBuilder.setProxy(new HttpHost(proxyConfig.getHost(), proxyConfig.getPort()));
-        }
-        try (CloseableHttpClient client = clientBuilder.build()) {
-            HttpGet request = new HttpGet(url);
-            request.setHeader("Referer", PIXIV_REFERER);
-            request.setHeader("User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            if (cookie != null && !cookie.trim().isEmpty()) {
-                request.setHeader("Cookie", cookie);
-            }
-            try (CloseableHttpResponse response = client.execute(request)) {
-                return new String(response.getEntity().getContent().readAllBytes(), StandardCharsets.UTF_8);
-            }
-        }
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+        return response.getBody();
     }
 
     @GetMapping("/user/{userId}/artworks")
     public ResponseEntity<?> getUserArtworks(
             @PathVariable String userId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws Exception {
+            HttpServletRequest request) throws IOException {
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
@@ -146,7 +105,7 @@ public class PixivProxyController {
     public ResponseEntity<?> getUserMeta(
             @PathVariable String userId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws Exception {
+            HttpServletRequest request) throws IOException {
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
@@ -164,7 +123,7 @@ public class PixivProxyController {
     public ResponseEntity<?> getArtworkMeta(
             @PathVariable String artworkId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws Exception {
+            HttpServletRequest request) throws IOException {
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
@@ -186,7 +145,7 @@ public class PixivProxyController {
     public ResponseEntity<?> getArtworkPages(
             @PathVariable String artworkId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws Exception {
+            HttpServletRequest request) throws IOException {
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(
@@ -208,7 +167,7 @@ public class PixivProxyController {
     public ResponseEntity<?> getUgoiraMeta(
             @PathVariable String artworkId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws Exception {
+            HttpServletRequest request) throws IOException {
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
         String body = proxyGet(

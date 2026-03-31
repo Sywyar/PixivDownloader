@@ -3,15 +3,12 @@ package top.sywyar.pixivdownload.download.request;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
 
 import java.util.List;
 
-@Setter
-@Getter
+@Data
 public class DownloadRequest {
-    // getters and setters
     @NotNull(message = "作品ID不能为空")
     private Long artworkId;
 
@@ -25,12 +22,10 @@ public class DownloadRequest {
 
     private Other other = new Other();
 
-    // 新增Cookie字段
     private String cookie;
 
-    @Getter
-    @Setter
-    public static class Other{
+    @Data
+    public static class Other {
         @JsonProperty("isUserDownload")
         private boolean isUserDownload;
         private String username;

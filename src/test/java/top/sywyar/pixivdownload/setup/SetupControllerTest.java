@@ -114,8 +114,6 @@ class SetupControllerTest {
         @Test
         @DisplayName("空用户名应返回 400")
         void shouldReturn400ForBlankUsername() throws Exception {
-            when(setupService.isSetupComplete()).thenReturn(false);
-
             mockMvc.perform(post("/api/setup/init")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
@@ -124,14 +122,12 @@ class SetupControllerTest {
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value("用户名不能为空"));
+                    .andExpect(jsonPath("$.error").value(containsString("用户名不能为空")));
         }
 
         @Test
         @DisplayName("密码长度不足应返回 400")
         void shouldReturn400ForShortPassword() throws Exception {
-            when(setupService.isSetupComplete()).thenReturn(false);
-
             mockMvc.perform(post("/api/setup/init")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
@@ -140,14 +136,12 @@ class SetupControllerTest {
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value("密码长度至少 6 位"));
+                    .andExpect(jsonPath("$.error").value(containsString("密码长度至少 6 位")));
         }
 
         @Test
         @DisplayName("无效的模式应返回 400")
         void shouldReturn400ForInvalidMode() throws Exception {
-            when(setupService.isSetupComplete()).thenReturn(false);
-
             mockMvc.perform(post("/api/setup/init")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
@@ -156,7 +150,7 @@ class SetupControllerTest {
                                     "mode", "invalid"
                             ))))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value("无效的使用模式"));
+                    .andExpect(jsonPath("$.error").value(containsString("无效的使用模式")));
         }
     }
 

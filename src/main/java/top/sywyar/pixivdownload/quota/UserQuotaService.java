@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.quota;
 
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,6 +24,7 @@ import java.util.zip.ZipOutputStream;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class UserQuotaService {
 
     private final MultiModeConfig config;
@@ -32,14 +35,6 @@ public class UserQuotaService {
     private final ConcurrentHashMap<String, UserQuota> quotaMap = new ConcurrentHashMap<>();
     /** token → 压缩包信息 */
     private final ConcurrentHashMap<String, ArchiveEntry> archiveMap = new ConcurrentHashMap<>();
-
-    public UserQuotaService(MultiModeConfig config,
-                            DownloadConfig downloadConfig,
-                            PixivDatabase pixivDatabase) {
-        this.config = config;
-        this.downloadConfig = downloadConfig;
-        this.pixivDatabase = pixivDatabase;
-    }
 
     // ---- 配额管理 ----------------------------------------------------------------
 
@@ -230,7 +225,7 @@ public class UserQuotaService {
                                 Files.copy(file, zos);
                                 zos.closeEntry();
                             } catch (IOException e) {
-                                log.warn("打包文件失败: {}", file, e);
+                                throw new UncheckedIOException(e);
                             }
                         });
                     }
@@ -280,7 +275,11 @@ public class UserQuotaService {
             ArchiveEntry ae = e.getValue();
             if (now > ae.getExpireTime()) {
                 if (ae.getArchivePath() != null) {
-                    try { Files.deleteIfExists(ae.getArchivePath()); } catch (Exception ignored) {}
+                    try {
+                        Files.deleteIfExists(ae.getArchivePath());
+                    } catch (Exception e1) {
+                        log.warn("删除过期压缩包文件失败: {}", ae.getArchivePath(), e1);
+                    }
                 }
                 log.info("压缩包 {} 已过期，已删除", e.getKey());
                 return true;
@@ -306,7 +305,9 @@ public class UserQuotaService {
     private void deleteArtworkFolder(Path folder) {
         try {
             if (Files.exists(folder)) {
-                Files.walk(folder).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                try (var stream = Files.walk(folder)) {
+                    stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                }
                 log.info("已删除源文件夹: {}", folder);
             }
         } catch (Exception e) {
@@ -347,7 +348,7 @@ public class UserQuotaService {
         private final AtomicInteger artworksUsed = new AtomicInteger(0);
         private volatile long periodStart = System.currentTimeMillis();
         private final Set<Path> downloadedFolders = ConcurrentHashMap.newKeySet();
-        private volatile String archiveToken = null;
+        @Setter private volatile String archiveToken = null;
 
         /** 打包频率限制：在 archiveExpireMinutes 窗口内的打包次数 */
         private final AtomicInteger packCount = new AtomicInteger(0);
@@ -357,8 +358,6 @@ public class UserQuotaService {
         private final AtomicInteger proxyCount = new AtomicInteger(0);
 
         public UserQuota(String uuid) { this.uuid = uuid; }
-
-        public void setArchiveToken(String token) { this.archiveToken = token; }
 
         public synchronized void reset() {
             artworksUsed.set(0);
@@ -379,8 +378,8 @@ public class UserQuotaService {
     public static class ArchiveEntry {
         private final String token;
         private final String userUuid;
-        private volatile Path archivePath;
-        private volatile String status = "pending";
+        @Setter private volatile Path archivePath;
+        @Setter private volatile String status = "pending";
         private final long expireTime;
 
         public ArchiveEntry(String token, String userUuid, long expireTime) {
@@ -388,9 +387,6 @@ public class UserQuotaService {
             this.userUuid = userUuid;
             this.expireTime = expireTime;
         }
-
-        public void setArchivePath(Path p) { this.archivePath = p; }
-        public void setStatus(String s) { this.status = s; }
     }
 
     public record QuotaCheckResult(boolean allowed, int artworksUsed, int maxArtworks, long resetSeconds) {}

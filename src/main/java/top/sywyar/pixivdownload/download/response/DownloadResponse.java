@@ -1,22 +1,13 @@
 package top.sywyar.pixivdownload.download.response;
 
-import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
-import lombok.Setter;
 
-@Setter
 @Getter
-@AllArgsConstructor
+@Builder
 public class DownloadResponse {
-    // getters and setters
     private boolean success;
     private String message;
     private String downloadPath;
     private int downloadedCount;
-
-    // constructors
-    public DownloadResponse(boolean success, String message) {
-        this.success = success;
-        this.message = message;
-    }
 }

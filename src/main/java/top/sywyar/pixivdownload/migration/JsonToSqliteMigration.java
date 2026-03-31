@@ -2,12 +2,16 @@ package top.sywyar.pixivdownload.migration;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.Iterator;
 import java.util.Map;
@@ -26,26 +30,20 @@ import java.util.function.Consumer;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class JsonToSqliteMigration {
 
-    private static final ObjectMapper objectMapper = new ObjectMapper();
-
+    private final ObjectMapper objectMapper;
     private final PixivDatabase pixivDatabase;
-    private final String rootFolder;
+    private final DownloadConfig downloadConfig;
 
-    public JsonToSqliteMigration(PixivDatabase pixivDatabase,
-                                 @Value("${download.root-folder:pixiv-download}") String rootFolder) {
-        this.pixivDatabase = pixivDatabase;
-        this.rootFolder = rootFolder;
-    }
-
-    public MigrationResult migrate() {
+    public MigrationResponse migrate() throws IOException {
         return migrate(null);
     }
 
-    public MigrationResult migrate(Consumer<String> progressReporter) {
-        File historyFile = Paths.get(rootFolder, "download_history.json").toFile();
-        File statisticsFile = Paths.get(rootFolder, "statistics.json").toFile();
+    public MigrationResponse migrate(Consumer<String> progressReporter) throws IOException {
+        File historyFile = Paths.get(downloadConfig.getRootFolder(), "download_history.json").toFile();
+        File statisticsFile = Paths.get(downloadConfig.getRootFolder(), "statistics.json").toFile();
 
         log.info("迁移开始，查找文件: {}", historyFile.getAbsolutePath());
 
@@ -53,88 +51,97 @@ public class JsonToSqliteMigration {
             String msg = "download_history.json 不存在，无需迁移";
             log.info(msg);
             report(progressReporter, msg);
-            return new MigrationResult(true, 0, 0, msg);
+            return new MigrationResponse(0, 0, msg);
         }
 
         int migrated = 0;
         int skipped = 0;
 
+        JsonNode history = objectMapper.readTree(historyFile);
+        JsonNode downloaded = history.path("downloaded");
+        int total = downloaded.size();
+
+        report(progressReporter, String.format("共找到 %d 条记录，开始迁移...", total));
+
+        for (Map.Entry<String, JsonNode> entry : downloaded.properties()) {
+            long artworkId;
+            try {
+                artworkId = Long.parseLong(entry.getKey());
+            } catch (NumberFormatException e) {
+                log.warn("跳过非法 artworkId: {}", entry.getKey());
+                skipped++;
+                continue;
+            }
+
+            if (pixivDatabase.hasArtwork(artworkId)) {
+                skipped++;
+            } else {
+                JsonNode artwork = entry.getValue();
+                String title = artwork.path("title").asText(null);
+                String folder = artwork.path("folder").asText(null);
+                int count = artwork.path("count").asInt();
+                String extensions = artwork.path("extensions").asText(null);
+                long time = artwork.has("time")
+                        ? artwork.path("time").asLong()
+                        : pixivDatabase.getUniqueTime();
+
+                pixivDatabase.insertArtwork(artworkId, title, folder, count, extensions, time, null);
+
+                if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
+                    String moveFolder = artwork.path("moveFolder").asText(null);
+                    long moveTime = artwork.path("moveTime").asLong();
+                    pixivDatabase.updateArtworkMove(artworkId, moveFolder, moveTime);
+                }
+
+                migrated++;
+            }
+
+            int done = migrated + skipped;
+            if (total > 0 && done % 100 == 0) {
+                int percent = done * 100 / total;
+                report(progressReporter, String.format("进度: %d/%d (%d%%)，已迁移 %d 条，跳过 %d 条",
+                        done, total, percent, migrated, skipped));
+            }
+        }
+
+        // 迁移统计数据（仅在数据库统计全为 0 时写入，避免覆盖新数据）
+        if (statisticsFile.exists()) {
+            int[] currentStats = pixivDatabase.getStats();
+            if (currentStats[0] == 0 && currentStats[1] == 0 && currentStats[2] == 0) {
+                JsonNode stats = objectMapper.readTree(statisticsFile);
+                int totalArtworks = stats.has("totalArtworks") ? stats.path("totalArtworks").asInt() : 0;
+                int totalImages = stats.has("totalImages") ? stats.path("totalImages").asInt() : 0;
+                int totalMoved = stats.has("totalMoved") ? stats.path("totalMoved").asInt() : 0;
+                pixivDatabase.setStats(totalArtworks, totalImages, totalMoved);
+                log.info("迁移统计数据: totalArtworks={}, totalImages={}, totalMoved={}",
+                        totalArtworks, totalImages, totalMoved);
+            } else {
+                log.info("数据库统计数据已存在，跳过统计迁移");
+            }
+        }
+
+        String msg = String.format("迁移完成：成功迁移 %d 条，跳过 %d 条", migrated, skipped);
+        log.info(msg);
+        report(progressReporter, msg);
+        return new MigrationResponse(migrated, skipped, msg);
+    }
+
+    /**
+     * 异步执行迁移并通过 SSE 推送进度。
+     */
+    @Async
+    public void migrateAsync(SseEmitter emitter) {
         try {
-            JsonNode history = objectMapper.readTree(historyFile);
-            JsonNode downloaded = history.path("downloaded");
-            int total = downloaded.size();
-
-            report(progressReporter, String.format("共找到 %d 条记录，开始迁移...", total));
-
-            Iterator<Map.Entry<String, JsonNode>> fields = downloaded.fields();
-            while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> entry = fields.next();
-                long artworkId;
+            migrate(message -> {
                 try {
-                    artworkId = Long.parseLong(entry.getKey());
-                } catch (NumberFormatException e) {
-                    log.warn("跳过非法 artworkId: {}", entry.getKey());
-                    skipped++;
-                    continue;
+                    emitter.send(SseEmitter.event().data(message));
+                } catch (IOException e) {
+                    emitter.completeWithError(e);
                 }
-
-                if (pixivDatabase.hasArtwork(artworkId)) {
-                    skipped++;
-                } else {
-                    JsonNode artwork = entry.getValue();
-                    String title = artwork.path("title").asText(null);
-                    String folder = artwork.path("folder").asText(null);
-                    int count = artwork.path("count").asInt();
-                    String extensions = artwork.path("extensions").asText(null);
-                    long time = artwork.has("time")
-                            ? artwork.path("time").asLong()
-                            : pixivDatabase.getUniqueTime();
-
-                    pixivDatabase.insertArtwork(artworkId, title, folder, count, extensions, time, null);
-
-                    if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
-                        String moveFolder = artwork.path("moveFolder").asText(null);
-                        long moveTime = artwork.path("moveTime").asLong();
-                        pixivDatabase.updateArtworkMove(artworkId, moveFolder, moveTime);
-                    }
-
-                    migrated++;
-                }
-
-                int done = migrated + skipped;
-                if (total > 0 && done % 100 == 0) {
-                    int percent = done * 100 / total;
-                    report(progressReporter, String.format("进度: %d/%d (%d%%)，已迁移 %d 条，跳过 %d 条",
-                            done, total, percent, migrated, skipped));
-                }
-            }
-
-            // 迁移统计数据（仅在数据库统计全为 0 时写入，避免覆盖新数据）
-            if (statisticsFile.exists()) {
-                int[] currentStats = pixivDatabase.getStats();
-                if (currentStats[0] == 0 && currentStats[1] == 0 && currentStats[2] == 0) {
-                    JsonNode stats = objectMapper.readTree(statisticsFile);
-                    int totalArtworks = stats.has("totalArtworks") ? stats.path("totalArtworks").asInt() : 0;
-                    int totalImages = stats.has("totalImages") ? stats.path("totalImages").asInt() : 0;
-                    int totalMoved = stats.has("totalMoved") ? stats.path("totalMoved").asInt() : 0;
-                    pixivDatabase.setStats(totalArtworks, totalImages, totalMoved);
-                    log.info("迁移统计数据: totalArtworks={}, totalImages={}, totalMoved={}",
-                            totalArtworks, totalImages, totalMoved);
-                } else {
-                    log.info("数据库统计数据已存在，跳过统计迁移");
-                }
-            }
-
-            String msg = String.format("迁移完成：成功迁移 %d 条，跳过 %d 条", migrated, skipped);
-            log.info(msg);
-            report(progressReporter, msg);
-            return new MigrationResult(true, migrated, skipped, msg);
-
+            });
+            emitter.complete();
         } catch (Exception e) {
-            log.error("迁移失败: {}", e.getMessage(), e);
-            String msg = "迁移失败: " + e.getMessage();
-            report(progressReporter, msg);
-            return new MigrationResult(false, migrated, skipped, msg);
+            emitter.completeWithError(e);
         }
     }
 
@@ -143,6 +150,4 @@ public class JsonToSqliteMigration {
             reporter.accept(message);
         }
     }
-
-    public record MigrationResult(boolean success, int migrated, int skipped, String message) {}
 }

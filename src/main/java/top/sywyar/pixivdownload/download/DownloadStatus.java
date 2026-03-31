@@ -1,14 +1,11 @@
 package top.sywyar.pixivdownload.download;
 
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
 
 import java.time.LocalDateTime;
 
-@Setter
-@Getter
+@Data
 public class DownloadStatus {
-    // getters and setters
     private Long artworkId;
     private String title;
     private int totalImages;

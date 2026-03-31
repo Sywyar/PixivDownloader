@@ -1,57 +1,26 @@
 package top.sywyar.pixivdownload.download.db;
 
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Repository;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.List;
 
 @Slf4j
-@Component
+@Repository
+@RequiredArgsConstructor
 public class PixivDatabase {
 
-    private final JdbcTemplate jdbcTemplate;
-
-    public PixivDatabase(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+    private final PixivMapper pixivMapper;
 
     @PostConstruct
     public void init() {
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS artworks (
-                    artwork_id INTEGER PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    folder TEXT NOT NULL,
-                    count INTEGER NOT NULL,
-                    extensions TEXT NOT NULL,
-                    time INTEGER NOT NULL UNIQUE,
-                    "R18" INTEGER DEFAULT NULL,
-                    moved INTEGER DEFAULT 0,
-                    move_folder TEXT,
-                    move_time INTEGER
-                )
-                """);
-
-        jdbcTemplate.execute("""
-                CREATE TABLE IF NOT EXISTS statistics (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    total_artworks INTEGER DEFAULT 0,
-                    total_images INTEGER DEFAULT 0,
-                    total_moved INTEGER DEFAULT 0
-                )
-                """);
-
-        jdbcTemplate.execute(
-                "INSERT OR IGNORE INTO statistics (id, total_artworks, total_images, total_moved) VALUES (1, 0, 0, 0)"
-        );
-
-        // 迁移：为无 R18 列的旧库补列，已有数据行该列为 NULL
-        try { jdbcTemplate.execute("ALTER TABLE artworks ADD COLUMN \"R18\" INTEGER DEFAULT NULL"); } catch (Exception ignored) {}
-
+        pixivMapper.createArtworksTable();
+        pixivMapper.createStatisticsTable();
+        pixivMapper.initStatistics();
+        // 幂等迁移：为无 R18 列的旧库补列，已有数据行该列为 NULL
+        try { pixivMapper.addR18Column(); } catch (Exception ignored) {}
         log.info("数据库初始化完成");
     }
 
@@ -60,22 +29,18 @@ public class PixivDatabase {
      */
     public synchronized long getUniqueTime() {
         long time = System.currentTimeMillis() / 1000;
-        Integer count;
+        int count;
         do {
-            count = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM artworks WHERE time = ?", Integer.class, time
-            );
-            if (count != null && count > 0) time++;
-        } while (count != null && count > 0);
+            count = pixivMapper.countByTime(time);
+            if (count > 0) time++;
+        } while (count > 0);
         return time;
     }
 
-    public void insertArtwork(long artworkId, String title, String folder, int count, String extensions, long time, Boolean isR18) {
-        jdbcTemplate.update(
-                "INSERT OR IGNORE INTO artworks (artwork_id, title, folder, count, extensions, time, \"R18\") VALUES (?, ?, ?, ?, ?, ?, ?)",
-                artworkId, title, stripTrailingSlash(folder), count, extensions, time,
-                isR18 == null ? null : (isR18 ? 1 : 0)
-        );
+    public void insertArtwork(long artworkId, String title, String folder, int count,
+                              String extensions, long time, Boolean isR18) {
+        pixivMapper.insertOrIgnore(artworkId, title, stripTrailingSlash(folder),
+                count, extensions, time, isR18);
     }
 
     private static String stripTrailingSlash(String path) {
@@ -83,119 +48,59 @@ public class PixivDatabase {
     }
 
     public ArtworkRecord getArtworkByMoveFolder(String moveFolder) {
-        // 去除末尾斜杠后比较，兼容 DB 中存在或不存在尾部分隔符的情况
-        String normalized = moveFolder.replaceAll("[/\\\\]+$", "");
-        List<ArtworkRecord> results = jdbcTemplate.query(
-                "SELECT artwork_id, title, folder, count, extensions, time, moved, move_folder, move_time, R18 FROM artworks WHERE RTRIM(RTRIM(move_folder, '/'), '\\') = ?",
-                this::mapArtworkRecord,
-                normalized
-        );
-        return results.isEmpty() ? null : results.get(0);
+        return pixivMapper.findByNormalizedMoveFolder(moveFolder.replaceAll("[/\\\\]+$", ""));
     }
 
     public void updateArtworkMove(long artworkId, String movePath, long moveTime) {
-        jdbcTemplate.update(
-                "UPDATE artworks SET moved = 1, move_folder = ?, move_time = ? WHERE artwork_id = ?",
-                stripTrailingSlash(movePath), moveTime, artworkId
-        );
+        pixivMapper.updateMove(artworkId, stripTrailingSlash(movePath), moveTime);
     }
 
     public void deleteArtwork(long artworkId) {
-        jdbcTemplate.update("DELETE FROM artworks WHERE artwork_id = ?", artworkId);
+        pixivMapper.deleteById(artworkId);
     }
 
     public boolean hasArtwork(long artworkId) {
-        Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM artworks WHERE artwork_id = ?", Integer.class, artworkId
-        );
-        return count != null && count > 0;
+        return pixivMapper.countById(artworkId) > 0;
     }
 
     public ArtworkRecord getArtwork(long artworkId) {
-        List<ArtworkRecord> results = jdbcTemplate.query(
-                "SELECT artwork_id, title, folder, count, extensions, time, moved, move_folder, move_time, R18 FROM artworks WHERE artwork_id = ?",
-                this::mapArtworkRecord,
-                artworkId
-        );
-        return results.isEmpty() ? null : results.get(0);
+        return pixivMapper.findById(artworkId);
     }
 
     public List<Long> getAllArtworkIds() {
-        return jdbcTemplate.queryForList("SELECT artwork_id FROM artworks", Long.class);
+        return pixivMapper.findAllIds();
     }
 
     public List<Long> getArtworkIdsSortedByTimeDesc() {
-        return jdbcTemplate.queryForList(
-                "SELECT artwork_id FROM artworks ORDER BY time DESC", Long.class
-        );
+        return pixivMapper.findAllIdsSortedByTimeDesc();
     }
 
     public List<ArtworkRecord> getArtworksOlderThan(long beforeTimeSec) {
-        return jdbcTemplate.query(
-                "SELECT artwork_id, title, folder, count, extensions, time, moved, move_folder, move_time, R18 FROM artworks WHERE time < ?",
-                this::mapArtworkRecord,
-                beforeTimeSec
-        );
+        return pixivMapper.findByTimeBefore(beforeTimeSec);
     }
 
     public long countArtworks() {
-        Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM artworks", Long.class);
-        return count != null ? count : 0;
+        return pixivMapper.countAll();
     }
 
     public List<Long> getArtworkIdsSortedByTimeDescPaged(int offset, int size) {
-        return jdbcTemplate.queryForList(
-                "SELECT artwork_id FROM artworks ORDER BY time DESC LIMIT ? OFFSET ?",
-                Long.class, size, offset
-        );
-    }
-
-    private ArtworkRecord mapArtworkRecord(ResultSet rs, int rowNum) throws SQLException {
-        boolean moved = rs.getInt("moved") == 1;
-        long moveTimeVal = rs.getLong("move_time");
-        Long moveTime = rs.wasNull() ? null : moveTimeVal;
-        int r18Raw = rs.getInt("R18");
-        Boolean isR18 = rs.wasNull() ? null : (r18Raw == 1);
-        return new ArtworkRecord(
-                rs.getLong("artwork_id"),
-                rs.getString("title"),
-                rs.getString("folder"),
-                rs.getInt("count"),
-                rs.getString("extensions"),
-                rs.getLong("time"),
-                moved,
-                rs.getString("move_folder"),
-                moveTime,
-                isR18
-        );
+        return pixivMapper.findIdsSortedByTimeDescPaged(size, offset);
     }
 
     public void incrementStats(int imageCount) {
-        jdbcTemplate.update(
-                "UPDATE statistics SET total_artworks = total_artworks + 1, total_images = total_images + ? WHERE id = 1",
-                imageCount
-        );
+        pixivMapper.incrementStats(imageCount);
     }
 
     public void incrementMoved() {
-        jdbcTemplate.update("UPDATE statistics SET total_moved = total_moved + 1 WHERE id = 1");
+        pixivMapper.incrementMoved();
     }
 
     public int[] getStats() {
-        return jdbcTemplate.queryForObject(
-                "SELECT total_artworks, total_images, total_moved FROM statistics WHERE id = 1",
-                (rs, rowNum) -> new int[]{
-                        rs.getInt("total_artworks"),
-                        rs.getInt("total_images"),
-                        rs.getInt("total_moved")
-                }
-        );
+        StatisticsData data = pixivMapper.getStats();
+        return new int[]{data.totalArtworks(), data.totalImages(), data.totalMoved()};
     }
 
     public void setStats(int totalArtworks, int totalImages, int totalMoved) {
-        jdbcTemplate.update(
-                "UPDATE statistics SET total_artworks = ?, total_images = ?, total_moved = ? WHERE id = 1",
-                totalArtworks, totalImages, totalMoved
-        );
+        pixivMapper.setStats(totalArtworks, totalImages, totalMoved);
     }
 }

@@ -1,14 +1,15 @@
 package top.sywyar.pixivdownload.quota;
 
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.quota.response.ArchiveStatusResponse;
 import top.sywyar.pixivdownload.quota.response.PackRateLimitResponse;
@@ -16,44 +17,39 @@ import top.sywyar.pixivdownload.quota.response.QuotaInitResponse;
 import top.sywyar.pixivdownload.quota.response.TriggerPackResponse;
 import top.sywyar.pixivdownload.setup.SetupService;
 
-import java.util.regex.Pattern;
+import java.time.Duration;
 
 @RestController
 @Slf4j
+@RequiredArgsConstructor
 public class ArchiveController {
-
-    private static final Pattern UUID_PATTERN =
-            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 
     private final UserQuotaService userQuotaService;
     private final MultiModeConfig multiModeConfig;
     private final SetupService setupService;
-
-    public ArchiveController(UserQuotaService userQuotaService,
-                             MultiModeConfig multiModeConfig,
-                             SetupService setupService) {
-        this.userQuotaService = userQuotaService;
-        this.multiModeConfig = multiModeConfig;
-        this.setupService = setupService;
-    }
 
     /**
      * 初始化配额会话：返回当前用户的 UUID 和配额状态。
      * 若用户没有 UUID cookie，则自动分配并写入 cookie。
      */
     @GetMapping("/api/quota/init")
-    public ResponseEntity<QuotaInitResponse> initQuota(
-            HttpServletRequest request, HttpServletResponse response) {
+    public ResponseEntity<QuotaInitResponse> initQuota(HttpServletRequest request) {
 
         if (!"multi".equals(setupService.getMode())
                 || !multiModeConfig.getQuota().isEnabled()) {
             return ResponseEntity.ok(new QuotaInitResponse(false, null, null, null, null, null));
         }
 
-        String uuid = extractOrCreateUuid(request, response);
+        String existingUuid = UuidUtils.extractExistingUuid(request);
+        String uuid = existingUuid != null ? existingUuid : UuidUtils.extractOrGenerateUuid(request);
         UserQuotaService.QuotaStatusResult status = userQuotaService.getQuotaStatus(uuid);
 
-        return ResponseEntity.ok(new QuotaInitResponse(
+        ResponseEntity.BodyBuilder responseBuilder = ResponseEntity.ok();
+        if (existingUuid == null) {
+            responseBuilder.header(HttpHeaders.SET_COOKIE, buildUuidCookie(uuid).toString());
+        }
+
+        return responseBuilder.body(new QuotaInitResponse(
                 true,
                 uuid,
                 status.artworksUsed(),
@@ -70,8 +66,7 @@ public class ArchiveController {
      * 若用户无已记录的文件夹（如首次调用或已清空），返回 204。
      */
     @PostMapping("/api/quota/pack")
-    public ResponseEntity<?> triggerPack(
-            HttpServletRequest request, HttpServletResponse response) {
+    public ResponseEntity<?> triggerPack(HttpServletRequest request) {
 
         if (!"multi".equals(setupService.getMode())
                 || !multiModeConfig.getQuota().isEnabled()) {
@@ -79,7 +74,7 @@ public class ArchiveController {
         }
 
         // UUID 必须已存在，不自动生成
-        String uuid = extractExistingUuid(request);
+        String uuid = UuidUtils.extractExistingUuid(request);
         if (uuid == null) {
             return ResponseEntity.status(401).body(new ErrorResponse("missing user UUID"));
         }
@@ -150,56 +145,14 @@ public class ArchiveController {
                 .body(new FileSystemResource(entry.getArchivePath()));
     }
 
-    // ---- UUID 工具 ---------------------------------------------------------------
+    // ---- Cookie 工具 ---------------------------------------------------------------
 
-    /**
-     * 仅读取已存在的 UUID（cookie 或请求头），不自动生成。
-     * 用于需要确认用户身份的操作（如触发打包）。
-     * 返回 null 表示请求方未提供 UUID。
-     */
-    String extractExistingUuid(HttpServletRequest request) {
-        Cookie[] cookies = request.getCookies();
-        if (cookies != null) {
-            for (Cookie c : cookies) {
-                if ("pixiv_user_id".equals(c.getName()) && c.getValue() != null
-                        && !c.getValue().isBlank()) {
-                    return c.getValue();
-                }
-            }
-        }
-        String headerUuid = request.getHeader("X-User-UUID");
-        if (headerUuid != null && !headerUuid.isBlank() && UUID_PATTERN.matcher(headerUuid).matches()) {
-            return headerUuid;
-        }
-        return null;
-    }
-
-    String extractOrCreateUuid(HttpServletRequest request, HttpServletResponse response) {
-        // 1. 优先读取 cookie
-        Cookie[] cookies = request.getCookies();
-        if (cookies != null) {
-            for (Cookie c : cookies) {
-                if ("pixiv_user_id".equals(c.getName()) && c.getValue() != null
-                        && !c.getValue().isBlank()) {
-                    return c.getValue();
-                }
-            }
-        }
-        // 2. 读取自定义请求头（油猴脚本场景），校验格式
-        String headerUuid = request.getHeader("X-User-UUID");
-        if (headerUuid != null && !headerUuid.isBlank() && UUID_PATTERN.matcher(headerUuid).matches()) {
-            setUuidCookie(response, headerUuid);
-            return headerUuid;
-        }
-        // 3. 基于 IP + UA 生成稳定 UUID
-        String uuid = UserQuotaService.generateUuidFromFingerprint(
-                request.getRemoteAddr(), request.getHeader("User-Agent"));
-        setUuidCookie(response, uuid);
-        return uuid;
-    }
-
-    private void setUuidCookie(HttpServletResponse response, String uuid) {
-        response.addHeader(HttpHeaders.SET_COOKIE,
-                "pixiv_user_id=" + uuid + "; Path=/; Max-Age=" + (30 * 24 * 3600) + "; SameSite=Strict; HttpOnly");
+    private ResponseCookie buildUuidCookie(String uuid) {
+        return ResponseCookie.from("pixiv_user_id", uuid)
+                .path("/")
+                .maxAge(Duration.ofDays(30))
+                .sameSite("Strict")
+                .httpOnly(true)
+                .build();
     }
 }

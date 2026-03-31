@@ -576,7 +576,7 @@ async function detectMode() {
 async function loadServerState() {
   try {
     const res = await fetch(BASE + '/api/batch/state');
-    if (res.ok) serverState = await res.json();
+    if (res.ok) { const data = await res.json(); serverState = data.state ?? {}; }
   } catch {}
 }
 
@@ -587,7 +587,7 @@ function scheduleServerSave() {
     fetch(BASE + '/api/batch/state', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(serverState),
+      body: JSON.stringify({ state: serverState }),
       credentials: 'same-origin'
     }).catch(() => {});
   }, 400);

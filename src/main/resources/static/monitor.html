@@ -1594,10 +1594,10 @@
         try {
             const res = await fetch('/api/download/status/active');
             if (!res.ok) return;
-            const ids = await res.json();
+            const { artworkIds } = await res.json();
 
             const details = await Promise.all(
-                ids.map(id => fetch(`/api/download/status/${id}`).then(r => r.ok ? r.json() : null))
+                artworkIds.map(id => fetch(`/api/download/status/${id}`).then(r => r.ok ? r.json() : null))
             );
 
             prevActiveCount = activeDownloads.length;

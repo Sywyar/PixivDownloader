@@ -10,7 +10,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
-import top.sywyar.pixivdownload.config.ProxyConfig;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
@@ -30,19 +31,21 @@ class DownloadServiceTest {
     @Mock
     private DownloadConfig downloadConfig;
     @Mock
-    private ProxyConfig proxyConfig;
-    @Mock
     private ApplicationEventPublisher eventPublisher;
     @Mock
     private PixivDatabase pixivDatabase;
     @Mock
     private UserQuotaService userQuotaService;
+    @Mock
+    private RestTemplate downloadRestTemplate;
+    @Mock
+    private TaskScheduler taskScheduler;
 
     private DownloadService downloadService;
 
     @BeforeEach
     void setUp() {
-        downloadService = new DownloadService(downloadConfig, proxyConfig, eventPublisher, pixivDatabase, userQuotaService);
+        downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService, downloadRestTemplate, taskScheduler);
     }
 
     // ========== validatePixivUrl (SSRF 防护) ==========
@@ -174,14 +177,13 @@ class DownloadServiceTest {
         }
 
         @Test
-        @DisplayName("数据库异常时应返回失败响应")
-        void shouldReturnFailureOnDatabaseError() {
+        @DisplayName("数据库异常时应向上传播")
+        void shouldPropagateOnDatabaseError() {
             when(pixivDatabase.getStats()).thenThrow(new RuntimeException("DB error"));
 
-            StatisticsResponse response = downloadService.getStatistics();
-
-            assertThat(response.isSuccess()).isFalse();
-            assertThat(response.getMessage()).contains("获取统计信息失败");
+            assertThatCode(() -> downloadService.getStatistics())
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("DB error");
         }
     }
 
@@ -214,11 +216,13 @@ class DownloadServiceTest {
         }
 
         @Test
-        @DisplayName("数据库异常时应返回 null")
-        void shouldReturnNullOnDatabaseError() {
+        @DisplayName("数据库异常时应向上传播")
+        void shouldPropagateOnDatabaseError() {
             when(pixivDatabase.getArtwork(12345L)).thenThrow(new RuntimeException("DB error"));
 
-            assertThat(downloadService.getDownloadedRecord(12345L)).isNull();
+            assertThatCode(() -> downloadService.getDownloadedRecord(12345L))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessage("DB error");
         }
     }
 

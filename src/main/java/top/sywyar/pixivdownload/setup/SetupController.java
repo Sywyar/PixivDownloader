@@ -1,30 +1,32 @@
 package top.sywyar.pixivdownload.setup;
 
-import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import org.springframework.web.server.ResponseStatusException;
+import top.sywyar.pixivdownload.common.SessionUtils;
+import top.sywyar.pixivdownload.setup.request.LoginRequest;
+import top.sywyar.pixivdownload.setup.request.SetupInitRequest;
 import top.sywyar.pixivdownload.setup.response.AuthCheckResponse;
 import top.sywyar.pixivdownload.setup.response.AuthResponse;
 import top.sywyar.pixivdownload.setup.response.SetupInitResponse;
 import top.sywyar.pixivdownload.setup.response.SetupStatusResponse;
 
 import java.io.IOException;
-import java.util.Map;
+import java.time.Duration;
 
 @RestController
 @Slf4j
+@RequiredArgsConstructor
 public class SetupController {
 
     private final SetupService setupService;
-
-    public SetupController(SetupService setupService) {
-        this.setupService = setupService;
-    }
 
     // ---- Setup endpoints -----------------------------------------------
 
@@ -37,75 +39,54 @@ public class SetupController {
     }
 
     @PostMapping("/api/setup/init")
-    public ResponseEntity<?> init(@RequestBody Map<String, String> body) throws IOException {
+    public SetupInitResponse init(@Valid @RequestBody SetupInitRequest request) throws IOException {
         if (setupService.isSetupComplete()) {
-            return ResponseEntity.status(403).body(new ErrorResponse("已完成配置，不可重复初始化"));
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "已完成配置，不可重复初始化");
         }
-        String username = body.get("username");
-        String password = body.get("password");
-        String mode     = body.get("mode");
-
-        if (username == null || username.isBlank())
-            return ResponseEntity.badRequest().body(new ErrorResponse("用户名不能为空"));
-        if (password == null || password.length() < 6)
-            return ResponseEntity.badRequest().body(new ErrorResponse("密码长度至少 6 位"));
-        if (!"solo".equals(mode) && !"multi".equals(mode))
-            return ResponseEntity.badRequest().body(new ErrorResponse("无效的使用模式"));
-
-        setupService.init(username, password, mode);
-        return ResponseEntity.ok(new SetupInitResponse(true, mode));
+        setupService.init(request.getUsername(), request.getPassword(), request.getMode());
+        return new SetupInitResponse(true, request.getMode());
     }
 
     // ---- Auth endpoints ------------------------------------------------
 
     @PostMapping("/api/auth/login")
-    public ResponseEntity<?> login(
-            @RequestBody Map<String, Object> body,
-            HttpServletResponse response) {
-        String username  = (String) body.get("username");
-        String password  = (String) body.get("password");
-        boolean remember = Boolean.TRUE.equals(body.get("rememberMe"));
-
-        if (!setupService.checkLogin(username, password)) {
-            return ResponseEntity.status(401).body(new ErrorResponse("用户名或密码错误"));
+    public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request) {
+        if (!setupService.checkLogin(request.getUsername(), request.getPassword())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户名或密码错误");
         }
 
-        String token = setupService.createSession(remember);
-        // SameSite=Strict 防止 CSRF
-        String maxAge = remember ? "; Max-Age=" + (30 * 24 * 3600) : "";
-        response.addHeader(HttpHeaders.SET_COOKIE,
-                "pixiv_session=" + token + "; Path=/; HttpOnly" + maxAge + "; SameSite=Strict");
+        String token = setupService.createSession(request.isRememberMe());
+        ResponseCookie cookie = ResponseCookie.from("pixiv_session", token)
+                .path("/")
+                .httpOnly(true)
+                .sameSite("Strict")
+                .maxAge(request.isRememberMe() ? Duration.ofDays(30) : Duration.ZERO)
+                .build();
 
-        return ResponseEntity.ok(new AuthResponse(true));
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(new AuthResponse(true));
     }
 
     @PostMapping("/api/auth/logout")
-    public ResponseEntity<AuthResponse> logout(
-            HttpServletRequest request,
-            HttpServletResponse response) {
-        String token = extractToken(request);
+    public ResponseEntity<AuthResponse> logout(HttpServletRequest request) {
+        String token = SessionUtils.extractToken(request);
         setupService.removeSession(token);
 
-        response.addHeader(HttpHeaders.SET_COOKIE,
-                "pixiv_session=; Path=/; HttpOnly; Max-Age=0; SameSite=Strict");
+        ResponseCookie cookie = ResponseCookie.from("pixiv_session", "")
+                .path("/")
+                .httpOnly(true)
+                .sameSite("Strict")
+                .maxAge(0)
+                .build();
 
-        return ResponseEntity.ok(new AuthResponse(true));
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(new AuthResponse(true));
     }
 
     @GetMapping("/api/auth/check")
     public AuthCheckResponse check(HttpServletRequest request) {
-        return new AuthCheckResponse(setupService.isValidSession(extractToken(request)));
-    }
-
-    // ---- 工具 ----------------------------------------------------------
-
-    private String extractToken(HttpServletRequest req) {
-        Cookie[] cookies = req.getCookies();
-        if (cookies != null) {
-            for (Cookie c : cookies) {
-                if ("pixiv_session".equals(c.getName())) return c.getValue();
-            }
-        }
-        return req.getHeader("X-Session-Token");
+        return new AuthCheckResponse(setupService.isValidSession(SessionUtils.extractToken(request)));
     }
 }

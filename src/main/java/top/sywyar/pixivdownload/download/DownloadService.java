@@ -1,18 +1,16 @@
 package top.sywyar.pixivdownload.download;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.http.HttpHost;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.lang.Nullable;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import top.sywyar.pixivdownload.config.ProxyConfig;
+import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
@@ -32,11 +30,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -46,25 +42,27 @@ import java.util.zip.ZipInputStream;
 public class DownloadService {
 
     private final DownloadConfig downloadConfig;
-    private final ProxyConfig proxyConfig;
     private final ApplicationEventPublisher eventPublisher;
     private final PixivDatabase pixivDatabase;
     private final UserQuotaService userQuotaService;
+    private final RestTemplate downloadRestTemplate;
+    private final TaskScheduler taskScheduler;
 
     // 存储下载状态
     private final ConcurrentHashMap<Long, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService cleanupScheduler = Executors.newSingleThreadScheduledExecutor();
 
     public DownloadService(DownloadConfig downloadConfig,
-                           ProxyConfig proxyConfig,
                            ApplicationEventPublisher eventPublisher,
                            PixivDatabase pixivDatabase,
-                           @Nullable UserQuotaService userQuotaService) {
+                           @Nullable UserQuotaService userQuotaService,
+                           @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
+                           TaskScheduler taskScheduler) {
         this.downloadConfig = downloadConfig;
-        this.proxyConfig = proxyConfig;
         this.eventPublisher = eventPublisher;
         this.pixivDatabase = pixivDatabase;
         this.userQuotaService = userQuotaService;
+        this.downloadRestTemplate = downloadRestTemplate;
+        this.taskScheduler = taskScheduler;
     }
 
     @Async
@@ -97,22 +95,6 @@ public class DownloadService {
 
             AtomicInteger successCount = new AtomicInteger(0);
 
-            // 优化 HttpClient 配置
-            RequestConfig requestConfig = RequestConfig.custom()
-                    .setConnectTimeout(30000)
-                    .setSocketTimeout(60000)
-                    .setConnectionRequestTimeout(30000)
-                    .build();
-
-            var clientBuilder = HttpClients.custom()
-                    .setDefaultRequestConfig(requestConfig)
-                    .setMaxConnTotal(20)
-                    .setMaxConnPerRoute(10);
-            if (proxyConfig.isEnabled()) {
-                clientBuilder.setProxy(new HttpHost(proxyConfig.getHost(), proxyConfig.getPort()));
-            }
-            CloseableHttpClient httpClient = clientBuilder.build();
-
             HashSet<String> fileExtensions = new HashSet<>();
 
             if (other.isUgoira() && other.getUgoiraZipUrl() != null) {
@@ -130,7 +112,7 @@ public class DownloadService {
                     boolean fatalError = false;
                     try {
                         log.info("正在下载动图ZIP：作品 {}（尝试 {}/{}）", artworkId, ugoiraAttempt, ugoiraMaxAttempts);
-                        boolean zipOk = downloadImage(httpClient, other.getUgoiraZipUrl(), zipPath, referer, cookie);
+                        boolean zipOk = downloadImage(other.getUgoiraZipUrl(), zipPath, referer, cookie);
                         if (!zipOk) {
                             log.error("作品：{}，动图ZIP下载失败(尝试 {}/{})", artworkId, ugoiraAttempt, ugoiraMaxAttempts);
                         } else {
@@ -261,7 +243,7 @@ public class DownloadService {
                         fileExtensions.add(extension);
                         String filename = artworkId + "_p" + i + "." + extension;
                         Path filePath = downloadPath.resolve(filename);
-                        if (downloadImage(httpClient, imageUrl, filePath, referer, cookie)) {
+                        if (downloadImage(imageUrl, filePath, referer, cookie)) {
                             successCount.incrementAndGet();
                             status.setDownloadedCount(successCount.get());
                             log.info("作品：{}，下载进度：{}/{}", artworkId, successCount.get(), imageUrls.size());
@@ -269,12 +251,10 @@ public class DownloadService {
                         }
                         if (other.getDelayMs() > 0) Thread.sleep(other.getDelayMs());
                     } catch (Exception e) {
-                        System.err.println("下载图片失败: " + imageUrl + ", 错误: " + e.getMessage());
+                        log.error("下载图片失败: {}, 错误: {}", imageUrl, e.getMessage());
                     }
                 }
             }
-
-            httpClient.close();
 
             // 多人模式：记录已下载的文件夹（用于配额超出时打包）
             if (userUuid != null && userQuotaService != null) {
@@ -303,51 +283,48 @@ public class DownloadService {
             status.setErrorMessage(e.getMessage());
         } finally {
             // 下载完成后，保留状态5分钟供查询，然后清理
-            cleanupScheduler.schedule(() -> downloadStatusMap.remove(artworkId), 5, TimeUnit.MINUTES);
+            taskScheduler.schedule(
+                    () -> downloadStatusMap.remove(artworkId),
+                    Instant.now().plusSeconds(300)
+            );
         }
     }
 
-    private boolean downloadImage(CloseableHttpClient httpClient, String imageUrl, Path filePath, String referer, String cookie) {
+    private boolean downloadImage(String imageUrl, Path filePath, String referer, String cookie) {
         int maxRetries = 3;
         int retryCount = 0;
 
         while (retryCount < maxRetries) {
             try {
-                HttpGet request = new HttpGet(imageUrl);
-                request.setHeader("Referer", referer);
-                request.setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                Boolean success = downloadRestTemplate.execute(imageUrl, HttpMethod.GET,
+                        request -> {
+                            request.getHeaders().set("Referer", referer);
+                            request.getHeaders().set("User-Agent",
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                            if (cookie != null && !cookie.trim().isEmpty()) {
+                                request.getHeaders().set("Cookie", cookie);
+                            }
+                        },
+                        (ClientHttpResponse response) -> {
+                            if (!response.getStatusCode().is2xxSuccessful()) {
+                                log.error("HTTP错误: {} for {}", response.getStatusCode(), imageUrl);
+                                return false;
+                            }
+                            try (InputStream inputStream = response.getBody();
+                                 FileOutputStream outputStream = new FileOutputStream(filePath.toFile())) {
+                                byte[] buffer = new byte[4096];
+                                int bytesRead;
+                                while ((bytesRead = inputStream.read(buffer)) != -1) {
+                                    outputStream.write(buffer, 0, bytesRead);
+                                }
+                            }
+                            return true;
+                        });
 
-                // 添加Cookie到请求头
-                if (cookie != null && !cookie.trim().isEmpty()) {
-                    request.setHeader("Cookie", cookie);
-                }
-
-                // 设置超时
-                RequestConfig config = RequestConfig.custom()
-                        .setConnectTimeout(30000)
-                        .setSocketTimeout(60000)
-                        .build();
-                request.setConfig(config);
-
-                try (CloseableHttpResponse response = httpClient.execute(request);
-                     InputStream inputStream = response.getEntity().getContent();
-                     FileOutputStream outputStream = new FileOutputStream(filePath.toFile())) {
-
-                    // 检查响应状态
-                    if (response.getStatusLine().getStatusCode() != 200) {
-                        log.error("HTTP错误: {} for {}", response.getStatusLine().getStatusCode(), imageUrl);
-                        retryCount++;
-                        continue;
-                    }
-
-                    byte[] buffer = new byte[4096];
-                    int bytesRead;
-                    while ((bytesRead = inputStream.read(buffer)) != -1) {
-                        outputStream.write(buffer, 0, bytesRead);
-                    }
-
+                if (Boolean.TRUE.equals(success)) {
                     return true;
                 }
+                retryCount++;
             } catch (Exception e) {
                 retryCount++;
                 log.error("下载失败：{}，错误:{}，重试：{}/{}", imageUrl, e.getMessage(), retryCount, maxRetries);
@@ -429,114 +406,99 @@ public class DownloadService {
     }
 
     public ArtworkRecord getDownloadedRecord(Long artworkId) {
-        try {
-            return pixivDatabase.getArtwork(artworkId);
-        } catch (Exception e) {
-            log.error("作品：{}，下载历史获取失败", artworkId, e);
-            return null;
-        }
+        return pixivDatabase.getArtwork(artworkId);
     }
 
-    public ImageResponse getImageResponse(Long artworkId, int page, boolean thumbnail) {
-        try {
-            ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-            if (artwork == null) {
-                throw new RuntimeException("找不到作品");
-            }
-
-            int count = artwork.count();
-            if (count <= page || page < 0) {
-                return new ImageResponse(false, null, null, 0, 0, 0, artworkId + "作品没有第" + page + "页");
-            }
-
-            String dirPath = artwork.moved() ? artwork.moveFolder() : artwork.folder();
-            String extension = artwork.extensions();
-
-            File imageFile;
-            if (count == 1) {
-                imageFile = Paths.get(dirPath, artworkId + "_p0." + extension).toFile();
-            } else {
-                String fileName = artworkId + "_p" + page;
-                String[] extensions = extension.split(",");
-                if (extensions.length > 1) {
-                    imageFile = findFileByName(dirPath, fileName);
-                    if (imageFile == null) {
-                        return new ImageResponse(false, null, null, 0, 0, 0, artworkId + "作品找不到" + fileName);
-                    }
-                    extension = getFileExtension(imageFile.getName());
-                } else {
-                    imageFile = Paths.get(dirPath, fileName + "." + extension).toFile();
-                }
-            }
-
-            boolean isWebp = "webp".equals(extension);
-
-            // WebP 完整图请求：直接返回原始字节，由 rawfile 端点处理更高效
-            // 此处 thumbnail=false 路径保留为备用
-            if (isWebp && !thumbnail) {
-                byte[] fileBytes = Files.readAllBytes(imageFile.toPath());
-                String base64Image = Base64.getEncoder().encodeToString(fileBytes);
-                return new ImageResponse(true, base64Image, "webp", base64Image.length(), 0, 0, "成功获取动图");
-            }
-
-            // WebP 缩略图：使用伴随的 _p0_thumb.jpg 文件
-            if (isWebp) {
-                File thumbFile = Paths.get(dirPath, artworkId + "_p0_thumb.jpg").toFile();
-                if (!thumbFile.exists()) {
-                    return new ImageResponse(false, null, null, 0, 0, 0, "找不到动图缩略图");
-                }
-                imageFile = thumbFile;
-                extension = "jpg";
-            }
-
-            BufferedImage image;
-            if (thumbnail) {
-                image = ThumbnailManager.getThumbnail(imageFile, -1, -1);
-            } else {
-                image = ImageIO.read(imageFile);
-            }
-
-            String writeFormat = extension;
-            ByteArrayOutputStream bass = new ByteArrayOutputStream();
-            ImageIO.write(image, writeFormat, bass);
-            String base64Image = Base64.getEncoder().encodeToString(bass.toByteArray());
-
-            return new ImageResponse(true, base64Image, writeFormat, base64Image.length(), image.getWidth(), image.getHeight(), "成功获取图片缩略图");
-        } catch (Exception e) {
-            log.error("获取图片失败，作品：{}，页码：{}，是否缩略：{}，原因：{}", artworkId, page, thumbnail, e.getMessage(), e);
-            return new ImageResponse(false, null, null, 0, 0, 0, "获取图片失败，原因:" + e.getMessage());
+    public ImageResponse getImageResponse(Long artworkId, int page, boolean thumbnail) throws IOException {
+        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
+        if (artwork == null) {
+            return null;
         }
+
+        int count = artwork.count();
+        if (count <= page || page < 0) {
+            return null;
+        }
+
+        String dirPath = artwork.moved() ? artwork.moveFolder() : artwork.folder();
+        String extension = artwork.extensions();
+
+        File imageFile;
+        if (count == 1) {
+            imageFile = Paths.get(dirPath, artworkId + "_p0." + extension).toFile();
+        } else {
+            String fileName = artworkId + "_p" + page;
+            String[] extensions = extension.split(",");
+            if (extensions.length > 1) {
+                imageFile = findFileByName(dirPath, fileName);
+                if (imageFile == null) {
+                    return null;
+                }
+                extension = getFileExtension(imageFile.getName());
+            } else {
+                imageFile = Paths.get(dirPath, fileName + "." + extension).toFile();
+            }
+        }
+
+        boolean isWebp = "webp".equals(extension);
+
+        // WebP 完整图请求：直接返回原始字节，由 rawfile 端点处理更高效
+        // 此处 thumbnail=false 路径保留为备用
+        if (isWebp && !thumbnail) {
+            byte[] fileBytes = Files.readAllBytes(imageFile.toPath());
+            String base64Image = Base64.getEncoder().encodeToString(fileBytes);
+            return new ImageResponse(true, base64Image, "webp", base64Image.length(), 0, 0, "成功获取动图");
+        }
+
+        // WebP 缩略图：使用伴随的 _p0_thumb.jpg 文件
+        if (isWebp) {
+            File thumbFile = Paths.get(dirPath, artworkId + "_p0_thumb.jpg").toFile();
+            if (!thumbFile.exists()) {
+                return null;
+            }
+            imageFile = thumbFile;
+            extension = "jpg";
+        }
+
+        BufferedImage image;
+        if (thumbnail) {
+            image = ThumbnailManager.getThumbnail(imageFile, -1, -1);
+        } else {
+            image = ImageIO.read(imageFile);
+        }
+
+        String writeFormat = extension;
+        ByteArrayOutputStream bass = new ByteArrayOutputStream();
+        ImageIO.write(image, writeFormat, bass);
+        String base64Image = Base64.getEncoder().encodeToString(bass.toByteArray());
+
+        return new ImageResponse(true, base64Image, writeFormat, base64Image.length(), image.getWidth(), image.getHeight(), "成功获取图片缩略图");
     }
 
     public File getImageFile(Long artworkId, int page) {
-        try {
-            ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-            if (artwork == null) return null;
+        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
+        if (artwork == null) return null;
 
-            int count = artwork.count();
-            if (count <= page || page < 0) return null;
+        int count = artwork.count();
+        if (count <= page || page < 0) return null;
 
-            String dirPath = artwork.moved() ? artwork.moveFolder() : artwork.folder();
-            String extension = artwork.extensions();
+        String dirPath = artwork.moved() ? artwork.moveFolder() : artwork.folder();
+        String extension = artwork.extensions();
 
-            File imageFile;
-            if (count == 1) {
-                imageFile = Paths.get(dirPath, artworkId + "_p0." + extension).toFile();
+        File imageFile;
+        if (count == 1) {
+            imageFile = Paths.get(dirPath, artworkId + "_p0." + extension).toFile();
+        } else {
+            String fileName = artworkId + "_p" + page;
+            String[] extensions = extension.split(",");
+            if (extensions.length > 1) {
+                imageFile = findFileByName(dirPath, fileName);
             } else {
-                String fileName = artworkId + "_p" + page;
-                String[] extensions = extension.split(",");
-                if (extensions.length > 1) {
-                    imageFile = findFileByName(dirPath, fileName);
-                } else {
-                    imageFile = Paths.get(dirPath, fileName + "." + extension).toFile();
-                }
+                imageFile = Paths.get(dirPath, fileName + "." + extension).toFile();
             }
-
-            return (imageFile != null && imageFile.exists()) ? imageFile : null;
-        } catch (Exception e) {
-            log.error("获取图片文件失败，作品：{}，页码：{}", artworkId, page, e);
-            return null;
         }
+
+        return (imageFile != null && imageFile.exists()) ? imageFile : null;
     }
 
     public static File findFileByName(String directoryPath, String fileName) {
@@ -569,13 +531,8 @@ public class DownloadService {
     }
 
     public StatisticsResponse getStatistics() {
-        try {
-            int[] stats = pixivDatabase.getStats();
-            return new StatisticsResponse(true, stats[0], stats[1], stats[2], "获取成功");
-        } catch (Exception e) {
-            log.error("获取统计信息失败", e);
-            return new StatisticsResponse(false, -1, -1, -1, "获取统计信息失败，原因：" + e.getMessage());
-        }
+        int[] stats = pixivDatabase.getStats();
+        return new StatisticsResponse(true, stats[0], stats[1], stats[2], "获取成功");
     }
 
     public List<Long> getSortTimeArtwork() {

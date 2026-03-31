@@ -1,12 +1,10 @@
 package top.sywyar.pixivdownload.quota;
 
-import lombok.Getter;
-import lombok.Setter;
+import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Configuration;
 
-@Getter
-@Setter
+@Data
 @Configuration
 @ConfigurationProperties(prefix = "multi-mode")
 public class MultiModeConfig {
@@ -26,8 +24,7 @@ public class MultiModeConfig {
     /** timed-delete 模式：作品下载完成后多少小时自动删除源文件 */
     private int deleteAfterHours = 72;
 
-    @Getter
-    @Setter
+    @Data
     public static class Quota {
         /** 是否启用配额限制 */
         private boolean enabled = true;

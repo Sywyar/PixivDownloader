@@ -113,10 +113,10 @@ class DownloadControllerTest {
 
         mockMvc.perform(get("/api/download/status/active"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(3)))
-                .andExpect(jsonPath("$[0]").value(1))
-                .andExpect(jsonPath("$[1]").value(2))
-                .andExpect(jsonPath("$[2]").value(3));
+                .andExpect(jsonPath("$.artworkIds", hasSize(3)))
+                .andExpect(jsonPath("$.artworkIds[0]").value(1))
+                .andExpect(jsonPath("$.artworkIds[1]").value(2))
+                .andExpect(jsonPath("$.artworkIds[2]").value(3));
     }
 
     // ========== POST /api/cancel/{artworkId} ==========
@@ -240,11 +240,11 @@ class DownloadControllerTest {
 
         mockMvc.perform(post("/api/downloaded/batch")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("[1, 2, 3]"))
+                        .content("{\"artworkIds\": [1, 2, 3]}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].artworkId").value(1))
-                .andExpect(jsonPath("$[1].artworkId").value(2));
+                .andExpect(jsonPath("$.artworks", hasSize(2)))
+                .andExpect(jsonPath("$.artworks[0].artworkId").value(1))
+                .andExpect(jsonPath("$.artworks[1].artworkId").value(2));
     }
 
     // ========== GET /api/downloaded/statistics ==========
@@ -314,7 +314,7 @@ class DownloadControllerTest {
 
         mockMvc.perform(get("/api/downloaded/history"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$", hasSize(3)));
+                .andExpect(jsonPath("$.artworkIds", hasSize(3)));
     }
 
     // ========== GET /api/downloaded/history/paged ==========
