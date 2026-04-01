@@ -50,6 +50,7 @@ public class AppConfigGenerator {
             multi-mode.quota.max-artworks: 50              # 每用户每周期最多下载作品数
             multi-mode.quota.reset-period-hours: 24        # 配额重置周期（小时）
             multi-mode.quota.archive-expire-minutes: 60    # 压缩包下载链接有效时间（分钟）
+            multi-mode.quota.limit-image: 0                # 单作品图片数上限（0=不限制）；超出后按 ceil(图片数/limit-image) 个作品计算配额
 
             # 下载后处理模式（三选一）：
             #   pack-and-delete  打包后删除源文件（默认）

@@ -39,9 +39,10 @@ public class UserQuotaService {
     // ---- 配额管理 ----------------------------------------------------------------
 
     /**
-     * 检查并预留配额。若允许，原子地扣减 1（每次下载请求对应一个作品）；否则返回拒绝结果。
+     * 检查并预留配额。若允许，按作品权重扣减配额；否则返回拒绝结果。
+     * 权重计算：若 limitImage > 0 且 imageCount > limitImage，则权重 = ceil(imageCount / limitImage)，否则为 1。
      */
-    public QuotaCheckResult checkAndReserve(String uuid) {
+    public QuotaCheckResult checkAndReserve(String uuid, int imageCount) {
         UserQuota quota = quotaMap.computeIfAbsent(uuid, UserQuota::new);
         MultiModeConfig.Quota cfg = config.getQuota();
 
@@ -57,14 +58,28 @@ public class UserQuotaService {
             int used = quota.getArtworksUsed().get();
             int max = cfg.getMaxArtworks();
             long resetSeconds = Math.max(0, (quota.getPeriodStart() + periodMs - now) / 1000);
+            int weight = calculateArtworkWeight(imageCount);
 
-            if (used + 1 > max) {
+            if (used + weight > max) {
                 return new QuotaCheckResult(false, used, max, resetSeconds);
             }
 
-            quota.getArtworksUsed().incrementAndGet();
-            return new QuotaCheckResult(true, used + 1, max, resetSeconds);
+            quota.getArtworksUsed().addAndGet(weight);
+            return new QuotaCheckResult(true, used + weight, max, resetSeconds);
         }
+    }
+
+    /**
+     * 计算作品配额权重。
+     * 当 limitImage <= 0 或 imageCount <= limitImage 时，权重为 1；
+     * 否则为 ceil(imageCount / limitImage)。
+     */
+    private int calculateArtworkWeight(int imageCount) {
+        int limitImage = config.getQuota().getLimitImage();
+        if (limitImage <= 0 || imageCount <= limitImage) {
+            return 1;
+        }
+        return (int) Math.ceil((double) imageCount / limitImage);
     }
 
     /**

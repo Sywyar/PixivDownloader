@@ -46,7 +46,7 @@ class UserQuotaServiceTest {
         @Test
         @DisplayName("首次请求应允许")
         void shouldAllowFirstRequest() {
-            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("user1");
+            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("user1", 1);
 
             assertThat(result.allowed()).isTrue();
             assertThat(result.artworksUsed()).isEqualTo(1);
@@ -56,11 +56,11 @@ class UserQuotaServiceTest {
         @Test
         @DisplayName("达到配额上限后应拒绝")
         void shouldRejectWhenQuotaExceeded() {
-            userQuotaService.checkAndReserve("user1");
-            userQuotaService.checkAndReserve("user1");
-            userQuotaService.checkAndReserve("user1");
+            userQuotaService.checkAndReserve("user1", 1);
+            userQuotaService.checkAndReserve("user1", 1);
+            userQuotaService.checkAndReserve("user1", 1);
 
-            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("user1");
+            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("user1", 1);
             assertThat(result.allowed()).isFalse();
             assertThat(result.artworksUsed()).isEqualTo(3);
         }
@@ -68,12 +68,85 @@ class UserQuotaServiceTest {
         @Test
         @DisplayName("不同用户应有独立配额")
         void shouldHaveIndependentQuotaPerUser() {
-            userQuotaService.checkAndReserve("user1");
-            userQuotaService.checkAndReserve("user1");
-            userQuotaService.checkAndReserve("user1");
+            userQuotaService.checkAndReserve("user1", 1);
+            userQuotaService.checkAndReserve("user1", 1);
+            userQuotaService.checkAndReserve("user1", 1);
 
             // user2 应有独立的配额
-            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("user2");
+            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("user2", 1);
+            assertThat(result.allowed()).isTrue();
+            assertThat(result.artworksUsed()).isEqualTo(1);
+        }
+    }
+
+    // ========== checkAndReserve - limit-image 权重 ==========
+
+    @Nested
+    @DisplayName("checkAndReserve - limit-image 多作品权重")
+    class LimitImageTests {
+
+        @BeforeEach
+        void setLimitImage() {
+            multiModeConfig.getQuota().setLimitImage(3);
+            multiModeConfig.getQuota().setMaxArtworks(5);
+            userQuotaService = new UserQuotaService(multiModeConfig, downloadConfig, pixivDatabase);
+        }
+
+        @Test
+        @DisplayName("图片数未超限时权重为 1")
+        void shouldWeightOneWhenUnderLimit() {
+            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("u1", 3);
+            assertThat(result.allowed()).isTrue();
+            assertThat(result.artworksUsed()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("图片数超限时权重为 ceil(count/limit)")
+        void shouldWeightMultipleWhenOverLimit() {
+            // 7张图 / 3 = ceil(2.33) = 3 个作品
+            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("u1", 7);
+            assertThat(result.allowed()).isTrue();
+            assertThat(result.artworksUsed()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("权重超出剩余配额时应拒绝且不消耗剩余配额")
+        void shouldRejectWhenWeightExceedsRemainingAndNotConsumeQuota() {
+            // ceil(4/3)=2，used=2
+            userQuotaService.checkAndReserve("u1", 4);
+            // weight=1，used=3
+            userQuotaService.checkAndReserve("u1", 3);
+            // ceil(9/3)=3，used+3=6 > 5，应拒绝
+            UserQuotaService.QuotaCheckResult rejected = userQuotaService.checkAndReserve("u1", 9);
+            assertThat(rejected.allowed()).isFalse();
+            // 拒绝后剩余 2 个配额应未被消耗，单张图片仍可下载
+            UserQuotaService.QuotaCheckResult next = userQuotaService.checkAndReserve("u1", 1);
+            assertThat(next.allowed()).isTrue();
+            assertThat(next.artworksUsed()).isEqualTo(4); // 3 + 1，未加上被拒绝的 3
+        }
+
+        @Test
+        @DisplayName("剩余1个配额时权重>1的作品应拒绝且不消耗该配额")
+        void shouldNotConsumeLastSlotWhenWeightExceedsIt() {
+            // max=5，先消耗4个：weight=ceil(4/3)=2 → used=2，再 weight=1 两次 → used=4
+            userQuotaService.checkAndReserve("u1", 4); // used=2
+            userQuotaService.checkAndReserve("u1", 1); // used=3
+            userQuotaService.checkAndReserve("u1", 1); // used=4，剩余1个
+            // 权重=2的作品：4+2=6 > 5，应拒绝
+            UserQuotaService.QuotaCheckResult rejected = userQuotaService.checkAndReserve("u1", 4);
+            assertThat(rejected.allowed()).isFalse();
+            assertThat(rejected.artworksUsed()).isEqualTo(4); // 未变化
+            // 剩余的1个配额仍可被单张图片使用
+            UserQuotaService.QuotaCheckResult last = userQuotaService.checkAndReserve("u1", 1);
+            assertThat(last.allowed()).isTrue();
+            assertThat(last.artworksUsed()).isEqualTo(5);
+        }
+
+        @Test
+        @DisplayName("limitImage=0 时始终权重为 1")
+        void shouldAlwaysWeightOneWhenLimitDisabled() {
+            multiModeConfig.getQuota().setLimitImage(0);
+            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("u1", 100);
             assertThat(result.allowed()).isTrue();
             assertThat(result.artworksUsed()).isEqualTo(1);
         }
@@ -88,7 +161,7 @@ class UserQuotaServiceTest {
         @Test
         @DisplayName("记录文件夹后应可在配额中查到")
         void shouldRecordFolder() {
-            userQuotaService.checkAndReserve("user1"); // 创建用户配额
+            userQuotaService.checkAndReserve("user1", 1); // 创建用户配额
             userQuotaService.recordFolder("user1", Path.of("/path/to/folder"));
 
             UserQuotaService.UserQuota quota = userQuotaService.getQuotaForUser("user1");
@@ -125,8 +198,8 @@ class UserQuotaServiceTest {
         @Test
         @DisplayName("已使用配额的用户应返回正确数值")
         void shouldReturnCorrectUsageForExistingUser() {
-            userQuotaService.checkAndReserve("user1");
-            userQuotaService.checkAndReserve("user1");
+            userQuotaService.checkAndReserve("user1", 1);
+            userQuotaService.checkAndReserve("user1", 1);
 
             UserQuotaService.QuotaStatusResult status = userQuotaService.getQuotaStatus("user1");
             assertThat(status.artworksUsed()).isEqualTo(2);
@@ -186,7 +259,7 @@ class UserQuotaServiceTest {
         @Test
         @DisplayName("应返回有效的 token")
         void shouldReturnValidToken() {
-            userQuotaService.checkAndReserve("user1");
+            userQuotaService.checkAndReserve("user1", 1);
             String token = userQuotaService.triggerArchive("user1");
 
             assertThat(token).isNotNull().isNotBlank();
@@ -195,7 +268,7 @@ class UserQuotaServiceTest {
         @Test
         @DisplayName("应能通过 token 查到压缩包信息")
         void shouldFindArchiveByToken() {
-            userQuotaService.checkAndReserve("user1");
+            userQuotaService.checkAndReserve("user1", 1);
             String token = userQuotaService.triggerArchive("user1");
 
             UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);

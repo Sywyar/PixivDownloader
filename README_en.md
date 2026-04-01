@@ -324,6 +324,7 @@ multi-mode.quota.enabled: true                 # Enable download quota limit
 multi-mode.quota.max-artworks: 50              # Max artworks per user per period
 multi-mode.quota.reset-period-hours: 24        # Quota reset period (hours)
 multi-mode.quota.archive-expire-minutes: 60    # Archive download link expiration (minutes)
+multi-mode.quota.limit-image: 0                # Max images per artwork (0=unlimited); if exceeded, counts as ceil(images/limit-image) artworks toward quota
 
 # Post-download processing mode (choose one):
 #   pack-and-delete  Package and delete source files (default)

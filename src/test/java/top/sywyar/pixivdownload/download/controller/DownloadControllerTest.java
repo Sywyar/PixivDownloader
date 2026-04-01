@@ -178,7 +178,7 @@ class DownloadControllerTest {
             multiModeConfig.getQuota().setArchiveExpireMinutes(60);
             multiModeConfig.setPostDownloadMode("pack-and-delete");
 
-            when(userQuotaService.checkAndReserve(anyString()))
+            when(userQuotaService.checkAndReserve(anyString(), anyInt()))
                     .thenReturn(new UserQuotaService.QuotaCheckResult(false, 50, 50, 3600));
             when(userQuotaService.triggerArchive(anyString())).thenReturn("archive-token");
 

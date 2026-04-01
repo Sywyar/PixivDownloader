@@ -37,5 +37,7 @@ public class MultiModeConfig {
         private int resetPeriodHours = 24;
         /** 压缩包下载链接有效时间（分钟） */
         private int archiveExpireMinutes = 60;
+        /** 单作品图片数上限（0=不限制）；超出后按 ceil(count/limitImage) 个作品计算配额 */
+        private int limitImage = 0;
     }
 }

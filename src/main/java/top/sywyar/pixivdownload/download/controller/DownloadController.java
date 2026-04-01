@@ -64,7 +64,8 @@ public class DownloadController {
         // 多人模式且配额启用时，检查下载配额
         if ("multi".equals(setupService.getMode()) && multiModeConfig.getQuota().isEnabled()) {
             userUuid = extractUserUuid(httpRequest);
-            UserQuotaService.QuotaCheckResult check = userQuotaService.checkAndReserve(userUuid);
+            int imageCount = request.getOther().isUgoira() ? 1 : request.getImageUrls().size();
+            UserQuotaService.QuotaCheckResult check = userQuotaService.checkAndReserve(userUuid, imageCount);
 
             if (!check.allowed()) {
                 // 配额不足：触发打包，返回 429
