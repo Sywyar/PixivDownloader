@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pixiv 批量下载器</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -234,16 +236,78 @@
   #archive-card .btn-download:disabled {
     background: #aaa; cursor: not-allowed;
   }
+
+  /* ── App Navigation ── */
+  .app-nav {
+      background: #28a745; /* 沿用 header 的绿色 */
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      height: 50px;
+      box-shadow: 0 2px 4px rgba(0,0,0,.1);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .app-nav-brand {
+      font-size: 18px;
+      font-weight: bold;
+      color: white;
+      margin-right: 24px;
+      letter-spacing: .5px;
+  }
+  .app-nav-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 16px;
+      height: 100%;
+      font-size: 14px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.8);
+      text-decoration: none;
+      transition: all 0.2s;
+  }
+  .app-nav-link:hover {
+      color: white;
+      background: rgba(255, 255, 255, 0.15);
+  }
+  .app-nav-link.active {
+      color: white;
+      background: rgba(0, 0, 0, 0.1);
+      font-weight: bold;
+  }
+  .app-nav-link i {
+      font-size: 14px;
+  }
+  .app-nav-spacer { flex: 1; }
+  .app-nav-logout {
+      font-size: 12px;
+      padding: 6px 12px;
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+  }
+  .app-nav-logout:hover {
+      background: white;
+      color: #28a745;
+  }
 </style>
 </head>
 <body>
 
-<header style="display:flex;justify-content:space-between;align-items:center;">
-  <span>Pixiv 批量下载器</span>
-  <button id="logout-btn" style="display:none;padding:5px 12px;font-size:12px;font-weight:bold;
-    border:1px solid rgba(255,255,255,.6);border-radius:4px;background:transparent;
-    color:white;cursor:pointer;" onclick="doLogout()">退出登录</button>
-</header>
+<nav class="app-nav">
+    <span class="app-nav-brand">Pixiv 下载助手</span>
+    <a href="/monitor.html" class="app-nav-link">
+        <i class="fas fa-chart-line"></i> MONITOR
+    </a>
+    <a href="/pixiv-batch.html" class="app-nav-link active">
+        <i class="fas fa-layer-group"></i> BATCH
+    </a>
+    <div class="app-nav-spacer"></div>
+    <button id="logout-btn" style="display:none;" class="app-nav-logout" onclick="doLogout()">Logout</button>
+</nav>
 
 <div class="page">
 
@@ -317,6 +381,10 @@
         <input type="checkbox" id="s-R18">
         <label for="s-R18" class="R18-label" style="cursor:pointer;">仅下载 R18 作品</label>
       </div>
+      <div class="setting-item">
+        <input type="checkbox" id="s-bookmark">
+        <label for="s-bookmark" style="cursor:pointer;">下载后自动收藏</label>
+      </div>
     </div>
   </div>
 
@@ -389,7 +457,7 @@ let state = {
   sseMap: {},
   sseListeners: {},
   stats: { success: 0, failed: 0, active: 0, skipped: 0 },
-  settings: { interval: 2, intervalUnit: 's', imageDelay: 0, imageDelayUnit: 'ms', concurrent: 1, skipHistory: false, R18Only: false }
+  settings: { interval: 2, intervalUnit: 's', imageDelay: 0, imageDelayUnit: 'ms', concurrent: 1, skipHistory: false, R18Only: false, bookmark: false }
 };
 
 const BASE = '';  // 使用相对路径，自动适配访问地址
@@ -802,7 +870,7 @@ function toggleIntervalUnit() {
 
 async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, isR18, ugoiraData) {
   const delayMs = getImageDelayMs();
-  const other = { userDownload: isUserDownload, username: username || '', isR18: !!isR18, delayMs };
+  const other = { userDownload: isUserDownload, username: username || '', isR18: !!isR18, delayMs, bookmark: !!state.settings.bookmark };
   if (ugoiraData) {
     other.isUgoira = true;
     other.ugoiraZipUrl = ugoiraData.zipUrl;
@@ -1498,6 +1566,7 @@ function loadSettings() {
   document.getElementById('s-concurrent').value        = state.settings.concurrent;
   document.getElementById('s-skip').checked            = state.settings.skipHistory;
   document.getElementById('s-R18').checked             = state.settings.R18Only;
+  document.getElementById('s-bookmark').checked        = state.settings.bookmark ?? false;
   document.getElementById('s-image-delay').value       = state.settings.imageDelay ?? 0;
   const unit = state.settings.intervalUnit || 's';
   state.settings.intervalUnit = unit;
@@ -1513,6 +1582,7 @@ function syncSettings() {
   state.settings.concurrent  = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
   state.settings.skipHistory = document.getElementById('s-skip').checked;
   state.settings.R18Only     = document.getElementById('s-R18').checked;
+  state.settings.bookmark    = document.getElementById('s-bookmark').checked;
   saveSettings();
 }
 

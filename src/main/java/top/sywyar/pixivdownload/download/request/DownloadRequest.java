@@ -36,5 +36,7 @@ public class DownloadRequest {
         private String ugoiraZipUrl;
         private List<Integer> ugoiraDelays;
         private int delayMs = 0;
+        @JsonProperty("bookmark")
+        private boolean bookmark;
     }
 }

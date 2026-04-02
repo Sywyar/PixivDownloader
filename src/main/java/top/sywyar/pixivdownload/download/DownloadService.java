@@ -47,6 +47,7 @@ public class DownloadService {
     private final UserQuotaService userQuotaService;
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
+    private final PixivBookmarkService pixivBookmarkService;
 
     // 存储下载状态
     private final ConcurrentHashMap<Long, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
@@ -56,13 +57,15 @@ public class DownloadService {
                            PixivDatabase pixivDatabase,
                            @Nullable UserQuotaService userQuotaService,
                            @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
-                           TaskScheduler taskScheduler) {
+                           TaskScheduler taskScheduler,
+                           PixivBookmarkService pixivBookmarkService) {
         this.downloadConfig = downloadConfig;
         this.eventPublisher = eventPublisher;
         this.pixivDatabase = pixivDatabase;
         this.userQuotaService = userQuotaService;
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
+        this.pixivBookmarkService = pixivBookmarkService;
     }
 
     @Async
@@ -272,6 +275,11 @@ public class DownloadService {
             status.setCurrentImageIndex(-1); // 完成后重置索引
 
             log.info("下载完成: 作品 {}, 成功下载 {}/{} 张图片到 {}", artworkId, successCount.get(), imageUrls.size(), downloadPath);
+
+            // 下载后收藏（可选，best-effort）
+            if (other.isBookmark()) {
+                pixivBookmarkService.bookmarkArtwork(artworkId, cookie);
+            }
 
             // 发送最终完成状态更新
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));

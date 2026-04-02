@@ -1024,6 +1024,52 @@
             .header-title { font-size: 1rem; }
             .artwork-title { max-width: 120px; }
         }
+
+        /* ── App Navigation ─────────────────────────────────────── */
+        .app-nav {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            margin-top: 0.65rem;
+            padding-top: 0.45rem;
+            border-top: 1px solid var(--border);
+        }
+        .app-nav-brand {
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            color: var(--cyan);
+            text-shadow: var(--cyan-glow);
+            padding-right: 1rem;
+            margin-right: 0.5rem;
+            border-right: 1px solid var(--border);
+            white-space: nowrap;
+        }
+        .app-nav-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.28rem 0.7rem;
+            font-size: 0.63rem;
+            font-weight: 500;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            text-decoration: none;
+            border: 1px solid transparent;
+            transition: color 0.2s, background 0.2s, border-color 0.2s;
+        }
+        .app-nav-link:hover {
+            color: var(--cyan);
+            background: var(--cyan-dim);
+            border-color: var(--border);
+        }
+        .app-nav-link.active {
+            color: var(--cyan);
+            background: var(--cyan-dim);
+            border-color: var(--border-bright);
+        }
+        .app-nav-spacer { flex: 1; }
     </style>
 </head>
 <body>
@@ -1044,6 +1090,17 @@
                 <span style="margin-left:.75rem;" class="last-updated">UPDATED&nbsp;<span id="lastUpdatedTime">--:--:--</span></span>
             </div>
         </div>
+        <nav class="app-nav">
+            <span class="app-nav-brand">PIXIV // SYS</span>
+            <a href="/monitor.html" class="app-nav-link active">
+                <i class="fas fa-chart-line" style="font-size:.6rem;"></i>MONITOR
+            </a>
+            <a href="/pixiv-batch.html" class="app-nav-link">
+                <i class="fas fa-layer-group" style="font-size:.6rem;"></i>BATCH
+            </a>
+            <!-- future nav items -->
+            <div class="app-nav-spacer"></div>
+        </nav>
     </div>
 </header>
 

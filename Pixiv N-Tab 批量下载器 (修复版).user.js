@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv N-Tab 批量下载器 (修复版)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
+// @version      2.0.2
 // @description  解析 N-Tab 导出，批量提交作品给本地后端下载，支持严格的下载状态校验（修复下载失败显示完成的Bug）。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -47,7 +47,8 @@
         INTERVAL_UNIT_KEY: 'pixiv_ntab_interval_unit',
         IMAGE_DELAY_KEY: 'pixiv_ntab_image_delay',
         IMAGE_DELAY_UNIT_KEY: 'pixiv_ntab_image_delay_unit',
-        KEY_USER_UUID: 'pixiv_user_uuid'
+        KEY_USER_UUID: 'pixiv_user_uuid',
+        BOOKMARK_KEY: 'pixiv_ntab_bookmark'
     };
 
     // ====== 配额状态 ======
@@ -178,15 +179,15 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, ugoiraData, delayMs) {
+        sendDownloadRequest(artworkId, imageUrls, title, ugoiraData, delayMs, bookmark) {
             return new Promise((resolve, reject) => {
-                const other = { userDownload: false, delayMs: delayMs || 0 };
+                const other = { userDownload: false, delayMs: delayMs || 0, bookmark: !!bookmark };
                 if (ugoiraData) {
                     other.isUgoira = true;
                     other.ugoiraZipUrl = ugoiraData.zipUrl;
                     other.ugoiraDelays = ugoiraData.delays;
                 }
-                const payload = { artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/', other };
+                const payload = { artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/', cookie: document.cookie, other };
                 const headers = { 'Content-Type': 'application/json' };
                 if (userUUID) headers['X-User-UUID'] = userUUID;
                 GM_xmlhttpRequest({
@@ -345,6 +346,7 @@
             this.stats = { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
             this.skipHistory = GM_getValue(CONFIG.SKIP_HISTORY_KEY, false);
             this.r18Only = GM_getValue(CONFIG.R18_ONLY_KEY, false);
+            this.bookmark = GM_getValue(CONFIG.BOOKMARK_KEY, false);
             this._quotaExceededHandled = false;
         }
 
@@ -363,6 +365,7 @@
                     this.stats = parsed.stats || { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
                     this.skipHistory = parsed.skipHistory !== undefined ? parsed.skipHistory : this.skipHistory;
                     this.r18Only = parsed.r18Only !== undefined ? parsed.r18Only : this.r18Only;
+                    this.bookmark = parsed.bookmark !== undefined ? parsed.bookmark : this.bookmark;
                 }
             } catch (e) { console.warn('loadFromStorage fail', e); }
         }
@@ -376,6 +379,7 @@
                     stats: this.stats,
                     skipHistory: this.skipHistory,
                     r18Only: this.r18Only,
+                    bookmark: this.bookmark,
                     savedAt: new Date().toISOString()
                 };
                 GM_setValue(CONFIG.STORAGE_KEY, JSON.stringify(snapshot));
@@ -399,6 +403,12 @@
         setR18Only(r18Only) {
             this.r18Only = r18Only;
             GM_setValue(CONFIG.R18_ONLY_KEY, r18Only);
+            this.saveToStorage();
+        }
+
+        setBookmark(bookmark) {
+            this.bookmark = bookmark;
+            GM_setValue(CONFIG.BOOKMARK_KEY, bookmark);
             this.saveToStorage();
         }
 
@@ -613,7 +623,7 @@
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
-                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, ugoiraData, this.getImageDelayMs());
+                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, ugoiraData, this.getImageDelayMs(), this.bookmark);
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';
@@ -905,6 +915,10 @@
                     <input type="checkbox" id="r18-only" style="width: 16px; height: 16px;">
                 </div>
                 <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                    <label style="font-size: 12px; margin-right: 10px; width: 120px;">下载后自动收藏:</label>
+                    <input type="checkbox" id="bookmark-after-dl" style="width: 16px; height: 16px;">
+                </div>
+                <div style="display: flex; align-items: center; margin-bottom: 10px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">服务器地址:</label>
                     <input type="text" id="server-base-url" value="${serverBase}" placeholder="http://localhost:6999" style="flex: 1; padding: 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
                 </div>
@@ -969,6 +983,7 @@
                 concurrent: container.querySelector('#max-concurrent'),
                 skipHistory: container.querySelector('#skip-history'),
                 r18Only: container.querySelector('#r18-only'),
+                bookmarkAfterDl: container.querySelector('#bookmark-after-dl'),
                 serverBaseInput: container.querySelector('#server-base-url'),
                 parseBtn: container.querySelector('#parse-btn'),
                 startBtn: container.querySelector('#start-btn'),
@@ -1022,11 +1037,15 @@
             this.manager = manager;
             this.elements.skipHistory.checked = manager.skipHistory;
             this.elements.r18Only.checked = manager.r18Only;
+            this.elements.bookmarkAfterDl.checked = manager.bookmark;
             this.elements.skipHistory.addEventListener('change', (e) => {
                 this.manager.setSkipHistory(e.target.checked);
             });
             this.elements.r18Only.addEventListener('change', (e) => {
                 this.manager.setR18Only(e.target.checked);
+            });
+            this.elements.bookmarkAfterDl.addEventListener('change', (e) => {
+                this.manager.setBookmark(e.target.checked);
             });
             if (this.elements.serverBaseInput) {
                 this.elements.serverBaseInput.addEventListener('change', (e) => {

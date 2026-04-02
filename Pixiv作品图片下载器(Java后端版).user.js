@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
+// @version      2.0.2
 // @description  通过Java后端服务下载Pixiv作品图片
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -24,6 +24,7 @@
     let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
 
     const KEY_USER_UUID = 'pixiv_user_uuid';
+    const KEY_BOOKMARK_AFTER_DL = 'pixiv_bookmark_after_dl';
 
     // 动态 URL 计算
     const getBackendURL = () => serverBase + '/api/download/pixiv';
@@ -212,6 +213,7 @@
                 title: title,
                 imageUrls: imageUrls,
                 referer: 'https://www.pixiv.net/',
+                cookie: document.cookie,
                 other: other || {}
             };
             const headers = { 'Content-Type': 'application/json' };
@@ -307,7 +309,8 @@
             const title = (meta && meta.illustTitle) ? meta.illustTitle : `Artwork ${artworkId}`;
 
             let imageUrls;
-            let other = {};
+            const bookmark = GM_getValue(KEY_BOOKMARK_AFTER_DL, false);
+            let other = { bookmark };
 
             if (meta && meta.illustType === 2) {
                 // 动图作品：获取ugoira元数据，下载ZIP并在后端合成WebP
@@ -317,7 +320,8 @@
                 other = {
                     isUgoira: true,
                     ugoiraZipUrl: zipSrc,
-                    ugoiraDelays: ugoiraMeta.frames.map(f => f.delay)
+                    ugoiraDelays: ugoiraMeta.frames.map(f => f.delay),
+                    bookmark
                 };
             } else {
                 imageUrls = await getImageUrls(artworkId);
@@ -428,6 +432,21 @@
         });
         button.addEventListener('click', downloadImages);
 
+        // 下载后收藏开关
+        const bookmarkRow = document.createElement('div');
+        bookmarkRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:#555;';
+        const bookmarkChk = document.createElement('input');
+        bookmarkChk.type = 'checkbox';
+        bookmarkChk.id = 'pixiv-dl-bookmark';
+        bookmarkChk.checked = GM_getValue(KEY_BOOKMARK_AFTER_DL, false);
+        bookmarkChk.addEventListener('change', () => GM_setValue(KEY_BOOKMARK_AFTER_DL, bookmarkChk.checked));
+        const bookmarkLabel = document.createElement('label');
+        bookmarkLabel.htmlFor = 'pixiv-dl-bookmark';
+        bookmarkLabel.textContent = '下载后自动收藏';
+        bookmarkLabel.style.cursor = 'pointer';
+        bookmarkRow.appendChild(bookmarkChk);
+        bookmarkRow.appendChild(bookmarkLabel);
+
         const artworkIdDiv = document.createElement('div');
         artworkIdDiv.innerHTML = `作品ID: ${artworkId}`;
         artworkIdDiv.style.cssText = `
@@ -468,6 +487,7 @@
         container.appendChild(titleDiv);
         container.appendChild(statusDiv);
         container.appendChild(button);
+        container.appendChild(bookmarkRow);
         container.appendChild(artworkIdDiv);
         container.appendChild(backendStatusDiv);
         container.appendChild(infoDiv);

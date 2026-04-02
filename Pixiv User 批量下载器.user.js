@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv User 批量下载器 (N-Tab UI 风格版)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.1
+// @version      2.0.2
 // @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Go 后端。界面复刻 N-Tab 风格。优化暂停逻辑：确保当前任务完成后再停止。已加入全局 username 机制。在标题显示用户名。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -45,7 +45,8 @@
         KEY_IMAGE_DELAY: 'pixiv_global_image_delay',
         KEY_IMAGE_DELAY_UNIT: 'pixiv_global_image_delay_unit',
         KEY_CONCURRENT: 'pixiv_global_concurrent',
-        KEY_USER_UUID: 'pixiv_user_uuid'
+        KEY_USER_UUID: 'pixiv_user_uuid',
+        KEY_BOOKMARK: 'pixiv_global_bookmark'
     };
 
     // ====== 配额状态 ======
@@ -271,13 +272,14 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, isR18, ugoiraData, delayMs) {
+        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, isR18, ugoiraData, delayMs, bookmark) {
             return new Promise((resolve, reject) => {
                 const other = {
                     userDownload: true,
                     username: usernameParam,
                     isR18: isR18,
-                    delayMs: delayMs || 0
+                    delayMs: delayMs || 0,
+                    bookmark: !!bookmark
                 };
                 if (ugoiraData) {
                     other.isUgoira = true;
@@ -289,6 +291,7 @@
                     imageUrls,
                     title,
                     referer: 'https://www.pixiv.net/',
+                    cookie: document.cookie,
                     other
                 };
                 const headers = {'Content-Type': 'application/json'};
@@ -475,7 +478,8 @@
                 imageDelayUnit: GM_getValue(CONFIG.KEY_IMAGE_DELAY_UNIT, 'ms') || 'ms',
                 concurrent: GM_getValue(CONFIG.KEY_CONCURRENT, CONFIG.DEFAULT_CONCURRENT) || CONFIG.DEFAULT_CONCURRENT,
                 skipHistory: GM_getValue(CONFIG.KEY_SKIP_HISTORY, false),
-                r18Only: GM_getValue(CONFIG.KEY_R18_ONLY, false)
+                r18Only: GM_getValue(CONFIG.KEY_R18_ONLY, false),
+                bookmark: GM_getValue(CONFIG.KEY_BOOKMARK, false)
             };
         }
 
@@ -552,6 +556,11 @@
         setR18Only(val) {
             this.globalSettings.r18Only = val;
             GM_setValue(CONFIG.KEY_R18_ONLY, val);
+        }
+
+        setBookmark(val) {
+            this.globalSettings.bookmark = val;
+            GM_setValue(CONFIG.KEY_BOOKMARK, val);
         }
 
         setInterval(val) {
@@ -800,7 +809,7 @@
                 this.ui.renderQueue(this.queue);
 
                 this.ui.setStatus(`下载中：${item.title}`, 'info');
-                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18, ugoiraData, this.getImageDelayMs());
+                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18, ugoiraData, this.getImageDelayMs(), this.globalSettings.bookmark);
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';
@@ -1059,6 +1068,7 @@
             const s = this.manager.globalSettings;
             this.elements.skipHistory.checked = s.skipHistory;
             this.elements.r18Only.checked = s.r18Only;
+            if (this.elements.bookmarkAfterDl) this.elements.bookmarkAfterDl.checked = s.bookmark ?? false;
             this.elements.interval.value = s.interval;
             this.elements.concurrent.value = s.concurrent;
             if (this.elements.intervalUnitBtn) {
@@ -1154,6 +1164,11 @@
                     </label>
                     <label style="font-size: 12px; cursor:pointer; margin-left:15px; color:#d63384;">
                         <input type="checkbox" id="r18-only" style="vertical-align: middle;"> 仅下载R18作品
+                    </label>
+                </div>
+                <div style="display: flex; align-items: center; margin-top: 8px; margin-bottom: 8px;">
+                    <label style="font-size: 12px; cursor:pointer;">
+                        <input type="checkbox" id="bookmark-after-dl" style="vertical-align: middle;"> 下载后自动收藏
                     </label>
                 </div>
                 <div style="display: flex; align-items: center; margin-bottom: 10px;">
@@ -1276,6 +1291,7 @@
                 concurrent: container.querySelector('#max-concurrent'),
                 skipHistory: container.querySelector('#skip-history'),
                 r18Only: container.querySelector('#r18-only'),
+                bookmarkAfterDl: container.querySelector('#bookmark-after-dl'),
                 serverBaseInput: container.querySelector('#server-base-url'),
                 startBtn: container.querySelector('#start-btn'),
                 pauseBtn: container.querySelector('#pause-btn')
@@ -1287,6 +1303,9 @@
             };
             bindChange(this.elements.skipHistory, (e) => this.manager && this.manager.setSkipHistory(e.target.checked));
             bindChange(this.elements.r18Only, (e) => this.manager && this.manager.setR18Only(e.target.checked));
+            if (this.elements.bookmarkAfterDl) {
+                bindChange(this.elements.bookmarkAfterDl, (e) => this.manager && this.manager.setBookmark(e.target.checked));
+            }
             bindChange(this.elements.interval, (e) => this.manager && this.manager.setInterval(e.target.value));
             bindChange(this.elements.imageDelay, (e) => this.manager && this.manager.setImageDelay(e.target.value));
             bindChange(this.elements.concurrent, (e) => this.manager && this.manager.setConcurrent(e.target.value));

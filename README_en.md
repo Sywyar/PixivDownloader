@@ -37,12 +37,12 @@ Local Pixiv batch image download tool, consisting of a **Spring Boot backend** +
 
 ## Requirements
 
-| Dependency | Description |
-|------------|-------------|
-| Java 17+ | Required to run the backend |
-| Proxy Software | Clash, v2rayN, etc., for accessing Pixiv (default `127.0.0.1:7890`) |
-| Tampermonkey | Browser extension for installing userscripts |
-| ffmpeg (Optional) | Only required for animated images (Ugoira); must be in system PATH |
+| Dependency        | Description                                                         |
+|-------------------|---------------------------------------------------------------------|
+| Java 17+          | Required to run the backend                                         |
+| Proxy Software    | Clash, v2rayN, etc., for accessing Pixiv (default `127.0.0.1:7890`) |
+| Tampermonkey      | Browser extension for installing userscripts                        |
+| ffmpeg (Optional) | Only required for animated images (Ugoira); must be in system PATH  |
 
 ---
 
@@ -70,10 +70,10 @@ Enter username and password (minimum 6 characters) for future login.
 
 **② Choose Usage Mode**
 
-| Mode | Use Case | Description |
-|------|----------|-------------|
-| Solo Mode | Personal use | All pages require login. Cookies, settings, and download queue are stored server-side, sharing state across devices. |
-| Multi Mode | Shared server | No login required. Each visitor's configuration is stored independently in their browser's `localStorage`. |
+| Mode       | Use Case      | Description                                                                                                          |
+|------------|---------------|----------------------------------------------------------------------------------------------------------------------|
+| Solo Mode  | Personal use  | All pages require login. Cookies, settings, and download queue are stored server-side, sharing state across devices. |
+| Multi Mode | Shared server | No login required. Each visitor's configuration is stored independently in their browser's `localStorage`.           |
 
 **③ Click "Complete Setup"**
 
@@ -85,10 +85,10 @@ After configuration is written to `pixiv-download/setup_config.json`, this page 
 
 Ensure [Tampermonkey](https://www.tampermonkey.net/) extension is installed in your browser. Download the scripts from [Releases](../../releases) and **drag them into the Tampermonkey management panel** to install:
 
-| Script File | Use Case |
-|-------------|----------|
-| `Pixiv作品图片下载器(Java后端版).user.js` | One-click download on single artwork pages |
-| `Pixiv User 批量下载器 (N-Tab UI 风格版).user.js` | Batch download all works from a user homepage |
+| Script File                       | Use Case                                                |
+|-----------------------------------|---------------------------------------------------------|
+| `Pixiv作品图片下载器(Java后端版).user.js`   | One-click download on single artwork pages              |
+| `Pixiv User 批量下载器.user.js`        | Batch download all works from a user homepage           |
 | `Pixiv N-Tab 批量下载器 (修复版).user.js` | Import N-Tab bookmark JSON for batch favorites download |
 
 **Changing Server Address:** All three scripts connect to `http://localhost:6999` by default, sharing the same server address setting.
@@ -153,13 +153,13 @@ Not installing ffmpeg does not affect normal image downloads; it is only require
 1. Open any Pixiv user homepage (`https://www.pixiv.net/users/{userId}`)
 2. A floating control panel will appear in the corner of the page with the following options:
 
-| Option | Description |
-|--------|-------------|
-| Start / Pause | Control batch task |
+| Option                  | Description                                                                  |
+|-------------------------|------------------------------------------------------------------------------|
+| Start / Pause           | Control batch task                                                           |
 | Skip Already Downloaded | Automatically skip artworks already in the database, resume from breakpoints |
-| R18 Only | Download only R18 artworks |
-| Download Interval | Wait time between artworks in seconds (default 2, recommended not too short) |
-| Concurrency | Number of simultaneous download tasks (default 1, max 5) |
+| R18 Only                | Download only R18 artworks                                                   |
+| Download Interval       | Wait time between artworks in seconds (default 2, recommended not too short) |
+| Concurrency             | Number of simultaneous download tasks (default 1)                            |
 
 3. Normal artworks are saved to `pixiv-download/{username}/{artworkId}/`, R18 artworks are saved to `pixiv-download/{username}/R18/{artworkId}/`
 4. Download progress is obtained in real-time via SSE, with automatic polling fallback on disconnect; the same artwork will not be submitted twice
@@ -218,9 +218,9 @@ On first run, `image_classifier.properties` configuration file will be generated
 
 **Configuration Settings (Menu Bar "Settings"):**
 
-| Tab | Content |
-|-----|---------|
-| Basic Settings | Configure backend server address (for reporting move paths) |
+| Tab            | Content                                                                     |
+|----------------|-----------------------------------------------------------------------------|
+| Basic Settings | Configure backend server address (for reporting move paths)                 |
 | Target Folders | Add/Edit/Delete classification directories, format: path + descriptive name |
 
 > When the backend service is online, classification operations automatically report new paths to the backend; when offline, only local file moving occurs.
@@ -237,13 +237,13 @@ java -cp PixivDownload-vX.X.X.jar top.sywyar.pixivdownload.tools.R18Backfill [op
 
 **Available Options:**
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--db <path>` | `pixiv-download/pixiv_download.db` | Database file path |
-| `--proxy <host:port>` | `127.0.0.1:7890` | HTTP proxy address |
-| `--no-proxy` | — | Don't use proxy |
-| `--delay <ms>` | `800` | Delay between requests (milliseconds) |
-| `--dry-run` | — | Print results only, don't write to database |
+| Option                | Default                            | Description                                 |
+|-----------------------|------------------------------------|---------------------------------------------|
+| `--db <path>`         | `pixiv-download/pixiv_download.db` | Database file path                          |
+| `--proxy <host:port>` | `127.0.0.1:7890`                   | HTTP proxy address                          |
+| `--no-proxy`          | —                                  | Don't use proxy                             |
+| `--delay <ms>`        | `800`                              | Delay between requests (milliseconds)       |
+| `--dry-run`           | —                                  | Print results only, don't write to database |
 
 **Examples:**
 

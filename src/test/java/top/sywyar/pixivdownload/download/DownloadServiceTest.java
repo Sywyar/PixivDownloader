@@ -40,12 +40,14 @@ class DownloadServiceTest {
     private RestTemplate downloadRestTemplate;
     @Mock
     private TaskScheduler taskScheduler;
+    @Mock
+    private PixivBookmarkService pixivBookmarkService;
 
     private DownloadService downloadService;
 
     @BeforeEach
     void setUp() {
-        downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService, downloadRestTemplate, taskScheduler);
+        downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService, downloadRestTemplate, taskScheduler, pixivBookmarkService);
     }
 
     // ========== validatePixivUrl (SSRF 防护) ==========
