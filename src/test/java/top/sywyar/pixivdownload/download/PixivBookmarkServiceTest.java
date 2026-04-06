@@ -15,6 +15,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
@@ -75,7 +76,24 @@ class PixivBookmarkServiceTest {
                     postCaptor.capture(),
                     eq(String.class));
             HttpHeaders postHeaders = postCaptor.getValue().getHeaders();
-            assert "abc123def456".equals(postHeaders.getFirst("x-csrf-token"));
+            assertThat(postHeaders.getFirst("x-csrf-token")).isEqualTo("abc123def456");
+        }
+
+        @Test
+        @DisplayName("Next.js 转义格式 token\\\":\\\"value\\\" 应能正常提取")
+        void shouldExtractCsrfFromEscapedFormat() {
+            // 新版 Pixiv Next.js 页面：token 嵌入 JS 字符串，引号被转义
+            String pageHtml = "<script>JSON.parse(\"{\\\"token\\\":\\\"xyz789\\\",\\\"isLoggedIn\\\":true}\")</script>";
+            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(String.class)))
+                    .thenReturn(ResponseEntity.ok(pageHtml));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(String.class)))
+                    .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{}}"));
+
+            ArgumentCaptor<HttpEntity<String>> postCaptor = ArgumentCaptor.forClass(HttpEntity.class);
+            assertThatCode(() -> service.bookmarkArtwork(12345L, "PHPSESSID=test")).doesNotThrowAnyException();
+            verify(restTemplate).exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"),
+                    eq(HttpMethod.POST), postCaptor.capture(), eq(String.class));
+            assertThat(postCaptor.getValue().getHeaders().getFirst("x-csrf-token")).isEqualTo("xyz789");
         }
 
         @Test

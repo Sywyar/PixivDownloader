@@ -25,6 +25,8 @@ public class PixivBookmarkService {
     private static final Pattern CSRF_PATTERN_ESCAPED   = Pattern.compile("token\\\\\":\\\\\"([^\\\\\"]+)\\\\\"");
     // 旧版 / 直接 JSON 响应：标准格式  →  "token":"<value>"
     private static final Pattern CSRF_PATTERN_PLAIN     = Pattern.compile("\"token\":\"([^\"]+)\"");
+    // HTML 实体转义格式  →  &quot;token&quot;:&quot;<value>&quot;
+    private static final Pattern CSRF_PATTERN_HTML      = Pattern.compile("&quot;token&quot;\\s*:\\s*&quot;([^&]+)&quot;");
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -78,7 +80,7 @@ public class PixivBookmarkService {
         }
 
         // 3. HTML 实体转义格式  &quot;token&quot;:&quot;abc...&quot;
-        Matcher mHtml = Pattern.compile("&quot;token&quot;\\s*:\\s*&quot;([^&]+)&quot;").matcher(body);
+        Matcher mHtml = CSRF_PATTERN_HTML.matcher(body);
         if (mHtml.find()) {
             return mHtml.group(1);
         }
@@ -131,10 +133,9 @@ public class PixivBookmarkService {
         headers.set("Referer",    PIXIV_HOME);
         headers.set("User-Agent", USER_AGENT);
 
-        // [新增] 补充常规浏览器的 Accept 字段，极大降低被 Cloudflare 等 WAF 拦截的概率
+        // 模拟浏览器请求头，降低被 WAF 拦截的概率
         headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
         headers.set("Accept-Language", "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6");
-        // 模拟现代 Chrome 的 Client Hints
         headers.set("Sec-Ch-Ua", "\"Chromium\";v=\"122\", \"Not(A:Brand\";v=\"24\", \"Google Chrome\";v=\"122\"");
         headers.set("Sec-Ch-Ua-Mobile", "?0");
         headers.set("Sec-Ch-Ua-Platform", "\"Windows\"");

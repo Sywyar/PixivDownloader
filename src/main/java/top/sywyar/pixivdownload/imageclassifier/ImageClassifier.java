@@ -1321,8 +1321,14 @@ public class ImageClassifier extends JFrame {
             imageLabel.setText("加载中...");
             imageLabel.setIcon(null);
 
-            // 读取原始图文件（webp 动图使用原始 webp，其余直接读取）
-            final File loadFile = imgFile;
+            // WebP 动图：Java ImageIO 不支持 webp，改用伴随的 _thumb.jpg（第一帧原始分辨率）
+            File resolvedFile = imgFile;
+            if (imgFile.getName().toLowerCase().endsWith(".webp")) {
+                String base = imgFile.getName().substring(0, imgFile.getName().lastIndexOf('.'));
+                File thumbJpg = new File(imgFile.getParent(), base + "_thumb.jpg");
+                if (thumbJpg.exists()) resolvedFile = thumbJpg;
+            }
+            final File loadFile = resolvedFile;
             final Dimension vpSize = scrollPane.getViewport().getSize();
             final int vpW = vpSize.width  > 100 ? vpSize.width  : 1060;
             final int vpH = vpSize.height > 100 ? vpSize.height : 760;

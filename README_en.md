@@ -160,6 +160,7 @@ Not installing ffmpeg does not affect normal image downloads; it is only require
 | R18 Only                | Download only R18 artworks                                                   |
 | Download Interval       | Wait time between artworks in seconds (default 2, recommended not too short) |
 | Concurrency             | Number of simultaneous download tasks (default 1)                            |
+| Auto Bookmark           | After download, automatically add the artwork to Pixiv favorites using the provided Cookie (failure does not affect download) |
 
 3. Normal artworks are saved to `pixiv-download/{username}/{artworkId}/`, R18 artworks are saved to `pixiv-download/{username}/R18/{artworkId}/`
 4. Download progress is obtained in real-time via SSE, with automatic polling fallback on disconnect; the same artwork will not be submitted twice
