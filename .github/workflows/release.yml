@@ -75,5 +75,9 @@ jobs:
             --title "${{ github.ref_name }}" \
             --notes-file release_body.md \
             --generate-notes \
-            target/PixivDownload-${{ github.ref_name }}.jar \
-            *.user.js
+            target/PixivDownload-${{ github.ref_name }}.jar
+
+          for f in *.user.js; do
+            echo "Uploading: $f"
+            gh release upload "${{ github.ref_name }}" "$f" --clobber || true
+          done
