@@ -1,383 +1,787 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pixiv 批量下载器</title>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #f5f5f5;
-    color: #333;
-    font-size: 14px;
-  }
-  header {
-    background: #28a745;
-    color: white;
-    padding: 14px 20px;
-    font-size: 18px;
-    font-weight: bold;
-    letter-spacing: .5px;
-  }
-  .page { max-width: 960px; margin: 20px auto; padding: 0 16px 40px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixiv 批量下载器</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-  /* ---- Card ---- */
-  .card {
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 1px 4px rgba(0,0,0,.12);
-    padding: 16px;
-    margin-bottom: 14px;
-  }
-  .card-title {
-    font-weight: bold;
-    font-size: 13px;
-    color: #555;
-    margin-bottom: 10px;
-    text-transform: uppercase;
-    letter-spacing: .4px;
-  }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            font-size: 14px;
+        }
 
-  /* ---- Cookie ---- */
-  .cookie-row { display: flex; gap: 8px; align-items: center; }
-  .cookie-row input {
-    flex: 1;
-    padding: 7px 10px;
-    border: 1px solid #ddd;
-    border-radius: 5px;
-    font-size: 13px;
-    font-family: monospace;
-  }
-  .cookie-hint { font-size: 11px; color: #888; margin-top: 6px; }
-  .cookie-fmt { display: flex; gap: 0; margin-bottom: 8px; }
-  .cookie-fmt button {
-    flex: 1; padding: 5px 0; font-size: 12px; font-weight: bold;
-    border: 1px solid #ccc; background: #f5f5f5; cursor: pointer;
-    transition: all .15s;
-  }
-  .cookie-fmt button:first-child { border-radius: 4px 0 0 4px; }
-  .cookie-fmt button:last-child  { border-radius: 0 4px 4px 0; border-left: none; }
-  .cookie-fmt button:nth-child(2){ border-left: none; }
-  .cookie-fmt button.active { background: #007bff; color: white; border-color: #007bff; }
+        header {
+            background: #28a745;
+            color: white;
+            padding: 14px 20px;
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: .5px;
+        }
 
-  /* ---- Mode tabs ---- */
-  .tabs { display: flex; gap: 0; margin-bottom: 14px; }
-  .tab {
-    flex: 1;
-    padding: 10px;
-    border: 2px solid #ddd;
-    background: #f9f9f9;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: bold;
-    text-align: center;
-    transition: all .15s;
-  }
-  .tab:first-child { border-radius: 6px 0 0 6px; }
-  .tab:last-child  { border-radius: 0 6px 6px 0; }
-  .tab:not(:first-child) { border-left: none; }
-  .tab.active { background: #28a745; color: white; border-color: #28a745; }
+        .page {
+            max-width: 960px;
+            margin: 20px auto;
+            padding: 0 16px 40px;
+        }
 
-  /* ---- Mode panels ---- */
-  .mode-panel { display: none; }
-  .mode-panel.active { display: block; }
-  #ntab-textarea {
-    width: 100%; height: 110px; padding: 8px;
-    border: 1px solid #ddd; border-radius: 5px;
-    font-size: 12px; resize: vertical;
-    margin-bottom: 8px;
-  }
-  .user-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .user-row input {
-    width: 160px; padding: 7px 10px;
-    border: 1px solid #ddd; border-radius: 5px; font-size: 13px;
-  }
-  #user-info-display {
-    font-size: 12px; color: #007bff; font-weight: bold;
-    padding: 4px 0;
-  }
+        /* ---- Card ---- */
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+            padding: 16px;
+            margin-bottom: 14px;
+        }
 
-  /* ---- Settings ---- */
-  .settings-grid { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
-  .setting-item { display: flex; align-items: center; gap: 6px; }
-  .setting-item label { font-size: 12px; color: #555; white-space: nowrap; }
-  .setting-item input[type=number] {
-    width: 56px; padding: 4px 6px;
-    border: 1px solid #ddd; border-radius: 4px 0 0 4px; font-size: 13px;
-  }
-  .setting-item input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; }
-  .R18-label { color: #d63384 !important; }
-  .unit-toggle {
-    padding: 4px 7px; font-size: 12px; font-weight: bold;
-    border: 1px solid #ddd; border-left: none; border-radius: 0 4px 4px 0;
-    background: #f0f0f0; cursor: pointer; white-space: nowrap;
-    transition: background .15s;
-  }
-  .unit-toggle:hover { background: #e0e0f0; }
+        .card-title {
+            font-weight: bold;
+            font-size: 13px;
+            color: #555;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: .4px;
+        }
 
-  /* ---- Buttons ---- */
-  .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .btn {
-    padding: 9px 4px;
-    border: none; border-radius: 5px;
-    cursor: pointer; font-size: 13px; font-weight: bold;
-    color: white; transition: opacity .15s;
-  }
-  .btn:hover { opacity: .85; }
-  .btn:disabled { opacity: .45; cursor: not-allowed; }
-  .btn-green  { background: #28a745; }
-  .btn-yellow { background: #ffc107; color: #333; }
-  .btn-cyan   { background: #17a2b8; }
-  .btn-blue   { background: #007bff; }
-  .btn-purple { background: #6610f2; }
-  .btn-gray   { background: #6c757d; }
+        /* ---- Cookie ---- */
+        .cookie-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
 
-  /* ---- Status / Stats ---- */
-  #status-bar {
-    text-align: center; font-size: 13px; color: #666;
-    padding: 4px 0 2px;
-  }
-  #stats-bar {
-    text-align: center; font-size: 12px; color: #007bff;
-    font-weight: bold; padding: 2px 0;
-  }
+        .cookie-row input {
+            flex: 1;
+            padding: 7px 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 13px;
+            font-family: monospace;
+        }
 
-  /* ---- Current download ---- */
-  #current-card {
-    background: #f0f8ff;
-    border-left: 4px solid #007bff;
-    padding: 10px 14px;
-    border-radius: 0 6px 6px 0;
-    font-size: 12px;
-  }
-  #current-card strong { font-size: 13px; }
+        .cookie-hint {
+            font-size: 11px;
+            color: #888;
+            margin-top: 6px;
+        }
 
-  /* ---- Queue ---- */
-  #queue-list {
-    max-height: 340px; overflow-y: auto;
-  }
-  .queue-empty { color: #aaa; text-align: center; padding: 16px 0; font-size: 13px; }
-  .queue-item {
-    padding: 7px 10px;
-    border-left: 3px solid #ccc;
-    margin-bottom: 4px;
-    background: #fafafa;
-    border-radius: 0 4px 4px 0;
-    font-size: 11px;
-  }
-  .queue-item .q-title { font-weight: bold; font-size: 12px; margin-bottom: 2px; }
-  .queue-item .q-meta  { color: #777; }
+        .cookie-fmt {
+            display: flex;
+            gap: 0;
+            margin-bottom: 8px;
+        }
 
-  /* Progress bar */
-  .prog-wrap { margin-top: 5px; }
-  .prog-label { display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-bottom: 2px; }
-  .prog-bg { background: #e0e0e0; border-radius: 3px; overflow: hidden; }
-  .prog-fill { height: 4px; background: #007bff; transition: width .3s ease; }
-  .prog-fill.green { background: #28a745; height: 6px; }
+        .cookie-fmt button {
+            flex: 1;
+            padding: 5px 0;
+            font-size: 12px;
+            font-weight: bold;
+            border: 1px solid #ccc;
+            background: #f5f5f5;
+            cursor: pointer;
+            transition: all .15s;
+        }
 
-  /* Small utility */
-  .btn-sm {
-    padding: 5px 10px; font-size: 12px; border: 1px solid #ccc;
-    border-radius: 4px; background: #f9f9f9; cursor: pointer;
-  }
-  .btn-sm:hover { background: #eee; }
+        .cookie-fmt button:first-child {
+            border-radius: 4px 0 0 4px;
+        }
 
-  /* ---- Quota bar ---- */
-  #quota-bar {
-    display: none;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 1px 4px rgba(0,0,0,.12);
-    padding: 10px 16px;
-    margin-bottom: 14px;
-    font-size: 12px;
-    color: #555;
-  }
-  #quota-bar .qb-row { display: flex; align-items: center; gap: 10px; }
-  #quota-bar .qb-label { white-space: nowrap; }
-  #quota-bar .qb-fill-bg {
-    flex: 1; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden;
-  }
-  #quota-bar .qb-fill {
-    height: 100%; background: #28a745; border-radius: 3px; transition: width .4s;
-  }
-  #quota-bar .qb-fill.warn { background: #ffc107; }
-  #quota-bar .qb-fill.danger { background: #dc3545; }
-  #quota-bar .qb-reset { font-size: 11px; color: #888; margin-top: 3px; }
+        .cookie-fmt button:last-child {
+            border-radius: 0 4px 4px 0;
+            border-left: none;
+        }
 
-  /* ---- Archive card ---- */
-  #archive-card {
-    display: none;
-    background: #fff8e1;
-    border: 2px solid #ffc107;
-    border-radius: 8px;
-    padding: 14px 16px;
-    margin-bottom: 14px;
-  }
-  #archive-card .ac-title {
-    font-weight: bold; font-size: 13px; color: #856404; margin-bottom: 8px;
-  }
-  #archive-card .ac-status { font-size: 12px; color: #666; margin-bottom: 8px; }
-  #archive-card .ac-countdown {
-    font-size: 11px; color: #888; margin-top: 6px;
-  }
-  #archive-card .ac-expired {
-    font-size: 13px; color: #dc3545; font-weight: bold;
-  }
-  #archive-card .btn-download {
-    display: inline-block;
-    padding: 7px 16px; background: #28a745; color: white;
-    border: none; border-radius: 5px; cursor: pointer;
-    font-size: 13px; font-weight: bold; text-decoration: none;
-  }
-  #archive-card .btn-download:hover { opacity: .85; }
-  #archive-card .btn-download:disabled {
-    background: #aaa; cursor: not-allowed;
-  }
+        .cookie-fmt button:nth-child(2) {
+            border-left: none;
+        }
 
-  /* ── App Navigation ── */
-  .app-nav {
-      background: #28a745; /* 沿用 header 的绿色 */
-      padding: 0 20px;
-      display: flex;
-      align-items: center;
-      height: 50px;
-      box-shadow: 0 2px 4px rgba(0,0,0,.1);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  }
-  .app-nav-brand {
-      font-size: 18px;
-      font-weight: bold;
-      color: white;
-      margin-right: 24px;
-      letter-spacing: .5px;
-  }
-  .app-nav-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 0 16px;
-      height: 100%;
-      font-size: 14px;
-      font-weight: 500;
-      color: rgba(255, 255, 255, 0.8);
-      text-decoration: none;
-      transition: all 0.2s;
-  }
-  .app-nav-link:hover {
-      color: white;
-      background: rgba(255, 255, 255, 0.15);
-  }
-  .app-nav-link.active {
-      color: white;
-      background: rgba(0, 0, 0, 0.1);
-      font-weight: bold;
-  }
-  .app-nav-link i {
-      font-size: 14px;
-  }
-  .app-nav-spacer { flex: 1; }
-  .app-nav-logout {
-      font-size: 12px;
-      padding: 6px 12px;
-      background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.5);
-      color: white;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: all 0.2s;
-  }
-  .app-nav-logout:hover {
-      background: white;
-      color: #28a745;
-  }
+        .cookie-fmt button.active {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
 
-  /* ---- Search Mode ---- */
-  .search-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-  .search-controls input[type=text] {
-    flex: 1; min-width: 200px; padding: 7px 10px;
-    border: 1px solid #ddd; border-radius: 5px; font-size: 13px;
-  }
-  .search-filter-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; font-size: 13px; }
-  .search-filter-row label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
-  .search-filter-row span { color: #555; font-weight: bold; margin-right: 2px; }
+        /* ---- Mode tabs ---- */
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 14px;
+        }
 
-  /* Thumbnail grid */
-  .search-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 10px;
-    margin-bottom: 14px;
-  }
-  .search-thumb {
-    border: 2px solid transparent;
-    border-radius: 6px;
-    overflow: hidden;
-    cursor: pointer;
-    background: #eee;
-    transition: border-color .15s, transform .15s;
-    position: relative;
-  }
-  .search-thumb:hover { border-color: #28a745; transform: scale(1.03); }
-  .search-thumb.in-queue { border-color: #007bff; }
-  .search-thumb img {
-    width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block;
-    background: #ddd;
-  }
-  .search-thumb img.blur-r18 { filter: blur(10px); transition: filter .2s; }
-  .search-thumb:hover img.blur-r18 { filter: none; }
-  .search-thumb .thumb-title {
-    font-size: 11px; padding: 4px 5px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    background: rgba(0,0,0,.05); color: #333;
-  }
-  .search-thumb .thumb-badge {
-    position: absolute; top: 4px; right: 4px;
-    background: #dc3545; color: white;
-    font-size: 9px; font-weight: bold;
-    padding: 1px 4px; border-radius: 3px; pointer-events: none;
-  }
-  .search-thumb .thumb-pages {
-    position: absolute; bottom: 28px; right: 4px;
-    background: rgba(0,0,0,.65); color: white;
-    font-size: 9px; padding: 1px 5px; border-radius: 3px; pointer-events: none;
-  }
-  .search-thumb .thumb-in-queue-mark {
-    position: absolute; top: 4px; left: 4px;
-    background: #007bff; color: white;
-    font-size: 9px; font-weight: bold;
-    padding: 1px 4px; border-radius: 3px; pointer-events: none;
-    display: none;
-  }
-  .search-thumb.in-queue .thumb-in-queue-mark { display: block; }
+        .tab {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #ddd;
+            background: #f9f9f9;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            text-align: center;
+            transition: all .15s;
+        }
 
-  /* Loading spinner */
-  .search-spinner { text-align: center; padding: 40px 0; color: #999; font-size: 13px; }
-  .search-spinner-icon {
-    display: block; margin: 0 auto 10px;
-    width: 28px; height: 28px;
-    border: 3px solid #ddd; border-top-color: #28a745;
-    border-radius: 50%; animation: spin .7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+        .tab:first-child {
+            border-radius: 6px 0 0 6px;
+        }
 
-  /* Pagination */
-  .search-pagination {
-    display: flex; align-items: center; justify-content: center;
-    gap: 5px; flex-wrap: wrap; margin-top: 8px;
-  }
-  .search-pagination .pg-info { font-size: 12px; color: #666; padding: 0 8px; }
-  .search-pagination button {
-    padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px;
-    background: #f9f9f9; cursor: pointer; font-size: 12px; min-width: 32px;
-  }
-  .search-pagination button:hover:not(:disabled) { background: #e8f5e9; border-color: #28a745; }
-  .search-pagination button:disabled { opacity: .4; cursor: not-allowed; }
-  .search-pagination button.pg-active { background: #28a745; color: white; border-color: #28a745; cursor: default; }
-</style>
+        .tab:last-child {
+            border-radius: 0 6px 6px 0;
+        }
+
+        .tab:not(:first-child) {
+            border-left: none;
+        }
+
+        .tab.active {
+            background: #28a745;
+            color: white;
+            border-color: #28a745;
+        }
+
+        /* ---- Mode panels ---- */
+        .mode-panel {
+            display: none;
+        }
+
+        .mode-panel.active {
+            display: block;
+        }
+
+        #ntab-textarea {
+            width: 100%;
+            height: 110px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 12px;
+            resize: vertical;
+            margin-bottom: 8px;
+        }
+
+        .user-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .user-row input {
+            width: 160px;
+            padding: 7px 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 13px;
+        }
+
+        #user-info-display {
+            font-size: 12px;
+            color: #007bff;
+            font-weight: bold;
+            padding: 4px 0;
+        }
+
+        /* ---- Settings ---- */
+        .settings-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px 24px;
+            align-items: center;
+        }
+
+        .setting-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .setting-item label {
+            font-size: 12px;
+            color: #555;
+            white-space: nowrap;
+        }
+
+        .setting-item input[type=number] {
+            width: 56px;
+            padding: 4px 6px;
+            border: 1px solid #ddd;
+            border-radius: 4px 0 0 4px;
+            font-size: 13px;
+        }
+
+        .setting-item input[type=checkbox] {
+            width: 15px;
+            height: 15px;
+            cursor: pointer;
+        }
+
+        .R18-label {
+            color: #d63384 !important;
+        }
+
+        .unit-toggle {
+            padding: 4px 7px;
+            font-size: 12px;
+            font-weight: bold;
+            border: 1px solid #ddd;
+            border-left: none;
+            border-radius: 0 4px 4px 0;
+            background: #f0f0f0;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background .15s;
+        }
+
+        .unit-toggle:hover {
+            background: #e0e0f0;
+        }
+
+        /* ---- Buttons ---- */
+        .btn-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 9px 4px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            color: white;
+            transition: opacity .15s;
+        }
+
+        .btn:hover {
+            opacity: .85;
+        }
+
+        .btn:disabled {
+            opacity: .45;
+            cursor: not-allowed;
+        }
+
+        .btn-green {
+            background: #28a745;
+        }
+
+        .btn-yellow {
+            background: #ffc107;
+            color: #333;
+        }
+
+        .btn-cyan {
+            background: #17a2b8;
+        }
+
+        .btn-blue {
+            background: #007bff;
+        }
+
+        .btn-purple {
+            background: #6610f2;
+        }
+
+        .btn-gray {
+            background: #6c757d;
+        }
+
+        /* ---- Status / Stats ---- */
+        #status-bar {
+            text-align: center;
+            font-size: 13px;
+            color: #666;
+            padding: 4px 0 2px;
+        }
+
+        #stats-bar {
+            text-align: center;
+            font-size: 12px;
+            color: #007bff;
+            font-weight: bold;
+            padding: 2px 0;
+        }
+
+        /* ---- Current download ---- */
+        #current-card {
+            background: #f0f8ff;
+            border-left: 4px solid #007bff;
+            padding: 10px 14px;
+            border-radius: 0 6px 6px 0;
+            font-size: 12px;
+        }
+
+        #current-card strong {
+            font-size: 13px;
+        }
+
+        /* ---- Queue ---- */
+        #queue-list {
+            max-height: 340px;
+            overflow-y: auto;
+        }
+
+        .queue-empty {
+            color: #aaa;
+            text-align: center;
+            padding: 16px 0;
+            font-size: 13px;
+        }
+
+        .queue-item {
+            padding: 7px 10px;
+            border-left: 3px solid #ccc;
+            margin-bottom: 4px;
+            background: #fafafa;
+            border-radius: 0 4px 4px 0;
+            font-size: 11px;
+        }
+
+        .queue-item .q-title {
+            font-weight: bold;
+            font-size: 12px;
+            margin-bottom: 2px;
+        }
+
+        .queue-item .q-meta {
+            color: #777;
+        }
+
+        /* Progress bar */
+        .prog-wrap {
+            margin-top: 5px;
+        }
+
+        .prog-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #666;
+            margin-bottom: 2px;
+        }
+
+        .prog-bg {
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .prog-fill {
+            height: 4px;
+            background: #007bff;
+            transition: width .3s ease;
+        }
+
+        .prog-fill.green {
+            background: #28a745;
+            height: 6px;
+        }
+
+        /* Small utility */
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #f9f9f9;
+            cursor: pointer;
+        }
+
+        .btn-sm:hover {
+            background: #eee;
+        }
+
+        /* ---- Quota bar ---- */
+        #quota-bar {
+            display: none;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+            padding: 10px 16px;
+            margin-bottom: 14px;
+            font-size: 12px;
+            color: #555;
+        }
+
+        #quota-bar .qb-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #quota-bar .qb-label {
+            white-space: nowrap;
+        }
+
+        #quota-bar .qb-fill-bg {
+            flex: 1;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        #quota-bar .qb-fill {
+            height: 100%;
+            background: #28a745;
+            border-radius: 3px;
+            transition: width .4s;
+        }
+
+        #quota-bar .qb-fill.warn {
+            background: #ffc107;
+        }
+
+        #quota-bar .qb-fill.danger {
+            background: #dc3545;
+        }
+
+        #quota-bar .qb-reset {
+            font-size: 11px;
+            color: #888;
+            margin-top: 3px;
+        }
+
+        /* ---- Archive card ---- */
+        #archive-card {
+            display: none;
+            background: #fff8e1;
+            border: 2px solid #ffc107;
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 14px;
+        }
+
+        #archive-card .ac-title {
+            font-weight: bold;
+            font-size: 13px;
+            color: #856404;
+            margin-bottom: 8px;
+        }
+
+        #archive-card .ac-status {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 8px;
+        }
+
+        #archive-card .ac-countdown {
+            font-size: 11px;
+            color: #888;
+            margin-top: 6px;
+        }
+
+        #archive-card .ac-expired {
+            font-size: 13px;
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        #archive-card .btn-download {
+            display: inline-block;
+            padding: 7px 16px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            text-decoration: none;
+        }
+
+        #archive-card .btn-download:hover {
+            opacity: .85;
+        }
+
+        #archive-card .btn-download:disabled {
+            background: #aaa;
+            cursor: not-allowed;
+        }
+
+        /* ── App Navigation ── */
+        .app-nav {
+            background: #28a745; /* 沿用 header 的绿色 */
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            height: 50px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .app-nav-brand {
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            margin-right: 24px;
+            letter-spacing: .5px;
+        }
+
+        .app-nav-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 16px;
+            height: 100%;
+            font-size: 14px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .app-nav-link:hover {
+            color: white;
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .app-nav-link.active {
+            color: white;
+            background: rgba(0, 0, 0, 0.1);
+            font-weight: bold;
+        }
+
+        .app-nav-link i {
+            font-size: 14px;
+        }
+
+        .app-nav-spacer {
+            flex: 1;
+        }
+
+        .app-nav-logout {
+            font-size: 12px;
+            padding: 6px 12px;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .app-nav-logout:hover {
+            background: white;
+            color: #28a745;
+        }
+
+        /* ---- Search Mode ---- */
+        .search-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        .search-controls input[type=text] {
+            flex: 1;
+            min-width: 200px;
+            padding: 7px 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 13px;
+        }
+
+        .search-filter-row {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        .search-filter-row label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+
+        .search-filter-row span {
+            color: #555;
+            font-weight: bold;
+            margin-right: 2px;
+        }
+
+        /* Thumbnail grid */
+        .search-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .search-thumb {
+            border: 2px solid transparent;
+            border-radius: 6px;
+            overflow: hidden;
+            cursor: pointer;
+            background: #eee;
+            transition: border-color .15s, transform .15s;
+            position: relative;
+        }
+
+        .search-thumb:hover {
+            border-color: #28a745;
+            transform: scale(1.03);
+        }
+
+        .search-thumb.in-queue {
+            border-color: #007bff;
+        }
+
+        .search-thumb img {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            object-fit: cover;
+            display: block;
+            background: #ddd;
+        }
+
+        .search-thumb img.blur-r18 {
+            filter: blur(10px);
+            transition: filter .2s;
+        }
+
+        .search-thumb:hover img.blur-r18 {
+            filter: none;
+        }
+
+        .search-thumb .thumb-title {
+            font-size: 11px;
+            padding: 4px 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            background: rgba(0, 0, 0, .05);
+            color: #333;
+        }
+
+        .search-thumb .thumb-badge {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            background: #dc3545;
+            color: white;
+            font-size: 9px;
+            font-weight: bold;
+            padding: 1px 4px;
+            border-radius: 3px;
+            pointer-events: none;
+        }
+
+        .search-thumb .thumb-pages {
+            position: absolute;
+            bottom: 28px;
+            right: 4px;
+            background: rgba(0, 0, 0, .65);
+            color: white;
+            font-size: 9px;
+            padding: 1px 5px;
+            border-radius: 3px;
+            pointer-events: none;
+        }
+
+        .search-thumb .thumb-in-queue-mark {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            background: #007bff;
+            color: white;
+            font-size: 9px;
+            font-weight: bold;
+            padding: 1px 4px;
+            border-radius: 3px;
+            pointer-events: none;
+            display: none;
+        }
+
+        .search-thumb.in-queue .thumb-in-queue-mark {
+            display: block;
+        }
+
+        /* Loading spinner */
+        .search-spinner {
+            text-align: center;
+            padding: 40px 0;
+            color: #999;
+            font-size: 13px;
+        }
+
+        .search-spinner-icon {
+            display: block;
+            margin: 0 auto 10px;
+            width: 28px;
+            height: 28px;
+            border: 3px solid #ddd;
+            border-top-color: #28a745;
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Pagination */
+        .search-pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .search-pagination .pg-info {
+            font-size: 12px;
+            color: #666;
+            padding: 0 8px;
+        }
+
+        .search-pagination button {
+            padding: 5px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #f9f9f9;
+            cursor: pointer;
+            font-size: 12px;
+            min-width: 32px;
+        }
+
+        .search-pagination button:hover:not(:disabled) {
+            background: #e8f5e9;
+            border-color: #28a745;
+        }
+
+        .search-pagination button:disabled {
+            opacity: .4;
+            cursor: not-allowed;
+        }
+
+        .search-pagination button.pg-active {
+            background: #28a745;
+            color: white;
+            border-color: #28a745;
+            cursor: default;
+        }
+    </style>
 </head>
 <body>
 
@@ -395,1584 +799,1774 @@
 
 <div class="page">
 
-  <!-- Cookie -->
-  <div class="card">
-    <div class="card-title">Pixiv Cookie</div>
-    <div class="cookie-fmt">
-      <button id="fmt-header"  class="active" onclick="setCookieFmt('header')">Header String</button>
-      <button id="fmt-json"               onclick="setCookieFmt('json')">JSON</button>
-      <button id="fmt-netscape"           onclick="setCookieFmt('netscape')">Netscape</button>
+    <!-- Cookie -->
+    <div class="card">
+        <div class="card-title">Pixiv Cookie</div>
+        <div class="cookie-fmt">
+            <button id="fmt-header" class="active" onclick="setCookieFmt('header')">Header String</button>
+            <button id="fmt-json" onclick="setCookieFmt('json')">JSON</button>
+            <button id="fmt-netscape" onclick="setCookieFmt('netscape')">Netscape</button>
+        </div>
+        <div class="cookie-row">
+            <input type="password" id="cookie-input" placeholder="粘贴 Cookie...">
+            <button class="btn-sm" id="cookie-toggle">显示</button>
+            <button class="btn-sm" id="cookie-save" style="background:#e8f5e9;border-color:#28a745;">保存</button>
+        </div>
+        <div class="cookie-hint" id="cookie-hint">支持三种格式：Header
+            String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。推荐使用 <a
+                    href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm"
+                    target="_blank" rel="noopener">Cookie-Editor</a> 插件导出 Cookie。
+        </div>
     </div>
-    <div class="cookie-row">
-      <input type="password" id="cookie-input" placeholder="粘贴 Cookie...">
-      <button class="btn-sm" id="cookie-toggle">显示</button>
-      <button class="btn-sm" id="cookie-save" style="background:#e8f5e9;border-color:#28a745;">保存</button>
-    </div>
-    <div class="cookie-hint" id="cookie-hint">支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。推荐使用 <a href="https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm" target="_blank" rel="noopener">Cookie-Editor</a> 插件导出 Cookie。</div>
-  </div>
 
-  <!-- Mode tabs -->
-  <div class="tabs">
-    <div class="tab active" id="tab-ntab" onclick="switchMode('ntab')">🎨 N-Tab 模式</div>
-    <div class="tab" id="tab-user" onclick="switchMode('user')">👤 User 模式</div>
-    <div class="tab" id="tab-search" onclick="switchMode('search')">🔍 Search 模式</div>
-  </div>
+    <!-- Mode tabs -->
+    <div class="tabs">
+        <div class="tab active" id="tab-ntab" onclick="switchMode('ntab')">🎨 N-Tab 模式</div>
+        <div class="tab" id="tab-user" onclick="switchMode('user')">👤 User 模式</div>
+        <div class="tab" id="tab-search" onclick="switchMode('search')">🔍 Search 模式</div>
+    </div>
 
-  <!-- N-Tab panel -->
-  <div class="card mode-panel active" id="panel-ntab">
-    <div class="card-title">N-Tab 导出数据</div>
-    <textarea id="ntab-textarea" placeholder="粘贴 N-Tab 导出的内容（每行包含 https://www.pixiv.net/artworks/{id}）..."></textarea>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:0;">
-      <button class="btn btn-blue" onclick="parseNTab()">📋 解析并加入队列</button>
-      <button class="btn" style="background:#e67e22;" onclick="parseNTabFresh()">🗑 清除队列并重新解析</button>
+    <!-- N-Tab panel -->
+    <div class="card mode-panel active" id="panel-ntab">
+        <div class="card-title">N-Tab 导出数据</div>
+        <textarea id="ntab-textarea"
+                  placeholder="粘贴 N-Tab 导出的内容（每行包含 https://www.pixiv.net/artworks/{id}）..."></textarea>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:0;">
+            <button class="btn btn-blue" onclick="parseNTab()">📋 解析并加入队列</button>
+            <button class="btn" style="background:#e67e22;" onclick="parseNTabFresh()">🗑 清除队列并重新解析</button>
+        </div>
     </div>
-  </div>
 
-  <!-- User panel -->
-  <div class="card mode-panel" id="panel-user">
-    <div class="card-title">画师批量下载</div>
-    <div class="user-row">
-      <input type="text" id="user-id-input" placeholder="用户 ID（数字）">
-      <button class="btn btn-cyan" onclick="handleFetchAll()">📥 获取全部作品</button>
-      <button class="btn" style="background:#e67e22;" onclick="handleFetchAllFresh()">🗑 清除队列并重新获取</button>
-      <button class="btn btn-purple" onclick="handleFetchNew()">🆕 仅获取新作品并下载</button>
+    <!-- User panel -->
+    <div class="card mode-panel" id="panel-user">
+        <div class="card-title">画师批量下载</div>
+        <div class="user-row">
+            <input type="text" id="user-id-input" placeholder="用户 ID（数字）">
+            <button class="btn btn-cyan" onclick="handleFetchAll()">📥 获取全部作品</button>
+            <button class="btn" style="background:#e67e22;" onclick="handleFetchAllFresh()">🗑 清除队列并重新获取
+            </button>
+            <button class="btn btn-purple" onclick="handleFetchNew()">🆕 仅获取新作品并下载</button>
+        </div>
+        <div id="user-info-display" style="margin-top:8px;">-</div>
     </div>
-    <div id="user-info-display" style="margin-top:8px;">-</div>
-  </div>
 
-  <!-- Search panel -->
-  <div class="card mode-panel" id="panel-search">
-    <div class="card-title">作品搜索</div>
-    <div class="search-controls">
-      <input type="text" id="search-word" placeholder="输入关键词..." onkeydown="if(event.key==='Enter')performSearch(1)">
-      <button class="btn btn-blue" onclick="performSearch(1)">🔍 搜索</button>
-      <button class="btn btn-green" id="btn-add-all" onclick="addAllSearchResultsToQueue()" disabled>➕ 全部加入队列</button>
+    <!-- Search panel -->
+    <div class="card mode-panel" id="panel-search">
+        <div class="card-title">作品搜索</div>
+        <div class="search-controls">
+            <input type="text" id="search-word" placeholder="输入关键词..."
+                   onkeydown="if(event.key==='Enter')performSearch(1)">
+            <button class="btn btn-blue" onclick="performSearch(1)">🔍 搜索</button>
+            <button class="btn btn-green" id="btn-add-all" onclick="addAllSearchResultsToQueue()" disabled>➕
+                全部加入队列
+            </button>
+        </div>
+        <div class="search-filter-row">
+            <span>内容:</span>
+            <label><input type="radio" name="search-mode" value="all" checked> 全部</label>
+            <label><input type="radio" name="search-mode" value="safe"> 全年龄</label>
+            <label><input type="radio" name="search-mode" value="r18"> R18</label>
+            <span style="margin-left:12px;">搜索方式:</span>
+            <label><input type="radio" name="search-smode" value="s_tag" checked> 标签</label>
+            <label><input type="radio" name="search-smode" value="s_tc"> 标题/描述</label>
+            <span style="margin-left:12px;">排序:</span>
+            <label><input type="radio" name="search-order" value="date_d" checked> 最新</label>
+            <label><input type="radio" name="search-order" value="date"> 最旧</label>
+            <label title="未购买 Pixiv Premium 时将自动按最新排序"><input type="radio" name="search-order"
+                                                                          value="popular_d"> 热门 ⚠</label>
+        </div>
+        <div id="search-premium-tip" style="display:none;font-size:11px;color:#e6a700;margin-bottom:8px;">⚠ 热门排序需要
+            Pixiv Premium 会员，未购买时 Pixiv 将自动按最新排序返回结果
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
+            <input type="checkbox" id="search-blur-r18" checked onchange="toggleBlurR18()">
+            <label for="search-blur-r18" style="cursor:pointer;color:#d63384;">模糊 R18 缩略图（悬停查看）</label>
+        </div>
+        <div id="search-results-area">
+            <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">输入关键词后点击搜索；未保存 Cookie
+                时搜索结果可能减少
+            </div>
+        </div>
+        <div class="search-pagination" id="search-pagination" style="display:none;"></div>
     </div>
-    <div class="search-filter-row">
-      <span>内容:</span>
-      <label><input type="radio" name="search-mode" value="all" checked> 全部</label>
-      <label><input type="radio" name="search-mode" value="safe"> 全年龄</label>
-      <label><input type="radio" name="search-mode" value="r18"> R18</label>
-      <span style="margin-left:12px;">搜索方式:</span>
-      <label><input type="radio" name="search-smode" value="s_tag" checked> 标签</label>
-      <label><input type="radio" name="search-smode" value="s_tc"> 标题/描述</label>
-      <span style="margin-left:12px;">排序:</span>
-      <label><input type="radio" name="search-order" value="date_d" checked> 最新</label>
-      <label><input type="radio" name="search-order" value="date"> 最旧</label>
-      <label title="未购买 Pixiv Premium 时将自动按最新排序"><input type="radio" name="search-order" value="popular_d"> 热门 ⚠</label>
-    </div>
-    <div id="search-premium-tip" style="display:none;font-size:11px;color:#e6a700;margin-bottom:8px;">⚠ 热门排序需要 Pixiv Premium 会员，未购买时 Pixiv 将自动按最新排序返回结果</div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
-      <input type="checkbox" id="search-blur-r18" checked onchange="toggleBlurR18()">
-      <label for="search-blur-r18" style="cursor:pointer;color:#d63384;">模糊 R18 缩略图（悬停查看）</label>
-    </div>
-    <div id="search-results-area">
-      <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">输入关键词后点击搜索；未保存 Cookie 时搜索结果可能减少</div>
-    </div>
-    <div class="search-pagination" id="search-pagination" style="display:none;"></div>
-  </div>
 
-  <!-- Settings -->
-  <div class="card">
-    <div class="card-title">下载设置</div>
-    <div class="settings-grid">
-      <div class="setting-item">
-        <label>作品间隔:</label>
-        <input type="number" id="s-interval" min="0" value="2">
-        <button class="unit-toggle" id="s-interval-unit" onclick="toggleIntervalUnit()">s</button>
-      </div>
-      <div class="setting-item">
-        <label>图片间隔:</label>
-        <input type="number" id="s-image-delay" min="0" value="0">
-        <button class="unit-toggle" id="s-image-delay-unit" onclick="toggleImageDelayUnit()">ms</button>
-      </div>
-      <div class="setting-item">
-        <label>最大并发数:</label>
-        <input type="number" id="s-concurrent" min="1" value="1" style="border-radius:4px;">
-      </div>
-      <div class="setting-item">
-        <input type="checkbox" id="s-skip">
-        <label for="s-skip" style="cursor:pointer;">跳过已下载作品</label>
-      </div>
-      <div class="setting-item">
-        <input type="checkbox" id="s-R18">
-        <label for="s-R18" class="R18-label" style="cursor:pointer;">仅下载 R18 作品</label>
-      </div>
-      <div class="setting-item">
-        <input type="checkbox" id="s-bookmark">
-        <label for="s-bookmark" style="cursor:pointer;">下载后自动收藏</label>
-      </div>
+    <!-- Settings -->
+    <div class="card">
+        <div class="card-title">下载设置</div>
+        <div class="settings-grid">
+            <div class="setting-item">
+                <label>作品间隔:</label>
+                <input type="number" id="s-interval" min="0" value="2">
+                <button class="unit-toggle" id="s-interval-unit" onclick="toggleIntervalUnit()">s</button>
+            </div>
+            <div class="setting-item">
+                <label>图片间隔:</label>
+                <input type="number" id="s-image-delay" min="0" value="0">
+                <button class="unit-toggle" id="s-image-delay-unit" onclick="toggleImageDelayUnit()">ms</button>
+            </div>
+            <div class="setting-item">
+                <label>最大并发数:</label>
+                <input type="number" id="s-concurrent" min="1" value="1" style="border-radius:4px;">
+            </div>
+            <div class="setting-item">
+                <input type="checkbox" id="s-skip">
+                <label for="s-skip" style="cursor:pointer;">跳过已下载作品</label>
+            </div>
+            <div class="setting-item">
+                <input type="checkbox" id="s-R18">
+                <label for="s-R18" class="R18-label" style="cursor:pointer;">仅下载 R18 作品</label>
+            </div>
+            <div class="setting-item">
+                <input type="checkbox" id="s-bookmark">
+                <label for="s-bookmark" style="cursor:pointer;">下载后自动收藏</label>
+            </div>
+        </div>
     </div>
-  </div>
 
-  <!-- Buttons -->
-  <div class="card">
-    <div class="btn-grid">
-      <button class="btn btn-green"  id="btn-start"         onclick="handleStart()">🚀 开始下载</button>
-      <button class="btn btn-yellow" id="btn-pause"         onclick="handlePause()" disabled>⏸ 暂停</button>
-      <button class="btn btn-cyan"   id="btn-retry"         onclick="handleRetry()">🔁 重试失败</button>
-      <button class="btn btn-blue"   id="btn-export"        onclick="handleExport()">📤 导出全部</button>
-      <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()">📋 导出未下载</button>
-      <button class="btn btn-gray"   id="btn-clear"         onclick="handleClear()">🗑 清除队列</button>
+    <!-- Buttons -->
+    <div class="card">
+        <div class="btn-grid">
+            <button class="btn btn-green" id="btn-start" onclick="handleStart()">🚀 开始下载</button>
+            <button class="btn btn-yellow" id="btn-pause" onclick="handlePause()" disabled>⏸ 暂停</button>
+            <button class="btn btn-cyan" id="btn-retry" onclick="handleRetry()">🔁 重试失败</button>
+            <button class="btn btn-blue" id="btn-export" onclick="handleExport()">📤 导出全部</button>
+            <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()">📋 导出未下载</button>
+            <button class="btn btn-gray" id="btn-clear" onclick="handleClear()">🗑 清除队列</button>
+        </div>
     </div>
-  </div>
 
-  <!-- Quota bar (only shown in multi mode with quota enabled) -->
-  <div id="quota-bar">
-    <div class="qb-row">
-      <span class="qb-label">下载配额：<span id="qb-used">0</span>/<span id="qb-max">50</span> 个作品</span>
-      <div class="qb-fill-bg"><div class="qb-fill" id="qb-fill" style="width:0%"></div></div>
+    <!-- Quota bar (only shown in multi mode with quota enabled) -->
+    <div id="quota-bar">
+        <div class="qb-row">
+            <span class="qb-label">下载配额：<span id="qb-used">0</span>/<span id="qb-max">50</span> 个作品</span>
+            <div class="qb-fill-bg">
+                <div class="qb-fill" id="qb-fill" style="width:0%"></div>
+            </div>
+        </div>
+        <div class="qb-reset" id="qb-reset"></div>
     </div>
-    <div class="qb-reset" id="qb-reset"></div>
-  </div>
 
-  <!-- Archive download card -->
-  <div id="archive-card">
-    <div class="ac-title" id="ac-title">已达到下载限额</div>
-    <div class="ac-status" id="ac-status">正在打包已下载文件，请稍候...</div>
-    <div id="ac-dl-area" style="display:none;">
-      <a id="ac-dl-btn" class="btn-download" href="#" download>下载压缩包</a>
-      <div class="ac-countdown" id="ac-countdown"></div>
+    <!-- Archive download card -->
+    <div id="archive-card">
+        <div class="ac-title" id="ac-title">已达到下载限额</div>
+        <div class="ac-status" id="ac-status">正在打包已下载文件，请稍候...</div>
+        <div id="ac-dl-area" style="display:none;">
+            <a id="ac-dl-btn" class="btn-download" href="#" download>下载压缩包</a>
+            <div class="ac-countdown" id="ac-countdown"></div>
+        </div>
+        <div id="ac-expired-area" style="display:none;">
+            <div class="ac-expired">下载链接已过期</div>
+        </div>
     </div>
-    <div id="ac-expired-area" style="display:none;">
-      <div class="ac-expired">下载链接已过期</div>
+
+    <!-- Status -->
+    <div class="card" style="padding:12px 16px;">
+        <div id="status-bar">准备就绪</div>
+        <div id="stats-bar">队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0</div>
     </div>
-  </div>
 
-  <!-- Status -->
-  <div class="card" style="padding:12px 16px;">
-    <div id="status-bar">准备就绪</div>
-    <div id="stats-bar">队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0</div>
-  </div>
+    <!-- Current -->
+    <div id="current-card"><strong>当前下载:</strong> 无</div>
 
-  <!-- Current -->
-  <div id="current-card"><strong>当前下载:</strong> 无</div>
-
-  <!-- Queue -->
-  <div class="card" style="margin-top:14px;">
-    <div class="card-title">下载队列</div>
-    <div id="queue-list"><div class="queue-empty">队列为空</div></div>
-  </div>
+    <!-- Queue -->
+    <div class="card" style="margin-top:14px;">
+        <div class="card-title">下载队列</div>
+        <div id="queue-list">
+            <div class="queue-empty">队列为空</div>
+        </div>
+    </div>
 
 </div><!-- /page -->
 
 <script>
-'use strict';
+    'use strict';
 
-/* ============================================================
-   状态
-============================================================ */
-let state = {
-  mode: 'ntab',
-  queue: [],
-  isRunning: false,
-  isPaused: false,
-  stopRequested: false,
-  activeWorkers: 0,
-  userId: '',
-  username: '',
-  sseMap: {},
-  sseListeners: {},
-  stats: { success: 0, failed: 0, active: 0, skipped: 0 },
-  settings: { interval: 2, intervalUnit: 's', imageDelay: 0, imageDelayUnit: 'ms', concurrent: 1, skipHistory: false, R18Only: false, bookmark: false }
-};
-
-const BASE = '';  // 使用相对路径，自动适配访问地址
-const STATUS_TIMEOUT_MS = 300000;
-
-/* ============================================================
-   配额 & 压缩包
-============================================================ */
-let quotaInfo = { enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0 };
-let archiveCountdownTimer = null;
-let archivePollTimer = null;
-let quotaResetTimer = null;
-let quotaExceededHandled = false;
-
-async function initQuota() {
-  try {
-    const res = await fetch(BASE + '/api/quota/init', { method: 'POST', credentials: 'same-origin' });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data.enabled) return;
-    quotaInfo = { enabled: true, artworksUsed: data.artworksUsed, maxArtworks: data.maxArtworks,
-                  resetSeconds: data.resetSeconds };
-    renderQuotaBar();
-    startQuotaResetCountdown();
-    // 恢复已有的压缩包链接
-    if (data.archive && data.archive.token) {
-      showArchiveCard(data.archive.token, data.archive.expireSeconds, data.archive.status === 'ready');
-    }
-  } catch {}
-}
-
-function renderQuotaBar() {
-  if (!quotaInfo.enabled) return;
-  document.getElementById('quota-bar').style.display = 'block';
-  document.getElementById('qb-used').textContent = quotaInfo.artworksUsed;
-  document.getElementById('qb-max').textContent = quotaInfo.maxArtworks;
-  const pct = Math.min(100, Math.round(quotaInfo.artworksUsed / quotaInfo.maxArtworks * 100));
-  const fill = document.getElementById('qb-fill');
-  fill.style.width = pct + '%';
-  fill.className = 'qb-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
-  document.getElementById('qb-reset').textContent =
-    quotaInfo.resetSeconds > 0 ? '配额重置剩余：' + formatSeconds(quotaInfo.resetSeconds) : '';
-}
-
-function startQuotaResetCountdown() {
-  clearInterval(quotaResetTimer);
-  if (quotaInfo.resetSeconds <= 0) return;
-  quotaResetTimer = setInterval(() => {
-    if (quotaInfo.resetSeconds > 0) quotaInfo.resetSeconds--;
-    renderQuotaBar();
-    if (quotaInfo.resetSeconds <= 0) clearInterval(quotaResetTimer);
-  }, 1000);
-}
-
-function handleQuotaExceeded(data) {
-  quotaInfo.artworksUsed = data.artworksUsed || quotaInfo.artworksUsed;
-  renderQuotaBar();
-
-  // 标记所有未开始/等待中的队列项为失败
-  state.queue.forEach(q => {
-    if (['pending', 'idle', 'paused'].includes(q.status)) {
-      q.status = 'failed';
-      q.lastMessage = '失败 - 达到限额';
-      q.endTime = q.endTime || new Date().toISOString();
-    }
-  });
-  state.stopRequested = true;
-  state.isRunning = false;
-  updateStats();
-  saveQueue();
-  renderQueue();
-  updateButtonsState();
-  setStatus('已达到下载限额', 'error');
-
-  const token = data.archiveToken;
-  const expireSeconds = data.archiveExpireSeconds || 3600;
-  showArchiveCard(token, expireSeconds, false);
-}
-
-function showArchiveCard(token, expireSeconds, ready, title = '已达到下载限额') {
-  clearInterval(archiveCountdownTimer);
-  clearInterval(archivePollTimer);
-
-  document.getElementById('archive-card').style.display = 'block';
-  document.getElementById('ac-title').textContent = title;
-  document.getElementById('ac-expired-area').style.display = 'none';
-  document.getElementById('ac-dl-area').style.display = 'none';
-
-  if (ready) {
-    activateArchiveDownload(token, expireSeconds);
-  } else {
-    document.getElementById('ac-status').textContent = '正在打包已下载文件，请稍候...';
-    pollArchiveReady(token, expireSeconds);
-  }
-}
-
-function pollArchiveReady(token, expireSeconds) {
-  archivePollTimer = setInterval(async () => {
-    try {
-      const res = await fetch(BASE + '/api/archive/status/' + token);
-      const data = await res.json();
-      if (data.status === 'ready') {
-        clearInterval(archivePollTimer);
-        activateArchiveDownload(token, data.expireSeconds || expireSeconds);
-      } else if (data.status === 'expired') {
-        clearInterval(archivePollTimer);
-        showArchiveExpired();
-      } else if (data.status === 'empty') {
-        clearInterval(archivePollTimer);
-        document.getElementById('ac-status').textContent = '暂无可打包文件（当前下载仍在进行中，完成后自动包含）';
-      }
-    } catch {}
-  }, 2000);
-}
-
-function activateArchiveDownload(token, expireSeconds) {
-  document.getElementById('ac-status').textContent = '压缩包已就绪，请在有效期内下载：';
-  const dlArea = document.getElementById('ac-dl-area');
-  dlArea.style.display = 'block';
-  const btn = document.getElementById('ac-dl-btn');
-  btn.href = BASE + '/api/archive/download/' + token;
-  btn.removeAttribute('disabled');
-
-  let remaining = Math.max(0, parseInt(expireSeconds));
-  document.getElementById('ac-countdown').textContent = '下载链接有效期：' + formatSeconds(remaining);
-  archiveCountdownTimer = setInterval(() => {
-    remaining--;
-    if (remaining <= 0) {
-      clearInterval(archiveCountdownTimer);
-      showArchiveExpired();
-    } else {
-      document.getElementById('ac-countdown').textContent = '下载链接有效期：' + formatSeconds(remaining);
-    }
-  }, 1000);
-}
-
-function showArchiveExpired() {
-  document.getElementById('ac-dl-area').style.display = 'none';
-  document.getElementById('ac-expired-area').style.display = 'block';
-  document.getElementById('ac-status').textContent = '';
-}
-
-async function autoPackAfterQueue() {
-  try {
-    const res = await fetch(BASE + '/api/quota/pack', {
-      method: 'POST',
-      credentials: 'same-origin'
-    });
-    if (res.status === 204) return; // 无文件可打包（可能已被打包或源文件已删除）
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.archiveToken) {
-      setStatus('批量下载结束，正在打包文件...', 'info');
-      showArchiveCard(data.archiveToken, data.archiveExpireSeconds || 3600, false, '下载完成，正在打包');
-    }
-  } catch {}
-}
-
-function formatSeconds(s) {
-  s = Math.max(0, Math.round(s));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(sec).padStart(2,'0') + 's';
-  return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
-}
-
-/* ============================================================
-   模式检测 & 存储抽象（solo=服务器，multi=localStorage）
-============================================================ */
-let appMode = 'multi';   // 'solo' | 'multi'，init() 中确定
-let serverState = {};    // solo 模式下的状态内存镜像
-
-async function detectMode() {
-  try {
-    const res = await fetch('/api/setup/status');
-    if (res.ok) {
-      const data = await res.json();
-      appMode = data.mode === 'solo' ? 'solo' : 'multi';
-    }
-  } catch { appMode = 'multi'; }
-}
-
-async function loadServerState() {
-  try {
-    const res = await fetch(BASE + '/api/batch/state');
-    if (res.ok) { const data = await res.json(); serverState = data.state ?? {}; }
-  } catch {}
-}
-
-let _saveTimer = null;
-function scheduleServerSave() {
-  if (_saveTimer) clearTimeout(_saveTimer);
-  _saveTimer = setTimeout(() => {
-    fetch(BASE + '/api/batch/state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ state: serverState }),
-      credentials: 'same-origin'
-    }).catch(() => {});
-  }, 400);
-}
-
-/** 统一存储读取：solo 模式读服务器内存，multi 模式读 localStorage */
-function storeGet(key) {
-  if (appMode === 'solo') {
-    const v = serverState[key];
-    return v != null ? String(v) : null;
-  }
-  return localStorage.getItem(key);
-}
-
-function storeSet(key, value) {
-  if (appMode === 'solo') { serverState[key] = value; scheduleServerSave(); }
-  else localStorage.setItem(key, value);
-}
-
-function storeRemove(key) {
-  if (appMode === 'solo') { delete serverState[key]; scheduleServerSave(); }
-  else localStorage.removeItem(key);
-}
-
-async function doLogout() {
-  try {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
-  } catch {}
-  window.location.href = '/login.html';
-}
-
-/* ============================================================
-   API
-============================================================ */
-function getCookieFmt() { return storeGet('pixiv_cookie_fmt') || 'header'; }
-
-function setCookieFmt(fmt) {
-  storeSet('pixiv_cookie_fmt', fmt);
-  ['header','json','netscape'].forEach(f => {
-    document.getElementById('fmt-' + f).classList.toggle('active', f === fmt);
-  });
-}
-
-function parseCookieToHeaderString(raw, fmt) {
-  if (!raw) return '';
-  try {
-    if (fmt === 'json') {
-      const obj = JSON.parse(raw);
-      return Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('; ');
-    }
-    if (fmt === 'netscape') {
-      return raw.split('\n')
-        .filter(l => l.trim() && !l.trim().startsWith('#'))
-        .map(l => { const p = l.split('\t'); return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null; })
-        .filter(Boolean)
-        .join('; ');
-    }
-  } catch (e) {
-    console.warn('Cookie 解析失败，原样使用:', e.message);
-  }
-  // header string 或解析失败时原样返回
-  return raw;
-}
-
-function getCookie() {
-  const raw = storeGet('pixiv_cookie') || '';
-  return parseCookieToHeaderString(raw, getCookieFmt());
-}
-
-function validateAndParseCookie(raw, fmt) {
-  if (!raw.trim()) return { ok: false, error: 'Cookie 不能为空' };
-
-  let headerString;
-  try {
-    if (fmt === 'json') {
-      const obj = JSON.parse(raw);
-      if (typeof obj !== 'object' || Array.isArray(obj) || obj === null)
-        throw new Error('需要 JSON 对象格式 {"key":"value",...}');
-      headerString = Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('; ');
-    } else if (fmt === 'netscape') {
-      const lines = raw.split('\n')
-        .filter(l => l.trim() && !l.trim().startsWith('#'))
-        .map(l => { const p = l.split('\t'); return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null; })
-        .filter(Boolean);
-      if (!lines.length) throw new Error('未解析到有效的 Cookie 行（需要 7 列 tab 分隔格式）');
-      headerString = lines.join('; ');
-    } else {
-      headerString = raw.trim();
-    }
-  } catch (e) {
-    return { ok: false, error: `格式解析失败：${e.message}` };
-  }
-
-  // 校验所有键值对格式是否合法
-  const pairs = headerString.split(';').map(s => s.trim()).filter(Boolean);
-  const invalid = pairs.filter(p => !/^[^=]+=/.test(p));
-  if (invalid.length) {
-    return { ok: false, error: `包含无效键值对：${invalid.slice(0, 3).map(s => `"${s}"`).join('、')}` };
-  }
-
-  // 警告：缺少关键字段
-  const warnings = [];
-  if (!pairs.some(p => p.startsWith('PHPSESSID='))) {
-    warnings.push('未检测到 PHPSESSID，可能无法访问需要登录的内容');
-  }
-
-  return { ok: true, count: pairs.length, warnings };
-}
-
-function pixivHeader() {
-  const c = getCookie();
-  return c ? { 'X-Pixiv-Cookie': c } : {};
-}
-
-async function apiGet(path) {
-  const res = await fetch(BASE + path, { headers: pixivHeader() });
-  return res.json();
-}
-
-async function checkBackend() {
-  try {
-    const res = await fetch(BASE + '/api/download/status',
-        { signal: AbortSignal.timeout(2000) });
-    return res.status === 200;
-  } catch { return false; }
-}
-
-async function getUserArtworks(userId) {
-  const data = await apiGet(`/api/pixiv/user/${userId}/artworks`);
-  if (data.error) throw new Error(data.error);
-  return data.ids || [];
-}
-
-async function getUserMeta(userId) {
-  const data = await apiGet(`/api/pixiv/user/${userId}/meta`);
-  if (data.error) throw new Error(data.error);
-  return data.name || '';
-}
-
-async function getArtworkMeta(artworkId) {
-  const data = await apiGet(`/api/pixiv/artwork/${artworkId}/meta`);
-  if (data.error) throw new Error(data.error);
-  return data;
-}
-
-async function getArtworkPages(artworkId) {
-  const data = await apiGet(`/api/pixiv/artwork/${artworkId}/pages`);
-  if (data.error) throw new Error(data.error);
-  return data.urls || [];
-}
-
-async function getUgoiraMeta(artworkId) {
-  const data = await apiGet(`/api/pixiv/artwork/${artworkId}/ugoira`);
-  if (data.error) throw new Error(data.error);
-  return data;
-}
-
-async function checkDownloaded(artworkId) {
-  try {
-    const res = await fetch(`${BASE}/api/downloaded/${artworkId}`);
-    if (res.status === 200) {
-      const data = await res.json();
-      return !!data.artworkId;
-    }
-    return false;
-  } catch { return false; }
-}
-
-function getIntervalMs() {
-  const { interval, intervalUnit } = state.settings;
-  return intervalUnit === 's' ? Math.round(interval * 1000) : Math.round(interval);
-}
-
-function getImageDelayMs() {
-  const { imageDelay, imageDelayUnit } = state.settings;
-  return imageDelayUnit === 's' ? Math.round(imageDelay * 1000) : Math.round(imageDelay);
-}
-
-function toggleImageDelayUnit() {
-  const btn = document.getElementById('s-image-delay-unit');
-  const input = document.getElementById('s-image-delay');
-  const cur = parseFloat(input.value) || 0;
-  if (state.settings.imageDelayUnit === 's') {
-    state.settings.imageDelayUnit = 'ms';
-    input.value = Math.round(cur * 1000);
-    btn.textContent = 'ms';
-  } else {
-    state.settings.imageDelayUnit = 's';
-    input.value = +(cur / 1000).toFixed(3);
-    btn.textContent = 's';
-  }
-  state.settings.imageDelay = parseFloat(input.value) || 0;
-  saveSettings();
-}
-
-function toggleIntervalUnit() {
-  const btn = document.getElementById('s-interval-unit');
-  const input = document.getElementById('s-interval');
-  const cur = parseFloat(input.value) || 0;
-  if (state.settings.intervalUnit === 's') {
-    state.settings.intervalUnit = 'ms';
-    input.value = Math.round(cur * 1000);
-    btn.textContent = 'ms';
-  } else {
-    state.settings.intervalUnit = 's';
-    input.value = +(cur / 1000).toFixed(3);
-    btn.textContent = 's';
-  }
-  state.settings.interval = parseFloat(input.value) || 0;
-  saveSettings();
-}
-
-async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, isR18, ugoiraData) {
-  const delayMs = getImageDelayMs();
-  const other = { userDownload: isUserDownload, username: username || '', isR18: !!isR18, delayMs, bookmark: !!state.settings.bookmark };
-  if (ugoiraData) {
-    other.isUgoira = true;
-    other.ugoiraZipUrl = ugoiraData.zipUrl;
-    other.ugoiraDelays = ugoiraData.delays;
-  }
-  const payload = {
-    artworkId: parseInt(artworkId),
-    imageUrls,
-    title,
-    referer: 'https://www.pixiv.net/',
-    cookie: getCookie(),
-    other
-  };
-  const res = await fetch(`${BASE}/api/download/pixiv`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json();
-  if (res.status === 429 && data.quotaExceeded) {
-    if (!quotaExceededHandled) {
-      quotaExceededHandled = true;
-      handleQuotaExceeded(data);
-    }
-    const err = new Error('quota_exceeded');
-    err.quotaData = data;
-    throw err;
-  }
-  if (!res.ok) throw new Error(data.message || '后端返回失败');
-  return data;
-}
-
-async function getDownloadStatus(artworkId) {
-  const res = await fetch(`${BASE}/api/download/status/${artworkId}`);
-  return res.json();
-}
-
-/* ============================================================
-   SSE
-============================================================ */
-function openSSE(artworkId) {
-  closeSSE(artworkId);
-  const src = new EventSource(`${BASE}/api/sse/download/${artworkId}`);
-  src.addEventListener('download-status', e => {
-    try {
-      const data = JSON.parse(e.data);
-      (state.sseListeners[artworkId] || []).forEach(fn => fn(data));
-    } catch {}
-  });
-  state.sseMap[artworkId] = src;
-}
-
-function closeSSE(artworkId) {
-  if (state.sseMap[artworkId]) {
-    try { state.sseMap[artworkId].close(); } catch {}
-    delete state.sseMap[artworkId];
-  }
-  delete state.sseListeners[artworkId];
-}
-
-function closeAllSSE() {
-  Object.keys(state.sseMap).forEach(closeSSE);
-}
-
-function addSSEListener(artworkId, fn) {
-  if (!state.sseListeners[artworkId]) state.sseListeners[artworkId] = [];
-  state.sseListeners[artworkId].push(fn);
-}
-
-function waitForFinalStatusBySSE(artworkId, timeoutMs) {
-  return new Promise(resolve => {
-    let resolved = false;
-    let timer = null;
-    let pollTimer = null;
-
-    const finish = (data) => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timer);
-      clearInterval(pollTimer);
-      resolve(data);
+    /* ============================================================
+       状态
+    ============================================================ */
+    let state = {
+        mode: 'ntab',
+        queue: [],
+        isRunning: false,
+        isPaused: false,
+        stopRequested: false,
+        activeWorkers: 0,
+        userId: '',
+        username: '',
+        sseMap: {},
+        sseListeners: {},
+        stats: {success: 0, failed: 0, active: 0, skipped: 0},
+        settings: {
+            interval: 2,
+            intervalUnit: 's',
+            imageDelay: 0,
+            imageDelayUnit: 'ms',
+            concurrent: 1,
+            skipHistory: false,
+            R18Only: false,
+            bookmark: false
+        }
     };
 
-    timer = setTimeout(() => finish(null), timeoutMs);
+    const BASE = '';  // 使用相对路径，自动适配访问地址
+    const STATUS_TIMEOUT_MS = 300000;
 
-    // 每5秒轮询一次，防止 SSE 事件丢失导致任务卡死
-    pollTimer = setInterval(async () => {
-      if (resolved) { clearInterval(pollTimer); return; }
-      try {
-        const status = await getDownloadStatus(String(artworkId));
-        if (status && (status.completed || status.failed)) finish(status);
-      } catch {}
-    }, 5000);
+    /* ============================================================
+       配额 & 压缩包
+    ============================================================ */
+    let quotaInfo = {enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0};
+    let archiveCountdownTimer = null;
+    let archivePollTimer = null;
+    let quotaResetTimer = null;
+    let quotaExceededHandled = false;
 
-    addSSEListener(artworkId, data => {
-      if (data && (data.completed || data.failed || data.cancelled)) {
-        finish(data);
-      } else if (data && data.downloadedCount !== undefined) {
-        const q = state.queue.find(x => x.id === String(artworkId));
-        if (q) { q.downloadedCount = data.downloadedCount; renderQueue(); setCurrent(q); }
-        clearTimeout(timer);
-        timer = setTimeout(() => finish(null), timeoutMs);
-      }
-    });
-  });
-}
-
-/* ============================================================
-   下载管理器
-============================================================ */
-async function start() {
-  if (state.queue.length === 0) { setStatus('队列为空', 'error'); return; }
-  if (!await checkBackend()) { alert('后端服务不可用，请确认后端已启动'); return; }
-
-  const { concurrent } = state.settings;
-  const intervalMs = getIntervalMs();
-  state.queue.forEach(q => {
-    if (['idle', 'failed', 'paused'].includes(q.status)) q.status = 'pending';
-  });
-  state.isRunning = true;
-  state.isPaused = false;
-  state.stopRequested = false;
-  state.activeWorkers = 0;
-  quotaExceededHandled = false;
-
-  updateStats();
-  updateButtonsState();
-  saveQueue();
-  renderQueue();
-  setStatus(`开始下载 (并发:${concurrent}, 间隔:${intervalMs}ms)`, 'info');
-
-  const workers = [];
-  for (let i = 0; i < Math.max(1, concurrent); i++) {
-    workers.push(workerLoop(intervalMs));
-  }
-  await Promise.all(workers);
-
-  state.isRunning = false;
-  saveQueue();
-  setStatus('批量下载结束', 'info');
-  updateButtonsState();
-
-  // 多人模式：队列完成后自动打包已下载文件（配额超限时已在 handleQuotaExceeded 中触发打包，不重复）
-  if (quotaInfo.enabled) {
-    const completed = state.queue.filter(q => q.status === 'completed').length;
-    if (completed > 0) {
-      autoPackAfterQueue();
-    }
-  }
-}
-
-async function workerLoop(intervalMs) { // intervalMs already in ms
-  state.activeWorkers++;
-  try {
-    while (state.isRunning && !state.stopRequested) {
-      if (state.isPaused) { await sleep(500); continue; }
-      const item = getNextPending();
-      if (!item) {
-        if (state.queue.every(q =>
-            ['completed','failed','idle','paused','skipped'].includes(q.status))) break;
-        await sleep(500);
-        continue;
-      }
-      try { await processSingle(item); } catch (e) { console.error(e); }
-      finally { await sleep(intervalMs); }
-    }
-  } finally { state.activeWorkers--; }
-}
-
-function getNextPending() {
-  const downloadingIds = new Set(
-    state.queue.filter(q => q.status === 'downloading').map(q => q.id)
-  );
-  const idx = state.queue.findIndex(q => q.status === 'pending' && !downloadingIds.has(q.id));
-  if (idx === -1) return null;
-  state.queue[idx].status = 'downloading';
-  state.queue[idx].startTime = new Date().toISOString();
-  saveQueue();
-  renderQueue();
-  return state.queue[idx];
-}
-
-async function processSingle(item) {
-  item.lastMessage = '正在检查历史记录...';
-  renderQueue();
-
-  if (state.settings.skipHistory) {
-    const downloaded = await checkDownloaded(item.id);
-    if (downloaded) {
-      item.status = 'skipped';
-      item.lastMessage = '跳过 — 历史记录中已存在';
-      item.endTime = new Date().toISOString();
-      updateStats(); saveQueue(); renderQueue();
-      return;
-    }
-  }
-
-  item.lastMessage = '正在获取作品信息...';
-  setCurrent(item);
-  setStatus(`获取信息：${item.id}`, 'info');
-  renderQueue();
-
-  try {
-    const meta = await getArtworkMeta(item.id);
-    item.title = meta.illustTitle || `作品 ${item.id}`;
-
-    const isR18 = Number(meta.xRestrict ?? meta.xrestrict ?? 0) > 0;
-    if (state.settings.R18Only && !isR18) {
-      item.status = 'skipped';
-      item.lastMessage = '跳过 — 非 R18 内容';
-      item.endTime = new Date().toISOString();
-      updateStats(); saveQueue(); renderQueue();
-      return;
-    }
-
-    item.isR18 = isR18;
-    const isUserMode = item.source === 'user';
-    let urls, ugoiraData = null;
-
-    item.lastMessage = '正在获取图片地址...';
-    renderQueue();
-
-    if (meta.illustType === 2) {
-      const ugoira = await getUgoiraMeta(item.id);
-      ugoiraData = { zipUrl: ugoira.zipUrl, delays: ugoira.delays };
-      urls = [ugoira.zipUrl];
-      item.totalImages = 1;
-    } else {
-      urls = await getArtworkPages(item.id);
-      if (!urls.length) throw new Error('未获取到图片 URL');
-      item.totalImages = urls.length;
-    }
-
-    item.downloadedCount = 0;
-    saveQueue(); renderQueue();
-
-    setStatus(`下载中：${item.title}`, 'info');
-    const dlData = await sendDownload(
-      item.id, urls, item.title,
-      isUserMode, item.username || state.username || state.userId,
-      isR18, ugoiraData
-    );
-    if (dlData && dlData.alreadyDownloaded) {
-      item.status = 'skipped';
-      item.lastMessage = '跳过 — 已下载（服务器确认）';
-      item.endTime = new Date().toISOString();
-      updateStats(); saveQueue(); renderQueue();
-      setStatus(`跳过：${item.title}（已下载）`, 'info');
-      return;
-    }
-    openSSE(item.id);
-    const ssePromise = waitForFinalStatusBySSE(item.id, STATUS_TIMEOUT_MS);
-    item.lastMessage = '下载中，等待完成...';
-    renderQueue();
-
-    const final = await ssePromise;
-
-    if (final && final.completed) {
-      const dCount = final.downloadedCount !== undefined ? final.downloadedCount : item.totalImages;
-      item.downloadedCount = dCount;
-      if (dCount < item.totalImages) {
-        item.status = 'failed';
-        item.lastMessage = `失败 — 仅 ${dCount}/${item.totalImages} 张已下载`;
-        setStatus(`失败：${item.title} (文件缺失)`, 'error');
-      } else {
-        item.status = 'completed';
-        item.lastMessage = `已完成，共 ${dCount} 张`;
-        setStatus(`完成：${item.title}`, 'success');
-        // 刷新配额显示（每完成一个作品计 1）
-        if (quotaInfo.enabled) {
-          quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
-          renderQuotaBar();
+    async function initQuota() {
+        try {
+            const res = await fetch(BASE + '/api/quota/init', {method: 'POST', credentials: 'same-origin'});
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data.enabled) return;
+            quotaInfo = {
+                enabled: true, artworksUsed: data.artworksUsed, maxArtworks: data.maxArtworks,
+                resetSeconds: data.resetSeconds
+            };
+            renderQuotaBar();
+            startQuotaResetCountdown();
+            // 恢复已有的压缩包链接
+            if (data.archive && data.archive.token) {
+                showArchiveCard(data.archive.token, data.archive.expireSeconds, data.archive.status === 'ready');
+            }
+        } catch {
         }
-      }
-    } else if (final && final.failed) {
-      item.status = 'failed';
-      item.lastMessage = `失败 — ${final.message || '后端报告失败'}`;
-      setStatus(`失败：${item.title}`, 'error');
-    } else {
-      try {
-        const check = await getDownloadStatus(item.id);
-        if (check && check.completed) {
-          const dCount = check.downloadedCount !== undefined ? check.downloadedCount : 0;
-          item.downloadedCount = dCount;
-          if (dCount < item.totalImages) {
-            item.status = 'failed';
-            item.lastMessage = `失败 — 文件缺失 (${dCount}/${item.totalImages})`;
-          } else {
-            item.status = 'completed';
-            item.lastMessage = `已完成（确认），共 ${dCount} 张`;
-          }
+    }
+
+    function renderQuotaBar() {
+        if (!quotaInfo.enabled) return;
+        document.getElementById('quota-bar').style.display = 'block';
+        document.getElementById('qb-used').textContent = quotaInfo.artworksUsed;
+        document.getElementById('qb-max').textContent = quotaInfo.maxArtworks;
+        const pct = Math.min(100, Math.round(quotaInfo.artworksUsed / quotaInfo.maxArtworks * 100));
+        const fill = document.getElementById('qb-fill');
+        fill.style.width = pct + '%';
+        fill.className = 'qb-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
+        document.getElementById('qb-reset').textContent =
+            quotaInfo.resetSeconds > 0 ? '配额重置剩余：' + formatSeconds(quotaInfo.resetSeconds) : '';
+    }
+
+    function startQuotaResetCountdown() {
+        clearInterval(quotaResetTimer);
+        if (quotaInfo.resetSeconds <= 0) return;
+        quotaResetTimer = setInterval(() => {
+            if (quotaInfo.resetSeconds > 0) quotaInfo.resetSeconds--;
+            renderQuotaBar();
+            if (quotaInfo.resetSeconds <= 0) clearInterval(quotaResetTimer);
+        }, 1000);
+    }
+
+    function handleQuotaExceeded(data) {
+        quotaInfo.artworksUsed = data.artworksUsed || quotaInfo.artworksUsed;
+        renderQuotaBar();
+
+        // 标记所有未开始/等待中的队列项为失败
+        state.queue.forEach(q => {
+            if (['pending', 'idle', 'paused'].includes(q.status)) {
+                q.status = 'failed';
+                q.lastMessage = '失败 - 达到限额';
+                q.endTime = q.endTime || new Date().toISOString();
+            }
+        });
+        state.stopRequested = true;
+        state.isRunning = false;
+        updateStats();
+        saveQueue();
+        renderQueue();
+        updateButtonsState();
+        setStatus('已达到下载限额', 'error');
+
+        const token = data.archiveToken;
+        const expireSeconds = data.archiveExpireSeconds || 3600;
+        showArchiveCard(token, expireSeconds, false);
+    }
+
+    function showArchiveCard(token, expireSeconds, ready, title = '已达到下载限额') {
+        clearInterval(archiveCountdownTimer);
+        clearInterval(archivePollTimer);
+
+        document.getElementById('archive-card').style.display = 'block';
+        document.getElementById('ac-title').textContent = title;
+        document.getElementById('ac-expired-area').style.display = 'none';
+        document.getElementById('ac-dl-area').style.display = 'none';
+
+        if (ready) {
+            activateArchiveDownload(token, expireSeconds);
         } else {
-          item.status = 'failed';
-          item.lastMessage = '失败 — 超时未收到完成状态';
+            document.getElementById('ac-status').textContent = '正在打包已下载文件，请稍候...';
+            pollArchiveReady(token, expireSeconds);
         }
-      } catch {
-        item.status = 'failed';
-        item.lastMessage = '失败 — 状态查询异常';
-      }
     }
-  } catch (e) {
-    if (e.message === 'quota_exceeded') {
-      // 已在 handleQuotaExceeded 中处理，item 已标记为失败，不需要重复处理
-      item.status = 'failed';
-      item.lastMessage = '失败 - 达到限额';
-    } else {
-      item.status = 'failed';
-      item.lastMessage = `失败 — ${e.message}`;
-      setStatus(`错误：${item.id} — ${e.message}`, 'error');
+
+    function pollArchiveReady(token, expireSeconds) {
+        archivePollTimer = setInterval(async () => {
+            try {
+                const res = await fetch(BASE + '/api/archive/status/' + token);
+                const data = await res.json();
+                if (data.status === 'ready') {
+                    clearInterval(archivePollTimer);
+                    activateArchiveDownload(token, data.expireSeconds || expireSeconds);
+                } else if (data.status === 'expired') {
+                    clearInterval(archivePollTimer);
+                    showArchiveExpired();
+                } else if (data.status === 'empty') {
+                    clearInterval(archivePollTimer);
+                    document.getElementById('ac-status').textContent = '暂无可打包文件（当前下载仍在进行中，完成后自动包含）';
+                }
+            } catch {
+            }
+        }, 2000);
     }
-  } finally {
-    closeSSE(item.id);
-    item.endTime = item.endTime || new Date().toISOString();
-    updateStats();
-    saveQueue();
-    renderQueue();
-    setCurrent(null);
-  }
-}
 
-function pause() {
-  if (!state.isRunning) return;
-  state.isPaused = true;
-  state.queue.forEach(q => { if (q.status === 'pending') q.status = 'paused'; });
-  saveQueue();
-  const active = state.queue.filter(q => q.status === 'downloading').length;
-  setStatus(active > 0 ? `正在暂停... (等待 ${active} 个任务完成)` : '已暂停', 'warning');
-  updateButtonsState();
-}
+    function activateArchiveDownload(token, expireSeconds) {
+        document.getElementById('ac-status').textContent = '压缩包已就绪，请在有效期内下载：';
+        const dlArea = document.getElementById('ac-dl-area');
+        dlArea.style.display = 'block';
+        const btn = document.getElementById('ac-dl-btn');
+        btn.href = BASE + '/api/archive/download/' + token;
+        btn.removeAttribute('disabled');
 
-function resume() {
-  if (!state.isRunning) { start(); return; }
-  state.isPaused = false;
-  state.queue.forEach(q => { if (q.status === 'paused') q.status = 'pending'; });
-  saveQueue();
-  setStatus('继续下载', 'info');
-  updateButtonsState();
-}
-
-function stopAndClear() {
-  state.stopRequested = true;
-  state.isRunning = false;
-  state.isPaused = false;
-  // 立即触发所有等待中的 SSE Promise resolve，避免等 5 分钟超时
-  Object.keys(state.sseListeners).forEach(id => {
-    (state.sseListeners[id] || []).forEach(fn => fn({ cancelled: true }));
-  });
-  closeAllSSE();
-  state.queue = [];
-  state.stats = { success: 0, failed: 0, active: 0, skipped: 0 };
-  clearSavedQueue();
-  renderQueue();
-  updateButtonsState();
-  updateStats();
-  setStatus('队列已清除', 'info');
-}
-
-/* ============================================================
-   队列管理
-============================================================ */
-function parseNTab() {
-  const text = document.getElementById('ntab-textarea').value;
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const regex = /https?:\/\/www\.pixiv\.net\/artworks\/(\d+)/;
-  const items = [];
-  for (const ln of lines) {
-    const m = ln.match(regex);
-    if (m) {
-      const id = m[1];
-      const titleRaw = (ln.split('|')[1] || '').trim();
-      items.push({ id, title: titleRaw || `作品 ${id}` });
+        let remaining = Math.max(0, parseInt(expireSeconds));
+        document.getElementById('ac-countdown').textContent = '下载链接有效期：' + formatSeconds(remaining);
+        archiveCountdownTimer = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                clearInterval(archiveCountdownTimer);
+                showArchiveExpired();
+            } else {
+                document.getElementById('ac-countdown').textContent = '下载链接有效期：' + formatSeconds(remaining);
+            }
+        }, 1000);
     }
-  }
-  if (!items.length) { setStatus('未解析到任何作品链接', 'error'); return; }
-  const added = addItemsToQueue(items.map(x => x.id), items, 'ntab', '');
-  setStatus(`解析完成：共 ${items.length} 个，新增 ${added} 个`, 'success');
-}
 
-function addItemsToQueue(idList, metaList, source, username) {
-  const existing = new Set(state.queue.map(q => q.id));
-  let added = 0;
-  const meta = metaList || [];
-  for (let i = 0; i < idList.length; i++) {
-    const id = String(idList[i]);
-    if (existing.has(id)) continue;
-    const m = meta[i] || {};
-    state.queue.push({
-      id,
-      title: m.title || `作品 ${id}`,
-      status: state.isRunning ? 'pending' : 'idle',
-      source: source || 'ntab',
-      username: username || '',
-      totalImages: 0,
-      downloadedCount: 0,
-      startTime: null,
-      endTime: null,
-      lastMessage: ''
-    });
-    added++;
-  }
-  updateStats();
-  saveQueue();
-  renderQueue();
-  // 下载进行中但 workers 已全部退出时，重启 workers 处理新加入的任务
-  if (state.isRunning && added > 0 && state.activeWorkers === 0) {
-    const concurrent = Math.max(1, state.settings.concurrent);
-    const intervalMs = getIntervalMs();
-    const workers = [];
-    for (let i = 0; i < concurrent; i++) workers.push(workerLoop(intervalMs));
-    Promise.all(workers).then(() => {
-      state.isRunning = false;
-      saveQueue();
-      setStatus('批量下载结束', 'info');
-      updateButtonsState();
-      if (quotaInfo.enabled) {
-        const completed = state.queue.filter(q => q.status === 'completed').length;
-        if (completed > 0) autoPackAfterQueue();
-      }
-    });
-  }
-  return added;
-}
-
-/* ============================================================
-   按钮处理
-============================================================ */
-async function handleStart() {
-  syncSettings();
-  start();
-}
-
-function handlePause() {
-  if (state.isPaused) resume(); else pause();
-}
-
-function handleRetry() {
-  const failed = state.queue.filter(q => q.status === 'failed');
-  if (!failed.length) { alert('当前没有失败的作品'); return; }
-  failed.forEach(q => {
-    q.status = 'pending';
-    q.lastMessage = '';
-    q.startTime = null;
-    q.endTime = null;
-  });
-  saveQueue();
-  renderQueue();
-  syncSettings();
-  start();
-}
-
-function handleExport() {
-  if (!state.queue.length) { alert('队列为空'); return; }
-  const lines = state.queue.map(q =>
-    `https://www.pixiv.net/artworks/${q.id} | ${q.title}`);
-  downloadTxt(lines.join('\n'), `pixiv_all_list_${Date.now()}.txt`);
-  setStatus(`已导出 ${lines.length} 个作品`, 'success');
-}
-
-function handleExportFailed() {
-  const items = state.queue.filter(q => q.status !== 'completed');
-  if (!items.length) { alert('没有未下载的作品'); return; }
-  const lines = items.map(q =>
-    `https://www.pixiv.net/artworks/${q.id} | ${q.title}`);
-  downloadTxt(lines.join('\n'), `pixiv_undownloaded_list_${Date.now()}.txt`);
-  setStatus(`已导出 ${lines.length} 个未下载作品`, 'success');
-}
-
-function handleClear() {
-  if (!confirm('确认清除队列？')) return;
-  stopAndClear();
-}
-
-function parseNTabFresh() {
-  if (!confirm('确认清除当前队列并重新解析？')) return;
-  stopAndClear();
-  parseNTab();
-}
-
-async function handleFetchAllFresh() {
-  stopAndClear();
-  await fetchUserArtworks(false);
-}
-
-async function handleFetchAll() {
-  await fetchUserArtworks(false);
-}
-
-async function handleFetchNew() {
-  await fetchUserArtworks(true);
-}
-
-async function fetchUserArtworks(onlyNew) {
-  const userId = document.getElementById('user-id-input').value.trim();
-  if (!userId || !/^\d+$/.test(userId)) {
-    alert('请输入有效的用户 ID（纯数字）');
-    return;
-  }
-  state.userId = userId;
-  document.getElementById('user-info-display').textContent = '正在获取用户信息...';
-  setStatus('正在获取作品列表...', 'info');
-
-  try {
-    const name = await getUserMeta(userId);
-    state.username = name || userId;
-    document.getElementById('user-info-display').textContent =
-        `用户：${state.username}（ID: ${userId}）`;
-  } catch {
-    state.username = userId;
-    document.getElementById('user-info-display').textContent =
-        `ID: ${userId}（获取用户名失败）`;
-  }
-
-  try {
-    const ids = await getUserArtworks(userId);
-    if (!ids.length) { setStatus('该用户暂无作品', 'warning'); return; }
-    const added = addItemsToQueue(ids, null, 'user', state.username || state.userId);
-    setStatus(`获取成功：共 ${ids.length} 个作品，新增 ${added} 个`, 'success');
-
-    if (onlyNew) {
-      document.getElementById('s-skip').checked = true;
-      state.settings.skipHistory = true;
-      saveSettings();
-      syncSettings();
-      start();
+    function showArchiveExpired() {
+        document.getElementById('ac-dl-area').style.display = 'none';
+        document.getElementById('ac-expired-area').style.display = 'block';
+        document.getElementById('ac-status').textContent = '';
     }
-  } catch (e) {
-    setStatus('获取作品列表失败：' + e.message, 'error');
-  }
-}
 
-/* ============================================================
-   UI
-============================================================ */
-function switchMode(mode) {
-  state.mode = mode;
-  ['ntab', 'user', 'search'].forEach(m => {
-    document.getElementById('tab-' + m).classList.toggle('active', m === mode);
-    document.getElementById('panel-' + m).classList.toggle('active', m === mode);
-  });
-  storeSet('pixiv_mode', mode);
-}
+    async function autoPackAfterQueue() {
+        try {
+            const res = await fetch(BASE + '/api/quota/pack', {
+                method: 'POST',
+                credentials: 'same-origin'
+            });
+            if (res.status === 204) return; // 无文件可打包（可能已被打包或源文件已删除）
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.archiveToken) {
+                setStatus('批量下载结束，正在打包文件...', 'info');
+                showArchiveCard(data.archiveToken, data.archiveExpireSeconds || 3600, false, '下载完成，正在打包');
+            }
+        } catch {
+        }
+    }
 
-function setStatus(msg, type = 'info') {
-  const el = document.getElementById('status-bar');
-  el.textContent = msg;
-  el.style.color = { info:'#007bff', success:'#28a745', error:'#dc3545', warning:'#e6a700' }[type] || '#666';
-}
+    function formatSeconds(s) {
+        s = Math.max(0, Math.round(s));
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = s % 60;
+        if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm ' + String(sec).padStart(2, '0') + 's';
+        return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    }
 
-function updateStats() {
-  state.stats.success  = state.queue.filter(q => q.status === 'completed').length;
-  state.stats.failed   = state.queue.filter(q => q.status === 'failed').length;
-  state.stats.active   = state.queue.filter(q => q.status === 'downloading').length;
-  state.stats.skipped  = state.queue.filter(q => q.status === 'skipped').length;
-  const pending = state.queue.filter(q =>
-      ['idle','pending','paused'].includes(q.status)).length;
-  document.getElementById('stats-bar').textContent =
-    `队列: ${pending} | 成功: ${state.stats.success} | 失败: ${state.stats.failed} | 进行中: ${state.stats.active} | 跳过: ${state.stats.skipped}`;
-}
+    /* ============================================================
+       模式检测 & 存储抽象（solo=服务器，multi=localStorage）
+    ============================================================ */
+    let appMode = 'multi';   // 'solo' | 'multi'，init() 中确定
+    let serverState = {};    // solo 模式下的状态内存镜像
 
-function updateButtonsState() {
-  document.getElementById('btn-start').disabled  = state.isRunning;
-  document.getElementById('btn-pause').disabled  = !state.isRunning;
-  document.getElementById('btn-pause').textContent = state.isPaused ? '▶ 继续' : '⏸ 暂停';
-}
+    async function detectMode() {
+        try {
+            const res = await fetch('/api/setup/status');
+            if (res.ok) {
+                const data = await res.json();
+                appMode = data.mode === 'solo' ? 'solo' : 'multi';
+            }
+        } catch {
+            appMode = 'multi';
+        }
+    }
 
-function setCurrent(item) {
-  const el = document.getElementById('current-card');
-  if (!item) { el.innerHTML = '<strong>当前下载:</strong> 无'; return; }
-  const prog = item.totalImages > 0
-    ? `<div class="prog-wrap">
-        <div class="prog-label"><span>${item.downloadedCount||0} / ${item.totalImages} 张</span><span>${pct(item)}%</span></div>
+    async function loadServerState() {
+        try {
+            const res = await fetch(BASE + '/api/batch/state');
+            if (res.ok) {
+                const data = await res.json();
+                serverState = data.state ?? {};
+            }
+        } catch {
+        }
+    }
+
+    let _saveTimer = null;
+
+    function scheduleServerSave() {
+        if (_saveTimer) clearTimeout(_saveTimer);
+        _saveTimer = setTimeout(() => {
+            fetch(BASE + '/api/batch/state', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({state: serverState}),
+                credentials: 'same-origin'
+            }).catch(() => {
+            });
+        }, 400);
+    }
+
+    /** 统一存储读取：solo 模式读服务器内存，multi 模式读 localStorage */
+    function storeGet(key) {
+        if (appMode === 'solo') {
+            const v = serverState[key];
+            return v != null ? String(v) : null;
+        }
+        return localStorage.getItem(key);
+    }
+
+    function storeSet(key, value) {
+        if (appMode === 'solo') {
+            serverState[key] = value;
+            scheduleServerSave();
+        } else localStorage.setItem(key, value);
+    }
+
+    function storeRemove(key) {
+        if (appMode === 'solo') {
+            delete serverState[key];
+            scheduleServerSave();
+        } else localStorage.removeItem(key);
+    }
+
+    async function doLogout() {
+        try {
+            await fetch('/api/auth/logout', {method: 'POST', credentials: 'same-origin'});
+        } catch {
+        }
+        window.location.href = '/login.html';
+    }
+
+    /* ============================================================
+       API
+    ============================================================ */
+    function getCookieFmt() {
+        return storeGet('pixiv_cookie_fmt') || 'header';
+    }
+
+    function setCookieFmt(fmt) {
+        storeSet('pixiv_cookie_fmt', fmt);
+        ['header', 'json', 'netscape'].forEach(f => {
+            document.getElementById('fmt-' + f).classList.toggle('active', f === fmt);
+        });
+    }
+
+    function parseCookieToHeaderString(raw, fmt) {
+        if (!raw) return '';
+        try {
+            if (fmt === 'json') {
+                const obj = JSON.parse(raw);
+                return Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('; ');
+            }
+            if (fmt === 'netscape') {
+                return raw.split('\n')
+                    .filter(l => l.trim() && !l.trim().startsWith('#'))
+                    .map(l => {
+                        const p = l.split('\t');
+                        return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null;
+                    })
+                    .filter(Boolean)
+                    .join('; ');
+            }
+        } catch (e) {
+            console.warn('Cookie 解析失败，原样使用:', e.message);
+        }
+        // header string 或解析失败时原样返回
+        return raw;
+    }
+
+    function getCookie() {
+        const raw = storeGet('pixiv_cookie') || '';
+        return parseCookieToHeaderString(raw, getCookieFmt());
+    }
+
+    function validateAndParseCookie(raw, fmt) {
+        if (!raw.trim()) return {ok: false, error: 'Cookie 不能为空'};
+
+        let headerString;
+        try {
+            if (fmt === 'json') {
+                const obj = JSON.parse(raw);
+                if (typeof obj !== 'object' || Array.isArray(obj) || obj === null)
+                    throw new Error('需要 JSON 对象格式 {"key":"value",...}');
+                headerString = Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('; ');
+            } else if (fmt === 'netscape') {
+                const lines = raw.split('\n')
+                    .filter(l => l.trim() && !l.trim().startsWith('#'))
+                    .map(l => {
+                        const p = l.split('\t');
+                        return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null;
+                    })
+                    .filter(Boolean);
+                if (!lines.length) throw new Error('未解析到有效的 Cookie 行（需要 7 列 tab 分隔格式）');
+                headerString = lines.join('; ');
+            } else {
+                headerString = raw.trim();
+            }
+        } catch (e) {
+            return {ok: false, error: `格式解析失败：${e.message}`};
+        }
+
+        // 校验所有键值对格式是否合法
+        const pairs = headerString.split(';').map(s => s.trim()).filter(Boolean);
+        const invalid = pairs.filter(p => !/^[^=]+=/.test(p));
+        if (invalid.length) {
+            return {ok: false, error: `包含无效键值对：${invalid.slice(0, 3).map(s => `"${s}"`).join('、')}`};
+        }
+
+        // 警告：缺少关键字段
+        const warnings = [];
+        if (!pairs.some(p => p.startsWith('PHPSESSID='))) {
+            warnings.push('未检测到 PHPSESSID，可能无法访问需要登录的内容');
+        }
+
+        return {ok: true, count: pairs.length, warnings};
+    }
+
+    function pixivHeader() {
+        const c = getCookie();
+        return c ? {'X-Pixiv-Cookie': c} : {};
+    }
+
+    async function apiGet(path) {
+        const res = await fetch(BASE + path, {headers: pixivHeader()});
+        return res.json();
+    }
+
+    async function checkBackend() {
+        try {
+            const res = await fetch(BASE + '/api/download/status',
+                {signal: AbortSignal.timeout(2000)});
+            return res.status === 200;
+        } catch {
+            return false;
+        }
+    }
+
+    async function getUserArtworks(userId) {
+        const data = await apiGet(`/api/pixiv/user/${userId}/artworks`);
+        if (data.error) throw new Error(data.error);
+        return data.ids || [];
+    }
+
+    async function getUserMeta(userId) {
+        const data = await apiGet(`/api/pixiv/user/${userId}/meta`);
+        if (data.error) throw new Error(data.error);
+        return data.name || '';
+    }
+
+    async function getArtworkMeta(artworkId) {
+        const data = await apiGet(`/api/pixiv/artwork/${artworkId}/meta`);
+        if (data.error) throw new Error(data.error);
+        return data;
+    }
+
+    async function getArtworkPages(artworkId) {
+        const data = await apiGet(`/api/pixiv/artwork/${artworkId}/pages`);
+        if (data.error) throw new Error(data.error);
+        return data.urls || [];
+    }
+
+    async function getUgoiraMeta(artworkId) {
+        const data = await apiGet(`/api/pixiv/artwork/${artworkId}/ugoira`);
+        if (data.error) throw new Error(data.error);
+        return data;
+    }
+
+    async function checkDownloaded(artworkId) {
+        try {
+            const res = await fetch(`${BASE}/api/downloaded/${artworkId}`);
+            if (res.status === 200) {
+                const data = await res.json();
+                return !!data.artworkId;
+            }
+            return false;
+        } catch {
+            return false;
+        }
+    }
+
+    function getIntervalMs() {
+        const {interval, intervalUnit} = state.settings;
+        return intervalUnit === 's' ? Math.round(interval * 1000) : Math.round(interval);
+    }
+
+    function getImageDelayMs() {
+        const {imageDelay, imageDelayUnit} = state.settings;
+        return imageDelayUnit === 's' ? Math.round(imageDelay * 1000) : Math.round(imageDelay);
+    }
+
+    function toggleImageDelayUnit() {
+        const btn = document.getElementById('s-image-delay-unit');
+        const input = document.getElementById('s-image-delay');
+        const cur = parseFloat(input.value) || 0;
+        if (state.settings.imageDelayUnit === 's') {
+            state.settings.imageDelayUnit = 'ms';
+            input.value = Math.round(cur * 1000);
+            btn.textContent = 'ms';
+        } else {
+            state.settings.imageDelayUnit = 's';
+            input.value = +(cur / 1000).toFixed(3);
+            btn.textContent = 's';
+        }
+        state.settings.imageDelay = parseFloat(input.value) || 0;
+        saveSettings();
+    }
+
+    function toggleIntervalUnit() {
+        const btn = document.getElementById('s-interval-unit');
+        const input = document.getElementById('s-interval');
+        const cur = parseFloat(input.value) || 0;
+        if (state.settings.intervalUnit === 's') {
+            state.settings.intervalUnit = 'ms';
+            input.value = Math.round(cur * 1000);
+            btn.textContent = 'ms';
+        } else {
+            state.settings.intervalUnit = 's';
+            input.value = +(cur / 1000).toFixed(3);
+            btn.textContent = 's';
+        }
+        state.settings.interval = parseFloat(input.value) || 0;
+        saveSettings();
+    }
+
+    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, isR18, ugoiraData) {
+        const delayMs = getImageDelayMs();
+        const other = {
+            userDownload: isUserDownload,
+            username: username || '',
+            isR18: !!isR18,
+            delayMs,
+            bookmark: !!state.settings.bookmark
+        };
+        if (ugoiraData) {
+            other.isUgoira = true;
+            other.ugoiraZipUrl = ugoiraData.zipUrl;
+            other.ugoiraDelays = ugoiraData.delays;
+        }
+        const payload = {
+            artworkId: parseInt(artworkId),
+            imageUrls,
+            title,
+            referer: 'https://www.pixiv.net/',
+            cookie: getCookie(),
+            other
+        };
+        const res = await fetch(`${BASE}/api/download/pixiv`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            credentials: 'same-origin',
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (res.status === 429 && data.quotaExceeded) {
+            if (!quotaExceededHandled) {
+                quotaExceededHandled = true;
+                handleQuotaExceeded(data);
+            }
+            const err = new Error('quota_exceeded');
+            err.quotaData = data;
+            throw err;
+        }
+        if (!res.ok) throw new Error(data.message || '后端返回失败');
+        return data;
+    }
+
+    async function getDownloadStatus(artworkId) {
+        const res = await fetch(`${BASE}/api/download/status/${artworkId}`);
+        return res.json();
+    }
+
+    /* ============================================================
+       SSE
+    ============================================================ */
+    function openSSE(artworkId) {
+        closeSSE(artworkId);
+        const src = new EventSource(`${BASE}/api/sse/download/${artworkId}`);
+        src.addEventListener('download-status', e => {
+            try {
+                const data = JSON.parse(e.data);
+                (state.sseListeners[artworkId] || []).forEach(fn => fn(data));
+            } catch {
+            }
+        });
+        state.sseMap[artworkId] = src;
+    }
+
+    function closeSSE(artworkId) {
+        if (state.sseMap[artworkId]) {
+            try {
+                state.sseMap[artworkId].close();
+            } catch {
+            }
+            delete state.sseMap[artworkId];
+        }
+        delete state.sseListeners[artworkId];
+    }
+
+    function closeAllSSE() {
+        Object.keys(state.sseMap).forEach(closeSSE);
+    }
+
+    function addSSEListener(artworkId, fn) {
+        if (!state.sseListeners[artworkId]) state.sseListeners[artworkId] = [];
+        state.sseListeners[artworkId].push(fn);
+    }
+
+    function waitForFinalStatusBySSE(artworkId, timeoutMs) {
+        return new Promise(resolve => {
+            let resolved = false;
+            let timer = null;
+            let pollTimer = null;
+
+            const finish = (data) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timer);
+                clearInterval(pollTimer);
+                resolve(data);
+            };
+
+            timer = setTimeout(() => finish(null), timeoutMs);
+
+            // 每5秒轮询一次，防止 SSE 事件丢失导致任务卡死
+            pollTimer = setInterval(async () => {
+                if (resolved) {
+                    clearInterval(pollTimer);
+                    return;
+                }
+                try {
+                    const status = await getDownloadStatus(String(artworkId));
+                    if (status && (status.completed || status.failed)) finish(status);
+                } catch {
+                }
+            }, 5000);
+
+            addSSEListener(artworkId, data => {
+                if (data && (data.completed || data.failed || data.cancelled)) {
+                    finish(data);
+                } else if (data && data.downloadedCount !== undefined) {
+                    const q = state.queue.find(x => x.id === String(artworkId));
+                    if (q) {
+                        q.downloadedCount = data.downloadedCount;
+                        renderQueue();
+                        setCurrent(q);
+                    }
+                    clearTimeout(timer);
+                    timer = setTimeout(() => finish(null), timeoutMs);
+                }
+            });
+        });
+    }
+
+    /* ============================================================
+       下载管理器
+    ============================================================ */
+    async function start() {
+        if (state.queue.length === 0) {
+            setStatus('队列为空', 'error');
+            return;
+        }
+        if (!await checkBackend()) {
+            alert('后端服务不可用，请确认后端已启动');
+            return;
+        }
+
+        const {concurrent} = state.settings;
+        const intervalMs = getIntervalMs();
+        state.queue.forEach(q => {
+            if (['idle', 'failed', 'paused'].includes(q.status)) q.status = 'pending';
+        });
+        state.isRunning = true;
+        state.isPaused = false;
+        state.stopRequested = false;
+        state.activeWorkers = 0;
+        quotaExceededHandled = false;
+
+        updateStats();
+        updateButtonsState();
+        saveQueue();
+        renderQueue();
+        setStatus(`开始下载 (并发:${concurrent}, 间隔:${intervalMs}ms)`, 'info');
+
+        const workers = [];
+        for (let i = 0; i < Math.max(1, concurrent); i++) {
+            workers.push(workerLoop(intervalMs));
+        }
+        await Promise.all(workers);
+
+        state.isRunning = false;
+        saveQueue();
+        setStatus('批量下载结束', 'info');
+        updateButtonsState();
+
+        // 多人模式：队列完成后自动打包已下载文件（配额超限时已在 handleQuotaExceeded 中触发打包，不重复）
+        if (quotaInfo.enabled) {
+            const completed = state.queue.filter(q => q.status === 'completed').length;
+            if (completed > 0) {
+                autoPackAfterQueue();
+            }
+        }
+    }
+
+    async function workerLoop(intervalMs) { // intervalMs already in ms
+        state.activeWorkers++;
+        try {
+            while (state.isRunning && !state.stopRequested) {
+                if (state.isPaused) {
+                    await sleep(500);
+                    continue;
+                }
+                const item = getNextPending();
+                if (!item) {
+                    if (state.queue.every(q =>
+                        ['completed', 'failed', 'idle', 'paused', 'skipped'].includes(q.status))) break;
+                    await sleep(500);
+                    continue;
+                }
+                try {
+                    await processSingle(item);
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    await sleep(intervalMs);
+                }
+            }
+        } finally {
+            state.activeWorkers--;
+        }
+    }
+
+    function getNextPending() {
+        const downloadingIds = new Set(
+            state.queue.filter(q => q.status === 'downloading').map(q => q.id)
+        );
+        const idx = state.queue.findIndex(q => q.status === 'pending' && !downloadingIds.has(q.id));
+        if (idx === -1) return null;
+        state.queue[idx].status = 'downloading';
+        state.queue[idx].startTime = new Date().toISOString();
+        saveQueue();
+        renderQueue();
+        return state.queue[idx];
+    }
+
+    async function processSingle(item) {
+        item.lastMessage = '正在检查历史记录...';
+        renderQueue();
+
+        if (state.settings.skipHistory) {
+            const downloaded = await checkDownloaded(item.id);
+            if (downloaded) {
+                item.status = 'skipped';
+                item.lastMessage = '跳过 — 历史记录中已存在';
+                item.endTime = new Date().toISOString();
+                updateStats();
+                saveQueue();
+                renderQueue();
+                return;
+            }
+        }
+
+        item.lastMessage = '正在获取作品信息...';
+        setCurrent(item);
+        setStatus(`获取信息：${item.id}`, 'info');
+        renderQueue();
+
+        try {
+            const meta = await getArtworkMeta(item.id);
+            item.title = meta.illustTitle || `作品 ${item.id}`;
+
+            const isR18 = Number(meta.xRestrict ?? meta.xrestrict ?? 0) > 0;
+            if (state.settings.R18Only && !isR18) {
+                item.status = 'skipped';
+                item.lastMessage = '跳过 — 非 R18 内容';
+                item.endTime = new Date().toISOString();
+                updateStats();
+                saveQueue();
+                renderQueue();
+                return;
+            }
+
+            item.isR18 = isR18;
+            const isUserMode = item.source === 'user';
+            let urls, ugoiraData = null;
+
+            item.lastMessage = '正在获取图片地址...';
+            renderQueue();
+
+            if (meta.illustType === 2) {
+                const ugoira = await getUgoiraMeta(item.id);
+                ugoiraData = {zipUrl: ugoira.zipUrl, delays: ugoira.delays};
+                urls = [ugoira.zipUrl];
+                item.totalImages = 1;
+            } else {
+                urls = await getArtworkPages(item.id);
+                if (!urls.length) throw new Error('未获取到图片 URL');
+                item.totalImages = urls.length;
+            }
+
+            item.downloadedCount = 0;
+            saveQueue();
+            renderQueue();
+
+            setStatus(`下载中：${item.title}`, 'info');
+            const dlData = await sendDownload(
+                item.id, urls, item.title,
+                isUserMode, item.username || state.username || state.userId,
+                isR18, ugoiraData
+            );
+            if (dlData && dlData.alreadyDownloaded) {
+                item.status = 'skipped';
+                item.lastMessage = '跳过 — 已下载（服务器确认）';
+                item.endTime = new Date().toISOString();
+                updateStats();
+                saveQueue();
+                renderQueue();
+                setStatus(`跳过：${item.title}（已下载）`, 'info');
+                return;
+            }
+            openSSE(item.id);
+            const ssePromise = waitForFinalStatusBySSE(item.id, STATUS_TIMEOUT_MS);
+            item.lastMessage = '下载中，等待完成...';
+            renderQueue();
+
+            const final = await ssePromise;
+
+            if (final && final.completed) {
+                const dCount = final.downloadedCount !== undefined ? final.downloadedCount : item.totalImages;
+                item.downloadedCount = dCount;
+                if (dCount < item.totalImages) {
+                    item.status = 'failed';
+                    item.lastMessage = `失败 — 仅 ${dCount}/${item.totalImages} 张已下载`;
+                    setStatus(`失败：${item.title} (文件缺失)`, 'error');
+                } else {
+                    item.status = 'completed';
+                    item.lastMessage = `已完成，共 ${dCount} 张`;
+                    setStatus(`完成：${item.title}`, 'success');
+                    // 刷新配额显示（每完成一个作品计 1）
+                    if (quotaInfo.enabled) {
+                        quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
+                        renderQuotaBar();
+                    }
+                }
+            } else if (final && final.failed) {
+                item.status = 'failed';
+                item.lastMessage = `失败 — ${final.message || '后端报告失败'}`;
+                setStatus(`失败：${item.title}`, 'error');
+            } else {
+                try {
+                    const check = await getDownloadStatus(item.id);
+                    if (check && check.completed) {
+                        const dCount = check.downloadedCount !== undefined ? check.downloadedCount : 0;
+                        item.downloadedCount = dCount;
+                        if (dCount < item.totalImages) {
+                            item.status = 'failed';
+                            item.lastMessage = `失败 — 文件缺失 (${dCount}/${item.totalImages})`;
+                        } else {
+                            item.status = 'completed';
+                            item.lastMessage = `已完成（确认），共 ${dCount} 张`;
+                        }
+                    } else {
+                        item.status = 'failed';
+                        item.lastMessage = '失败 — 超时未收到完成状态';
+                    }
+                } catch {
+                    item.status = 'failed';
+                    item.lastMessage = '失败 — 状态查询异常';
+                }
+            }
+        } catch (e) {
+            if (e.message === 'quota_exceeded') {
+                // 已在 handleQuotaExceeded 中处理，item 已标记为失败，不需要重复处理
+                item.status = 'failed';
+                item.lastMessage = '失败 - 达到限额';
+            } else {
+                item.status = 'failed';
+                item.lastMessage = `失败 — ${e.message}`;
+                setStatus(`错误：${item.id} — ${e.message}`, 'error');
+            }
+        } finally {
+            closeSSE(item.id);
+            item.endTime = item.endTime || new Date().toISOString();
+            updateStats();
+            saveQueue();
+            renderQueue();
+            setCurrent(null);
+        }
+    }
+
+    function pause() {
+        if (!state.isRunning) return;
+        state.isPaused = true;
+        state.queue.forEach(q => {
+            if (q.status === 'pending') q.status = 'paused';
+        });
+        saveQueue();
+        const active = state.queue.filter(q => q.status === 'downloading').length;
+        setStatus(active > 0 ? `正在暂停... (等待 ${active} 个任务完成)` : '已暂停', 'warning');
+        updateButtonsState();
+    }
+
+    function resume() {
+        if (!state.isRunning) {
+            start();
+            return;
+        }
+        state.isPaused = false;
+        state.queue.forEach(q => {
+            if (q.status === 'paused') q.status = 'pending';
+        });
+        saveQueue();
+        setStatus('继续下载', 'info');
+        updateButtonsState();
+    }
+
+    function stopAndClear() {
+        state.stopRequested = true;
+        state.isRunning = false;
+        state.isPaused = false;
+        // 立即触发所有等待中的 SSE Promise resolve，避免等 5 分钟超时
+        Object.keys(state.sseListeners).forEach(id => {
+            (state.sseListeners[id] || []).forEach(fn => fn({cancelled: true}));
+        });
+        closeAllSSE();
+        state.queue = [];
+        state.stats = {success: 0, failed: 0, active: 0, skipped: 0};
+        clearSavedQueue();
+        renderQueue();
+        updateButtonsState();
+        updateStats();
+        syncSearchResultsQueueState();
+        setStatus('队列已清除', 'info');
+    }
+
+    /* ============================================================
+       队列管理
+    ============================================================ */
+    function parseNTab() {
+        const text = document.getElementById('ntab-textarea').value;
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        const regex = /https?:\/\/www\.pixiv\.net\/artworks\/(\d+)/;
+        const items = [];
+        for (const ln of lines) {
+            const m = ln.match(regex);
+            if (m) {
+                const id = m[1];
+                const titleRaw = (ln.split('|')[1] || '').trim();
+                items.push({id, title: titleRaw || `作品 ${id}`});
+            }
+        }
+        if (!items.length) {
+            setStatus('未解析到任何作品链接', 'error');
+            return;
+        }
+        const added = addItemsToQueue(items.map(x => x.id), items, 'ntab', '');
+        setStatus(`解析完成：共 ${items.length} 个，新增 ${added} 个`, 'success');
+    }
+
+    function addItemsToQueue(idList, metaList, source, username) {
+        const existing = new Set(state.queue.map(q => q.id));
+        let added = 0;
+        const meta = metaList || [];
+        for (let i = 0; i < idList.length; i++) {
+            const id = String(idList[i]);
+            if (existing.has(id)) continue;
+            const m = meta[i] || {};
+            state.queue.push({
+                id,
+                title: m.title || `作品 ${id}`,
+                status: state.isRunning ? 'pending' : 'idle',
+                source: source || 'ntab',
+                username: username || '',
+                totalImages: 0,
+                downloadedCount: 0,
+                startTime: null,
+                endTime: null,
+                lastMessage: ''
+            });
+            added++;
+        }
+        updateStats();
+        saveQueue();
+        renderQueue();
+        // 下载进行中但 workers 已全部退出时，重启 workers 处理新加入的任务
+        if (state.isRunning && added > 0 && state.activeWorkers === 0) {
+            const concurrent = Math.max(1, state.settings.concurrent);
+            const intervalMs = getIntervalMs();
+            const workers = [];
+            for (let i = 0; i < concurrent; i++) workers.push(workerLoop(intervalMs));
+            Promise.all(workers).then(() => {
+                state.isRunning = false;
+                saveQueue();
+                setStatus('批量下载结束', 'info');
+                updateButtonsState();
+                if (quotaInfo.enabled) {
+                    const completed = state.queue.filter(q => q.status === 'completed').length;
+                    if (completed > 0) autoPackAfterQueue();
+                }
+            });
+        }
+        syncSearchResultsQueueState();
+        return added;
+    }
+
+    /* ============================================================
+       按钮处理
+    ============================================================ */
+    async function handleStart() {
+        syncSettings();
+        start();
+    }
+
+    function handlePause() {
+        if (state.isPaused) resume(); else pause();
+    }
+
+    function handleRetry() {
+        const failed = state.queue.filter(q => q.status === 'failed');
+        if (!failed.length) {
+            alert('当前没有失败的作品');
+            return;
+        }
+        failed.forEach(q => {
+            q.status = 'pending';
+            q.lastMessage = '';
+            q.startTime = null;
+            q.endTime = null;
+        });
+        saveQueue();
+        renderQueue();
+        syncSettings();
+        start();
+    }
+
+    function handleExport() {
+        if (!state.queue.length) {
+            alert('队列为空');
+            return;
+        }
+        const lines = state.queue.map(q =>
+            `https://www.pixiv.net/artworks/${q.id} | ${q.title}`);
+        downloadTxt(lines.join('\n'), `pixiv_all_list_${Date.now()}.txt`);
+        setStatus(`已导出 ${lines.length} 个作品`, 'success');
+    }
+
+    function handleExportFailed() {
+        const items = state.queue.filter(q => q.status !== 'completed');
+        if (!items.length) {
+            alert('没有未下载的作品');
+            return;
+        }
+        const lines = items.map(q =>
+            `https://www.pixiv.net/artworks/${q.id} | ${q.title}`);
+        downloadTxt(lines.join('\n'), `pixiv_undownloaded_list_${Date.now()}.txt`);
+        setStatus(`已导出 ${lines.length} 个未下载作品`, 'success');
+    }
+
+    function handleClear() {
+        if (!confirm('确认清除队列？')) return;
+        stopAndClear();
+    }
+
+    function parseNTabFresh() {
+        if (!confirm('确认清除当前队列并重新解析？')) return;
+        stopAndClear();
+        parseNTab();
+    }
+
+    async function handleFetchAllFresh() {
+        stopAndClear();
+        await fetchUserArtworks(false);
+    }
+
+    async function handleFetchAll() {
+        await fetchUserArtworks(false);
+    }
+
+    async function handleFetchNew() {
+        await fetchUserArtworks(true);
+    }
+
+    async function fetchUserArtworks(onlyNew) {
+        const userId = document.getElementById('user-id-input').value.trim();
+        if (!userId || !/^\d+$/.test(userId)) {
+            alert('请输入有效的用户 ID（纯数字）');
+            return;
+        }
+        state.userId = userId;
+        document.getElementById('user-info-display').textContent = '正在获取用户信息...';
+        setStatus('正在获取作品列表...', 'info');
+
+        try {
+            const name = await getUserMeta(userId);
+            state.username = name || userId;
+            document.getElementById('user-info-display').textContent =
+                `用户：${state.username}（ID: ${userId}）`;
+        } catch {
+            state.username = userId;
+            document.getElementById('user-info-display').textContent =
+                `ID: ${userId}（获取用户名失败）`;
+        }
+
+        try {
+            const ids = await getUserArtworks(userId);
+            if (!ids.length) {
+                setStatus('该用户暂无作品', 'warning');
+                return;
+            }
+            const added = addItemsToQueue(ids, null, 'user', state.username || state.userId);
+            setStatus(`获取成功：共 ${ids.length} 个作品，新增 ${added} 个`, 'success');
+
+            if (onlyNew) {
+                document.getElementById('s-skip').checked = true;
+                state.settings.skipHistory = true;
+                saveSettings();
+                syncSettings();
+                start();
+            }
+        } catch (e) {
+            setStatus('获取作品列表失败：' + e.message, 'error');
+        }
+    }
+
+    /* ============================================================
+       UI
+    ============================================================ */
+    function switchMode(mode) {
+        state.mode = mode;
+        ['ntab', 'user', 'search'].forEach(m => {
+            document.getElementById('tab-' + m).classList.toggle('active', m === mode);
+            document.getElementById('panel-' + m).classList.toggle('active', m === mode);
+        });
+        storeSet('pixiv_mode', mode);
+    }
+
+    function setStatus(msg, type = 'info') {
+        const el = document.getElementById('status-bar');
+        el.textContent = msg;
+        el.style.color = {info: '#007bff', success: '#28a745', error: '#dc3545', warning: '#e6a700'}[type] || '#666';
+    }
+
+    function updateStats() {
+        state.stats.success = state.queue.filter(q => q.status === 'completed').length;
+        state.stats.failed = state.queue.filter(q => q.status === 'failed').length;
+        state.stats.active = state.queue.filter(q => q.status === 'downloading').length;
+        state.stats.skipped = state.queue.filter(q => q.status === 'skipped').length;
+        const pending = state.queue.filter(q =>
+            ['idle', 'pending', 'paused'].includes(q.status)).length;
+        document.getElementById('stats-bar').textContent =
+            `队列: ${pending} | 成功: ${state.stats.success} | 失败: ${state.stats.failed} | 进行中: ${state.stats.active} | 跳过: ${state.stats.skipped}`;
+    }
+
+    function updateButtonsState() {
+        document.getElementById('btn-start').disabled = state.isRunning;
+        document.getElementById('btn-pause').disabled = !state.isRunning;
+        document.getElementById('btn-pause').textContent = state.isPaused ? '▶ 继续' : '⏸ 暂停';
+    }
+
+    function setCurrent(item) {
+        const el = document.getElementById('current-card');
+        if (!item) {
+            el.innerHTML = '<strong>当前下载:</strong> 无';
+            return;
+        }
+        const prog = item.totalImages > 0
+            ? `<div class="prog-wrap">
+        <div class="prog-label"><span>${item.downloadedCount || 0} / ${item.totalImages} 张</span><span>${pct(item)}%</span></div>
         <div class="prog-bg"><div class="prog-fill green" style="width:${pct(item)}%"></div></div>
        </div>` : '';
-  el.innerHTML = `<strong>当前下载:</strong> ${esc(item.title)} (ID: ${item.id})${prog}`;
-}
+        el.innerHTML = `<strong>当前下载:</strong> ${esc(item.title)} (ID: ${item.id})${prog}`;
+    }
 
-function renderQueue() {
-  const el = document.getElementById('queue-list');
-  if (!state.queue.length) {
-    el.innerHTML = '<div class="queue-empty">队列为空</div>';
-    return;
-  }
-  el.innerHTML = state.queue.map(q => {
-    const prog = q.totalImages > 0
-      ? `<div class="prog-wrap">
-          <div class="prog-label"><span>${q.downloadedCount||0}/${q.totalImages}</span><span>${pct(q)}%</span></div>
+    function renderQueue() {
+        const el = document.getElementById('queue-list');
+        if (!state.queue.length) {
+            el.innerHTML = '<div class="queue-empty">队列为空</div>';
+            return;
+        }
+        el.innerHTML = state.queue.map(q => {
+            const prog = q.totalImages > 0
+                ? `<div class="prog-wrap">
+          <div class="prog-label"><span>${q.downloadedCount || 0}/${q.totalImages}</span><span>${pct(q)}%</span></div>
           <div class="prog-bg"><div class="prog-fill" style="width:${pct(q)}%;background:${statusColor(q.status)}"></div></div>
          </div>` : '';
-    const desc = q.lastMessage || statusText(q.status);
-    const srcLabel = q.source === 'user'
-      ? `<span style="background:#007bff;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">User</span>`
-      : q.source === 'search'
-        ? `<span style="background:#28a745;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">Search</span>`
-        : `<span style="background:#6610f2;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">N-Tab</span>`;
-    const R18Label = q.isR18 === true
-      ? `<span style="background:#dc3545;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">R18</span>`
-      : q.isR18 === false
-        ? `<span style="background:#198754;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">SFW</span>`
-        : `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">未知</span>`;
-    return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
-      <div class="q-title">${esc(q.title)}${srcLabel}${R18Label}</div>
+            const desc = q.lastMessage || statusText(q.status);
+            const srcLabel = q.source === 'user'
+                ? `<span style="background:#007bff;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">User</span>`
+                : q.source === 'search'
+                    ? `<span style="background:#28a745;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">Search</span>`
+                    : `<span style="background:#6610f2;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">N-Tab</span>`;
+            const R18Label = q.isR18 === true
+                ? `<span style="background:#dc3545;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">R18</span>`
+                : q.isR18 === false
+                    ? `<span style="background:#198754;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">SFW</span>`
+                    : `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">未知</span>`;
+            const canRemove = !['downloading', 'completed'].includes(q.status);
+            const removeBtn = canRemove
+                ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="移除" style="float:right;background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
+                : '';
+            return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
+      <div class="q-title">${removeBtn}${esc(q.title)}${srcLabel}${R18Label}</div>
       <div class="q-meta">ID: ${q.id} | <span style="color:${statusColor(q.status)};font-weight:bold;">${esc(desc)}</span></div>
       ${prog}
     </div>`;
-  }).join('');
-}
+        }).join('');
+    }
 
-function pct(q) {
-  if (!q.totalImages) return 0;
-  return Math.min(100, Math.round((q.downloadedCount || 0) / q.totalImages * 100));
-}
+    function pct(q) {
+        if (!q.totalImages) return 0;
+        return Math.min(100, Math.round((q.downloadedCount || 0) / q.totalImages * 100));
+    }
 
-function statusColor(s) {
-  return { completed:'#28a745', downloading:'#007bff', failed:'#dc3545',
-           paused:'#6c757d', skipped:'#fd7e14' }[s] || '#ccc';
-}
+    function statusColor(s) {
+        return {
+            completed: '#28a745', downloading: '#007bff', failed: '#dc3545',
+            paused: '#6c757d', skipped: '#fd7e14'
+        }[s] || '#ccc';
+    }
 
-function statusText(s) {
-  return { idle:'等待中', pending:'等待中', downloading:'下载中',
-           completed:'已完成', failed:'失败', paused:'已暂停', skipped:'已跳过' }[s] || s;
-}
+    function statusText(s) {
+        return {
+            idle: '等待中', pending: '等待中', downloading: '下载中',
+            completed: '已完成', failed: '失败', paused: '已暂停', skipped: '已跳过'
+        }[s] || s;
+    }
 
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-}
+    function esc(s) {
+        return String(s).replace(/[&<>"']/g, c =>
+            ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[c]);
+    }
 
-function downloadTxt(content, filename) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([content], {type:'text/plain'}));
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
+    function downloadTxt(content, filename) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([content], {type: 'text/plain'}));
+        a.download = filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    function sleep(ms) {
+        return new Promise(r => setTimeout(r, ms));
+    }
 
-/* ============================================================
-   持久化
-============================================================ */
-function storageKey() {
-  return 'pixiv_batch_queue';
-}
+    /* ============================================================
+       持久化
+    ============================================================ */
+    function storageKey() {
+        return 'pixiv_batch_queue';
+    }
 
-function saveQueue() {
-  if (state.userId) storeSet('pixiv_batch_last_user_id', state.userId);
-  if (state.username) storeSet('pixiv_batch_last_username', state.username);
-  storeSet(storageKey(), JSON.stringify({
-    queue: state.queue,
-    isPaused: state.isPaused,
-    stats: state.stats,
-    savedAt: new Date().toISOString()
-  }));
-}
+    function saveQueue() {
+        if (state.userId) storeSet('pixiv_batch_last_user_id', state.userId);
+        if (state.username) storeSet('pixiv_batch_last_username', state.username);
+        storeSet(storageKey(), JSON.stringify({
+            queue: state.queue,
+            isPaused: state.isPaused,
+            stats: state.stats,
+            savedAt: new Date().toISOString()
+        }));
+    }
 
-function loadQueueForMode() {
-  try {
-    const raw = storeGet(storageKey());
-    if (!raw) { state.queue = []; renderQueue(); updateStats(); return; }
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed.queue)) {
-      state.queue = parsed.queue;
-      // 刷新前正在下载的项目实际已中断，标记为失败
-      state.queue.forEach(q => {
-        if (q.status === 'downloading') {
-          q.status = 'failed';
-          q.lastMessage = '失败 — 页面刷新导致中断';
+    function loadQueueForMode() {
+        try {
+            const raw = storeGet(storageKey());
+            if (!raw) {
+                state.queue = [];
+                renderQueue();
+                updateStats();
+                return;
+            }
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed.queue)) {
+                state.queue = parsed.queue;
+                // 刷新前正在下载的项目实际已中断，标记为失败
+                state.queue.forEach(q => {
+                    if (q.status === 'downloading') {
+                        q.status = 'failed';
+                        q.lastMessage = '失败 — 页面刷新导致中断';
+                    }
+                });
+                state.isPaused = !!parsed.isPaused;
+                state.stats = parsed.stats || {success: 0, failed: 0, active: 0, skipped: 0};
+            } else {
+                state.queue = [];
+            }
+        } catch {
+            state.queue = [];
         }
-      });
-      state.isPaused = !!parsed.isPaused;
-      state.stats = parsed.stats || { success:0, failed:0, active:0, skipped:0 };
-    } else {
-      state.queue = [];
+        renderQueue();
+        updateStats();
     }
-  } catch { state.queue = []; }
-  renderQueue();
-  updateStats();
-}
 
-function clearSavedQueue() {
-  storeRemove(storageKey());
-}
-
-function saveSettings() {
-  storeSet('pixiv_batch_settings', JSON.stringify(state.settings));
-}
-
-function loadSettings() {
-  try {
-    const raw = storeGet('pixiv_batch_settings');
-    if (raw) Object.assign(state.settings, JSON.parse(raw));
-  } catch {}
-  document.getElementById('s-interval').value         = state.settings.interval;
-  document.getElementById('s-concurrent').value        = state.settings.concurrent;
-  document.getElementById('s-skip').checked            = state.settings.skipHistory;
-  document.getElementById('s-R18').checked             = state.settings.R18Only;
-  document.getElementById('s-bookmark').checked        = state.settings.bookmark ?? false;
-  document.getElementById('s-image-delay').value       = state.settings.imageDelay ?? 0;
-  const unit = state.settings.intervalUnit || 's';
-  state.settings.intervalUnit = unit;
-  document.getElementById('s-interval-unit').textContent = unit;
-  const imgUnit = state.settings.imageDelayUnit || 'ms';
-  state.settings.imageDelayUnit = imgUnit;
-  document.getElementById('s-image-delay-unit').textContent = imgUnit;
-}
-
-function syncSettings() {
-  state.settings.interval    = Math.max(0, parseFloat(document.getElementById('s-interval').value) || 0);
-  state.settings.imageDelay  = Math.max(0, parseFloat(document.getElementById('s-image-delay').value) || 0);
-  state.settings.concurrent  = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
-  state.settings.skipHistory = document.getElementById('s-skip').checked;
-  state.settings.R18Only     = document.getElementById('s-R18').checked;
-  state.settings.bookmark    = document.getElementById('s-bookmark').checked;
-  saveSettings();
-}
-
-/* ============================================================
-   搜索模式
-============================================================ */
-let searchState = {
-  results: [],
-  total: 0,
-  currentPage: 1,
-  currentWord: '',
-  currentMode: 'all',
-  currentOrder: 'date_d',
-  currentSMode: 's_tag',
-  blurR18: true,
-  noCookie: false,
-  activeBlobUrls: []
-};
-
-function hasPixivCookie() {
-  return !!getCookie().trim();
-}
-
-async function performSearch(page) {
-  const word = document.getElementById('search-word').value.trim();
-  if (!word) { setStatus('请输入搜索关键词', 'error'); return; }
-
-  const mode  = document.querySelector('input[name="search-mode"]:checked').value;
-  const sMode = document.querySelector('input[name="search-smode"]:checked').value;
-  const order = document.querySelector('input[name="search-order"]:checked').value;
-
-  document.getElementById('search-premium-tip').style.display = order === 'popular_d' ? 'block' : 'none';
-
-  cleanupBlobUrls();
-
-  searchState.currentWord  = word;
-  searchState.currentMode  = mode;
-  searchState.currentOrder = order;
-  searchState.currentSMode = sMode;
-  searchState.currentPage  = page;
-
-  document.getElementById('search-results-area').innerHTML =
-    '<div class="search-spinner"><span class="search-spinner-icon"></span>搜索中...</div>';
-  document.getElementById('search-pagination').style.display = 'none';
-  document.getElementById('btn-add-all').disabled = true;
-
-  try {
-    const params = new URLSearchParams({ word, order, mode, sMode, page });
-    const res = await fetch(`${BASE}/api/pixiv/search?${params}`, { headers: pixivHeader() });
-    const data = await res.json();
-    if (!res.ok) {
-      document.getElementById('search-results-area').innerHTML =
-        `<div style="color:#dc3545;text-align:center;padding:24px 0;">搜索失败：${esc(data.error || '未知错误')}</div>`;
-      return;
+    function clearSavedQueue() {
+        storeRemove(storageKey());
     }
-    searchState.results  = data.items || [];
-    searchState.total    = data.total  || 0;
-    searchState.noCookie = !hasPixivCookie();
-    renderSearchResults();
-    renderSearchPagination();
-    document.getElementById('btn-add-all').disabled = searchState.results.length === 0;
-    setStatus(`搜索完成：共 ${searchState.total.toLocaleString()} 个结果`, 'success');
-  } catch (e) {
-    document.getElementById('search-results-area').innerHTML =
-      `<div style="color:#dc3545;text-align:center;padding:24px 0;">请求失败：${esc(e.message)}</div>`;
-  }
-}
 
-function renderSearchResults() {
-  const area = document.getElementById('search-results-area');
-  if (!searchState.results.length) {
-    area.innerHTML = '<div style="color:#aaa;text-align:center;padding:24px 0;">无搜索结果</div>';
-    return;
-  }
-  const inQueue = new Set(state.queue.map(q => q.id));
-  area.innerHTML = `
+    function saveSettings() {
+        storeSet('pixiv_batch_settings', JSON.stringify(state.settings));
+    }
+
+    function loadSettings() {
+        try {
+            const raw = storeGet('pixiv_batch_settings');
+            if (raw) Object.assign(state.settings, JSON.parse(raw));
+        } catch {
+        }
+        document.getElementById('s-interval').value = state.settings.interval;
+        document.getElementById('s-concurrent').value = state.settings.concurrent;
+        document.getElementById('s-skip').checked = state.settings.skipHistory;
+        document.getElementById('s-R18').checked = state.settings.R18Only;
+        document.getElementById('s-bookmark').checked = state.settings.bookmark ?? false;
+        document.getElementById('s-image-delay').value = state.settings.imageDelay ?? 0;
+        const unit = state.settings.intervalUnit || 's';
+        state.settings.intervalUnit = unit;
+        document.getElementById('s-interval-unit').textContent = unit;
+        const imgUnit = state.settings.imageDelayUnit || 'ms';
+        state.settings.imageDelayUnit = imgUnit;
+        document.getElementById('s-image-delay-unit').textContent = imgUnit;
+    }
+
+    function syncSettings() {
+        state.settings.interval = Math.max(0, parseFloat(document.getElementById('s-interval').value) || 0);
+        state.settings.imageDelay = Math.max(0, parseFloat(document.getElementById('s-image-delay').value) || 0);
+        state.settings.concurrent = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
+        state.settings.skipHistory = document.getElementById('s-skip').checked;
+        state.settings.R18Only = document.getElementById('s-R18').checked;
+        state.settings.bookmark = document.getElementById('s-bookmark').checked;
+        saveSettings();
+    }
+
+    /* ============================================================
+       搜索模式
+    ============================================================ */
+    let searchState = {
+        results: [],
+        total: 0,
+        currentPage: 1,
+        currentWord: '',
+        currentMode: 'all',
+        currentOrder: 'date_d',
+        currentSMode: 's_tag',
+        blurR18: true,
+        noCookie: false,
+        activeBlobUrls: []
+    };
+
+    function hasPixivCookie() {
+        return !!getCookie().trim();
+    }
+
+    async function performSearch(page) {
+        const word = document.getElementById('search-word').value.trim();
+        if (!word) {
+            setStatus('请输入搜索关键词', 'error');
+            return;
+        }
+
+        const mode = document.querySelector('input[name="search-mode"]:checked').value;
+        const sMode = document.querySelector('input[name="search-smode"]:checked').value;
+        const order = document.querySelector('input[name="search-order"]:checked').value;
+
+        document.getElementById('search-premium-tip').style.display = order === 'popular_d' ? 'block' : 'none';
+
+        cleanupBlobUrls();
+
+        searchState.currentWord = word;
+        searchState.currentMode = mode;
+        searchState.currentOrder = order;
+        searchState.currentSMode = sMode;
+        searchState.currentPage = page;
+
+        document.getElementById('search-results-area').innerHTML =
+            '<div class="search-spinner"><span class="search-spinner-icon"></span>搜索中...</div>';
+        document.getElementById('search-pagination').style.display = 'none';
+        document.getElementById('btn-add-all').disabled = true;
+
+        try {
+            const params = new URLSearchParams({word, order, mode, sMode, page});
+            const res = await fetch(`${BASE}/api/pixiv/search?${params}`, {headers: pixivHeader()});
+            const data = await res.json();
+            if (!res.ok) {
+                document.getElementById('search-results-area').innerHTML =
+                    `<div style="color:#dc3545;text-align:center;padding:24px 0;">搜索失败：${esc(data.error || '未知错误')}</div>`;
+                return;
+            }
+            searchState.results = data.items || [];
+            searchState.total = data.total || 0;
+            searchState.noCookie = !hasPixivCookie();
+            renderSearchResults();
+            renderSearchPagination();
+            document.getElementById('btn-add-all').disabled = searchState.results.length === 0;
+            setStatus(`搜索完成：共 ${searchState.total.toLocaleString()} 个结果`, 'success');
+        } catch (e) {
+            document.getElementById('search-results-area').innerHTML =
+                `<div style="color:#dc3545;text-align:center;padding:24px 0;">请求失败：${esc(e.message)}</div>`;
+        }
+    }
+
+    function renderSearchResults() {
+        const area = document.getElementById('search-results-area');
+        if (!searchState.results.length) {
+            area.innerHTML = '<div style="color:#aaa;text-align:center;padding:24px 0;">无搜索结果</div>';
+            return;
+        }
+        const inQueue = new Set(state.queue.map(q => q.id));
+        area.innerHTML = `
     ${searchState.noCookie ? '<div style="font-size:12px;color:#e6a700;margin-bottom:8px;">⚠ 未保存 Cookie，搜索结果可能减少</div>' : ''}
     <div style="font-size:12px;color:#888;margin-bottom:10px;">
       共 ${searchState.total.toLocaleString()} 个结果，当前第 ${searchState.currentPage} 页，显示 ${searchState.results.length} 个
     </div>
     <div class="search-grid">
       ${searchState.results.map((item, idx) => {
-        const isR18 = item.xRestrict > 0;
-        const blurClass = (isR18 && searchState.blurR18) ? 'blur-r18' : '';
-        const r18Badge    = isR18 ? '<span class="thumb-badge">R18</span>' : '';
-        const pagesLabel  = item.pageCount > 1 ? `<span class="thumb-pages">${item.pageCount}P</span>` : '';
-        const inQueueClass = inQueue.has(item.id) ? ' in-queue' : '';
-        return `<div class="search-thumb${inQueueClass}" id="thumb-${idx}"
-                     onclick="addSearchItemToQueue(${idx})" title="${esc(item.title)} (${esc(item.userName)})">
+            const isR18 = item.xRestrict > 0;
+            const blurClass = (isR18 && searchState.blurR18) ? 'blur-r18' : '';
+            const r18Badge = isR18 ? '<span class="thumb-badge">R18</span>' : '';
+            const pagesLabel = item.pageCount > 1 ? `<span class="thumb-pages">${item.pageCount}P</span>` : '';
+            const inQueueClass = inQueue.has(item.id) ? ' in-queue' : '';
+            const queueTip = inQueue.has(item.id) ? ' · 点击移除' : ' · 点击加入队列';
+            return `<div class="search-thumb${inQueueClass}" id="thumb-${idx}"
+                     onclick="addSearchItemToQueue(${idx})" title="${esc(item.title)} (${esc(item.userName)})${queueTip}">
           <img id="thumb-img-${idx}" src="" alt="${esc(item.title)}" class="${blurClass}">
           ${r18Badge}
           ${pagesLabel}
           <span class="thumb-in-queue-mark">✓</span>
           <div class="thumb-title">${esc(item.title)}</div>
         </div>`;
-      }).join('')}
+        }).join('')}
     </div>`;
-  loadThumbnailsBatched(searchState.results);
-}
+        loadThumbnailsBatched(searchState.results);
+    }
 
-async function loadThumbnailsBatched(items) {
-  const BATCH = 10;
-  for (let i = 0; i < items.length; i += BATCH) {
-    const batch = items.slice(i, i + BATCH);
-    await Promise.allSettled(batch.map((item, offset) => loadSingleThumbnail(item, i + offset)));
-  }
-}
+    async function loadThumbnailsBatched(items) {
+        const BATCH = 10;
+        for (let i = 0; i < items.length; i += BATCH) {
+            const batch = items.slice(i, i + BATCH);
+            await Promise.allSettled(batch.map((item, offset) => loadSingleThumbnail(item, i + offset)));
+        }
+    }
 
-async function loadSingleThumbnail(item, idx) {
-  if (!item.thumbnailUrl) return;
-  const imgEl = document.getElementById(`thumb-img-${idx}`);
-  if (!imgEl) return;
-  try {
-    const params = new URLSearchParams({ url: item.thumbnailUrl });
-    const res = await fetch(`${BASE}/api/pixiv/thumbnail-proxy?${params}`, { headers: pixivHeader() });
-    if (!res.ok) return;
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    searchState.activeBlobUrls.push(blobUrl);
-    if (imgEl.isConnected) imgEl.src = blobUrl;
-  } catch {}
-}
+    async function loadSingleThumbnail(item, idx) {
+        if (!item.thumbnailUrl) return;
+        const imgEl = document.getElementById(`thumb-img-${idx}`);
+        if (!imgEl) return;
+        try {
+            const params = new URLSearchParams({url: item.thumbnailUrl});
+            const res = await fetch(`${BASE}/api/pixiv/thumbnail-proxy?${params}`, {headers: pixivHeader()});
+            if (!res.ok) return;
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            searchState.activeBlobUrls.push(blobUrl);
+            if (imgEl.isConnected) imgEl.src = blobUrl;
+        } catch {
+        }
+    }
 
-function cleanupBlobUrls() {
-  searchState.activeBlobUrls.forEach(u => { try { URL.revokeObjectURL(u); } catch {} });
-  searchState.activeBlobUrls = [];
-}
+    function cleanupBlobUrls() {
+        searchState.activeBlobUrls.forEach(u => {
+            try {
+                URL.revokeObjectURL(u);
+            } catch {
+            }
+        });
+        searchState.activeBlobUrls = [];
+    }
 
-function addSearchItemToQueue(idx) {
-  const item = searchState.results[idx];
-  if (!item) return;
-  const added = addItemsToQueue([item.id], [{ title: item.title }], 'search', '');
-  const thumbEl = document.getElementById(`thumb-${idx}`);
-  if (thumbEl) thumbEl.classList.add('in-queue');
-  setStatus(added > 0 ? `已加入队列：${item.title}` : `已在队列中：${item.title}`,
+    function syncSearchResultsQueueState() {
+        if (!searchState.results.length) return;
+        const inQueue = new Set(state.queue.map(q => q.id));
+        searchState.results.forEach((item, idx) => {
+            const el = document.getElementById(`thumb-${idx}`);
+            if (!el) return;
+            const isInQueue = inQueue.has(item.id);
+            el.classList.toggle('in-queue', isInQueue);
+            el.title = `${item.title} (${item.userName || ''}) · ${isInQueue ? '点击移除' : '点击加入队列'}`;
+        });
+    }
+
+    function removeFromQueue(id) {
+        const idx = state.queue.findIndex(q => q.id === String(id));
+        if (idx === -1) return false;
+        const q = state.queue[idx];
+        if (['downloading', 'completed'].includes(q.status)) return false;
+        state.queue.splice(idx, 1);
+        updateStats();
+        saveQueue();
+        renderQueue();
+        syncSearchResultsQueueState();
+        return true;
+    }
+
+    function addSearchItemToQueue(idx) {
+        const item = searchState.results[idx];
+        if (!item) return;
+        const alreadyInQueue = state.queue.find(q => q.id === String(item.id));
+        if (alreadyInQueue) {
+            const removed = removeFromQueue(item.id);
+            if (removed) {
+                setStatus(`已从队列移除：${item.title}`, 'info');
+            } else {
+                setStatus(`无法移除（正在下载或已完成）：${item.title}`, 'warning');
+            }
+            return;
+        }
+        const added = addItemsToQueue([item.id], [{title: item.title}], 'search', '');
+        setStatus(added > 0 ? `已加入队列：${item.title}` : `已在队列中：${item.title}`,
             added > 0 ? 'success' : 'info');
-}
-
-function addAllSearchResultsToQueue() {
-  if (!searchState.results.length) return;
-  const ids   = searchState.results.map(r => r.id);
-  const metas = searchState.results.map(r => ({ title: r.title }));
-  const added = addItemsToQueue(ids, metas, 'search', '');
-  searchState.results.forEach((_, idx) => {
-    const el = document.getElementById(`thumb-${idx}`);
-    if (el) el.classList.add('in-queue');
-  });
-  setStatus(`已将 ${added} 个作品加入队列（共 ${ids.length} 个，${ids.length - added} 个已在队列中）`, 'success');
-}
-
-function renderSearchPagination() {
-  const totalPages = Math.ceil(searchState.total / 60);
-  const cur = searchState.currentPage;
-  const pag = document.getElementById('search-pagination');
-  if (totalPages <= 1) { pag.style.display = 'none'; return; }
-  pag.style.display = 'flex';
-  const radius = 3;
-  const pages = [];
-  for (let p = Math.max(1, cur - radius); p <= Math.min(totalPages, cur + radius); p++) {
-    pages.push(p);
-  }
-  pag.innerHTML =
-    `<button onclick="performSearch(1)" ${cur === 1 ? 'disabled' : ''}>«</button>` +
-    `<button onclick="performSearch(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>‹</button>` +
-    pages.map(p =>
-      `<button onclick="${p === cur ? '' : `performSearch(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`
-    ).join('') +
-    `<button onclick="performSearch(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>›</button>` +
-    `<button onclick="performSearch(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>»</button>` +
-    `<span class="pg-info">第 ${cur} / ${totalPages} 页 · 共 ${searchState.total.toLocaleString()} 个</span>`;
-}
-
-function toggleBlurR18() {
-  searchState.blurR18 = document.getElementById('search-blur-r18').checked;
-  storeSet('pixiv_search_blur_r18', String(searchState.blurR18));
-  searchState.results.forEach((item, idx) => {
-    if (item.xRestrict > 0) {
-      const imgEl = document.getElementById(`thumb-img-${idx}`);
-      if (imgEl) imgEl.classList.toggle('blur-r18', searchState.blurR18);
     }
-  });
-}
 
-/* ============================================================
-   初始化
-============================================================ */
-async function init() {
-  // 检测使用模式，solo 模式则从服务器加载状态
-  await detectMode();
-  // 多人模式：初始化配额状态
-  if (appMode === 'multi') {
-    await initQuota();
-  }
-  if (appMode === 'solo') {
-    await loadServerState();
-    document.getElementById('logout-btn').style.display = 'block';
-    document.getElementById('cookie-hint').textContent =
-      'Cookie 保存在服务器，所有设备共享同一配置。支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。';
-  }
-
-  // Cookie
-  const savedCookie = storeGet('pixiv_cookie') || '';
-  document.getElementById('cookie-input').value = savedCookie;
-  setCookieFmt(getCookieFmt());
-
-  document.getElementById('cookie-save').addEventListener('click', () => {
-    const raw = document.getElementById('cookie-input').value.trim();
-    const result = validateAndParseCookie(raw, getCookieFmt());
-    if (!result.ok) {
-      setStatus('Cookie 保存失败：' + result.error, 'error');
-      return;
+    function addAllSearchResultsToQueue() {
+        if (!searchState.results.length) return;
+        const ids = searchState.results.map(r => r.id);
+        const metas = searchState.results.map(r => ({title: r.title}));
+        const added = addItemsToQueue(ids, metas, 'search', '');
+        setStatus(`已将 ${added} 个作品加入队列（共 ${ids.length} 个，${ids.length - added} 个已在队列中）`, 'success');
     }
-    storeSet('pixiv_cookie', raw);
-    if (result.warnings.length) {
-      setStatus(`Cookie 已保存（${result.count} 个字段）⚠ ${result.warnings.join('；')}`, 'warning');
-    } else {
-      setStatus(`Cookie 已保存，共 ${result.count} 个字段`, 'success');
+
+    function renderSearchPagination() {
+        const totalPages = Math.ceil(searchState.total / 60);
+        const cur = searchState.currentPage;
+        const pag = document.getElementById('search-pagination');
+        if (totalPages <= 1) {
+            pag.style.display = 'none';
+            return;
+        }
+        pag.style.display = 'flex';
+        const radius = 3;
+        const pages = [];
+        for (let p = Math.max(1, cur - radius); p <= Math.min(totalPages, cur + radius); p++) {
+            pages.push(p);
+        }
+        pag.innerHTML =
+            `<button onclick="performSearch(1)" ${cur === 1 ? 'disabled' : ''}>«</button>` +
+            `<button onclick="performSearch(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>‹</button>` +
+            pages.map(p =>
+                `<button onclick="${p === cur ? '' : `performSearch(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`
+            ).join('') +
+            `<button onclick="performSearch(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>›</button>` +
+            `<button onclick="performSearch(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>»</button>` +
+            `<span class="pg-info">第 ${cur} / ${totalPages} 页 · 共 ${searchState.total.toLocaleString()} 个</span>`;
     }
-  });
 
-  document.getElementById('cookie-toggle').addEventListener('click', () => {
-    const inp = document.getElementById('cookie-input');
-    const btn = document.getElementById('cookie-toggle');
-    if (inp.type === 'password') { inp.type = 'text'; btn.textContent = '隐藏'; }
-    else { inp.type = 'password'; btn.textContent = '显示'; }
-  });
-
-  // Settings change → auto-save
-  ['s-interval','s-image-delay','s-concurrent','s-skip','s-R18'].forEach(id => {
-    const el = document.getElementById(id);
-    el.addEventListener('change', syncSettings);
-    if (el.type === 'number') el.addEventListener('input', syncSettings);
-  });
-
-  // Mode
-  const savedMode = storeGet('pixiv_mode') || 'ntab';
-  state.mode = savedMode;
-
-  // 在 switchMode 前先恢复 userId，否则 user 模式下 storageKey() 用空串找不到队列
-  if (savedMode === 'user') {
-    const savedUserId   = storeGet('pixiv_batch_last_user_id')   || '';
-    const savedUsername = storeGet('pixiv_batch_last_username')  || '';
-    if (savedUserId) {
-      state.userId = savedUserId;
-      state.username = savedUsername;
-      document.getElementById('user-id-input').value = savedUserId;
-      document.getElementById('user-info-display').textContent =
-          savedUsername ? `用户：${savedUsername}（ID: ${savedUserId}）` : `ID: ${savedUserId}`;
+    function toggleBlurR18() {
+        searchState.blurR18 = document.getElementById('search-blur-r18').checked;
+        storeSet('pixiv_search_blur_r18', String(searchState.blurR18));
+        searchState.results.forEach((item, idx) => {
+            if (item.xRestrict > 0) {
+                const imgEl = document.getElementById(`thumb-img-${idx}`);
+                if (imgEl) imgEl.classList.toggle('blur-r18', searchState.blurR18);
+            }
+        });
     }
-  }
 
-  if (savedMode === 'search') {
-    const blurPref = storeGet('pixiv_search_blur_r18');
-    if (blurPref !== null) {
-      searchState.blurR18 = blurPref !== 'false';
-      document.getElementById('search-blur-r18').checked = searchState.blurR18;
+    /* ============================================================
+       初始化
+    ============================================================ */
+    async function init() {
+        // 检测使用模式，solo 模式则从服务器加载状态
+        await detectMode();
+        // 多人模式：初始化配额状态
+        if (appMode === 'multi') {
+            await initQuota();
+        }
+        if (appMode === 'solo') {
+            await loadServerState();
+            document.getElementById('logout-btn').style.display = 'block';
+            document.getElementById('cookie-hint').textContent =
+                'Cookie 保存在服务器，所有设备共享同一配置。支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。';
+        }
+
+        // Cookie
+        const savedCookie = storeGet('pixiv_cookie') || '';
+        document.getElementById('cookie-input').value = savedCookie;
+        setCookieFmt(getCookieFmt());
+
+        document.getElementById('cookie-save').addEventListener('click', () => {
+            const raw = document.getElementById('cookie-input').value.trim();
+            const result = validateAndParseCookie(raw, getCookieFmt());
+            if (!result.ok) {
+                setStatus('Cookie 保存失败：' + result.error, 'error');
+                return;
+            }
+            storeSet('pixiv_cookie', raw);
+            if (result.warnings.length) {
+                setStatus(`Cookie 已保存（${result.count} 个字段）⚠ ${result.warnings.join('；')}`, 'warning');
+            } else {
+                setStatus(`Cookie 已保存，共 ${result.count} 个字段`, 'success');
+            }
+        });
+
+        document.getElementById('cookie-toggle').addEventListener('click', () => {
+            const inp = document.getElementById('cookie-input');
+            const btn = document.getElementById('cookie-toggle');
+            if (inp.type === 'password') {
+                inp.type = 'text';
+                btn.textContent = '隐藏';
+            } else {
+                inp.type = 'password';
+                btn.textContent = '显示';
+            }
+        });
+
+        // Settings change → auto-save
+        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-R18'].forEach(id => {
+            const el = document.getElementById(id);
+            el.addEventListener('change', syncSettings);
+            if (el.type === 'number') el.addEventListener('input', syncSettings);
+        });
+
+        // Mode
+        const savedMode = storeGet('pixiv_mode') || 'ntab';
+        state.mode = savedMode;
+
+        // 在 switchMode 前先恢复 userId，否则 user 模式下 storageKey() 用空串找不到队列
+        if (savedMode === 'user') {
+            const savedUserId = storeGet('pixiv_batch_last_user_id') || '';
+            const savedUsername = storeGet('pixiv_batch_last_username') || '';
+            if (savedUserId) {
+                state.userId = savedUserId;
+                state.username = savedUsername;
+                document.getElementById('user-id-input').value = savedUserId;
+                document.getElementById('user-info-display').textContent =
+                    savedUsername ? `用户：${savedUsername}（ID: ${savedUserId}）` : `ID: ${savedUserId}`;
+            }
+        }
+
+        if (savedMode === 'search') {
+            const blurPref = storeGet('pixiv_search_blur_r18');
+            if (blurPref !== null) {
+                searchState.blurR18 = blurPref !== 'false';
+                document.getElementById('search-blur-r18').checked = searchState.blurR18;
+            }
+        }
+
+        switchMode(savedMode);
+
+        // Settings
+        loadSettings();
+
+        // Queue
+        loadQueueForMode();
+        updateButtonsState();
+        updateStats();
     }
-  }
 
-  switchMode(savedMode);
-
-  // Settings
-  loadSettings();
-
-  // Queue
-  loadQueueForMode();
-  updateButtonsState();
-  updateStats();
-}
-
-document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
 </html>

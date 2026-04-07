@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv User 批量下载器 (N-Tab UI 风格版)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.2
+// @version      2.0.3
 // @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Go 后端。界面复刻 N-Tab 风格。优化暂停逻辑：确保当前任务完成后再停止。已加入全局 username 机制。在标题显示用户名。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -411,44 +411,91 @@
         }
     };
 
-    /* ========== SSE 管理器 ========== */
+    /* ========== SSE 管理器（基于 GM_xmlhttpRequest + ReadableStream，绕过 CORS / 混合内容限制） ========== */
     class SSEManager {
         constructor() {
-            this.sources = new Map();
+            this.sources = new Map();   // artworkId -> GM_xmlhttpRequest abort handle
             this.listeners = new Map();
+            this._buffers = new Map();  // artworkId -> 未解析完的 SSE 文本缓冲
+            this._readers = new Map();  // artworkId -> ReadableStream reader
         }
-
         open(artworkId) {
-            this.close(artworkId);
             try {
-                const src = new EventSource(`${CONFIG.SSE_BASE}/${artworkId}`);
-                src.addEventListener('download-status', (e) => {
-                    try {
-                        const data = JSON.parse(e.data);
-                        (this.listeners.get(String(artworkId)) || []).forEach(fn => fn(data));
-                    } catch (err) {
-                    }
+                this.close(artworkId);
+                const key = String(artworkId);
+                this._buffers.set(key, '');
+                const headers = {};
+                if (userUUID) headers['X-User-UUID'] = userUUID;
+                const handle = GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${CONFIG.SSE_BASE}/${artworkId}`,
+                    headers,
+                    responseType: 'stream',
+                    onloadstart: (res) => {
+                        const stream = res.response;
+                        if (!stream || typeof stream.getReader !== 'function') {
+                            console.warn('SSE: ReadableStream 不可用，将依赖轮询兜底');
+                            return;
+                        }
+                        this._readStream(key, stream);
+                    },
+                    onerror: (err) => { console.error('SSE connection error', err); this._cleanup(key); },
+                    ontimeout: () => this._cleanup(key)
                 });
-                this.sources.set(String(artworkId), src);
-            } catch (err) {
-                console.error('SSE Error', err);
+                this.sources.set(key, handle);
+            } catch (err) { console.error('SSE open failed', err); }
+        }
+        _readStream(key, stream) {
+            const reader = stream.getReader();
+            this._readers.set(key, reader);
+            const decoder = new TextDecoder();
+            const pump = () => {
+                reader.read().then(({ done, value }) => {
+                    if (done) { this._cleanup(key); return; }
+                    const chunk = decoder.decode(value, { stream: true });
+                    let buffer = (this._buffers.get(key) || '') + chunk;
+                    const parts = buffer.split('\n\n');
+                    this._buffers.set(key, parts.pop());
+                    for (const part of parts) {
+                        if (!part.trim()) continue;
+                        this._processEvent(key, part);
+                    }
+                    pump();
+                }).catch(() => this._cleanup(key));
+            };
+            pump();
+        }
+        _processEvent(key, rawEvent) {
+            let eventName = '';
+            const dataLines = [];
+            for (const line of rawEvent.split('\n')) {
+                if (line.startsWith('event:')) eventName = line.substring(6).trim();
+                else if (line.startsWith('data:')) dataLines.push(line.substring(5));
+            }
+            if (eventName === 'download-status' && dataLines.length > 0) {
+                try {
+                    const parsed = JSON.parse(dataLines.join('\n'));
+                    (this.listeners.get(key) || []).forEach(fn => fn(parsed));
+                } catch (e) { /* 心跳等非 JSON 事件忽略 */ }
             }
         }
-
+        _cleanup(key) {
+            this.sources.delete(key);
+            this._buffers.delete(key);
+            const reader = this._readers.get(key);
+            if (reader) { try { reader.cancel(); } catch (e) {} this._readers.delete(key); }
+        }
         close(artworkId) {
             const key = String(artworkId);
-            const s = this.sources.get(key);
-            if (s) {
-                s.close();
-                this.sources.delete(key);
-            }
+            const handle = this.sources.get(key);
+            if (handle) { try { handle.abort(); } catch (e) {} }
+            this._cleanup(key);
             this.listeners.delete(key);
         }
-
         closeAll() {
             for (const k of Array.from(this.sources.keys())) this.close(k);
+            this.listeners.clear();
         }
-
         addListener(artworkId, fn) {
             const key = String(artworkId);
             if (!this.listeners.has(key)) this.listeners.set(key, []);
@@ -465,10 +512,11 @@
             this.queue = [];
             this.isRunning = false;
             this.isPaused = false;
-            this.sse = new SSEManager();
+
             this.stopRequested = false;
             this.activeWorkers = 0; // 追踪活跃 Worker 数量
             this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
+            this.sse = new SSEManager();
             this._quotaExceededHandled = false;
 
             this.globalSettings = {
@@ -905,7 +953,7 @@
                     this.ui.setStatus(`错误：${item.title}`, 'error');
                 }
             } finally {
-                this.sse.close(item.id);
+                try { this.sse.close(item.id); } catch (e) {}
                 item.endTime = new Date().toISOString();
                 this.updateStats();
                 this.saveToStorage();
@@ -942,10 +990,11 @@
                 const handler = (data) => {
                     if (data && (data.completed || data.failed || data.cancelled)) {
                         finish(data);
-                    } else if (data && data.downloadedCount !== undefined) {
+                    } else {
                         const q = this.queue.find(x => x.id === String(artworkId));
-                        if (q) {
+                        if (q && data.downloadedCount !== undefined) {
                             q.downloadedCount = data.downloadedCount;
+                            this.saveToStorage();
                             this.ui.renderQueue(this.queue);
                             this.ui.setCurrent(q);
                         }
@@ -1745,9 +1794,9 @@
         if (ui.root) ui.root.style.display = 'block';
     });
 
-    // 当 N-Tab 面板展开时，自动收起本面板
+    // 当其他面板展开时，自动收起本面板
     document.addEventListener('pixiv_panel_active', e => {
-        if (e.detail === 'ntab' && ui && !ui._collapsed) {
+        if ((e.detail === 'ntab' || e.detail === 'page') && ui && !ui._collapsed) {
             ui.toggleCollapse();
         }
     });

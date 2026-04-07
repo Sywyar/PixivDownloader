@@ -4,7 +4,7 @@
 
 Local Pixiv batch image download tool, consisting of a **Spring Boot backend** + **Tampermonkey userscript**.
 
-**Features:** Single artwork download / User homepage batch download / N-Tab bookmark batch download / Keyword search download / Animated image auto-conversion to WebP / Download history management / Image classification tool / Multi-mode rate limiting
+**Features:** Single artwork download / User homepage batch download / N-Tab bookmark batch download / **Page batch download (search, following feed, ranking, etc.)** / Keyword search download / Animated image auto-conversion to WebP / Download history management / Image classification tool / Multi-mode rate limiting
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
@@ -23,6 +23,7 @@ Local Pixiv batch image download tool, consisting of a **Spring Boot backend** +
   - [Single Artwork Download](#single-artwork-download)
   - [User Homepage Batch Download](#user-homepage-batch-download)
   - [N-Tab Bookmark Batch Download](#n-tab-bookmark-batch-download)
+  - [Page Batch Download](#page-batch-download)
   - [Web Batch Download Page](#web-batch-download-page)
     - [Search Mode](#search-mode)
   - [Download Monitor Page](#download-monitor-page)
@@ -86,20 +87,21 @@ After configuration is written to `pixiv-download/setup_config.json`, this page 
 
 Ensure [Tampermonkey](https://www.tampermonkey.net/) extension is installed in your browser. Download the scripts from [Releases](../../releases) and **drag them into the Tampermonkey management panel** to install:
 
-| Script File                       | Use Case                                                |
-|-----------------------------------|---------------------------------------------------------|
-| `Pixiv作品图片下载器(Java后端版).user.js`   | One-click download on single artwork pages              |
-| `Pixiv User 批量下载器.user.js`        | Batch download all works from a user homepage           |
-| `Pixiv N-Tab 批量下载器 (修复版).user.js` | Import N-Tab bookmark JSON for batch favorites download |
+| Script File                     | Use Case                                                                                             |
+|---------------------------------|------------------------------------------------------------------------------------------------------|
+| `Pixiv作品图片下载器(Java后端版).user.js` | One-click download on single artwork pages                                                           |
+| `Pixiv User 批量下载器.user.js`      | Batch download all works from a user homepage                                                        |
+| `Pixiv N-Tab 批量下载器.user.js`     | Import N-Tab bookmark JSON for batch favorites download                                              |
+| `Pixiv 页面批量下载器.user.js`         | Scrape all artworks from the current page (search, following feed, ranking, etc.) for batch download |
 
-**Changing Server Address:** All three scripts connect to `http://localhost:6999` by default, sharing the same server address setting.
+**Changing Server Address:** All four scripts connect to `http://localhost:6999` by default, sharing the same server address setting.
 
-- **User Batch / N-Tab Scripts:** The server address input box at the bottom of the floating panel saves automatically on blur.
+- **User Batch / N-Tab / Page Batch Scripts:** The server address input box at the bottom of the floating panel saves automatically on blur.
 - **Single Artwork Script:** Click the Tampermonkey icon next to the browser address bar → Select "⚙️ Set Server Address" from the menu.
 
 > **First-launch notice / Extra step when using an external server**
 >
-> All three scripts display a **one-time popup on first run** covering the following:
+> All four scripts display a **one-time popup on first run** covering the following:
 >
 > Tampermonkey's `GM_xmlhttpRequest` is restricted by the `@connect` whitelist. Scripts only allow connections to `localhost` by default. **If the backend is deployed on another machine** (e.g. LAN IP `192.168.1.100` or a domain), you must manually update the `@connect` declaration in each script:
 >
@@ -108,7 +110,7 @@ Ensure [Tampermonkey](https://www.tampermonkey.net/) extension is installed in y
 >    ```
 >    // @connect      192.168.1.100
 >    ```
-> 3. Save the script (Ctrl+S) — repeat for all three scripts
+> 3. Save the script (Ctrl+S) — repeat for all four scripts
 >
 > Alternatively, you can skip the userscripts entirely and download artworks directly via the web interface by visiting `http://<server-address>/login.html` in your browser.
 
@@ -173,6 +175,27 @@ Not installing ffmpeg does not affect normal image downloads; it is only require
 3. Click "Export" and copy the exported links into the input box
 4. After the floating control panel appears, click "Start"
 5. Supports skip downloaded, R18 filtering, etc. — same operations as [User Homepage Batch Download](#user-homepage-batch-download)
+
+### Page Batch Download
+
+Designed for **search results, following feed, ranking pages, home recommendations, user bookmark pages**, and any other Pixiv page that lists artworks (user artwork pages are handled by the User Batch Downloader; this panel is hidden on those pages).
+
+1. Open the target page (e.g., `https://www.pixiv.net/tags/{keyword}/artworks` or `https://www.pixiv.net/bookmark_new_illust.php`)
+2. A floating control panel with a teal border will appear in the corner
+3. Scroll to load the desired artworks, then click **"📷 Scrape Current Page Artworks"** — the script scans all artwork links in the page DOM and adds them to the queue
+4. You can click "Scrape" multiple times (artworks already in the queue are not re-added); scroll to load more artworks and scrape again
+5. Click **"🚀 Start Batch Download"** to begin
+
+| Option | Description |
+|---|---|
+| Scrape Current Page Artworks | Scans all `/artworks/{id}` links in the page DOM and adds to queue |
+| Skip Already Downloaded | Skip artworks already in the database |
+| R18 Only | Download only R18 artworks |
+| Auto Bookmark After Download | Automatically bookmark using Cookie after download |
+| Export Download List | Export full queue as TXT |
+| Export Undownloaded List | Export unfinished artwork links |
+
+> **Tip:** For infinite-scroll pages (search results, following feed, etc.), scroll to the bottom to load all artworks first, then click "Scrape" to capture the full list.
 
 ### Web Batch Download Page
 
