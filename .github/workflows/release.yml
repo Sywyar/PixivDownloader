@@ -33,10 +33,16 @@ jobs:
           VERSION=${GITHUB_REF_NAME}
           mv target/PixivDownload-*.jar target/PixivDownload-${VERSION}.jar
 
+      - name: Delete existing release if any
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete "${{ github.ref_name }}" --yes --cleanup-tag || true
+
       - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          git tag "${{ github.ref_name }}"
           cat <<'BODY' > release_body.md
           ## 使用说明
 
