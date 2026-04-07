@@ -72,5 +72,6 @@ jobs:
             --title "${{ github.ref_name }}" \
             --notes-file release_body.md \
             --generate-notes \
+            --clobber \
             target/PixivDownload-${{ github.ref_name }}.jar \
             *.user.js
