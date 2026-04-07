@@ -33,35 +33,44 @@ jobs:
           VERSION=${GITHUB_REF_NAME}
           mv target/PixivDownload-*.jar target/PixivDownload-${VERSION}.jar
 
+      - name: Delete existing release if any
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete "${{ github.ref_name }}" --yes || true
+
       - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            target/PixivDownload-${{ github.ref_name }}.jar
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat <<'BODY' > release_body.md
+          ## 使用说明
+
+          ### 🌐 使用外部服务器（推荐方式）
+
+          如果后端部署在非 `localhost` 的外部服务器上，**推荐直接通过网页端访问**，无需安装油猴脚本：
+
+          ```
+          http://<your-server-ip>:<port>/login.html
+          ```
+
+          网页端提供与油猴脚本相同的批量下载功能，更易于部署和使用。
+
+          ---
+
+          ### 🔧 使用油猴脚本连接外部服务器
+
+          若仍需使用油猴脚本连接外部服务器，需修改每个脚本头部的 `@connect` 指令，将 `YOUR_SERVER_HOST` 替换为实际的服务器 IP 或域名：
+
+          ```diff
+          - // @connect      YOUR_SERVER_HOST
+          + // @connect      192.168.1.100
+          ```
+
+          **修改路径**：Tampermonkey 管理面板 → 对应脚本 → 编辑 → 保存
+          BODY
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --notes-file release_body.md \
+            --generate-notes \
+            target/PixivDownload-${{ github.ref_name }}.jar \
             *.user.js
-          generate_release_notes: true
-          body: |
-            ## 使用说明
-
-            ### 🌐 使用外部服务器（推荐方式）
-
-            如果后端部署在非 `localhost` 的外部服务器上，**推荐直接通过网页端访问**，无需安装油猴脚本：
-
-            ```
-            http://<your-server-ip>:<port>/login.html
-            ```
-
-            网页端提供与油猴脚本相同的批量下载功能，更易于部署和使用。
-
-            ---
-
-            ### 🔧 使用油猴脚本连接外部服务器
-
-            若仍需使用油猴脚本连接外部服务器，需修改每个脚本头部的 `@connect` 指令，将 `YOUR_SERVER_HOST` 替换为实际的服务器 IP 或域名：
-
-            ```diff
-            - // @connect      YOUR_SERVER_HOST
-            + // @connect      192.168.1.100
-            ```
-
-            **修改路径**：Tampermonkey 管理面板 → 对应脚本 → 编辑 → 保存
