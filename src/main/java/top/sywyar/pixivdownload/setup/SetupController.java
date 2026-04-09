@@ -27,6 +27,7 @@ import java.time.Duration;
 public class SetupController {
 
     private final SetupService setupService;
+    private final LoginRateLimitService loginRateLimitService;
 
     // ---- Setup endpoints -----------------------------------------------
 
@@ -50,7 +51,11 @@ public class SetupController {
     // ---- Auth endpoints ------------------------------------------------
 
     @PostMapping("/api/auth/login")
-    public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request) {
+    public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        String clientIp = getClientIp(httpRequest);
+        if (!loginRateLimitService.isAllowed(clientIp)) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "登录尝试过于频繁，请稍后再试");
+        }
         if (!setupService.checkLogin(request.getUsername(), request.getPassword())) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "用户名或密码错误");
         }
@@ -88,5 +93,13 @@ public class SetupController {
     @GetMapping("/api/auth/check")
     public AuthCheckResponse check(HttpServletRequest request) {
         return new AuthCheckResponse(setupService.isValidSession(SessionUtils.extractToken(request)));
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        String xff = request.getHeader("X-Forwarded-For");
+        if (xff != null && !xff.isBlank()) {
+            return xff.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
     }
 }

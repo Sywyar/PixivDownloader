@@ -25,17 +25,13 @@ import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 @Slf4j
 @Service
@@ -48,6 +44,7 @@ public class DownloadService {
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
     private final PixivBookmarkService pixivBookmarkService;
+    private final UgoiraService ugoiraService;
 
     // 存储下载状态
     private final ConcurrentHashMap<Long, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
@@ -58,7 +55,8 @@ public class DownloadService {
                            @Nullable UserQuotaService userQuotaService,
                            @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                            TaskScheduler taskScheduler,
-                           PixivBookmarkService pixivBookmarkService) {
+                           PixivBookmarkService pixivBookmarkService,
+                           UgoiraService ugoiraService) {
         this.downloadConfig = downloadConfig;
         this.eventPublisher = eventPublisher;
         this.pixivDatabase = pixivDatabase;
@@ -66,6 +64,7 @@ public class DownloadService {
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
         this.pixivBookmarkService = pixivBookmarkService;
+        this.ugoiraService = ugoiraService;
     }
 
     @Async
@@ -101,128 +100,12 @@ public class DownloadService {
             HashSet<String> fileExtensions = new HashSet<>();
 
             if (other.isUgoira() && other.getUgoiraZipUrl() != null) {
-                // === 动图 (ugoira) 处理：下载ZIP → 提取帧 → ffmpeg 合成 WebP ===
-                validatePixivUrl(other.getUgoiraZipUrl());
+                // === 动图 (ugoira) 处理：委托给 UgoiraService ===
                 fileExtensions.add("webp");
                 status.setCurrentImageIndex(0);
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));
 
-                Path zipPath = downloadPath.resolve("_ugoira_frames.zip");
-                Path tempDir = downloadPath.resolve("_frames_tmp");
-                int ugoiraMaxAttempts = 3;
-                for (int ugoiraAttempt = 1; ugoiraAttempt <= ugoiraMaxAttempts; ugoiraAttempt++) {
-                    boolean ugoiraOk = false;
-                    boolean fatalError = false;
-                    try {
-                        log.info("正在下载动图ZIP：作品 {}（尝试 {}/{}）", artworkId, ugoiraAttempt, ugoiraMaxAttempts);
-                        boolean zipOk = downloadImage(other.getUgoiraZipUrl(), zipPath, referer, cookie);
-                        if (!zipOk) {
-                            log.error("作品：{}，动图ZIP下载失败(尝试 {}/{})", artworkId, ugoiraAttempt, ugoiraMaxAttempts);
-                        } else {
-                            Files.createDirectories(tempDir);
-
-                            // 解压帧到临时目录，按文件名有序排列
-                            TreeMap<String, Path> frameFiles = new TreeMap<>();
-                            Path normalizedTempDir = tempDir.normalize();
-                            try (ZipInputStream zis = new ZipInputStream(
-                                    new FileInputStream(zipPath.toFile()), StandardCharsets.UTF_8)) {
-                                ZipEntry entry;
-                                while ((entry = zis.getNextEntry()) != null) {
-                                    if (!entry.isDirectory()) {
-                                        // Zip Slip 防护：确保解压路径不逃出 tempDir
-                                        Path framePath = normalizedTempDir.resolve(entry.getName()).normalize();
-                                        if (!framePath.startsWith(normalizedTempDir)) {
-                                            log.warn("作品：{}，跳过危险ZIP条目（Zip Slip）: {}", artworkId, entry.getName());
-                                            zis.closeEntry();
-                                            continue;
-                                        }
-                                        try (FileOutputStream fos = new FileOutputStream(framePath.toFile())) {
-                                            byte[] buf = new byte[8192];
-                                            int len;
-                                            while ((len = zis.read(buf)) != -1) fos.write(buf, 0, len);
-                                        }
-                                        frameFiles.put(entry.getName(), framePath);
-                                    }
-                                    zis.closeEntry();
-                                }
-                            }
-
-                            if (frameFiles.isEmpty()) {
-                                log.error("作品：{}，ZIP内无帧文件", artworkId);
-                            } else {
-                                List<Map.Entry<String, Path>> orderedFrames = new ArrayList<>(frameFiles.entrySet());
-                                List<Integer> delays = other.getUgoiraDelays();
-                                if (delays == null || delays.size() != orderedFrames.size()) {
-                                    delays = Collections.nCopies(orderedFrames.size(), 100);
-                                }
-
-                                // 保存第一帧作为缩略图（供后端 thumbnail 接口使用）
-                                Files.copy(orderedFrames.get(0).getValue(),
-                                        downloadPath.resolve(artworkId + "_p0_thumb.jpg"),
-                                        StandardCopyOption.REPLACE_EXISTING);
-
-                                // 生成 ffmpeg concat 文件列表（支持可变帧延迟）
-                                Path listFile = tempDir.resolve("frames.txt");
-                                StringBuilder sb = new StringBuilder();
-                                for (int i = 0; i < orderedFrames.size(); i++) {
-                                    String fp = orderedFrames.get(i).getValue().toAbsolutePath()
-                                            .toString().replace("\\", "/");
-                                    sb.append("file '").append(fp).append("'\n");
-                                    sb.append("duration ").append(delays.get(i) / 1000.0).append("\n");
-                                }
-                                // ffmpeg concat 需要重复最后一帧才能正确应用末帧时长
-                                sb.append("file '").append(
-                                        orderedFrames.get(orderedFrames.size() - 1).getValue()
-                                                .toAbsolutePath().toString().replace("\\", "/"))
-                                        .append("'\n");
-                                Files.writeString(listFile, sb.toString(), StandardCharsets.UTF_8);
-
-                                Path webpPath = downloadPath.resolve(artworkId + "_p0.webp");
-                                ProcessBuilder pb = new ProcessBuilder(
-                                        "ffmpeg", "-y",
-                                        "-f", "concat", "-safe", "0",
-                                        "-i", listFile.toAbsolutePath().toString(),
-                                        "-vcodec", "libwebp",
-                                        "-quality", "90",
-                                        "-loop", "0",
-                                        "-an",
-                                        webpPath.toAbsolutePath().toString()
-                                );
-                                pb.redirectErrorStream(true);
-                                Process process = pb.start();
-                                process.getInputStream().transferTo(OutputStream.nullOutputStream());
-                                int exitCode = process.waitFor();
-
-                                if (exitCode == 0) {
-                                    successCount.set(1);
-                                    ugoiraOk = true;
-                                } else {
-                                    log.error("作品：{}，ffmpeg 执行失败，退出码：{}", artworkId, exitCode);
-                                }
-                            }
-                        }
-                    } catch (java.util.zip.ZipException e) {
-                        log.warn("作品：{}，动图ZIP校验失败(尝试 {}/{})：{}，将重新下载",
-                                artworkId, ugoiraAttempt, ugoiraMaxAttempts, e.getMessage());
-                    } catch (Exception e) {
-                        log.error("作品：{}，动图处理异常: {}", artworkId, e.getMessage(), e);
-                        fatalError = true;
-                    } finally {
-                        try { Files.deleteIfExists(zipPath); } catch (Exception ignored) {}
-                        try {
-                            if (Files.exists(tempDir))
-                                Files.walk(tempDir).sorted(Comparator.reverseOrder())
-                                        .map(Path::toFile).forEach(File::delete);
-                        } catch (Exception ignored) {}
-                    }
-                    if (ugoiraOk || fatalError) break;
-                    if (ugoiraAttempt < ugoiraMaxAttempts) {
-                        try { Thread.sleep(2000L * ugoiraAttempt); } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-                }
+                successCount.set(ugoiraService.processUgoira(artworkId, other, downloadPath, referer, cookie));
 
                 status.setDownloadedCount(successCount.get());
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status));

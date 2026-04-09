@@ -30,10 +30,12 @@ class SetupControllerTest {
 
     @Mock
     private SetupService setupService;
+    @Mock
+    private LoginRateLimitService loginRateLimitService;
 
     @BeforeEach
     void setUp() {
-        SetupController controller = new SetupController(setupService);
+        SetupController controller = new SetupController(setupService, loginRateLimitService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -159,6 +161,11 @@ class SetupControllerTest {
     @Nested
     @DisplayName("POST /api/auth/login")
     class LoginTests {
+
+        @BeforeEach
+        void allowRateLimit() {
+            when(loginRateLimitService.isAllowed(any())).thenReturn(true);
+        }
 
         @Test
         @DisplayName("正确凭据应登录成功并设置 Cookie")

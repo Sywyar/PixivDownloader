@@ -61,6 +61,10 @@ public class AppConfigGenerator {
             multi-mode.delete-after-hours: 72              # timed-delete 模式：下载后多少小时自动删除（小时）
 
             multi-mode.request-limit-minute: 300           # 每用户每分钟最大请求次数（0 表示不限制）
+
+            # ---- 登录安全配置 ----
+
+            setup.login-rate-limit-minute: 10              # 每个 IP 每分钟最多允许的登录尝试次数（0 = 不限制）
             """;
 
     @PostConstruct

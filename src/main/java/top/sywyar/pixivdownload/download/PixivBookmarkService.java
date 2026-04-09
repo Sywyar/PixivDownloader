@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -102,17 +101,14 @@ public class PixivBookmarkService {
         throw new IllegalStateException("无法从 Pixiv 主页中提取 CSRF token（页面 DOM 结构可能已改变）");
     }
 
+    private record BookmarkRequest(String illust_id, int restrict, String comment, List<String> tags) {}
+
     private void postBookmark(Long artworkId, String cookie, String csrfToken) throws Exception {
         HttpHeaders headers = buildBaseHeaders(cookie);
         headers.set("x-csrf-token", csrfToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        Map<String, Object> body = Map.of(
-                "illust_id", String.valueOf(artworkId),
-                "restrict",  0,
-                "comment",   "",
-                "tags",      List.of()
-        );
+        BookmarkRequest body = new BookmarkRequest(String.valueOf(artworkId), 0, "", List.of());
         String bodyJson = objectMapper.writeValueAsString(body);
 
         ResponseEntity<String> response = restTemplate.exchange(

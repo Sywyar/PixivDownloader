@@ -1272,7 +1272,8 @@
     let sseConnections = {};
 
     let updateInterval;
-    let activeUpdateInterval;
+    let activeUpdateTimer = null;
+    let lastCompletionTime = 0; // 最后一个下载完成的时间戳
     let artworkModal = null;
     let imageModal = null;
 
@@ -1324,8 +1325,8 @@
         });
 
         initDashboard();
-        updateInterval       = setInterval(updateDashboard, 5000);
-        activeUpdateInterval = setInterval(syncActiveIds, 8000);
+        updateInterval = setInterval(updateDashboard, 5000);
+        scheduleActiveSync();
 
         document.addEventListener('keydown', e => {
             if (!document.getElementById('imageModal').classList.contains('show')) return;
@@ -1335,14 +1336,14 @@
     });
 
     document.addEventListener('visibilitychange', () => {
-        clearInterval(activeUpdateInterval);
-        activeUpdateInterval = setInterval(syncActiveIds, document.hidden ? 30000 : 8000);
-        if (!document.hidden) syncActiveIds();
+        if (!document.hidden) {
+            scheduleActiveSync(true); // 立即重新调度
+        }
     });
 
     window.addEventListener('beforeunload', () => {
         clearInterval(updateInterval);
-        clearInterval(activeUpdateInterval);
+        clearTimeout(activeUpdateTimer);
         Object.keys(sseConnections).forEach(id => closeSSE(Number(id)));
     });
 
@@ -1667,6 +1668,8 @@
         if (data.completed || data.failed || data.cancelled) {
             closeSSE(artworkId);
             activeDownloads = activeDownloads.filter(d => d.artworkId !== artworkId);
+            lastCompletionTime = Date.now();
+            scheduleActiveSync(); // 切换到快速轮询
             document.getElementById('activeCount').textContent     = activeDownloads.length;
             document.getElementById('activeDownloads').textContent = activeDownloads.length;
             renderActiveDownloads();
@@ -1689,6 +1692,22 @@
     }
 
     // ===================== 活跃下载同步 =====================
+    function getActiveSyncInterval() {
+        if (document.hidden) return 30000;
+        if (activeDownloads.length > 0) return 1000;
+        if (Date.now() - lastCompletionTime < 10000) return 1000;
+        return 8000;
+    }
+
+    function scheduleActiveSync(immediate) {
+        clearTimeout(activeUpdateTimer);
+        if (immediate) {
+            syncActiveIds();
+        } else {
+            activeUpdateTimer = setTimeout(() => syncActiveIds(), getActiveSyncInterval());
+        }
+    }
+
     async function syncActiveIds() {
         try {
             const res = await fetch('/api/download/status/active');
@@ -1721,11 +1740,13 @@
             updateLastUpdatedTime();
 
             if (prevCount > 0 && activeDownloads.length < prevCount) {
+                lastCompletionTime = Date.now();
                 loadStatistics();
                 currentPage = 1;
                 loadAllDataForChart();
             }
         } catch (e) { console.error('活跃下载同步失败', e); }
+        scheduleActiveSync();
     }
 
     function renderActiveDownloads() {
