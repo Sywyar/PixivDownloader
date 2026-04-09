@@ -352,6 +352,7 @@
             font-weight: bold;
             font-size: 12px;
             margin-bottom: 2px;
+            min-width: 0;
         }
 
         .queue-item .q-meta {
@@ -2117,12 +2118,16 @@
                 : q.isR18 === false
                     ? `<span style="background:#198754;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">SFW</span>`
                     : `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">未知</span>`;
-            const canRemove = !['downloading', 'completed'].includes(q.status);
+            const canRemove = q.status !== 'downloading';
             const removeBtn = canRemove
-                ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="移除" style="float:right;background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
+                ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="移除" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
                 : '';
+            const linkBtn = `<a href="https://www.pixiv.net/artworks/${q.id}" target="_blank" onclick="event.stopPropagation();" title="打开作品页面" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`;
             return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
-      <div class="q-title">${removeBtn}${esc(q.title)}${srcLabel}${R18Label}</div>
+      <div class="q-title" style="display:flex;align-items:center;gap:2px;">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(q.title)}${srcLabel}${R18Label}</span>
+        ${linkBtn}${removeBtn}
+      </div>
       <div class="q-meta">ID: ${q.id} | <span style="color:${statusColor(q.status)};font-weight:bold;">${esc(desc)}</span></div>
       ${prog}
     </div>`;
@@ -2403,7 +2408,7 @@
         const idx = state.queue.findIndex(q => q.id === String(id));
         if (idx === -1) return false;
         const q = state.queue[idx];
-        if (['downloading', 'completed'].includes(q.status)) return false;
+        if (q.status === 'downloading') return false;
         state.queue.splice(idx, 1);
         updateStats();
         saveQueue();
@@ -2421,7 +2426,7 @@
             if (removed) {
                 setStatus(`已从队列移除：${item.title}`, 'info');
             } else {
-                setStatus(`无法移除（正在下载或已完成）：${item.title}`, 'warning');
+                setStatus(`无法移除（正在下载中）：${item.title}`, 'warning');
             }
             return;
         }

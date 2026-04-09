@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 页面批量下载器
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  抓取当前 Pixiv 页面（搜索页、关注动态、排行榜、主页等）上的所有作品，批量提交本地后端下载。界面与 N-Tab / User 批量下载器一致。
 // @author       Sywyar
 // @match        https://www.pixiv.net/*
@@ -1144,9 +1144,18 @@
                     style: { padding: '5px', marginBottom: '3px', background: 'white', fontSize: '10px', borderLeft: `3px solid ${this._colorByStatus(q.status)}` }
                 });
                 const desc = q.lastMessage || this._statusText(q.status);
-                item.innerHTML = `<div><strong>${escapeHtml(q.title || 'ID: ' + q.id)}</strong></div><div>ID: ${q.id} | <span style="color:${this._colorByStatus(q.status)};font-weight:bold;">${escapeHtml(desc)}</span></div>${this._progressHtml(q)}`;
+                const canRemove = q.status !== 'downloading';
+                const removeBtn = canRemove
+                    ? `<button data-remove-id="${q.id}" title="从队列移除" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:11px;padding:1px 2px;line-height:1;">✕</button>`
+                    : '';
+                const linkBtn = `<a href="https://www.pixiv.net/artworks/${q.id}" target="_blank" title="打开作品页面" style="color:#007bff;font-size:11px;padding:1px 2px;text-decoration:none;line-height:1;">🔗</a>`;
+                item.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:4px;">${escapeHtml(q.title || 'ID: ' + q.id)}</strong><span style="display:flex;gap:1px;flex-shrink:0;">${linkBtn}${removeBtn}</span></div><div>ID: ${q.id} | <span style="color:${this._colorByStatus(q.status)};font-weight:bold;">${escapeHtml(desc)}</span></div>${this._progressHtml(q)}`;
                 node.appendChild(item);
             }
+            node.onclick = (e) => {
+                const btn = e.target.closest('[data-remove-id]');
+                if (btn) { e.stopPropagation(); this.manager.removeFromQueue(btn.dataset.removeId); }
+            };
         }
 
         _progressHtml(q, isMain = false) {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv N-Tab 批量下载器 (修复版)
 // @namespace    http://tampermonkey.net/
-// @version      2.0.3
+// @version      2.0.4
 // @description  解析 N-Tab 导出，批量提交作品给本地后端下载，支持严格的下载状态校验（修复下载失败显示完成的Bug）。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -1006,6 +1006,17 @@
             this.ui.updateStats(this.stats);
         }
 
+        removeFromQueue(id) {
+            const idx = this.queue.findIndex(q => q.id === String(id));
+            if (idx === -1) return false;
+            if (this.queue[idx].status === 'downloading') return false;
+            this.queue.splice(idx, 1);
+            this.updateStats();
+            this.saveToStorage();
+            this.ui.renderQueue(this.queue);
+            return true;
+        }
+
         _sleep(ms) {
             return new Promise(r => setTimeout(r, ms));
         }
@@ -1426,9 +1437,18 @@
                 });
                 const progressHtml = this._createProgressHtml(q);
                 const desc = q.lastMessage || this._statusText(q.status);
-                item.innerHTML = `<div><strong>${escapeHtml(q.title)}</strong></div><div>ID: ${q.id} | <span style="color:${this._colorByStatus(q.status)};font-weight:bold;">${escapeHtml(desc)}</span></div>${progressHtml}`;
+                const canRemove = q.status !== 'downloading';
+                const removeBtn = canRemove
+                    ? `<button data-remove-id="${q.id}" title="从队列移除" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:11px;padding:1px 2px;line-height:1;">✕</button>`
+                    : '';
+                const linkBtn = `<a href="https://www.pixiv.net/artworks/${q.id}" target="_blank" title="打开作品页面" style="color:#007bff;font-size:11px;padding:1px 2px;text-decoration:none;line-height:1;">🔗</a>`;
+                item.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:4px;">${escapeHtml(q.title)}</strong><span style="display:flex;gap:1px;flex-shrink:0;">${linkBtn}${removeBtn}</span></div><div>ID: ${q.id} | <span style="color:${this._colorByStatus(q.status)};font-weight:bold;">${escapeHtml(desc)}</span></div>${progressHtml}`;
                 node.appendChild(item);
             }
+            node.onclick = (e) => {
+                const btn = e.target.closest('[data-remove-id]');
+                if (btn) { e.stopPropagation(); this.manager.removeFromQueue(btn.dataset.removeId); }
+            };
         }
 
         _createProgressHtml(q) {
