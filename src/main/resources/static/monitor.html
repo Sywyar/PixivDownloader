@@ -1693,7 +1693,7 @@
 
     // ===================== 活跃下载同步 =====================
     function getActiveSyncInterval() {
-        if (document.hidden) return 30000;
+        if (document.hidden) return 15000;
         if (activeDownloads.length > 0) return 1000;
         if (Date.now() - lastCompletionTime < 10000) return 1000;
         return 8000;

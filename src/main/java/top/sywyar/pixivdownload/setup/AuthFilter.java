@@ -111,6 +111,8 @@ public class AuthFilter extends OncePerRequestFilter {
     private boolean isPublic(String path) {
         return path.equals("/setup.html")
                 || path.equals("/login.html")
+                || path.equals("/intro.html")
+                || path.equals("/intro-canary.html")
                 || path.equals("/favicon.ico")
                 || path.startsWith("/api/setup/")
                 || path.startsWith("/api/auth/");

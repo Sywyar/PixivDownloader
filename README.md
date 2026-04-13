@@ -27,6 +27,7 @@
   - [Web 批量下载页面](#web-批量下载页面)
     - [Search 搜索模式](#search-搜索模式)
   - [下载监控页面](#下载监控页面)
+  - [产品介绍页](#产品介绍页)
 - [工具](#工具)
   - [图片分类工具](#图片分类工具)
   - [R18 补全工具](#R18-补全工具)
@@ -239,6 +240,17 @@ proxy.port: 7890   # 修改为你的代理软件实际监听端口
 - 实时显示当前下载任务进度
 - 分页浏览全部下载历史，支持点击作品预览图片
 - 显示统计信息（总作品数、总图片数、已移动数）
+
+### 产品介绍页
+
+访问 `http://localhost:6999/intro.html`（**无需登录，公开访问**）
+
+吸附式分屏介绍页，适合向他人展示本项目。页面包含六屏内容：功能概览、痛点对比、Monitor 实时监控演示、Batch 批量下载演示、特性亮点、快速上手步骤。
+
+- 鼠标滚轮 / 方向键 / Page Down 可在各屏之间平滑切换
+- Monitor 与 Batch 迷你窗口内含示例数据，鼠标悬浮元素可查看中文功能说明
+
+Chrome Canary 用户可访问 `http://localhost:6999/intro-canary.html`（需开启 `chrome://flags/#canvas-draw-element`），Hero 区的缩略图卡片将通过 WICG html-in-canvas 提案的 `drawElementImage` API 在 canvas 内真实渲染与浮动。
 
 ---
 

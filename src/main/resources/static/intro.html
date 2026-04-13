@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>PixivDownload — 一键归档你的 Pixiv 收藏</title>
+<meta name="description" content="Spring Boot + 油猴脚本驱动的本地 Pixiv 批量下载器。批量、动图、分类、历史数据库，全都交给它。" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#07070b;
+    --bg-2:#0c0c14;
+    --ink:#f5f5f7;
+    --ink-dim:rgba(245,245,247,.62);
+    --ink-faint:rgba(245,245,247,.38);
+    --line:rgba(255,255,255,.08);
+    --line-2:rgba(255,255,255,.14);
+    --accent:#7c5cff;
+    --accent-2:#22d3ee;
+    --accent-3:#ff6ec7;
+    --pixiv:#0096fa;
+    --ok:#7ee787;
+    --warn:#f0a868;
+    --radius:18px;
+    --easing:cubic-bezier(.2,.7,.1,1);
+    --snap-easing:cubic-bezier(.7,.05,.15,1);
+    --font-zh:'Noto Sans SC','Inter',ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+    --font-mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--font-zh);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  body{overflow:hidden}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--accent);color:#fff}
+
+  /* ============ ambient bg ============ */
+  .ambient{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;background:radial-gradient(1200px 800px at 70% -10%,rgba(124,92,255,.18),transparent 60%),radial-gradient(900px 700px at 0% 30%,rgba(34,211,238,.10),transparent 55%),radial-gradient(800px 600px at 90% 80%,rgba(255,110,199,.09),transparent 55%),var(--bg)}
+  .ambient::after{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.04) 1px,transparent 1px);background-size:3px 3px;mix-blend-mode:overlay;opacity:.3}
+  .blob{position:absolute;border-radius:50%;filter:blur(80px);opacity:.5;animation:float 18s ease-in-out infinite}
+  .blob.b1{width:520px;height:520px;background:#7c5cff;left:-10%;top:-10%}
+  .blob.b2{width:420px;height:420px;background:#22d3ee;right:-8%;top:30%;animation-delay:-6s}
+  .blob.b3{width:380px;height:380px;background:#ff6ec7;left:30%;bottom:-12%;animation-delay:-12s}
+  @keyframes float{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(40px,-30px,0) scale(1.08)}}
+
+  /* ============ top canary banner ============ */
+  .canary-banner{position:fixed;top:0;left:0;right:0;z-index:100;padding:10px 20px;background:linear-gradient(90deg,rgba(124,92,255,.9),rgba(34,211,238,.9));color:#fff;font-size:13px;font-weight:500;text-align:center;transform:translateY(-100%);transition:transform .6s var(--easing);display:flex;align-items:center;justify-content:center;gap:14px}
+  .canary-banner.show{transform:translateY(0)}
+  .canary-banner a{padding:4px 12px;border:1px solid rgba(255,255,255,.4);border-radius:999px;font-size:12px;transition:.2s}
+  .canary-banner a:hover{background:#fff;color:#0a0a12}
+  .canary-banner .close{background:none;border:none;color:#fff;cursor:pointer;font-size:16px;line-height:1;padding:0 4px;opacity:.7}
+  .canary-banner .close:hover{opacity:1}
+  .banner-timer{position:absolute;bottom:0;left:0;height:2px;width:100%;background:rgba(255,255,255,.45);transform-origin:left;transform:scaleX(0);animation:banner-sweep 15s linear forwards;animation-play-state:paused}
+  .canary-banner.show .banner-timer{animation-play-state:running}
+  @keyframes banner-sweep{to{transform:scaleX(1)}}
+
+  /* ============ top nav ============ */
+  nav.top{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:8px;padding:8px 10px 8px 16px;border:1px solid var(--line);border-radius:999px;background:rgba(12,12,20,.55);backdrop-filter:blur(20px) saturate(160%);-webkit-backdrop-filter:blur(20px) saturate(160%);transition:top .4s var(--easing)}
+  body.banner-on nav.top{top:56px}
+  nav.top .logo{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;padding-right:14px;border-right:1px solid var(--line)}
+  nav.top .logo .mark{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--pixiv),var(--accent));display:grid;place-items:center;color:#fff;font-weight:800;font-size:11px;letter-spacing:-.05em;box-shadow:0 0 14px rgba(0,150,250,.5)}
+  nav.top ul{display:flex;list-style:none;margin:0;padding:0 6px;gap:2px}
+  nav.top a{font-size:13px;color:var(--ink-dim);padding:8px 12px;border-radius:999px;transition:.25s var(--easing);cursor:pointer}
+  nav.top a:hover{color:var(--ink);background:rgba(255,255,255,.05)}
+  nav.top .cta{font-size:12.5px;font-weight:500;padding:8px 14px;border-radius:999px;background:var(--ink);color:#0a0a12}
+  nav.top .cta:hover{background:#fff}
+  @media (max-width:760px){nav.top ul{display:none}}
+
+  /* ============ right dot nav ============ */
+  .dots{position:fixed;top:50%;right:24px;transform:translateY(-50%);z-index:40;display:flex;flex-direction:column;gap:14px}
+  .dots button{width:10px;height:10px;border-radius:50%;border:none;background:rgba(255,255,255,.18);cursor:pointer;padding:0;transition:.3s var(--easing);position:relative}
+  .dots button::after{content:attr(data-label);position:absolute;right:20px;top:50%;transform:translateY(-50%) translateX(8px);font-size:11px;color:var(--ink-dim);font-family:var(--font-mono);letter-spacing:.08em;white-space:nowrap;opacity:0;pointer-events:none;transition:.25s var(--easing)}
+  .dots button:hover::after{opacity:1;transform:translateY(-50%) translateX(0)}
+  .dots button.active{background:var(--ink);width:10px;height:26px;border-radius:6px}
+  @media (max-width:760px){.dots{display:none}}
+
+  /* ============ deck (snap container) ============ */
+  .deck{position:fixed;inset:0;transition:transform .9s var(--snap-easing)}
+  .slide{position:relative;width:100%;height:100vh;padding:90px 48px 60px;display:flex;flex-direction:column;justify-content:center;align-items:center;overflow:hidden}
+  .slide-inner{width:100%;max-width:1200px;margin:0 auto}
+
+  /* stagger animation: activated when parent has .active */
+  .fx{opacity:0;transform:translateY(30px);transition:opacity .9s var(--easing),transform .9s var(--easing)}
+  .slide.active .fx{opacity:1;transform:none}
+  .slide.active .fx.d1{transition-delay:.12s}
+  .slide.active .fx.d2{transition-delay:.22s}
+  .slide.active .fx.d3{transition-delay:.32s}
+  .slide.active .fx.d4{transition-delay:.42s}
+  .slide.active .fx.d5{transition-delay:.52s}
+  .slide.active .fx.d6{transition-delay:.62s}
+
+  /* ============ typography ============ */
+  .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.02);font-family:var(--font-mono)}
+  .eyebrow .pulse{width:6px;height:6px;border-radius:50%;background:#22d3ee;box-shadow:0 0 0 0 rgba(34,211,238,.7);animation:pulse 2s infinite}
+  @keyframes pulse{70%{box-shadow:0 0 0 8px rgba(34,211,238,0)}100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}}
+
+  h1,h2,h3{margin:0;letter-spacing:-.02em;font-weight:600}
+  h1{font-size:clamp(44px,6.4vw,92px);line-height:1.02;font-weight:700;letter-spacing:-.035em}
+  h1 em{font-family:'Instrument Serif',serif;font-style:italic;font-weight:400;letter-spacing:-.01em;background:linear-gradient(120deg,var(--accent-3),var(--accent),var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  h2{font-size:clamp(30px,3.8vw,52px);line-height:1.08;font-weight:700;letter-spacing:-.03em}
+  h3{font-size:20px;font-weight:600;letter-spacing:-.01em}
+  p{color:var(--ink-dim);line-height:1.7;font-size:16px}
+  .lead{font-size:18px;max-width:560px}
+
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:14px 22px;border-radius:999px;font-size:14.5px;font-weight:500;transition:.3s var(--easing);border:1px solid var(--line-2);cursor:pointer;background:transparent;color:var(--ink);font-family:inherit}
+  .btn.primary{background:var(--ink);color:#0a0a12;border-color:transparent}
+  .btn.primary:hover{transform:translateY(-2px);box-shadow:0 16px 40px rgba(255,255,255,.15)}
+  .btn.ghost:hover{background:rgba(255,255,255,.05);border-color:var(--line-2)}
+  .btn svg{width:14px;height:14px}
+
+  /* ============ SLIDE 1: HERO ============ */
+  .s-hero{text-align:center}
+  .s-hero .eyebrow{margin-bottom:28px}
+  .s-hero h1{max-width:14ch;margin:0 auto}
+  .s-hero .lead{margin:24px auto 0}
+  .s-hero .cta-row{margin-top:36px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+
+  .hero-thumbs{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:-1}
+  .hero-thumb{position:absolute;width:220px;height:300px;border-radius:14px;overflow:hidden;border:1px solid var(--line-2);box-shadow:0 30px 60px rgba(0,0,0,.5);opacity:0;transform:translateY(20px) rotate(var(--r,0deg));transition:opacity 1.4s var(--easing) .3s,transform 1.4s var(--easing) .3s;animation:hoverFloat 6s ease-in-out infinite}
+  .slide.active .hero-thumb{opacity:.55;transform:translateY(0) rotate(var(--r,0deg))}
+  .hero-thumb::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.6))}
+  .hero-thumb .cap{position:absolute;bottom:10px;left:12px;right:12px;z-index:2;font-size:11px;color:#fff;font-family:var(--font-mono);opacity:.9}
+  .hero-thumb.t1{left:6%;top:18%;--r:-8deg;background:linear-gradient(135deg,#5b8cff,#ff6ec7);animation-delay:0s}
+  .hero-thumb.t2{left:12%;bottom:10%;--r:6deg;background:linear-gradient(135deg,#22d3ee,#7c5cff);animation-delay:-2s}
+  .hero-thumb.t3{right:8%;top:14%;--r:10deg;background:linear-gradient(135deg,#ff6ec7,#f0a868);animation-delay:-4s}
+  .hero-thumb.t4{right:10%;bottom:14%;--r:-5deg;background:linear-gradient(135deg,#7ee787,#22d3ee);animation-delay:-6s}
+  @keyframes hoverFloat{0%,100%{translate:0 0}50%{translate:0 -18px}}
+
+  /* ============ SLIDE 2: PAIN POINTS ============ */
+  .s-pain h2{max-width:16ch;margin-bottom:14px}
+  .s-pain p{max-width:50ch}
+  .compare{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:48px}
+  .compare-col{padding:28px 24px;border-radius:var(--radius);border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.02),transparent);position:relative;transition:.4s var(--easing)}
+  .compare-col .tag{display:inline-block;font-size:11px;font-family:var(--font-mono);letter-spacing:.1em;padding:4px 10px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-faint);margin-bottom:16px}
+  .compare-col h3{margin-bottom:14px;color:var(--ink-faint)}
+  .compare-col ul{list-style:none;margin:0;padding:0}
+  .compare-col li{font-size:13.5px;color:var(--ink-faint);padding:7px 0;display:flex;align-items:flex-start;gap:8px;border-bottom:1px dashed var(--line)}
+  .compare-col li:last-child{border:none}
+  .compare-col li::before{content:"×";color:#f55;font-weight:700;margin-top:-1px}
+  .compare-col.win{background:linear-gradient(180deg,rgba(124,92,255,.08),rgba(34,211,238,.04));border-color:rgba(124,92,255,.3);box-shadow:0 40px 100px -30px rgba(124,92,255,.4)}
+  .compare-col.win .tag{background:linear-gradient(90deg,var(--accent),var(--accent-2));border:none;color:#fff;font-weight:600}
+  .compare-col.win h3{color:var(--ink)}
+  .compare-col.win li{color:var(--ink)}
+  .compare-col.win li::before{content:"✓";color:var(--ok)}
+  @media (max-width:900px){.compare{grid-template-columns:1fr}}
+
+  /* ============ SLIDE 3: MONITOR MOCK ============ */
+  .s-mock{padding:70px 32px 40px}
+  .s-mock .head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px;gap:20px;flex-wrap:wrap}
+  .s-mock .head h2{max-width:18ch}
+  .s-mock .head p{max-width:40ch;font-size:15px}
+
+  .mock-window{border-radius:14px;overflow:hidden;border:1px solid var(--line-2);box-shadow:0 60px 140px -30px rgba(0,229,255,.25),0 40px 80px rgba(0,0,0,.5);background:#060612;transition:transform .5s var(--easing)}
+  .mock-titlebar{height:36px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#0b0b1f;border-bottom:1px solid rgba(0,229,255,.15)}
+  .mock-titlebar .td{width:11px;height:11px;border-radius:50%}
+  .mock-titlebar .td.r{background:#ff5f57}.mock-titlebar .td.y{background:#febc2e}.mock-titlebar .td.g{background:#28c840}
+  .mock-titlebar .mock-url{margin-left:auto;font-family:var(--font-mono);font-size:11.5px;color:rgba(148,163,184,.7);letter-spacing:.05em}
+
+  /* --- monitor body (cyber-dark) --- */
+  .mock-monitor{padding:20px;background:#060612;font-family:var(--font-mono);color:#94a3b8;font-size:12.5px;background-image:linear-gradient(rgba(0,229,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.03) 1px,transparent 1px);background-size:32px 32px;position:relative;min-height:460px}
+  .mock-monitor::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 1px,rgba(0,0,0,.06) 1px 2px);pointer-events:none}
+  .mm-header{display:flex;justify-content:space-between;align-items:center;padding-bottom:14px;border-bottom:1px solid rgba(0,229,255,.12);margin-bottom:16px}
+  .mm-title{font-size:15px;color:#e2e8f0;font-weight:700;letter-spacing:.08em}
+  .mm-title .slash{color:#00e5ff}
+  .mm-sub{font-size:10.5px;color:rgba(148,163,184,.7);letter-spacing:.18em;margin-top:3px}
+  .mm-live{display:flex;align-items:center;gap:6px;font-size:11px;color:#00ff88;letter-spacing:.15em}
+  .mm-live .led{width:7px;height:7px;border-radius:50%;background:#00ff88;box-shadow:0 0 8px #00ff88;animation:blink 2s infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+  .mm-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+  .mm-stat{padding:14px;background:#0b0b1f;border:1px solid rgba(0,229,255,.12);position:relative;cursor:help;transition:.3s var(--easing)}
+  .mm-stat::before,.mm-stat::after{content:"";position:absolute;width:10px;height:10px;border-color:#00e5ff;border-style:solid}
+  .mm-stat::before{top:-1px;left:-1px;border-width:1px 0 0 1px}
+  .mm-stat::after{bottom:-1px;right:-1px;border-width:0 1px 1px 0}
+  .mm-stat:hover{transform:scale(1.04);border-color:rgba(0,229,255,.45);box-shadow:0 0 24px rgba(0,229,255,.25)}
+  .mm-stat .k{font-size:9.5px;color:#00e5ff;letter-spacing:.2em;margin-bottom:6px}
+  .mm-stat .v{font-size:26px;color:#00e5ff;font-weight:700;text-shadow:0 0 12px rgba(0,229,255,.45);letter-spacing:-.02em}
+
+  .mm-body{display:grid;grid-template-columns:1.6fr 1fr;gap:10px}
+  .mm-panel{background:#0b0b1f;border:1px solid rgba(0,229,255,.12);padding:12px;position:relative}
+  .mm-panel::before,.mm-panel::after{content:"";position:absolute;width:14px;height:14px;border-color:#00e5ff;border-style:solid}
+  .mm-panel::before{top:-1px;left:-1px;border-width:1px 0 0 1px}
+  .mm-panel::after{bottom:-1px;right:-1px;border-width:0 1px 1px 0}
+  .mm-panel-label{font-size:9.5px;color:#00e5ff;letter-spacing:.2em;margin-bottom:10px}
+
+  .mm-table{width:100%;border-collapse:collapse;font-size:11px}
+  .mm-table th{text-align:left;padding:6px 8px;color:#00e5ff;font-weight:500;letter-spacing:.15em;font-size:9.5px;border-bottom:1px solid rgba(0,229,255,.15);background:rgba(0,229,255,.04)}
+  .mm-table td{padding:8px;border-bottom:1px solid rgba(0,229,255,.06);color:#94a3b8;cursor:help;transition:.2s}
+  .mm-table tr{transition:.2s}
+  .mm-table tr:hover td{background:rgba(0,229,255,.06);color:#e2e8f0}
+  .mm-table tr:hover{transform:scale(1.01)}
+  .badge{display:inline-block;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:600;letter-spacing:.08em}
+  .badge.jpg{background:rgba(245,158,11,.15);color:#f0a868;border:1px solid rgba(245,158,11,.3)}
+  .badge.webp{background:rgba(124,92,255,.18);color:#a78bfa;border:1px solid rgba(124,92,255,.35)}
+  .badge.png{background:rgba(34,211,238,.15);color:#22d3ee;border:1px solid rgba(34,211,238,.3)}
+  .badge.completed{background:rgba(0,229,255,.1);color:#00e5ff;border:1px solid rgba(0,229,255,.3)}
+  .badge.moved{background:rgba(124,58,237,.2);color:#a78bfa;border:1px solid rgba(124,58,237,.4)}
+  .badge.r18{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.35)}
+
+  .mm-active-item{padding:10px;border-left:3px solid #00e5ff;background:rgba(0,229,255,.04);margin-bottom:8px;cursor:help;transition:.25s}
+  .mm-active-item:hover{transform:scale(1.03);background:rgba(0,229,255,.1)}
+  .mm-active-title{font-size:11.5px;color:#e2e8f0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px}
+  .mm-active-meta{font-size:10px;color:rgba(148,163,184,.7);display:flex;justify-content:space-between;margin-bottom:6px}
+  .mm-progress{height:3px;background:rgba(0,229,255,.1);border-radius:2px;overflow:hidden;position:relative}
+  .mm-progress-fill{height:100%;background:linear-gradient(90deg,#00e5ff,#7c3aed);border-radius:2px;position:relative;overflow:hidden}
+  .mm-progress-fill::after{content:"";position:absolute;inset:0;background-image:linear-gradient(-45deg,rgba(255,255,255,.3) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.3) 50%,rgba(255,255,255,.3) 75%,transparent 75%);background-size:14px 14px;animation:bar-move .8s linear infinite}
+  @keyframes bar-move{to{background-position:14px 0}}
+  .mm-a-1 .mm-progress-fill{width:67%;animation:grow 14s linear infinite}
+  .mm-a-2 .mm-progress-fill{width:34%;animation:grow 22s linear infinite -8s}
+  @keyframes grow{from{width:10%}to{width:92%}}
+
+  /* ============ SLIDE 4: BATCH MOCK ============ */
+  .mock-batch{background:#f5f5f5;padding:0;color:#333;font-family:var(--font-zh);font-size:13px;min-height:460px}
+  .mb-nav{background:#28a745;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:20px;font-weight:600;font-size:14px;letter-spacing:.03em}
+  .mb-nav .brand{display:flex;align-items:center;gap:8px}
+  .mb-nav .brand .mk{width:18px;height:18px;background:#fff;border-radius:3px;display:grid;place-items:center;color:#28a745;font-size:11px;font-weight:800}
+  .mb-nav .sp{flex:1}
+  .mb-nav a{font-size:13px;color:rgba(255,255,255,.85);font-weight:500}
+  .mb-nav a.on{color:#fff;border-bottom:2px solid #fff;padding-bottom:4px}
+  .mb-body{padding:20px;max-width:none}
+  .mb-card{background:#fff;border:1px solid #e5e5e5;border-radius:8px;padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  .mb-tabs{display:flex;gap:4px;margin-bottom:14px}
+  .mb-tab{padding:8px 16px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-weight:600;background:#fff;color:#555;cursor:help;transition:.25s}
+  .mb-tab.on{background:#28a745;color:#fff;border-color:#28a745}
+  .mb-tab:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(0,0,0,.08)}
+  .mb-search{display:flex;gap:8px;margin-bottom:14px}
+  .mb-search input{flex:1;padding:9px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;color:#333;font-family:inherit;background:#fff}
+  .mb-search button{padding:9px 18px;background:#007bff;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:help;transition:.2s}
+  .mb-search button:hover{background:#0069d9;transform:translateY(-1px)}
+
+  .mb-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+  .mb-thumb{aspect-ratio:3/4;border-radius:6px;overflow:hidden;position:relative;cursor:help;transition:.3s var(--easing);border:2px solid transparent}
+  .mb-thumb::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 55%,rgba(0,0,0,.7))}
+  .mb-thumb:hover{transform:scale(1.08) translateY(-4px);border-color:#007bff;box-shadow:0 12px 28px rgba(0,123,255,.3);z-index:2}
+  .mb-thumb .meta{position:absolute;bottom:6px;left:8px;right:8px;color:#fff;font-size:10px;z-index:2;display:flex;justify-content:space-between}
+  .mb-thumb .cnt{background:rgba(0,0,0,.6);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);font-weight:600}
+  .mb-thumb.g1{background:linear-gradient(135deg,#5b8cff,#ff6ec7)}
+  .mb-thumb.g2{background:linear-gradient(135deg,#22d3ee,#7c5cff)}
+  .mb-thumb.g3{background:linear-gradient(135deg,#ff6ec7,#f0a868)}
+  .mb-thumb.g4{background:linear-gradient(135deg,#7ee787,#22d3ee)}
+  .mb-thumb.g5{background:linear-gradient(135deg,#f0a868,#ef4444)}
+  .mb-thumb.g6{background:linear-gradient(135deg,#a78bfa,#22d3ee)}
+  .mb-settings{display:flex;gap:14px;margin-top:14px;flex-wrap:wrap;font-size:12.5px;color:#555;padding-top:12px;border-top:1px dashed #e5e5e5}
+  .mb-settings label{display:flex;align-items:center;gap:6px;cursor:help}
+  .mb-settings input[type=checkbox]{margin:0}
+  .mb-action{margin-top:14px;display:flex;gap:8px;align-items:center}
+  .mb-action .big{flex:1;padding:11px;background:#28a745;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:700;cursor:help;letter-spacing:.05em;transition:.25s}
+  .mb-action .big:hover{background:#218838;transform:translateY(-1px);box-shadow:0 8px 20px rgba(40,167,69,.35)}
+  .mb-status{font-size:12px;color:#888;padding:3px 10px;background:#f5f5f5;border-radius:4px;font-family:var(--font-mono)}
+
+  /* ============ SLIDE 5: FEATURES ============ */
+  .feat-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;margin-top:40px}
+  .feat{grid-column:span 6;padding:28px;border-radius:var(--radius);background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01));border:1px solid var(--line);position:relative;overflow:hidden;transition:.4s var(--easing);min-height:200px}
+  .feat:hover{transform:translateY(-6px);border-color:transparent;background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.02))}
+  .feat::before{content:"";position:absolute;inset:0;border-radius:var(--radius);padding:1px;background:linear-gradient(135deg,var(--accent),var(--accent-2),var(--accent-3));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:0;transition:.4s}
+  .feat:hover::before{opacity:1}
+  .feat .ico{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;margin-bottom:16px;background:linear-gradient(135deg,rgba(124,92,255,.25),rgba(34,211,238,.2));border:1px solid var(--line-2)}
+  .feat .ico svg{width:20px;height:20px;color:var(--ink)}
+  .feat h3{margin-bottom:8px}
+  .feat p{font-size:14px;margin:0;line-height:1.65}
+  @media (max-width:900px){.feat{grid-column:span 12}}
+
+  /* ============ SLIDE 6: CTA ============ */
+  .s-cta{text-align:center}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:48px;margin-bottom:40px;text-align:left}
+  .step{padding:26px;border-radius:var(--radius);border:1px solid var(--line);background:rgba(255,255,255,.02);position:relative;transition:.3s var(--easing)}
+  .step:hover{border-color:var(--line-2);background:rgba(255,255,255,.04);transform:translateY(-3px)}
+  .step .n{font-family:'Instrument Serif',serif;font-size:48px;line-height:1;background:linear-gradient(120deg,var(--accent-3),var(--accent));-webkit-background-clip:text;color:transparent;margin-bottom:10px}
+  .step h3{font-size:17px;margin-bottom:6px}
+  .step p{font-size:13.5px;margin:0}
+  .step code{font-family:var(--font-mono);font-size:12px;background:rgba(34,211,238,.12);color:var(--accent-2);padding:2px 6px;border-radius:4px}
+  @media (max-width:760px){.steps{grid-template-columns:1fr}}
+  .foot{color:var(--ink-faint);font-size:12.5px;border-top:1px solid var(--line);padding-top:20px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-family:var(--font-mono);letter-spacing:.04em}
+
+  /* ============ global tooltip ============ */
+  .gtip{position:fixed;z-index:200;padding:8px 12px;background:rgba(10,10,20,.96);color:var(--ink);border:1px solid var(--line-2);border-radius:8px;font-size:12.5px;line-height:1.4;max-width:260px;pointer-events:none;opacity:0;transform:translateY(4px);transition:opacity .2s,transform .2s;backdrop-filter:blur(14px);box-shadow:0 20px 40px rgba(0,0,0,.5)}
+  .gtip.show{opacity:1;transform:translateY(0)}
+  .gtip::before{content:"";position:absolute;top:-5px;left:14px;width:10px;height:10px;background:inherit;border-left:1px solid var(--line-2);border-top:1px solid var(--line-2);transform:rotate(45deg)}
+
+  /* ============ mobile ============ */
+  @media (max-width:760px){
+    body{overflow:auto}
+    .deck{position:relative;transform:none!important;transition:none}
+    .slide{position:relative;height:auto;min-height:100vh;padding:80px 18px 40px}
+    .fx{opacity:1;transform:none}
+    h1{font-size:42px}h2{font-size:30px}
+    .mm-stats{grid-template-columns:repeat(2,1fr)}
+    .mm-body{grid-template-columns:1fr}
+    .mb-grid{grid-template-columns:repeat(3,1fr)}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001s!important;transition-duration:.001s!important}
+    .fx{opacity:1;transform:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient" aria-hidden="true">
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+  <div class="blob b3"></div>
+</div>
+
+<!-- canary banner -->
+<div class="canary-banner" id="canaryBanner">
+  <span>🎉 检测到你在使用支持 html-in-canvas 的浏览器</span>
+  <a href="intro-canary.html">查看独家增强版 →</a>
+  <button class="close" aria-label="关闭">×</button>
+  <span class="banner-timer" aria-hidden="true"></span>
+</div>
+
+<!-- top nav -->
+<nav class="top">
+  <div class="logo"><span class="mark">P</span> PixivDownload</div>
+  <ul>
+    <li><a data-goto="0">首页</a></li>
+    <li><a data-goto="2">Monitor</a></li>
+    <li><a data-goto="3">Batch</a></li>
+    <li><a data-goto="4">特性</a></li>
+  </ul>
+  <a class="cta" href="https://github.com/Sywyar/PixivDownload" target="_blank" rel="noopener">GitHub →</a>
+</nav>
+
+<!-- dot nav -->
+<div class="dots" id="dots"></div>
+
+<!-- deck -->
+<div class="deck" id="deck">
+
+  <!-- ============ SLIDE 1: HERO ============ -->
+  <section class="slide s-hero" data-label="HERO">
+    <div class="hero-thumbs" aria-hidden="true">
+      <div class="hero-thumb t1"><div class="cap">illust · 98234172</div></div>
+      <div class="hero-thumb t2"><div class="cap">illust · 76483921</div></div>
+      <div class="hero-thumb t3"><div class="cap">illust · 11928374</div></div>
+      <div class="hero-thumb t4"><div class="cap">ugoira · 83749201</div></div>
+    </div>
+    <div class="slide-inner" style="text-align:center">
+      <span class="eyebrow fx"><span class="pulse"></span> Spring Boot · Tampermonkey · 开源</span>
+      <h1 class="fx d1" style="margin-top:26px">一键归档<br/>你的 <em>Pixiv 收藏</em>。</h1>
+      <p class="lead fx d2" style="margin:24px auto 0">批量下载、动图转码、智能分类、历史库——一个本地跑的 Spring Boot 后端 + 油猴脚本，帮你把收藏真正收下来。</p>
+      <div class="cta-row fx d3">
+        <a class="btn primary" data-goto="2">
+          看它长什么样
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+        </a>
+        <a class="btn ghost" href="https://github.com/Sywyar/PixivDownload" target="_blank" rel="noopener">阅读文档</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 2: PAIN POINTS ============ -->
+  <section class="slide s-pain" data-label="PAIN">
+    <div class="slide-inner">
+      <span class="eyebrow fx">Why · 为什么</span>
+      <h2 class="fx d1" style="margin-top:18px">收藏一时爽，<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent-3),var(--accent-2));-webkit-background-clip:text;color:transparent">整理火葬场。</em></h2>
+      <p class="fx d2" style="margin-top:18px">几千张收藏、翻页加载、动图下载、R18 过滤、分类归档——你真的想手动做吗？</p>
+
+      <div class="compare">
+        <div class="compare-col fx d2">
+          <span class="tag">浏览器右键</span>
+          <h3>慢·易断·无记忆</h3>
+          <ul>
+            <li>一次只能存一张</li>
+            <li>动图只能存 ZIP，无法播放</li>
+            <li>重复下载没有提示</li>
+            <li>无分类、无历史</li>
+          </ul>
+        </div>
+        <div class="compare-col fx d3">
+          <span class="tag">常见油猴脚本</span>
+          <h3>只管下，不管后</h3>
+          <ul>
+            <li>本地浏览器下载不稳定</li>
+            <li>没有配额 / 多人控制</li>
+            <li>动图需额外工具转码</li>
+            <li>历史和分类都要手动</li>
+          </ul>
+        </div>
+        <div class="compare-col win fx d4">
+          <span class="tag">PixivDownload</span>
+          <h3>批量 · 动图 · 分类 · 历史</h3>
+          <ul>
+            <li>Spring Boot 后端代理下载，稳</li>
+            <li>Ugoira 自动转 WebP，可播放</li>
+            <li>SQLite 历史库，永不重复</li>
+            <li>ImageClassifier 可视化分类</li>
+            <li>多人模式 + 配额 + 打包归档</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 3: MONITOR MOCK ============ -->
+  <section class="slide s-mock" data-label="MONITOR">
+    <div class="slide-inner">
+      <div class="head">
+        <div>
+          <span class="eyebrow fx">Monitor · 实时监控</span>
+          <h2 class="fx d1" style="margin-top:14px">看得见的<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#00e5ff,#a78bfa);-webkit-background-clip:text;color:transparent">下载流水线。</em></h2>
+        </div>
+        <p class="fx d2">赛博风控制台，实时进度、历史查询、一键分类归档。鼠标悬浮任意元素可查看功能说明。</p>
+      </div>
+
+      <div class="mock-window fx d3">
+        <div class="mock-titlebar">
+          <span class="td r"></span><span class="td y"></span><span class="td g"></span>
+          <span class="mock-url">http://localhost:6999/monitor.html</span>
+        </div>
+        <div class="mock-monitor">
+          <div class="mm-header">
+            <div>
+              <div class="mm-title">PIXIV <span class="slash">//</span> DOWNLOAD MONITOR</div>
+              <div class="mm-sub">&gt;&gt; REALTIME MONITORING / STATUS &amp; HISTORY</div>
+            </div>
+            <div class="mm-live"><span class="led"></span> LIVE · 14:23:07</div>
+          </div>
+
+          <div class="mm-stats">
+            <div class="mm-stat" data-tip="累计已下载的作品数量，包括单图和多图作品"><div class="k">TOTAL ARTWORKS</div><div class="v">1,247</div></div>
+            <div class="mm-stat" data-tip="所有已下载的图片总数，动图按帧数计 1"><div class="k">TOTAL IMAGES</div><div class="v">8,392</div></div>
+            <div class="mm-stat" data-tip="已通过 ImageClassifier 分类归档到子目录的作品数"><div class="k">MOVED</div><div class="v">312</div></div>
+            <div class="mm-stat" data-tip="当前正在下载中的作品数，点击可查看进度"><div class="k">ACTIVE</div><div class="v">2</div></div>
+          </div>
+
+          <div class="mm-body">
+            <div class="mm-panel" data-tip="历史下载记录，由 SQLite 持久化，支持按 ID、标题、日期、状态排序">
+              <div class="mm-panel-label">■ DOWNLOAD HISTORY</div>
+              <table class="mm-table">
+                <thead><tr><th>ID</th><th>TITLE</th><th>CNT</th><th>FMT</th><th>DATE</th><th>STATUS</th></tr></thead>
+                <tbody>
+                  <tr data-tip="作品 127384921：4 张图，已下载并归档"><td>127384921</td><td>初音ミク雨の日</td><td>4</td><td><span class="badge jpg">JPG</span></td><td>03-15</td><td><span class="badge moved">MOVED</span></td></tr>
+                  <tr data-tip="Ugoira 动图，已自动转为 WebP 格式"><td>118292847</td><td>桜の舞う季節 (ugoira)</td><td>1</td><td><span class="badge webp">WEBP</span></td><td>03-14</td><td><span class="badge completed">COMPLETED</span></td></tr>
+                  <tr data-tip="R18 作品，已按配置策略标记保留"><td>124738291</td><td>夜の東京</td><td>1</td><td><span class="badge jpg">JPG</span></td><td>03-13</td><td><span class="badge r18">R18</span></td></tr>
+                  <tr data-tip="多图作品，6 张图已全部下载完成"><td>112938475</td><td>Winter Portrait Series</td><td>6</td><td><span class="badge png">PNG</span></td><td>03-12</td><td><span class="badge completed">COMPLETED</span></td></tr>
+                  <tr data-tip="已被手动分类到 '风景' 子目录"><td>098273645</td><td>東京タワーの夜</td><td>3</td><td><span class="badge jpg">JPG</span></td><td>03-10</td><td><span class="badge moved">MOVED</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="mm-panel" data-tip="当前正在下载的队列，进度实时推送（SSE / 轮询 fallback）">
+              <div class="mm-panel-label">■ ACTIVE DOWNLOADS [2]</div>
+              <div class="mm-active-item mm-a-1" data-tip="作品 131294857：10 张图中已完成 7 张，预计 15 秒">
+                <div class="mm-active-title">131294857 · 春の散歩道</div>
+                <div class="mm-active-meta"><span>7/10 图</span><span>67%</span></div>
+                <div class="mm-progress"><div class="mm-progress-fill"></div></div>
+              </div>
+              <div class="mm-active-item mm-a-2" data-tip="Ugoira 动图正在后端通过 ffmpeg 合成为 WebP">
+                <div class="mm-active-title">128384712 · Ugoira · Dance</div>
+                <div class="mm-active-meta"><span>转码中</span><span>34%</span></div>
+                <div class="mm-progress"><div class="mm-progress-fill"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 4: BATCH MOCK ============ -->
+  <section class="slide s-mock" data-label="BATCH">
+    <div class="slide-inner">
+      <div class="head">
+        <div>
+          <span class="eyebrow fx">Batch · 批量搜索</span>
+          <h2 class="fx d1" style="margin-top:14px">一次搜索，<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#28a745,#22d3ee);-webkit-background-clip:text;color:transparent">整页收藏。</em></h2>
+        </div>
+        <p class="fx d2">N-Tab 书签 · User 主页 · 关键词 Search，三合一批量入口。悬浮任意缩略图可查看功能说明。</p>
+      </div>
+
+      <div class="mock-window fx d3">
+        <div class="mock-titlebar">
+          <span class="td r"></span><span class="td y"></span><span class="td g"></span>
+          <span class="mock-url">http://localhost:6999/pixiv-batch.html</span>
+        </div>
+        <div class="mock-batch">
+          <div class="mb-nav">
+            <div class="brand"><span class="mk">P</span> Pixiv 批量下载器</div>
+            <span class="sp"></span>
+            <a>Monitor</a>
+            <a class="on">Batch</a>
+          </div>
+          <div class="mb-body">
+            <div class="mb-card">
+              <div class="mb-tabs">
+                <div class="mb-tab" data-tip="N-Tab 书签批量：粘贴从 Pixiv 导出的书签 JSON，批量下载">N-Tab</div>
+                <div class="mb-tab" data-tip="User 主页批量：输入画师 ID，一键下载该画师全部作品">User</div>
+                <div class="mb-tab on" data-tip="Search 搜索批量：按关键词 + 排序抓取 Pixiv 公开搜索结果">Search</div>
+              </div>
+              <div class="mb-search">
+                <input value="初音ミク" placeholder="输入关键词…" readonly data-tip="支持 Pixiv 原生高级搜索语法：如 '初音ミク 500users入り'">
+                <button data-tip="调用后端 /api/pixiv/search 代理 Pixiv AJAX，每页 60 条">搜索</button>
+              </div>
+              <div class="mb-grid">
+                <div class="mb-thumb g1" data-tip="点击后加入下载队列，后端异步拉取"><div class="meta"><span>127384921</span><span class="cnt">4P</span></div></div>
+                <div class="mb-thumb g2" data-tip="Ugoira 动图，自动转 WebP 保存"><div class="meta"><span>118292847</span><span class="cnt">Ugo</span></div></div>
+                <div class="mb-thumb g3" data-tip="R18 作品，按配置策略自动跳过或标记"><div class="meta"><span>124738291</span><span class="cnt">1P</span></div></div>
+                <div class="mb-thumb g4" data-tip="多图作品，6 张图逐一下载，带进度"><div class="meta"><span>112938475</span><span class="cnt">6P</span></div></div>
+                <div class="mb-thumb g5" data-tip="高赞作品，下载后可一键收藏到 Pixiv 账号"><div class="meta"><span>098273645</span><span class="cnt">3P</span></div></div>
+                <div class="mb-thumb g6" data-tip="后端检测到历史库已存在，悬浮提示并跳过"><div class="meta"><span>133847592</span><span class="cnt">2P</span></div></div>
+              </div>
+              <div class="mb-settings">
+                <label data-tip="开启后下载动图并通过 ffmpeg 合成 WebP"><input type="checkbox" checked> 下载动图</label>
+                <label data-tip="下载完成后自动调 Pixiv API 加入你的收藏"><input type="checkbox"> 自动收藏</label>
+                <label data-tip="R18 作品仍然下载但标记到单独目录"><input type="checkbox" checked> 允许 R18</label>
+                <label data-tip="已存在于历史库的作品自动跳过，节省流量"><input type="checkbox" checked> 跳过重复</label>
+              </div>
+              <div class="mb-action">
+                <button class="big" data-tip="将全部选中作品加入后端下载队列，Monitor 页可实时查看进度">▶ 开始批量下载（6 件）</button>
+                <span class="mb-status">就绪</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 5: FEATURES ============ -->
+  <section class="slide" data-label="FEAT">
+    <div class="slide-inner">
+      <span class="eyebrow fx">Features · 特性</span>
+      <h2 class="fx d1" style="margin-top:18px;max-width:16ch">不止下载，是一整套<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent),var(--accent-3));-webkit-background-clip:text;color:transparent"> 收藏管线。</em></h2>
+
+      <div class="feat-grid">
+        <div class="feat fx d2">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2M15 15a4 4 0 0 1 4 4v2"/></svg></div>
+          <h3>多人模式 + 配额</h3>
+          <p>solo 单人鉴权 / multi 多人共享两套模式。多人模式下每个 UUID 独立配额，超额自动打包归档成 ZIP 供用户下载。</p>
+        </div>
+        <div class="feat fx d3">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12l3 3 5-6"/></svg></div>
+          <h3>Ugoira 动图自动转码</h3>
+          <p>后端下载 ZIP 帧包，ffmpeg 按每帧延时合成 WebP。不再是一堆解不开的 ZIP，而是能直接在相册里播的动图。</p>
+        </div>
+        <div class="feat fx d4">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+          <h3>ImageClassifier 可视化分类</h3>
+          <p>Swing 桌面端 + 远程 API 双模式。看图点选目标文件夹，后端代为移动文件 + 更新 SQLite 记录。批量归档效率拉满。</p>
+        </div>
+        <div class="feat fx d5">
+          <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0"/></svg></div>
+          <h3>SQLite 历史数据库</h3>
+          <p>WAL 模式的本地库记录每一件作品：ID、标题、文件夹、格式、R18、归档状态。重复下载自动跳过，查询与统计秒级响应。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SLIDE 6: CTA ============ -->
+  <section class="slide s-cta" data-label="START">
+    <div class="slide-inner">
+      <span class="eyebrow fx">Get Started · 开始使用</span>
+      <h2 class="fx d1" style="margin:18px auto 0;max-width:16ch">三步，把它<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent-2),var(--accent-3));-webkit-background-clip:text;color:transparent">跑起来。</em></h2>
+      <p class="lead fx d2" style="margin:20px auto 0">前后分钟级部署，Java 17 + 代理 127.0.0.1:7890 即可。</p>
+
+      <div class="steps">
+        <div class="step fx d2">
+          <div class="n">01</div>
+          <h3>下载 JAR 并启动</h3>
+          <p>从 Releases 下载 <code>PixivDownload.jar</code>，终端运行 <code>java -jar</code>。首次启动会生成 <code>config.yaml</code>。</p>
+        </div>
+        <div class="step fx d3">
+          <div class="n">02</div>
+          <h3>安装油猴脚本</h3>
+          <p>Tampermonkey 导入本仓库提供的 <code>*.user.js</code>。单作品、User、N-Tab、Search、Page 批量五款任选。</p>
+        </div>
+        <div class="step fx d4">
+          <div class="n">03</div>
+          <h3>访问 setup 完成配置</h3>
+          <p>浏览器打开 <code>/setup.html</code> 选择 solo / multi 模式，填入 Pixiv Cookie，之后就可以开始收藏之旅了。</p>
+        </div>
+      </div>
+
+      <div class="cta-row fx d5" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+        <a class="btn primary" href="https://github.com/Sywyar/PixivDownload/releases" target="_blank" rel="noopener">下载 Release</a>
+        <a class="btn ghost" href="https://github.com/Sywyar/PixivDownload" target="_blank" rel="noopener">GitHub 仓库</a>
+        <a class="btn ghost" href="intro-canary.html">Canary 增强版 →</a>
+      </div>
+
+      <div class="foot fx d6" style="margin-top:70px">
+        <div>PixivDownload · Spring Boot 3.5.7 · Java 17 · SQLite</div>
+        <div>made with ♥ by Sywyar</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- global tooltip -->
+<div class="gtip" id="gtip"></div>
+
+<script>
+(() => {
+  // ---------- canary detection ----------
+  const canarySupported =
+    typeof CanvasRenderingContext2D !== 'undefined' &&
+    typeof CanvasRenderingContext2D.prototype.drawElementImage === 'function';
+  if (canarySupported) {
+    const banner = document.getElementById('canaryBanner');
+    banner.classList.add('show');
+    document.body.classList.add('banner-on');
+    function closeBanner() {
+      banner.classList.remove('show');
+      document.body.classList.remove('banner-on');
+    }
+    banner.querySelector('.close').addEventListener('click', closeBanner);
+    banner.querySelector('.banner-timer').addEventListener('animationend', closeBanner);
+  }
+
+  // ---------- deck controller ----------
+  const deck = document.getElementById('deck');
+  const slides = [...document.querySelectorAll('.slide')];
+  const dotsWrap = document.getElementById('dots');
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const isMobile = matchMedia('(max-width:760px)').matches;
+  let current = 0, locked = false;
+
+  slides.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.setAttribute('data-label', s.dataset.label || `S${i+1}`);
+    b.addEventListener('click', () => go(i));
+    dotsWrap.appendChild(b);
+  });
+  const dots = [...dotsWrap.children];
+
+  function go(i) {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    if (i === current) return;
+    current = i;
+    if (!isMobile) deck.style.transform = `translateY(-${i * 100}vh)`;
+    slides.forEach((s, idx) => s.classList.toggle('active', idx === i));
+    dots.forEach((d, idx) => d.classList.toggle('active', idx === i));
+    locked = true;
+    setTimeout(() => { locked = false; }, 900);
+  }
+
+  // init
+  slides[0].classList.add('active');
+  dots[0].classList.add('active');
+
+  // wheel
+  if (!isMobile) {
+    let wheelAccum = 0, wheelTimer;
+    window.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (locked) return;
+      wheelAccum += e.deltaY;
+      clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => (wheelAccum = 0), 160);
+      if (wheelAccum > 40) { go(current + 1); wheelAccum = 0; }
+      else if (wheelAccum < -40) { go(current - 1); wheelAccum = 0; }
+    }, { passive: false });
+
+    // keyboard
+    window.addEventListener('keydown', (e) => {
+      if (['ArrowDown', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); go(current + 1); }
+      else if (['ArrowUp', 'PageUp'].includes(e.key)) { e.preventDefault(); go(current - 1); }
+      else if (e.key === 'Home') { e.preventDefault(); go(0); }
+      else if (e.key === 'End') { e.preventDefault(); go(slides.length - 1); }
+    });
+
+    // touch
+    let touchStart = null;
+    window.addEventListener('touchstart', (e) => { touchStart = e.touches[0].clientY; });
+    window.addEventListener('touchend', (e) => {
+      if (touchStart == null) return;
+      const dy = touchStart - e.changedTouches[0].clientY;
+      if (Math.abs(dy) > 60) go(current + (dy > 0 ? 1 : -1));
+      touchStart = null;
+    });
+  }
+
+  // nav goto
+  document.querySelectorAll('[data-goto]').forEach((el) => {
+    el.addEventListener('click', (e) => { e.preventDefault(); go(+el.dataset.goto); });
+  });
+
+  // ---------- global tooltip ----------
+  const tip = document.getElementById('gtip');
+  let tipTarget = null;
+  function showTip(el, x, y) {
+    const text = el.dataset.tip;
+    if (!text) return;
+    tip.textContent = text;
+    tip.classList.add('show');
+    positionTip(x, y);
+  }
+  function hideTip() { tip.classList.remove('show'); tipTarget = null; }
+  function positionTip(x, y) {
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let px = x + 14, py = y + 18;
+    if (px + w > innerWidth - 10) px = x - w - 14;
+    if (py + h > innerHeight - 10) py = y - h - 14;
+    tip.style.left = px + 'px';
+    tip.style.top = py + 'px';
+  }
+  document.addEventListener('pointerover', (e) => {
+    const el = e.target.closest('[data-tip]');
+    if (el && el !== tipTarget) {
+      tipTarget = el;
+      showTip(el, e.clientX, e.clientY);
+    }
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (tipTarget) positionTip(e.clientX, e.clientY);
+  });
+  document.addEventListener('pointerout', (e) => {
+    if (tipTarget && !tipTarget.contains(e.relatedTarget)) hideTip();
+  });
+})();
+</script>
+</body>
+</html>

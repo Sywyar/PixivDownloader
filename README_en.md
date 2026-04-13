@@ -27,6 +27,7 @@ Local Pixiv batch image download tool, consisting of a **Spring Boot backend** +
   - [Web Batch Download Page](#web-batch-download-page)
     - [Search Mode](#search-mode)
   - [Download Monitor Page](#download-monitor-page)
+  - [Product Intro Page](#product-intro-page)
 - [Tools](#tools)
   - [Image Classifier](#image-classifier)
   - [R18 Backfill Tool](#r18-backfill-tool)
@@ -239,6 +240,17 @@ Visit `http://localhost:6999/monitor.html`
 - Real-time display of current download task progress
 - Paginated browsing of all download history, click artworks to preview images
 - Display statistics (total artworks, total images, moved count)
+
+### Product Intro Page
+
+Visit `http://localhost:6999/intro.html` (**No login required, publicly accessible**)
+
+A full-screen snap-scroll product landing page for showcasing the project. Contains six sections: feature overview, pain-point comparison, live Monitor demo, Batch downloader demo, feature highlights, and quick-start steps.
+
+- Mouse wheel / arrow keys / Page Down smoothly snaps between sections
+- Monitor and Batch mock windows contain sample data; hover any element for a Chinese tooltip explaining its function
+
+Chrome Canary users can visit `http://localhost:6999/intro-canary.html` (requires enabling `chrome://flags/#canvas-draw-element`) — the thumbnail cards in the Hero section will be rendered and animated inside a real `<canvas>` via the WICG html-in-canvas proposal's `drawElementImage` API.
 
 ---
 
