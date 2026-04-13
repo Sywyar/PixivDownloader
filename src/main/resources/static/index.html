@@ -2,8 +2,17 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="refresh" content="0; url=/intro.html">
-<title>Pixiv Download System</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>PixivDownload</title>
+<script>
+(function() {
+  // 检测 html-in-canvas 支持（CanvasRenderingContext2D.prototype.drawElementImage）
+  var supported = typeof CanvasRenderingContext2D !== 'undefined' &&
+                  typeof CanvasRenderingContext2D.prototype.drawElementImage === 'function';
+  var target = supported ? '/intro-canary.html' : '/intro.html';
+  location.replace(target);
+})();
+</script>
 </head>
 <body></body>
 </html>

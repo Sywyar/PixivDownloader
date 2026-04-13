@@ -46,8 +46,18 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 公开路径：setup/login 页面、setup/auth API
+        // 公开路径：login/intro 页面、setup/auth API（setup.html 单独做本地 IP 校验）
         if (isPublic(path)) {
+            chain.doFilter(req, res);
+            return;
+        }
+
+        // setup.html 仅限本地 IP 访问
+        if (path.equals("/setup.html")) {
+            if (!NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
+                sendJsonError(res, 403, "Forbidden: local access only");
+                return;
+            }
             chain.doFilter(req, res);
             return;
         }
@@ -103,14 +113,15 @@ public class AuthFilter extends OncePerRequestFilter {
                 sendJsonError(res, 401, "Unauthorized");
             } else {
                 String redirect = URLEncoder.encode(path, StandardCharsets.UTF_8);
-                res.sendRedirect("/login.html?redirect=" + redirect);
+                // solo 模式未登录：先尝试 index.html（检测 html-in-canvas 支持重定向到 intro-canary，否则 login）
+                res.sendRedirect("/index.html?redirect=" + redirect);
             }
         }
     }
 
     private boolean isPublic(String path) {
-        return path.equals("/setup.html")
-                || path.equals("/login.html")
+        return path.equals("/login.html")
+                || path.equals("/index.html")
                 || path.equals("/intro.html")
                 || path.equals("/intro-canary.html")
                 || path.equals("/favicon.ico")
