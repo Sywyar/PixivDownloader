@@ -8,6 +8,17 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  APP_NAME: PixivDownload
+  APP_VENDOR: sywyar
+  # Spring Boot 3.2+ fat jar 使用这个 launcher
+  MAIN_CLASS: org.springframework.boot.loader.launch.JarLauncher
+  # 精简运行时包含的 JDK 模块：
+  #   java.desktop - Swing（ImageClassifier）
+  #   java.sql     - SQLite JDBC
+  #   java.naming/security.* - Spring Security / JNDI
+  #   jdk.crypto.ec - HTTPS 椭圆曲线密码
+  #   jdk.unsupported - 部分库依赖的 sun.misc.Unsafe
+  JRE_MODULES: java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.management,jdk.unsupported,jdk.zipfs
 
 jobs:
   build-jar:
@@ -34,16 +45,16 @@ jobs:
 
       - name: Rename JAR
         run: |
-          VERSION=${GITHUB_REF_NAME}
+          VERSION=${GITHUB_REF_NAME:-snapshot}
           mv target/PixivDownload-*.jar target/PixivDownload-${VERSION}.jar
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: jar
-          path: target/PixivDownload-${{ github.ref_name }}.jar
+          path: target/PixivDownload-*.jar
 
-  build-native-windows:
+  build-windows-installer:
     runs-on: windows-latest
     permissions:
       contents: write
@@ -55,25 +66,105 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up GraalVM JDK 17
-        uses: graalvm/setup-graalvm@v1
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
-          distribution: 'graalvm-community'
-          native-image-job-reports: 'true'
-          cache: 'maven'
+          distribution: 'temurin'
+          cache: maven
 
-      - name: Build native executable
-        run: mvn -Pnative package -DskipTests
+      - name: Build JAR
+        shell: bash
+        run: mvn package -DskipTests
 
-      - name: Upload native artifact
+      - name: Resolve version & locate jar
+        id: vars
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ -z "$VERSION" || "$VERSION" == "$GITHUB_REF_NAME" ]]; then
+            VERSION="0.0.1"
+          fi
+          JAR=$(ls target/PixivDownload-*.jar | head -n1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "jar=$JAR" >> "$GITHUB_OUTPUT"
+          echo "jar_name=$(basename "$JAR")" >> "$GITHUB_OUTPUT"
+
+      - name: Stage jar for jpackage
+        shell: bash
+        run: |
+          mkdir -p build/input
+          cp "${{ steps.vars.outputs.jar }}" "build/input/${{ steps.vars.outputs.jar_name }}"
+
+      - name: Build trimmed runtime with jlink
+        shell: bash
+        run: |
+          jlink \
+            --add-modules "$JRE_MODULES" \
+            --strip-debug \
+            --no-man-pages \
+            --no-header-files \
+            --compress=2 \
+            --output build/runtime
+
+      - name: Build portable app-image
+        shell: bash
+        run: |
+          jpackage \
+            --type app-image \
+            --name "$APP_NAME" \
+            --app-version "${{ steps.vars.outputs.version }}" \
+            --vendor "$APP_VENDOR" \
+            --input build/input \
+            --main-jar "${{ steps.vars.outputs.jar_name }}" \
+            --main-class "$MAIN_CLASS" \
+            --runtime-image build/runtime \
+            --java-options "-Dfile.encoding=UTF-8" \
+            --dest build/out
+
+      - name: Zip portable app-image
+        shell: pwsh
+        run: |
+          $zip = "build/out/PixivDownload-${{ steps.vars.outputs.version }}-win-x64-portable.zip"
+          Compress-Archive -Path build/out/PixivDownload -DestinationPath $zip
+
+      - name: Build MSI installer
+        shell: bash
+        run: |
+          jpackage \
+            --type msi \
+            --name "$APP_NAME" \
+            --app-version "${{ steps.vars.outputs.version }}" \
+            --vendor "$APP_VENDOR" \
+            --input build/input \
+            --main-jar "${{ steps.vars.outputs.jar_name }}" \
+            --main-class "$MAIN_CLASS" \
+            --runtime-image build/runtime \
+            --java-options "-Dfile.encoding=UTF-8" \
+            --win-dir-chooser \
+            --win-menu \
+            --win-shortcut \
+            --win-per-user-install \
+            --dest build/out
+
+      - name: Rename MSI
+        shell: bash
+        run: |
+          cd build/out
+          for f in *.msi; do
+            mv "$f" "PixivDownload-${{ steps.vars.outputs.version }}-win-x64.msi"
+          done
+
+      - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: native-windows
-          path: target/pixiv-download.exe
+          name: windows-installer
+          path: |
+            build/out/*.msi
+            build/out/*-portable.zip
 
   release:
-    needs: [build-jar, build-native-windows]
+    needs: [build-jar, build-windows-installer]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -89,10 +180,10 @@ jobs:
           name: jar
           path: artifacts/
 
-      - name: Download native artifact
+      - name: Download Windows installer artifacts
         uses: actions/download-artifact@v4
         with:
-          name: native-windows
+          name: windows-installer
           path: artifacts/
 
       - name: Create Release
@@ -100,16 +191,19 @@ jobs:
         with:
           files: |
             artifacts/PixivDownload-${{ github.ref_name }}.jar
-            artifacts/pixiv-download.exe
+            artifacts/*.msi
+            artifacts/*-portable.zip
             *.user.js
           generate_release_notes: true
           body: |
             ## 使用说明
 
-            ### ⚡ Windows 一键运行（推荐）
+            ### ⚡ Windows 一键安装（推荐）
 
-            下载 `pixiv-download.exe`，双击运行，无需安装 Java。
-            首次启动会自动打开浏览器进行初始化配置。
+            下载 `PixivDownload-*-win-x64.msi`，双击安装。
+            安装包已内嵌精简 JRE，无需单独安装 Java。
+
+            或下载 `PixivDownload-*-win-x64-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`，免安装。
 
             ### ☕ JAR 包（跨平台）
 
