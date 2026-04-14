@@ -103,4 +103,5 @@ public class PixivDatabase {
     public void setStats(int totalArtworks, int totalImages, int totalMoved) {
         pixivMapper.setStats(totalArtworks, totalImages, totalMoved);
     }
+
 }

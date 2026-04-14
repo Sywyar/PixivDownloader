@@ -208,7 +208,7 @@ class AuthFilterTest {
         @DisplayName("非 API 请求应重定向到 setup.html")
         void shouldRedirectToSetupPage() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/index.html");
+            request.setRequestURI("/monitor.html");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -338,7 +338,7 @@ class AuthFilterTest {
         @DisplayName("非 API 路径不进行速率限制检查")
         void shouldNotCheckRateLimitForNonApiPaths() throws Exception {
             request.setMethod("GET");
-            request.setRequestURI("/index.html");
+            request.setRequestURI("/monitor.html");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -396,7 +396,7 @@ class AuthFilterTest {
             when(setupService.isValidSession(any())).thenReturn(false);
 
             request.setMethod("GET");
-            request.setRequestURI("/index.html");
+            request.setRequestURI("/monitor.html");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -417,6 +417,30 @@ class AuthFilterTest {
             authFilter.doFilterInternal(request, response, filterChain);
 
             verify(filterChain).doFilter(request, response);
+        }
+    }
+
+    // ========== GUI 接口 ==========
+
+    @Nested
+    @DisplayName("GUI 接口公开路径")
+    class GuiApiTests {
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/api/gui/status",
+                "/api/gui/restart",
+                "/api/gui/anything"
+        })
+        @DisplayName("/api/gui/** 应直接放行（GUI 内部调用，solo 模式下无 session token）")
+        void shouldPassThroughGuiApiPaths(String path) throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI(path);
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+            verifyNoInteractions(setupService, rateLimitService);
         }
     }
 }

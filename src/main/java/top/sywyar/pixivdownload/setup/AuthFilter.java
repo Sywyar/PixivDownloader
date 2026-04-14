@@ -114,7 +114,7 @@ public class AuthFilter extends OncePerRequestFilter {
             } else {
                 String redirect = URLEncoder.encode(path, StandardCharsets.UTF_8);
                 // solo 模式未登录：先尝试 index.html（检测 html-in-canvas 支持重定向到 intro-canary，否则 login）
-                res.sendRedirect("/index.html?redirect=" + redirect);
+                res.sendRedirect("/login.html?redirect=" + redirect);
             }
         }
     }
@@ -126,7 +126,9 @@ public class AuthFilter extends OncePerRequestFilter {
                 || path.equals("/intro-canary.html")
                 || path.equals("/favicon.ico")
                 || path.startsWith("/api/setup/")
-                || path.startsWith("/api/auth/");
+                || path.startsWith("/api/auth/")
+                // GUI 接口：无 session（GUI 在 solo 模式下无 token），控制器内部校验 localhost
+                || path.startsWith("/api/gui/");
     }
 
     private boolean isApi(String path) {

@@ -106,4 +106,5 @@ public interface PixivMapper {
     void setStats(@Param("totalArtworks") int totalArtworks,
                   @Param("totalImages") int totalImages,
                   @Param("totalMoved") int totalMoved);
+
 }
