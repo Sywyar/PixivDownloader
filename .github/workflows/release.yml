@@ -4,12 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build:
+  build-jar:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -28,7 +29,7 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build with Maven
+      - name: Build JAR
         run: mvn package -DskipTests
 
       - name: Rename JAR
@@ -36,15 +37,89 @@ jobs:
           VERSION=${GITHUB_REF_NAME}
           mv target/PixivDownload-*.jar target/PixivDownload-${VERSION}.jar
 
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar
+          path: target/PixivDownload-${{ github.ref_name }}.jar
+
+  build-native-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Fix Git UTF-8 filenames
+        run: git config --global core.quotepath false
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM JDK 17
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '17'
+          distribution: 'graalvm-community'
+          native-image-job-reports: 'true'
+          cache: 'maven'
+
+      - name: Build native executable
+        run: mvn -Pnative package -DskipTests
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-windows
+          path: target/pixiv-download.exe
+
+  release:
+    needs: [build-jar, build-native-windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jar
+          path: artifacts/
+
+      - name: Download native artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-windows
+          path: artifacts/
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            target/PixivDownload-${{ github.ref_name }}.jar
+            artifacts/PixivDownload-${{ github.ref_name }}.jar
+            artifacts/pixiv-download.exe
             *.user.js
           generate_release_notes: true
           body: |
             ## 使用说明
+
+            ### ⚡ Windows 一键运行（推荐）
+
+            下载 `pixiv-download.exe`，双击运行，无需安装 Java。
+            首次启动会自动打开浏览器进行初始化配置。
+
+            ### ☕ JAR 包（跨平台）
+
+            需要已安装 Java 17+，通过命令行运行：
+
+            ```
+            java -jar PixivDownload-${{ github.ref_name }}.jar
+            ```
+
+            ---
 
             ### 🌐 使用外部服务器（推荐方式）
 
