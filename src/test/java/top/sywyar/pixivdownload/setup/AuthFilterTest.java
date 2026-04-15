@@ -62,8 +62,10 @@ class AuthFilterTest {
 
         @ParameterizedTest
         @ValueSource(strings = {
-                "/setup.html",
                 "/login.html",
+                "/index.html",
+                "/intro.html",
+                "/intro-canary.html",
                 "/favicon.ico",
                 "/api/setup/status",
                 "/api/auth/login",
@@ -77,6 +79,31 @@ class AuthFilterTest {
             authFilter.doFilterInternal(request, response, filterChain);
 
             verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("/setup.html 本地 IP 应放行（非公开路径，走本地 IP 校验）")
+        void shouldAllowSetupHtmlFromLocalAddress() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/setup.html");
+            request.setRemoteAddr("127.0.0.1");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("/setup.html 非本地 IP 应返回 403")
+        void shouldRejectSetupHtmlFromRemoteAddress() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/setup.html");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
         }
 
         @ParameterizedTest
@@ -441,6 +468,84 @@ class AuthFilterTest {
 
             verify(filterChain).doFilter(request, response);
             verifyNoInteractions(setupService, rateLimitService);
+        }
+    }
+
+    // ========== /redirect 重定向 ==========
+
+    @Nested
+    @DisplayName("/redirect 重定向逻辑")
+    class RedirectPathTests {
+
+        @Test
+        @DisplayName("intro 模式下 canvas=true 应重定向到 intro-canary.html")
+        void shouldRedirectToIntroCanaryWhenCanvasSupportedInIntroMode() throws Exception {
+            when(setupService.isIntroMode()).thenReturn(true);
+
+            request.setMethod("GET");
+            request.setRequestURI("/redirect");
+            request.addParameter("canvas", "true");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getRedirectedUrl()).isEqualTo("/intro-canary.html");
+        }
+
+        @Test
+        @DisplayName("intro 模式下 canvas=false 应重定向到 intro.html")
+        void shouldRedirectToIntroWhenCanvasNotSupportedInIntroMode() throws Exception {
+            when(setupService.isIntroMode()).thenReturn(true);
+
+            request.setMethod("GET");
+            request.setRequestURI("/redirect");
+            request.addParameter("canvas", "false");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getRedirectedUrl()).isEqualTo("/intro.html");
+        }
+
+        @Test
+        @DisplayName("非 intro 模式下应重定向到 pixiv-batch.html")
+        void shouldRedirectToPixivBatchWhenNotInIntroMode() throws Exception {
+            when(setupService.isIntroMode()).thenReturn(false);
+
+            request.setMethod("GET");
+            request.setRequestURI("/redirect");
+            request.addParameter("canvas", "true");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getRedirectedUrl()).isEqualTo("/pixiv-batch.html");
+        }
+
+        @Test
+        @DisplayName("无 canvas 参数时非 intro 模式也应重定向到 pixiv-batch.html")
+        void shouldRedirectToPixivBatchWithoutCanvasParam() throws Exception {
+            when(setupService.isIntroMode()).thenReturn(false);
+
+            request.setMethod("GET");
+            request.setRequestURI("/redirect");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getRedirectedUrl()).isEqualTo("/pixiv-batch.html");
+        }
+
+        @Test
+        @DisplayName("/redirect 是公开路径，setup 未完成时应放行")
+        void shouldBePublicEvenWhenSetupNotComplete() throws Exception {
+            // 注意：/redirect 在 setup 检查之前处理，所以 isSetupComplete 的 stubbing 是不必要的
+            when(setupService.isIntroMode()).thenReturn(true);
+
+            request.setMethod("GET");
+            request.setRequestURI("/redirect");
+            request.addParameter("canvas", "true");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getRedirectedUrl()).isEqualTo("/intro-canary.html");
+            verifyNoInteractions(filterChain);
         }
     }
 }

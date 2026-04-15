@@ -3,12 +3,14 @@ package top.sywyar.pixivdownload.setup;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.ApplicationArguments;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 
 import java.io.IOException;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 @DisplayName("SetupService 单元测试")
 class SetupServiceTest {
@@ -24,9 +26,15 @@ class SetupServiceTest {
     }
 
     private SetupService createSetupService() {
+        return createSetupServiceWithArgs();
+    }
+
+    private SetupService createSetupServiceWithArgs(String... args) {
         DownloadConfig config = new DownloadConfig();
         config.setRootFolder(tempDir.toString());
-        return new SetupService(config, new ObjectMapper());
+        ApplicationArguments arguments = mock(ApplicationArguments.class);
+        when(arguments.getSourceArgs()).thenReturn(args);
+        return new SetupService(config, new ObjectMapper(), arguments);
     }
 
     // ========== 初始状态 ==========
@@ -36,6 +44,41 @@ class SetupServiceTest {
     void shouldBeNotSetupInitially() {
         assertThat(setupService.isSetupComplete()).isFalse();
         assertThat(setupService.getMode()).isNull();
+    }
+
+    // ========== introMode ==========
+
+    @Nested
+    @DisplayName("introMode - --intro 启动参数")
+    class IntroModeTests {
+
+        @Test
+        @DisplayName("不含 --intro 参数时 introMode 应为 false")
+        void shouldBeNotIntroModeWithoutArg() {
+            SetupService service = createSetupServiceWithArgs();
+            assertThat(service.isIntroMode()).isFalse();
+        }
+
+        @Test
+        @DisplayName("含 --intro 参数时 introMode 应为 true")
+        void shouldBeIntroModeWithArg() {
+            SetupService service = createSetupServiceWithArgs("--intro");
+            assertThat(service.isIntroMode()).isTrue();
+        }
+
+        @Test
+        @DisplayName("--intro 与其他参数共存时 introMode 仍为 true")
+        void shouldBeIntroModeWithMixedArgs() {
+            SetupService service = createSetupServiceWithArgs("--server.port=8080", "--intro");
+            assertThat(service.isIntroMode()).isTrue();
+        }
+
+        @Test
+        @DisplayName("仅含 --no-gui 时 introMode 应为 false")
+        void shouldNotBeIntroModeWithNoGuiArg() {
+            SetupService service = createSetupServiceWithArgs("--no-gui");
+            assertThat(service.isIntroMode()).isFalse();
+        }
     }
 
     // ========== init ==========

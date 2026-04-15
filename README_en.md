@@ -62,6 +62,15 @@ java -jar PixivDownload-vX.X.X.jar
 
 The backend listens on `http://localhost:6999` by default, and downloads are saved to `pixiv-download/` in the working directory.
 
+**Optional startup arguments:**
+
+| Argument | Description |
+|----------|-------------|
+| `--no-gui` | Disable the Swing GUI and run in headless/CLI mode (for server or Docker environments) |
+| `--intro` | Redirect the home page to the product intro page (`/intro.html` or `/intro-canary.html`) instead of the main UI |
+
+The Windows executable (`.exe` / `.msi`) supports the same arguments, e.g.: `PixivDownload.exe --no-gui`.
+
 On first startup, the browser will automatically open the setup wizard. **Please complete [Initial Setup](#2-initial-setup) before using other features.**
 
 ### 2. Initial Setup

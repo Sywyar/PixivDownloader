@@ -46,6 +46,19 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        // /redirect：根据 canvas 参数和 introMode 决定重定向目标（需在 isPublic 之前处理）
+        if (path.equals("/redirect")) {
+            String canvasParam = req.getParameter("canvas");
+            boolean canvasSupported = "true".equalsIgnoreCase(canvasParam);
+            if (setupService.isIntroMode()) {
+                String target = canvasSupported ? "/intro-canary.html" : "/intro.html";
+                res.sendRedirect(target);
+            } else {
+                res.sendRedirect("/pixiv-batch.html");
+            }
+            return;
+        }
+
         // 公开路径：login/intro 页面、setup/auth API（setup.html 单独做本地 IP 校验）
         if (isPublic(path)) {
             chain.doFilter(req, res);

@@ -7,12 +7,15 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 
+import org.springframework.boot.ApplicationArguments;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +33,8 @@ public class SetupService {
     private volatile boolean setupComplete = false;
     @Getter
     private volatile String mode     = null;  // "solo" | "multi"
+    @Getter
+    private final boolean introMode;  // --intro 启动参数
     private volatile String username = null;
     private volatile String passwordHash = null;
     private volatile String salt     = null;  // 仅旧 SHA-256 哈希需要（向后兼容用）
@@ -43,9 +48,10 @@ public class SetupService {
     private static final long SESSION_SHORT = 2L  * 3600 * 1000;       // 2 小时
     private static final long SESSION_LONG  = 30L * 24 * 3600 * 1000;  // 30 天
 
-    public SetupService(DownloadConfig downloadConfig, ObjectMapper objectMapper) {
+    public SetupService(DownloadConfig downloadConfig, ObjectMapper objectMapper, ApplicationArguments args) {
         this.configFile = Path.of(downloadConfig.getRootFolder(), "setup_config.json");
         this.objectMapper = objectMapper;
+        this.introMode = Arrays.asList(args.getSourceArgs()).contains("--intro");
         load();
     }
 

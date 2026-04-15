@@ -62,6 +62,15 @@ java -jar PixivDownload-vX.X.X.jar
 
 后端默认监听 `http://localhost:6999`，下载文件保存在运行目录下的 `pixiv-download/` 文件夹。
 
+**可选启动参数：**
+
+| 参数 | 说明 |
+|------|------|
+| `--no-gui` | 禁用 Swing GUI，以纯命令行/无头模式运行（适用于服务器/Docker） |
+| `--intro` | 启动时将首页重定向到产品介绍页（`/intro.html` 或 `/intro-canary.html`）而非主界面 |
+
+Windows 可执行文件（`.exe` / `.msi`）同样支持以上参数，例如：`PixivDownload.exe --no-gui`。
+
 首次启动会自动打开浏览器进入配置向导，**请先完成[首次配置](#2-首次配置)再使用其他功能**。
 
 ### 2. 首次配置
