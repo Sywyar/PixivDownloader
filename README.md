@@ -71,6 +71,8 @@ java -jar PixivDownload-vX.X.X.jar
 
 Windows 可执行文件（`.exe` / `.msi`）同样支持以上参数，例如：`PixivDownload.exe --no-gui`。
 
+> **Windows 安装包（MSI）**：从 Releases 下载 `PixivDownload-*-win-x64-multilang.msi`，已内嵌精简 JRE，无需单独安装 Java。安装向导支持**简体中文 / English**，跟随系统语言自动切换，无需手动选择。
+
 首次启动会自动打开浏览器进入配置向导，**请先完成[首次配置](#2-首次配置)再使用其他功能**。
 
 ### 2. 首次配置
@@ -96,7 +98,16 @@ Windows 可执行文件（`.exe` / `.msi`）同样支持以上参数，例如：
 
 ### 3. 安装油猴脚本
 
-确保浏览器已安装 [Tampermonkey](https://www.tampermonkey.net/) 扩展，从 [Releases](../../releases) 下载对应脚本，**拖入 Tampermonkey 管理面板**即可安装：
+确保浏览器已安装 [Tampermonkey](https://www.tampermonkey.net/) 扩展。有两种安装方式：
+
+**方式一：通过管理页一键安装（推荐）**
+
+后端启动并完成首次配置后，登录并打开 `http://localhost:6999/pixiv-batch.html`，点击页面顶部的「🧩 油猴脚本」卡片展开，点击对应脚本的「⬇ 安装」按钮，Tampermonkey 将自动弹出安装确认页。  
+部署在非 `localhost` 服务器时，安装链接中的 `@connect` 会自动替换为实际服务器地址，无需手动编辑脚本。
+
+**方式二：从 Releases 手动下载**
+
+从 [Releases](../../releases) 下载对应脚本，**拖入 Tampermonkey 管理面板**即可安装：
 
 | 脚本文件                            | 适用场景                         |
 |---------------------------------|------------------------------|

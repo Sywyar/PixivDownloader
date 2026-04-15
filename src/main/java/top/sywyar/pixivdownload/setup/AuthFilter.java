@@ -141,7 +141,9 @@ public class AuthFilter extends OncePerRequestFilter {
                 || path.startsWith("/api/setup/")
                 || path.startsWith("/api/auth/")
                 // GUI 接口：无 session（GUI 在 solo 模式下无 token），控制器内部校验 localhost
-                || path.startsWith("/api/gui/");
+                || path.startsWith("/api/gui/")
+                // 脚本分发：Tampermonkey 拉取 .user.js 不带 session，仅限 GET（Controller 用 @GetMapping）
+                || path.startsWith("/api/scripts/");
     }
 
     private boolean isApi(String path) {

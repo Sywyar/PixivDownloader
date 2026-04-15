@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Pixiv作品图片下载器
+// @name         Pixiv作品图片下载器(Local download)
 // @namespace    http://tampermonkey.net/
 // @version      1.2
 // @description  下载Pixiv作品的所有图片，并记录已下载的作品

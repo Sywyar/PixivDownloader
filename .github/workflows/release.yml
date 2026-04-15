@@ -129,33 +129,115 @@ jobs:
           $zip = "build/out/PixivDownload-${{ steps.vars.outputs.version }}-win-x64-portable.zip"
           Compress-Archive -Path build/out/PixivDownload -DestinationPath $zip
 
-      - name: Build MSI installer
-        shell: bash
+      - name: Add WiX 3 to PATH
+        shell: pwsh
         run: |
-          jpackage \
-            --type msi \
-            --name "$APP_NAME" \
-            --app-version "${{ steps.vars.outputs.version }}" \
-            --vendor "$APP_VENDOR" \
-            --input build/input \
-            --main-jar "${{ steps.vars.outputs.jar_name }}" \
-            --main-class "$MAIN_CLASS" \
-            --runtime-image build/runtime \
-            --icon src/main/resources/static/favicon.ico \
-            --java-options "-Dfile.encoding=UTF-8" \
-            --win-dir-chooser \
-            --win-menu \
-            --win-shortcut \
-            --win-per-user-install \
-            --dest build/out
+          # GitHub windows-latest 预装了 WiX 3；找到实际路径后加入 PATH
+          $candidates = @(
+            "C:\Program Files (x86)\WiX Toolset v3.14\bin",
+            "C:\Program Files (x86)\WiX Toolset v3.11\bin"
+          )
+          $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $found) {
+            choco install wixtoolset -y --no-progress
+            $found = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
+          }
+          Write-Host "Using WiX at: $found"
+          Add-Content $env:GITHUB_PATH $found
 
-      - name: Rename MSI
-        shell: bash
+      - name: Build multilingual MSI (Plan-Transform)
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
         run: |
-          cd build/out
-          for f in *.msi; do
-            mv "$f" "PixivDownload-${{ steps.vars.outputs.version }}-win-x64.msi"
-          done
+          $version  = $env:VERSION
+          $appImage = Resolve-Path "build/out/PixivDownload"
+          $wixSrc   = "packaging/wix"
+          $iconFile = Resolve-Path "src/main/resources/static/favicon.ico"
+
+          # ── 1. 用 heat.exe 扫描 app-image，生成 files.wxs ──
+          New-Item -ItemType Directory -Force build/wix-gen | Out-Null
+          heat.exe dir "$appImage" -gg -sfrag -srd -sreg `
+            -cg AppFiles -dr INSTALLDIR `
+            -var var.SourceDir `
+            -o build/wix-gen/files.wxs
+          if ($LASTEXITCODE -ne 0) { throw "heat.exe failed" }
+
+          # ── 2. 每个语言：candle → light → .msi ──
+          $locales = @(
+            @{ culture = "en-US"; langId = 1033 },
+            @{ culture = "zh-CN"; langId = 2052 }
+          )
+          foreach ($loc in $locales) {
+            $culture = $loc.culture
+            $langId  = $loc.langId
+            New-Item -ItemType Directory -Force "build/wix-obj/$culture" | Out-Null
+            New-Item -ItemType Directory -Force "build/out-msi/$culture"  | Out-Null
+
+            # candle：编译 WXS → WIXOBJ
+            candle.exe -arch x64 `
+              -dAppVersion="$version" `
+              -dSourceDir="$appImage" `
+              -dIconFile="$iconFile" `
+              -dLangId="$langId" `
+              "$wixSrc/main.wxs" "build/wix-gen/files.wxs" `
+              -o "build/wix-obj/$culture/"
+            if ($LASTEXITCODE -ne 0) { throw "candle.exe failed for $culture" }
+
+            # light：链接 → locale-specific MSI
+            $wixObjs = Get-ChildItem "build/wix-obj/$culture/*.wixobj" | ForEach-Object { $_.FullName }
+            light.exe -ext WixUIExtension `
+              -cultures:"$culture" `
+              -loc "$wixSrc/l10n/$culture.wxl" `
+              $wixObjs `
+              -o "build/out-msi/$culture/PixivDownload.msi"
+            if ($LASTEXITCODE -ne 0) { throw "light.exe failed for $culture" }
+
+            Write-Host "Built $culture MSI OK"
+          }
+
+          # ── 3. torch：生成 zh-CN 差异变换 (.mst) ──
+          torch.exe -p -t language `
+            "build/out-msi/en-US/PixivDownload.msi" `
+            "build/out-msi/zh-CN/PixivDownload.msi" `
+            -o "build/out-msi/zh-CN.mst"
+          if ($LASTEXITCODE -ne 0) { throw "torch.exe failed" }
+
+          # ── 4. 将 zh-CN.mst 嵌入 en-US.msi 的 _Storages 表 ──
+          $msiPath = (Resolve-Path "build/out-msi/en-US/PixivDownload.msi").Path
+          $mstPath = (Resolve-Path "build/out-msi/zh-CN.mst").Path
+
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          # 1 = msiOpenDatabaseModeTransact（需显式 Commit）
+          $db = $installer.OpenDatabase($msiPath, 1)
+          # 用参数化 INSERT 插入二进制流；? 占位符由传入的 Record 填充
+          $view = $db.OpenView("INSERT INTO ``_Storages`` (``Name``, ``Data``) VALUES (?, ?)")
+          $rec = $installer.CreateRecord(2)
+          $rec.StringData(1) = ":2052"                    # transform 名称格式 ":<LCID>"
+          $rec.SetStream(2, $mstPath)
+          $view.Execute($rec)
+          $db.Commit()
+          [Runtime.InteropServices.Marshal]::ReleaseComObject($view) | Out-Null
+          [Runtime.InteropServices.Marshal]::ReleaseComObject($db)   | Out-Null
+          [Runtime.InteropServices.Marshal]::ReleaseComObject($installer) | Out-Null
+          Write-Host "Embedded zh-CN.mst into MSI"
+
+          # ── 5. 更新 Summary Stream Template：x64;1033,2052 ──
+          $installer2 = New-Object -ComObject WindowsInstaller.Installer
+          $db2 = $installer2.OpenDatabase($msiPath, 1)
+          $si = $db2.SummaryInformation(4)               # 4 = max properties to update
+          $si.Property(7) = "x64;1033,2052"             # PID_TEMPLATE
+          $si.Persist()
+          $db2.Commit()
+          [Runtime.InteropServices.Marshal]::ReleaseComObject($si)        | Out-Null
+          [Runtime.InteropServices.Marshal]::ReleaseComObject($db2)       | Out-Null
+          [Runtime.InteropServices.Marshal]::ReleaseComObject($installer2) | Out-Null
+          Write-Host "Updated Summary Stream Template"
+
+          # ── 6. 重命名为最终产物 ──
+          $dest = "build/out/PixivDownload-$version-win-x64-multilang.msi"
+          Copy-Item $msiPath $dest
+          Write-Host "Final MSI: $dest"
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -202,8 +284,8 @@ jobs:
 
             ### ⚡ Windows 一键安装（推荐）
 
-            下载 `PixivDownload-*-win-x64.msi`，双击安装。
-            安装包已内嵌精简 JRE，无需单独安装 Java。
+            下载 `PixivDownload-*-win-x64-multilang.msi`，双击安装。
+            安装包已内嵌精简 JRE，无需单独安装 Java。安装向导支持简体中文 / English，跟随系统语言自动切换。
 
             或下载 `PixivDownload-*-win-x64-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`，免安装。
 

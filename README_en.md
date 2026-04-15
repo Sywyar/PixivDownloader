@@ -71,6 +71,8 @@ The backend listens on `http://localhost:6999` by default, and downloads are sav
 
 The Windows executable (`.exe` / `.msi`) supports the same arguments, e.g.: `PixivDownload.exe --no-gui`.
 
+> **Windows Installer (MSI)**: Download `PixivDownload-*-win-x64-multilang.msi` from Releases. It bundles a trimmed JRE — no separate Java installation required. The setup wizard supports **Simplified Chinese and English**, switching automatically based on the system language.
+
 On first startup, the browser will automatically open the setup wizard. **Please complete [Initial Setup](#2-initial-setup) before using other features.**
 
 ### 2. Initial Setup
@@ -96,7 +98,16 @@ After configuration is written to `pixiv-download/setup_config.json`, this page 
 
 ### 3. Install Userscripts
 
-Ensure [Tampermonkey](https://www.tampermonkey.net/) extension is installed in your browser. Download the scripts from [Releases](../../releases) and **drag them into the Tampermonkey management panel** to install:
+Ensure [Tampermonkey](https://www.tampermonkey.net/) extension is installed in your browser. There are two installation methods:
+
+**Method 1: One-click installation from the management page (recommended)**
+
+After the backend is running and initial setup is complete, log in and open `http://localhost:6999/pixiv-batch.html`. Click the「🧩 油猴脚本」card at the top of the page to expand it, then click「⬇ 安装」next to the desired script — Tampermonkey will show its standard installation confirmation page.  
+When the backend is deployed on a non-`localhost` server, the `@connect` directive in the script is automatically replaced with the actual server address, so no manual editing is needed.
+
+**Method 2: Manual download from Releases**
+
+Download the scripts from [Releases](../../releases) and **drag them into the Tampermonkey management panel** to install:
 
 | Script File                     | Use Case                                                                                             |
 |---------------------------------|------------------------------------------------------------------------------------------------------|

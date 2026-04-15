@@ -2,7 +2,7 @@
 // @name         Pixiv 页面批量下载器
 // @namespace    http://tampermonkey.net/
 // @version      1.0.1
-// @description  抓取当前 Pixiv 页面（搜索页、关注动态、排行榜、主页等）上的所有作品，批量提交本地后端下载。界面与 N-Tab / User 批量下载器一致。
+// @description  抓取当前 Pixiv 页面（搜索页、关注动态、排行榜、主页等）上的所有作品
 // @author       Sywyar
 // @match        https://www.pixiv.net/*
 // @grant        GM_xmlhttpRequest

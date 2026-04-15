@@ -820,6 +820,21 @@
         </div>
     </div>
 
+    <!-- Userscripts install card -->
+    <div class="card" id="userscripts-card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+            <span>🧩 油猴脚本</span>
+            <button class="btn btn-green" style="padding:2px 10px;font-size:12px;" onclick="toggleUserscripts()">展开 / 折叠</button>
+        </div>
+        <div id="userscripts-panel" hidden>
+            <div id="userscripts-hint" style="font-size:12px;color:#666;margin-bottom:10px;">
+                需要先安装 <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> 扩展。点击「安装」后 Tampermonkey 将弹出确认页面。
+            </div>
+            <div id="userscripts-host-hint" style="font-size:12px;color:#17a2b8;margin-bottom:10px;display:none;"></div>
+            <div id="userscripts-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+        </div>
+    </div>
+
     <!-- Mode tabs -->
     <div class="tabs">
         <div class="tab active" id="tab-ntab" onclick="switchMode('ntab')">🎨 N-Tab 模式</div>
@@ -2572,6 +2587,82 @@
     }
 
     document.addEventListener('DOMContentLoaded', init);
+
+    /* ============================================================
+       油猴脚本安装面板
+    ============================================================ */
+    let _userscriptsLoaded = false;
+
+    function toggleUserscripts() {
+        const panel = document.getElementById('userscripts-panel');
+        if (panel.hidden) {
+            panel.hidden = false;
+            if (!_userscriptsLoaded) {
+                _userscriptsLoaded = true;
+                loadUserscripts();
+            }
+        } else {
+            panel.hidden = true;
+        }
+    }
+
+    async function loadUserscripts() {
+        const list = document.getElementById('userscripts-list');
+        list.textContent = '加载中…';
+        try {
+            const resp = await fetch('/api/scripts');
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
+
+            // 显示 host 提示
+            const hostHint = document.getElementById('userscripts-host-hint');
+            if (data.detectedHost && data.detectedHost !== 'localhost' && data.detectedHost !== '127.0.0.1') {
+                hostHint.textContent = '此安装链接将自动把脚本 @connect 指向：' + data.detectedHost;
+                hostHint.style.display = 'block';
+            }
+
+            list.innerHTML = '';
+            if (!data.scripts || data.scripts.length === 0) {
+                list.textContent = '暂无可安装的脚本。';
+                return;
+            }
+            data.scripts.forEach(s => {
+                const item = document.createElement('div');
+                item.style.cssText = 'border:1px solid #e0e0e0;border-radius:6px;padding:10px 14px;background:#fafafa;';
+                item.innerHTML =
+                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+                        '<strong style="font-size:13px;">' + escHtml(s.displayName) + '</strong>' +
+                        '<span style="font-size:11px;color:#999;">v' + escHtml(s.version) + '</span>' +
+                    '</div>' +
+                    '<div style="font-size:12px;color:#555;margin-bottom:8px;">' + escHtml(s.description) + '</div>' +
+                    '<div style="display:flex;gap:8px;">' +
+                        '<button class="btn btn-green" style="padding:3px 12px;font-size:12px;" onclick="installScript(\'' + escHtml(s.id) + '\')">' +
+                            '⬇ 安装' +
+                        '</button>' +
+                        '<a class="btn" style="padding:3px 12px;font-size:12px;text-decoration:none;" ' +
+                            'href="/api/scripts/' + encodeURIComponent(s.id) + '.user.js?raw=true" target="_blank">' +
+                            '📄 查看源码' +
+                        '</a>' +
+                    '</div>';
+                list.appendChild(item);
+            });
+        } catch (e) {
+            list.textContent = '加载失败：' + e.message;
+        }
+    }
+
+    function installScript(id) {
+        // URL 必须以 .user.js 结尾，Tampermonkey 才会拦截并弹出安装确认页
+        window.location.href = '/api/scripts/' + encodeURIComponent(id) + '.user.js';
+    }
+
+    function escHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
 </script>
 </body>
 </html>

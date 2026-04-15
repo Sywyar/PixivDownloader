@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX 3 主模板 — PixivDownload 多语言 MSI
+  =========================================
+  构建变量（通过 candle.exe -d 传入）：
+    AppVersion  - 应用版本号，如 1.2.3
+    SourceDir   - app-image 根目录（由 heat.exe 生成的 files.wxs 引用）
+    IconFile    - favicon.ico 绝对或相对路径
+    LangId      - 此次编译的 LCID（en-US=1033, zh-CN=2052）
+
+  构建流程（由 release.yml 驱动）：
+    1. heat.exe 扫描 app-image → files.wxs（ComponentGroup AppFiles）
+    2. 对每个语言：candle + light（带 -cultures 与 -loc）→ locale-specific .msi
+    3. torch.exe 对比 en-US.msi 与 zh-CN.msi → zh-CN.mst
+    4. PowerShell COM 将 .mst 嵌入 en-US.msi 的 _Storages 表
+    5. 更新 Summary Stream Template 字段为 x64;1033,2052
+    6. 重命名为 *-multilang.msi
+
+  注意：升级码（UpgradeCode）固定不变，确保同一应用跨版本正确升级。
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+
+  <Product Id="*"
+           Name="!(loc.ProductName)"
+           Language="$(var.LangId)"
+           Version="$(var.AppVersion)"
+           Manufacturer="!(loc.Manufacturer)"
+           UpgradeCode="{7F3B8A2C-4D9E-4F1A-B8C3-D7E6F5A4B3C2}">
+
+    <!-- Platform 由 candle.exe -arch x64 指定，此处不重复声明 -->
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perUser"
+             Description="!(loc.ProductDescription)"
+             Manufacturer="!(loc.Manufacturer)"/>
+
+    <!-- 同一 UpgradeCode 的旧版本自动卸载，低版本降级报错 -->
+    <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)"/>
+    <MediaTemplate EmbedCab="yes"/>
+
+    <!-- 添加/删除程序中的图标 -->
+    <Icon Id="AppIcon.ico" SourceFile="$(var.IconFile)"/>
+    <Property Id="ARPPRODUCTICON" Value="AppIcon.ico"/>
+    <Property Id="ARPHELPLINK" Value="https://github.com/Sywyar/PixivDownload"/>
+
+    <!-- WixUI_InstallDir：提供安装目录选择 + 进度 + 完成向导页 -->
+    <UIRef Id="WixUI_InstallDir"/>
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR"/>
+    <WixVariable Id="WixUILicenseRtf" Value="$(sys.SOURCEFILEDIR)License.rtf"/>
+
+    <!-- ── 目录结构 ── -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+
+      <!-- 应用文件：%LOCALAPPDATA%\PixivDownload（per-user 安装） -->
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="INSTALLDIR" Name="PixivDownload"/>
+      </Directory>
+
+      <!-- 开始菜单快捷方式（per-user Programs） -->
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="AppProgramsFolder" Name="!(loc.ProductName)"/>
+      </Directory>
+
+      <!-- 桌面快捷方式 -->
+      <Directory Id="DesktopFolder" Name="Desktop"/>
+
+    </Directory>
+
+    <!-- ── 功能 ── -->
+    <Feature Id="ProductFeature" Title="!(loc.ProductName)" Level="1">
+      <!-- app-image 文件（由 heat.exe 生成） -->
+      <ComponentGroupRef Id="AppFiles"/>
+      <!-- 快捷方式 -->
+      <ComponentRef Id="CmpStartMenuShortcut"/>
+      <ComponentRef Id="CmpDesktopShortcut"/>
+    </Feature>
+
+    <!-- ── 开始菜单快捷方式 ── -->
+    <DirectoryRef Id="AppProgramsFolder">
+      <Component Id="CmpStartMenuShortcut"
+                 Guid="{B1E2D3C4-A5F6-7890-BCDE-F01234567891}"
+                 Win64="yes">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="!(loc.ProductName)"
+                  Description="!(loc.ProductDescription)"
+                  Target="[INSTALLDIR]PixivDownload.exe"
+                  WorkingDirectory="INSTALLDIR"
+                  Icon="AppIcon.ico"/>
+        <RemoveFolder Id="RemoveAppProgramsFolder" On="uninstall"/>
+        <RegistryValue Root="HKCU"
+                       Key="Software\sywyar\PixivDownload"
+                       Name="StartMenuShortcut"
+                       Type="integer" Value="1"
+                       KeyPath="yes"/>
+      </Component>
+    </DirectoryRef>
+
+    <!-- ── 桌面快捷方式 ── -->
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="CmpDesktopShortcut"
+                 Guid="{C2F3E4D5-B6A7-8901-CDEF-012345678902}"
+                 Win64="yes">
+        <Shortcut Id="DesktopShortcut"
+                  Name="!(loc.ProductName)"
+                  Description="!(loc.ProductDescription)"
+                  Target="[INSTALLDIR]PixivDownload.exe"
+                  WorkingDirectory="INSTALLDIR"
+                  Icon="AppIcon.ico"/>
+        <RegistryValue Root="HKCU"
+                       Key="Software\sywyar\PixivDownload"
+                       Name="DesktopShortcut"
+                       Type="integer" Value="1"
+                       KeyPath="yes"/>
+      </Component>
+    </DirectoryRef>
+
+  </Product>
+</Wix>

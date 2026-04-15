@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Pixiv User 批量下载器 (N-Tab UI 风格版)
+// @name         Pixiv User 批量下载器
 // @namespace    http://tampermonkey.net/
 // @version      2.0.4
-// @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Go 后端。界面复刻 N-Tab 风格。优化暂停逻辑：确保当前任务完成后再停止。已加入全局 username 机制。在标题显示用户名。
+// @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Java 后端。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
 // @grant        GM_xmlhttpRequest
