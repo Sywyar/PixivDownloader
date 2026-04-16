@@ -110,7 +110,7 @@ jobs:
       - name: Download FFmpeg
         shell: bash
         run: |
-          FFmpeg 版本：ffmpeg-master-latest-win64-lgpl
+          # FFmpeg 版本：ffmpeg-master-latest-win64-lgpl
           curl -fsSL "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip" -o build/ffmpeg.zip
           unzip -q build/ffmpeg.zip -d build/
           # 静态构建只需要单个 exe
@@ -145,9 +145,10 @@ jobs:
       - name: Copy FFmpeg to app-image
         shell: bash
         run: |
-          # jpackage 不会自动包含 input 目录中的 exe，需要手动复制
-          cp build/input/ffmpeg.exe build/out/PixivDownload/
-          cp build/input/ffprobe.exe build/out/PixivDownload/
+          # jpackage 不会自动包含资源目录中的 exe，需要手动复制
+          # 注意：这里路径从 build/input/ 改为 build/resources/
+          cp build/resources/ffmpeg.exe build/out/PixivDownload/
+          cp build/resources/ffprobe.exe build/out/PixivDownload/
           # LGPL 许可声明
           mkdir -p build/out/PixivDownload/licenses
           cat > build/out/PixivDownload/licenses/ffmpeg-LGPL.txt << 'LGPL_EOF'
@@ -235,12 +236,14 @@ jobs:
           body: |
             ## 使用说明
 
-            ### ⚡ Windows 一键安装（推荐）
+            ### ⚡ Windows 便携版（推荐）
 
-            下载 `PixivDownload-*-win-x64.msi`，双击安装。
-            安装包已内嵌精简 JRE，无需单独安装 Java。
+            下载 `PixivDownload-*-win-x64-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`。
+            免安装，更新版本时直接覆盖解压即可。已内嵌精简 JRE 和 FFmpeg，无需单独安装 Java。
 
-            或下载 `PixivDownload-*-win-x64-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`，免安装，安装新版本时直接覆盖解压即可。
+            ### ☕ MSI 安装包
+
+            下载 `PixivDownload-*-win-x64.msi`，双击安装，同样内嵌 JRE 和 FFmpeg。
 
             ### ☕ JAR 包（跨平台）
 
@@ -249,30 +252,16 @@ jobs:
             ```
             java -jar PixivDownload-${{ github.ref_name }}.jar
             ```
-
-            ---
-
-            ### 🌐 使用外部服务器（推荐方式）
-
-            **推荐直接通过网页端访问**，无需安装油猴脚本：
-
-            ```
-            http://<your-server-ip>:<port>/login.html
-            ```
-
-            网页端提供与油猴脚本相同的批量下载功能，更易于部署和使用。
-
-            ---
-
-            ### 🔧 使用油猴脚本连接外部服务器
             
-            如果你是通过 pixiv-batch 网页安装的插件，则可以忽略这一步
+            ### 🌐 网页端一站式下载
 
-            若仍需使用油猴脚本连接外部服务器，需修改每个脚本头部的 `@connect` 指令，将 `YOUR_SERVER_HOST` 替换为实际的服务器 IP 或域名：
+            启动后访问 `http://localhost:6999/pixiv-batch.html`，无需安装油猴脚本(无法实现页面批量这样全站抓取的功能)即可完成所有批量下载操作：
 
-            ```diff
-            - // @connect      YOUR_SERVER_HOST
-            + // @connect      192.168.1.100
-            ```
+            访问 `http://localhost:6999/monitor.html` 查看下载进度和历史记录。
 
-            **修改路径**：Tampermonkey 管理面板 → 对应脚本 → 编辑 → 保存
+            ### 🔧 油猴脚本
+
+            若仍需使用油猴脚本，登录后打开 `http://localhost:6999/pixiv-batch.html`，点击页面顶部的「🧩 油猴脚本」卡片展开，点击对应脚本的「⬇ 安装」按钮。部署在非 localhost 服务器时，`@connect` 会自动替换为实际地址。
+            
+            ## 详细说明请查看 README
+
