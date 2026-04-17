@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="!(loc.ProductName)"
+           Language="!(loc.ProductLanguage)"
+           Version="$(var.Version)"
+           Manufacturer="!(loc.Manufacturer)"
+           UpgradeCode="4D4F3566-C6C0-4D24-9242-86059B2A84A5">
+    <Package InstallerVersion="500"
+             Platform="x64"
+             Compressed="yes"
+             InstallScope="perUser"
+             SummaryCodepage="!(loc.SummaryCodepage)" />
+
+    <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeErrorMessage)" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf"
+                 Value="packaging/windows/license.en-US.rtf"
+                 Overridable="yes" />
+
+    <Icon Id="AppIcon" SourceFile="src/main/resources/static/favicon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="ProgramsDir" Name="Programs">
+          <Directory Id="INSTALLFOLDER" Name="PixivDownload">
+            <Directory Id="LICENSESDIR" Name="licenses" />
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ProgramMenuDir" Name="PixivDownload" />
+      </Directory>
+      <Directory Id="DesktopFolder" />
+    </Directory>
+
+    <Feature Id="MainFeature"
+             Title="!(loc.MainFeatureTitle)"
+             Description="!(loc.MainFeatureDescription)"
+             Level="1"
+             Display="hidden"
+             Absent="disallow"
+             ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="ApplicationShortcuts" />
+
+      <?if $(var.IncludeFfmpeg) = yes ?>
+      <Feature Id="FFmpegFeature"
+               Title="!(loc.FfmpegFeatureTitle)"
+               Description="!(loc.FfmpegFeatureDescription)"
+               Level="1"
+               Display="hidden"
+               Absent="disallow"
+               AllowAdvertise="no">
+        <ComponentRef Id="FfmpegExecutable" />
+        <ComponentRef Id="FfprobeExecutable" />
+        <ComponentRef Id="FfmpegLicense" />
+      </Feature>
+      <?endif?>
+    </Feature>
+
+    <UIRef Id="WixUI_InstallDir" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+  </Product>
+
+  <Fragment>
+    <Component Id="ApplicationShortcuts" Directory="INSTALLFOLDER" Guid="*">
+      <Shortcut Id="StartMenuShortcut"
+                Directory="ProgramMenuDir"
+                Name="PixivDownload"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon"
+                Target="[INSTALLFOLDER]PixivDownload.exe"
+                Advertise="no" />
+      <Shortcut Id="DesktopShortcut"
+                Directory="DesktopFolder"
+                Name="PixivDownload"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="AppIcon"
+                Target="[INSTALLFOLDER]PixivDownload.exe"
+                Advertise="no" />
+      <RemoveFolder Id="RemoveProgramMenuDir" Directory="ProgramMenuDir" On="uninstall" />
+      <RegistryValue Root="HKCU"
+                     Key="Software\sywyar\PixivDownload"
+                     Name="installed"
+                     Type="integer"
+                     Value="1"
+                     KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <?if $(var.IncludeFfmpeg) = yes ?>
+  <Fragment>
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="FfmpegExecutable" Guid="{391B2966-A1F0-46CF-AB9B-73D96D81D794}">
+        <File Id="FfmpegExecutableFile" Source="$(var.FfmpegExe)" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\sywyar\PixivDownload\Components"
+                       Name="FfmpegExecutable"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+      <Component Id="FfprobeExecutable" Guid="{30390239-668B-4D7D-BD37-FCCF0F6DF990}">
+        <File Id="FfprobeExecutableFile" Source="$(var.FfprobeExe)" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\sywyar\PixivDownload\Components"
+                       Name="FfprobeExecutable"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="LICENSESDIR">
+      <Component Id="FfmpegLicense" Guid="{7A1C8F71-7A06-4B71-BB98-5E66AFBC0D8F}">
+        <File Id="FfmpegLicenseFile" Source="$(var.FfmpegLicense)" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\sywyar\PixivDownload\Components"
+                       Name="FfmpegLicense"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+  <?endif?>
+</Wix>

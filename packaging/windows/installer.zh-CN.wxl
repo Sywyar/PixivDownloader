@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WixLocalization xmlns="http://schemas.microsoft.com/wix/2006/localization"
+                 Culture="zh-CN"
+                 Codepage="936">
+  <String Id="ProductName">PixivDownload</String>
+  <String Id="ProductLanguage">2052</String>
+  <String Id="SummaryCodepage">936</String>
+  <String Id="Manufacturer">sywyar</String>
+  <String Id="DowngradeErrorMessage">检测到已安装更新版本的 [ProductName]。</String>
+  <String Id="MainFeatureTitle">PixivDownload</String>
+  <String Id="MainFeatureDescription">核心程序文件。</String>
+  <String Id="FfmpegFeatureTitle">FFmpeg 运行时</String>
+  <String Id="FfmpegFeatureDescription">安装 ffmpeg 和 ffprobe，用于 Ugoira 动图转 WebP。</String>
+</WixLocalization>

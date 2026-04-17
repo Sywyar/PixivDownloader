@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WixLocalization xmlns="http://schemas.microsoft.com/wix/2006/localization"
+                 Culture="en-US"
+                 Codepage="1252">
+  <String Id="ProductName">PixivDownload</String>
+  <String Id="ProductLanguage">1033</String>
+  <String Id="SummaryCodepage">1252</String>
+  <String Id="Manufacturer">sywyar</String>
+  <String Id="DowngradeErrorMessage">A newer version of [ProductName] is already installed.</String>
+  <String Id="MainFeatureTitle">PixivDownload</String>
+  <String Id="MainFeatureDescription">Core application files.</String>
+  <String Id="FfmpegFeatureTitle">FFmpeg runtime</String>
+  <String Id="FfmpegFeatureDescription">Install ffmpeg and ffprobe for Ugoira to WebP conversion.</String>
+</WixLocalization>
