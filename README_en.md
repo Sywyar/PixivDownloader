@@ -164,6 +164,89 @@ Visit `http://localhost:6999/monitor.html` to view real-time download progress a
 
 Visit `http://localhost:6999/intro.html` (no login required, publicly accessible) to view the project introduction.
 
+## Development Guide
+
+### 1. Fork and branch
+
+1. Fork this repository to your own account, then clone your fork.
+2. Add the upstream remote so you can keep your branch in sync:
+
+```bash
+git remote add upstream <upstream-repo-url>
+git fetch upstream
+```
+
+3. Create a feature branch from the latest upstream default branch:
+
+```bash
+git checkout -b feat/your-change upstream/<default-branch>
+```
+
+### 2. Local prerequisites
+
+- JDK 17 (`pom.xml` currently targets Java 17, and Windows packaging also uses `jlink` and `jpackage`)
+- Maven 3.9+, or the bundled `mvnw` / `mvnw.cmd`
+- PowerShell for Windows packaging; WiX Toolset is also required for MSI builds (`heat.exe`, `candle.exe`, `light.exe`)
+- `curl.exe` if you build the offline portable package or a `with-ffmpeg` MSI, because the packaging script downloads or reuses the FFmpeg payload under `build/ffmpeg`
+
+### 3. Daily development and local verification
+
+Use the Maven lifecycle for local builds:
+
+```bash
+# Windows
+.\mvnw.cmd package -DskipTests
+
+# macOS / Linux
+./mvnw package -DskipTests
+
+# Run
+java -jar target/PixivDownload-*.jar
+```
+
+This matters for userscript changes. The userscript install card in `pixiv-batch.html` loads its built-in script list from `/api/scripts`, and `pom.xml` copies repository-root `*.user.js` files into `target/classes/static/userscripts` during the `generate-resources` phase. If you edit any root-level userscript, you must run at least one Maven lifecycle phase again (`generate-resources` at minimum, `package` recommended). Do not rely on IDE-only runs or manual file replacement, or the install page may still serve stale scripts.
+
+Before opening a PR, at least run:
+
+```bash
+.\mvnw.cmd test
+```
+
+If the change touches `*.user.js`, static resource assembly, or the script install flow, also run `package` once and verify the userscript list and install links on `http://localhost:6999/pixiv-batch.html`.
+
+### 4. Build Windows portable packages / EXE / MSI
+
+Use [`scripts/package-local.ps1`](./scripts/package-local.ps1) for local packaging. The script runs Maven `package`, builds a trimmed runtime with `jlink`, creates an app-image with `jpackage` (including `PixivDownload.exe`), and then produces the online portable package, offline portable package, and MSI variants based on the flags you pass.
+
+```powershell
+# Build portable output only (includes PixivDownload.exe), skip MSI
+powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipMsi
+
+# Build the full Windows artifact set
+powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local
+
+# Run tests as part of packaging
+powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -RunTests
+```
+
+Useful options:
+
+- `-SkipOfflinePortable`: skip the offline portable package
+- `-SkipMsi`: skip MSI generation and keep only portable outputs
+- `-MsiCultures zh-CN,en-US`: choose MSI UI languages
+- `-MsiVariants with-ffmpeg,no-ffmpeg`: choose MSI variants
+- `-RedownloadFfmpeg`: force a fresh FFmpeg download
+
+Artifacts are written to `build/out/` by default. MSI generation requires the WiX toolchain. Offline portable packages and `with-ffmpeg` MSI variants also require the FFmpeg payload, which the script prepares automatically.
+
+### 5. Commit and open a PR
+
+1. Sync with upstream before submission, then rebase or merge as needed.
+2. Verify your change locally, including tests, packaging commands, and the relevant pages or flows.
+3. Do not commit build output such as `target/` or `build/` unless a maintainer explicitly asks for it.
+4. Push your branch to your fork with a clear commit history.
+5. Open a PR against the upstream default branch and include the motivation, main changes, and verification steps. If you changed UI or packaging behavior, add screenshots or key command output.
+
 ---
 
 ## Disclaimer
