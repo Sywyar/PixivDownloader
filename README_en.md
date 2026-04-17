@@ -53,11 +53,12 @@ PixivDownload is a local Pixiv batch image download tool with multiple download 
 
 Download the latest version from [Releases](../../releases):
 
-| Type                                    | Description                            |
-|-----------------------------------------|----------------------------------------|
-| `PixivDownload-vX.X.X.jar`              | Universal JAR, requires Java 17+       |
-| `PixivDownload-*.zip`                   | Windows portable version (recommended) |
-| `PixivDownload-*-win-x64-multilang.msi` | Windows installer with bundled JRE     |
+| Type                                          | Description                                                                                                                         |
+|-----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `PixivDownload-vX.X.X.jar`                    | Universal JAR, requires Java 17+                                                                                                    |
+| `PixivDownload-*-win-x64-online-portable.zip` | Windows online portable build with the smallest download size; if FFmpeg is already installed, this is the only package you need    |
+| `PixivDownload-*-win-x64-portable.zip`        | Windows offline portable build with bundled JRE and FFmpeg, suitable when FFmpeg is not installed or when you need an offline setup |
+| `PixivDownload-*-win-x64.msi`                 | Windows installer with a feature-selection page; if FFmpeg is already installed, you do not need to select the FFmpeg component    |
 
 ```bash
 # JAR startup
@@ -72,6 +73,8 @@ PixivDownload.exe
 ```
 
 > On first startup, the browser will automatically open the setup wizard. Complete the setup before using other features.
+
+> The online portable build does not bundle FFmpeg by default, but it will reuse FFmpeg from the system PATH, the app directory, or the managed user directory. If FFmpeg is already installed, the online portable build is enough. Only use `Download FFmpeg` on the `Status` tab when you need Ugoira-to-WebP conversion and do not already have FFmpeg available. Regular image downloads work without it.
 
 ### 2. Initial Setup
 
@@ -93,6 +96,8 @@ proxy.enabled: true
 proxy.host: 127.0.0.1
 proxy.port: 7890   # Change to your proxy's actual port
 ```
+
+> The GUI FFmpeg download button reuses this proxy configuration first, which makes the online portable build easier to use behind a proxy when fetching FFmpeg from GitHub.
 
 ### 4. Install Userscripts (Optional)
 

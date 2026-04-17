@@ -49,7 +49,7 @@ public class MainFrame extends JFrame {
 
         // 标签页
         JTabbedPane tabs = new JTabbedPane();
-        statusPanel = new StatusPanel(serverPort, rootFolder);
+        statusPanel = new StatusPanel(serverPort, rootFolder, configPath);
         tabs.addTab("状态", statusPanel);
         tabs.addTab("配置", new ConfigPanel(configPath));
         tabs.addTab("关于", new AboutPanel());
