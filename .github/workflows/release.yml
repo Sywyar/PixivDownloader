@@ -174,22 +174,37 @@ jobs:
       - name: Build MSI with feature selection
         shell: pwsh
         run: |
-          candle.exe -nologo -arch x64 -ext WixUIExtension `
-            -dVersion=${{ steps.vars.outputs.version }} `
-            -dAppImageDir=build/app-image-online/PixivDownload `
-            -dFfmpegExe=build/ffmpeg/ffmpeg.exe `
-            -dFfprobeExe=build/ffmpeg/ffprobe.exe `
-            -dFfmpegLicense=build/ffmpeg/ffmpeg-LGPL.txt `
-            -out build/wix/ `
-            packaging/windows/installer.wxs `
-            build/wix/AppFiles.wxs
+          $candleArgs = @(
+            '-nologo'
+            '-arch', 'x64'
+            '-ext', 'WixUIExtension'
+            '-dVersion=${{ steps.vars.outputs.version }}'
+            '-dAppImageDir=build/app-image-online/PixivDownload'
+            '-dFfmpegExe=build/ffmpeg/ffmpeg.exe'
+            '-dFfprobeExe=build/ffmpeg/ffprobe.exe'
+            '-dFfmpegLicense=build/ffmpeg/ffmpeg-LGPL.txt'
+            '-out', 'build/wix/'
+            'packaging/windows/installer.wxs'
+            'build/wix/AppFiles.wxs'
+          )
+          & candle.exe @candleArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "candle.exe failed with exit code $LASTEXITCODE"
+          }
 
-          light.exe -nologo -ext WixUIExtension `
-            -sice:ICE64 `
-            -sice:ICE91 `
-            -out "build/out/PixivDownload-${{ steps.vars.outputs.version }}-win-x64.msi" `
-            build/wix/installer.wixobj `
-            build/wix/AppFiles.wixobj
+          $lightArgs = @(
+            '-nologo'
+            '-ext', 'WixUIExtension'
+            '-sice:ICE64'
+            '-sice:ICE91'
+            '-out', 'build/out/PixivDownload-${{ steps.vars.outputs.version }}-win-x64.msi'
+            'build/wix/installer.wixobj'
+            'build/wix/AppFiles.wixobj'
+          )
+          & light.exe @lightArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "light.exe failed with exit code $LASTEXITCODE"
+          }
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
