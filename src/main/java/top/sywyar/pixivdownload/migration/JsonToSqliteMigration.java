@@ -13,7 +13,6 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.function.Consumer;
 
@@ -85,7 +84,7 @@ public class JsonToSqliteMigration {
                         ? artwork.path("time").asLong()
                         : pixivDatabase.getUniqueTime();
 
-                pixivDatabase.insertArtwork(artworkId, title, folder, count, extensions, time, null);
+                pixivDatabase.insertArtwork(artworkId, title, folder, count, extensions, time, null, null);
 
                 if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
                     String moveFolder = artwork.path("moveFolder").asText(null);

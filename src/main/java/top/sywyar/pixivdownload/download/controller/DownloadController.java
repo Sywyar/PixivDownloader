@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.DownloadStatus;
@@ -23,8 +24,12 @@ import top.sywyar.pixivdownload.setup.SetupService;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api")
@@ -37,6 +42,7 @@ public class DownloadController {
     private final UserQuotaService userQuotaService;
     private final MultiModeConfig multiModeConfig;
     private final PixivDatabase pixivDatabase;
+    private final AuthorService authorService;
 
     @PostMapping("/download/pixiv")
     public ResponseEntity<?> downloadPixivImages(
@@ -163,25 +169,18 @@ public class DownloadController {
 
     @PostMapping("/downloaded/batch")
     public ResponseEntity<BatchArtworksResponse> getBatchArtworks(@RequestBody ArtworkBatchRequest request) {
-        List<DownloadedResponse> downloadedResponses = new LinkedList<>();
+        List<ArtworkRecord> artworks = new LinkedList<>();
         for (Long artworkId : request.getArtworkIds()) {
             ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
             if (artwork == null) {
                 continue;
             }
-            downloadedResponses.add(DownloadedResponse.builder()
-                    .artworkId(artwork.artworkId())
-                    .title(artwork.title())
-                    .folder(artwork.folder())
-                    .count(artwork.count())
-                    .extensions(artwork.extensions())
-                    .time(artwork.time())
-                    .moved(artwork.moved())
-                    .moveFolder(artwork.moveFolder())
-                    .moveTime(artwork.moveTime())
-                    .isR18(artwork.isR18())
-                    .build());
+            artworks.add(artwork);
         }
+        Map<Long, String> authorNames = resolveAuthorNames(artworks);
+        List<DownloadedResponse> downloadedResponses = artworks.stream()
+                .map(artwork -> toDownloadedResponse(artwork, authorNames))
+                .toList();
         return ResponseEntity.ok(new BatchArtworksResponse(downloadedResponses));
     }
 
@@ -216,18 +215,25 @@ public class DownloadController {
     @GetMapping("/downloaded/history/paged")
     public ResponseEntity<PagedHistoryResponse> getPagedHistory(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size) {
-        List<DownloadedResponse> downloadedResponses = new LinkedList<>();
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "time") String sort) {
         long totalElements = downloadService.getArtworkCount();
-        List<Long> artWorkIds = downloadService.getSortTimeArtworkPaged(page, size);
+        List<Long> artWorkIds = "author_id".equals(sort)
+                ? downloadService.getSortAuthorArtworkPaged(page, size)
+                : downloadService.getSortTimeArtworkPaged(page, size);
+        List<ArtworkRecord> artworks = new LinkedList<>();
 
         for (Long artworkId : artWorkIds) {
-            DownloadedResponse response = getArtWorkDownloadedResponse(artworkId);
-            if (response != null) {
-                downloadedResponses.add(response);
+            ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
+            if (artwork != null) {
+                artworks.add(artwork);
             }
         }
 
+        Map<Long, String> authorNames = resolveAuthorNames(artworks);
+        List<DownloadedResponse> downloadedResponses = artworks.stream()
+                .map(artwork -> toDownloadedResponse(artwork, authorNames))
+                .toList();
         int totalPages = (int) Math.ceil((double) totalElements / size);
         return ResponseEntity.ok(new PagedHistoryResponse(downloadedResponses, totalElements, page, size, totalPages));
     }
@@ -280,6 +286,10 @@ public class DownloadController {
         if (artwork == null) {
             return null;
         }
+        return toDownloadedResponse(artwork, resolveAuthorNames(List.of(artwork)));
+    }
+
+    private DownloadedResponse toDownloadedResponse(ArtworkRecord artwork, Map<Long, String> authorNames) {
         return DownloadedResponse.builder()
                 .artworkId(artwork.artworkId())
                 .title(artwork.title())
@@ -291,6 +301,18 @@ public class DownloadController {
                 .moveFolder(artwork.moveFolder())
                 .moveTime(artwork.moveTime())
                 .isR18(artwork.isR18())
+                .authorId(artwork.authorId())
+                .authorName(artwork.authorId() == null ? null : authorNames.get(artwork.authorId()))
                 .build();
+    }
+
+    private Map<Long, String> resolveAuthorNames(Collection<ArtworkRecord> artworks) {
+        Set<Long> authorIds = new HashSet<>();
+        for (ArtworkRecord artwork : artworks) {
+            if (artwork != null && artwork.authorId() != null) {
+                authorIds.add(artwork.authorId());
+            }
+        }
+        return authorService.getAuthorNames(authorIds);
     }
 }

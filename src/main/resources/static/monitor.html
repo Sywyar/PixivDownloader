@@ -304,6 +304,21 @@
             opacity: 1;
             color: var(--cyan);
         }
+        .header-filter-icon {
+            font-size: 0.55rem;
+            margin-left: 4px;
+            opacity: 0.45;
+            cursor: pointer;
+            transition: opacity 0.2s, color 0.2s;
+        }
+        .header-filter-icon:hover {
+            opacity: 1;
+            color: var(--cyan);
+        }
+        .header-filter-icon.active {
+            opacity: 1;
+            color: var(--cyan);
+        }
 
         .table td {
             border-color: var(--border);
@@ -328,6 +343,43 @@
             word-wrap: break-word;
             white-space: normal;
             color: var(--text-bright);
+        }
+        .author-cell {
+            min-width: 120px;
+        }
+        .author-chip {
+            display: inline-block;
+            max-width: 100%;
+            padding: 2px 8px;
+            border: 1px solid rgba(0,229,255,0.2);
+            background: rgba(0,229,255,0.08);
+            color: var(--text-bright);
+            font-family: var(--font);
+            font-size: 0.7rem;
+            text-align: left;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s, color 0.2s;
+        }
+        .author-chip:hover {
+            border-color: var(--border-bright);
+            color: var(--cyan);
+            box-shadow: var(--cyan-glow);
+        }
+        .author-chip.active {
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+        .author-chip.author-empty {
+            cursor: default;
+            color: var(--text-dim);
+            background: rgba(100,116,139,0.1);
+            border-color: rgba(100,116,139,0.25);
+            box-shadow: none;
+        }
+        .author-id-sub {
+            margin-top: 4px;
+            font-size: 0.62rem;
+            color: var(--text-dim);
         }
 
         .count-badge {
@@ -493,6 +545,11 @@
             padding-bottom: .35rem;
             border-bottom: 1px solid var(--border);
         }
+        .filter-popup-search {
+            width: 100%;
+            margin-bottom: .55rem;
+            font-size: .72rem;
+        }
         .fmt-filter-options { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .5rem; }
         .fmt-filter-option {
             display: flex;
@@ -510,6 +567,25 @@
         }
         .fmt-filter-actions { border-top: 1px solid var(--border); padding-top: .45rem; }
         .th-filter-active { color: var(--cyan) !important; background: rgba(0,229,255,0.07) !important; }
+        .filter-empty {
+            padding: .4rem 0;
+            font-size: .7rem;
+            color: var(--text-dim);
+        }
+        .author-filter-row {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+        .author-filter-name {
+            color: var(--text-bright);
+            word-break: break-word;
+        }
+        .author-filter-id {
+            color: var(--text-dim);
+            font-size: .62rem;
+        }
 
         .R18-badge {
             display: inline-block;
@@ -1121,7 +1197,7 @@
                 <div class="panel-header" style="padding:.75rem 1rem; margin:0;">
                     <span><i class="fas fa-database me-1" style="font-size:.65rem;"></i>DOWNLOAD HISTORY</span>
                     <div class="d-flex gap-2">
-                        <input type="text" class="search-box" id="searchInput" placeholder="search id / title...">
+                        <input type="text" class="search-box" id="searchInput" placeholder="search id / title / author...">
                         <button class="btn-refresh" id="refreshHistory" title="Refresh">
                             <i class="fas fa-sync-alt"></i>
                         </button>
@@ -1130,16 +1206,28 @@
 
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
+                        <colgroup>
+                            <col style="width:13%">
+                            <col style="width:22%">
+                            <col style="width:8%">
+                            <col style="width:11%">
+                            <col style="width:13%">
+                            <col style="width:15%">
+                            <col style="width:8%">
+                            <col style="width:8%">
+                            <col style="width:10%">
+                        </colgroup>
                         <thead>
                         <tr>
-                            <th width="13%" id="th-artworkId"   class="sortable-th" onclick="sortBy('artworkId')">ARTWORK ID <i id="sort-artworkId" class="sort-icon">↕</i></th>
-                            <th width="24%" id="th-title"       class="sortable-th" onclick="sortBy('title')">TITLE <i id="sort-title" class="sort-icon">↕</i></th>
-                            <th width="8%"  id="th-count"       class="sortable-th" onclick="sortBy('count')">IMGS <i id="sort-count" class="sort-icon">↕</i></th>
-                            <th width="11%" id="th-extensions"  class="sortable-th" onclick="toggleFormatFilter(event)">FORMAT <i id="sort-extensions" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
-                            <th width="16%" id="th-time"        class="sortable-th sort-active" onclick="sortBy('time')">DATE <i id="sort-time" class="sort-icon">↓</i></th>
-                            <th width="8%"  id="th-moved"       class="sortable-th" onclick="sortBy('moved')">STATUS <i id="sort-moved" class="sort-icon">↕</i></th>
-                            <th width="8%"  id="th-R18"         class="sortable-th" onclick="toggleR18Filter(event)">R18 <i id="sort-R18" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
-                            <th width="12%">OPS</th>
+                            <th id="th-artworkId"   class="sortable-th" onclick="sortBy('artworkId')">ARTWORK ID <i id="sort-artworkId" class="sort-icon">↕</i></th>
+                            <th id="th-title"       class="sortable-th" onclick="sortBy('title')">TITLE <i id="sort-title" class="sort-icon">↕</i></th>
+                            <th id="th-count"       class="sortable-th" onclick="sortBy('count')">IMGS <i id="sort-count" class="sort-icon">↕</i></th>
+                            <th id="th-extensions"  class="sortable-th">FORMAT <i id="sort-extensions" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
+                            <th id="th-authorId"    class="sortable-th" onclick="sortBy('authorId')">AUTHOR <i id="sort-authorId" class="sort-icon">↕</i><i id="filter-authorId" class="fas fa-filter header-filter-icon" onclick="toggleAuthorFilter(event)"></i></th>
+                            <th id="th-time"        class="sortable-th sort-active" onclick="sortBy('time')">DATE <i id="sort-time" class="sort-icon">↓</i></th>
+                            <th id="th-moved"       class="sortable-th" onclick="sortBy('moved')">STATUS <i id="sort-moved" class="sort-icon">↕</i></th>
+                            <th id="th-R18"         class="sortable-th">R18 <i id="sort-R18" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
+                            <th>OPS</th>
                         </tr>
                         </thead>
                         <tbody id="historyTableBody"></tbody>
@@ -1155,7 +1243,7 @@
                 <div class="card-footer">
                     <nav style="display:flex;align-items:center;justify-content:center;gap:.5rem;">
                         <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
-                        <button class="btn-term" id="pageGridBtn" onclick="togglePageGrid(event)" title="Jump to page" style="padding:4px 8px;display:none;">
+                        <button class="btn-term" id="pageGridBtn" title="Jump to page" style="padding:4px 8px;display:none;">
                             <i class="fas fa-th" style="font-size:.7rem;"></i>
                         </button>
                     </nav>
@@ -1200,7 +1288,7 @@
 </div><!-- /container -->
 
 <!-- Format Filter Popup -->
-<div id="formatFilterPopup" class="fmt-filter-popup" onclick="event.stopPropagation()"></div>
+<div id="formatFilterPopup" class="fmt-filter-popup"></div>
 <!-- Page Grid Popup -->
 <div id="pageGridPopup" class="page-grid-popup"></div>
 
@@ -1247,10 +1335,13 @@
 
     let searchQuery = '';
     let allArtworksCache = null;
+    let authorMap = new Map();
 
     let sortKey = 'time';
     let sortDir = 'desc';
     let formatFilter = new Set(); // 格式筛选，空=显示全部
+    let authorFilter = new Set(); // 作者筛选，空=显示全部
+    let authorFilterQuery = '';
     let R18Filter = null; // null=全部, true=仅R18, false=仅SFW
 
     let downloadStatsChart = null;
@@ -1291,6 +1382,50 @@
             time: d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
             full: d.toLocaleString('zh-CN')
         };
+    }
+
+    function normalizeAuthorId(value) {
+        if (value === null || value === undefined || value === '') return null;
+        const parsed = Number.parseInt(String(value), 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+
+    function getAuthorName(artwork) {
+        const authorId = normalizeAuthorId(artwork?.authorId);
+        const directName = String(artwork?.authorName || '').trim();
+        if (directName) return directName;
+        if (authorId !== null && authorMap.has(authorId)) {
+            return String(authorMap.get(authorId) || '').trim() || String(authorId);
+        }
+        return authorId !== null ? String(authorId) : '—';
+    }
+
+    function getAuthorLabel(artwork) {
+        const authorId = normalizeAuthorId(artwork?.authorId);
+        if (authorId === null) return '—';
+        const name = getAuthorName(artwork);
+        return name === String(authorId) ? `#${authorId}` : `${name} (#${authorId})`;
+    }
+
+    function getAuthorOptions() {
+        const merged = new Map(authorMap);
+        (allArtworksCache || []).forEach(artwork => {
+            const authorId = normalizeAuthorId(artwork.authorId);
+            if (authorId === null || merged.has(authorId)) return;
+            merged.set(authorId, getAuthorName(artwork));
+        });
+        return [...merged.entries()]
+            .map(([id, name]) => ({ id, name: String(name || id) }))
+            .sort((a, b) => {
+                const byName = a.name.localeCompare(b.name, 'zh-CN');
+                return byName !== 0 ? byName : a.id - b.id;
+            });
+    }
+
+    function positionFilterPopup(th, popup) {
+        const rect = th.getBoundingClientRect();
+        popup.style.top = (rect.bottom + 4) + 'px';
+        popup.style.left = rect.left + 'px';
     }
 
     // ===================== 初始化 =====================
@@ -1341,6 +1476,11 @@
         loadAllDataForChart();
         syncActiveIds();
 
+        document.getElementById('th-extensions').addEventListener('click', toggleFormatFilter);
+        document.getElementById('th-R18').addEventListener('click', toggleR18Filter);
+        document.getElementById('pageGridBtn').addEventListener('click', togglePageGrid);
+        document.getElementById('formatFilterPopup').addEventListener('click', e => e.stopPropagation());
+
         document.getElementById('searchInput').addEventListener('input', onSearch);
         document.getElementById('refreshHistory').addEventListener('click', () => {
             searchQuery = '';
@@ -1348,10 +1488,14 @@
             sortKey = 'time';
             sortDir = 'desc';
             formatFilter = new Set();
+            authorFilter = new Set();
+            authorFilterQuery = '';
             R18Filter = null;
             currentPage = 1;
             document.getElementById('pagination').style.display = '';
             updateFormatFilterIcon();
+            updateAuthorFilterIcon();
+            updateR18FilterIcon();
             loadStatistics();
             loadAllDataForChart();
         });
@@ -1383,16 +1527,24 @@
     // ===================== 全量数据 =====================
     async function loadAllDataForChart() {
         try {
-            const res = await fetch('/api/downloaded/history/paged?page=0&size=9999');
-            if (!res.ok) return;
-            const data = await res.json();
+            const [historyRes, authorRes] = await Promise.all([
+                fetch('/api/downloaded/history/paged?page=0&size=9999'),
+                fetch('/api/authors')
+            ]);
+            if (!historyRes.ok) return;
+            const data = await historyRes.json();
+            const authors = authorRes.ok ? await authorRes.json() : [];
             allArtworksCache = data.content ?? [];
+            authorMap = new Map((authors || [])
+                .map(author => [normalizeAuthorId(author.authorId), author.name])
+                .filter(([authorId]) => authorId !== null));
             updateChart(allArtworksCache);
+            updateAuthorFilterIcon();
             renderFromCache();
         } catch (e) {
             console.error('数据加载失败', e);
             document.getElementById('historyTableBody').innerHTML =
-                '<tr><td colspan="6" class="text-center" style="color:var(--red);padding:2rem;">LOAD FAILED — CLICK REFRESH TO RETRY</td></tr>';
+                '<tr><td colspan="9" class="text-center" style="color:var(--red);padding:2rem;">LOAD FAILED — CLICK REFRESH TO RETRY</td></tr>';
         }
     }
 
@@ -1406,6 +1558,14 @@
                 va = (va || '').toLowerCase();
                 vb = (vb || '').toLowerCase();
                 return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+            }
+            if (sortKey === 'authorId') {
+                va = normalizeAuthorId(a.authorId);
+                vb = normalizeAuthorId(b.authorId);
+                if (va === null && vb === null) return (b.time || 0) - (a.time || 0);
+                if (va === null) return 1;
+                if (vb === null) return -1;
+                return sortDir === 'asc' ? va - vb : vb - va;
             }
             if (sortKey === 'moved') {
                 va = a.moved ? 1 : 0;
@@ -1432,7 +1592,7 @@
     }
 
     function renderSortHeaders() {
-        const cols = ['artworkId', 'title', 'count', 'time', 'moved', 'isR18'];
+        const cols = ['artworkId', 'title', 'count', 'authorId', 'time', 'moved', 'isR18'];
         cols.forEach(col => {
             const th   = document.getElementById(`th-${col}`);
             const icon = document.getElementById(`sort-${col}`);
@@ -1460,6 +1620,13 @@
             });
         }
 
+        if (authorFilter.size > 0) {
+            sorted = sorted.filter(a => {
+                const authorId = normalizeAuthorId(a.authorId);
+                return authorId !== null && authorFilter.has(authorId);
+            });
+        }
+
         // 应用 R18 筛选
         if (R18Filter !== null) {
             sorted = sorted.filter(a => a.R18 !== null && a.R18 !== undefined && !!a.R18 === R18Filter);
@@ -1470,7 +1637,8 @@
             const q = searchQuery;
             const filtered = sorted.filter(a =>
                 String(a.artworkId).includes(q) ||
-                (a.title && a.title.toLowerCase().includes(q))
+                (a.title && a.title.toLowerCase().includes(q)) ||
+                String(getAuthorLabel(a)).toLowerCase().includes(q)
             );
             document.getElementById('pagination').style.display = 'none';
             if (gridBtn) gridBtn.style.display = 'none';
@@ -1511,6 +1679,8 @@
             const status      = artwork.moved ? 'MOVED' : 'DONE';
             const statusClass = artwork.moved ? 'status-moved' : 'status-completed';
             const title       = escapeHtml(artwork.title || '—');
+            const authorId    = normalizeAuthorId(artwork.authorId);
+            const authorName  = escapeHtml(getAuthorName(artwork));
             const fmtBadges = (artwork.extensions || '—').split(',')
                 .map(f => `<span class="fmt-badge fmt-${f.trim()}">${f.trim().toUpperCase()}</span>`).join(' ');
             return `
@@ -1519,6 +1689,12 @@
                 <td class="artwork-title" title="${title}">${title}</td>
                 <td><span class="count-badge">${artwork.count}</span></td>
                 <td>${fmtBadges}</td>
+                <td class="author-cell">
+                    ${authorId === null
+                        ? '<span class="author-chip author-empty">—</span>'
+                        : `<button type="button" class="author-chip ${authorFilter.has(authorId) ? 'active' : ''}" onclick="toggleAuthorInFilter(${authorId})" title="按作者筛选">${authorName}</button>
+                           <div class="author-id-sub">${authorId}</div>`}
+                </td>
                 <td class="time-cell">
                     <div class="date">${dt.date}</div>
                     <div class="time">${dt.time}</div>
@@ -1787,6 +1963,7 @@
 
             const dt     = formatDateTime(artwork.time);
             const moveDt = artwork.moveTime ? formatDateTime(artwork.moveTime).full : null;
+            const authorLabel = escapeHtml(getAuthorLabel(artwork));
 
             document.getElementById('artworkModalBody').innerHTML = `
             <div class="row g-3">
@@ -1795,6 +1972,7 @@
                     <ul class="detail-list">
                         <li><span class="detail-key">Artwork ID</span><span class="detail-val" style="color:var(--cyan)">${artwork.artworkId}</span></li>
                         <li><span class="detail-key">Title</span><span class="detail-val">${escapeHtml(artwork.title || '—')}</span></li>
+                        <li><span class="detail-key">Author</span><span class="detail-val">${authorLabel}</span></li>
                         <li><span class="detail-key">Images</span><span class="detail-val"><span class="count-badge">${artwork.count}</span></span></li>
                         <li><span class="detail-key">Downloaded</span><span class="detail-val">${dt.full}</span></li>
                         <li><span class="detail-key">Status</span><span class="detail-val"><span class="status-badge ${artwork.moved ? 'status-moved' : 'status-completed'}">${artwork.moved ? 'MOVED' : 'DONE'}</span></span></li>
@@ -1997,13 +2175,14 @@
     }
 
     // ===================== 格式筛选弹框 =====================
-    function toggleFormatFilter(event) {
-        event.stopPropagation();
+    function toggleFormatFilter(evt) {
+        evt.stopPropagation();
         const popup = document.getElementById('formatFilterPopup');
-        if (popup.classList.contains('show')) {
+        if (popup.classList.contains('show') && popup.dataset.type === 'format') {
             popup.classList.remove('show');
             return;
         }
+        popup.dataset.type = 'format';
 
         // 收集所有可用格式
         const formats = new Set();
@@ -2031,11 +2210,7 @@
                 <button class="btn-term" style="font-size:.6rem;padding:2px 8px;width:100%;" onclick="clearFormatFilter()">CLEAR ALL</button>
             </div>`;
 
-        // 定位在 FORMAT 列头下方
-        const th = document.getElementById('th-extensions');
-        const rect = th.getBoundingClientRect();
-        popup.style.top  = (rect.bottom + 4) + 'px';
-        popup.style.left = rect.left + 'px';
+        positionFilterPopup(document.getElementById('th-extensions'), popup);
         popup.classList.add('show');
     }
 
@@ -2064,9 +2239,115 @@
         if (th) th.classList.toggle('th-filter-active', active);
     }
 
+    function renderAuthorFilterOptions() {
+        const container = document.getElementById('authorFilterOptions');
+        if (!container) return;
+        const q = authorFilterQuery;
+        const authors = getAuthorOptions().filter(author => {
+            if (!q) return true;
+            return author.name.toLowerCase().includes(q) || String(author.id).includes(q);
+        });
+        container.innerHTML = authors.length
+            ? authors.map(author => `
+                <label class="fmt-filter-option">
+                    <input type="checkbox" value="${author.id}" ${authorFilter.has(author.id) ? 'checked' : ''} onchange="toggleAuthorFilterValue(this.value, this.checked)">
+                    <span class="author-filter-row">
+                        <span class="author-filter-name">${escapeHtml(author.name)}</span>
+                        <span class="author-filter-id">#${author.id}</span>
+                    </span>
+                </label>
+            `).join('')
+            : '<div class="filter-empty">NO AUTHOR MATCH</div>';
+    }
+
+    function renderAuthorFilterPopup() {
+        const popup = document.getElementById('formatFilterPopup');
+        popup.dataset.type = 'author';
+        popup.innerHTML = `
+            <div class="fmt-filter-header">AUTHOR FILTER</div>
+            <input type="text" class="search-box filter-popup-search" placeholder="搜索作者名 / ID" value="${escapeHtml(authorFilterQuery)}" oninput="onAuthorFilterSearch(this.value)">
+            <div id="authorFilterOptions" class="fmt-filter-options"></div>
+            <div class="fmt-filter-actions">
+                <button class="btn-term" style="font-size:.6rem;padding:2px 8px;width:100%;" onclick="clearAuthorFilter()">CLEAR ALL</button>
+            </div>`;
+        renderAuthorFilterOptions();
+        positionFilterPopup(document.getElementById('th-authorId'), popup);
+        popup.classList.add('show');
+    }
+
+    function toggleAuthorFilter(evt) {
+        evt.stopPropagation();
+        const popup = document.getElementById('formatFilterPopup');
+        if (popup.classList.contains('show') && popup.dataset.type === 'author') {
+            popup.classList.remove('show');
+            return;
+        }
+        renderAuthorFilterPopup();
+    }
+
+    function onAuthorFilterSearch(value) {
+        authorFilterQuery = String(value || '').trim().toLowerCase();
+        renderAuthorFilterOptions();
+    }
+
+    function toggleAuthorFilterValue(value, checked) {
+        const authorId = normalizeAuthorId(value);
+        if (authorId === null) return;
+        if (checked) {
+            authorFilter.add(authorId);
+        } else {
+            authorFilter.delete(authorId);
+        }
+        currentPage = 1;
+        updateAuthorFilterIcon();
+        renderFromCache();
+    }
+
+    function clearAuthorFilter() {
+        authorFilter = new Set();
+        authorFilterQuery = '';
+        currentPage = 1;
+        updateAuthorFilterIcon();
+        renderFromCache();
+        if (document.getElementById('formatFilterPopup').dataset.type === 'author') {
+            renderAuthorFilterPopup();
+        }
+    }
+
+    function toggleAuthorInFilter(authorId) {
+        const normalized = normalizeAuthorId(authorId);
+        if (normalized === null) return;
+        if (authorFilter.size === 1 && authorFilter.has(normalized)) {
+            authorFilter = new Set();
+        } else {
+            const next = new Set(authorFilter);
+            if (next.has(normalized)) {
+                next.delete(normalized);
+            } else {
+                next.add(normalized);
+            }
+            authorFilter = next;
+        }
+        currentPage = 1;
+        updateAuthorFilterIcon();
+        renderFromCache();
+        const popup = document.getElementById('formatFilterPopup');
+        if (popup.classList.contains('show') && popup.dataset.type === 'author') {
+            renderAuthorFilterPopup();
+        }
+    }
+
+    function updateAuthorFilterIcon() {
+        const th = document.getElementById('th-authorId');
+        const icon = document.getElementById('filter-authorId');
+        const active = authorFilter.size > 0;
+        if (th) th.classList.toggle('th-filter-active', active);
+        if (icon) icon.classList.toggle('active', active);
+    }
+
     // ===================== R18 筛选弹框 =====================
-    function toggleR18Filter(event) {
-        event.stopPropagation();
+    function toggleR18Filter(evt) {
+        evt.stopPropagation();
         const popup = document.getElementById('formatFilterPopup');
         if (popup.classList.contains('show') && popup.dataset.type === 'R18') {
             popup.classList.remove('show');
@@ -2093,10 +2374,7 @@
                 `).join('')}
             </div>`;
 
-        const th = document.getElementById('th-R18');
-        const rect = th.getBoundingClientRect();
-        popup.style.top  = (rect.bottom + 4) + 'px';
-        popup.style.left = rect.left + 'px';
+        positionFilterPopup(document.getElementById('th-R18'), popup);
         popup.classList.add('show');
     }
 
@@ -2117,8 +2395,8 @@
     }
 
     // ===================== 页码网格弹框 =====================
-    function togglePageGrid(event) {
-        event.stopPropagation();
+    function togglePageGrid(evt) {
+        evt.stopPropagation();
         const popup = document.getElementById('pageGridPopup');
         if (popup.classList.contains('show')) {
             popup.classList.remove('show');

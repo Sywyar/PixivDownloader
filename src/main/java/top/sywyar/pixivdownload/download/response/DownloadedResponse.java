@@ -20,4 +20,6 @@ public class DownloadedResponse {
     private final Long moveTime;
     @JsonProperty("R18")
     private final Boolean isR18;
+    private final Long authorId;
+    private final String authorName;
 }

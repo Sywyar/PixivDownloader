@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv User 批量下载器
 // @namespace    http://tampermonkey.net/
-// @version      2.0.5
+// @version      2.0.6
 // @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Java 后端。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -297,11 +297,14 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, isR18, ugoiraData, delayMs, bookmark) {
+        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, authorId, authorName, isR18, ugoiraData, delayMs, bookmark) {
             return new Promise((resolve, reject) => {
+                const parsedAuthorId = Number.parseInt(String(authorId || ''), 10);
                 const other = {
                     userDownload: true,
                     username: usernameParam,
+                    authorId: Number.isFinite(parsedAuthorId) ? parsedAuthorId : null,
+                    authorName: authorName || null,
                     isR18: isR18,
                     delayMs: delayMs || 0,
                     bookmark: !!bookmark
@@ -852,21 +855,18 @@
                 item.title = safeTitle;
                 this.saveToStorage();
 
-                if (this.globalSettings.r18Only) {
-                    const restriction = meta ? (meta.xRestrict ?? meta.xrestrict ?? 0) : 0;
-                    if (restriction === 0) {
-                        item.status = 'skipped';
-                        item.lastMessage = '跳过 — 非 R18 内容';
-                        item.endTime = new Date().toISOString();
-                        this.updateStats();
-                        this.saveToStorage();
-                        this.ui.renderQueue(this.queue);
-                        return;
-                    }
-                }
-
                 // 判断是否是 R18 内容
-                const isR18 = meta ? (meta.xRestrict ?? meta.xrestrict ?? 0) : 0;
+                const isR18 = Number(meta?.xRestrict ?? meta?.xrestrict ?? 0) > 0;
+
+                if (this.globalSettings.r18Only && !isR18) {
+                    item.status = 'skipped';
+                    item.lastMessage = '跳过 — 非 R18 内容';
+                    item.endTime = new Date().toISOString();
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
+                    return;
+                }
 
                 let urls;
                 let ugoiraData = null;
@@ -881,6 +881,10 @@
                     };
                     urls = [zipSrc];
                     item.totalImages = 1;
+                } else if (meta && meta.pageCount === 1 && meta.urls && meta.urls.original) {
+                    // 单页插画：meta 已带 original URL，无需再请求 /pages
+                    urls = [meta.urls.original];
+                    item.totalImages = 1;
                 } else {
                     urls = await Api.getArtworkPages(item.id);
                     if (!urls || !urls.length) throw new Error('无图片URL');
@@ -892,7 +896,18 @@
                 this.ui.renderQueue(this.queue);
 
                 this.ui.setStatus(`下载中：${item.title}`, 'info');
-                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, username, isR18, ugoiraData, this.getImageDelayMs(), this.globalSettings.bookmark);
+                const dlData = await Api.sendDownloadRequest(
+                    item.id,
+                    urls,
+                    item.title,
+                    username,
+                    this.userId,
+                    this.userName || username,
+                    isR18,
+                    ugoiraData,
+                    this.getImageDelayMs(),
+                    this.globalSettings.bookmark
+                );
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';

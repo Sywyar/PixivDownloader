@@ -29,6 +29,8 @@ public class DownloadRequest {
         @JsonProperty("isUserDownload")
         private boolean isUserDownload;
         private String username;
+        private Long authorId;
+        private String authorName;
         @JsonProperty("isR18")
         private boolean isR18;
         @JsonProperty("isUgoira")

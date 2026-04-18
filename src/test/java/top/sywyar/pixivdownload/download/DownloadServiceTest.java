@@ -13,9 +13,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 
@@ -25,6 +27,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -49,12 +52,15 @@ class DownloadServiceTest {
     private PixivBookmarkService pixivBookmarkService;
     @Mock
     private UgoiraService ugoiraService;
+    @Mock
+    private AuthorService authorService;
 
     private DownloadService downloadService;
 
     @BeforeEach
     void setUp() {
-        downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService, downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService);
+        downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService,
+                downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService, authorService);
     }
 
     // ========== validatePixivUrl (SSRF 防护) ==========
@@ -206,7 +212,7 @@ class DownloadServiceTest {
         @DisplayName("已存在的作品应返回记录")
         void shouldReturnArtworkRecord() {
             ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", "/path/to/folder",
-                    3, "jpg", 1700000000L, false, null, null, false);
+                    3, "jpg", 1700000000L, false, null, null, false, null);
             when(pixivDatabase.getArtwork(12345L)).thenReturn(record);
 
             ArtworkRecord result = downloadService.getDownloadedRecord(12345L);
@@ -239,7 +245,7 @@ class DownloadServiceTest {
         void shouldDeleteStaleRecordWhenDirectoryIsEmpty() throws Exception {
             Path folder = Files.createDirectories(tempDir.resolve("12345"));
             ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", folder.toString(),
-                    3, "jpg", 1700000000L, false, null, null, false);
+                    3, "jpg", 1700000000L, false, null, null, false, null);
             when(pixivDatabase.getArtwork(12345L)).thenReturn(record);
 
             ArtworkRecord result = downloadService.getDownloadedRecord(12345L, true);
@@ -255,7 +261,7 @@ class DownloadServiceTest {
             Files.writeString(folder.resolve("note.txt"), "orphan");
             Files.writeString(folder.resolve("22345_p0.json"), "{}");
             ArtworkRecord record = new ArtworkRecord(22345L, "测试作品", folder.toString(),
-                    1, "jpg", 1700000000L, false, null, null, false);
+                    1, "jpg", 1700000000L, false, null, null, false, null);
             when(pixivDatabase.getArtwork(22345L)).thenReturn(record);
 
             ArtworkRecord result = downloadService.getDownloadedRecord(22345L, true);
@@ -271,7 +277,7 @@ class DownloadServiceTest {
             Path movedFolder = Files.createDirectories(tempDir.resolve("32345-moved"));
             Files.write(movedFolder.resolve("32345_p0.webp"), new byte[]{1, 2, 3});
             ArtworkRecord record = new ArtworkRecord(32345L, "测试作品", originalFolder.toString(),
-                    1, "webp", 1700000000L, true, movedFolder.toString(), 1700000001L, false);
+                    1, "webp", 1700000000L, true, movedFolder.toString(), 1700000001L, false, null);
             when(pixivDatabase.getArtwork(32345L)).thenReturn(record);
 
             ArtworkRecord result = downloadService.getDownloadedRecord(32345L, true);
@@ -301,6 +307,69 @@ class DownloadServiceTest {
 
             assertThatCode(() -> downloadService.recordStatistics(5))
                     .doesNotThrowAnyException();
+        }
+    }
+
+    @Nested
+    @DisplayName("author handling")
+    class AuthorHandlingTests {
+
+        @BeforeEach
+        void setupDownloadPath() {
+            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(true);
+            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any()))
+                    .thenReturn(1);
+            lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
+        }
+
+        @Test
+        @DisplayName("authorId 为空时应触发异步补齐")
+        void shouldLookupMissingAuthorWhenAuthorIdMissing() {
+            DownloadRequest.Other other = new DownloadRequest.Other();
+            other.setUgoira(true);
+            other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
+            other.setUgoiraDelays(List.of(100));
+
+            downloadService.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
+                    "https://www.pixiv.net/", other, "cookie=value", null);
+
+            verify(authorService).asyncLookupMissing(12345L, "cookie=value");
+            verify(authorService, never()).observe(anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("authorId 非空时应上报作者信息")
+        void shouldObserveAuthorWhenAuthorIdPresent() {
+            DownloadRequest.Other other = new DownloadRequest.Other();
+            other.setUgoira(true);
+            other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
+            other.setUgoiraDelays(List.of(100));
+            other.setAuthorId(999L);
+            other.setAuthorName("author");
+
+            downloadService.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
+                    "https://www.pixiv.net/", other, null, null);
+
+            verify(authorService).observe(999L, "author");
+            verify(authorService, never()).asyncLookupMissing(anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("作者信息记录异常不应阻断下载记录")
+        void shouldIgnoreAuthorRecordFailure() {
+            DownloadRequest.Other other = new DownloadRequest.Other();
+            other.setUgoira(true);
+            other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
+            other.setUgoiraDelays(List.of(100));
+            other.setAuthorId(999L);
+            doThrow(new RuntimeException("boom")).when(authorService).observe(999L, null);
+
+            downloadService.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
+                    "https://www.pixiv.net/", other, null, null);
+
+            verify(pixivDatabase).insertArtwork(12345L, "test", tempDir.resolve("12345").toAbsolutePath().toString(),
+                    1, "webp", 1700000100L, false, 999L);
         }
     }
 

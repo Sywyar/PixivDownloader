@@ -12,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
+import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
@@ -45,6 +46,8 @@ class DownloadControllerTest {
     private UserQuotaService userQuotaService;
     @Mock
     private PixivDatabase pixivDatabase;
+    @Mock
+    private AuthorService authorService;
 
     private MultiModeConfig multiModeConfig;
 
@@ -52,7 +55,7 @@ class DownloadControllerTest {
     void setUp() {
         multiModeConfig = new MultiModeConfig();
         DownloadController controller = new DownloadController(
-                downloadService, setupService, userQuotaService, multiModeConfig, pixivDatabase);
+                downloadService, setupService, userQuotaService, multiModeConfig, pixivDatabase, authorService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -237,7 +240,7 @@ class DownloadControllerTest {
         @DisplayName("已下载的作品应返回详情")
         void shouldReturnDownloadedArtwork() throws Exception {
             ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", "/path/to/folder",
-                    3, "jpg", 1700000000L, false, null, null, false);
+                    3, "jpg", 1700000000L, false, null, null, false, null);
             when(downloadService.getDownloadedRecord(12345L, false)).thenReturn(record);
 
             mockMvc.perform(get("/api/downloaded/12345"))
@@ -260,7 +263,7 @@ class DownloadControllerTest {
         @DisplayName("verifyFiles=true 时应透传实际目录校验参数")
         void shouldPassVerifyFilesFlag() throws Exception {
             ArtworkRecord record = new ArtworkRecord(12345L, "娴嬭瘯浣滃搧", "/path/to/folder",
-                    1, "jpg", 1700000000L, false, null, null, false);
+                    1, "jpg", 1700000000L, false, null, null, false, null);
             when(downloadService.getDownloadedRecord(12345L, true)).thenReturn(record);
 
             mockMvc.perform(get("/api/downloaded/12345").param("verifyFiles", "true"))
@@ -276,8 +279,8 @@ class DownloadControllerTest {
     @Test
     @DisplayName("POST /api/downloaded/batch 应批量返回作品信息")
     void shouldReturnBatchArtworks() throws Exception {
-        ArtworkRecord record1 = new ArtworkRecord(1L, "A", "/a", 1, "jpg", 100L, false, null, null, null);
-        ArtworkRecord record2 = new ArtworkRecord(2L, "B", "/b", 2, "png", 200L, false, null, null, null);
+        ArtworkRecord record1 = new ArtworkRecord(1L, "A", "/a", 1, "jpg", 100L, false, null, null, null, null);
+        ArtworkRecord record2 = new ArtworkRecord(2L, "B", "/b", 2, "png", 200L, false, null, null, null, null);
         when(downloadService.getDownloadedRecord(1L)).thenReturn(record1);
         when(downloadService.getDownloadedRecord(2L)).thenReturn(record2);
         when(downloadService.getDownloadedRecord(3L)).thenReturn(null);
@@ -317,7 +320,7 @@ class DownloadControllerTest {
         @DisplayName("找到的移动路径应返回作品ID")
         void shouldReturnArtworkId() throws Exception {
             ArtworkRecord record = new ArtworkRecord(12345L, "test", "/path", 1, "jpg",
-                    100L, true, "/moved", 200L, null);
+                    100L, true, "/moved", 200L, null, null);
             when(pixivDatabase.getArtworkByMoveFolder("/moved")).thenReturn(record);
 
             mockMvc.perform(get("/api/downloaded/by-move-folder").param("path", "/moved"))
@@ -369,10 +372,10 @@ class DownloadControllerTest {
         when(downloadService.getArtworkCount()).thenReturn(25L);
         when(downloadService.getSortTimeArtworkPaged(0, 10)).thenReturn(List.of(25L, 24L));
 
-        ArtworkRecord r1 = new ArtworkRecord(25L, "A", "/a", 1, "jpg", 200L, false, null, null, null);
-        ArtworkRecord r2 = new ArtworkRecord(24L, "B", "/b", 2, "png", 100L, false, null, null, null);
-        when(downloadService.getDownloadedRecord(25L, false)).thenReturn(r1);
-        when(downloadService.getDownloadedRecord(24L, false)).thenReturn(r2);
+        ArtworkRecord r1 = new ArtworkRecord(25L, "A", "/a", 1, "jpg", 200L, false, null, null, null, null);
+        ArtworkRecord r2 = new ArtworkRecord(24L, "B", "/b", 2, "png", 100L, false, null, null, null, null);
+        when(downloadService.getDownloadedRecord(25L)).thenReturn(r1);
+        when(downloadService.getDownloadedRecord(24L)).thenReturn(r2);
 
         mockMvc.perform(get("/api/downloaded/history/paged")
                         .param("page", "0").param("size", "10"))

@@ -45,7 +45,8 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private static final List<String> MONITOR_PREFIX_PATHS = List.of(
             "/api/downloaded/thumbnail/",
-            "/api/downloaded/rawfile/"
+            "/api/downloaded/rawfile/",
+            "/api/authors"
     );
 
     private final SetupService setupService;

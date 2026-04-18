@@ -11,6 +11,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
@@ -47,6 +48,7 @@ public class DownloadService {
     private final TaskScheduler taskScheduler;
     private final PixivBookmarkService pixivBookmarkService;
     private final UgoiraService ugoiraService;
+    private final AuthorService authorService;
 
     // 存储下载状态
     private final ConcurrentHashMap<Long, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
@@ -58,7 +60,8 @@ public class DownloadService {
                            @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                            TaskScheduler taskScheduler,
                            PixivBookmarkService pixivBookmarkService,
-                           UgoiraService ugoiraService) {
+                           UgoiraService ugoiraService,
+                           AuthorService authorService) {
         this.downloadConfig = downloadConfig;
         this.eventPublisher = eventPublisher;
         this.pixivDatabase = pixivDatabase;
@@ -67,6 +70,7 @@ public class DownloadService {
         this.taskScheduler = taskScheduler;
         this.pixivBookmarkService = pixivBookmarkService;
         this.ugoiraService = ugoiraService;
+        this.authorService = authorService;
     }
 
     @Async
@@ -150,8 +154,10 @@ public class DownloadService {
             }
 
             // 记录下载信息
-            recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions, successCount.get(), other.isR18());
+            recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions,
+                    successCount.get(), other.isR18(), other.getAuthorId());
             recordStatistics(imageUrls.size());
+            recordAuthorInfo(artworkId, other, cookie);
 
             // 更新下载状态为完成
             status.setCompleted(true);
@@ -263,16 +269,29 @@ public class DownloadService {
         return parts.length > 1 ? parts[parts.length - 1] : "jpg";
     }
 
-    private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions, int count, boolean isR18) {
+    private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,
+                                int count, boolean isR18, Long authorId) {
         try {
             long time = pixivDatabase.getUniqueTime();
             pixivDatabase.insertArtwork(
                     artworkId, title,
                     Path.of(folderPath).toAbsolutePath().toString(),
-                    count, String.join(",", fileExtensions), time, isR18
+                    count, String.join(",", fileExtensions), time, isR18, authorId
             );
         } catch (Exception e) {
             log.error("记录下载历史失败: {}", e.getMessage(), e);
+        }
+    }
+
+    private void recordAuthorInfo(Long artworkId, DownloadRequest.Other other, String cookie) {
+        try {
+            if (other != null && other.getAuthorId() != null) {
+                authorService.observe(other.getAuthorId(), other.getAuthorName());
+                return;
+            }
+            authorService.asyncLookupMissing(artworkId, cookie);
+        } catch (Exception e) {
+            log.warn("记录作者信息失败: artworkId={}", artworkId, e);
         }
     }
 
@@ -490,6 +509,10 @@ public class DownloadService {
 
     public List<Long> getSortTimeArtworkPaged(int page, int size) {
         return pixivDatabase.getArtworkIdsSortedByTimeDescPaged(page * size, size);
+    }
+
+    public List<Long> getSortAuthorArtworkPaged(int page, int size) {
+        return pixivDatabase.getArtworkIdsSortedByAuthorIdAscPaged(page * size, size);
     }
 
     public long getArtworkCount() {

@@ -64,7 +64,20 @@ class PixivDatabaseTest {
             assertThat(record.extensions()).isEqualTo("jpg");
             assertThat(record.time()).isEqualTo(1700000001L);
             assertThat(record.isR18()).isFalse();
+            assertThat(record.authorId()).isNull();
             assertThat(record.moved()).isFalse();
+        }
+
+        @Test
+        @DisplayName("插入作品时应写入 authorId")
+        void shouldInsertArtworkWithAuthorId() {
+            pixivDatabase.insertArtwork(12346L, "author test", "/path/to/12346",
+                    1, "png", 1700000007L, false, 777L);
+
+            ArtworkRecord record = pixivDatabase.getArtwork(12346L);
+
+            assertThat(record).isNotNull();
+            assertThat(record.authorId()).isEqualTo(777L);
         }
 
         @Test
@@ -182,6 +195,32 @@ class PixivDatabaseTest {
         List<Long> page1 = pixivDatabase.getArtworkIdsSortedByTimeDescPaged(5, 5);
         assertThat(page1).hasSize(5);
         assertThat(page1.get(0)).isEqualTo(15L);
+    }
+
+    @Test
+    @DisplayName("按作者排序分页时应将 null authorId 排在最后")
+    void shouldReturnPagedResultsSortedByAuthorId() {
+        pixivDatabase.insertArtwork(1L, "a", "/a", 1, "jpg", 100L, false, 20L);
+        pixivDatabase.insertArtwork(2L, "b", "/b", 1, "jpg", 200L, false, null);
+        pixivDatabase.insertArtwork(3L, "c", "/c", 1, "jpg", 150L, false, 10L);
+
+        List<Long> ids = pixivDatabase.getArtworkIdsSortedByAuthorIdAscPaged(0, 10);
+
+        assertThat(ids).containsExactly(3L, 1L, 2L);
+    }
+
+    @Test
+    @DisplayName("应更新作品 authorId 并查询缺失 authorId 的记录")
+    void shouldUpdateAndQueryMissingAuthorIds() {
+        pixivDatabase.insertArtwork(10L, "a", "/a", 1, "jpg", 1000L, false, null);
+        pixivDatabase.insertArtwork(11L, "b", "/b", 1, "jpg", 1001L, false, 88L);
+
+        assertThat(pixivDatabase.getArtworkIdsMissingAuthor()).containsExactly(10L);
+
+        pixivDatabase.updateAuthorId(10L, 99L);
+
+        assertThat(pixivDatabase.getArtwork(10L).authorId()).isEqualTo(99L);
+        assertThat(pixivDatabase.getArtworkIdsMissingAuthor()).isEmpty();
     }
 
     // ========== countArtworks ==========
@@ -323,5 +362,10 @@ class PixivDatabaseTest {
         // 确保 time2 与 time1 不冲突
         pixivDatabase.insertArtwork(2L, "b", "/b", 1, "jpg", time2, false);
         assertThat(pixivDatabase.hasArtwork(2L)).isTrue();
+    }
+    @Test
+    @DisplayName("重复初始化时不应因 authorId 列迁移失败")
+    void shouldAllowRepeatedInit() {
+        assertThatCode(() -> pixivDatabase.init()).doesNotThrowAnyException();
     }
 }

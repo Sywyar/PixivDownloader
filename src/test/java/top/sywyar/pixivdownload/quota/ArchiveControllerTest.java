@@ -102,7 +102,7 @@ class ArchiveControllerTest {
         when(setupService.isAdminLoggedIn(any())).thenReturn(true);
         when(pixivDatabase.getArtwork(1L)).thenReturn(new ArtworkRecord(
                 1L, "测试", tempDir.resolve("missing").toString(),
-                1, "jpg", 100L, false, null, null, false
+                1, "jpg", 100L, false, null, null, false, null
         ));
 
         mockMvc.perform(post("/api/archive/pack-artworks")
@@ -122,7 +122,7 @@ class ArchiveControllerTest {
         Path movedFolder = Files.createDirectories(tempDir.resolve("12345-moved"));
         when(pixivDatabase.getArtwork(12345L)).thenReturn(new ArtworkRecord(
                 12345L, "测试", tempDir.resolve("12345").toString(),
-                2, "jpg", 100L, true, movedFolder.toString(), 200L, false
+                2, "jpg", 100L, true, movedFolder.toString(), 200L, false, null
         ));
 
         mockMvc.perform(post("/api/archive/pack-artworks")

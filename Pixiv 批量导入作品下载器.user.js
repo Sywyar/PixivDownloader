@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 批量导入作品下载器
 // @namespace    http://tampermonkey.net/
-// @version      2.0.6
+// @version      2.0.7
 // @description  粘贴作品链接列表批量下载，格式为 url | title，兼容 One-Tab，N-Tab 等标签页管理插件导出格式，支持严格的下载状态校验。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -204,9 +204,17 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, ugoiraData, delayMs, bookmark) {
+        sendDownloadRequest(artworkId, imageUrls, title, authorId, authorName, isR18, ugoiraData, delayMs, bookmark) {
             return new Promise((resolve, reject) => {
-                const other = {userDownload: false, delayMs: delayMs || 0, bookmark: !!bookmark};
+                const parsedAuthorId = Number.parseInt(String(authorId ?? ''), 10);
+                const other = {
+                    userDownload: false,
+                    authorId: Number.isFinite(parsedAuthorId) ? parsedAuthorId : null,
+                    authorName: authorName || null,
+                    isR18: !!isR18,
+                    delayMs: delayMs || 0,
+                    bookmark: !!bookmark
+                };
                 if (ugoiraData) {
                     other.isUgoira = true;
                     other.ugoiraZipUrl = ugoiraData.zipUrl;
@@ -777,19 +785,19 @@
                 // 不能依赖 pages 返回空来判断动图，必须用 illustType 判断
                 const meta = await Api.getArtworkMeta(item.id);
                 item.title = (meta && meta.illustTitle) || item.title || `作品 ${item.id}`;
+                const authorId = meta?.userId ?? null;
+                const authorName = meta?.userName || null;
+                const isR18 = Number(meta?.xRestrict ?? meta?.xrestrict ?? 0) > 0;
 
-                if (this.r18Only) {
-                    const restriction = meta ? (meta.xRestrict ?? meta.xrestrict ?? 0) : 0;
-                    if (restriction === 0) {
-                        item.status = 'skipped';
-                        item.lastMessage = '跳过 — 非 R18 内容';
-                        item.endTime = new Date().toISOString();
-                        this.updateStats();
-                        this.saveToStorage();
-                        this.ui.renderQueue(this.queue);
-                        this.ui.setStatus(`跳过：${item.title}（非R18）`, 'warning');
-                        return;
-                    }
+                if (this.r18Only && !isR18) {
+                    item.status = 'skipped';
+                    item.lastMessage = '跳过 — 非 R18 内容';
+                    item.endTime = new Date().toISOString();
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
+                    this.ui.setStatus(`跳过：${item.title}（非R18）`, 'warning');
+                    return;
                 }
 
                 item.lastMessage = '正在获取图片地址...';
@@ -809,6 +817,10 @@
                     };
                     urls = [zipSrc];
                     item.totalImages = 1;
+                } else if (meta && meta.pageCount === 1 && meta.urls && meta.urls.original) {
+                    // 单页插画：meta 已带 original URL，无需再请求 /pages
+                    urls = [meta.urls.original];
+                    item.totalImages = 1;
                 } else {
                     urls = await Api.getArtworkPages(item.id);
                     if (!Array.isArray(urls) || urls.length === 0) throw new Error('未获取到图片 URL');
@@ -819,7 +831,7 @@
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
-                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, ugoiraData, this.getImageDelayMs(), this.bookmark);
+                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, isR18, ugoiraData, this.getImageDelayMs(), this.bookmark);
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';

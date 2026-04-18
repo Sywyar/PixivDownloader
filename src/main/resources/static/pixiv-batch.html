@@ -1595,11 +1595,19 @@
         saveSettings();
     }
 
-    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, isR18, ugoiraData) {
+    function normalizeAuthorId(value) {
+        if (value === null || value === undefined || value === '') return null;
+        const parsed = Number.parseInt(String(value), 10);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+
+    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, isR18, ugoiraData) {
         const delayMs = getImageDelayMs();
         const other = {
             userDownload: isUserDownload,
             username: username || '',
+            authorId: normalizeAuthorId(authorId),
+            authorName: authorName || null,
             isR18: !!isR18,
             delayMs,
             bookmark: !!state.settings.bookmark
@@ -1875,9 +1883,13 @@
             renderQueue();
 
             setStatus(`下载中：${item.title}`, 'info');
+            const fallbackAuthorId = isUserMode ? normalizeAuthorId(state.userId) : null;
+            const fallbackAuthorName = isUserMode ? (item.username || state.username || state.userId || '') : '';
             const dlData = await sendDownload(
                 item.id, urls, item.title,
                 isUserMode, item.username || state.username || state.userId,
+                item.authorId ?? fallbackAuthorId,
+                item.authorName || fallbackAuthorName,
                 isR18, ugoiraData
             );
             if (dlData && dlData.alreadyDownloaded) {
@@ -2043,7 +2055,7 @@
         setStatus(`解析完成：共 ${items.length} 个，新增 ${added} 个`, 'success');
     }
 
-    function addItemsToQueue(idList, metaList, source, username) {
+    function addItemsToQueue(idList, metaList, source, username, defaultAuthorId, defaultAuthorName) {
         const existing = new Set(state.queue.map(q => q.id));
         let added = 0;
         const meta = metaList || [];
@@ -2051,12 +2063,16 @@
             const id = String(idList[i]);
             if (existing.has(id)) continue;
             const m = meta[i] || {};
+            const authorId = normalizeAuthorId(m.authorId ?? defaultAuthorId);
+            const authorName = m.authorName || defaultAuthorName || '';
             state.queue.push({
                 id,
                 title: m.title || `作品 ${id}`,
                 status: state.isRunning ? 'pending' : 'idle',
                 source: source || 'ntab',
                 username: username || '',
+                authorId,
+                authorName,
                 totalImages: 0,
                 downloadedCount: 0,
                 startTime: null,
@@ -2194,7 +2210,14 @@
                 setStatus('该用户暂无作品', 'warning');
                 return;
             }
-            const added = addItemsToQueue(ids, null, 'user', state.username || state.userId);
+            const added = addItemsToQueue(
+                ids,
+                null,
+                'user',
+                state.username || state.userId,
+                state.userId,
+                state.username || state.userId
+            );
             setStatus(`获取成功：共 ${ids.length} 个作品，新增 ${added} 个`, 'success');
 
             if (onlyNew) {
@@ -2623,7 +2646,11 @@
             }
             return;
         }
-        const added = addItemsToQueue([item.id], [{title: item.title}], 'search', '');
+        const added = addItemsToQueue([item.id], [{
+            title: item.title,
+            authorId: item.userId,
+            authorName: item.userName
+        }], 'search', '');
         setStatus(added > 0 ? `已加入队列：${item.title}` : `已在队列中：${item.title}`,
             added > 0 ? 'success' : 'info');
     }
@@ -2631,7 +2658,11 @@
     function addAllSearchResultsToQueue() {
         if (!searchState.results.length) return;
         const ids = searchState.results.map(r => r.id);
-        const metas = searchState.results.map(r => ({title: r.title}));
+        const metas = searchState.results.map(r => ({
+            title: r.title,
+            authorId: r.userId,
+            authorName: r.userName
+        }));
         const added = addItemsToQueue(ids, metas, 'search', '');
         setStatus(`已将 ${added} 个作品加入队列（共 ${ids.length} 个，${ids.length - added} 个已在队列中）`, 'success');
     }

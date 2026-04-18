@@ -21,6 +21,7 @@ public class PixivDatabase {
         pixivMapper.initStatistics();
         // 幂等迁移：为无 R18 列的旧库补列，已有数据行该列为 NULL
         try { pixivMapper.addR18Column(); } catch (Exception ignored) {}
+        try { pixivMapper.addAuthorIdColumn(); } catch (Exception ignored) {}
         log.info("数据库初始化完成");
     }
 
@@ -38,9 +39,14 @@ public class PixivDatabase {
     }
 
     public void insertArtwork(long artworkId, String title, String folder, int count,
-                              String extensions, long time, Boolean isR18) {
+                              String extensions, long time, Boolean isR18, Long authorId) {
         pixivMapper.insertOrIgnore(artworkId, title, stripTrailingSlash(folder),
-                count, extensions, time, isR18);
+                count, extensions, time, isR18, authorId);
+    }
+
+    public void insertArtwork(long artworkId, String title, String folder, int count,
+                              String extensions, long time, Boolean isR18) {
+        insertArtwork(artworkId, title, folder, count, extensions, time, isR18, null);
     }
 
     private static String stripTrailingSlash(String path) {
@@ -85,6 +91,18 @@ public class PixivDatabase {
 
     public List<Long> getArtworkIdsSortedByTimeDescPaged(int offset, int size) {
         return pixivMapper.findIdsSortedByTimeDescPaged(size, offset);
+    }
+
+    public List<Long> getArtworkIdsSortedByAuthorIdAscPaged(int offset, int size) {
+        return pixivMapper.findIdsSortedByAuthorIdAscPaged(size, offset);
+    }
+
+    public void updateAuthorId(long artworkId, long authorId) {
+        pixivMapper.updateAuthorId(artworkId, authorId);
+    }
+
+    public List<Long> getArtworkIdsMissingAuthor() {
+        return pixivMapper.findIdsMissingAuthor();
     }
 
     public void incrementStats(int imageCount) {

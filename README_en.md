@@ -25,13 +25,13 @@ PixivDownload is a local Pixiv batch image download tool with multiple download 
 
 - Pixiv-batch.html [offers one-stop downloading](#Web-Batch-Download), including bulk artwork import, batch downloading of user-submitted works, and batch downloading of searched works. It works in conjunction with a page-based batch download script, requiring no other scripts.
 - Batch page download — scrape all works from the entire Pixiv site, including search pages, followed feeds, leaderboards, etc.
-- monitor.html is a [one-stop management page](#Download-Monitor) that allows for multi-dimensional filtering and sorting of works.
+- monitor.html is a [one-stop management page](#Download-Monitor) that allows for multi-dimensional filtering and sorting of works, including author-based search/filter/sort in download history.
 - Single artwork download — one-click download on artwork pages
 - User homepage batch download — batch download all works from a user
 - Bulk artwork import — paste artwork link lists in `url | title` format for batch downloading, compatible with export formats from tab manager extensions such as OneTab and N-Tab
 - Keyword search download — search and download Pixiv artworks via web interface
 - Animated image auto-conversion to WebP — automatically convert Ugoira to WebP with delays
-- Download history management — record downloaded artworks, support resumable downloads
+- Download history management — record downloaded artworks and author metadata, support resumable downloads, and detect author renames automatically
 - Image classification tool — standalone desktop tool for organizing downloaded images
 - Multi-mode rate limiting — quota and rate limits for multi-user scenarios
 
@@ -183,6 +183,41 @@ Bulk artwork import format:
 ### Download Monitor
 
 Visit `http://localhost:6999/monitor.html` to view real-time download progress and history.
+
+The history table now supports:
+
+- fuzzy search by author name or author ID
+- checkbox-based author filtering
+- click-to-toggle filtering from the author cell
+- sorting by author ID
+
+### Author Backfill Tool
+
+If you already have an older database with many history rows where `author_id` is still empty, use `AuthorBackfill` to populate them.
+
+Stop the backend service before running it, to avoid concurrent SQLite writes.
+
+```powershell
+# Windows
+.\mvnw.cmd -q -DskipTests compile dependency:copy-dependencies "-DincludeScope=runtime"
+java -cp "target/classes;target/dependency/*" top.sywyar.pixivdownload.tools.AuthorBackfill --dry-run
+java -cp "target/classes;target/dependency/*" top.sywyar.pixivdownload.tools.AuthorBackfill --limit 200 --delay 1200
+```
+
+```bash
+# macOS / Linux
+./mvnw -q -DskipTests compile dependency:copy-dependencies -DincludeScope=runtime
+java -cp "target/classes:target/dependency/*" top.sywyar.pixivdownload.tools.AuthorBackfill --dry-run
+java -cp "target/classes:target/dependency/*" top.sywyar.pixivdownload.tools.AuthorBackfill --limit 200 --delay 1200
+```
+
+Common options:
+
+- `--db <path>`: custom database path
+- `--proxy <host:port>` / `--no-proxy`: configure or disable the proxy
+- `--delay <ms>`: request spacing between Pixiv AJAX calls
+- `--limit <n>`: process only the first `n` missing rows
+- `--dry-run`: print what would be updated without writing to SQLite
 
 ### Product Intro Page
 

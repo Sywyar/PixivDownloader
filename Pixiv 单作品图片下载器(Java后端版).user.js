@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.0.3
+// @version      2.0.4
 // @description  通过Java后端服务下载 Pixiv 单个作品图片
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -323,10 +323,14 @@
             // 获取作品元数据（用于标题和类型检测）
             const meta = await getArtworkMeta(artworkId);
             const title = (meta && meta.illustTitle) ? meta.illustTitle : `Artwork ${artworkId}`;
+            const parsedAuthorId = Number.parseInt(String(meta?.userId || ''), 10);
+            const authorId = Number.isFinite(parsedAuthorId) ? parsedAuthorId : null;
+            const authorName = meta?.userName || null;
+            const isR18 = Number(meta?.xRestrict ?? 0) > 0;
 
             let imageUrls;
             const bookmark = GM_getValue(KEY_BOOKMARK_AFTER_DL, false);
-            let other = { bookmark };
+            let other = { bookmark, authorId, authorName, isR18 };
 
             if (meta && meta.illustType === 2) {
                 // 动图作品：获取ugoira元数据，下载ZIP并在后端合成WebP
@@ -337,8 +341,14 @@
                     isUgoira: true,
                     ugoiraZipUrl: zipSrc,
                     ugoiraDelays: ugoiraMeta.frames.map(f => f.delay),
-                    bookmark
+                    bookmark,
+                    authorId,
+                    authorName,
+                    isR18
                 };
+            } else if (meta && meta.pageCount === 1 && meta.urls && meta.urls.original) {
+                // 单页插画：meta 已携带 original URL，无需再调用 /pages
+                imageUrls = [meta.urls.original];
             } else {
                 imageUrls = await getImageUrls(artworkId);
             }

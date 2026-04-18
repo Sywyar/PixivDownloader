@@ -212,6 +212,19 @@ class AuthFilterTest {
             verify(filterChain, never()).doFilter(request, response);
         }
 
+        @Test
+        @DisplayName("作者列表 API 也应按 monitor 权限保护")
+        void shouldRequireLoginForAuthorsApiFromLocalAddress() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/api/authors");
+            request.setRemoteAddr("127.0.0.1");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
         @ParameterizedTest
         @ValueSource(strings = {"0:0:0:0:0:0:0:1", "::1", "::ffff:127.0.0.1"})
         @DisplayName("各种本地 IPv6 地址也应被识别为本地")
