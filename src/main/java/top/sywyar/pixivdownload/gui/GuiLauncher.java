@@ -46,8 +46,13 @@ import java.util.stream.Collectors;
  * 为确保 {@code logback.xml} 中的 {@code ${LOG_TIMESTAMP}} 占位符可以正确解析，
  * 本类故意不使用 {@code @Slf4j}，而是在 {@code main()} 方法体内、完成系统属性写入后
  * 再获取 logger，让 logback 的初始化晚于 {@code System.setProperty()} 调用。
- * Spring Boot 重新初始化 logback 时读取的是同一系统属性，因此两个阶段的日志都写入
- * 同一个时间戳文件，不会被截断。
+ *
+ * <p>同时设置 {@code org.springframework.boot.logging.LoggingSystem=none}，禁止
+ * Spring Boot 接管日志系统。否则 Spring Boot 启动时会重新初始化 logback，导致
+ * {@code append=false} 的 HTML appender 截断文件，丢失 Spring Boot 启动前
+ * （包括 {@code PixivDownload 启动中}）的日志行。本项目所有日志配置都在
+ * {@code logback.xml} 中，未使用任何 {@code logging.*} 属性，因此禁用 Spring Boot
+ * 日志接管是安全的。
  */
 public class GuiLauncher {
 
@@ -156,6 +161,10 @@ public class GuiLauncher {
      * </ol>
      */
     private static void prepareLogging() {
+        // 禁止 Spring Boot 接管日志系统，避免其重新初始化 logback 导致
+        // append=false 的 HTML appender 截断文件、丢失 Spring Boot 启动前的日志。
+        System.setProperty("org.springframework.boot.logging.LoggingSystem", "none");
+
         try {
             // 创建目录
             Files.createDirectories(Path.of(LOG_DIR));

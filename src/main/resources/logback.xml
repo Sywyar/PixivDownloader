@@ -17,8 +17,9 @@
 
     <!--
         ── 纯文本日志（log/） ──────────────────────────────────────────────────────
-        append=true：logback 被 Spring Boot 重新初始化时续写而非截断，保留完整日志。
-        GuiLauncher 在 logback 初始化前删除 latest.log，等效于覆盖写。
+        append=true：每次启动时由 GuiLauncher 在 logback 初始化前删除 latest.log，
+        等效于覆盖写。Spring Boot 已通过 LoggingSystem=none 被禁止接管日志，
+        因此运行期间不会发生 logback 重新初始化。
     -->
     <appender name="FILE_LATEST" class="ch.qos.logback.core.FileAppender">
         <file>log/latest.log</file>
@@ -41,9 +42,8 @@
     <!--
         ── HTML 日志（log/html/） ──────────────────────────────────────────────────
         append=false：每次 logback 初始化都重新写完整 HTML 文件（含 <head> 和 CSS）。
-        Spring Boot 重新初始化 logback 时会截断文件并重写头部；
-        纯文本日志使用 append=true 保留了完整内容，HTML 日志侧重颜色可视性，
-        丢失数条 Spring Boot 启动前的日志行可以接受。
+        Spring Boot 已通过 LoggingSystem=none 被禁止接管日志（见 GuiLauncher），
+        所以本次运行期间 logback 只会初始化一次，不会发生中途截断、丢失日志的问题。
     -->
     <appender name="HTML_LATEST" class="ch.qos.logback.core.FileAppender">
         <file>log/html/latest.html</file>
