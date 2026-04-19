@@ -136,7 +136,6 @@ function Add-UniqueValues {
 $grantValues = [System.Collections.Generic.List[string]]::new()
 $matchValues = [System.Collections.Generic.List[string]]::new()
 $connectValues = [System.Collections.Generic.List[string]]::new()
-$hasDocumentStart = $false
 $moduleDefinitions = [System.Collections.Generic.List[string]]::new()
 $moduleCalls = [System.Collections.Generic.List[string]]::new()
 $resolvedSources = Resolve-UserscriptSources -RootDir $ProjectRoot
@@ -153,8 +152,6 @@ foreach ($definition in $SourceDefinitions) {
             Add-UniqueValues -Target $matchValues -Values @($matches[1].Trim())
         } elseif ($line -match "^\s*//\s*@connect\s+(.+?)\s*$") {
             Add-UniqueValues -Target $connectValues -Values @($matches[1].Trim())
-        } elseif ($line -match "^\s*//\s*@run-at\s+document-start\s*$") {
-            $hasDocumentStart = $true
         }
     }
 
@@ -166,7 +163,11 @@ if (-not $grantValues.Contains("GM_registerMenuCommand")) {
     $null = $grantValues.Add("GM_registerMenuCommand")
 }
 
-$runAt = if ($hasDocumentStart) { "document-start" } else { "document-end" }
+# Bundle pins run-at to document-end: page/user/URL import modules touch
+# document.body synchronously in their top-level init, so the DOM must exist.
+# The Java single-artwork module uses its own waitForPageLoad() and tolerates
+# document-end just fine.
+$runAt = "document-end"
 $metadataLines = [System.Collections.Generic.List[string]]::new()
 $bundleDescriptionZh = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("Ly8gQGRlc2NyaXB0aW9uICBQaXhpdiDlpJrlkIjkuIDkuIvovb3ohJrmnKzvvIzmlbTlkIjpobXpnaLmibnph4/kuIvovb3jgIFVc2VyIOaJuemHj+S4i+i9veOAgVVSTCDmibnph4/lr7zlhaXlkozljZXkvZzlk4HkuIvovb3vvIhKYXZh5ZCO56uv54mI77yJ44CC5aaC5aSa5ZCI5LiA6ISa5pys5byC5bi477yM6K+35YWI5bCd6K+V5a+55bqU54us56uL6ISa5pys77yb6Iul5LuF5aSa5ZCI5LiA5byC5bi477yM6K+36ZmE5aSN546w5q2l6aqk5ZCO5o+Q5LqkIGlzc3Vl44CC"))
 $bundleDescriptionEn = "// @description:en  Pixiv all-in-one downloader for page batch, user batch, URL import, and single-artwork download (Java backend). If the bundle misbehaves, try the matching standalone script first; if only the bundle fails, open an issue with reproduction details."
