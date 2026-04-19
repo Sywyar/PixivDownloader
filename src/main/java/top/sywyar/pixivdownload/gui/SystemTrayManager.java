@@ -135,9 +135,7 @@ public final class SystemTrayManager {
     }
 
     private static void showFrame(MainFrame frame) {
-        frame.setVisible(true);
-        frame.setState(Frame.NORMAL);
-        frame.toFront();
+        frame.showWindow();
     }
 
     private static void openBrowser(String url) {

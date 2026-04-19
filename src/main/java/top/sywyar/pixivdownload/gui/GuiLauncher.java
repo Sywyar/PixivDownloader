@@ -78,6 +78,27 @@ public class GuiLauncher {
         log = LoggerFactory.getLogger(GuiLauncher.class);
         log.info("PixivDownload 启动中，args={}", Arrays.toString(args));
 
+        SingleInstanceManager singleInstanceManager;
+        try {
+            singleInstanceManager = SingleInstanceManager.acquire();
+        } catch (Exception e) {
+            log.error("无法初始化单实例保护", e);
+            showSingleInstanceInitError(e);
+            throw e;
+        }
+        if (singleInstanceManager == null) {
+            boolean activated = SingleInstanceManager.signalExistingInstance();
+            log.info("检测到已有运行实例，是否已发出激活请求: {}", activated);
+            if (!activated && !GraphicsEnvironment.isHeadless()) {
+                JOptionPane.showMessageDialog(null,
+                        "PixivDownload 已在运行，请先关闭现有窗口后再重新启动。",
+                        "程序已运行",
+                        JOptionPane.INFORMATION_MESSAGE);
+            }
+            return;
+        }
+        registerSingleInstanceShutdown(singleInstanceManager);
+
         // ── 1. 判断是否需要 GUI ─────────────────────────────────────────────────
         boolean noGui = Arrays.asList(args).contains("--no-gui")
                 || GraphicsEnvironment.isHeadless();
@@ -123,8 +144,9 @@ public class GuiLauncher {
         SwingUtilities.invokeLater(() -> {
             FlatLafSetup.apply();
             MainFrame frame = new MainFrame(port, root, configPath);
+            singleInstanceManager.setActivationHandler(() -> SwingUtilities.invokeLater(frame::showWindow));
             SystemTrayManager.install(frame, root);
-            frame.setVisible(true);
+            frame.showWindow();
         });
 
         // ── 4. 在后台线程启动 Spring Boot ─────────────────────────────────────────
@@ -328,6 +350,28 @@ public class GuiLauncher {
 
     private static String safeMessage(Throwable t) {
         return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+    }
+
+    private static void showSingleInstanceInitError(Exception e) {
+        if (GraphicsEnvironment.isHeadless()) {
+            return;
+        }
+        JOptionPane.showMessageDialog(null,
+                "初始化单实例保护失败：" + safeMessage(e) + "\n\n详细日志见：" + Path.of(LOG_LATEST).toAbsolutePath(),
+                "启动错误",
+                JOptionPane.ERROR_MESSAGE);
+    }
+
+    private static void registerSingleInstanceShutdown(SingleInstanceManager singleInstanceManager) {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                singleInstanceManager.close();
+            } catch (Exception e) {
+                if (log != null) {
+                    log.debug("关闭单实例保护时出现异常: {}", e.getMessage());
+                }
+            }
+        }, "single-instance-shutdown"));
     }
 
     /** 从参数列表中过滤掉 GUI 专用参数，避免传入 Spring。 */

@@ -21,11 +21,16 @@ public final class RuntimeFiles {
     public static final String CONFIG_DIR_PROPERTY = "pixivdownload.config-dir";
     public static final String STATE_DIR_PROPERTY = "pixivdownload.state-dir";
     public static final String DATA_DIR_PROPERTY = "pixivdownload.data-dir";
+    public static final String INSTANCE_DIR_PROPERTY = "pixivdownload.instance-dir";
 
     public static final String DEFAULT_CONFIG_DIR = "config";
     public static final String DEFAULT_STATE_DIR = "state";
     public static final String DEFAULT_DATA_DIR = "data";
     public static final String DEFAULT_DOWNLOAD_ROOT = "pixiv-download";
+    private static final String WINDOWS_INSTANCE_ROOT_ENV = "LOCALAPPDATA";
+    private static final String WINDOWS_INSTANCE_APP_DIR = "PixivDownload";
+    private static final String NON_WINDOWS_INSTANCE_APP_DIR = ".pixivdownload";
+    private static final String INSTANCE_SUBDIR = "run";
 
     public static final String CONFIG_YAML = "config.yaml";
     public static final String IMAGE_CLASSIFIER_PROPERTIES = "image_classifier.properties";
@@ -46,6 +51,19 @@ public final class RuntimeFiles {
 
     public static Path dataDirectory() {
         return resolveDirectory(DATA_DIR_PROPERTY, DEFAULT_DATA_DIR);
+    }
+
+    public static Path singleInstanceDirectory() {
+        String configured = System.getProperty(INSTANCE_DIR_PROPERTY);
+        if (configured != null && !configured.isBlank()) {
+            return Path.of(configured);
+        }
+
+        return defaultSingleInstanceDirectory(
+                System.getProperty("os.name"),
+                System.getenv(WINDOWS_INSTANCE_ROOT_ENV),
+                System.getProperty("user.home"),
+                System.getProperty("java.io.tmpdir"));
     }
 
     public static Path resolveConfigYamlPath() {
@@ -223,5 +241,25 @@ public final class RuntimeFiles {
             }
         }
         return value;
+    }
+
+    static Path defaultSingleInstanceDirectory(String osName,
+                                               String localAppData,
+                                               String userHome,
+                                               String tempDir) {
+        if (isWindows(osName) && localAppData != null && !localAppData.isBlank()) {
+            return Path.of(localAppData, WINDOWS_INSTANCE_APP_DIR, INSTANCE_SUBDIR);
+        }
+        if (userHome != null && !userHome.isBlank()) {
+            return Path.of(userHome, NON_WINDOWS_INSTANCE_APP_DIR, INSTANCE_SUBDIR);
+        }
+        if (tempDir != null && !tempDir.isBlank()) {
+            return Path.of(tempDir, WINDOWS_INSTANCE_APP_DIR, INSTANCE_SUBDIR);
+        }
+        return Path.of(INSTANCE_SUBDIR);
+    }
+
+    private static boolean isWindows(String osName) {
+        return osName != null && osName.toLowerCase().contains("win");
     }
 }

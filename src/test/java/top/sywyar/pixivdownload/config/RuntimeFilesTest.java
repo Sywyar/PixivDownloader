@@ -34,6 +34,7 @@ class RuntimeFilesTest {
         System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, configDir.toString());
         System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, stateDir.toString());
         System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, dataDir.toString());
+        System.clearProperty(RuntimeFiles.INSTANCE_DIR_PROPERTY);
     }
 
     @AfterEach
@@ -41,6 +42,7 @@ class RuntimeFilesTest {
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
         System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
         System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
+        System.clearProperty(RuntimeFiles.INSTANCE_DIR_PROPERTY);
     }
 
     @Test
@@ -122,5 +124,38 @@ class RuntimeFilesTest {
         assertThat(resolved).isEqualTo(target);
         assertThat(Files.readString(target, StandardCharsets.UTF_8)).contains("\"new\"");
         assertThat(legacy).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("should prefer explicitly configured single-instance directory")
+    void shouldPreferConfiguredSingleInstanceDirectory() {
+        Path instanceDir = tempDir.resolve("instance");
+        System.setProperty(RuntimeFiles.INSTANCE_DIR_PROPERTY, instanceDir.toString());
+
+        assertThat(RuntimeFiles.singleInstanceDirectory()).isEqualTo(instanceDir);
+    }
+
+    @Test
+    @DisplayName("should resolve Windows single-instance directory under LOCALAPPDATA")
+    void shouldResolveWindowsSingleInstanceDirectoryFromLocalAppData() {
+        Path resolved = RuntimeFiles.defaultSingleInstanceDirectory(
+                "Windows 11",
+                "C:\\Users\\tester\\AppData\\Local",
+                "C:\\Users\\tester",
+                "C:\\Temp");
+
+        assertThat(resolved).isEqualTo(Path.of("C:\\Users\\tester\\AppData\\Local", "PixivDownload", "run"));
+    }
+
+    @Test
+    @DisplayName("should resolve non-Windows single-instance directory under user home")
+    void shouldResolveNonWindowsSingleInstanceDirectoryFromUserHome() {
+        Path resolved = RuntimeFiles.defaultSingleInstanceDirectory(
+                "Linux",
+                null,
+                "/home/tester",
+                "/tmp");
+
+        assertThat(resolved).isEqualTo(Path.of("/home/tester", ".pixivdownload", "run"));
     }
 }

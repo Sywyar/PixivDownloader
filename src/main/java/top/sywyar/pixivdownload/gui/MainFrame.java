@@ -62,6 +62,20 @@ public class MainFrame extends JFrame {
         return statusPanel.getMonitorUrl();
     }
 
+    public void showWindow() {
+        if (!isVisible()) {
+            setVisible(true);
+        }
+
+        int state = getExtendedState();
+        if ((state & Frame.ICONIFIED) != 0) {
+            setExtendedState(state & ~Frame.ICONIFIED);
+        }
+
+        toFront();
+        requestFocus();
+    }
+
     /** 释放资源（关闭轮询 Timer）。 */
     @Override
     public void dispose() {
