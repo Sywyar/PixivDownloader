@@ -692,17 +692,27 @@
             color: #333;
         }
 
-        .search-thumb .thumb-badge {
+        .search-thumb .thumb-badge-stack {
             position: absolute;
             top: 4px;
             right: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            pointer-events: none;
+        }
+
+        .search-thumb .thumb-badge {
             background: #dc3545;
             color: white;
             font-size: 9px;
             font-weight: bold;
             padding: 1px 4px;
             border-radius: 3px;
-            pointer-events: none;
+        }
+
+        .search-thumb .thumb-badge-ai {
+            background: #d946ef;
         }
 
         .search-thumb .thumb-pages {
@@ -1601,7 +1611,7 @@
         return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     }
 
-    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, isR18, ugoiraData, description, tags) {
+    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, isR18, isAi, ugoiraData, description, tags) {
         const delayMs = getImageDelayMs();
         const other = {
             userDownload: isUserDownload,
@@ -1609,10 +1619,11 @@
             authorId: normalizeAuthorId(authorId),
             authorName: authorName || null,
             isR18: !!isR18,
+            isAi: !!isAi,
             delayMs,
             bookmark: !!state.settings.bookmark,
             description: description || null,
-            tags: tags || null
+            tags: Array.isArray(tags) && tags.length ? tags : null
         };
         if (ugoiraData) {
             other.isUgoira = true;
@@ -1852,6 +1863,7 @@
             item.title = meta.illustTitle || item.title || `作品 ${item.id}`;
 
             const isR18 = Number(meta.xRestrict ?? meta.xrestrict ?? 0) > 0;
+            const isAi = meta?.isAi === true || Number(meta?.aiType ?? 0) >= 2;
             if (state.settings.R18Only && !isR18) {
                 item.status = 'skipped';
                 item.lastMessage = '跳过 — 非 R18 内容';
@@ -1863,6 +1875,7 @@
             }
 
             item.isR18 = isR18;
+            item.isAi = isAi;
             const isUserMode = item.source === 'user';
             let urls, ugoiraData = null;
 
@@ -1892,9 +1905,9 @@
                 isUserMode, item.username || state.username || state.userId,
                 item.authorId ?? fallbackAuthorId,
                 item.authorName || fallbackAuthorName,
-                isR18, ugoiraData,
+                isR18, isAi, ugoiraData,
                 meta.description || '',
-                meta.tags || ''
+                Array.isArray(meta.tags) ? meta.tags : []
             );
             if (dlData && dlData.alreadyDownloaded) {
                 item.status = 'skipped';
@@ -2077,6 +2090,7 @@
                 username: username || '',
                 authorId,
                 authorName,
+                isAi: typeof m.isAi === 'boolean' ? m.isAi : null,
                 totalImages: 0,
                 downloadedCount: 0,
                 startTime: null,
@@ -2327,6 +2341,9 @@
                 : q.isR18 === false
                     ? `<span style="background:#198754;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">SFW</span>`
                     : `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">未知</span>`;
+            const AILabel = q.isAi === true
+                ? `<span style="background:#d946ef;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">AI</span>`
+                : '';
             const canRemove = q.status !== 'downloading';
             const removeBtn = canRemove
                 ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="移除" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
@@ -2334,7 +2351,7 @@
             const linkBtn = `<a href="https://www.pixiv.net/artworks/${q.id}" target="_blank" onclick="event.stopPropagation();" title="打开作品页面" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`;
             return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
       <div class="q-title" style="display:flex;align-items:center;gap:2px;">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(q.title)}${srcLabel}${R18Label}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(q.title)}${srcLabel}${R18Label}${AILabel}</span>
         ${linkBtn}${removeBtn}
       </div>
       <div class="q-meta">ID: ${q.id} | <span style="color:${statusColor(q.status)};font-weight:bold;">${esc(desc)}</span></div>
@@ -2560,15 +2577,17 @@
     <div class="search-grid">
       ${searchState.results.map((item, idx) => {
             const isR18 = item.xRestrict > 0;
+            const isAi = Number(item.aiType ?? 0) >= 2;
             const blurClass = (isR18 && searchState.blurR18) ? 'blur-r18' : '';
             const r18Badge = isR18 ? '<span class="thumb-badge">R18</span>' : '';
+            const aiBadge = isAi ? '<span class="thumb-badge thumb-badge-ai">AI</span>' : '';
             const pagesLabel = item.pageCount > 1 ? `<span class="thumb-pages">${item.pageCount}P</span>` : '';
             const inQueueClass = inQueue.has(item.id) ? ' in-queue' : '';
             const queueTip = inQueue.has(item.id) ? ' · 点击移除' : ' · 点击加入队列';
             return `<div class="search-thumb${inQueueClass}" id="thumb-${idx}"
                      onclick="addSearchItemToQueue(${idx})" title="${esc(item.title)} (${esc(item.userName)})${queueTip}">
           <img id="thumb-img-${idx}" src="" alt="${esc(item.title)}" class="${blurClass}">
-          ${r18Badge}
+          <div class="thumb-badge-stack">${r18Badge}${aiBadge}</div>
           ${pagesLabel}
           <span class="thumb-in-queue-mark">✓</span>
           <div class="thumb-title">${esc(item.title)}</div>
@@ -2653,7 +2672,8 @@
         const added = addItemsToQueue([item.id], [{
             title: item.title,
             authorId: item.userId,
-            authorName: item.userName
+            authorName: item.userName,
+            isAi: Number(item.aiType ?? 0) >= 2
         }], 'search', '');
         setStatus(added > 0 ? `已加入队列：${item.title}` : `已在队列中：${item.title}`,
             added > 0 ? 'success' : 'info');
@@ -2665,7 +2685,8 @@
         const metas = searchState.results.map(r => ({
             title: r.title,
             authorId: r.userId,
-            authorName: r.userName
+            authorName: r.userName,
+            isAi: Number(r.aiType ?? 0) >= 2
         }));
         const added = addItemsToQueue(ids, metas, 'search', '');
         setStatus(`已将 ${added} 个作品加入队列（共 ${ids.length} 个，${ids.length - added} 个已在队列中）`, 'success');

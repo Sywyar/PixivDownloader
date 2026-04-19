@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.UuidUtils;
+import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
@@ -157,24 +158,30 @@ public class PixivProxyController {
                 b.path("illustType").asInt(0),
                 b.path("illustTitle").asText(""),
                 b.path("xRestrict").asInt(0),
+                b.path("aiType").asInt(0) >= 2,
                 b.path("description").asText(""),
                 extractTags(b)
         ));
     }
 
-    private static String extractTags(JsonNode body) {
+    private static List<TagDto> extractTags(JsonNode body) {
         JsonNode tagsArr = body.path("tags").path("tags");
         if (!tagsArr.isArray() || tagsArr.isEmpty()) {
-            return "";
+            return List.of();
         }
-        StringBuilder sb = new StringBuilder();
+        List<TagDto> out = new ArrayList<>();
         for (JsonNode t : tagsArr) {
-            String tag = t.path("tag").asText("");
-            if (tag.isEmpty()) continue;
-            if (!sb.isEmpty()) sb.append(',');
-            sb.append(tag);
+            String name = t.path("tag").asText("");
+            if (name.isEmpty()) continue;
+            String translated = null;
+            JsonNode translation = t.path("translation");
+            if (translation.isObject()) {
+                String en = translation.path("en").asText("");
+                if (!en.isEmpty()) translated = en;
+            }
+            out.add(new TagDto(name, translated));
         }
-        return sb.toString();
+        return out;
     }
 
     @GetMapping("/artwork/{artworkId}/pages")
@@ -275,6 +282,7 @@ public class PixivProxyController {
                     item.path("title").asText(""),
                     item.path("illustType").asInt(0),
                     item.path("xRestrict").asInt(0),
+                    item.path("aiType").asInt(0),
                     item.path("url").asText(""),
                     item.path("pageCount").asInt(1),
                     item.path("userId").asText(""),

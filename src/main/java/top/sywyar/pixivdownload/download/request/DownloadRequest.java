@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import top.sywyar.pixivdownload.download.db.TagDto;
 
 import java.util.List;
 
@@ -33,6 +34,8 @@ public class DownloadRequest {
         private String authorName;
         @JsonProperty("isR18")
         private boolean isR18;
+        @JsonProperty("isAi")
+        private boolean isAi;
         @JsonProperty("isUgoira")
         private boolean isUgoira;
         private String ugoiraZipUrl;
@@ -41,6 +44,6 @@ public class DownloadRequest {
         @JsonProperty("bookmark")
         private boolean bookmark;
         private String description;
-        private String tags;
+        private List<TagDto> tags;
     }
 }

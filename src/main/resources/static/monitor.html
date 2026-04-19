@@ -587,7 +587,8 @@
             font-size: .62rem;
         }
 
-        .R18-badge {
+        .R18-badge,
+        .ai-badge {
             display: inline-block;
             font-size: 0.58rem;
             font-weight: 700;
@@ -605,6 +606,21 @@
             background: rgba(0,255,136,0.08);
             color: var(--green);
             border-color: rgba(0,255,136,0.25);
+        }
+        .ai-yes {
+            background: rgba(139,92,246,0.12);
+            color: #8b5cf6;
+            border-color: rgba(139,92,246,0.35);
+        }
+        .ai-no {
+            background: rgba(14,165,233,0.1);
+            color: #0284c7;
+            border-color: rgba(14,165,233,0.3);
+        }
+        .ai-unknown {
+            background: rgba(100,116,139,.12);
+            color: #64748b;
+            border-color: rgba(100,116,139,.3);
         }
 
         /* ── Page Grid Popup ───────────────────────────────────── */
@@ -1197,7 +1213,7 @@
                 <div class="panel-header" style="padding:.75rem 1rem; margin:0;">
                     <span><i class="fas fa-database me-1" style="font-size:.65rem;"></i>DOWNLOAD HISTORY</span>
                     <div class="d-flex gap-2">
-                        <input type="text" class="search-box" id="searchInput" placeholder="search id / title / author...">
+                        <input type="text" class="search-box" id="searchInput" placeholder="search id / title / author / tag...">
                         <button class="btn-refresh" id="refreshHistory" title="Refresh">
                             <i class="fas fa-sync-alt"></i>
                         </button>
@@ -1207,15 +1223,16 @@
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
                         <colgroup>
-                            <col style="width:13%">
-                            <col style="width:22%">
-                            <col style="width:8%">
-                            <col style="width:11%">
-                            <col style="width:13%">
-                            <col style="width:15%">
-                            <col style="width:8%">
-                            <col style="width:8%">
+                            <col style="width:12%">
+                            <col style="width:20%">
+                            <col style="width:7%">
                             <col style="width:10%">
+                            <col style="width:12%">
+                            <col style="width:14%">
+                            <col style="width:7%">
+                            <col style="width:6%">
+                            <col style="width:6%">
+                            <col style="width:6%">
                         </colgroup>
                         <thead>
                         <tr>
@@ -1227,6 +1244,7 @@
                             <th id="th-time"        class="sortable-th sort-active" onclick="sortBy('time')">DATE <i id="sort-time" class="sort-icon">↓</i></th>
                             <th id="th-moved"       class="sortable-th" onclick="sortBy('moved')">STATUS <i id="sort-moved" class="sort-icon">↕</i></th>
                             <th id="th-R18"         class="sortable-th">R18 <i id="sort-R18" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
+                            <th id="th-isAi"        class="sortable-th">AI <i id="sort-isAi" class="sort-icon"><i class="fas fa-filter" style="font-size:.55rem;opacity:.45;"></i></i></th>
                             <th>OPS</th>
                         </tr>
                         </thead>
@@ -1343,6 +1361,7 @@
     let authorFilter = new Set(); // 作者筛选，空=显示全部
     let authorFilterQuery = '';
     let R18Filter = null; // null=全部, true=仅R18, false=仅SFW
+    let aiFilter = null; // null=全部, true=仅AI, false=仅人工
 
     let downloadStatsChart = null;
     let activeDownloads = [];
@@ -1405,6 +1424,15 @@
         if (authorId === null) return '—';
         const name = getAuthorName(artwork);
         return name === String(authorId) ? `#${authorId}` : `${name} (#${authorId})`;
+    }
+
+    function matchesArtworkTag(artwork, query) {
+        if (!Array.isArray(artwork?.tags) || !query) return false;
+        return artwork.tags.some(tag => {
+            const name = String(tag?.name || '').toLowerCase();
+            const translated = String(tag?.translatedName || '').toLowerCase();
+            return name.includes(query) || translated.includes(query);
+        });
     }
 
     function getAuthorOptions() {
@@ -1478,6 +1506,7 @@
 
         document.getElementById('th-extensions').addEventListener('click', toggleFormatFilter);
         document.getElementById('th-R18').addEventListener('click', toggleR18Filter);
+        document.getElementById('th-isAi').addEventListener('click', toggleAiFilter);
         document.getElementById('pageGridBtn').addEventListener('click', togglePageGrid);
         document.getElementById('formatFilterPopup').addEventListener('click', e => e.stopPropagation());
 
@@ -1491,11 +1520,13 @@
             authorFilter = new Set();
             authorFilterQuery = '';
             R18Filter = null;
+            aiFilter = null;
             currentPage = 1;
             document.getElementById('pagination').style.display = '';
             updateFormatFilterIcon();
             updateAuthorFilterIcon();
             updateR18FilterIcon();
+            updateAiFilterIcon();
             loadStatistics();
             loadAllDataForChart();
         });
@@ -1544,7 +1575,7 @@
         } catch (e) {
             console.error('数据加载失败', e);
             document.getElementById('historyTableBody').innerHTML =
-                '<tr><td colspan="9" class="text-center" style="color:var(--red);padding:2rem;">LOAD FAILED — CLICK REFRESH TO RETRY</td></tr>';
+                '<tr><td colspan="10" class="text-center" style="color:var(--red);padding:2rem;">LOAD FAILED — CLICK REFRESH TO RETRY</td></tr>';
         }
     }
 
@@ -1575,6 +1606,10 @@
                 va = a.R18 === true ? 1 : a.R18 === false ? 0 : -1;
                 vb = b.R18 === true ? 1 : b.R18 === false ? 0 : -1;
             }
+            if (sortKey === 'isAi') {
+                va = a.isAi === true ? 1 : a.isAi === false ? 0 : -1;
+                vb = b.isAi === true ? 1 : b.isAi === false ? 0 : -1;
+            }
             return sortDir === 'asc' ? va - vb : vb - va;
         });
     }
@@ -1592,8 +1627,9 @@
     }
 
     function renderSortHeaders() {
-        const cols = ['artworkId', 'title', 'count', 'authorId', 'time', 'moved', 'isR18'];
+        const cols = ['artworkId', 'title', 'count', 'authorId', 'time', 'moved', 'isR18', 'isAi'];
         cols.forEach(col => {
+            if (col === 'isAi') return;
             const th   = document.getElementById(`th-${col}`);
             const icon = document.getElementById(`sort-${col}`);
             if (!th || !icon) return;
@@ -1632,13 +1668,18 @@
             sorted = sorted.filter(a => a.R18 !== null && a.R18 !== undefined && !!a.R18 === R18Filter);
         }
 
+        if (aiFilter !== null) {
+            sorted = sorted.filter(a => a.isAi !== null && a.isAi !== undefined && !!a.isAi === aiFilter);
+        }
+
         const gridBtn = document.getElementById('pageGridBtn');
         if (searchQuery) {
             const q = searchQuery;
             const filtered = sorted.filter(a =>
                 String(a.artworkId).includes(q) ||
                 (a.title && a.title.toLowerCase().includes(q)) ||
-                String(getAuthorLabel(a)).toLowerCase().includes(q)
+                String(getAuthorLabel(a)).toLowerCase().includes(q) ||
+                matchesArtworkTag(a, q)
             );
             document.getElementById('pagination').style.display = 'none';
             if (gridBtn) gridBtn.style.display = 'none';
@@ -1703,6 +1744,9 @@
                 <td>${artwork.R18 === null || artwork.R18 === undefined
                     ? '<span class="R18-badge" style="background:rgba(100,116,139,.12);color:#64748b;border-color:rgba(100,116,139,.3)">未知</span>'
                     : `<span class="R18-badge ${artwork.R18 ? 'R18-yes' : 'R18-no'}">${artwork.R18 ? 'R18' : 'SFW'}</span>`}</td>
+                <td>${artwork.isAi === null || artwork.isAi === undefined
+                    ? '<span class="ai-badge ai-unknown">未知</span>'
+                    : `<span class="ai-badge ${artwork.isAi ? 'ai-yes' : 'ai-no'}">${artwork.isAi ? 'AI' : '人工'}</span>`}</td>
                 <td>
                     <div class="action-buttons">
                         <button class="btn-term" onclick="viewArtworkDetails(${artwork.artworkId})" title="详情">
@@ -1971,14 +2015,17 @@
                     </div>`
                 : '';
 
-            const tagsList = (artwork.tags && String(artwork.tags).trim())
-                ? String(artwork.tags).split(',').map(t => t.trim()).filter(Boolean)
+            const tagsList = Array.isArray(artwork.tags)
+                ? artwork.tags.filter(t => t && t.name)
                 : [];
             const tagsHtml = tagsList.length
                 ? `<div class="detail-section mt-3">
                         <h6><i class="fas fa-tags me-2"></i>TAGS <span style="color:var(--text-muted);font-weight:normal;">(${tagsList.length})</span></h6>
                         <div style="display:flex;flex-wrap:wrap;gap:.35rem;">
-                            ${tagsList.map(t => `<span style="font-size:.75rem;padding:.2rem .55rem;border:1px solid rgba(100,116,139,.35);border-radius:999px;background:rgba(100,116,139,.08);color:var(--cyan);">#${escapeHtml(t)}</span>`).join('')}
+                            ${tagsList.map(t => {
+                                const translated = t.translatedName ? ` title="${escapeHtml(t.translatedName)}"` : '';
+                                return `<span${translated} style="font-size:.75rem;padding:.2rem .55rem;border:1px solid rgba(100,116,139,.35);border-radius:999px;background:rgba(100,116,139,.08);color:var(--cyan);">#${escapeHtml(t.name)}</span>`;
+                            }).join('')}
                         </div>
                     </div>`
                 : '';
@@ -2411,6 +2458,54 @@
         if (!icon) return;
         const active = R18Filter !== null;
         icon.innerHTML = `<i class="fas fa-filter" style="font-size:.55rem;opacity:${active ? 1 : .45};color:${active ? 'var(--red)' : 'inherit'}"></i>`;
+        if (th) th.classList.toggle('th-filter-active', active);
+    }
+
+    function toggleAiFilter(evt) {
+        evt.stopPropagation();
+        const popup = document.getElementById('formatFilterPopup');
+        if (popup.classList.contains('show') && popup.dataset.type === 'ai') {
+            popup.classList.remove('show');
+            return;
+        }
+        popup.dataset.type = 'ai';
+
+        const options = [
+            { label: '全部', value: 'all' },
+            { label: '<span class="ai-badge ai-yes">AI</span>', value: 'ai' },
+            { label: '<span class="ai-badge ai-no">人工</span>', value: 'human' },
+        ];
+
+        popup.innerHTML = `
+            <div class="fmt-filter-header">AI FILTER</div>
+            <div class="fmt-filter-options">
+                ${options.map(o => `
+                    <label class="fmt-filter-option">
+                        <input type="radio" name="aiOpt" value="${o.value}"
+                               ${(o.value === 'all' && aiFilter === null) || (o.value === 'ai' && aiFilter === true) || (o.value === 'human' && aiFilter === false) ? 'checked' : ''}
+                               onchange="onAiFilterChange(this.value)">
+                        <span style="font-size:.75rem;">${o.label}</span>
+                    </label>
+                `).join('')}
+            </div>`;
+
+        positionFilterPopup(document.getElementById('th-isAi'), popup);
+        popup.classList.add('show');
+    }
+
+    function onAiFilterChange(value) {
+        aiFilter = value === 'all' ? null : value === 'ai';
+        currentPage = 1;
+        updateAiFilterIcon();
+        renderFromCache();
+    }
+
+    function updateAiFilterIcon() {
+        const icon = document.getElementById('sort-isAi');
+        const th   = document.getElementById('th-isAi');
+        if (!icon) return;
+        const active = aiFilter !== null;
+        icon.innerHTML = `<i class="fas fa-filter" style="font-size:.55rem;opacity:${active ? 1 : .45};color:${active ? '#8b5cf6' : 'inherit'}"></i>`;
         if (th) th.classList.toggle('th-filter-active', active);
     }
 

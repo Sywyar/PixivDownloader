@@ -369,7 +369,7 @@ class DownloadServiceTest {
                     "https://www.pixiv.net/", other, null, null);
 
             verify(pixivDatabase).insertArtwork(12345L, "test", tempDir.resolve("12345").toAbsolutePath().toString(),
-                    1, "webp", 1700000100L, false, 999L, null, null);
+                    1, "webp", 1700000100L, false, false, 999L, null);
         }
     }
 

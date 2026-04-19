@@ -77,6 +77,7 @@ class PixivProxyControllerTest {
                           "title": "Test Artwork",
                           "illustType": 0,
                           "xRestrict": 0,
+                          "aiType": 2,
                           "url": "https://i.pximg.net/c/250x250_80_a2/img-master/img/2024/01/01/00/00/00/123456_p0_master1200.jpg",
                           "pageCount": 3,
                           "userId": "9999",
@@ -107,6 +108,7 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.items[0].id").value("123456"))
                     .andExpect(jsonPath("$.items[0].title").value("Test Artwork"))
                     .andExpect(jsonPath("$.items[0].xRestrict").value(0))
+                    .andExpect(jsonPath("$.items[0].aiType").value(2))
                     .andExpect(jsonPath("$.items[0].pageCount").value(3))
                     .andExpect(jsonPath("$.items[0].userId").value("9999"))
                     .andExpect(jsonPath("$.items[0].userName").value("TestArtist"));

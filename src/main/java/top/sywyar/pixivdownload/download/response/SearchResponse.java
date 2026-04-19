@@ -21,6 +21,8 @@ public class SearchResponse {
         private final int illustType;
         @JsonProperty("xRestrict")
         private final int xRestrict;
+        @JsonProperty("aiType")
+        private final int aiType;
         private final String thumbnailUrl;
         private final int pageCount;
         private final String userId;

@@ -240,14 +240,15 @@ class DownloadControllerTest {
         @DisplayName("已下载的作品应返回详情")
         void shouldReturnDownloadedArtwork() throws Exception {
             ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", "/path/to/folder",
-                    3, "jpg", 1700000000L, false, null, null, false, null, null, null);
+                    3, "jpg", 1700000000L, false, null, null, false, true, null, null);
             when(downloadService.getDownloadedRecord(12345L, false)).thenReturn(record);
 
             mockMvc.perform(get("/api/downloaded/12345"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.artworkId").value(12345))
                     .andExpect(jsonPath("$.title").value("测试作品"))
-                    .andExpect(jsonPath("$.count").value(3));
+                    .andExpect(jsonPath("$.count").value(3))
+                    .andExpect(jsonPath("$.isAi").value(true));
         }
 
         @Test
@@ -279,8 +280,8 @@ class DownloadControllerTest {
     @Test
     @DisplayName("POST /api/downloaded/batch 应批量返回作品信息")
     void shouldReturnBatchArtworks() throws Exception {
-        ArtworkRecord record1 = new ArtworkRecord(1L, "A", "/a", 1, "jpg", 100L, false, null, null, null, null, null, null);
-        ArtworkRecord record2 = new ArtworkRecord(2L, "B", "/b", 2, "png", 200L, false, null, null, null, null, null, null);
+        ArtworkRecord record1 = new ArtworkRecord(1L, "A", "/a", 1, "jpg", 100L, false, null, null, null, true, null, null);
+        ArtworkRecord record2 = new ArtworkRecord(2L, "B", "/b", 2, "png", 200L, false, null, null, null, false, null, null);
         when(downloadService.getDownloadedRecord(1L)).thenReturn(record1);
         when(downloadService.getDownloadedRecord(2L)).thenReturn(record2);
         when(downloadService.getDownloadedRecord(3L)).thenReturn(null);
@@ -291,7 +292,9 @@ class DownloadControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.artworks", hasSize(2)))
                 .andExpect(jsonPath("$.artworks[0].artworkId").value(1))
-                .andExpect(jsonPath("$.artworks[1].artworkId").value(2));
+                .andExpect(jsonPath("$.artworks[0].isAi").value(true))
+                .andExpect(jsonPath("$.artworks[1].artworkId").value(2))
+                .andExpect(jsonPath("$.artworks[1].isAi").value(false));
     }
 
     // ========== GET /api/downloaded/statistics ==========
@@ -372,8 +375,8 @@ class DownloadControllerTest {
         when(downloadService.getArtworkCount()).thenReturn(25L);
         when(downloadService.getSortTimeArtworkPaged(0, 10)).thenReturn(List.of(25L, 24L));
 
-        ArtworkRecord r1 = new ArtworkRecord(25L, "A", "/a", 1, "jpg", 200L, false, null, null, null, null, null, null);
-        ArtworkRecord r2 = new ArtworkRecord(24L, "B", "/b", 2, "png", 100L, false, null, null, null, null, null, null);
+        ArtworkRecord r1 = new ArtworkRecord(25L, "A", "/a", 1, "jpg", 200L, false, null, null, null, true, null, null);
+        ArtworkRecord r2 = new ArtworkRecord(24L, "B", "/b", 2, "png", 100L, false, null, null, null, false, null, null);
         when(downloadService.getDownloadedRecord(25L)).thenReturn(r1);
         when(downloadService.getDownloadedRecord(24L)).thenReturn(r2);
 
@@ -382,6 +385,8 @@ class DownloadControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(25))
                 .andExpect(jsonPath("$.content", hasSize(2)))
+                .andExpect(jsonPath("$.content[0].isAi").value(true))
+                .andExpect(jsonPath("$.content[1].isAi").value(false))
                 .andExpect(jsonPath("$.totalPages").value(3));
     }
 

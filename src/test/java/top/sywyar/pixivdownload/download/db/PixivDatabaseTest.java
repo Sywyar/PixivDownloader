@@ -64,6 +64,7 @@ class PixivDatabaseTest {
             assertThat(record.extensions()).isEqualTo("jpg");
             assertThat(record.time()).isEqualTo(1700000001L);
             assertThat(record.isR18()).isFalse();
+            assertThat(record.isAi()).isNull();
             assertThat(record.authorId()).isNull();
             assertThat(record.moved()).isFalse();
         }
@@ -78,6 +79,20 @@ class PixivDatabaseTest {
 
             assertThat(record).isNotNull();
             assertThat(record.authorId()).isEqualTo(777L);
+        }
+
+        @Test
+        @DisplayName("插入作品时应写入 isAi")
+        void shouldInsertArtworkWithIsAi() {
+            pixivDatabase.insertArtwork(12347L, "ai test", "/path/to/12347",
+                    1, "png", 1700000008L, false, true, 888L, "desc");
+
+            ArtworkRecord record = pixivDatabase.getArtwork(12347L);
+
+            assertThat(record).isNotNull();
+            assertThat(record.isAi()).isTrue();
+            assertThat(record.authorId()).isEqualTo(888L);
+            assertThat(record.description()).isEqualTo("desc");
         }
 
         @Test

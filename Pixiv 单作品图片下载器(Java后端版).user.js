@@ -128,10 +128,15 @@
         });
     }
 
-    // 从 Pixiv meta 中提取 tags，逗号拼接
+    // 从 Pixiv meta 中提取 tags，返回 [{name, translatedName}] 数组
     function extractTagsFromMeta(meta) {
         const arr = meta && meta.tags && Array.isArray(meta.tags.tags) ? meta.tags.tags : [];
-        return arr.map(t => (t && t.tag) ? String(t.tag) : '').filter(Boolean).join(',');
+        return arr
+            .filter(t => t && t.tag)
+            .map(t => ({
+                name: String(t.tag),
+                translatedName: (t.translation && t.translation.en) ? String(t.translation.en) : null
+            }));
     }
 
     // 获取作品元数据
@@ -333,12 +338,13 @@
             const authorId = Number.isFinite(parsedAuthorId) ? parsedAuthorId : null;
             const authorName = meta?.userName || null;
             const isR18 = Number(meta?.xRestrict ?? 0) > 0;
+            const isAi = Number(meta?.aiType ?? 0) >= 2;
             const description = meta?.description || '';
             const tags = extractTagsFromMeta(meta);
 
             let imageUrls;
             const bookmark = GM_getValue(KEY_BOOKMARK_AFTER_DL, false);
-            let other = { bookmark, authorId, authorName, isR18, description, tags };
+            let other = { bookmark, authorId, authorName, isR18, isAi, description, tags };
 
             if (meta && meta.illustType === 2) {
                 // 动图作品：获取ugoira元数据，下载ZIP并在后端合成WebP
@@ -353,6 +359,7 @@
                     authorId,
                     authorName,
                     isR18,
+                    isAi,
                     description,
                     tags
                 };

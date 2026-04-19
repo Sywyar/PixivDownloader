@@ -187,6 +187,7 @@ Visit `http://localhost:6999/monitor.html` to view real-time download progress a
 The history table now supports:
 
 - fuzzy search by author name or author ID
+- fuzzy tag search and AI-generated filtering
 - checkbox-based author filtering
 - click-to-toggle filtering from the author cell
 - sorting by author ID

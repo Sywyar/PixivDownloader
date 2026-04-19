@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.request.ArtworkBatchRequest;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.request.MoveArtworkRequest;
@@ -290,6 +291,7 @@ public class DownloadController {
     }
 
     private DownloadedResponse toDownloadedResponse(ArtworkRecord artwork, Map<Long, String> authorNames) {
+        List<TagDto> tags = pixivDatabase.getArtworkTags(artwork.artworkId());
         return DownloadedResponse.builder()
                 .artworkId(artwork.artworkId())
                 .title(artwork.title())
@@ -301,10 +303,11 @@ public class DownloadController {
                 .moveFolder(artwork.moveFolder())
                 .moveTime(artwork.moveTime())
                 .isR18(artwork.isR18())
+                .isAi(artwork.isAi())
                 .authorId(artwork.authorId())
                 .authorName(artwork.authorId() == null ? null : authorNames.get(artwork.authorId()))
                 .description(artwork.description())
-                .tags(artwork.tags())
+                .tags(tags)
                 .build();
     }
 

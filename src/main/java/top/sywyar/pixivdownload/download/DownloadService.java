@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.ImageResponse;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
@@ -155,7 +156,8 @@ public class DownloadService {
 
             // 记录下载信息
             recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions,
-                    successCount.get(), other.isR18(), other.getAuthorId(), other.getDescription(), other.getTags());
+                    successCount.get(), other.isR18(), other.isAi(), other.getAuthorId(), other.getDescription(), other.getTags());
+
             recordStatistics(imageUrls.size());
             recordAuthorInfo(artworkId, other, cookie);
 
@@ -270,14 +272,15 @@ public class DownloadService {
     }
 
     private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,
-                                int count, boolean isR18, Long authorId, String description, String tags) {
+                                int count, boolean isR18, boolean isAi, Long authorId, String description, List<TagDto> tags) {
         try {
             long time = pixivDatabase.getUniqueTime();
             pixivDatabase.insertArtwork(
                     artworkId, title,
                     Path.of(folderPath).toAbsolutePath().toString(),
-                    count, String.join(",", fileExtensions), time, isR18, authorId, description, tags
+                    count, String.join(",", fileExtensions), time, isR18, isAi, authorId, description
             );
+            pixivDatabase.saveArtworkTags(artworkId, tags);
         } catch (Exception e) {
             log.error("记录下载历史失败: {}", e.getMessage(), e);
         }
