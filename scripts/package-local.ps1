@@ -33,6 +33,7 @@ $FfprobeExe = Join-Path $FfmpegDir "ffprobe.exe"
 $FfmpegLicense = Join-Path $FfmpegDir "ffmpeg-LGPL.txt"
 $OnlineZipPath = Join-Path $OutDir "$AppName-$Version-win-x64-online-portable.zip"
 $OfflineZipPath = Join-Path $OutDir "$AppName-$Version-win-x64-portable.zip"
+$UserscriptBundleScript = Join-Path $PSScriptRoot "build-userscript-bundle.ps1"
 $FixWixKeyPathsScript = Join-Path $PSScriptRoot "fix-wix-per-user-keypaths.ps1"
 $SetExeExecutionLevelScript = Join-Path $PSScriptRoot "set-windows-exe-requested-execution-level.ps1"
 $InstallerVersion = $null
@@ -237,6 +238,12 @@ try {
     }
     Ensure-Directory $InputDir
     Ensure-Directory $OutDir
+
+    Write-Step "Generating bundled userscript"
+    & $UserscriptBundleScript -Version $Version
+    if ($LASTEXITCODE -ne 0) {
+        throw "Userscript bundle generation failed."
+    }
 
     Write-Step "Building application JAR"
     if ($RunTests) {

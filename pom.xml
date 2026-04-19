@@ -157,6 +157,13 @@
                                     </includes>
                                     <filtering>false</filtering>
                                 </resource>
+                                <resource>
+                                    <directory>${project.basedir}/build/generated-userscripts</directory>
+                                    <includes>
+                                        <include>*.user.js</include>
+                                    </includes>
+                                    <filtering>false</filtering>
+                                </resource>
                             </resources>
                         </configuration>
                     </execution>
