@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.0.4
+// @version      2.0.5
 // @description  通过Java后端服务下载 Pixiv 单个作品图片
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -126,6 +126,12 @@
                 }
             });
         });
+    }
+
+    // 从 Pixiv meta 中提取 tags，逗号拼接
+    function extractTagsFromMeta(meta) {
+        const arr = meta && meta.tags && Array.isArray(meta.tags.tags) ? meta.tags.tags : [];
+        return arr.map(t => (t && t.tag) ? String(t.tag) : '').filter(Boolean).join(',');
     }
 
     // 获取作品元数据
@@ -327,10 +333,12 @@
             const authorId = Number.isFinite(parsedAuthorId) ? parsedAuthorId : null;
             const authorName = meta?.userName || null;
             const isR18 = Number(meta?.xRestrict ?? 0) > 0;
+            const description = meta?.description || '';
+            const tags = extractTagsFromMeta(meta);
 
             let imageUrls;
             const bookmark = GM_getValue(KEY_BOOKMARK_AFTER_DL, false);
-            let other = { bookmark, authorId, authorName, isR18 };
+            let other = { bookmark, authorId, authorName, isR18, description, tags };
 
             if (meta && meta.illustType === 2) {
                 // 动图作品：获取ugoira元数据，下载ZIP并在后端合成WebP
@@ -344,7 +352,9 @@
                     bookmark,
                     authorId,
                     authorName,
-                    isR18
+                    isR18,
+                    description,
+                    tags
                 };
             } else if (meta && meta.pageCount === 1 && meta.urls && meta.urls.original) {
                 // 单页插画：meta 已携带 original URL，无需再调用 /pages

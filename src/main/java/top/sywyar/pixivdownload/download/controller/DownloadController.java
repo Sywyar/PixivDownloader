@@ -303,6 +303,8 @@ public class DownloadController {
                 .isR18(artwork.isR18())
                 .authorId(artwork.authorId())
                 .authorName(artwork.authorId() == null ? null : authorNames.get(artwork.authorId()))
+                .description(artwork.description())
+                .tags(artwork.tags())
                 .build();
     }
 

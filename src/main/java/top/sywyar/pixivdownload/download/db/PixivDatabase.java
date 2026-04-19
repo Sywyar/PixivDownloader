@@ -22,6 +22,8 @@ public class PixivDatabase {
         // 幂等迁移：为无 R18 列的旧库补列，已有数据行该列为 NULL
         try { pixivMapper.addR18Column(); } catch (Exception ignored) {}
         try { pixivMapper.addAuthorIdColumn(); } catch (Exception ignored) {}
+        try { pixivMapper.addDescriptionColumn(); } catch (Exception ignored) {}
+        try { pixivMapper.addTagsColumn(); } catch (Exception ignored) {}
         log.info("数据库初始化完成");
     }
 
@@ -39,14 +41,26 @@ public class PixivDatabase {
     }
 
     public void insertArtwork(long artworkId, String title, String folder, int count,
-                              String extensions, long time, Boolean isR18, Long authorId) {
+                              String extensions, long time, Boolean isR18, Long authorId,
+                              String description, String tags) {
         pixivMapper.insertOrIgnore(artworkId, title, stripTrailingSlash(folder),
-                count, extensions, time, isR18, authorId);
+                count, extensions, time, isR18, authorId, description, tags);
+    }
+
+    public void insertArtwork(long artworkId, String title, String folder, int count,
+                              String extensions, long time, Boolean isR18, Long authorId,
+                              String description) {
+        insertArtwork(artworkId, title, folder, count, extensions, time, isR18, authorId, description, null);
+    }
+
+    public void insertArtwork(long artworkId, String title, String folder, int count,
+                              String extensions, long time, Boolean isR18, Long authorId) {
+        insertArtwork(artworkId, title, folder, count, extensions, time, isR18, authorId, null, null);
     }
 
     public void insertArtwork(long artworkId, String title, String folder, int count,
                               String extensions, long time, Boolean isR18) {
-        insertArtwork(artworkId, title, folder, count, extensions, time, isR18, null);
+        insertArtwork(artworkId, title, folder, count, extensions, time, isR18, null, null, null);
     }
 
     private static String stripTrailingSlash(String path) {

@@ -40,5 +40,7 @@ public class DownloadRequest {
         private int delayMs = 0;
         @JsonProperty("bookmark")
         private boolean bookmark;
+        private String description;
+        private String tags;
     }
 }

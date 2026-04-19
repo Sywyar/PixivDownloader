@@ -212,7 +212,7 @@ class DownloadServiceTest {
         @DisplayName("已存在的作品应返回记录")
         void shouldReturnArtworkRecord() {
             ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", "/path/to/folder",
-                    3, "jpg", 1700000000L, false, null, null, false, null);
+                    3, "jpg", 1700000000L, false, null, null, false, null, null, null);
             when(pixivDatabase.getArtwork(12345L)).thenReturn(record);
 
             ArtworkRecord result = downloadService.getDownloadedRecord(12345L);
@@ -245,7 +245,7 @@ class DownloadServiceTest {
         void shouldDeleteStaleRecordWhenDirectoryIsEmpty() throws Exception {
             Path folder = Files.createDirectories(tempDir.resolve("12345"));
             ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", folder.toString(),
-                    3, "jpg", 1700000000L, false, null, null, false, null);
+                    3, "jpg", 1700000000L, false, null, null, false, null, null, null);
             when(pixivDatabase.getArtwork(12345L)).thenReturn(record);
 
             ArtworkRecord result = downloadService.getDownloadedRecord(12345L, true);
@@ -261,7 +261,7 @@ class DownloadServiceTest {
             Files.writeString(folder.resolve("note.txt"), "orphan");
             Files.writeString(folder.resolve("22345_p0.json"), "{}");
             ArtworkRecord record = new ArtworkRecord(22345L, "测试作品", folder.toString(),
-                    1, "jpg", 1700000000L, false, null, null, false, null);
+                    1, "jpg", 1700000000L, false, null, null, false, null, null, null);
             when(pixivDatabase.getArtwork(22345L)).thenReturn(record);
 
             ArtworkRecord result = downloadService.getDownloadedRecord(22345L, true);
@@ -277,7 +277,7 @@ class DownloadServiceTest {
             Path movedFolder = Files.createDirectories(tempDir.resolve("32345-moved"));
             Files.write(movedFolder.resolve("32345_p0.webp"), new byte[]{1, 2, 3});
             ArtworkRecord record = new ArtworkRecord(32345L, "测试作品", originalFolder.toString(),
-                    1, "webp", 1700000000L, true, movedFolder.toString(), 1700000001L, false, null);
+                    1, "webp", 1700000000L, true, movedFolder.toString(), 1700000001L, false, null, null, null);
             when(pixivDatabase.getArtwork(32345L)).thenReturn(record);
 
             ArtworkRecord result = downloadService.getDownloadedRecord(32345L, true);
@@ -369,7 +369,7 @@ class DownloadServiceTest {
                     "https://www.pixiv.net/", other, null, null);
 
             verify(pixivDatabase).insertArtwork(12345L, "test", tempDir.resolve("12345").toAbsolutePath().toString(),
-                    1, "webp", 1700000100L, false, 999L);
+                    1, "webp", 1700000100L, false, 999L, null, null);
         }
     }
 

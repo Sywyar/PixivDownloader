@@ -156,8 +156,25 @@ public class PixivProxyController {
         return ResponseEntity.ok(new ArtworkMetaResponse(
                 b.path("illustType").asInt(0),
                 b.path("illustTitle").asText(""),
-                b.path("xRestrict").asInt(0)
+                b.path("xRestrict").asInt(0),
+                b.path("description").asText(""),
+                extractTags(b)
         ));
+    }
+
+    private static String extractTags(JsonNode body) {
+        JsonNode tagsArr = body.path("tags").path("tags");
+        if (!tagsArr.isArray() || tagsArr.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode t : tagsArr) {
+            String tag = t.path("tag").asText("");
+            if (tag.isEmpty()) continue;
+            if (!sb.isEmpty()) sb.append(',');
+            sb.append(tag);
+        }
+        return sb.toString();
     }
 
     @GetMapping("/artwork/{artworkId}/pages")

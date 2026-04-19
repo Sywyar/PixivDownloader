@@ -9,4 +9,6 @@ public class ArtworkMetaResponse {
     private final int illustType;
     private final String illustTitle;
     private final int xRestrict;
+    private final String description;
+    private final String tags;
 }

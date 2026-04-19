@@ -155,7 +155,7 @@ public class DownloadService {
 
             // 记录下载信息
             recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions,
-                    successCount.get(), other.isR18(), other.getAuthorId());
+                    successCount.get(), other.isR18(), other.getAuthorId(), other.getDescription(), other.getTags());
             recordStatistics(imageUrls.size());
             recordAuthorInfo(artworkId, other, cookie);
 
@@ -270,13 +270,13 @@ public class DownloadService {
     }
 
     private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,
-                                int count, boolean isR18, Long authorId) {
+                                int count, boolean isR18, Long authorId, String description, String tags) {
         try {
             long time = pixivDatabase.getUniqueTime();
             pixivDatabase.insertArtwork(
                     artworkId, title,
                     Path.of(folderPath).toAbsolutePath().toString(),
-                    count, String.join(",", fileExtensions), time, isR18, authorId
+                    count, String.join(",", fileExtensions), time, isR18, authorId, description, tags
             );
         } catch (Exception e) {
             log.error("记录下载历史失败: {}", e.getMessage(), e);

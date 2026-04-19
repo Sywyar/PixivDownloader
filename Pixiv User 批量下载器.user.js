@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv User 批量下载器
 // @namespace    http://tampermonkey.net/
-// @version      2.0.6
+// @version      2.0.7
 // @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Java 后端。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -297,7 +297,7 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, authorId, authorName, isR18, ugoiraData, delayMs, bookmark) {
+        sendDownloadRequest(artworkId, imageUrls, title, usernameParam, authorId, authorName, isR18, ugoiraData, delayMs, bookmark, description, tags) {
             return new Promise((resolve, reject) => {
                 const parsedAuthorId = Number.parseInt(String(authorId || ''), 10);
                 const other = {
@@ -307,7 +307,9 @@
                     authorName: authorName || null,
                     isR18: isR18,
                     delayMs: delayMs || 0,
-                    bookmark: !!bookmark
+                    bookmark: !!bookmark,
+                    description: description || null,
+                    tags: tags || null
                 };
                 if (ugoiraData) {
                     other.isUgoira = true;
@@ -857,6 +859,9 @@
 
                 // 判断是否是 R18 内容
                 const isR18 = Number(meta?.xRestrict ?? meta?.xrestrict ?? 0) > 0;
+                const description = meta?.description || '';
+                const tagsArr = meta && meta.tags && Array.isArray(meta.tags.tags) ? meta.tags.tags : [];
+                const tags = tagsArr.map(t => (t && t.tag) ? String(t.tag) : '').filter(Boolean).join(',');
 
                 if (this.globalSettings.r18Only && !isR18) {
                     item.status = 'skipped';
@@ -906,7 +911,9 @@
                     isR18,
                     ugoiraData,
                     this.getImageDelayMs(),
-                    this.globalSettings.bookmark
+                    this.globalSettings.bookmark,
+                    description,
+                    tags
                 );
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';

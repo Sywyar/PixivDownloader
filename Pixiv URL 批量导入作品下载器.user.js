@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 批量导入作品下载器
 // @namespace    http://tampermonkey.net/
-// @version      2.0.7
+// @version      2.0.8
 // @description  粘贴作品链接列表批量下载，格式为 url | title，兼容 One-Tab，N-Tab 等标签页管理插件导出格式，支持严格的下载状态校验。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -204,7 +204,7 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, authorId, authorName, isR18, ugoiraData, delayMs, bookmark) {
+        sendDownloadRequest(artworkId, imageUrls, title, authorId, authorName, isR18, ugoiraData, delayMs, bookmark, description, tags) {
             return new Promise((resolve, reject) => {
                 const parsedAuthorId = Number.parseInt(String(authorId ?? ''), 10);
                 const other = {
@@ -213,7 +213,9 @@
                     authorName: authorName || null,
                     isR18: !!isR18,
                     delayMs: delayMs || 0,
-                    bookmark: !!bookmark
+                    bookmark: !!bookmark,
+                    description: description || null,
+                    tags: tags || null
                 };
                 if (ugoiraData) {
                     other.isUgoira = true;
@@ -788,6 +790,9 @@
                 const authorId = meta?.userId ?? null;
                 const authorName = meta?.userName || null;
                 const isR18 = Number(meta?.xRestrict ?? meta?.xrestrict ?? 0) > 0;
+                const description = meta?.description || '';
+                const tagsArr = meta && meta.tags && Array.isArray(meta.tags.tags) ? meta.tags.tags : [];
+                const tags = tagsArr.map(t => (t && t.tag) ? String(t.tag) : '').filter(Boolean).join(',');
 
                 if (this.r18Only && !isR18) {
                     item.status = 'skipped';
@@ -831,7 +836,7 @@
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
-                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, isR18, ugoiraData, this.getImageDelayMs(), this.bookmark);
+                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, isR18, ugoiraData, this.getImageDelayMs(), this.bookmark, description, tags);
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';

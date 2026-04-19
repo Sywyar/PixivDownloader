@@ -1601,7 +1601,7 @@
         return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     }
 
-    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, isR18, ugoiraData) {
+    async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, isR18, ugoiraData, description, tags) {
         const delayMs = getImageDelayMs();
         const other = {
             userDownload: isUserDownload,
@@ -1610,7 +1610,9 @@
             authorName: authorName || null,
             isR18: !!isR18,
             delayMs,
-            bookmark: !!state.settings.bookmark
+            bookmark: !!state.settings.bookmark,
+            description: description || null,
+            tags: tags || null
         };
         if (ugoiraData) {
             other.isUgoira = true;
@@ -1890,7 +1892,9 @@
                 isUserMode, item.username || state.username || state.userId,
                 item.authorId ?? fallbackAuthorId,
                 item.authorName || fallbackAuthorName,
-                isR18, ugoiraData
+                isR18, ugoiraData,
+                meta.description || '',
+                meta.tags || ''
             );
             if (dlData && dlData.alreadyDownloaded) {
                 item.status = 'skipped';
