@@ -25,12 +25,21 @@ public class GalleryController {
             @RequestParam(required = false, defaultValue = "any") String r18,
             @RequestParam(required = false, defaultValue = "any") String ai,
             @RequestParam(required = false) String format,
-            @RequestParam(required = false) String collectionIds) {
+            @RequestParam(required = false) String collectionIds,
+            @RequestParam(required = false) String tagIds) {
 
         GalleryQuery query = GalleryQuery.normalize(
                 page, size, sort, order, search, r18, ai,
-                parseFormats(format), parseCollectionIds(collectionIds));
+                parseFormats(format), parseLongList(collectionIds), parseLongList(tagIds));
         return galleryService.query(query);
+    }
+
+    @GetMapping("/tags")
+    public Map<String, Object> listTags(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, defaultValue = "500") int limit) {
+        List<GalleryRepository.TagOption> tags = galleryService.listTags(search, limit);
+        return Map.of("tags", tags);
     }
 
     @GetMapping("/artwork/{artworkId}")
@@ -69,7 +78,7 @@ public class GalleryController {
         return out.isEmpty() ? null : out;
     }
 
-    private List<Long> parseCollectionIds(String csv) {
+    private List<Long> parseLongList(String csv) {
         if (csv == null || csv.isBlank()) return null;
         List<Long> out = new ArrayList<>();
         for (String part : csv.split(",")) {

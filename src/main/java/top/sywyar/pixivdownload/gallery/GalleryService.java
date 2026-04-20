@@ -31,6 +31,11 @@ public class GalleryService {
                 query.getPage(), query.getSize(), totalPages);
     }
 
+    public List<GalleryRepository.TagOption> listTags(String search, int limit) {
+        int clamped = limit <= 0 ? 500 : Math.min(limit, 2000);
+        return galleryRepository.findTagsWithCounts(search, clamped);
+    }
+
     public DownloadedResponse findArtwork(long artworkId) {
         ArtworkRecord rec = downloadService.getDownloadedRecord(artworkId);
         if (rec == null) return null;

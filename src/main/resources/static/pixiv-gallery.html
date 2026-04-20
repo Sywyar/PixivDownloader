@@ -209,6 +209,28 @@
         .chip .chip-icon svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 2; fill: none; }
         .filter-chip-list { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
         .filter-chip-list .chip-empty { font-size: 12px; color: var(--muted); }
+
+        .filter-tags-row { align-items: flex-start; }
+        .filter-tags-main { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+        .filter-tags-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .tag-search-box {
+            display: inline-flex; align-items: center; gap: 6px;
+            height: 28px; padding: 0 10px; border-radius: 999px;
+            border: 1px solid var(--line); background: #fff;
+            transition: border-color 0.15s;
+        }
+        .tag-search-box:focus-within { border-color: var(--brand); }
+        .tag-search-box svg { width: 12px; height: 12px; color: var(--muted); flex-shrink: 0; }
+        .tag-search-box input {
+            border: none; outline: none; background: transparent;
+            font-size: 12px; font-family: inherit; color: var(--text);
+            width: 160px;
+        }
+        .tag-search-box input::placeholder { color: var(--muted); }
+        .chip .tag-trans { color: var(--muted); margin-left: 4px; font-size: 11px; }
+        .chip-count { color: var(--muted); margin-left: 4px; font-size: 11px; }
+        #filterTagChips { max-height: 88px; overflow: hidden; transition: max-height 0.2s ease; }
+        #filterTagChips.expanded { max-height: 600px; overflow-y: auto; }
         .filter-reset {
             margin-left: auto; height: 28px; padding: 0 12px; border-radius: 999px;
             border: 1px solid var(--line); background: transparent; color: var(--muted);
@@ -494,6 +516,19 @@
             <div class="filter-row" id="filterCollectionsRow">
                 <span class="filter-row-label">收藏夹</span>
                 <div class="filter-chip-list" id="filterCollectionChips"></div>
+            </div>
+            <div class="filter-row filter-tags-row" id="filterTagsRow">
+                <span class="filter-row-label">标签</span>
+                <div class="filter-tags-main">
+                    <div class="filter-tags-controls">
+                        <label class="tag-search-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" id="tagSearchInput" placeholder="搜索标签...">
+                        </label>
+                        <button class="chip" id="tagExpandToggle" type="button">展开全部</button>
+                    </div>
+                    <div class="filter-chip-list" id="filterTagChips"></div>
+                </div>
                 <button class="filter-reset" id="filterReset">重置筛选</button>
             </div>
         </div>
@@ -579,15 +614,21 @@
         ai: 'any',
         formats: new Set(),
         collectionIds: new Set(),
+        tagIds: new Set(),
         totalPages: 0,
         totalElements: 0,
         collections: [],
+        tags: [],
+        tagFilterText: '',
+        tagsExpanded: false,
         activeArtworkId: null,
         collectionMembership: new Map(),
         editingCollection: null,
         pendingIconFile: null,
         pendingIconClear: false,
     };
+
+    const TAG_COLLAPSED_LIMIT = 24;
 
     const HEART_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
 
@@ -898,12 +939,14 @@
     });
 
     document.getElementById('filterReset').addEventListener('click', () => {
-        state.r18 = 'any'; state.ai = 'any'; state.formats.clear(); state.collectionIds.clear();
+        state.r18 = 'any'; state.ai = 'any';
+        state.formats.clear(); state.collectionIds.clear(); state.tagIds.clear();
         document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
         document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
         document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.remove('active'));
         state.page = 0;
         renderCollections();
+        renderTagChips();
         updateFilterBadge();
         loadGallery();
     });
@@ -914,10 +957,104 @@
         if (state.ai !== 'any') n++;
         n += state.formats.size;
         n += state.collectionIds.size;
+        n += state.tagIds.size;
         const badge = document.getElementById('filterBadge');
         badge.textContent = n;
         badge.classList.toggle('visible', n > 0);
     }
+
+    // ---------- Tag filter ----------
+    async function loadTagOptions() {
+        try {
+            const resp = await api('/api/gallery/tags?limit=500');
+            state.tags = resp.tags || [];
+        } catch (e) {
+            console.error('load tags failed', e);
+            state.tags = [];
+        }
+        renderTagChips();
+    }
+
+    function renderTagChips() {
+        const box = document.getElementById('filterTagChips');
+        const toggleBtn = document.getElementById('tagExpandToggle');
+        if (!state.tags.length) {
+            box.innerHTML = '<span class="chip-empty">暂无标签</span>';
+            toggleBtn.style.display = 'none';
+            return;
+        }
+        const kw = state.tagFilterText.trim().toLowerCase();
+        const filtered = kw
+            ? state.tags.filter(t =>
+                (t.name && t.name.toLowerCase().includes(kw)) ||
+                (t.translatedName && t.translatedName.toLowerCase().includes(kw)))
+            : state.tags.slice();
+
+        // 已选标签置顶，未选按原顺序（后端已按使用量降序）
+        filtered.sort((a, b) => {
+            const sa = state.tagIds.has(a.tagId) ? 0 : 1;
+            const sb = state.tagIds.has(b.tagId) ? 0 : 1;
+            return sa - sb;
+        });
+
+        const expanded = state.tagsExpanded || kw.length > 0;
+        const display = expanded ? filtered : filtered.slice(0, TAG_COLLAPSED_LIMIT);
+        const hidden = filtered.length - display.length;
+
+        if (display.length === 0) {
+            box.innerHTML = '<span class="chip-empty">没有匹配的标签</span>';
+        } else {
+            box.innerHTML = display.map(t => {
+                const active = state.tagIds.has(t.tagId);
+                const trans = t.translatedName
+                    ? `<span class="tag-trans">${escapeHtml(t.translatedName)}</span>`
+                    : '';
+                return `<button class="chip ${active ? 'active' : ''}" type="button" data-tag-id="${t.tagId}">
+                    ${escapeHtml(t.name || '')}
+                    ${trans}
+                    <span class="chip-count">${t.artworkCount}</span>
+                </button>`;
+            }).join('');
+            box.querySelectorAll('.chip[data-tag-id]').forEach(chip => {
+                chip.addEventListener('click', () => toggleTagFilter(Number(chip.dataset.tagId)));
+            });
+        }
+        box.classList.toggle('expanded', expanded);
+
+        if (filtered.length > TAG_COLLAPSED_LIMIT) {
+            toggleBtn.style.display = '';
+            toggleBtn.textContent = state.tagsExpanded
+                ? '收起'
+                : `展开全部（还有 ${hidden}）`;
+            toggleBtn.classList.toggle('active', state.tagsExpanded);
+        } else {
+            toggleBtn.style.display = 'none';
+        }
+    }
+
+    function toggleTagFilter(tagId) {
+        if (state.tagIds.has(tagId)) state.tagIds.delete(tagId);
+        else state.tagIds.add(tagId);
+        state.page = 0;
+        renderTagChips();
+        updateFilterBadge();
+        loadGallery();
+    }
+
+    let tagSearchTimer = null;
+    document.getElementById('tagSearchInput').addEventListener('input', e => {
+        const v = e.target.value;
+        clearTimeout(tagSearchTimer);
+        tagSearchTimer = setTimeout(() => {
+            state.tagFilterText = v;
+            renderTagChips();
+        }, 150);
+    });
+
+    document.getElementById('tagExpandToggle').addEventListener('click', () => {
+        state.tagsExpanded = !state.tagsExpanded;
+        renderTagChips();
+    });
 
     // ---------- Search (debounced) ----------
     let searchTimer = null;
@@ -943,6 +1080,7 @@
         if (state.ai !== 'any') params.set('ai', state.ai);
         if (state.formats.size) params.set('format', [...state.formats].join(','));
         if (state.collectionIds.size) params.set('collectionIds', [...state.collectionIds].join(','));
+        if (state.tagIds.size) params.set('tagIds', [...state.tagIds].join(','));
 
         document.getElementById('galleryStatus').textContent = '加载中...';
         try {
@@ -1191,6 +1329,7 @@
     // ---------- Boot ----------
     (async function init() {
         await loadCollections();
+        await loadTagOptions();
         await loadGallery();
     })();
 </script>

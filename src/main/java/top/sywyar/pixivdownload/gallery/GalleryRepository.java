@@ -68,6 +68,16 @@ public class GalleryRepository {
             params.addValue("collectionIds", collectionIds);
         }
 
+        List<Long> tagIds = q.getTagIds();
+        if (tagIds != null && !tagIds.isEmpty()) {
+            // AND 语义：作品需同时命中所有选中的标签
+            where.append(" AND a.artwork_id IN (SELECT artwork_id FROM artwork_tags"
+                    + " WHERE tag_id IN (:tagIds)"
+                    + " GROUP BY artwork_id HAVING COUNT(DISTINCT tag_id) = :tagIdCount)");
+            params.addValue("tagIds", tagIds);
+            params.addValue("tagIdCount", tagIds.size());
+        }
+
         String countSql = "SELECT COUNT(*) FROM artworks a"
                 + " LEFT JOIN authors au ON au.author_id = a.author_id"
                 + where;
@@ -137,4 +147,35 @@ public class GalleryRepository {
     }
 
     public record QueryResult(List<Long> ids, long totalElements) {}
+
+    /**
+     * 查询所有标签并统计每个标签被多少作品使用，按使用量降序、标签 ID 升序返回。
+     * 支持按 name 或 translated_name 进行模糊匹配（大小写不敏感）。
+     */
+    public List<TagOption> findTagsWithCounts(String search, int limit) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT t.tag_id AS tag_id, t.name AS name, t.translated_name AS translated_name,"
+                        + " COUNT(at.artwork_id) AS artwork_count"
+                        + " FROM tags t"
+                        + " LEFT JOIN artwork_tags at ON at.tag_id = t.tag_id");
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (search != null && !search.isBlank()) {
+            sql.append(" WHERE LOWER(t.name) LIKE :kw OR LOWER(COALESCE(t.translated_name, '')) LIKE :kw");
+            params.addValue("kw", "%" + search.trim().toLowerCase() + "%");
+        }
+        sql.append(" GROUP BY t.tag_id, t.name, t.translated_name")
+                .append(" HAVING artwork_count > 0")
+                .append(" ORDER BY artwork_count DESC, t.tag_id ASC");
+        if (limit > 0) {
+            sql.append(" LIMIT :limit");
+            params.addValue("limit", limit);
+        }
+        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new TagOption(
+                rs.getLong("tag_id"),
+                rs.getString("name"),
+                rs.getString("translated_name"),
+                rs.getInt("artwork_count")));
+    }
+
+    public record TagOption(long tagId, String name, String translatedName, int artworkCount) {}
 }

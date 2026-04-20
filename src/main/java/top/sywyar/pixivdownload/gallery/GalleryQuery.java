@@ -37,10 +37,13 @@ public class GalleryQuery {
     private List<String> formats;
     /** 收藏夹 ID 过滤（OR 语义，命中任一收藏夹即纳入），空表示不限。 */
     private List<Long> collectionIds;
+    /** 标签 ID 过滤（AND 语义，需同时命中所有标签），空表示不限。 */
+    private List<Long> tagIds;
 
     public static GalleryQuery normalize(Integer page, Integer size, String sort, String order,
                                          String search, String r18, String ai,
-                                         List<String> formats, List<Long> collectionIds) {
+                                         List<String> formats, List<Long> collectionIds,
+                                         List<Long> tagIds) {
         return GalleryQuery.builder()
                 .page(Math.max(0, page == null ? 0 : page))
                 .size(clamp(size == null ? 24 : size, 1, 200))
@@ -51,6 +54,7 @@ public class GalleryQuery {
                 .ai(normalizeTristate(ai))
                 .formats(formats)
                 .collectionIds(collectionIds)
+                .tagIds(tagIds)
                 .build();
     }
 
