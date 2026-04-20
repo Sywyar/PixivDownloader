@@ -123,7 +123,7 @@ Tampermonkey's `GM_xmlhttpRequest` is restricted by the `@connect` whitelist. By
 | `Pixiv 页面批量下载器.user.js`                  | Page DOM scraping across Pixiv                                                                                                   |
 
 > **If you only want one script, install `Pixiv All-in-One.user.js` first.** `Local download` remains separate and is not included in the all-in-one bundle.
-> **If the all-in-one script has issues, test the matching standalone script first.** If the standalone version works and only the bundle fails, include reproduction steps and environment details when opening an issue.
+> **If the all-in-one script has issues, try the matching standalone script first, then include reproduction steps and environment details when opening an issue.**
 > **The web interface is recommended first**: `http://localhost:6999/pixiv-batch.html` supports Bulk Artwork Import, User mode, and Search mode without requiring any userscript for batch downloading.
 
 ## 3. Usage
@@ -221,6 +221,20 @@ Tool-related operations are now launched from the GUI. After starting the app, o
 ### 7. Product Intro Page
 
 Visit `http://localhost:6999/intro.html` (publicly accessible, no login required) to view the project introduction.
+
+### 8. Downloaded Images Gallery
+
+Visit `http://localhost:6999/pixiv-gallery.html` to browse a gallery of locally downloaded artworks. A `GALLERY` entry is also available at the top of `monitor.html` and `pixiv-batch.html`, so you can jump there directly from the download monitor or batch page.
+
+The gallery page supports:
+
+- searching by artwork title / artist
+- sorting by date, artwork ID, image count, status, artist ID, and tag count, with ascending / descending toggle
+- combined filtering by R-18, AI, image format, and collections
+- paginated browsing of downloaded artworks, with thumbnail badges for R-18, AI, and multi-page works
+- opening the artwork details page at `pixiv-artwork.html?id=<artworkId>` to view the title, description, tags, artist info, related works, and other works by the same artist
+- "Expand All" and lightbox preview for multi-page works
+- adding artworks to collections or removing them from collections; collections support create, rename, delete, quick create, and custom icons (PNG / JPG / WEBP, max 1 MB)
 
 ## 4. Development Guide
 
@@ -352,6 +366,3 @@ Features:
 - Supports multiple languages
 
 ## Development Plan
-
-#### Viewer page (concept mockup)
-![](./image/8.png)
