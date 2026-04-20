@@ -2,232 +2,227 @@
 
 [中文](./README.md) | English
 
-Local Pixiv batch image download tool, consisting of a **Spring Boot backend** + **Tampermonkey userscript**.
+Local Pixiv batch image downloader, consisting of a **Spring Boot backend** + **desktop GUI** + **Tampermonkey userscripts**.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Development Guide](#development-guide)
+- [Overview](#1-overview)
+- [Installation](#2-installation)
+- [Usage](#3-usage)
+- [Development Guide](#4-development-guide)
 - [Disclaimer](#disclaimer)
 - [Additional Notes](#additional-notes)
-- [Friends Links](#friends-links)
-- [开发计划](#开发计划)
+- [Friend Links](#friend-links)
+- [Development Plan](#development-plan)
 
-## Overview
+## 1. Overview
 
-PixivDownload is a local Pixiv batch image download tool with multiple download methods and convenient management features.
+PixivDownload is a local Pixiv batch image downloader that supports multiple download workflows and convenient management features.
 
 ### Features
 
-- Pixiv-batch.html [offers one-stop downloading](#Web-Batch-Download), including bulk artwork import, batch downloading of user-submitted works, and batch downloading of searched works. It works in conjunction with a page-based batch download script, requiring no other scripts.
-- Batch page download — scrape all works from the entire Pixiv site, including search pages, followed feeds, leaderboards, etc.
-- monitor.html is a [one-stop management page](#Download-Monitor) that allows for multi-dimensional filtering and sorting of works, including author-based search/filter/sort in download history.
+- `pixiv-batch.html` [one-stop download page](#4-web-batch-download), supporting bulk artwork import, user batch download, and search batch download; with the page scraping userscript, you usually do not need other scripts
+- Page batch download — scrape all artworks from Pixiv pages such as search results, following feed, rankings, and more
+- `monitor.html` [one-stop management page](#5-download-monitor), with multi-dimensional filtering/sorting and download history filtering by author
 - Single artwork download — one-click download on artwork pages
-- User homepage batch download — batch download all works from a user
-- Bulk artwork import — paste artwork link lists in `url | title` format for batch downloading, compatible with export formats from tab manager extensions such as OneTab and N-Tab
-- Keyword search download — search and download Pixiv artworks via web interface
-- Animated image auto-conversion to WebP — automatically convert Ugoira to WebP with delays
-- Download history management — record downloaded artworks and author metadata, support resumable downloads, and detect author renames automatically
-- Image classification tool — standalone desktop tool for organizing downloaded images
-- Multi-mode rate limiting — quota and rate limits for multi-user scenarios
+- User homepage batch download — download all works from a specified user
+- Bulk artwork import — paste artwork link lists in `url | title` format; compatible with export formats from OneTab, N-Tab, and similar tab manager extensions
+- Keyword search download — search Pixiv artworks from the web UI and add them to the queue
+- Animated image auto-conversion to WebP — automatically merge Ugoira frames into delayed WebP
+- Download history management — records downloaded artworks and author metadata, supports resume, and detects author renames automatically
+- GUI tools page — integrates image classification, database directory validation, and database backfill; tools that require exclusive SQLite access automatically stop and restore the backend
+- Multi-user mode rate limiting — provides quota and rate limiting for shared deployments
 
 ### Screenshots
 
 <details>
 <summary><strong>Expand to view screenshots</strong></summary>
 
-#### Screenshot of monitor.html page
+#### Screenshot of monitor.html
+
 ![](./image/1.png)
 
-#### Screenshot of the pixiv-batch.html plugin installation page
+#### Screenshot of the pixiv-batch.html userscript installation page
+
 ![](./image/2.png)
 
-#### Screenshot of the pixiv-batch.html bulk artwork import page (The script achieves the same effect, but the web version is recommended for its convenience.)
+#### Screenshot of the pixiv-batch.html bulk artwork import page (the userscript offers the same capability, but the web page is more convenient)
+
 ![](./image/3.png)
 
-#### Screenshot of pixiv-batch.html User parsing and queueing page (The script achieves the same effect, but the web version is recommended for its convenience.)
+#### Screenshot of the pixiv-batch.html User page parsing and queueing flow (the userscript offers the same capability, but the web page is more convenient)
+
 ![](./image/4.png)
 
-#### Screenshot of pixiv-batch.html Search parsing and queueing page
+#### Screenshot of the pixiv-batch.html Search page parsing and queueing flow
+
 ![](./image/5.png)
 
-#### This is a screenshot of a Pixiv page batch downloader (user.js), supporting full site scraping of Pixiv.
+#### Screenshot of `Pixiv 页面批量下载器.user.js`, which supports scraping across Pixiv pages
+
 ![](./image/6.png)
 
-#### Screenshot of single-artwork script download (same effect for Java backend and Local download)
+#### Screenshot of single-artwork downloading (Java backend mode and Local download mode provide the same result)
+
 ![](./image/7.png)
 
 </details>
 
-## Installation
+## 2. Installation
 
 ### 1. Download and Run
 
 Download the latest version from [Releases](../../releases):
 
-| Type                                                | Description                                                                                                                                                                         |
-|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `PixivDownload-vX.X.X.jar`                          | Universal JAR, requires Java 17+                                                                                                                                                    |
-| `PixivDownload-*-win-x64-online-portable.zip`       | Windows online portable build with the smallest download size; if FFmpeg is already installed, this is the only package you need                                                    |
-| `PixivDownload-*-win-x64-portable.zip`              | Windows offline portable build with bundled JRE and FFmpeg, suitable when FFmpeg is not installed or when you need an offline setup                                                 |
-| `PixivDownload-*-win-x64-<culture>-with-ffmpeg.msi` | Windows installer, currently shipped in `zh-CN` and `en-US`; FFmpeg is bundled and installed by default, so it works out of the box at a larger download size                       |
-| `PixivDownload-*-win-x64-<culture>-no-ffmpeg.msi`   | Windows installer, currently shipped in `zh-CN` and `en-US`; FFmpeg is not bundled, so the installer is smaller and best when FFmpeg already exists or Ugoira-to-WebP is not needed |
+| Type                                                | Description                                                                                                                                                                            |
+|-----------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `PixivDownload-vX.X.X.jar`                          | Universal JAR, requires Java 17+                                                                                                                                                       |
+| `PixivDownload-*-win-x64-online-portable.zip`       | Windows online portable build with the smallest size; if FFmpeg is already installed on the system, this version is usually enough                                                     |
+| `PixivDownload-*-win-x64-portable.zip`              | Windows offline portable build with bundled slim JRE and FFmpeg, suitable for offline use or systems without FFmpeg                                                                    |
+| `PixivDownload-*-win-x64-<culture>-with-ffmpeg.msi` | Windows installer, currently available in `zh-CN` / `en-US`; bundles FFmpeg and works out of the box, but is larger                                                                    |
+| `PixivDownload-*-win-x64-<culture>-no-ffmpeg.msi`   | Windows installer, currently available in `zh-CN` / `en-US`; does not bundle FFmpeg, so it is smaller and suitable when FFmpeg is already installed or Ugoira conversion is not needed |
 
-> Windows MSI packages are now split into fixed variants, so choose the package before downloading:
+> Windows MSI packages are now split into fixed variants, so choose the package you want before downloading:
 > - `zh-CN` / `en-US`: installer UI language
-> - `with-ffmpeg`: FFmpeg is bundled for an out-of-box setup
-> - `no-ffmpeg`: FFmpeg is not bundled; best when FFmpeg already exists or when you only need regular image downloads
-> - The MSI wizard does not offer runtime language switching and no longer exposes an FFmpeg feature-selection page
+> - `with-ffmpeg`: FFmpeg is bundled for an out-of-the-box setup
+> - `no-ffmpeg`: FFmpeg is not bundled; suitable when FFmpeg is already installed or when you only download regular images
+> - The MSI installer no longer offers language switching during setup and no longer provides an FFmpeg component selection page
+
+### 2. Install Userscripts (Optional)
+
+You can complete all operations from the web interface without userscripts. If you still want to install them:
+
+**Method 1: One-click install from the web management page (recommended)**
+
+After logging in, open `http://localhost:6999/pixiv-batch.html`, expand the userscript card at the top of the page, and click the install button for the target script. When deployed on a non-localhost server, `@connect` is automatically replaced with the actual address.
+
+**Method 2: Download manually from Releases**
+
+Download the scripts from [Releases](../../releases), then drag them into the Tampermonkey dashboard to install:
+
+<details>
+<summary><strong>This extra step is required when installing userscripts from downloaded release files (expand)</strong></summary>
+
+Tampermonkey's `GM_xmlhttpRequest` is restricted by the `@connect` whitelist. By default, the scripts only allow connecting to `localhost`. If the backend is deployed on another machine, you need to manually update each script's `@connect` declaration:
+
+1. Open the Tampermonkey dashboard, find the target script, and click Edit
+2. Replace `// @connect      YOUR_SERVER_HOST` in the script header with the actual address
+3. Save the script with `Ctrl+S`
+
+</details>
+
+| Script File                              | Recommended Use                                                                                                                  |
+|------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| `Pixiv All-in-One.user.js`               | Recommended. Combines page batch download, user batch download, URL bulk import, and single-artwork download (Java backend mode) |
+| `Pixiv 单作品图片下载器(Java后端版).user.js`        | Single artwork page download                                                                                                     |
+| `Pixiv 单作品图片下载器(Local download).user.js` | Single artwork page download (browser local download, no Java backend required)                                                  |
+| `Pixiv User 批量下载器.user.js`               | Batch download from a user homepage                                                                                              |
+| `Pixiv URL 批量导入作品下载器.user.js`            | Bulk artwork import, compatible with export formats from OneTab, N-Tab, and similar tab manager extensions                       |
+| `Pixiv 页面批量下载器.user.js`                  | Page DOM scraping across Pixiv                                                                                                   |
+
+> **If you only want one script, install `Pixiv All-in-One.user.js` first.** `Local download` remains separate and is not included in the all-in-one bundle.
+> **If the all-in-one script has issues, test the matching standalone script first.** If the standalone version works and only the bundle fails, include reproduction steps and environment details when opening an issue.
+> **The web interface is recommended first**: `http://localhost:6999/pixiv-batch.html` supports Bulk Artwork Import, User mode, and Search mode without requiring any userscript for batch downloading.
+
+## 3. Usage
 
 ```bash
-# JAR startup
-java -jar PixivDownload-vX.X.X.jar
+# Start from JAR
+java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
 
-# Windows exe startup
+# Start from Windows EXE
 PixivDownload.exe
 
 # Optional arguments
---no-gui    # Disable GUI, headless mode (for server/Docker)
---intro     # Open product intro page on startup
+--no-gui    # Disable the GUI and run in CLI-only mode (recommended only for server/Docker deployments)
+--intro     # Open the product introduction page on startup
 ```
 
-> On first startup, the browser will automatically open the setup wizard. Complete the setup before using other features.
+> The desktop GUI starts by default. Use `--no-gui` only for server or Docker deployments. The GUI provides `Status`, `Config`, `Tools`, and `About` tabs for managing the backend and local tools.
 
-> The online portable build does not bundle FFmpeg by default, but it will reuse FFmpeg from the system PATH, the app directory, or the managed user directory. If FFmpeg is already installed, the online portable build is enough. Only use `Download FFmpeg` on the `Status` tab when you need Ugoira-to-WebP conversion and do not already have FFmpeg available. Regular image downloads work without it.
+> On first startup, the browser automatically opens the setup wizard. Other features remain unavailable until setup is completed.
 
-### 2. Initial Setup
+> The online portable build does not bundle FFmpeg by default, but it will first try to reuse FFmpeg from the system `PATH`, the application directory, or the user directory. If FFmpeg is already installed, the online portable build is enough. Only click `Download FFmpeg` on the GUI `Status` tab when FFmpeg is unavailable and you need Ugoira-to-WebP conversion. Regular image downloads are unaffected.
 
-After first startup, the browser will automatically open `http://localhost:6999/setup.html`. Enter username and password (minimum 6 characters) and choose usage mode:
+### 1. Initial Setup
 
-| Mode       | Use Case                                                                                |
-|------------|-----------------------------------------------------------------------------------------|
-| Solo Mode  | Personal use, shared state across devices, requires login                               |
-| Multi Mode | Shared server, each visitor's config stored independently in browser, no login required |
+After first startup, the browser automatically opens `http://localhost:6999/setup.html`. Enter a username and password (at least 6 characters) and choose a usage mode:
 
-Configuration is written to `state/setup_config.json` and the setup page will not appear again. Delete this file and restart to reinitialize.
+| Mode       | Use Case                                                                                       |
+|------------|------------------------------------------------------------------------------------------------|
+| Solo Mode  | Personal use, shared state across devices, requires login                                      |
+| Multi Mode | Shared server, each visitor's config is stored independently in the browser, no login required |
 
-### 3. Configure Proxy
+The configuration is written to `state/setup_config.json`, and the setup wizard will not appear again. Delete this file and restart to initialize the app again.
 
-The backend accesses Pixiv CDN through an HTTP proxy. On startup, the config file is automatically generated at `config/config.yaml`. Edit the proxy configuration and **restart the service** to apply:
+### 2. Configure Proxy
+
+The backend accesses the Pixiv CDN through an HTTP proxy. After startup, the config file is generated at `config/config.yaml`. Edit the proxy configuration and **restart the service** for it to take effect:
 
 ```yaml
 proxy.enabled: true
 proxy.host: 127.0.0.1
-proxy.port: 7890   # Change to your proxy's actual port
+proxy.port: 7890   # Change this to your actual proxy port
 ```
 
-> The GUI FFmpeg download button reuses this proxy configuration first, which makes the online portable build easier to use behind a proxy when fetching FFmpeg from GitHub.
+> The GUI FFmpeg download button reuses this proxy configuration first, which is useful when the online portable build needs to fetch FFmpeg from GitHub.
 
-### 4. Install Userscripts (Optional)
-
-You can perform all operations via the web interface without userscripts. If you need to install them:
-
-<details>
-<summary><strong>Step required when installing userscripts from release files (expand)</strong></summary>
-
-Tampermonkey's `GM_xmlhttpRequest` is restricted by the `@connect` whitelist. Scripts only allow connections to `localhost` by default. If the backend is deployed on another machine, you must manually update the `@connect` declaration in each script:
-
-1. Open the Tampermonkey dashboard → Find the script → Click Edit
-2. Replace `// @connect      YOUR_SERVER_HOST` in the script header with the actual address
-3. Save the script (Ctrl+S)
-
-</details>
-
-**Method 1: One-click installation from web management page (recommended)**
-
-After logging in, open `http://localhost:6999/pixiv-batch.html`, click the「🧩 油猴脚本」card at the top, then click「⬇ 安装」next to the desired script. When deployed on a non-localhost server, `@connect` is automatically replaced with the actual address.
-
-**Method 2: Manual download from Releases**
-
-Download scripts from [Releases](../../releases) and drag them into the Tampermonkey management panel:
-
-| Script File                            | Use Case                                                                                                  |
-|----------------------------------------|-----------------------------------------------------------------------------------------------------------|
-| `Pixiv All-in-One.user.js`             | Recommended. Combines page batch download, user batch download, URL import, and single-artwork download (Java backend) |
-| `Pixiv 单作品图片下载器(Java后端版).user.js`        | Single artwork page download                                                                              |
-| `Pixiv 单作品图片下载器(Local download).user.js` | Single artwork page download (browser local download, no Java backend required)                           |
-| `Pixiv User 批量下载器.user.js`             | User homepage batch download                                                                              |
-| `Pixiv URL 批量导入作品下载器.user.js`              | Bulk artwork import (compatible with export formats from tab manager extensions such as OneTab and N-Tab) |
-| `Pixiv 页面批量下载器.user.js`                | Page DOM crawling (supports full Pixiv site crawling)                                                     |
-
-> **If you only want to install one script, start with `Pixiv All-in-One.user.js`.** `Local download` remains a separate optional script and is not included in the bundle.
-> **If the all-in-one script runs into problems, try the matching standalone script first.** If the standalone version works and only the bundle fails, open an issue with reproduction steps and environment details.
-> **Recommended: Use the web interface first.** `http://localhost:6999/pixiv-batch.html` supports Bulk Artwork Import, User mode, and Search mode. No userscript installation needed for batch downloading.
-
-## Usage
-
-### Getting Cookie (required for Search mode,restricted works,auto bookmark)
+### 3. Optional: Get Cookies (required for Search mode, R18-related works, and auto-bookmarking)
 
 1. Install the [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm) extension
-2. After logging into Pixiv, click the extension icon → **Export** in the bottom right corner → Select **Netscape** format and copy
-3. Switch the format to **Netscape** above the cookie input on the page, paste and save
+2. Log in to Pixiv, click the extension icon, then click **Export** in the lower-right corner and choose **Netscape**
+3. Switch the format selector above the cookie input area on the page to **Netscape**, then paste and save
 
-### Web Batch Download
+### 4. Web Batch Download
 
-Visit `http://localhost:6999/pixiv-batch.html` (solo mode requires login first):
+Visit `http://localhost:6999/pixiv-batch.html` (login is required first in Solo Mode):
 
-| Mode           | Description                                                                       |
-|----------------|-----------------------------------------------------------------------------------|
-| 🎨 Bulk Artwork Import | Paste artwork link lists for batch downloading, compatible with export formats from tab manager extensions such as OneTab and N-Tab |
-| 👤 User Mode   | Enter user ID to batch download all works from that user                          |
-| 🔍 Search Mode | Search by keyword and preview thumbnails before adding to queue (requires Cookie) |
+| Mode                   | Description                                                                                                                           |
+|------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| 🎨 Bulk Artwork Import | Paste artwork link lists for batch downloading; compatible with export formats from OneTab, N-Tab, and similar tab manager extensions |
+| 👤 User Mode           | Enter a user ID to batch download all works from that user                                                                            |
+| 🔍 Search Mode         | Search by keyword, preview thumbnails, and then add results to the queue (requires Cookies)                                           |
 
 Bulk artwork import format:
 
-- One artwork per line, in `url | title` format
+- One item per line, in `url | title` format
 - Example: `https://www.pixiv.net/artworks/12345678 | Sample Title`
 - `title` can be left empty; the real title is fetched automatically before download
-- Compatible with export formats from tab manager extensions such as OneTab and N-Tab; exported lists can be imported again directly
+- Compatible with export formats from OneTab, N-Tab, and similar tab manager extensions; exported lists can also be imported again directly
 
-### Download Monitor
+### 5. Download Monitor
 
 Visit `http://localhost:6999/monitor.html` to view real-time download progress and history.
 
-The history table now supports:
+The author column in the history list supports:
 
 - fuzzy search by author name or author ID
-- fuzzy tag search and AI-generated filtering
+- fuzzy search by tag, plus AI-generated filtering
 - checkbox-based author filtering
-- click-to-toggle filtering from the author cell
+- click an author name to switch filtering quickly
 - sorting by author ID
 
-### Author Backfill Tool
+### 6. GUI Tools Page
 
-If you already have an older database with many history rows where `author_id` is still empty, use `AuthorBackfill` to populate them.
+Tool-related operations are now launched from the GUI. After starting the app, open the `Tools` tab in the desktop GUI to use the following tools directly:
 
-Stop the backend service before running it, to avoid concurrent SQLite writes.
+| Tool                               | Description                                                                                                                                                                                                                                                             |
+|------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Image Classification Tool          | Opens a standalone image classification window for organizing downloaded images; launching it does not proactively stop the backend                                                                                                                                     |
+| Database Directory Validation Tool | Checks whether directory paths stored in the database are still accessible; the backend is automatically stopped before launch and restored after the window closes                                                                                                     |
+| Database Backfill Tool             | Uses `ArtworksBackFill` to fill missing `author_id`, `R18`, `is_ai`, `description`, and `tags` / `artwork_tags` data in the `artworks` table in one run; supports database path, proxy, request delay, row limit, dry-run mode, and direct opening of the HTML log page |
 
-```powershell
-# Windows
-.\mvnw.cmd -q -DskipTests compile dependency:copy-dependencies "-DincludeScope=runtime"
-java -cp "target/classes;target/dependency/*" top.sywyar.pixivdownload.tools.AuthorBackfill --dry-run
-java -cp "target/classes;target/dependency/*" top.sywyar.pixivdownload.tools.AuthorBackfill --limit 200 --delay 1200
-```
+> The Database Directory Validation Tool and Database Backfill Tool require exclusive SQLite access. The GUI handles backend stop/resume automatically, so you no longer need to stop the service manually and run commands yourself.
 
-```bash
-# macOS / Linux
-./mvnw -q -DskipTests compile dependency:copy-dependencies -DincludeScope=runtime
-java -cp "target/classes:target/dependency/*" top.sywyar.pixivdownload.tools.AuthorBackfill --dry-run
-java -cp "target/classes:target/dependency/*" top.sywyar.pixivdownload.tools.AuthorBackfill --limit 200 --delay 1200
-```
+> If your database from older versions contains rows missing `author_id`, `R18`, `is_ai`, `description`, or tag data, just launch the Database Backfill Tool from the GUI.
 
-Common options:
+### 7. Product Intro Page
 
-- `--db <path>`: custom database path
-- `--proxy <host:port>` / `--no-proxy`: configure or disable the proxy
-- `--delay <ms>`: request spacing between Pixiv AJAX calls
-- `--limit <n>`: process only the first `n` missing rows
-- `--dry-run`: print what would be updated without writing to SQLite
+Visit `http://localhost:6999/intro.html` (publicly accessible, no login required) to view the project introduction.
 
-### Product Intro Page
-
-Visit `http://localhost:6999/intro.html` (no login required, publicly accessible) to view the project introduction.
-
-## Development Guide
+## 4. Development Guide
 
 ### 1. Fork and branch
 
@@ -258,15 +253,18 @@ git checkout -b feat/your-change upstream/<default-branch>
 
 Use the Maven lifecycle for local builds:
 
-```bash
-# Windows
+```powershell
+# Windows PowerShell
+$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 .\mvnw.cmd package -DskipTests
+```
 
+```bash
 # macOS / Linux
-./mvnw package -DskipTests
+JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8' ./mvnw package -DskipTests
 
 # Run
-java -jar target/PixivDownload-*.jar
+java -Dfile.encoding=UTF-8 -jar target/PixivDownload-*.jar
 ```
 
 This matters for userscript changes. The userscript install card in `pixiv-batch.html` loads its built-in script list from `/api/scripts`. Script assembly now has two sources:
@@ -278,8 +276,15 @@ This matters for userscript changes. The userscript install card in `pixiv-batch
 
 Before opening a PR, at least run:
 
-```bash
+```powershell
+# Windows PowerShell
+$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 .\mvnw.cmd test
+```
+
+```bash
+# macOS / Linux
+JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8' ./mvnw test
 ```
 
 If the change touches `*.user.js`, static resource assembly, or the script install flow, also run `package` once and verify the userscript list and install links on `http://localhost:6999/pixiv-batch.html`.
@@ -289,6 +294,8 @@ If the change touches `*.user.js`, static resource assembly, or the script insta
 Use [`scripts/package-local.ps1`](./scripts/package-local.ps1) for local packaging. The script first generates `Pixiv All-in-One.user.js`, then runs Maven `package`, builds a trimmed runtime with `jlink`, creates an app-image with `jpackage` (including `PixivDownload.exe`), and then produces the online portable package, offline portable package, and MSI variants based on the flags you pass.
 
 ```powershell
+$env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
+
 # Build portable output only (includes PixivDownload.exe), skip MSI
 powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipMsi
 
@@ -333,9 +340,9 @@ Artifacts are written to `build/out/` by default. MSI generation requires a work
 
 Honestly, I don't really recommend the multi mode of this tool, because all requests go through the server's network IP. Even with different cookies, a large number of requests could lead to IP bans. I'm considering adding a login mechanism to multi mode, but that goes against the project's original intention of simplicity. For now, I'll just continue refining this project.
 
-## Friends Links
+## Friend Links
 
-**[![](https://raw.githubusercontent.com/xuejianxianzun/PixivBatchDownloader/master/static/icon/logo48.png)PixivBatchDownloader](//github.com/xuejianxianzun/PixivBatchDownloader)**  
+**[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
 If you prefer simplicity and don't want to rely on a backend program, give this script a try.
 
 Features:
@@ -344,7 +351,7 @@ Features:
 - Download doesn't depend on third-party tools `(the biggest difference from this project! Easy installation!)`
 - Supports multiple languages
 
-## 开发计划
+## Development Plan
 
-#### View image page (conceptual diagram)
+#### Viewer page (concept mockup)
 ![](./image/8.png)
