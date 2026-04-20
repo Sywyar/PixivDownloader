@@ -5,8 +5,10 @@ import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.download.db.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.theme.FlatLafSetup;
+import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 
 import javax.swing.*;
 import java.awt.*;
@@ -69,6 +71,7 @@ public class GuiLauncher {
     private static final int LOG_HISTORY_COUNT = 5;
     private static final int DEFAULT_PORT = 6999;
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
+    private static volatile Integer startupBackfillCheckResult;
 
     public static void main(String[] args) throws Exception {
         // ── 0. 在 logback 初始化前完成日志目录/属性准备 ──────────────────────────
@@ -77,6 +80,7 @@ public class GuiLauncher {
 
         // ── 触发 logback 初始化（此时 LOG_TIMESTAMP 已就绪）─────────────────────
         log = LoggerFactory.getLogger(GuiLauncher.class);
+        startupBackfillCheckResult = null;
         log.info("PixivDownload 版本：{}", AppVersion.getDisplayVersion());
         log.info("PixivDownload 启动中，args={}", Arrays.toString(args));
 
@@ -153,10 +157,10 @@ public class GuiLauncher {
             singleInstanceManager.setActivationHandler(() -> SwingUtilities.invokeLater(frame::showWindow));
             SystemTrayManager.install(frame, root);
             frame.showWindow();
+            maybeScheduleStartupBackfillFlow(frame, configPath, root);
         });
 
         // ── 4. 在后台线程启动 Spring Boot ─────────────────────────────────────────
-        BackendLifecycleManager.startAsync();
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -226,6 +230,232 @@ public class GuiLauncher {
         } catch (Exception e) {
             System.err.println("清理旧日志失败（" + logDir + extension + "）: " + e.getMessage());
         }
+    }
+
+    public static Integer getStartupBackfillCheckResult() {
+        return startupBackfillCheckResult;
+    }
+
+    private static void maybeScheduleStartupBackfillFlow(MainFrame frame, Path configPath, String rootFolder) {
+        ArtworksBackFill.Options options = buildStartupBackfillOptions(configPath, rootFolder);
+        Path databasePath = Path.of(options.dbPath());
+
+        Thread worker = new Thread(() -> {
+            if (!hasInspectableDatabase(databasePath)) {
+                log.info("Startup schema check skipped because database file is absent or empty: {}", databasePath.toAbsolutePath());
+                startBackendAfterStartupPreparation(null);
+                return;
+            }
+
+            DatabaseSchemaInspector.SchemaComparison comparison;
+            try {
+                comparison = DatabaseSchemaInspector.compare(databasePath);
+            } catch (Throwable error) {
+                log.warn("Failed to compare database schema at startup", error);
+                startBackendAfterStartupPreparation(() -> JOptionPane.showMessageDialog(
+                        frame,
+                        "启动时未能完成数据库结构检查，后端将继续启动。\n原因：" + safeMessage(error),
+                        "数据库结构检查",
+                        JOptionPane.WARNING_MESSAGE
+                ));
+                return;
+            }
+
+            if (comparison.matches()) {
+                log.info("Startup schema check passed for {}", databasePath.toAbsolutePath());
+                startBackendAfterStartupPreparation(null);
+                return;
+            }
+
+            log.info("Database schema mismatch detected at startup:\n{}", comparison.summary(8));
+            showStartupSchemaReminder(frame, comparison);
+            runStartupBackfillCheck(frame, options);
+        }, "startup-schema-check");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private static void showStartupSchemaReminder(Component owner,
+                                                  DatabaseSchemaInspector.SchemaComparison comparison) {
+        runOnEdtAndWait(() -> JOptionPane.showMessageDialog(
+                owner,
+                "检测到本地数据库结构与当前维护结构不一致。\n"
+                        + "程序将先执行一次数据库回填检查，若发现待回填记录则自动开始回填。\n\n"
+                        + "结构差异摘要：\n" + comparison.summary(6),
+                "数据库结构变化提醒",
+                JOptionPane.INFORMATION_MESSAGE
+        ));
+    }
+
+    private static void runStartupBackfillCheck(MainFrame frame, ArtworksBackFill.Options options) {
+        Thread worker = new Thread(() -> {
+            try {
+                startupBackfillCheckResult = ArtworksBackFill.countCandidates(options);
+                log.info("Startup backfill check completed. pendingCandidates={}", startupBackfillCheckResult);
+            } catch (Throwable error) {
+                log.warn("Startup backfill check failed", error);
+                startBackendAfterStartupPreparation(() -> JOptionPane.showMessageDialog(
+                        frame,
+                        "数据库回填检查失败，后端将继续启动。\n原因：" + safeMessage(error),
+                        "数据库回填检查",
+                        JOptionPane.WARNING_MESSAGE
+                ));
+                return;
+            }
+
+            if (startupBackfillCheckResult != null && startupBackfillCheckResult > 0) {
+                showStartupBackfillAutoRunNotice(frame, startupBackfillCheckResult);
+                runStartupBackfillInBackground(frame, options);
+                return;
+            }
+
+            startBackendAfterStartupPreparation(null);
+        }, "startup-backfill-check");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private static void showStartupBackfillAutoRunNotice(Component owner, int pendingCount) {
+        runOnEdtAndWait(() -> JOptionPane.showMessageDialog(
+                owner,
+                "数据库回填检查发现 " + pendingCount + " 条待回填记录。\n"
+                        + "程序将自动开始数据库回填，并尝试打开实时日志文件。",
+                "自动数据库回填",
+                JOptionPane.INFORMATION_MESSAGE
+        ));
+    }
+
+    private static void runStartupBackfillInBackground(MainFrame frame, ArtworksBackFill.Options options) {
+        Thread worker = new Thread(() -> {
+            ToolHtmlLogSession logSession = null;
+            ArtworksBackFill.Summary summary = null;
+            Throwable failure = null;
+
+            try {
+                try {
+                    logSession = ToolHtmlLogSession.open("artworks-backfill", ArtworksBackFill.class);
+                    try {
+                        logSession.openLatestInBrowser();
+                    } catch (Exception browserError) {
+                        log.warn("Failed to open startup backfill log page", browserError);
+                    }
+                } catch (Exception logError) {
+                    log.warn("Failed to create startup backfill log session", logError);
+                }
+
+                summary = ArtworksBackFill.run(options);
+            } catch (Throwable error) {
+                failure = error;
+                log.error("Startup auto backfill failed", error);
+            } finally {
+                if (logSession != null) {
+                    try {
+                        logSession.close();
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                ArtworksBackFill.Summary finalSummary = summary;
+                Throwable finalFailure = failure;
+                startBackendAfterStartupPreparation(() ->
+                        showStartupBackfillResult(frame, finalSummary, finalFailure));
+            }
+        }, "startup-auto-backfill");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private static void showStartupBackfillResult(Component owner,
+                                                  ArtworksBackFill.Summary summary,
+                                                  Throwable failure) {
+        if (failure != null) {
+            JOptionPane.showMessageDialog(
+                    owner,
+                    "自动数据库回填失败：" + safeMessage(failure) + "\n请稍后在“工具”页手动重试。",
+                    "自动数据库回填",
+                    JOptionPane.ERROR_MESSAGE
+            );
+            return;
+        }
+
+        if (summary == null) {
+            return;
+        }
+
+        Integer checkedCount = startupBackfillCheckResult;
+        String checkedText = checkedCount == null ? "未知" : String.valueOf(checkedCount);
+        String resultText = summary.rateLimited()
+                ? "自动数据库回填因限流提前结束，后端已恢复。"
+                : "自动数据库回填已完成，后端已恢复。";
+        JOptionPane.showMessageDialog(
+                owner,
+                resultText + "\n启动检查结果：" + checkedText
+                        + "\n已处理：" + summary.processed() + " / " + summary.totalCandidates(),
+                "自动数据库回填",
+                summary.rateLimited() ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE
+        );
+    }
+
+    private static ArtworksBackFill.Options buildStartupBackfillOptions(Path configPath, String rootFolder) {
+        ArtworksBackFill.Options defaults = ArtworksBackFill.Options.defaults();
+        boolean proxyEnabled = defaults.useProxy();
+        String proxyHost = defaults.proxyHost();
+        int proxyPort = defaults.proxyPort();
+
+        if (Files.isRegularFile(configPath)) {
+            try {
+                ConfigFileEditor editor = new ConfigFileEditor(configPath);
+                proxyEnabled = Boolean.parseBoolean(defaultIfBlank(editor.read("proxy.enabled"), String.valueOf(defaults.useProxy())));
+                proxyHost = defaultIfBlank(editor.read("proxy.host"), defaults.proxyHost());
+                proxyPort = Integer.parseInt(defaultIfBlank(editor.read("proxy.port"), String.valueOf(defaults.proxyPort())));
+            } catch (Exception e) {
+                log.warn("Failed to load proxy defaults for startup backfill: {}", e.getMessage());
+            }
+        }
+
+        return new ArtworksBackFill.Options(
+                RuntimeFiles.resolveDatabasePath(rootFolder).toString(),
+                proxyHost,
+                proxyPort,
+                proxyEnabled,
+                defaults.delayMs(),
+                defaults.limit(),
+                false
+        );
+    }
+
+    private static boolean hasInspectableDatabase(Path databasePath) {
+        try {
+            return Files.isRegularFile(databasePath) && Files.size(databasePath) > 0;
+        } catch (Exception e) {
+            log.warn("Failed to inspect database file {}: {}", databasePath.toAbsolutePath(), e.getMessage());
+            return false;
+        }
+    }
+
+    private static void startBackendAfterStartupPreparation(Runnable afterStart) {
+        if (!BackendLifecycleManager.startAsync(afterStart) && afterStart != null) {
+            SwingUtilities.invokeLater(afterStart);
+        }
+    }
+
+    private static void runOnEdtAndWait(Runnable action) {
+        if (action == null) {
+            return;
+        }
+        if (SwingUtilities.isEventDispatchThread()) {
+            action.run();
+            return;
+        }
+        try {
+            SwingUtilities.invokeAndWait(action);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to execute action on EDT", e);
+        }
+    }
+
+    private static String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private static void showBackendStartupFailure(Throwable error) {
