@@ -1,0 +1,1193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixiv Gallery</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --sidebar-width: 300px;
+            --sidebar-collapsed: 64px;
+            --card-radius: 8px;
+            --bg: #ffffff;
+            --surface: #ffffff;
+            --line: #efefef;
+            --text: #111111;
+            --muted: #aaaaaa;
+            --muted-2: #bbbbbb;
+            --text-secondary: #333333;
+            --brand: #0096fa;
+            --danger: #dc2626;
+            --sidebar-shadow: 8px 0 40px rgba(0, 0, 0, 0.08);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+            color: var(--text);
+            background: var(--bg);
+        }
+        a { color: inherit; text-decoration: none; }
+        button { font-family: inherit; }
+
+        .app-shell { display: flex; min-height: 100vh; }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            min-width: var(--sidebar-width);
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            box-shadow: var(--sidebar-shadow);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            overflow-x: hidden;
+            transition: width 0.25s ease, min-width 0.25s ease;
+            z-index: 10;
+        }
+        .sidebar.collapsed { width: var(--sidebar-collapsed); min-width: var(--sidebar-collapsed); }
+        .sidebar-header { padding: 20px 16px; display: flex; align-items: center; gap: 12px; }
+        .sidebar.collapsed .sidebar-header { justify-content: center; padding: 20px 0; }
+        .sidebar-logo {
+            width: 32px; height: 32px; border-radius: 8px;
+            background: linear-gradient(135deg, #0096fa 0%, #46b8ff 100%);
+            flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+        }
+        .sidebar-logo svg { width: 18px; height: 18px; fill: white; }
+        .sidebar-brand { font-size: 16px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; }
+        .sidebar.collapsed .sidebar-brand { display: none; }
+        .sidebar-toggle {
+            margin-left: auto; width: 28px; height: 28px; border: none; background: #f5f5f5;
+            border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; transition: background 0.15s;
+        }
+        .sidebar-toggle:hover { background: #eeeeee; }
+        .sidebar-toggle svg { width: 16px; height: 16px; stroke: #666; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.25s; }
+        .sidebar.collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+        .sidebar.collapsed .sidebar-toggle { margin-left: 0; }
+
+        .sidebar-nav { padding: 0 8px; }
+        .nav-item {
+            display: flex; align-items: center; gap: 12px; padding: 0 12px; height: 44px;
+            border-radius: 8px; cursor: pointer; transition: background 0.15s;
+            white-space: nowrap; overflow: hidden; color: inherit;
+        }
+        .sidebar.collapsed .nav-item { justify-content: center; padding: 0; }
+        .nav-item:hover { background: #f5f5f5; }
+        .nav-item.active { background: #f0f4ff; }
+        .nav-item.active .nav-icon { color: #4a6cf7; }
+        .nav-item.active .nav-label { color: #4a6cf7; font-weight: 500; }
+        .nav-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #666; }
+        .nav-icon svg { width: 16px; height: 16px; }
+        .nav-label { font-size: 14px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+        .sidebar.collapsed .nav-label { display: none; }
+
+        .sidebar-divider { height: 1px; background: var(--line); margin: 8px 16px; }
+        .sidebar.collapsed .sidebar-divider { margin: 8px 10px; }
+
+        .section-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 16px 8px;
+        }
+        .sidebar.collapsed .section-header { justify-content: center; padding: 16px 0 8px; }
+        .section-title {
+            font-size: 11px; font-weight: 600; color: var(--muted-2);
+            text-transform: uppercase; letter-spacing: 0.08em;
+        }
+        .sidebar.collapsed .section-title { display: none; }
+        .section-add {
+            width: 20px; height: 20px; border-radius: 4px; border: none; background: transparent;
+            color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .section-add:hover { background: #f0f4ff; color: var(--brand); }
+        .section-add svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+        .sidebar.collapsed .section-add { display: none; }
+
+        .collection-item {
+            display: flex; align-items: center; gap: 12px; padding: 0 12px; height: 44px;
+            border-radius: 8px; cursor: pointer; transition: background 0.15s;
+            white-space: nowrap; overflow: hidden;
+        }
+        .sidebar.collapsed .collection-item { justify-content: center; padding: 0; }
+        .collection-item:hover { background: #f5f5f5; }
+        .collection-item.selected { background: rgba(0, 150, 250, 0.08); }
+        .collection-item.selected .collection-label { color: var(--brand); font-weight: 500; }
+        .collection-icon {
+            width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; background: #fff0f6; color: #e84393; overflow: hidden;
+        }
+        .collection-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .collection-icon svg { width: 14px; height: 14px; }
+        .collection-label { flex: 1; font-size: 14px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+        .sidebar.collapsed .collection-label { display: none; }
+        .collection-count { font-size: 12px; color: var(--muted-2); flex-shrink: 0; }
+        .sidebar.collapsed .collection-count { display: none; }
+        .collection-menu {
+            width: 24px; height: 24px; border: none; background: transparent; color: var(--muted);
+            border-radius: 4px; cursor: pointer; display: none; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+        .collection-item:hover .collection-menu { display: flex; }
+        .collection-menu:hover { background: #eee; color: var(--text); }
+        .collection-menu svg { width: 14px; height: 14px; }
+        .sidebar.collapsed .collection-menu { display: none !important; }
+
+        .sidebar-footer { margin-top: auto; padding: 16px; border-top: 1px solid var(--line); }
+        .sidebar.collapsed .sidebar-footer { padding: 12px 8px; }
+        .user-card { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer; overflow: hidden; }
+        .sidebar.collapsed .user-card { justify-content: center; padding: 8px 0; }
+        .user-avatar {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: linear-gradient(135deg, #0096fa, #46b8ff);
+            flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 13px; font-weight: 600;
+        }
+        .user-info { overflow: hidden; }
+        .sidebar.collapsed .user-info { display: none; }
+        .user-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .user-status { font-size: 11px; color: var(--muted); }
+
+        .main-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+        .topbar {
+            padding: 16px 32px; display: flex; align-items: center; gap: 16px;
+            border-bottom: 1px solid var(--line); background: var(--surface);
+            position: sticky; top: 0; z-index: 5;
+        }
+        .search-box {
+            flex: 1; max-width: 480px; display: flex; align-items: center; gap: 10px;
+            height: 40px; padding: 0 16px; border-radius: 999px;
+            border: 1px solid var(--line); background: #fafafa;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .search-box:focus-within { border-color: var(--brand); background: #fff; }
+        .search-box svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+        .search-box input { flex: 1; border: none; outline: none; background: transparent; font-size: 13px; font-family: inherit; color: var(--text); }
+        .search-box input::placeholder { color: var(--muted); }
+
+        .filter-btn {
+            display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px;
+            border-radius: 999px; border: 1px solid var(--line); background: #fff;
+            font-size: 13px; color: var(--text-secondary); cursor: pointer;
+            transition: all 0.15s; position: relative;
+        }
+        .filter-btn:hover { border-color: var(--brand); color: var(--brand); }
+        .filter-btn.active { border-color: var(--brand); color: var(--brand); background: rgba(0, 150, 250, 0.08); }
+        .filter-btn svg { width: 14px; height: 14px; }
+        .filter-badge {
+            position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px;
+            border-radius: 8px; background: var(--danger); color: #fff;
+            font-size: 10px; font-weight: 700; padding: 0 4px;
+            display: none; align-items: center; justify-content: center;
+        }
+        .filter-badge.visible { display: inline-flex; }
+
+        .filter-panel {
+            border-bottom: 1px solid var(--line); background: #fafafa;
+            padding: 16px 32px; display: none; flex-direction: column; gap: 14px;
+        }
+        .filter-panel.open { display: flex; }
+        .filter-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .filter-row-label {
+            font-size: 12px; font-weight: 600; color: var(--muted);
+            text-transform: uppercase; letter-spacing: 0.05em; min-width: 64px;
+        }
+        .chip {
+            display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 12px;
+            border-radius: 999px; border: 1px solid var(--line); background: #fff;
+            font-size: 12px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+        }
+        .chip:hover { border-color: var(--brand); color: var(--brand); }
+        .chip.active { border-color: var(--brand); color: var(--brand); background: rgba(0, 150, 250, 0.08); font-weight: 500; }
+        .chip .chip-icon { width: 16px; height: 16px; border-radius: 4px; overflow: hidden; background: #fff0f6; color: #e84393; display: inline-flex; align-items: center; justify-content: center; }
+        .chip .chip-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .chip .chip-icon svg { width: 10px; height: 10px; stroke: currentColor; stroke-width: 2; fill: none; }
+        .filter-chip-list { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+        .filter-chip-list .chip-empty { font-size: 12px; color: var(--muted); }
+        .filter-reset {
+            margin-left: auto; height: 28px; padding: 0 12px; border-radius: 999px;
+            border: 1px solid var(--line); background: transparent; color: var(--muted);
+            font-size: 12px; cursor: pointer;
+        }
+        .filter-reset:hover { border-color: var(--danger); color: var(--danger); }
+
+        .gallery-wrapper { flex: 1; padding: 24px 32px; overflow-y: auto; }
+        .gallery-status { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+        .gallery-grid {
+            display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px;
+        }
+        .empty-state { padding: 80px 16px; text-align: center; color: var(--muted); font-size: 14px; }
+
+        .work-card { display: block; cursor: pointer; animation: cardIn 0.3s ease both; }
+        .work-card:hover .work-thumb { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1); }
+        .work-thumb {
+            position: relative; aspect-ratio: 1 / 1; overflow: hidden;
+            border-radius: var(--card-radius); background: #f5f5f5;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .work-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .thumb-veil { position: absolute; inset: auto 0 0; height: 40%; background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.15)); pointer-events: none; }
+        .thumb-badges {
+            position: absolute; top: 8px; left: 8px; right: 8px;
+            display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none;
+        }
+        .thumb-badge-group { display: flex; gap: 4px; }
+        .thumb-badge {
+            display: inline-flex; align-items: center; justify-content: center; height: 20px;
+            padding: 0 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.02em;
+        }
+        .thumb-badge.r18 { color: #fff; background: rgba(220, 38, 38, 0.85); }
+        .thumb-badge.ai { color: #fff; background: rgba(139, 92, 246, 0.85); }
+        .thumb-badge.pages { color: #fff; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); }
+        .thumb-heart {
+            position: absolute; right: 8px; bottom: 8px;
+            width: 32px; height: 32px; border-radius: 50%; border: none;
+            background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(4px);
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: transform 0.15s, background 0.15s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        .thumb-heart:hover { transform: scale(1.1); }
+        .thumb-heart svg { width: 16px; height: 16px; stroke: #666; fill: none; stroke-width: 2; }
+        .thumb-heart.liked svg { fill: var(--danger); stroke: var(--danger); }
+
+        .work-meta { padding-top: 8px; }
+        .work-title {
+            font-size: 13px; line-height: 1.35; font-weight: 600; color: var(--text);
+            display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+        }
+        .work-author { margin-top: 2px; font-size: 12px; line-height: 1.3; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .work-collections { margin-top: 4px; font-size: 11px; line-height: 1.3; color: #e84393; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        @media (min-width: 768px)  { .gallery-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+        @media (min-width: 1024px) { .gallery-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; } }
+        @media (min-width: 1400px) { .gallery-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+
+        .pagination {
+            display: flex; justify-content: center; align-items: center; gap: 6px;
+            padding: 24px 0 8px; flex-wrap: wrap;
+        }
+        .page-btn {
+            min-width: 32px; height: 32px; padding: 0 10px; border-radius: 6px;
+            border: 1px solid var(--line); background: #fff; color: var(--text-secondary);
+            font-size: 13px; cursor: pointer;
+        }
+        .page-btn:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+        .page-btn.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+        .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .page-ellipsis { padding: 0 4px; color: var(--muted); font-size: 13px; }
+
+        .modal-backdrop {
+            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
+            display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: #fff; border-radius: 12px; width: 100%; max-width: 440px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            max-height: 90vh; display: flex; flex-direction: column;
+        }
+        .modal-head { padding: 20px 24px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+        .modal-title { font-size: 16px; font-weight: 700; }
+        .modal-close { width: 28px; height: 28px; border: none; background: transparent; cursor: pointer; border-radius: 4px; color: var(--muted); font-size: 18px; }
+        .modal-close:hover { background: #f5f5f5; color: var(--text); }
+        .modal-body { padding: 20px 24px; overflow-y: auto; }
+        .modal-foot { padding: 12px 24px 20px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
+        .form-field { margin-bottom: 14px; }
+        .form-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+        .form-input {
+            width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line);
+            border-radius: 8px; background: #fff; font-size: 13px; font-family: inherit; outline: none;
+        }
+        .form-input:focus { border-color: var(--brand); }
+        .form-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px;
+            border-radius: 8px; border: 1px solid var(--line); background: #fff;
+            font-size: 13px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+        }
+        .btn:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+        .btn-primary:hover:not(:disabled) { background: #0087e0; border-color: #0087e0; color: #fff; }
+        .btn-danger { color: var(--danger); border-color: #fca5a5; }
+        .btn-danger:hover:not(:disabled) { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+        .collection-list {
+            display: flex; flex-direction: column; gap: 4px;
+            max-height: 320px; overflow-y: auto;
+        }
+        .collection-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 10px; border-radius: 8px; cursor: pointer;
+        }
+        .collection-row:hover { background: #f5f5f5; }
+        .collection-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+        .collection-row-icon { width: 28px; height: 28px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background: #fff0f6; color: #e84393; display: flex; align-items: center; justify-content: center; }
+        .collection-row-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .collection-row-icon svg { width: 14px; height: 14px; }
+        .collection-row-name { flex: 1; font-size: 13px; color: var(--text); }
+
+        .icon-preview {
+            width: 64px; height: 64px; border-radius: 8px; overflow: hidden;
+            background: #f5f5f5; display: flex; align-items: center; justify-content: center;
+            color: var(--muted); flex-shrink: 0;
+        }
+        .icon-preview img { width: 100%; height: 100%; object-fit: cover; }
+        .icon-preview svg { width: 24px; height: 24px; }
+        .icon-upload-wrap { display: flex; align-items: center; gap: 12px; }
+        .icon-upload-wrap input[type="file"] { display: none; }
+
+        .toast-container { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 2000; }
+        .toast {
+            padding: 10px 16px; border-radius: 8px; color: #fff;
+            background: #333; font-size: 13px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+            animation: toastIn 0.2s ease;
+        }
+        .toast.error { background: var(--danger); }
+        .toast.success { background: #10b981; }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        .context-menu {
+            position: fixed; background: #fff; border: 1px solid var(--line);
+            border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            padding: 4px; min-width: 140px; z-index: 1500; display: none;
+        }
+        .context-menu.open { display: block; }
+        .context-item {
+            padding: 8px 12px; border-radius: 6px; font-size: 13px; cursor: pointer;
+            color: var(--text-secondary); display: flex; align-items: center; gap: 8px;
+        }
+        .context-item:hover { background: #f5f5f5; color: var(--text); }
+        .context-item.danger { color: var(--danger); }
+        .context-item.danger:hover { background: #fef2f2; }
+
+        .mobile-menu-btn { display: none; width: 36px; height: 36px; border: none; background: #f5f5f5; border-radius: 8px; cursor: pointer; align-items: center; justify-content: center; }
+        .mobile-menu-btn svg { width: 18px; height: 18px; stroke: #666; fill: none; stroke-width: 2; }
+        .mobile-overlay { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.3); z-index: 99; }
+        .mobile-overlay.active { display: block; }
+
+        @media (max-width: 768px) {
+            .sidebar { position: fixed; left: 0; top: 0; transform: translateX(-100%); z-index: 100; }
+            .sidebar.mobile-open { transform: translateX(0); }
+            .gallery-wrapper { padding: 16px; }
+            .topbar { padding: 12px 16px; }
+            .filter-panel { padding: 14px 16px; }
+            .mobile-menu-btn { display: flex !important; }
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+    <aside class="sidebar collapsed" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </div>
+            <span class="sidebar-brand">Pixiv Gallery</span>
+            <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+                <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+        </div>
+
+        <nav class="sidebar-nav">
+            <a class="nav-item active" href="/pixiv-gallery.html">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                </div>
+                <span class="nav-label">看图</span>
+            </a>
+            <a class="nav-item" href="/pixiv-batch.html" target="_blank" rel="noopener">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </div>
+                <span class="nav-label">下载</span>
+            </a>
+            <a class="nav-item" href="/monitor.html" target="_blank" rel="noopener">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                </div>
+                <span class="nav-label">监控</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="section-header">
+            <span class="section-title">收藏夹</span>
+            <button class="section-add" id="btnCreateCollection" title="新建收藏夹">
+                <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+        </div>
+
+        <div class="sidebar-nav" id="collectionList"></div>
+
+        <div class="sidebar-footer">
+            <div class="user-card">
+                <div class="user-avatar">P</div>
+                <div class="user-info">
+                    <div class="user-name">Pixiv User</div>
+                    <div class="user-status">在线</div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <div class="mobile-overlay" id="mobileOverlay" onclick="closeMobileSidebar()"></div>
+
+    <main class="main-content">
+        <div class="topbar">
+            <button class="mobile-menu-btn" onclick="openMobileSidebar()">
+                <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <label class="search-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" id="searchInput" placeholder="搜索作品标题或画师...">
+            </label>
+            <button class="filter-btn" id="filterToggle">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                筛选
+                <span class="filter-badge" id="filterBadge">0</span>
+            </button>
+        </div>
+
+        <div class="filter-panel" id="filterPanel">
+            <div class="filter-row">
+                <span class="filter-row-label">排序</span>
+                <button class="chip active" data-sort="date">时间</button>
+                <button class="chip" data-sort="artworkId">作品 ID</button>
+                <button class="chip" data-sort="imgs">图片数</button>
+                <button class="chip" data-sort="status">状态</button>
+                <button class="chip" data-sort="authorId">画师 ID</button>
+                <button class="chip" data-sort="tags">标签数</button>
+                <button class="chip" id="orderToggle" data-order="desc" style="margin-left:auto">↓ 降序</button>
+            </div>
+            <div class="filter-row">
+                <span class="filter-row-label">R-18</span>
+                <button class="chip active" data-r18="any">全部</button>
+                <button class="chip" data-r18="yes">仅 R-18</button>
+                <button class="chip" data-r18="no">排除</button>
+            </div>
+            <div class="filter-row">
+                <span class="filter-row-label">AI</span>
+                <button class="chip active" data-ai="any">全部</button>
+                <button class="chip" data-ai="yes">仅 AI</button>
+                <button class="chip" data-ai="no">排除</button>
+            </div>
+            <div class="filter-row">
+                <span class="filter-row-label">格式</span>
+                <button class="chip" data-format="jpg">JPG</button>
+                <button class="chip" data-format="png">PNG</button>
+                <button class="chip" data-format="gif">GIF</button>
+                <button class="chip" data-format="webp">WEBP</button>
+            </div>
+            <div class="filter-row" id="filterCollectionsRow">
+                <span class="filter-row-label">收藏夹</span>
+                <div class="filter-chip-list" id="filterCollectionChips"></div>
+                <button class="filter-reset" id="filterReset">重置筛选</button>
+            </div>
+        </div>
+
+        <div class="gallery-wrapper">
+            <div class="gallery-status" id="galleryStatus">加载中...</div>
+            <section class="gallery-grid" id="galleryGrid"></section>
+            <nav class="pagination" id="pagination"></nav>
+        </div>
+    </main>
+</div>
+
+<div class="modal-backdrop" id="modalCollectionForm">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title" id="collectionFormTitle">新建收藏夹</span>
+            <button class="modal-close" onclick="closeCollectionFormModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-field">
+                <label class="form-label">名称</label>
+                <input class="form-input" id="collectionFormName" maxlength="40" placeholder="例如：喜欢的作品">
+            </div>
+            <div class="form-field">
+                <label class="form-label">图标（可选）</label>
+                <div class="icon-upload-wrap">
+                    <div class="icon-preview" id="collectionFormIconPreview">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                    </div>
+                    <div style="flex:1">
+                        <button class="btn" onclick="document.getElementById('collectionFormIconFile').click()">选择图片</button>
+                        <button class="btn" id="collectionFormIconClear" style="display:none; margin-left:8px">清除</button>
+                        <input type="file" id="collectionFormIconFile" accept="image/png,image/jpeg,image/webp">
+                        <div class="form-hint">支持 PNG / JPG / WEBP，最大 1MB</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" onclick="closeCollectionFormModal()">取消</button>
+            <button class="btn btn-primary" id="collectionFormSubmit">保存</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="modalAddToCollection">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title">添加到收藏夹</span>
+            <button class="modal-close" onclick="closeAddToCollectionModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-field" style="margin-bottom:16px">
+                <div style="display:flex; gap:6px">
+                    <input class="form-input" id="quickCreateName" placeholder="快速新建收藏夹" maxlength="40" style="flex:1">
+                    <button class="btn" id="quickCreateBtn">新建</button>
+                </div>
+            </div>
+            <div class="collection-list" id="addToCollectionList"></div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" onclick="closeAddToCollectionModal()">完成</button>
+        </div>
+    </div>
+</div>
+
+<div class="context-menu" id="collectionContextMenu">
+    <div class="context-item" data-action="rename">重命名</div>
+    <div class="context-item" data-action="icon">更换图标</div>
+    <div class="context-item danger" data-action="delete">删除</div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+    const state = {
+        page: 0,
+        size: 24,
+        sort: 'date',
+        order: 'desc',
+        search: '',
+        r18: 'any',
+        ai: 'any',
+        formats: new Set(),
+        collectionIds: new Set(),
+        totalPages: 0,
+        totalElements: 0,
+        collections: [],
+        activeArtworkId: null,
+        collectionMembership: new Map(),
+        editingCollection: null,
+        pendingIconFile: null,
+        pendingIconClear: false,
+    };
+
+    const HEART_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+
+    // ---------- API helpers ----------
+    async function api(url, options = {}) {
+        const res = await fetch(url, {
+            credentials: 'same-origin',
+            ...options,
+            headers: {
+                'Accept': 'application/json',
+                ...(options.headers || {}),
+            },
+        });
+        if (res.status === 401) {
+            window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
+            throw new Error('Unauthorized');
+        }
+        if (!res.ok) {
+            let msg = `HTTP ${res.status}`;
+            try {
+                const j = await res.json();
+                if (j && j.error) msg = j.error;
+                else if (j && j.message) msg = j.message;
+            } catch (_) {}
+            throw new Error(msg);
+        }
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) return res.json();
+        return res.text();
+    }
+
+    function toast(msg, type = '') {
+        const container = document.getElementById('toastContainer');
+        const el = document.createElement('div');
+        el.className = 'toast' + (type ? ' ' + type : '');
+        el.textContent = msg;
+        container.appendChild(el);
+        setTimeout(() => el.remove(), 2800);
+    }
+
+    // ---------- Sidebar ----------
+    function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+    function openMobileSidebar() { document.getElementById('sidebar').classList.add('mobile-open'); document.getElementById('mobileOverlay').classList.add('active'); }
+    function closeMobileSidebar() { document.getElementById('sidebar').classList.remove('mobile-open'); document.getElementById('mobileOverlay').classList.remove('active'); }
+
+    // ---------- Collections sidebar ----------
+    async function loadCollections() {
+        try {
+            const resp = await api('/api/collections');
+            state.collections = resp.collections || [];
+            renderCollections();
+        } catch (e) {
+            console.error('load collections failed', e);
+        }
+    }
+
+    function renderCollections() {
+        const list = document.getElementById('collectionList');
+        if (!state.collections.length) {
+            list.innerHTML = '<div style="padding:8px 16px; font-size:12px; color:var(--muted)">暂无收藏夹</div>';
+        } else {
+            list.innerHTML = state.collections.map(c => `
+                <div class="collection-item ${state.collectionIds.has(c.id) ? 'selected' : ''}" data-id="${c.id}">
+                    <div class="collection-icon">${iconHtml(c)}</div>
+                    <span class="collection-label">${escapeHtml(c.name)}</span>
+                    <span class="collection-count">${c.artworkCount}</span>
+                    <button class="collection-menu" data-menu-id="${c.id}" title="更多">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+                    </button>
+                </div>
+            `).join('');
+
+            list.querySelectorAll('.collection-item').forEach(row => {
+                const id = Number(row.dataset.id);
+                row.addEventListener('click', e => {
+                    if (e.target.closest('.collection-menu')) return;
+                    toggleCollectionFilter(id);
+                });
+            });
+            list.querySelectorAll('.collection-menu').forEach(btn => {
+                btn.addEventListener('click', e => {
+                    e.stopPropagation();
+                    openCollectionContextMenu(Number(btn.dataset.menuId), btn.getBoundingClientRect());
+                });
+            });
+        }
+        renderCollectionFilterChips();
+    }
+
+    function renderCollectionFilterChips() {
+        const box = document.getElementById('filterCollectionChips');
+        if (!state.collections.length) {
+            box.innerHTML = '<span class="chip-empty">暂无收藏夹</span>';
+            return;
+        }
+        box.innerHTML = state.collections.map(c => `
+            <button class="chip ${state.collectionIds.has(c.id) ? 'active' : ''}" data-collection-id="${c.id}">
+                <span class="chip-icon">${iconHtml(c)}</span>
+                ${escapeHtml(c.name)}
+                <span style="color:var(--muted); margin-left:4px">${c.artworkCount}</span>
+            </button>
+        `).join('');
+        box.querySelectorAll('.chip[data-collection-id]').forEach(chip => {
+            chip.addEventListener('click', () => toggleCollectionFilter(Number(chip.dataset.collectionId)));
+        });
+    }
+
+    function iconHtml(collection) {
+        if (collection.iconExt) {
+            return `<img src="/api/collections/${collection.id}/icon?v=${collection.createdTime}" alt="">`;
+        }
+        return HEART_SVG;
+    }
+
+    function toggleCollectionFilter(id) {
+        if (state.collectionIds.has(id)) state.collectionIds.delete(id);
+        else state.collectionIds.add(id);
+        state.page = 0;
+        renderCollections();
+        updateFilterBadge();
+        loadGallery();
+    }
+
+    // ---------- Collection CRUD ----------
+    document.getElementById('btnCreateCollection').addEventListener('click', () => openCollectionFormModal(null));
+
+    function openCollectionFormModal(collection) {
+        state.editingCollection = collection;
+        state.pendingIconFile = null;
+        state.pendingIconClear = false;
+        document.getElementById('collectionFormTitle').textContent = collection ? '编辑收藏夹' : '新建收藏夹';
+        document.getElementById('collectionFormName').value = collection ? collection.name : '';
+        updateFormIconPreview(collection);
+        document.getElementById('modalCollectionForm').classList.add('open');
+        setTimeout(() => document.getElementById('collectionFormName').focus(), 50);
+    }
+
+    function closeCollectionFormModal() {
+        document.getElementById('modalCollectionForm').classList.remove('open');
+        state.editingCollection = null;
+        state.pendingIconFile = null;
+        state.pendingIconClear = false;
+        document.getElementById('collectionFormIconFile').value = '';
+    }
+
+    function updateFormIconPreview(collection) {
+        const preview = document.getElementById('collectionFormIconPreview');
+        const clearBtn = document.getElementById('collectionFormIconClear');
+        if (state.pendingIconFile) {
+            const url = URL.createObjectURL(state.pendingIconFile);
+            preview.innerHTML = `<img src="${url}" alt="">`;
+            clearBtn.style.display = '';
+        } else if (collection && collection.iconExt && !state.pendingIconClear) {
+            preview.innerHTML = `<img src="/api/collections/${collection.id}/icon?v=${Date.now()}" alt="">`;
+            clearBtn.style.display = '';
+        } else {
+            preview.innerHTML = HEART_SVG;
+            clearBtn.style.display = 'none';
+        }
+    }
+
+    document.getElementById('collectionFormIconFile').addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 1024 * 1024) { toast('图标大小不能超过 1MB', 'error'); e.target.value = ''; return; }
+        state.pendingIconFile = file;
+        state.pendingIconClear = false;
+        updateFormIconPreview(state.editingCollection);
+    });
+
+    document.getElementById('collectionFormIconClear').addEventListener('click', () => {
+        state.pendingIconFile = null;
+        state.pendingIconClear = true;
+        document.getElementById('collectionFormIconFile').value = '';
+        updateFormIconPreview(state.editingCollection);
+    });
+
+    document.getElementById('collectionFormSubmit').addEventListener('click', async () => {
+        const name = document.getElementById('collectionFormName').value.trim();
+        if (!name) { toast('请填写名称', 'error'); return; }
+        const btn = document.getElementById('collectionFormSubmit');
+        btn.disabled = true;
+        try {
+            let collection;
+            if (state.editingCollection) {
+                await api(`/api/collections/${state.editingCollection.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name }),
+                });
+                collection = { ...state.editingCollection, name };
+            } else {
+                collection = await api('/api/collections', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name }),
+                });
+            }
+            if (state.pendingIconFile) {
+                const form = new FormData();
+                form.append('file', state.pendingIconFile);
+                await api(`/api/collections/${collection.id}/icon`, { method: 'POST', body: form });
+            } else if (state.pendingIconClear && state.editingCollection) {
+                await api(`/api/collections/${collection.id}/icon`, { method: 'DELETE' });
+            }
+            toast(state.editingCollection ? '已保存' : '已创建', 'success');
+            closeCollectionFormModal();
+            await loadCollections();
+        } catch (e) {
+            toast(e.message || '保存失败', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // ---------- Collection context menu ----------
+    const contextMenu = document.getElementById('collectionContextMenu');
+    let contextMenuCollection = null;
+
+    function openCollectionContextMenu(id, rect) {
+        contextMenuCollection = state.collections.find(c => c.id === id);
+        if (!contextMenuCollection) return;
+        contextMenu.classList.add('open');
+        const menuWidth = 140;
+        const left = Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8);
+        contextMenu.style.left = left + 'px';
+        contextMenu.style.top = rect.bottom + 4 + 'px';
+    }
+
+    function closeContextMenu() { contextMenu.classList.remove('open'); contextMenuCollection = null; }
+    document.addEventListener('click', e => { if (!e.target.closest('#collectionContextMenu') && !e.target.closest('.collection-menu')) closeContextMenu(); });
+
+    contextMenu.addEventListener('click', async e => {
+        const action = e.target.closest('.context-item')?.dataset.action;
+        if (!action || !contextMenuCollection) return;
+        const target = contextMenuCollection;
+        closeContextMenu();
+        if (action === 'rename') {
+            openCollectionFormModal(target);
+        } else if (action === 'icon') {
+            openCollectionFormModal(target);
+            setTimeout(() => document.getElementById('collectionFormIconFile').click(), 120);
+        } else if (action === 'delete') {
+            if (!confirm(`确定要删除「${target.name}」？收藏夹中的关联将被清除。`)) return;
+            try {
+                await api(`/api/collections/${target.id}`, { method: 'DELETE' });
+                state.collectionIds.delete(target.id);
+                toast('已删除', 'success');
+                await loadCollections();
+                updateFilterBadge();
+                await loadGallery();
+            } catch (err) {
+                toast(err.message || '删除失败', 'error');
+            }
+        }
+    });
+
+    // ---------- Filter panel ----------
+    document.getElementById('filterToggle').addEventListener('click', () => {
+        const panel = document.getElementById('filterPanel');
+        const open = panel.classList.toggle('open');
+        document.getElementById('filterToggle').classList.toggle('active', open);
+    });
+
+    document.querySelectorAll('.chip[data-sort]').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.chip[data-sort]').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            state.sort = chip.dataset.sort;
+            state.page = 0;
+            loadGallery();
+        });
+    });
+
+    document.getElementById('orderToggle').addEventListener('click', () => {
+        const btn = document.getElementById('orderToggle');
+        state.order = state.order === 'desc' ? 'asc' : 'desc';
+        btn.dataset.order = state.order;
+        btn.textContent = state.order === 'desc' ? '↓ 降序' : '↑ 升序';
+        state.page = 0;
+        loadGallery();
+    });
+
+    function bindTristate(attr, key) {
+        document.querySelectorAll(`.chip[data-${attr}]`).forEach(chip => {
+            chip.addEventListener('click', () => {
+                document.querySelectorAll(`.chip[data-${attr}]`).forEach(c => c.classList.remove('active'));
+                chip.classList.add('active');
+                state[key] = chip.dataset[attr];
+                state.page = 0;
+                updateFilterBadge();
+                loadGallery();
+            });
+        });
+    }
+    bindTristate('r18', 'r18');
+    bindTristate('ai', 'ai');
+
+    document.querySelectorAll('.chip[data-format]').forEach(chip => {
+        chip.addEventListener('click', () => {
+            const fmt = chip.dataset.format;
+            if (state.formats.has(fmt)) state.formats.delete(fmt); else state.formats.add(fmt);
+            chip.classList.toggle('active');
+            state.page = 0;
+            updateFilterBadge();
+            loadGallery();
+        });
+    });
+
+    document.getElementById('filterReset').addEventListener('click', () => {
+        state.r18 = 'any'; state.ai = 'any'; state.formats.clear(); state.collectionIds.clear();
+        document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
+        document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
+        document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.remove('active'));
+        state.page = 0;
+        renderCollections();
+        updateFilterBadge();
+        loadGallery();
+    });
+
+    function updateFilterBadge() {
+        let n = 0;
+        if (state.r18 !== 'any') n++;
+        if (state.ai !== 'any') n++;
+        n += state.formats.size;
+        n += state.collectionIds.size;
+        const badge = document.getElementById('filterBadge');
+        badge.textContent = n;
+        badge.classList.toggle('visible', n > 0);
+    }
+
+    // ---------- Search (debounced) ----------
+    let searchTimer = null;
+    document.getElementById('searchInput').addEventListener('input', e => {
+        const v = e.target.value;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            state.search = v.trim();
+            state.page = 0;
+            loadGallery();
+        }, 350);
+    });
+
+    // ---------- Gallery ----------
+    async function loadGallery() {
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        params.set('sort', state.sort);
+        params.set('order', state.order);
+        if (state.search) params.set('search', state.search);
+        if (state.r18 !== 'any') params.set('r18', state.r18);
+        if (state.ai !== 'any') params.set('ai', state.ai);
+        if (state.formats.size) params.set('format', [...state.formats].join(','));
+        if (state.collectionIds.size) params.set('collectionIds', [...state.collectionIds].join(','));
+
+        document.getElementById('galleryStatus').textContent = '加载中...';
+        try {
+            const result = await api('/api/gallery/artworks?' + params.toString());
+            state.totalPages = result.totalPages;
+            state.totalElements = result.totalElements;
+            renderGallery(result.content || []);
+            renderPagination();
+            const from = state.totalElements === 0 ? 0 : state.page * state.size + 1;
+            const to = Math.min(state.totalElements, (state.page + 1) * state.size);
+            document.getElementById('galleryStatus').textContent = `共 ${state.totalElements} 条，第 ${from}-${to} 条`;
+        } catch (e) {
+            document.getElementById('galleryStatus').textContent = '加载失败：' + e.message;
+            document.getElementById('galleryGrid').innerHTML = '';
+            document.getElementById('pagination').innerHTML = '';
+        }
+    }
+
+    function renderGallery(items) {
+        const grid = document.getElementById('galleryGrid');
+        if (!items.length) {
+            grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">没有匹配的作品</div>';
+            return;
+        }
+        grid.innerHTML = items.map(item => {
+            const isR18 = item.R18 === true;
+            const isAi = item.isAi === true;
+            const pages = item.count || 1;
+            return `
+                <div class="work-card" data-id="${item.artworkId}">
+                    <div class="work-thumb">
+                        <img data-src="/api/downloaded/thumbnail/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                        <div class="thumb-veil"></div>
+                        <div class="thumb-badges">
+                            <div class="thumb-badge-group">
+                                ${isR18 ? '<span class="thumb-badge r18">R-18</span>' : ''}
+                                ${isAi ? '<span class="thumb-badge ai">AI</span>' : ''}
+                            </div>
+                            ${pages > 1 ? `<span class="thumb-badge pages">${pages}P</span>` : ''}
+                        </div>
+                        <button class="thumb-heart" data-id="${item.artworkId}" title="添加到收藏夹">${HEART_SVG}</button>
+                    </div>
+                    <div class="work-meta">
+                        <div class="work-title">${escapeHtml(item.title || '无标题')}</div>
+                        <div class="work-author">${escapeHtml(item.authorName || (item.authorId ? '画师 ' + item.authorId : '未知画师'))}</div>
+                        <div class="work-collections" data-collections-for="${item.artworkId}"></div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        grid.querySelectorAll('.work-card').forEach(card => {
+            const id = card.dataset.id;
+            card.addEventListener('click', e => {
+                if (e.target.closest('.thumb-heart')) return;
+                window.location.href = `/pixiv-artwork.html?id=${id}`;
+            });
+            card.querySelector('.thumb-heart').addEventListener('click', e => {
+                e.stopPropagation();
+                openAddToCollectionModal(Number(id));
+            });
+        });
+
+        // Lazy-load thumbnails as JSON base64
+        grid.querySelectorAll('img[data-src]').forEach(img => {
+            loadThumbnail(img);
+        });
+
+        loadMembershipsForCurrentPage(items.map(i => i.artworkId));
+    }
+
+    async function loadMembershipsForCurrentPage(artworkIds) {
+        if (!artworkIds.length) return;
+        let memberships = {};
+        try {
+            const resp = await api('/api/collections/memberships', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ artworkIds }),
+            });
+            memberships = resp.memberships || {};
+        } catch (e) {
+            return;
+        }
+        const byId = new Map(state.collections.map(c => [c.id, c]));
+        artworkIds.forEach(id => {
+            const collectionIds = memberships[id] || [];
+            const card = document.querySelector(`.work-card[data-id="${id}"]`);
+            if (!card) return;
+            const heart = card.querySelector('.thumb-heart');
+            heart.classList.toggle('liked', collectionIds.length > 0);
+            const label = card.querySelector(`[data-collections-for="${id}"]`);
+            if (!label) return;
+            if (collectionIds.length === 0) { label.textContent = ''; return; }
+            const names = collectionIds.map(cid => byId.get(cid)?.name).filter(Boolean);
+            label.textContent = names.length ? '♥ ' + names.join('、') : '';
+        });
+    }
+
+    async function loadThumbnail(img) {
+        const url = img.dataset.src;
+        img.removeAttribute('data-src');
+        try {
+            const resp = await api(url);
+            if (resp && resp.success && resp.image) {
+                const ext = (resp.extension || 'jpg').toLowerCase();
+                img.src = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${resp.image}`;
+            }
+        } catch (e) {
+            // Silently leave placeholder
+        }
+    }
+
+    function renderPagination() {
+        const pag = document.getElementById('pagination');
+        if (state.totalPages <= 1) { pag.innerHTML = ''; return; }
+        const pages = buildPageWindow(state.page, state.totalPages);
+        const parts = [];
+        parts.push(`<button class="page-btn" data-page="${state.page - 1}" ${state.page === 0 ? 'disabled' : ''}>上一页</button>`);
+        for (const p of pages) {
+            if (p === '...') parts.push('<span class="page-ellipsis">…</span>');
+            else parts.push(`<button class="page-btn ${p === state.page ? 'active' : ''}" data-page="${p}">${p + 1}</button>`);
+        }
+        parts.push(`<button class="page-btn" data-page="${state.page + 1}" ${state.page >= state.totalPages - 1 ? 'disabled' : ''}>下一页</button>`);
+        pag.innerHTML = parts.join('');
+        pag.querySelectorAll('.page-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.disabled) return;
+                const p = Number(btn.dataset.page);
+                if (p < 0 || p >= state.totalPages) return;
+                state.page = p;
+                loadGallery();
+                document.querySelector('.gallery-wrapper').scrollTop = 0;
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        });
+    }
+
+    function buildPageWindow(current, total) {
+        const window1 = new Set([0, total - 1, current, current - 1, current + 1]);
+        const pages = [...window1].filter(n => n >= 0 && n < total).sort((a, b) => a - b);
+        const out = [];
+        for (let i = 0; i < pages.length; i++) {
+            if (i > 0 && pages[i] - pages[i - 1] > 1) out.push('...');
+            out.push(pages[i]);
+        }
+        return out;
+    }
+
+    // ---------- Add to collection ----------
+    async function openAddToCollectionModal(artworkId) {
+        state.activeArtworkId = artworkId;
+        try {
+            const resp = await api(`/api/collections/of/${artworkId}`);
+            state.collectionMembership = new Set(resp.collectionIds || []);
+        } catch (e) {
+            state.collectionMembership = new Set();
+        }
+        renderAddToCollectionList();
+        document.getElementById('modalAddToCollection').classList.add('open');
+    }
+
+    function closeAddToCollectionModal() {
+        document.getElementById('modalAddToCollection').classList.remove('open');
+        state.activeArtworkId = null;
+        loadCollections();
+        const ids = [...document.querySelectorAll('.work-card[data-id]')].map(el => Number(el.dataset.id));
+        if (ids.length) loadMembershipsForCurrentPage(ids);
+    }
+
+    function renderAddToCollectionList() {
+        const list = document.getElementById('addToCollectionList');
+        if (!state.collections.length) {
+            list.innerHTML = '<div class="empty-state" style="padding:24px">暂无收藏夹，请先新建</div>';
+            return;
+        }
+        list.innerHTML = state.collections.map(c => `
+            <label class="collection-row" data-id="${c.id}">
+                <input type="checkbox" ${state.collectionMembership.has(c.id) ? 'checked' : ''}>
+                <div class="collection-row-icon">${iconHtml(c)}</div>
+                <div class="collection-row-name">${escapeHtml(c.name)}</div>
+                <span class="collection-count">${c.artworkCount}</span>
+            </label>
+        `).join('');
+        list.querySelectorAll('.collection-row').forEach(row => {
+            const id = Number(row.dataset.id);
+            const cb = row.querySelector('input[type="checkbox"]');
+            cb.addEventListener('change', async () => {
+                try {
+                    if (cb.checked) {
+                        await api(`/api/collections/${id}/artworks/${state.activeArtworkId}`, { method: 'POST' });
+                        state.collectionMembership.add(id);
+                    } else {
+                        await api(`/api/collections/${id}/artworks/${state.activeArtworkId}`, { method: 'DELETE' });
+                        state.collectionMembership.delete(id);
+                    }
+                } catch (e) {
+                    toast(e.message || '操作失败', 'error');
+                    cb.checked = !cb.checked;
+                }
+            });
+        });
+    }
+
+    document.getElementById('quickCreateBtn').addEventListener('click', async () => {
+        const input = document.getElementById('quickCreateName');
+        const name = input.value.trim();
+        if (!name) return;
+        const btn = document.getElementById('quickCreateBtn');
+        btn.disabled = true;
+        try {
+            const c = await api('/api/collections', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name }),
+            });
+            input.value = '';
+            state.collections.push(c);
+            state.collections.sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+            if (state.activeArtworkId) {
+                await api(`/api/collections/${c.id}/artworks/${state.activeArtworkId}`, { method: 'POST' });
+                state.collectionMembership.add(c.id);
+            }
+            renderAddToCollectionList();
+            toast('已创建', 'success');
+        } catch (e) {
+            toast(e.message || '创建失败', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // ---------- Utilities ----------
+    function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
+
+    document.addEventListener('click', e => {
+        const backdrop = e.target.classList && e.target.classList.contains('modal-backdrop');
+        if (backdrop) e.target.classList.remove('open');
+    });
+
+    // ---------- Boot ----------
+    (async function init() {
+        await loadCollections();
+        await loadGallery();
+    })();
+</script>
+</body>
+</html>

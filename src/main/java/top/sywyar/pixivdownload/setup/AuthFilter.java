@@ -35,6 +35,8 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private static final Set<String> MONITOR_EXACT_PATHS = Set.of(
             "/monitor.html",
+            "/pixiv-gallery.html",
+            "/pixiv-artwork.html",
             "/api/downloaded/statistics",
             "/api/downloaded/history",
             "/api/downloaded/history/paged",
@@ -46,7 +48,10 @@ public class AuthFilter extends OncePerRequestFilter {
     private static final List<String> MONITOR_PREFIX_PATHS = List.of(
             "/api/downloaded/thumbnail/",
             "/api/downloaded/rawfile/",
-            "/api/authors"
+            "/api/downloaded/image/",
+            "/api/authors",
+            "/api/gallery/",
+            "/api/collections"
     );
 
     private final SetupService setupService;
@@ -64,15 +69,18 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        // /redirect：根据 canvas 参数和 introMode 决定重定向目标（需在 isPublic 之前处理）
+        // /redirect：根据 canvas 参数、introMode 和运行模式决定重定向目标（需在 isPublic 之前处理）
+        // 优先级：intro > solo(画廊) / multi(批量下载)
         if (path.equals("/redirect")) {
             String canvasParam = req.getParameter("canvas");
             boolean canvasSupported = "true".equalsIgnoreCase(canvasParam);
             if (setupService.isIntroMode()) {
                 String target = canvasSupported ? "/intro-canary.html" : "/intro.html";
                 res.sendRedirect(target);
-            } else {
+            } else if ("multi".equals(setupService.getMode())) {
                 res.sendRedirect("/pixiv-batch.html");
+            } else {
+                res.sendRedirect("/pixiv-gallery.html");
             }
             return;
         }

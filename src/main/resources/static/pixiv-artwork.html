@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>作品详情 - Pixiv Gallery</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+        :root {
+            --bg: #ffffff;
+            --surface: #ffffff;
+            --line: #efefef;
+            --text: #111111;
+            --muted: #aaaaaa;
+            --text-secondary: #333333;
+            --brand: #0096fa;
+            --danger: #dc2626;
+            --page-max: 1200px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { min-height: 100%; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+            color: var(--text); background: #fafafa;
+        }
+        a { color: inherit; text-decoration: none; }
+        button { font-family: inherit; }
+
+        .topbar {
+            background: #fff; border-bottom: 1px solid var(--line);
+            padding: 12px 24px; display: flex; align-items: center; gap: 16px;
+            position: sticky; top: 0; z-index: 20;
+        }
+        .back-btn {
+            display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px;
+            border-radius: 8px; border: 1px solid var(--line); background: #fff;
+            color: var(--text-secondary); cursor: pointer; font-size: 13px;
+        }
+        .back-btn:hover { border-color: var(--brand); color: var(--brand); }
+        .back-btn svg { width: 14px; height: 14px; }
+        .topbar-title { font-size: 14px; font-weight: 600; color: var(--muted); }
+
+        .wrapper {
+            max-width: var(--page-max); margin: 0 auto; padding: 24px;
+            display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px;
+        }
+        @media (max-width: 900px) { .wrapper { grid-template-columns: 1fr; } }
+
+        .main-col { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+        .side-col { display: flex; flex-direction: column; gap: 16px; }
+
+        .panel { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+        .panel-title {
+            font-size: 12px; font-weight: 600; color: var(--muted);
+            text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px;
+        }
+
+        .viewer { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+        .viewer-image {
+            width: 100%; max-width: 100%; background: #f5f5f5;
+            border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center;
+            min-height: 200px; cursor: zoom-in;
+        }
+        .viewer-image img { width: 100%; display: block; max-height: 75vh; object-fit: contain; background: #000; }
+        .viewer-image.loading::after {
+            content: '加载中...'; color: var(--muted); font-size: 13px;
+        }
+
+        .more-pages {
+            display: flex; flex-direction: column; gap: 12px;
+            width: 100%; max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
+        }
+        .more-pages.open { max-height: 999999px; }
+        .more-pages img {
+            width: 100%; border-radius: 8px; background: #000; cursor: zoom-in;
+            max-height: 75vh; object-fit: contain;
+        }
+
+        .viewer-actions {
+            display: flex; align-items: center; gap: 12px; width: 100%;
+            padding-top: 8px; border-top: 1px solid var(--line);
+        }
+        .expand-btn {
+            display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px;
+            border-radius: 8px; border: 1px solid var(--line); background: #fff;
+            color: var(--text-secondary); cursor: pointer; font-size: 13px;
+        }
+        .expand-btn:hover { border-color: var(--brand); color: var(--brand); }
+
+        .heart-btn {
+            display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px;
+            border-radius: 8px; border: 1px solid var(--line); background: #fff;
+            color: var(--text-secondary); cursor: pointer; font-size: 13px; transition: all 0.15s;
+        }
+        .heart-btn:hover { border-color: var(--danger); color: var(--danger); }
+        .heart-btn.liked { border-color: var(--danger); color: var(--danger); background: #fef2f2; }
+        .heart-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; }
+        .heart-btn.liked svg { fill: currentColor; }
+
+        .meta-info { margin-left: auto; font-size: 13px; color: var(--muted); }
+
+        .artwork-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; word-break: break-word; }
+        .artwork-stats { display: flex; gap: 16px; color: var(--muted); font-size: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+        .artwork-stat { display: inline-flex; align-items: center; gap: 4px; }
+        .artwork-desc {
+            font-size: 14px; line-height: 1.7; color: var(--text-secondary);
+            word-break: break-word; margin-bottom: 16px;
+        }
+        .artwork-desc a { color: var(--brand); }
+
+        .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+        .tag {
+            display: inline-flex; padding: 4px 10px; border-radius: 999px;
+            background: #f5f5f5; color: var(--text-secondary); font-size: 12px;
+        }
+        .tag .tag-translated { color: var(--muted); margin-left: 4px; font-size: 11px; }
+
+        .author-card { display: flex; align-items: center; gap: 12px; }
+        .author-avatar {
+            width: 48px; height: 48px; border-radius: 50%;
+            background: linear-gradient(135deg, #0096fa, #46b8ff);
+            flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 16px; font-weight: 700;
+        }
+        .author-info { flex: 1; min-width: 0; }
+        .author-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .author-id { font-size: 12px; color: var(--muted); }
+
+        .thumb-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 12px; }
+        .thumb-item { cursor: pointer; }
+        .thumb-item .thumb-box {
+            aspect-ratio: 1 / 1; overflow: hidden; border-radius: 6px;
+            background: #f5f5f5; transition: transform 0.15s;
+        }
+        .thumb-item:hover .thumb-box { transform: translateY(-2px); }
+        .thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .thumb-item .thumb-caption {
+            font-size: 11px; color: var(--text-secondary); margin-top: 4px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+
+        .related-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px;
+        }
+        .related-card { cursor: pointer; }
+        .related-thumb {
+            aspect-ratio: 1/1; border-radius: 8px; background: #f5f5f5; overflow: hidden;
+            transition: transform 0.15s;
+        }
+        .related-card:hover .related-thumb { transform: translateY(-2px); }
+        .related-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .related-title { font-size: 12px; color: var(--text-secondary); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .lightbox {
+            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.92);
+            display: none; align-items: center; justify-content: center; z-index: 2000;
+            padding: 16px; cursor: zoom-out;
+        }
+        .lightbox.open { display: flex; }
+        .lightbox img { max-width: 98vw; max-height: 96vh; object-fit: contain; }
+        .lightbox-close {
+            position: absolute; top: 16px; right: 16px; width: 40px; height: 40px;
+            border-radius: 50%; border: none; background: rgba(255, 255, 255, 0.15);
+            color: #fff; font-size: 22px; cursor: pointer;
+        }
+        .lightbox-nav {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 48px; height: 48px; border-radius: 50%; border: none;
+            background: rgba(255, 255, 255, 0.15); color: #fff;
+            font-size: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+        }
+        .lightbox-nav.prev { left: 16px; }
+        .lightbox-nav.next { right: 16px; }
+        .lightbox-info {
+            position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+            color: #fff; font-size: 13px; background: rgba(0, 0, 0, 0.5); padding: 6px 12px; border-radius: 16px;
+        }
+
+        .modal-backdrop {
+            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
+            display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: #fff; border-radius: 12px; width: 100%; max-width: 440px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            max-height: 90vh; display: flex; flex-direction: column;
+        }
+        .modal-head { padding: 20px 24px 12px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+        .modal-title { font-size: 16px; font-weight: 700; }
+        .modal-close { width: 28px; height: 28px; border: none; background: transparent; cursor: pointer; border-radius: 4px; color: var(--muted); font-size: 18px; }
+        .modal-close:hover { background: #f5f5f5; color: var(--text); }
+        .modal-body { padding: 20px 24px; overflow-y: auto; }
+        .modal-foot { padding: 12px 24px 20px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--line); }
+        .form-input {
+            width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line);
+            border-radius: 8px; background: #fff; font-size: 13px; font-family: inherit; outline: none;
+        }
+        .form-input:focus { border-color: var(--brand); }
+        .btn {
+            display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 16px;
+            border-radius: 8px; border: 1px solid var(--line); background: #fff;
+            font-size: 13px; color: var(--text-secondary); cursor: pointer;
+        }
+        .btn:hover:not(:disabled) { border-color: var(--brand); color: var(--brand); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .collection-list { display: flex; flex-direction: column; gap: 4px; max-height: 320px; overflow-y: auto; }
+        .collection-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 10px; border-radius: 8px; cursor: pointer;
+        }
+        .collection-row:hover { background: #f5f5f5; }
+        .collection-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+        .collection-row-icon { width: 28px; height: 28px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background: #fff0f6; color: #e84393; display: flex; align-items: center; justify-content: center; }
+        .collection-row-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .collection-row-icon svg { width: 14px; height: 14px; }
+        .collection-row-name { flex: 1; font-size: 13px; color: var(--text); }
+        .collection-count { font-size: 12px; color: var(--muted); }
+
+        .toast-container { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 3000; }
+        .toast { padding: 10px 16px; border-radius: 8px; color: #fff; background: #333; font-size: 13px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2); }
+        .toast.error { background: var(--danger); }
+        .toast.success { background: #10b981; }
+
+        .loading-placeholder { padding: 40px; text-align: center; color: var(--muted); font-size: 14px; }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <button class="back-btn" onclick="history.back()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        返回
+    </button>
+    <a class="back-btn" href="/pixiv-gallery.html">画廊</a>
+    <span class="topbar-title" id="topbarTitle"></span>
+</div>
+
+<div class="wrapper" id="mainWrapper">
+    <div class="main-col">
+        <div class="panel" id="viewerPanel">
+            <div class="loading-placeholder" id="viewerLoading">加载中...</div>
+            <div class="viewer" id="viewer" style="display:none">
+                <div class="viewer-image" id="mainImage"></div>
+                <div class="more-pages" id="morePages"></div>
+                <div class="viewer-actions">
+                    <button class="expand-btn" id="expandBtn" style="display:none">展开全部 (<span id="totalPageCount"></span>)</button>
+                    <button class="heart-btn" id="heartBtn">
+                        <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                        <span id="heartLabel">收藏</span>
+                    </button>
+                    <span class="meta-info" id="metaInfo"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel" id="detailPanel" style="display:none">
+            <h1 class="artwork-title" id="artworkTitle"></h1>
+            <div class="artwork-stats" id="artworkStats"></div>
+            <div class="artwork-desc" id="artworkDesc"></div>
+            <div class="panel-title">标签</div>
+            <div class="tags" id="tagList"></div>
+        </div>
+
+        <div class="panel" id="relatedPanel" style="display:none">
+            <div class="panel-title">相关作品</div>
+            <div class="related-grid" id="relatedGrid"></div>
+        </div>
+    </div>
+
+    <div class="side-col">
+        <div class="panel" id="authorPanel" style="display:none">
+            <div class="panel-title">画师</div>
+            <div class="author-card">
+                <div class="author-avatar" id="authorAvatar">?</div>
+                <div class="author-info">
+                    <div class="author-name" id="authorName">未知</div>
+                    <div class="author-id" id="authorId"></div>
+                </div>
+            </div>
+            <div class="panel-title" style="margin-top:16px">该画师的其他作品</div>
+            <div class="thumb-list" id="byAuthorList"></div>
+        </div>
+    </div>
+</div>
+
+<div class="lightbox" id="lightbox" onclick="handleLightboxClick(event)">
+    <button class="lightbox-close" onclick="closeLightbox()">×</button>
+    <button class="lightbox-nav prev" onclick="lightboxNav(-1); event.stopPropagation()">‹</button>
+    <img id="lightboxImage" alt="">
+    <button class="lightbox-nav next" onclick="lightboxNav(1); event.stopPropagation()">›</button>
+    <div class="lightbox-info" id="lightboxInfo"></div>
+</div>
+
+<div class="modal-backdrop" id="modalAddToCollection">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title">添加到收藏夹</span>
+            <button class="modal-close" onclick="closeAddToCollectionModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="display:flex; gap:6px; margin-bottom:16px">
+                <input class="form-input" id="quickCreateName" placeholder="快速新建收藏夹" maxlength="40" style="flex:1">
+                <button class="btn" id="quickCreateBtn">新建</button>
+            </div>
+            <div class="collection-list" id="addToCollectionList"></div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" onclick="closeAddToCollectionModal()">完成</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+    const HEART_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+
+    const state = {
+        artworkId: null,
+        artwork: null,
+        collections: [],
+        collectionMembership: new Set(),
+        lightboxIndex: 0,
+        lightboxImages: [],
+    };
+
+    function getQueryParam(name) {
+        return new URLSearchParams(location.search).get(name);
+    }
+
+    async function api(url, options = {}) {
+        const res = await fetch(url, {
+            credentials: 'same-origin',
+            ...options,
+            headers: {
+                'Accept': 'application/json',
+                ...(options.headers || {}),
+            },
+        });
+        if (res.status === 401) {
+            window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
+            throw new Error('Unauthorized');
+        }
+        if (!res.ok) {
+            let msg = `HTTP ${res.status}`;
+            try { const j = await res.json(); if (j && j.error) msg = j.error; } catch (_) {}
+            throw new Error(msg);
+        }
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) return res.json();
+        return res.text();
+    }
+
+    function toast(msg, type = '') {
+        const container = document.getElementById('toastContainer');
+        const el = document.createElement('div');
+        el.className = 'toast' + (type ? ' ' + type : '');
+        el.textContent = msg;
+        container.appendChild(el);
+        setTimeout(() => el.remove(), 2800);
+    }
+
+    function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
+
+    function formatTime(ts) {
+        if (!ts) return '';
+        const d = new Date(ts);
+        const pad = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    async function loadImageToElement(url, target, { onClick } = {}) {
+        try {
+            const resp = await api(url);
+            if (resp && resp.success && resp.image) {
+                const ext = (resp.extension || 'jpg').toLowerCase();
+                const src = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${resp.image}`;
+                const img = document.createElement('img');
+                img.src = src;
+                img.alt = '';
+                if (onClick) img.addEventListener('click', onClick);
+                target.innerHTML = '';
+                target.classList.remove('loading');
+                target.appendChild(img);
+                return src;
+            }
+            target.innerHTML = '<span style="color:var(--muted); padding:40px">' + escapeHtml(resp && resp.message ? resp.message : '图片不可用') + '</span>';
+        } catch (e) {
+            target.innerHTML = '<span style="color:var(--muted); padding:40px">加载失败</span>';
+        }
+        return null;
+    }
+
+    async function loadArtwork() {
+        const id = getQueryParam('id');
+        if (!id) {
+            document.getElementById('viewerLoading').textContent = '缺少 id 参数';
+            return;
+        }
+        state.artworkId = Number(id);
+        try {
+            state.artwork = await api(`/api/gallery/artwork/${id}`);
+        } catch (e) {
+            document.getElementById('viewerLoading').textContent = '加载失败：' + e.message;
+            return;
+        }
+        document.getElementById('topbarTitle').textContent = `#${id}`;
+        document.title = `${state.artwork.title || id} - Pixiv Gallery`;
+        renderViewer();
+        renderDetail();
+        renderAuthor();
+        loadRelated();
+        loadCollections();
+        loadMembership();
+    }
+
+    function renderViewer() {
+        const artwork = state.artwork;
+        const count = artwork.count || 1;
+        document.getElementById('viewerLoading').style.display = 'none';
+        document.getElementById('viewer').style.display = '';
+
+        document.getElementById('totalPageCount').textContent = count;
+        document.getElementById('metaInfo').textContent = `${count} 张 · ${(artwork.extensions || '').toUpperCase()}`;
+
+        state.lightboxImages = new Array(count).fill(null);
+
+        const mainImage = document.getElementById('mainImage');
+        mainImage.classList.add('loading');
+        mainImage.addEventListener('click', () => openLightbox(0));
+        loadImageToElement(`/api/downloaded/image/${artwork.artworkId}/0`, mainImage).then(src => {
+            if (src) state.lightboxImages[0] = src;
+        });
+
+        const more = document.getElementById('morePages');
+        more.innerHTML = '';
+        if (count > 1) {
+            const expandBtn = document.getElementById('expandBtn');
+            expandBtn.style.display = '';
+            expandBtn.addEventListener('click', () => expandAll(count));
+        }
+    }
+
+    async function expandAll(count) {
+        const btn = document.getElementById('expandBtn');
+        btn.disabled = true;
+        btn.textContent = '正在加载...';
+        const more = document.getElementById('morePages');
+        more.classList.add('open');
+        for (let p = 1; p < count; p++) {
+            const box = document.createElement('div');
+            box.className = 'viewer-image';
+            box.classList.add('loading');
+            more.appendChild(box);
+            const idx = p;
+            box.addEventListener('click', () => openLightbox(idx));
+            const src = await loadImageToElement(`/api/downloaded/image/${state.artworkId}/${p}`, box);
+            if (src) state.lightboxImages[p] = src;
+        }
+        btn.style.display = 'none';
+    }
+
+    function renderDetail() {
+        const artwork = state.artwork;
+        document.getElementById('detailPanel').style.display = '';
+        document.getElementById('artworkTitle').textContent = artwork.title || `作品 ${artwork.artworkId}`;
+
+        const stats = [];
+        stats.push(`<span class="artwork-stat">ID: ${artwork.artworkId}</span>`);
+        if (artwork.time) stats.push(`<span class="artwork-stat">下载于 ${formatTime(artwork.time)}</span>`);
+        if (artwork.R18) stats.push('<span class="artwork-stat" style="color:var(--danger)">R-18</span>');
+        if (artwork.isAi) stats.push('<span class="artwork-stat" style="color:#8b5cf6">AI</span>');
+        if (artwork.moved) stats.push(`<span class="artwork-stat" style="color:#10b981">已分类 ${escapeHtml(artwork.moveFolder || '')}</span>`);
+        document.getElementById('artworkStats').innerHTML = stats.join('');
+
+        const desc = document.getElementById('artworkDesc');
+        if (artwork.description && artwork.description.trim()) {
+            desc.innerHTML = artwork.description;
+            desc.querySelectorAll('a').forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
+        } else {
+            desc.innerHTML = '<span style="color:var(--muted)">暂无简介</span>';
+        }
+
+        const tagList = document.getElementById('tagList');
+        const tags = artwork.tags || [];
+        if (tags.length) {
+            tagList.innerHTML = tags.map(t => `
+                <span class="tag">
+                    ${escapeHtml(t.name)}
+                    ${t.translatedName ? `<span class="tag-translated">${escapeHtml(t.translatedName)}</span>` : ''}
+                </span>
+            `).join('');
+        } else {
+            tagList.innerHTML = '<span style="color:var(--muted); font-size:12px">暂无标签</span>';
+        }
+    }
+
+    function renderAuthor() {
+        const artwork = state.artwork;
+        if (!artwork.authorId) return;
+        document.getElementById('authorPanel').style.display = '';
+        const name = artwork.authorName || `画师 ${artwork.authorId}`;
+        document.getElementById('authorAvatar').textContent = (name[0] || '?').toUpperCase();
+        document.getElementById('authorName').textContent = name;
+        document.getElementById('authorId').textContent = `ID: ${artwork.authorId}`;
+
+        loadByAuthor();
+    }
+
+    async function loadByAuthor() {
+        try {
+            const items = await api(`/api/gallery/artwork/${state.artworkId}/by-author?limit=8`);
+            const list = document.getElementById('byAuthorList');
+            if (!items.length) { list.innerHTML = '<span style="color:var(--muted); font-size:12px">暂无其他作品</span>'; return; }
+            list.innerHTML = items.map(item => `
+                <a class="thumb-item" href="/pixiv-artwork.html?id=${item.artworkId}">
+                    <div class="thumb-box" data-src="/api/downloaded/thumbnail/${item.artworkId}/0"></div>
+                    <div class="thumb-caption">${escapeHtml(item.title || '')}</div>
+                </a>
+            `).join('');
+            list.querySelectorAll('.thumb-box[data-src]').forEach(box => lazyLoadBox(box));
+        } catch (e) {
+            // Ignore
+        }
+    }
+
+    async function loadRelated() {
+        try {
+            const items = await api(`/api/gallery/artwork/${state.artworkId}/related?limit=12`);
+            if (!items.length) return;
+            document.getElementById('relatedPanel').style.display = '';
+            const grid = document.getElementById('relatedGrid');
+            grid.innerHTML = items.map(item => `
+                <a class="related-card" href="/pixiv-artwork.html?id=${item.artworkId}">
+                    <div class="related-thumb" data-src="/api/downloaded/thumbnail/${item.artworkId}/0"></div>
+                    <div class="related-title">${escapeHtml(item.title || '')}</div>
+                </a>
+            `).join('');
+            grid.querySelectorAll('.related-thumb[data-src]').forEach(box => lazyLoadBox(box));
+        } catch (e) {
+            // Ignore
+        }
+    }
+
+    async function lazyLoadBox(box) {
+        const url = box.dataset.src;
+        box.removeAttribute('data-src');
+        try {
+            const resp = await api(url);
+            if (resp && resp.success && resp.image) {
+                const ext = (resp.extension || 'jpg').toLowerCase();
+                const img = document.createElement('img');
+                img.src = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${resp.image}`;
+                img.alt = '';
+                box.appendChild(img);
+            }
+        } catch (e) {
+            // Silent
+        }
+    }
+
+    // ---------- Lightbox ----------
+    function openLightbox(index) {
+        if (!state.lightboxImages[index]) return;
+        state.lightboxIndex = index;
+        document.getElementById('lightboxImage').src = state.lightboxImages[index];
+        document.getElementById('lightboxInfo').textContent = `${index + 1} / ${state.lightboxImages.length}`;
+        document.getElementById('lightbox').classList.add('open');
+    }
+    function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
+    function handleLightboxClick(e) { if (e.target.id === 'lightbox' || e.target.id === 'lightboxImage') closeLightbox(); }
+    function lightboxNav(delta) {
+        const total = state.lightboxImages.length;
+        let next = state.lightboxIndex + delta;
+        if (next < 0) next = total - 1;
+        if (next >= total) next = 0;
+        if (!state.lightboxImages[next]) { toast('图片还未加载，请先展开全部'); return; }
+        openLightbox(next);
+    }
+    document.addEventListener('keydown', e => {
+        if (!document.getElementById('lightbox').classList.contains('open')) return;
+        if (e.key === 'Escape') closeLightbox();
+        else if (e.key === 'ArrowLeft') lightboxNav(-1);
+        else if (e.key === 'ArrowRight') lightboxNav(1);
+    });
+
+    // ---------- Collections ----------
+    async function loadCollections() {
+        try {
+            const resp = await api('/api/collections');
+            state.collections = resp.collections || [];
+        } catch (e) {
+            state.collections = [];
+        }
+    }
+
+    async function loadMembership() {
+        try {
+            const resp = await api(`/api/collections/of/${state.artworkId}`);
+            state.collectionMembership = new Set(resp.collectionIds || []);
+            updateHeart();
+        } catch (e) {
+            // Ignore
+        }
+    }
+
+    function updateHeart() {
+        const btn = document.getElementById('heartBtn');
+        const liked = state.collectionMembership.size > 0;
+        btn.classList.toggle('liked', liked);
+        document.getElementById('heartLabel').textContent = liked ? `已收藏 (${state.collectionMembership.size})` : '收藏';
+    }
+
+    document.getElementById('heartBtn').addEventListener('click', openAddToCollectionModal);
+
+    function iconHtml(collection) {
+        if (collection.iconExt) {
+            return `<img src="/api/collections/${collection.id}/icon?v=${collection.createdTime}" alt="">`;
+        }
+        return HEART_SVG;
+    }
+
+    async function openAddToCollectionModal() {
+        await loadCollections();
+        await loadMembership();
+        renderAddToCollectionList();
+        document.getElementById('modalAddToCollection').classList.add('open');
+    }
+
+    function closeAddToCollectionModal() {
+        document.getElementById('modalAddToCollection').classList.remove('open');
+        updateHeart();
+    }
+
+    function renderAddToCollectionList() {
+        const list = document.getElementById('addToCollectionList');
+        if (!state.collections.length) {
+            list.innerHTML = '<div style="padding:24px; text-align:center; color:var(--muted); font-size:13px">暂无收藏夹，请先新建</div>';
+            return;
+        }
+        list.innerHTML = state.collections.map(c => `
+            <label class="collection-row" data-id="${c.id}">
+                <input type="checkbox" ${state.collectionMembership.has(c.id) ? 'checked' : ''}>
+                <div class="collection-row-icon">${iconHtml(c)}</div>
+                <div class="collection-row-name">${escapeHtml(c.name)}</div>
+                <span class="collection-count">${c.artworkCount}</span>
+            </label>
+        `).join('');
+        list.querySelectorAll('.collection-row').forEach(row => {
+            const id = Number(row.dataset.id);
+            const cb = row.querySelector('input[type="checkbox"]');
+            cb.addEventListener('change', async () => {
+                try {
+                    if (cb.checked) {
+                        await api(`/api/collections/${id}/artworks/${state.artworkId}`, { method: 'POST' });
+                        state.collectionMembership.add(id);
+                    } else {
+                        await api(`/api/collections/${id}/artworks/${state.artworkId}`, { method: 'DELETE' });
+                        state.collectionMembership.delete(id);
+                    }
+                    updateHeart();
+                } catch (e) {
+                    toast(e.message || '操作失败', 'error');
+                    cb.checked = !cb.checked;
+                }
+            });
+        });
+    }
+
+    document.getElementById('quickCreateBtn').addEventListener('click', async () => {
+        const input = document.getElementById('quickCreateName');
+        const name = input.value.trim();
+        if (!name) return;
+        const btn = document.getElementById('quickCreateBtn');
+        btn.disabled = true;
+        try {
+            const c = await api('/api/collections', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name }),
+            });
+            input.value = '';
+            state.collections.push(c);
+            state.collections.sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+            await api(`/api/collections/${c.id}/artworks/${state.artworkId}`, { method: 'POST' });
+            state.collectionMembership.add(c.id);
+            renderAddToCollectionList();
+            toast('已创建', 'success');
+        } catch (e) {
+            toast(e.message || '创建失败', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    document.addEventListener('click', e => {
+        const backdrop = e.target.classList && e.target.classList.contains('modal-backdrop');
+        if (backdrop) e.target.classList.remove('open');
+    });
+
+    loadArtwork();
+</script>
+</body>
+</html>
