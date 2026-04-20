@@ -24,6 +24,7 @@ import java.nio.file.Path;
 public class ToolsPanel extends JPanel {
 
     private static final Path BACKFILL_LOG_PATH = Path.of("log", "html", "artworks-backfill-latest.html");
+    private static final String BACKFILL_COUNTING_STATUS = "后端服务器已关闭...正在查询回填条数，查询完毕后打开实时日志文件";
 
     private final Path configPath;
 
@@ -53,6 +54,7 @@ public class ToolsPanel extends JPanel {
     public ToolsPanel(Path configPath) {
         this.configPath = configPath;
         buildUi();
+        configureBackfillNumberInputs();
         loadDefaults();
         BackendLifecycleManager.addListener(backendListener);
         refreshActionStates();
@@ -318,24 +320,11 @@ public class ToolsPanel extends JPanel {
             return;
         }
 
-        try {
-            currentBackfillLogSession = ToolHtmlLogSession.open("artworks-backfill", ArtworksBackFill.class);
-            currentBackfillLogSession.openLatestInBrowser();
-        } catch (Exception e) {
-            exclusiveToolName = null;
-            currentBackfillLogSession = null;
-            refreshActionStates();
-            JOptionPane.showMessageDialog(this,
-                    "无法创建或打开回填日志页面：" + e.getMessage(),
-                    "错误", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
         backfillRunning = true;
         refreshActionStates();
         setBackfillStatus("正在停止后端，准备执行数据回填...");
 
-        boolean accepted = BackendLifecycleManager.stopAsync(() -> runBackfillInBackground(options));
+        boolean accepted = BackendLifecycleManager.stopAsync(() -> prepareBackfillInBackground(options));
         if (!accepted) {
             backfillRunning = false;
             exclusiveToolName = null;
@@ -347,8 +336,58 @@ public class ToolsPanel extends JPanel {
         }
     }
 
+    private void prepareBackfillInBackground(ArtworksBackFill.Options options) {
+        setBackfillStatus(BACKFILL_COUNTING_STATUS);
+
+        Thread worker = new Thread(() -> {
+            int totalCandidates;
+            try {
+                totalCandidates = ArtworksBackFill.countCandidates(options);
+            } catch (Throwable error) {
+                handleBackfillPreparationFailure("回填条数查询失败，后端已尝试恢复。", "无法查询回填条数：", error);
+                return;
+            }
+
+            if (totalCandidates > 0) {
+                setBackfillStatus("已查询到 " + totalCandidates + " 条待回填记录，正在打开实时日志并执行数据回填...");
+            } else {
+                setBackfillStatus("查询完成，未发现需要回填的记录，正在打开实时日志文件...");
+            }
+
+            try {
+                currentBackfillLogSession = ToolHtmlLogSession.open("artworks-backfill", ArtworksBackFill.class);
+                SwingUtilities.invokeLater(this::refreshActionStates);
+                currentBackfillLogSession.openLatestInBrowser();
+            } catch (Exception error) {
+                handleBackfillPreparationFailure("回填日志打开失败，后端已尝试恢复。", "无法创建或打开回填日志页面：", error);
+                return;
+            }
+
+            runBackfillInBackground(options);
+        }, "tools-artworks-backfill-prepare");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void handleBackfillPreparationFailure(String statusText, String dialogPrefix, Throwable failure) {
+        closeBackfillLogSession();
+        backfillRunning = false;
+        exclusiveToolName = null;
+        SwingUtilities.invokeLater(this::refreshActionStates);
+
+        Runnable afterRestart = () -> SwingUtilities.invokeLater(() -> {
+            setBackfillStatus(statusText);
+            JOptionPane.showMessageDialog(this,
+                    dialogPrefix + failure.getMessage(),
+                    "错误", JOptionPane.ERROR_MESSAGE);
+        });
+        if (!BackendLifecycleManager.startAsync(afterRestart)) {
+            afterRestart.run();
+        }
+    }
+
     private void runBackfillInBackground(ArtworksBackFill.Options options) {
-        setBackfillStatus("后端已停止，正在执行数据回填...");
+        setBackfillStatus("后端服务器已关闭，正在执行数据回填...");
 
         Thread worker = new Thread(() -> {
             ArtworksBackFill.Summary summary = null;
@@ -544,6 +583,18 @@ public class ToolsPanel extends JPanel {
         JLabel label = new JLabel(text);
         label.setForeground(Color.GRAY);
         return label;
+    }
+
+    private void configureBackfillNumberInputs() {
+        leftAlignSpinnerText(proxyPortSpinner);
+        leftAlignSpinnerText(delaySpinner);
+        leftAlignSpinnerText(limitSpinner);
+    }
+
+    private static void leftAlignSpinnerText(JSpinner spinner) {
+        if (spinner.getEditor() instanceof JSpinner.DefaultEditor editor) {
+            editor.getTextField().setHorizontalAlignment(JTextField.LEFT);
+        }
     }
 
     private static String defaultIfBlank(String value, String fallback) {

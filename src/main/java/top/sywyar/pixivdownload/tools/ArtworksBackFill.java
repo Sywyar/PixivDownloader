@@ -69,6 +69,17 @@ public class ArtworksBackFill {
         run(options);
     }
 
+    public static int countCandidates(Options options) throws Exception {
+        SQLiteConfig sqliteConfig = new SQLiteConfig();
+        sqliteConfig.setBusyTimeout(5000);
+        sqliteConfig.setJournalMode(SQLiteConfig.JournalMode.WAL);
+
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + options.dbPath(), sqliteConfig.toProperties())) {
+            ensureSchema(conn);
+            return countCandidates(conn, options.limit());
+        }
+    }
+
     public static Summary run(Options options) throws Exception {
         log.info("回填开始: db={} 代理={} 延迟={}ms 限制={} 试运行={}",
                 options.dbPath(),
@@ -293,6 +304,19 @@ public class ArtworksBackFill {
             ps.executeUpdate();
         } catch (SQLException ignored) {
             // 列已存在时直接忽略，行为与运行时迁移保持一致。
+        }
+    }
+
+    private static int countCandidates(Connection conn, int limit) throws SQLException {
+        String sql = "SELECT COUNT(*)"
+                + " FROM artworks a"
+                + " WHERE a.author_id IS NULL OR a.\"R18\" IS NULL OR a.is_ai IS NULL OR a.description IS NULL"
+                + " OR NOT EXISTS (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id)";
+
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            int total = rs.next() ? rs.getInt(1) : 0;
+            return limit > 0 ? Math.min(total, limit) : total;
         }
     }
 
