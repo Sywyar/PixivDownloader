@@ -208,5 +208,7 @@ $bundleContent = @(
 ) -join "`r`n"
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-Set-Content -Path (Join-Path $OutputDir $BundleFileName) -Value $bundleContent -Encoding UTF8
+$bundlePath = Join-Path $OutputDir $BundleFileName
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($bundlePath, $bundleContent, $utf8NoBom)
 Write-Host "Generated bundled userscript: $(Join-Path $OutputDir $BundleFileName)"

@@ -43,10 +43,6 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Generate bundled userscript
-        shell: pwsh
-        run: ./scripts/build-userscript-bundle.ps1 -Version "${{ steps.vars.outputs.version }}"
-
       - name: Build JAR
         run: mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
 
@@ -68,6 +64,7 @@ jobs:
           path: build/generated-userscripts/*.user.js
 
   build-windows-installer:
+    needs: build-jar
     runs-on: windows-latest
     permissions:
       contents: write
@@ -84,7 +81,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: maven
 
       - name: Resolve version
         id: vars
@@ -96,26 +92,17 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Generate bundled userscript
-        shell: pwsh
-        run: ./scripts/build-userscript-bundle.ps1 -Version "${{ steps.vars.outputs.version }}"
-
-      - name: Build JAR
-        shell: bash
-        run: mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
-
-      - name: Refresh built jar path
-        id: built_jar
-        shell: bash
-        run: |
-          JAR=$(ls target/PixivDownload-*.jar | head -n1)
-          echo "jar=$JAR" >> "$GITHUB_OUTPUT"
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jar
+          path: artifacts/jar
 
       - name: Stage JAR for jpackage
         shell: bash
         run: |
           mkdir -p build/input
-          cp "${{ steps.built_jar.outputs.jar }}" "build/input/PixivDownload-${{ steps.vars.outputs.version }}.jar"
+          cp artifacts/jar/PixivDownload-*.jar "build/input/PixivDownload-${{ steps.vars.outputs.version }}.jar"
 
       - name: Build trimmed runtime with jlink
         shell: bash

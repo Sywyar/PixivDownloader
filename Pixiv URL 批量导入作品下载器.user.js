@@ -20,11 +20,6 @@
 (function () {
     'use strict';
 
-    // artworks 页由单作品脚本处理
-    if (/^https:\/\/www\.pixiv\.net\/artworks\/\d+/.test(location.href)) {
-        return;
-    }
-
     /* ========== 配置 ========== */
     const KEY_SERVER_URL = 'pixiv_server_base';
     let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');

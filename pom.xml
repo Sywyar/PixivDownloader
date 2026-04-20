@@ -35,6 +35,7 @@
     <properties>
         <java.version>17</java.version>
         <app.release.version>${project.version}</app.release.version>
+        <powershell.executable>pwsh</powershell.executable>
     </properties>
     <dependencies>
         <dependency>
@@ -136,6 +137,30 @@
                     <mainClass>top.sywyar.pixivdownload.gui.GuiLauncher</mainClass>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>generate-bundled-userscript</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <workingDirectory>${project.basedir}</workingDirectory>
+                            <executable>${powershell.executable}</executable>
+                            <arguments>
+                                <argument>-NoProfile</argument>
+                                <argument>-NonInteractive</argument>
+                                <argument>-Command</argument>
+                                <argument>&amp; '${project.basedir}/scripts/build-userscript-bundle.ps1' -Version '${app.release.version}'</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- 将仓库根目录的 *.user.js 复制到 classpath:/static/userscripts/，供 ScriptRegistry 扫描 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -173,6 +198,17 @@
     </build>
 
     <profiles>
+        <profile>
+            <id>windows-powershell</id>
+            <activation>
+                <os>
+                    <family>Windows</family>
+                </os>
+            </activation>
+            <properties>
+                <powershell.executable>powershell</powershell.executable>
+            </properties>
+        </profile>
         <profile>
             <id>native</id>
             <build>
