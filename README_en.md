@@ -104,11 +104,11 @@ Download the latest version from [Releases](../../releases):
 
 ### 2. Install Userscripts (Optional)
 
-You can complete all operations from the web interface without userscripts. If you still want to install them:
-
 **Method 1: One-click install from the web management page (recommended)**
 
-After logging in, open `http://localhost:6999/pixiv-batch.html`, expand the userscript card at the top of the page, and click the install button for the target script. When deployed on a non-localhost server, `@connect` is automatically replaced with the actual address.
+On `pixiv-batch.html`, expand the userscript card at the top of the page and click the "⬇ Install" button for the target script.
+> [!WARNING]
+> Due to Tampermonkey restrictions, scripts installed this way will stop working when the backend URL changes.
 
 **Method 2: Download manually from Releases**
 
@@ -117,7 +117,7 @@ Download the scripts from [Releases](../../releases), then drag them into the Ta
 <details>
 <summary><strong>This extra step is required when installing userscripts from downloaded release files (expand)</strong></summary>
 
-Tampermonkey's `GM_xmlhttpRequest` is restricted by the `@connect` whitelist. By default, the scripts only allow connecting to `localhost`. If the backend is deployed on another machine, you need to manually update each script's `@connect` declaration:
+**Tampermonkey's `GM_xmlhttpRequest` is restricted by the `@connect` whitelist. By default, the scripts only allow connecting to `localhost`. If the backend is deployed on another machine, you need to manually update each script's `@connect` declaration:**
 
 1. Open the Tampermonkey dashboard, find the target script, and click Edit
 2. Replace `// @connect      YOUR_SERVER_HOST` in the script header with the actual address
@@ -134,9 +134,9 @@ Tampermonkey's `GM_xmlhttpRequest` is restricted by the `@connect` whitelist. By
 | `Pixiv URL 批量导入作品下载器.user.js`            | Bulk artwork import, compatible with export formats from OneTab, N-Tab, and similar tab manager extensions                       |
 | `Pixiv 页面批量下载器.user.js`                  | Page DOM scraping across Pixiv                                                                                                   |
 
-> **If you only want one script, install `Pixiv All-in-One.user.js` first.** `Local download` remains separate and is not included in the all-in-one bundle.
 > **If the all-in-one script has issues, try the matching standalone script first, then include reproduction steps and environment details when opening an issue.**
-> **The web interface is recommended first**: `http://localhost:6999/pixiv-batch.html` supports Bulk Artwork Import, User mode, and Search mode without requiring any userscript for batch downloading.
+
+> **The web interface is recommended first**: `pixiv-batch.html` supports Bulk Artwork Import, User mode, and Search mode without requiring any userscript for batch downloading.
 
 ## 3. Usage
 
@@ -154,13 +154,9 @@ PixivDownload.exe
 
 > The desktop GUI starts by default. Use `--no-gui` only for server or Docker deployments. The GUI provides `Status`, `Config`, `Tools`, and `About` tabs for managing the backend and local tools.
 
-> On first startup, the browser automatically opens the setup wizard. Other features remain unavailable until setup is completed.
+### 1. Initial Setup (features unavailable until setup is completed)
 
-> The online portable build does not bundle FFmpeg by default, but it will first try to reuse FFmpeg from the system `PATH`, the application directory, or the user directory. If FFmpeg is already installed, the online portable build is enough. Only click `Download FFmpeg` on the GUI `Status` tab when FFmpeg is unavailable and you need Ugoira-to-WebP conversion. Regular image downloads are unaffected.
-
-### 1. Initial Setup
-
-After first startup, the browser automatically opens `http://localhost:6999/setup.html`. Enter a username and password (at least 6 characters) and choose a usage mode:
+After first startup, the browser automatically opens `setup.html`. Enter a username and password (at least 6 characters) and choose a usage mode:
 
 | Mode       | Use Case                                                                                       |
 |------------|------------------------------------------------------------------------------------------------|
@@ -171,13 +167,7 @@ The configuration is written to `state/setup_config.json`, and the setup wizard 
 
 ### 2. Configure Proxy
 
-The backend accesses the Pixiv CDN through an HTTP proxy. After startup, the config file is generated at `config/config.yaml`. Edit the proxy configuration and **restart the service** for it to take effect:
-
-```yaml
-proxy.enabled: true
-proxy.host: 127.0.0.1
-proxy.port: 7890   # Change this to your actual proxy port
-```
+The backend accesses the Pixiv CDN through an HTTP proxy. Please configure it via **GUI → Config → Proxy**, then **restart the service** for changes to take effect:
 
 > The GUI FFmpeg download button reuses this proxy configuration first, which is useful when the online portable build needs to fetch FFmpeg from GitHub.
 
@@ -189,7 +179,7 @@ proxy.port: 7890   # Change this to your actual proxy port
 
 ### 4. Web Batch Download
 
-Visit `http://localhost:6999/pixiv-batch.html` (login is required first in Solo Mode):
+Visit `pixiv-batch.html` (login is required first in Solo Mode):
 
 | Mode                   | Description                                                                                                                           |
 |------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
@@ -197,16 +187,16 @@ Visit `http://localhost:6999/pixiv-batch.html` (login is required first in Solo 
 | 👤 User Mode           | Enter a user ID to batch download all works from that user                                                                            |
 | 🔍 Search Mode         | Search by keyword, preview thumbnails, and then add results to the queue (requires Cookies)                                           |
 
-Bulk artwork import format:
-
-- One item per line, in `url | title` format
-- Example: `https://www.pixiv.net/artworks/12345678 | Sample Title`
-- `title` can be left empty; the real title is fetched automatically before download
-- Compatible with export formats from OneTab, N-Tab, and similar tab manager extensions; exported lists can also be imported again directly
+> [!NOTE]
+> Bulk artwork import format:<br>
+> One item per line, in `url | title` format<br>
+> Example: `https://www.pixiv.net/artworks/12345678 | Sample Title`<br>
+> `title` can be left empty; the real title is fetched automatically before download<br>
+> Compatible with export formats from OneTab, N-Tab, and similar tab manager extensions; exported lists can also be imported again directly
 
 ### 5. Download Monitor
 
-Visit `http://localhost:6999/monitor.html` to view real-time download progress and history.
+Visit `monitor.html` to view real-time download progress and history.
 
 The author column in the history list supports:
 
@@ -218,25 +208,26 @@ The author column in the history list supports:
 
 ### 6. GUI Tools Page
 
-Tool-related operations are now launched from the GUI. After starting the app, open the `Tools` tab in the desktop GUI to use the following tools directly:
+Open the `Tools` tab in the desktop GUI to use the following tools directly:
 
 | Tool                               | Description                                                                                                                                                                                                                                                             |
 |------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Image Classification Tool          | Opens a standalone image classification window for organizing downloaded images; launching it does not proactively stop the backend                                                                                                                                     |
 | Database Directory Validation Tool | Checks whether directory paths stored in the database are still accessible; the backend is automatically stopped before launch and restored after the window closes                                                                                                     |
-| Database Backfill Tool             | Uses `ArtworksBackFill` to fill missing `author_id`, `R18`, `is_ai`, `description`, and `tags` / `artwork_tags` data in the `artworks` table in one run; supports database path, proxy, request delay, row limit, dry-run mode, and direct opening of the HTML log page |
+| Database Backfill Tool             | Fills missing data from version updates in one run; supports database path, proxy, request delay, row limit, dry-run mode, and direct opening of the HTML log page                                                                                                        |
 
+> [!IMPORTANT]
 > The Database Directory Validation Tool and Database Backfill Tool require exclusive SQLite access. The GUI handles backend stop/resume automatically, so you no longer need to stop the service manually and run commands yourself.
 
 > If your database from older versions contains rows missing `author_id`, `R18`, `is_ai`, `description`, or tag data, just launch the Database Backfill Tool from the GUI.
 
 ### 7. Product Intro Page
 
-Visit `http://localhost:6999/intro.html` (publicly accessible, no login required) to view the project introduction.
+Visit `intro.html` (publicly accessible, no login required) to view the project introduction.
 
 ### 8. Downloaded Images Gallery
 
-Visit `http://localhost:6999/pixiv-gallery.html` to browse a gallery of locally downloaded artworks. A `GALLERY` entry is also available at the top of `monitor.html` and `pixiv-batch.html`, so you can jump there directly from the download monitor or batch page.
+Visit `pixiv-gallery.html` to browse a gallery of locally downloaded artworks.
 
 The gallery page supports:
 
@@ -249,6 +240,10 @@ The gallery page supports:
 - adding artworks to collections or removing them from collections; collections support create, rename, delete, quick create, and custom icons (PNG / JPG / WEBP, max 1 MB)
 
 ## 4. Development Guide
+
+
+<details>
+<summary><strong>Too long to display (click to expand)</strong></summary>
 
 ### 1. Fork and branch
 
@@ -349,6 +344,8 @@ Artifacts are written to `build/out/` by default. MSI generation requires a work
 3. Do not commit build output such as `target/` or `build/` unless a maintainer explicitly asks for it.
 4. Push your branch to your fork with a clear commit history.
 5. Open a PR against the upstream default branch and include the motivation, main changes, and verification steps. If you changed UI or packaging behavior, add screenshots or key command output.
+
+</details>
 
 ---
 
