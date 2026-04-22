@@ -20,6 +20,12 @@
             --text-secondary: #333333;
             --brand: #0096fa;
             --danger: #dc2626;
+            --filter-must: #2563eb;
+            --filter-must-bg: rgba(37, 99, 235, 0.08);
+            --filter-not: #dc2626;
+            --filter-not-bg: rgba(220, 38, 38, 0.08);
+            --filter-or: #16a34a;
+            --filter-or-bg: rgba(22, 163, 74, 0.08);
             --sidebar-shadow: 8px 0 40px rgba(0, 0, 0, 0.08);
         }
 
@@ -638,6 +644,33 @@
             font-weight: 500;
         }
 
+        .chip.filter-selected .tag-trans,
+        .chip.filter-selected .chip-count {
+            color: currentColor;
+            opacity: 0.72;
+        }
+
+        .chip.filter-selected.mode-must {
+            border-color: var(--filter-must);
+            color: var(--filter-must);
+            background: var(--filter-must-bg);
+            font-weight: 500;
+        }
+
+        .chip.filter-selected.mode-not {
+            border-color: var(--filter-not);
+            color: var(--filter-not);
+            background: var(--filter-not-bg);
+            font-weight: 500;
+        }
+
+        .chip.filter-selected.mode-or {
+            border-color: var(--filter-or);
+            color: var(--filter-or);
+            background: var(--filter-or-bg);
+            font-weight: 500;
+        }
+
         .chip .chip-icon {
             width: 16px;
             height: 16px;
@@ -680,11 +713,21 @@
             align-items: flex-start;
         }
 
+        #filterTagsRow {
+            margin-top: 8px;
+        }
+
+        #filterAuthorsRow {
+            margin-top: 12px;
+            padding-top: 20px;
+            border-top: 1px solid var(--line);
+        }
+
         .filter-tags-main {
             flex: 1;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 25px;
             min-width: 0;
         }
 
@@ -693,6 +736,63 @@
             align-items: center;
             gap: 8px;
             flex-wrap: wrap;
+        }
+
+        .filter-mode-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        #tagFilterReset,
+        #authorFilterReset {
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+
+        #tagExpandToggle,
+        #authorExpandToggle {
+            flex-shrink: 0;
+        }
+
+        .filter-mode-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            height: 28px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .filter-mode-btn.active {
+            font-weight: 600;
+        }
+
+        .filter-mode-btn.mode-must.active {
+            border-color: var(--filter-must);
+            color: var(--filter-must);
+            background: var(--filter-must-bg);
+        }
+
+        .filter-mode-btn.mode-not.active {
+            border-color: var(--filter-not);
+            color: var(--filter-not);
+            background: var(--filter-not-bg);
+        }
+
+        .filter-mode-btn.mode-or.active {
+            border-color: var(--filter-or);
+            color: var(--filter-or);
+            background: var(--filter-or-bg);
         }
 
         .tag-search-box {
@@ -1415,7 +1515,7 @@
         .author-filter-bar .name {
             font-size: 14px;
             font-weight: 600;
-            color: var(--brand);
+            color: var(--text-secondary);
         }
 
         .author-filter-bar .clear {
@@ -1879,6 +1979,12 @@
                             </svg>
                             <input type="text" id="tagSearchInput" placeholder="搜索标签...">
                         </label>
+                        <div class="filter-mode-group" id="tagModeButtons">
+                            <button class="filter-mode-btn mode-must active" data-filter-kind="tag" data-filter-mode="must" type="button">必须有</button>
+                            <button class="filter-mode-btn mode-not" data-filter-kind="tag" data-filter-mode="not" type="button">不能有</button>
+                            <button class="filter-mode-btn mode-or" data-filter-kind="tag" data-filter-mode="or" type="button">或者有</button>
+                        </div>
+                        <button class="chip" id="tagFilterReset" type="button">重置筛选</button>
                         <button class="chip" id="tagExpandToggle" type="button">展开全部</button>
                     </div>
                     <div class="filter-chip-list" id="filterTagChips"></div>
@@ -1896,6 +2002,12 @@
                             </svg>
                             <input type="text" id="authorSearchInput" placeholder="搜索作者...">
                         </label>
+                        <div class="filter-mode-group" id="authorModeButtons">
+                            <button class="filter-mode-btn mode-must active" data-filter-kind="author" data-filter-mode="must" type="button">必须有</button>
+                            <button class="filter-mode-btn mode-not" data-filter-kind="author" data-filter-mode="not" type="button">不能有</button>
+                            <button class="filter-mode-btn mode-or" data-filter-kind="author" data-filter-mode="or" type="button">或者有</button>
+                        </div>
+                        <button class="chip" id="authorFilterReset" type="button">重置筛选</button>
                         <button class="chip" id="authorExpandToggle" type="button">展开全部</button>
                     </div>
                     <div class="filter-chip-list" id="filterAuthorChips"></div>
@@ -2000,8 +2112,28 @@
         ai: 'any',
         formats: new Set(),
         collectionIds: new Set(),
-        tagIds: new Set(),
-        authorIds: new Set(),
+        tagFilters: {
+            must: new Set(),
+            not: new Set(),
+            or: new Set(),
+            queue: {
+                must: [],
+                not: [],
+                or: [],
+            },
+            mode: 'must',
+        },
+        authorFilters: {
+            must: new Set(),
+            not: new Set(),
+            or: new Set(),
+            queue: {
+                must: [],
+                not: [],
+                or: [],
+            },
+            mode: 'must',
+        },
         authorNames: new Map(),
         totalPages: 0,
         totalElements: 0,
@@ -2033,6 +2165,11 @@
     const TAG_COLLAPSED_MAX_HEIGHT = 64;
     const AUTHOR_CHIPS_COLLAPSED_MAX_HEIGHT = 64;
     const AUTHOR_FILTER_OPTIONS_SIZE = 200;
+    const FILTER_MODE_META = {
+        must: {label: '必须有', className: 'mode-must'},
+        not: {label: '不能有', className: 'mode-not'},
+        or: {label: '或者有', className: 'mode-or'},
+    };
     const GALLERY_FILTER_QUERY_KEYS = [
         'filterTagId',
         'filterTag',
@@ -2143,6 +2280,159 @@
         if (tag.translatedName) state.tagTranslatedNames.set(tag.tagId, tag.translatedName);
     }
 
+    function getFilterBucket(kind) {
+        return kind === 'tag' ? state.tagFilters : state.authorFilters;
+    }
+
+    function getFilterMode(kind) {
+        return getFilterBucket(kind).mode;
+    }
+
+    function setFilterMode(kind, mode) {
+        const bucket = getFilterBucket(kind);
+        if (!FILTER_MODE_META[mode] || bucket.mode === mode) return;
+        bucket.mode = mode;
+        renderFilterModeButtons(kind);
+    }
+
+    function getFilterSelectionMode(kind, id) {
+        const bucket = getFilterBucket(kind);
+        if (bucket.must.has(id)) return 'must';
+        if (bucket.not.has(id)) return 'not';
+        if (bucket.or.has(id)) return 'or';
+        return null;
+    }
+
+    function getFilterSelectionRank(kind, id) {
+        const mode = getFilterSelectionMode(kind, id);
+        if (mode === 'must') return 0;
+        if (mode === 'not') return 1;
+        if (mode === 'or') return 2;
+        return 3;
+    }
+
+    function removeFilterQueueItem(bucket, mode, id) {
+        const queue = bucket.queue[mode];
+        const index = queue.indexOf(id);
+        if (index >= 0) queue.splice(index, 1);
+    }
+
+    function clearFilterSelection(kind, id) {
+        const bucket = getFilterBucket(kind);
+        ['must', 'not', 'or'].forEach(mode => {
+            bucket[mode].delete(id);
+            removeFilterQueueItem(bucket, mode, id);
+        });
+    }
+
+    function setFilterSelectionMode(kind, id, mode, metadata = {}) {
+        if (!FILTER_MODE_META[mode]) return;
+        if (kind === 'tag') {
+            rememberTagOption({tagId: id, ...metadata});
+        } else if (metadata.name) {
+            state.authorNames.set(id, metadata.name);
+        }
+        const bucket = getFilterBucket(kind);
+        clearFilterSelection(kind, id);
+        bucket[mode].add(id);
+        bucket.queue[mode].push(id);
+    }
+
+    function getFilterQueueIndex(kind, id) {
+        const mode = getFilterSelectionMode(kind, id);
+        if (!mode) return Number.MAX_SAFE_INTEGER;
+        const index = getFilterBucket(kind).queue[mode].indexOf(id);
+        return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+    }
+
+    function compareFilterSelectionOrder(kind, leftId, rightId) {
+        const rankDiff = getFilterSelectionRank(kind, leftId) - getFilterSelectionRank(kind, rightId);
+        if (rankDiff !== 0) return rankDiff;
+        if (getFilterSelectionMode(kind, leftId) == null) return 0;
+        return getFilterQueueIndex(kind, leftId) - getFilterQueueIndex(kind, rightId);
+    }
+
+    function getAllFilterIds(kind) {
+        const bucket = getFilterBucket(kind);
+        return [...new Set([
+            ...bucket.queue.must,
+            ...bucket.queue.not,
+            ...bucket.queue.or,
+            ...bucket.must,
+            ...bucket.not,
+            ...bucket.or,
+        ])];
+    }
+
+    function getFilterCount(kind) {
+        const bucket = getFilterBucket(kind);
+        return bucket.must.size + bucket.not.size + bucket.or.size;
+    }
+
+    function clearFilterSelections(kind) {
+        const bucket = getFilterBucket(kind);
+        bucket.must.clear();
+        bucket.not.clear();
+        bucket.or.clear();
+        bucket.queue.must.length = 0;
+        bucket.queue.not.length = 0;
+        bucket.queue.or.length = 0;
+    }
+
+    function resetFilterKind(kind) {
+        clearFilterSelections(kind);
+        getFilterBucket(kind).mode = 'must';
+        renderFilterModeButtons(kind);
+        state.page = 0;
+        if (kind === 'author') {
+            syncAuthorFilterBar();
+            renderAuthorChips();
+        } else {
+            renderTagChips();
+        }
+        updateFilterBadge();
+        if (state.view === 'all') {
+            loadGallery();
+        }
+    }
+
+    function renderFilterModeButtons(kind) {
+        const containerId = kind === 'tag' ? 'tagModeButtons' : 'authorModeButtons';
+        const currentMode = getFilterMode(kind);
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.querySelectorAll('[data-filter-mode]').forEach(btn => {
+            const mode = btn.dataset.filterMode;
+            btn.classList.toggle('active', mode === currentMode);
+            btn.setAttribute('aria-pressed', mode === currentMode ? 'true' : 'false');
+        });
+    }
+
+    function toggleFilterSelection(kind, id, metadata = {}) {
+        const bucket = getFilterBucket(kind);
+        const targetMode = bucket.mode;
+        const currentMode = getFilterSelectionMode(kind, id);
+        if (currentMode !== targetMode) {
+            setFilterSelectionMode(kind, id, targetMode, metadata);
+        } else {
+            clearFilterSelection(kind, id);
+        }
+    }
+
+    function formatAuthorLabel(id) {
+        const name = state.authorNames.get(id);
+        return name ? `${name} (#${id})` : `#${id}`;
+    }
+
+    function buildAuthorFilterSummary(ids, label) {
+        if (!ids.length) return null;
+        const names = ids.map(formatAuthorLabel);
+        const summary = names.length <= 3
+            ? names.join(', ')
+            : `${names.slice(0, 2).join(', ')} +${names.length}`;
+        return `${label}${summary}`;
+    }
+
     function setFilterPanelOpen(open) {
         const panel = document.getElementById('filterPanel');
         document.getElementById('filterToggle').classList.toggle('active', open);
@@ -2169,19 +2459,18 @@
 
     function syncAuthorFilterBar() {
         const bar = document.getElementById('authorFilterBar');
-        if (state.authorIds.size === 0 || state.view !== 'all') {
+        const labelEl = bar.querySelector('.label');
+        if (labelEl) labelEl.textContent = '作者筛选：';
+        if (getFilterCount('author') === 0 || state.view !== 'all') {
             bar.classList.remove('visible');
             return;
         }
-        const ids = [...state.authorIds];
-        const names = ids.map(id => {
-            const nm = state.authorNames.get(id);
-            return nm ? `${nm} (#${id})` : `#${id}`;
-        });
-        const label = names.length <= 3
-            ? names.join(', ')
-            : `${names.slice(0, 2).join(', ')} +${names.length}`;
-        document.getElementById('authorFilterName').textContent = label;
+        const parts = [
+            buildAuthorFilterSummary([...state.authorFilters.must], '必须有 '),
+            buildAuthorFilterSummary([...state.authorFilters.not], '不能有 '),
+            buildAuthorFilterSummary([...state.authorFilters.or], '或者有 '),
+        ].filter(Boolean);
+        document.getElementById('authorFilterName').textContent = parts.join(' · ');
         bar.classList.add('visible');
     }
 
@@ -2233,18 +2522,21 @@
 
         const tag = await resolveIncomingTagOption(params);
         if (tag && tag.tagId != null) {
-            state.tagIds.clear();
-            state.tagIds.add(tag.tagId);
-            rememberTagOption(tag);
+            clearFilterSelections('tag');
+            setFilterSelectionMode('tag', tag.tagId, 'must', {
+                name: tag.name,
+                translatedName: tag.translatedName,
+            });
+            setFilterMode('tag', 'must');
             changed = true;
         }
 
         const authorId = Number(params.get('filterAuthorId'));
         const authorName = (params.get('filterAuthorName') || '').trim();
         if (Number.isFinite(authorId) && authorId > 0) {
-            state.authorIds.clear();
-            state.authorIds.add(authorId);
-            if (authorName) state.authorNames.set(authorId, authorName);
+            clearFilterSelections('author');
+            setFilterSelectionMode('author', authorId, 'must', {name: authorName});
+            setFilterMode('author', 'must');
             changed = true;
         }
 
@@ -2509,6 +2801,20 @@
         setFilterPanelOpen(!panel.classList.contains('open'));
     });
 
+    document.querySelectorAll('.filter-mode-btn[data-filter-kind][data-filter-mode]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setFilterMode(btn.dataset.filterKind, btn.dataset.filterMode);
+        });
+    });
+
+    document.getElementById('tagFilterReset').addEventListener('click', () => {
+        resetFilterKind('tag');
+    });
+
+    document.getElementById('authorFilterReset').addEventListener('click', () => {
+        resetFilterKind('author');
+    });
+
     document.querySelectorAll('.chip[data-sort]').forEach(chip => {
         chip.addEventListener('click', () => {
             document.querySelectorAll('.chip[data-sort]').forEach(c => c.classList.remove('active'));
@@ -2560,13 +2866,17 @@
         state.ai = 'any';
         state.formats.clear();
         state.collectionIds.clear();
-        state.tagIds.clear();
-        state.authorIds.clear();
+        clearFilterSelections('tag');
+        clearFilterSelections('author');
+        state.tagFilters.mode = 'must';
+        state.authorFilters.mode = 'must';
         state.authorNames.clear();
         document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
         document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
         document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.remove('active'));
         state.page = 0;
+        renderFilterModeButtons('tag');
+        renderFilterModeButtons('author');
         syncAuthorFilterBar();
         renderCollections();
         renderTagChips();
@@ -2581,8 +2891,8 @@
         if (state.ai !== 'any') n++;
         n += state.formats.size;
         n += state.collectionIds.size;
-        n += state.tagIds.size;
-        n += state.authorIds.size;
+        n += getFilterCount('tag');
+        n += getFilterCount('author');
         const badge = document.getElementById('filterBadge');
         badge.textContent = n;
         badge.classList.toggle('visible', n > 0);
@@ -2612,14 +2922,10 @@
             : state.tags.slice();
 
         // 已选标签置顶，未选按原顺序（后端已按使用量降序）
-        filtered.sort((a, b) => {
-            const sa = state.tagIds.has(a.tagId) ? 0 : 1;
-            const sb = state.tagIds.has(b.tagId) ? 0 : 1;
-            return sa - sb;
-        });
+        filtered.sort((a, b) => compareFilterSelectionOrder('tag', a.tagId, b.tagId));
 
         const loadedIds = new Set(filtered.map(t => t.tagId));
-        const missing = [...state.tagIds].filter(id => !loadedIds.has(id));
+        const missing = getAllFilterIds('tag').filter(id => !loadedIds.has(id));
         if (missing.length) {
             const stubs = missing.map(id => ({
                 tagId: id,
@@ -2628,6 +2934,7 @@
                 artworkCount: 0,
             }));
             filtered = stubs.concat(filtered);
+            filtered.sort((a, b) => compareFilterSelectionOrder('tag', a.tagId, b.tagId));
         }
 
         const expanded = state.tagsExpanded || kw.length > 0;
@@ -2643,21 +2950,23 @@
         }
 
         box.innerHTML = filtered.map(t => {
-            const active = state.tagIds.has(t.tagId);
+            const mode = getFilterSelectionMode('tag', t.tagId);
+            const meta = mode ? FILTER_MODE_META[mode] : null;
             const trans = t.translatedName
                 ? `<span class="tag-trans">${escapeHtml(t.translatedName)}</span>`
                 : '';
             const count = t.artworkCount > 0
                 ? `<span class="chip-count">${t.artworkCount}</span>`
                 : '';
-            return `<button class="chip ${active ? 'active' : ''}" type="button" data-tag-id="${t.tagId}">
+            return `<button class="chip ${mode ? `filter-selected ${meta.className}` : ''}" type="button" data-tag-id="${t.tagId}">
                 ${escapeHtml(t.name || '')}
                 ${trans}
                 ${count}
             </button>`;
         }).join('');
+        const tagById = new Map(filtered.map(t => [String(t.tagId), t]));
         box.querySelectorAll('.chip[data-tag-id]').forEach(chip => {
-            chip.addEventListener('click', () => toggleTagFilter(Number(chip.dataset.tagId)));
+            chip.addEventListener('click', () => toggleTagFilter(tagById.get(chip.dataset.tagId)));
         });
         box.classList.toggle('expanded', expanded);
 
@@ -2674,9 +2983,12 @@
         });
     }
 
-    function toggleTagFilter(tagId) {
-        if (state.tagIds.has(tagId)) state.tagIds.delete(tagId);
-        else state.tagIds.add(tagId);
+    function toggleTagFilter(tag) {
+        if (!tag || tag.tagId == null) return;
+        toggleFilterSelection('tag', Number(tag.tagId), {
+            name: tag.name,
+            translatedName: tag.translatedName,
+        });
         state.page = 0;
         renderTagChips();
         updateFilterBadge();
@@ -2707,6 +3019,11 @@
             params.set('sort', 'artworks');
             const resp = await api('/api/authors/paged?' + params.toString());
             state.authorOptions = resp.content || [];
+            state.authorOptions.forEach(author => {
+                if (author && author.authorId != null && author.name) {
+                    state.authorNames.set(author.authorId, author.name);
+                }
+            });
         } catch (e) {
             console.error('load author options failed', e);
             state.authorOptions = [];
@@ -2730,15 +3047,11 @@
             : state.authorOptions.slice();
 
         // 已选作者置顶
-        filtered.sort((a, b) => {
-            const sa = state.authorIds.has(a.authorId) ? 0 : 1;
-            const sb = state.authorIds.has(b.authorId) ? 0 : 1;
-            return sa - sb;
-        });
+        filtered.sort((a, b) => compareFilterSelectionOrder('author', a.authorId, b.authorId));
 
         // 若选中的作者不在加载的前 N 个里，补齐到列表首部
         const loadedIds = new Set(filtered.map(a => a.authorId));
-        const missing = [...state.authorIds].filter(id => !loadedIds.has(id));
+        const missing = getAllFilterIds('author').filter(id => !loadedIds.has(id));
         if (missing.length) {
             const stubs = missing.map(id => ({
                 authorId: id,
@@ -2746,6 +3059,7 @@
                 artworkCount: 0,
             }));
             filtered = stubs.concat(filtered);
+            filtered.sort((a, b) => compareFilterSelectionOrder('author', a.authorId, b.authorId));
         }
 
         const expanded = state.authorsExpanded || kw.length > 0;
@@ -2759,11 +3073,12 @@
         }
 
         box.innerHTML = filtered.map(a => {
-            const active = state.authorIds.has(a.authorId);
+            const mode = getFilterSelectionMode('author', a.authorId);
+            const meta = mode ? FILTER_MODE_META[mode] : null;
             const count = a.artworkCount > 0
                 ? `<span class="chip-count">${a.artworkCount}</span>`
                 : '';
-            return `<button class="chip ${active ? 'active' : ''}" type="button" data-author-id="${a.authorId}" title="#${a.authorId}">
+            return `<button class="chip ${mode ? `filter-selected ${meta.className}` : ''}" type="button" data-author-id="${a.authorId}" title="#${a.authorId}">
                 ${escapeHtml(a.name || ('画师 ' + a.authorId))}
                 ${count}
             </button>`;
@@ -2791,26 +3106,21 @@
     }
 
     function toggleAuthorFilter(authorId, authorName) {
-        if (state.authorIds.has(authorId)) {
-            state.authorIds.delete(authorId);
-        } else {
-            state.authorIds.add(authorId);
-            if (authorName) state.authorNames.set(authorId, authorName);
-        }
+        toggleFilterSelection('author', authorId, {name: authorName});
         refreshAuthorFilter();
     }
 
     function setAuthorFilterExclusive(authorId, authorName) {
-        state.authorIds.clear();
+        clearFilterSelections('author');
         if (authorId) {
-            state.authorIds.add(authorId);
-            if (authorName) state.authorNames.set(authorId, authorName);
+            setFilterSelectionMode('author', authorId, 'must', {name: authorName});
         }
+        setFilterMode('author', 'must');
         refreshAuthorFilter({switchToAll: true});
     }
 
     function clearAuthorFilter() {
-        state.authorIds.clear();
+        clearFilterSelections('author');
         refreshAuthorFilter();
     }
 
@@ -2870,8 +3180,12 @@
         if (state.ai !== 'any') params.set('ai', state.ai);
         if (state.formats.size) params.set('format', [...state.formats].join(','));
         if (state.collectionIds.size) params.set('collectionIds', [...state.collectionIds].join(','));
-        if (state.tagIds.size) params.set('tagIds', [...state.tagIds].join(','));
-        if (state.authorIds.size) params.set('authorIds', [...state.authorIds].join(','));
+        if (state.tagFilters.must.size) params.set('tagIds', [...state.tagFilters.must].join(','));
+        if (state.tagFilters.not.size) params.set('notTagIds', [...state.tagFilters.not].join(','));
+        if (state.tagFilters.or.size) params.set('orTagIds', [...state.tagFilters.or].join(','));
+        if (state.authorFilters.must.size) params.set('authorIds', [...state.authorFilters.must].join(','));
+        if (state.authorFilters.not.size) params.set('notAuthorIds', [...state.authorFilters.not].join(','));
+        if (state.authorFilters.or.size) params.set('orAuthorIds', [...state.authorFilters.or].join(','));
 
         document.getElementById('galleryStatus').textContent = '加载中...';
         try {
@@ -3155,7 +3469,7 @@
         document.getElementById('pagination').style.display = showAll ? '' : 'none';
         document.getElementById('galleryStatus').style.display = showAll ? '' : 'none';
         document.getElementById('authorFilterBar').classList.toggle('visible',
-            showAll && state.authorIds.size > 0);
+            showAll && getFilterCount('author') > 0);
         document.getElementById('authorView').classList.toggle('active', !showAll);
         document.getElementById('authorPagination').style.display = showAll ? 'none' : '';
         if (view === 'authors') {
@@ -3322,6 +3636,8 @@
 
     // ---------- Boot ----------
     (async function init() {
+        renderFilterModeButtons('tag');
+        renderFilterModeButtons('author');
         await loadCollections();
         await loadTagOptions();
         await loadAuthorOptions();

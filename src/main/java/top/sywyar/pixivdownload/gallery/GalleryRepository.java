@@ -10,11 +10,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-
 /**
  * 画廊查询的动态 SQL 仓库。使用 {@link NamedParameterJdbcTemplate} 拼装可选筛选条件。
- * 仅返回作品 ID 列表 + 总数，调用方再走 {@code PixivDatabase}/{@code toDownloadedResponse}
- * 组装完整响应，保持和监控页分页流程一致。
+ * 仅返回作品 ID 列表和总数，再由上层转换成完整响应。
  */
 @Slf4j
 @Repository
@@ -69,20 +67,48 @@ public class GalleryRepository {
             params.addValue("collectionIds", collectionIds);
         }
 
-        List<Long> authorIds = q.getAuthorIds();
-        if (authorIds != null && !authorIds.isEmpty()) {
-            where.append(" AND a.author_id IN (:authorIds)");
-            params.addValue("authorIds", authorIds);
+        List<Long> positiveAuthorIds = unionIds(q.getAuthorIds(), q.getOptionalAuthorIds());
+        if (!positiveAuthorIds.isEmpty()) {
+            where.append(" AND a.author_id IN (:positiveAuthorIds)");
+            params.addValue("positiveAuthorIds", positiveAuthorIds);
         }
 
+        List<Long> excludedAuthorIds = q.getExcludedAuthorIds();
+        if (excludedAuthorIds != null && !excludedAuthorIds.isEmpty()) {
+            where.append(" AND (a.author_id IS NULL OR a.author_id NOT IN (:excludedAuthorIds))");
+            params.addValue("excludedAuthorIds", excludedAuthorIds);
+        }
+
+        List<String> positiveTagClauses = new ArrayList<>();
         List<Long> tagIds = q.getTagIds();
         if (tagIds != null && !tagIds.isEmpty()) {
-            // AND 语义：作品需同时命中所有选中的标签
-            where.append(" AND a.artwork_id IN (SELECT artwork_id FROM artwork_tags"
+            positiveTagClauses.add("a.artwork_id IN (SELECT artwork_id FROM artwork_tags"
                     + " WHERE tag_id IN (:tagIds)"
                     + " GROUP BY artwork_id HAVING COUNT(DISTINCT tag_id) = :tagIdCount)");
             params.addValue("tagIds", tagIds);
             params.addValue("tagIdCount", tagIds.size());
+        }
+
+        List<Long> optionalTagIds = q.getOptionalTagIds();
+        if (optionalTagIds != null && !optionalTagIds.isEmpty()) {
+            positiveTagClauses.add("a.artwork_id IN (SELECT DISTINCT artwork_id FROM artwork_tags"
+                    + " WHERE tag_id IN (:optionalTagIds))");
+            params.addValue("optionalTagIds", optionalTagIds);
+        }
+
+        if (!positiveTagClauses.isEmpty()) {
+            if (positiveTagClauses.size() == 1) {
+                where.append(" AND ").append(positiveTagClauses.get(0));
+            } else {
+                where.append(" AND (").append(String.join(" OR ", positiveTagClauses)).append(")");
+            }
+        }
+
+        List<Long> excludedTagIds = q.getExcludedTagIds();
+        if (excludedTagIds != null && !excludedTagIds.isEmpty()) {
+            where.append(" AND a.artwork_id NOT IN (SELECT DISTINCT artwork_id FROM artwork_tags"
+                    + " WHERE tag_id IN (:excludedTagIds))");
+            params.addValue("excludedTagIds", excludedTagIds);
         }
 
         String countSql = "SELECT COUNT(*) FROM artworks a"
@@ -124,7 +150,7 @@ public class GalleryRepository {
     }
 
     /**
-     * 相关作品：与给定作品共享至少一个 tag，按共享 tag 数降序、时间倒序。
+     * 相关作品：与给定作品共享至少一个 tag，按共享 tag 数量降序、时间倒序。
      */
     public List<Long> findRelatedByTags(long artworkId, int limit) {
         String sql = "SELECT a.artwork_id FROM artworks a"
@@ -153,6 +179,17 @@ public class GalleryRepository {
         };
     }
 
+    private List<Long> unionIds(List<Long> left, List<Long> right) {
+        List<Long> out = new ArrayList<>();
+        if (left != null && !left.isEmpty()) out.addAll(left);
+        if (right != null && !right.isEmpty()) {
+            for (Long id : right) {
+                if (!out.contains(id)) out.add(id);
+            }
+        }
+        return out;
+    }
+
     public record QueryResult(List<Long> ids, long totalElements) {}
 
     /**
@@ -168,7 +205,7 @@ public class GalleryRepository {
         MapSqlParameterSource params = new MapSqlParameterSource();
         if (search != null && !search.isBlank()) {
             sql.append(" WHERE LOWER(t.name) LIKE :kw OR LOWER(COALESCE(t.translated_name, '')) LIKE :kw");
-            params.addValue("kw", "%" + search.trim().toLowerCase() + "%");
+            params.addValue("kw", "%" + search.trim().toLowerCase(Locale.ROOT) + "%");
         }
         sql.append(" GROUP BY t.tag_id, t.name, t.translated_name")
                 .append(" HAVING artwork_count > 0")

@@ -234,6 +234,7 @@ The gallery page supports:
 - searching by artwork title / artist
 - sorting by date, artwork ID, image count, status, artist ID, and tag count, with ascending / descending toggle
 - combined filtering by R-18, AI, image format, and collections
+- tag and artist chips support three filter modes: must have, must not have, or may have; positive conditions are unioned, then intersected with exclusions
 - paginated browsing of downloaded artworks, with thumbnail badges for R-18, AI, and multi-page works
 - opening the artwork details page at `pixiv-artwork.html?id=<artworkId>` to view the title, description, tags, artist info, related works, and other works by the same artist
 - "Expand All" and lightbox preview for multi-page works

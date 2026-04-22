@@ -27,18 +27,28 @@ public class GalleryController {
             @RequestParam(required = false) String format,
             @RequestParam(required = false) String collectionIds,
             @RequestParam(required = false) String tagIds,
+            @RequestParam(required = false) String notTagIds,
+            @RequestParam(required = false) String orTagIds,
             @RequestParam(required = false) String authorIds,
+            @RequestParam(required = false) String notAuthorIds,
+            @RequestParam(required = false) String orAuthorIds,
             @RequestParam(required = false) Long authorId) {
 
-        List<Long> authorIdList = parseLongList(authorIds);
+        List<Long> requiredAuthorIds = parseLongList(authorIds);
         if (authorId != null && authorId > 0) {
-            if (authorIdList == null) authorIdList = new ArrayList<>();
-            if (!authorIdList.contains(authorId)) authorIdList.add(authorId);
+            if (requiredAuthorIds == null) requiredAuthorIds = new ArrayList<>();
+            if (!requiredAuthorIds.contains(authorId)) requiredAuthorIds.add(authorId);
         }
         GalleryQuery query = GalleryQuery.normalize(
                 page, size, sort, order, search, r18, ai,
-                parseFormats(format), parseLongList(collectionIds), parseLongList(tagIds),
-                authorIdList);
+                parseFormats(format),
+                parseLongList(collectionIds),
+                parseLongList(tagIds),
+                parseLongList(notTagIds),
+                parseLongList(orTagIds),
+                requiredAuthorIds,
+                parseLongList(notAuthorIds),
+                parseLongList(orAuthorIds));
         return galleryService.query(query);
     }
 

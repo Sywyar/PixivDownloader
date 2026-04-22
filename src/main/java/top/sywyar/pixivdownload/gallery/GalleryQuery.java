@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -38,15 +39,25 @@ public class GalleryQuery {
     private List<String> formats;
     /** 收藏夹 ID 过滤（OR 语义，命中任一收藏夹即纳入），空表示不限。 */
     private List<Long> collectionIds;
-    /** 标签 ID 过滤（AND 语义，需同时命中所有标签），空表示不限。 */
+    /** 必须命中的标签 ID（AND 语义，需要同时命中所有标签）。 */
     private List<Long> tagIds;
-    /** 作者 ID 过滤（OR 语义，命中任一作者即纳入），空表示不限。 */
+    /** 不能命中的标签 ID（命中任一即排除）。 */
+    private List<Long> excludedTagIds;
+    /** 可选命中的标签 ID（OR 语义，与必须标签形成并集）。 */
+    private List<Long> optionalTagIds;
+    /** 必须命中的作者 ID（当前语义为 OR，与可选作者形成并集）。 */
     private List<Long> authorIds;
+    /** 不能命中的作者 ID（命中任一即排除）。 */
+    private List<Long> excludedAuthorIds;
+    /** 可选命中的作者 ID（OR 语义，与必须作者形成并集）。 */
+    private List<Long> optionalAuthorIds;
 
     public static GalleryQuery normalize(Integer page, Integer size, String sort, String order,
                                          String search, String r18, String ai,
                                          List<String> formats, List<Long> collectionIds,
-                                         List<Long> tagIds, List<Long> authorIds) {
+                                         List<Long> tagIds, List<Long> excludedTagIds,
+                                         List<Long> optionalTagIds, List<Long> authorIds,
+                                         List<Long> excludedAuthorIds, List<Long> optionalAuthorIds) {
         return GalleryQuery.builder()
                 .page(Math.max(0, page == null ? 0 : page))
                 .size(clamp(size == null ? 24 : size, 1, 200))
@@ -56,19 +67,23 @@ public class GalleryQuery {
                 .r18(normalizeR18(r18))
                 .ai(normalizeTristate(ai))
                 .formats(formats)
-                .collectionIds(collectionIds)
-                .tagIds(tagIds)
+                .collectionIds(normalizeIdList(collectionIds))
+                .tagIds(normalizeIdList(tagIds))
+                .excludedTagIds(normalizeIdList(excludedTagIds))
+                .optionalTagIds(normalizeIdList(optionalTagIds))
                 .authorIds(normalizeIdList(authorIds))
+                .excludedAuthorIds(normalizeIdList(excludedAuthorIds))
+                .optionalAuthorIds(normalizeIdList(optionalAuthorIds))
                 .build();
     }
 
     private static List<Long> normalizeIdList(List<Long> ids) {
         if (ids == null || ids.isEmpty()) return null;
-        List<Long> out = new ArrayList<>();
+        Set<Long> out = new LinkedHashSet<>();
         for (Long id : ids) {
             if (id != null && id > 0) out.add(id);
         }
-        return out.isEmpty() ? null : out;
+        return out.isEmpty() ? null : new ArrayList<>(out);
     }
 
     private static int clamp(int v, int min, int max) {
