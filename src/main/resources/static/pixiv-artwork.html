@@ -308,6 +308,21 @@
             font-size: 12px;
         }
 
+        .tag-link {
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .tag-link:hover {
+            background: rgba(0, 150, 250, 0.08);
+            color: var(--brand);
+        }
+
+        .tag-link:focus-visible {
+            outline: 2px solid rgba(0, 150, 250, 0.28);
+            outline-offset: 2px;
+        }
+
         .tag .tag-translated {
             color: var(--muted);
             margin-left: 4px;
@@ -318,6 +333,28 @@
             display: flex;
             align-items: center;
             gap: 12px;
+        }
+
+        .author-card-link {
+            width: 100%;
+            margin: -8px;
+            padding: 8px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .author-card-link:hover {
+            background: rgba(0, 150, 250, 0.06);
+        }
+
+        .author-card-link:hover .author-name {
+            color: var(--brand);
+        }
+
+        .author-card-link:focus-visible {
+            outline: 2px solid rgba(0, 150, 250, 0.28);
+            outline-offset: 2px;
         }
 
         .author-avatar {
@@ -828,13 +865,13 @@
     <div class="side-col">
         <div class="panel" id="authorPanel" style="display:none">
             <div class="panel-title">画师</div>
-            <div class="author-card">
+            <a class="author-card author-card-link" id="authorCard" href="/pixiv-gallery.html">
                 <div class="author-avatar" id="authorAvatar">?</div>
                 <div class="author-info">
                     <div class="author-name" id="authorName">未知</div>
                     <div class="author-id" id="authorId"></div>
                 </div>
-            </div>
+            </a>
             <div class="panel-title" style="margin-top:16px">该画师的其他作品</div>
             <div class="by-author-wrap" id="byAuthorWrap">
                 <button class="thumb-strip-arrow left" id="byAuthorPrev" type="button" title="上一组">
@@ -1004,6 +1041,16 @@
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
 
+    function buildGalleryFilterHref({tagName, tagTranslatedName, authorId, authorName} = {}) {
+        const params = new URLSearchParams();
+        if (tagName) params.set('filterTag', tagName);
+        if (tagTranslatedName) params.set('filterTagTranslated', tagTranslatedName);
+        if (authorId != null) params.set('filterAuthorId', String(authorId));
+        if (authorName) params.set('filterAuthorName', authorName);
+        params.set('openFilter', '1');
+        return `/pixiv-gallery.html?${params.toString()}`;
+    }
+
     async function loadImageToElement(url, target, {onClick} = {}) {
         const cached = ImageCache.get(url);
         if (cached) {
@@ -1167,10 +1214,13 @@
         const tags = artwork.tags || [];
         if (tags.length) {
             tagList.innerHTML = tags.map(t => `
-                <span class="tag">
+                <a class="tag tag-link" href="${buildGalleryFilterHref({
+                    tagName: t.name,
+                    tagTranslatedName: t.translatedName
+                })}">
                     ${escapeHtml(t.name)}
                     ${t.translatedName ? `<span class="tag-translated">${escapeHtml(t.translatedName)}</span>` : ''}
-                </span>
+                </a>
             `).join('');
         } else {
             tagList.innerHTML = '<span style="color:var(--muted); font-size:12px">暂无标签</span>';
@@ -1185,6 +1235,10 @@
         document.getElementById('authorAvatar').textContent = (name[0] || '?').toUpperCase();
         document.getElementById('authorName').textContent = name;
         document.getElementById('authorId').textContent = `ID: ${artwork.authorId}`;
+        const authorCard = document.getElementById('authorCard');
+        authorCard.href = buildGalleryFilterHref({authorId: artwork.authorId, authorName: name});
+        authorCard.title = `按作者 ${name} 筛选`;
+        authorCard.setAttribute('aria-label', `按作者 ${name} 筛选`);
 
         loadByAuthor();
     }

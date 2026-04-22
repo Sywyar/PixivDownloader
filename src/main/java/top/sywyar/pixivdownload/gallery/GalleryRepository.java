@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import javax.sql.DataSource;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 
 /**
@@ -181,6 +182,50 @@ public class GalleryRepository {
                 rs.getString("name"),
                 rs.getString("translated_name"),
                 rs.getInt("artwork_count")));
+    }
+
+    public TagOption findTagByExactName(String name, String translatedName) {
+        String normalizedName = normalizeLookup(name);
+        String normalizedTranslatedName = normalizeLookup(translatedName);
+        if (normalizedName == null && normalizedTranslatedName == null) {
+            return null;
+        }
+
+        List<String> clauses = new ArrayList<>();
+        List<String> orderBy = new ArrayList<>();
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (normalizedName != null) {
+            clauses.add("LOWER(t.name) = :name");
+            orderBy.add("CASE WHEN LOWER(t.name) = :name THEN 0 ELSE 1 END");
+            params.addValue("name", normalizedName);
+        }
+        if (normalizedTranslatedName != null) {
+            clauses.add("LOWER(COALESCE(t.translated_name, '')) = :translatedName");
+            orderBy.add("CASE WHEN LOWER(COALESCE(t.translated_name, '')) = :translatedName THEN 0 ELSE 1 END");
+            params.addValue("translatedName", normalizedTranslatedName);
+        }
+
+        String sql = "SELECT t.tag_id AS tag_id, t.name AS name, t.translated_name AS translated_name,"
+                + " COUNT(at.artwork_id) AS artwork_count"
+                + " FROM tags t"
+                + " LEFT JOIN artwork_tags at ON at.tag_id = t.tag_id"
+                + " WHERE " + String.join(" OR ", clauses)
+                + " GROUP BY t.tag_id, t.name, t.translated_name"
+                + " HAVING artwork_count > 0"
+                + " ORDER BY " + String.join(", ", orderBy) + ", artwork_count DESC, t.tag_id ASC"
+                + " LIMIT 1";
+        List<TagOption> items = jdbc.query(sql, params, (rs, rowNum) -> new TagOption(
+                rs.getLong("tag_id"),
+                rs.getString("name"),
+                rs.getString("translated_name"),
+                rs.getInt("artwork_count")));
+        return items.isEmpty() ? null : items.get(0);
+    }
+
+    private String normalizeLookup(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed.toLowerCase(Locale.ROOT);
     }
 
     public record TagOption(long tagId, String name, String translatedName, int artworkCount) {}

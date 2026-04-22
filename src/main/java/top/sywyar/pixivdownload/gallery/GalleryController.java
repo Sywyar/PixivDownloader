@@ -50,6 +50,14 @@ public class GalleryController {
         return Map.of("tags", tags);
     }
 
+    @GetMapping("/tags/lookup")
+    public ResponseEntity<GalleryRepository.TagOption> findTag(
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String translatedName) {
+        GalleryRepository.TagOption tag = galleryService.findTag(name, translatedName);
+        return tag == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(tag);
+    }
+
     @GetMapping("/artwork/{artworkId}")
     public ResponseEntity<DownloadedResponse> artwork(@PathVariable long artworkId) {
         DownloadedResponse resp = galleryService.findArtwork(artworkId);

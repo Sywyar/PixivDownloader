@@ -36,6 +36,10 @@ public class GalleryService {
         return galleryRepository.findTagsWithCounts(search, clamped);
     }
 
+    public GalleryRepository.TagOption findTag(String name, String translatedName) {
+        return galleryRepository.findTagByExactName(name, translatedName);
+    }
+
     public DownloadedResponse findArtwork(long artworkId) {
         ArtworkRecord rec = downloadService.getDownloadedRecord(artworkId);
         if (rec == null) return null;

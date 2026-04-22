@@ -2007,6 +2007,8 @@
         totalElements: 0,
         collections: [],
         tags: [],
+        tagNames: new Map(),
+        tagTranslatedNames: new Map(),
         tagFilterText: '',
         tagsExpanded: false,
         authorOptions: [],
@@ -2031,6 +2033,14 @@
     const TAG_COLLAPSED_MAX_HEIGHT = 64;
     const AUTHOR_CHIPS_COLLAPSED_MAX_HEIGHT = 64;
     const AUTHOR_FILTER_OPTIONS_SIZE = 200;
+    const GALLERY_FILTER_QUERY_KEYS = [
+        'filterTagId',
+        'filterTag',
+        'filterTagTranslated',
+        'filterAuthorId',
+        'filterAuthorName',
+        'openFilter',
+    ];
 
     // ---------- Image cache (in-memory + sessionStorage for thumbs) ----------
     const ImageCache = (() => {
@@ -2120,6 +2130,123 @@
         el.textContent = msg;
         container.appendChild(el);
         setTimeout(() => el.remove(), 2800);
+    }
+
+    function normalizeFilterText(value) {
+        if (value == null) return '';
+        return String(value).trim().toLowerCase();
+    }
+
+    function rememberTagOption(tag) {
+        if (!tag || tag.tagId == null) return;
+        if (tag.name) state.tagNames.set(tag.tagId, tag.name);
+        if (tag.translatedName) state.tagTranslatedNames.set(tag.tagId, tag.translatedName);
+    }
+
+    function setFilterPanelOpen(open) {
+        const panel = document.getElementById('filterPanel');
+        document.getElementById('filterToggle').classList.toggle('active', open);
+        panel.classList.toggle('open', open);
+        if (open) {
+            renderTagChips();
+            renderAuthorChips();
+        }
+    }
+
+    function syncAuthorFilterBar() {
+        const bar = document.getElementById('authorFilterBar');
+        if (state.authorIds.size === 0 || state.view !== 'all') {
+            bar.classList.remove('visible');
+            return;
+        }
+        const ids = [...state.authorIds];
+        const names = ids.map(id => {
+            const nm = state.authorNames.get(id);
+            return nm ? `${nm} (#${id})` : `#${id}`;
+        });
+        const label = names.length <= 3
+            ? names.join(', ')
+            : `${names.slice(0, 2).join(', ')} +${names.length}`;
+        document.getElementById('authorFilterName').textContent = label;
+        bar.classList.add('visible');
+    }
+
+    async function resolveIncomingTagOption(params) {
+        const tagId = Number(params.get('filterTagId'));
+        const tagName = (params.get('filterTag') || '').trim();
+        const translatedName = (params.get('filterTagTranslated') || '').trim();
+        const normalizedTagName = normalizeFilterText(tagName);
+        const normalizedTranslatedName = normalizeFilterText(translatedName);
+
+        if (Number.isFinite(tagId) && tagId > 0) {
+            const loaded = state.tags.find(t => t.tagId === tagId);
+            if (loaded) return loaded;
+        }
+
+        if (normalizedTagName || normalizedTranslatedName) {
+            const loaded = state.tags.find(t =>
+                normalizeFilterText(t.name) === normalizedTagName
+                || normalizeFilterText(t.translatedName) === normalizedTagName
+                || normalizeFilterText(t.name) === normalizedTranslatedName
+                || normalizeFilterText(t.translatedName) === normalizedTranslatedName);
+            if (loaded) return loaded;
+
+            try {
+                const lookupParams = new URLSearchParams();
+                if (tagName) lookupParams.set('name', tagName);
+                if (translatedName) lookupParams.set('translatedName', translatedName);
+                return await api('/api/gallery/tags/lookup?' + lookupParams.toString());
+            } catch (_) {
+                // Ignore lookup failures and fall back below.
+            }
+        }
+
+        if (Number.isFinite(tagId) && tagId > 0) {
+            return {
+                tagId,
+                name: tagName || state.tagNames.get(tagId) || `Tag #${tagId}`,
+                translatedName: translatedName || state.tagTranslatedNames.get(tagId) || null,
+                artworkCount: 0,
+            };
+        }
+        return null;
+    }
+
+    async function applyNavigationFiltersFromQuery() {
+        const params = new URLSearchParams(location.search);
+        const hasNavigationFilter = GALLERY_FILTER_QUERY_KEYS.some(key => params.has(key));
+        if (!hasNavigationFilter) return;
+
+        let changed = false;
+
+        const tag = await resolveIncomingTagOption(params);
+        if (tag && tag.tagId != null) {
+            state.tagIds.clear();
+            state.tagIds.add(tag.tagId);
+            rememberTagOption(tag);
+            changed = true;
+        }
+
+        const authorId = Number(params.get('filterAuthorId'));
+        const authorName = (params.get('filterAuthorName') || '').trim();
+        if (Number.isFinite(authorId) && authorId > 0) {
+            state.authorIds.clear();
+            state.authorIds.add(authorId);
+            if (authorName) state.authorNames.set(authorId, authorName);
+            changed = true;
+        }
+
+        if (params.get('openFilter') === '1' || changed) {
+            setFilterPanelOpen(true);
+        }
+
+        if (changed) {
+            state.page = 0;
+            syncAuthorFilterBar();
+            renderTagChips();
+            renderAuthorChips();
+            updateFilterBadge();
+        }
     }
 
     // ---------- Sidebar ----------
@@ -2365,12 +2492,7 @@
     // ---------- Filter panel ----------
     document.getElementById('filterToggle').addEventListener('click', () => {
         const panel = document.getElementById('filterPanel');
-        const open = panel.classList.toggle('open');
-        document.getElementById('filterToggle').classList.toggle('active', open);
-        if (open) {
-            renderTagChips();
-            renderAuthorChips();
-        }
+        setFilterPanelOpen(!panel.classList.contains('open'));
     });
 
     document.querySelectorAll('.chip[data-sort]').forEach(chip => {
@@ -2431,7 +2553,7 @@
         document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
         document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.remove('active'));
         state.page = 0;
-        document.getElementById('authorFilterBar').classList.remove('visible');
+        syncAuthorFilterBar();
         renderCollections();
         renderTagChips();
         renderAuthorChips();
@@ -2457,6 +2579,7 @@
         try {
             const resp = await api('/api/gallery/tags?limit=500');
             state.tags = resp.tags || [];
+            state.tags.forEach(rememberTagOption);
         } catch (e) {
             console.error('load tags failed', e);
             state.tags = [];
@@ -2467,13 +2590,8 @@
     function renderTagChips() {
         const box = document.getElementById('filterTagChips');
         const toggleBtn = document.getElementById('tagExpandToggle');
-        if (!state.tags.length) {
-            box.innerHTML = '<span class="chip-empty">暂无标签</span>';
-            toggleBtn.style.display = 'none';
-            return;
-        }
         const kw = state.tagFilterText.trim().toLowerCase();
-        const filtered = kw
+        let filtered = kw
             ? state.tags.filter(t =>
                 (t.name && t.name.toLowerCase().includes(kw)) ||
                 (t.translatedName && t.translatedName.toLowerCase().includes(kw)))
@@ -2486,10 +2604,24 @@
             return sa - sb;
         });
 
+        const loadedIds = new Set(filtered.map(t => t.tagId));
+        const missing = [...state.tagIds].filter(id => !loadedIds.has(id));
+        if (missing.length) {
+            const stubs = missing.map(id => ({
+                tagId: id,
+                name: state.tagNames.get(id) || `Tag #${id}`,
+                translatedName: state.tagTranslatedNames.get(id) || null,
+                artworkCount: 0,
+            }));
+            filtered = stubs.concat(filtered);
+        }
+
         const expanded = state.tagsExpanded || kw.length > 0;
 
         if (filtered.length === 0) {
-            box.innerHTML = '<span class="chip-empty">没有匹配的标签</span>';
+            box.innerHTML = state.tags.length
+                ? '<span class="chip-empty">No matching tags</span>'
+                : '<span class="chip-empty">No tags</span>';
             box.classList.remove('has-overflow');
             box.classList.toggle('expanded', expanded);
             toggleBtn.style.display = 'none';
@@ -2501,10 +2633,13 @@
             const trans = t.translatedName
                 ? `<span class="tag-trans">${escapeHtml(t.translatedName)}</span>`
                 : '';
+            const count = t.artworkCount > 0
+                ? `<span class="chip-count">${t.artworkCount}</span>`
+                : '';
             return `<button class="chip ${active ? 'active' : ''}" type="button" data-tag-id="${t.tagId}">
                 ${escapeHtml(t.name || '')}
                 ${trans}
-                <span class="chip-count">${t.artworkCount}</span>
+                ${count}
             </button>`;
         }).join('');
         box.querySelectorAll('.chip[data-tag-id]').forEach(chip => {
@@ -2667,21 +2802,7 @@
 
     function refreshAuthorFilter({switchToAll = false} = {}) {
         state.page = 0;
-        const bar = document.getElementById('authorFilterBar');
-        if (state.authorIds.size === 0) {
-            bar.classList.remove('visible');
-        } else if (state.view === 'all') {
-            const ids = [...state.authorIds];
-            const names = ids.map(id => {
-                const nm = state.authorNames.get(id);
-                return nm ? `${nm}（#${id}）` : `#${id}`;
-            });
-            const label = names.length <= 3
-                ? names.join('、')
-                : `${names.slice(0, 2).join('、')} 等 ${names.length} 位`;
-            document.getElementById('authorFilterName').textContent = label;
-            bar.classList.add('visible');
-        }
+        syncAuthorFilterBar();
         renderAuthorChips();
         updateFilterBadge();
         if (switchToAll && state.view !== 'all') {
@@ -3190,6 +3311,7 @@
         await loadCollections();
         await loadTagOptions();
         await loadAuthorOptions();
+        await applyNavigationFiltersFromQuery();
         await loadGallery();
     })();
 </script>
