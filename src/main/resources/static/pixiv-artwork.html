@@ -194,6 +194,7 @@
             width: 100%;
             padding-top: 8px;
             border-top: 1px solid var(--line);
+            flex-wrap: wrap;
         }
 
         .expand-btn {
@@ -251,6 +252,10 @@
 
         .heart-btn.liked svg {
             fill: currentColor;
+        }
+
+        .external-link-btn {
+            text-decoration: none;
         }
 
         .meta-info {
@@ -331,13 +336,16 @@
 
         .author-card {
             display: flex;
-            align-items: center;
-            gap: 12px;
+            flex-direction: column;
+            gap: 6px;
         }
 
         .author-card-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
             width: 100%;
-            margin: -8px;
             padding: 8px;
             border-radius: 10px;
             cursor: pointer;
@@ -377,7 +385,7 @@
         }
 
         .author-name {
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 600;
             color: var(--text);
             overflow: hidden;
@@ -390,9 +398,40 @@
             color: var(--muted);
         }
 
+        .author-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            min-width: 0;
+            padding: 0 8px;
+            min-height: 18px;
+        }
+
+        .author-external-link {
+            padding: 2px 0;
+            font-size: 12px;
+            color: var(--muted);
+            white-space: nowrap;
+            transition: color 0.15s;
+        }
+
+        .author-external-link:hover {
+            color: var(--brand);
+        }
+
+        .author-external-link:focus-visible {
+            outline: 2px solid rgba(0, 150, 250, 0.28);
+            outline-offset: 4px;
+        }
+
         .by-author-wrap {
             position: relative;
             margin-top: 12px;
+        }
+
+        .by-author-title {
+            margin-top: 22px;
         }
 
         .thumb-strip {
@@ -843,6 +882,9 @@
                         </svg>
                         <span id="heartLabel">收藏</span>
                     </button>
+                    <a class="expand-btn external-link-btn" id="pixivArtworkLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
+                        Pixiv 原作品链接
+                    </a>
                     <span class="meta-info" id="metaInfo"></span>
                 </div>
             </div>
@@ -865,14 +907,21 @@
     <div class="side-col">
         <div class="panel" id="authorPanel" style="display:none">
             <div class="panel-title">画师</div>
-            <a class="author-card author-card-link" id="authorCard" href="/pixiv-gallery.html">
-                <div class="author-avatar" id="authorAvatar">?</div>
-                <div class="author-info">
-                    <div class="author-name" id="authorName">未知</div>
+            <div class="author-card">
+                <a class="author-card-link" id="authorCard" href="/pixiv-gallery.html">
+                    <div class="author-avatar" id="authorAvatar">?</div>
+                    <div class="author-info">
+                        <div class="author-name" id="authorName">未知</div>
+                    </div>
+                </a>
+                <div class="author-meta">
                     <div class="author-id" id="authorId"></div>
+                    <a class="author-external-link" id="pixivAuthorLink" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
+                        Pixiv 主页 ↗
+                    </a>
                 </div>
-            </a>
-            <div class="panel-title" style="margin-top:16px">该画师的其他作品</div>
+            </div>
+            <div class="panel-title by-author-title">该画师的其他作品</div>
             <div class="by-author-wrap" id="byAuthorWrap">
                 <button class="thumb-strip-arrow left" id="byAuthorPrev" type="button" title="上一组">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -1052,6 +1101,14 @@
         return `/pixiv-gallery.html?${params.toString()}`;
     }
 
+    function buildPixivArtworkHref(artworkId) {
+        return `https://www.pixiv.net/artworks/${artworkId}`;
+    }
+
+    function buildPixivAuthorHref(authorId) {
+        return `https://www.pixiv.net/users/${authorId}`;
+    }
+
     async function loadImageToElement(url, target, {onClick} = {}) {
         const cached = ImageCache.get(url);
         if (cached) {
@@ -1190,6 +1247,9 @@
         const artwork = state.artwork;
         document.getElementById('detailPanel').style.display = '';
         document.getElementById('artworkTitle').textContent = artwork.title || `作品 ${artwork.artworkId}`;
+        const pixivArtworkLink = document.getElementById('pixivArtworkLink');
+        pixivArtworkLink.href = buildPixivArtworkHref(artwork.artworkId);
+        pixivArtworkLink.style.display = 'inline-flex';
 
         const stats = [];
         stats.push(`<span class="artwork-stat">ID: ${artwork.artworkId}</span>`);
@@ -1241,6 +1301,11 @@
         authorCard.href = buildGalleryFilterHref({authorId: artwork.authorId, authorName: name});
         authorCard.title = `按作者 ${name} 筛选`;
         authorCard.setAttribute('aria-label', `按作者 ${name} 筛选`);
+        const pixivAuthorLink = document.getElementById('pixivAuthorLink');
+        pixivAuthorLink.href = buildPixivAuthorHref(artwork.authorId);
+        pixivAuthorLink.title = `在 Pixiv 打开 ${name}`;
+        pixivAuthorLink.setAttribute('aria-label', `在 Pixiv 打开 ${name}`);
+        pixivAuthorLink.style.display = 'inline';
 
         loadByAuthor();
     }
