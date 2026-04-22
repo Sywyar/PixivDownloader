@@ -516,7 +516,7 @@
 
         async start() {
             if (this.queue.length === 0) { this.ui.setStatus('队列为空', 'error'); return; }
-            if (!await Api.checkBackend()) { alert('后端服务不可用'); return; }
+            if (!await Api.checkBackend()) { alert('后端服务不可用，如果您使用是非localhost地址，请遵循README说明替换 脚本头部 @connect YOUR_SERVER_HOST 为您的服务器地址'); return; }
 
             const intervalMs = this.getIntervalMs();
             const maxConcurrent = this.globalSettings.concurrent;
