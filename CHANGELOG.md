@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [v1.5.3] - 2026-04-22
+
+### Features
+- 作品详情页支持收起已展开的多图区域，灯箱打开时会自动并行加载全部图片；userscript 后端不可用提示补充远程部署的 `@connect` 配置说明
+- 作品详情页的标签和作者信息可直接跳转到图库并自动预填筛选条件
+- 作品详情页新增 Pixiv 原作品链接与作者主页外链，并优化作者信息区布局
+- 图库标签与作者新增“必须有 / 不能有 / 或者有”三态筛选，README.md 与 README_en.md 同步补充说明
+- 图库新增标签与作者筛选摘要栏，支持一键清除，并在作者视图中调整筛选时自动切回全部作品视图
+
+### Bug Fixes
+- 详情页跳转图库时改为优先携带 `tagId`，应用一次性导航筛选后自动清理 URL 参数，避免标签命中错误或刷新后重复套用
+- 修正图库跨维度组合筛选逻辑，将“必须标签 + 可选作者”与“必须作者 + 可选标签”分别计算；重置筛选时同步清空标签与作者搜索框，并补充回归测试
+
+### Documentation
+- 新增 CHANGELOG.md，按 Keep a Changelog 结构整理版本变更
+
 ## [v1.5.2] - 2026-04-21
 
 ### Features
