@@ -307,6 +307,82 @@ jobs:
           name: userscripts
           path: artifacts/userscripts
 
+      - name: Build release notes
+        shell: bash
+        run: |
+          awk '
+            BEGIN {
+              version_header = "[" ENVIRON["GITHUB_REF_NAME"] "]"
+            }
+            /^## \[/ {
+              if (found) {
+                exit
+              }
+              if (index($0, version_header) > 0) {
+                found = 1
+                next
+              }
+            }
+            found {
+              print
+            }
+          ' CHANGELOG.md > RELEASE_BODY.md
+
+          if [ ! -s RELEASE_BODY.md ]; then
+            echo "No changelog entry found for ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
+          cat >> RELEASE_BODY.md <<'EOF'
+
+          ## 使用说明
+
+          ### Windows 在线便携版
+
+          下载 `PixivDownload-*-win-x64-online-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`。
+          该版本体积最小，已内置精简 JRE。如果系统已经安装 FFmpeg，下载这个版本即可；普通图片下载也可以直接使用。若系统里没有 FFmpeg 且需要 Ugoira 动图转 WebP，请在 GUI 的“状态”页点击“下载 FFmpeg”。
+
+          ### Windows 离线便携版
+
+          下载 `PixivDownload-*-win-x64-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`。
+          该版本已内置精简 JRE 和 FFmpeg，开箱即用，适合未安装 FFmpeg 或离线环境。
+
+          ### Windows MSI 安装包
+
+          当前发布包含以下 4 种 MSI：
+          - `PixivDownload-*-win-x64-zh-CN-with-ffmpeg.msi`
+          - `PixivDownload-*-win-x64-zh-CN-no-ffmpeg.msi`
+          - `PixivDownload-*-win-x64-en-US-with-ffmpeg.msi`
+          - `PixivDownload-*-win-x64-en-US-no-ffmpeg.msi`
+
+          选择规则：
+          - `zh-CN` / `en-US` 表示安装器界面语言
+          - `with-ffmpeg` 表示安装包内置 FFmpeg，开箱即用，但体积更大
+          - `no-ffmpeg` 表示安装包不内置 FFmpeg，体积更小，适合系统已安装 FFmpeg 或不需要 Ugoira 转 WebP 的场景
+          - MSI 安装向导不提供安装时切换语言，也不再提供 FFmpeg 组件勾选页，请在下载时直接选好版本
+
+          ### JAR 包（跨平台）
+
+          需要已安装 Java 17+，通过命令行运行：
+
+          ```
+          java -jar PixivDownload-${{ github.ref_name }}.jar
+          ```
+
+          ### 网页端一站式下载
+
+          启动后访问 `http://localhost:6999/pixiv-batch.html`，无需安装油猴脚本即可完成大部分批量下载操作。
+          访问 `http://localhost:6999/monitor.html` 查看下载进度和历史记录。
+
+          ### 油猴脚本
+
+          如仍需使用油猴脚本，登录后打开 `http://localhost:6999/pixiv-batch.html`，点击页面顶部的“油猴脚本”卡片并安装对应脚本。部署在非 localhost 服务器时，`@connect` 会自动替换为实际地址。
+          如果只想安装一个脚本，优先选择 `Pixiv All-in-One.user.js`。它整合了页面批量下载、User 批量下载、URL 批量导入和单作品下载（Java 后端版），`Local download` 仍保持独立脚本。
+          如果多合一脚本遇到问题，请先尝试对应的独立脚本；如果独立版本正常、只有多合一异常，请附带复现步骤和环境信息提交 issue。
+
+          ## 详细说明请查看 README
+          EOF
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -316,51 +392,4 @@ jobs:
             artifacts/*-portable.zip
             artifacts/userscripts/*.user.js
             *.user.js
-          generate_release_notes: true
-          body: |
-            ## 使用说明
-
-            ### Windows 在线便携版
-
-            下载 `PixivDownload-*-win-x64-online-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`。
-            该版本体积最小，已内置精简 JRE。如果系统已经安装 FFmpeg，下载这个版本即可；普通图片下载也可以直接使用。若系统里没有 FFmpeg 且需要 Ugoira 动图转 WebP，请在 GUI 的“状态”页点击“下载 FFmpeg”。
-
-            ### Windows 离线便携版
-
-            下载 `PixivDownload-*-win-x64-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`。
-            该版本已内置精简 JRE 和 FFmpeg，开箱即用，适合未安装 FFmpeg 或离线环境。
-
-            ### Windows MSI 安装包
-
-            当前发布包含以下 4 种 MSI：
-            - `PixivDownload-*-win-x64-zh-CN-with-ffmpeg.msi`
-            - `PixivDownload-*-win-x64-zh-CN-no-ffmpeg.msi`
-            - `PixivDownload-*-win-x64-en-US-with-ffmpeg.msi`
-            - `PixivDownload-*-win-x64-en-US-no-ffmpeg.msi`
-
-            选择规则：
-            - `zh-CN` / `en-US` 表示安装器界面语言
-            - `with-ffmpeg` 表示安装包内置 FFmpeg，开箱即用，但体积更大
-            - `no-ffmpeg` 表示安装包不内置 FFmpeg，体积更小，适合系统已安装 FFmpeg 或不需要 Ugoira 转 WebP 的场景
-            - MSI 安装向导不提供安装时切换语言，也不再提供 FFmpeg 组件勾选页，请在下载时直接选好版本
-
-            ### JAR 包（跨平台）
-
-            需要已安装 Java 17+，通过命令行运行：
-
-            ```
-            java -jar PixivDownload-${{ github.ref_name }}.jar
-            ```
-
-            ### 网页端一站式下载
-
-            启动后访问 `http://localhost:6999/pixiv-batch.html`，无需安装油猴脚本即可完成大部分批量下载操作。
-            访问 `http://localhost:6999/monitor.html` 查看下载进度和历史记录。
-
-            ### 油猴脚本
-
-            如仍需使用油猴脚本，登录后打开 `http://localhost:6999/pixiv-batch.html`，点击页面顶部的“油猴脚本”卡片并安装对应脚本。部署在非 localhost 服务器时，`@connect` 会自动替换为实际地址。
-            如果只想安装一个脚本，优先选择 `Pixiv All-in-One.user.js`。它整合了页面批量下载、User 批量下载、URL 批量导入和单作品下载（Java 后端版），`Local download` 仍保持独立脚本。
-            如果多合一脚本遇到问题，请先尝试对应的独立脚本；如果独立版本正常、只有多合一异常，请附带复现步骤和环境信息提交 issue。
-
-            ## 详细说明请查看 README
+          body_path: RELEASE_BODY.md

@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [v1.6.0] - 2026-04-28
+
+### Features
+- 新增中英双语多语言基础能力，后端支持按 `?lang`、`pixiv_lang` Cookie、`Accept-Language` 与 `app.language` 解析语言，并将接口异常、参数校验、下载流程、SSE 与日志文案接入本地化资源
+- Web 页面与 userscript 接入多语言切换，覆盖批量下载、图库、作品详情、监控页和脚本文案，支持离线 fallback、语言切换组件、aria-label/placeholder/title 翻译以及跨脚本语言同步
+- 桌面 GUI 适配多语言运行时，状态、配置、工具、关于、托盘菜单和维护工具文案改为中英双语资源
+- 批量下载设置新增收藏夹选择器，solo 模式与 multi 管理员可将下载完成的作品自动加入指定收藏夹，普通用户传入的收藏夹目标会被清理以避免越权写入
+- 工具面板新增 JSON 到 SQLite 迁移入口，并完善数据回填与文件夹巡检流程
+- userscript 新增 PromptGuard，跨脚本和 All-in-One 模块去重首次启动提示与未登录弹窗，避免重复弹窗和重复打开登录页
+
+### Performance
+- 新增聚合下载 SSE 端点，批量下载页、监控页和 userscript 改为共享单条 SSE 连接，并按用户 UUID 隔离事件，修复高并发批量下载受浏览器连接上限影响而卡死或超时的问题
+- 优化前端多语言渲染观察器，避免翻译文本变更触发无效回调和整页重复扫描
+
+### Bug Fixes
+- 修复 i18n 改造后 `IllegalArgumentException` 未统一映射导致部分接口错误返回 500 的问题
+- 修复多语言改造遗留的部分异常映射、英文字段文案和页面动态文案覆盖遗漏
+
+### Tests
+- 适配本地化消息依赖后的单元测试，并补充 SSE、配置生成、下载收藏夹写入和迁移相关回归覆盖
+
 ## [v1.5.3] - 2026-04-22
 
 ### Features
