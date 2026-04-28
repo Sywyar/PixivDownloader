@@ -191,11 +191,10 @@ public class UgoiraService {
     }
 
     private String resolveOutputBaseName(Long artworkId, DownloadRequest.Other other) {
-        String fallback = artworkId + "_p0";
         if (other != null && other.getFileNames() != null && !other.getFileNames().isEmpty()) {
-            return ArtworkFileNameFormatter.normalizeBaseName(other.getFileNames().get(0), fallback);
+            return other.getFileNames().get(0);
         }
-        return fallback;
+        return artworkId + "_p0";
     }
 
     /**

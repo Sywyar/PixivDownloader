@@ -8,7 +8,7 @@ import java.util.List;
 public interface PixivMapper {
 
     String SELECT_ARTWORK = "SELECT artwork_id, title, folder, count, extensions, time, moved,"
-            + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name FROM artworks";
+            + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name, file_names FROM artworks";
 
     // ── DDL ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +24,7 @@ public interface PixivMapper {
             + "author_id INTEGER DEFAULT NULL,"
             + "description TEXT DEFAULT NULL,"
             + "file_name INTEGER NOT NULL DEFAULT 1,"
+            + "file_names TEXT,"
             + "moved INTEGER DEFAULT 0,"
             + "move_folder TEXT,"
             + "move_time INTEGER)")
@@ -79,6 +80,9 @@ public interface PixivMapper {
     @Update("ALTER TABLE artworks ADD COLUMN file_name INTEGER NOT NULL DEFAULT 1")
     void addFileNameColumn();
 
+    @Update("ALTER TABLE artworks ADD COLUMN file_names TEXT")
+    void addFileNamesColumn();
+
     @Insert("INSERT OR IGNORE INTO file_name_templates(template) VALUES(#{template})")
     void insertFileNameTemplateIfAbsent(@Param("template") String template);
 
@@ -94,8 +98,8 @@ public interface PixivMapper {
     ArtworkRecord findById(long artworkId);
 
     @Insert("INSERT OR IGNORE INTO artworks"
-            + " (artwork_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description, file_name)"
-            + " VALUES (#{artworkId}, #{title}, #{folder}, #{count}, #{extensions}, #{time}, #{xRestrict}, #{isAi}, #{authorId}, #{description}, #{fileName})")
+            + " (artwork_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description, file_name, file_names)"
+            + " VALUES (#{artworkId}, #{title}, #{folder}, #{count}, #{extensions}, #{time}, #{xRestrict}, #{isAi}, #{authorId}, #{description}, #{fileName}, #{fileNames})")
     void insertOrIgnore(@Param("artworkId") long artworkId,
                         @Param("title") String title,
                         @Param("folder") String folder,
@@ -106,7 +110,8 @@ public interface PixivMapper {
                         @Param("isAi") Boolean isAi,
                         @Param("authorId") Long authorId,
                         @Param("description") String description,
-                        @Param("fileName") long fileName);
+                        @Param("fileName") long fileName,
+                        @Param("fileNames") String fileNames);
 
     @Select(SELECT_ARTWORK + " WHERE RTRIM(RTRIM(move_folder, '/'), '\\') = #{moveFolder}")
     ArtworkRecord findByNormalizedMoveFolder(String moveFolder);

@@ -14,8 +14,27 @@ public record ArtworkRecord(
         Boolean isAi,
         Long authorId,
         String description,
-        Long fileName
+        Long fileName,
+        String fileNames
 ) {
+    public ArtworkRecord(long artworkId,
+                         String title,
+                         String folder,
+                         int count,
+                         String extensions,
+                         long time,
+                         boolean moved,
+                         String moveFolder,
+                         Long moveTime,
+                         Integer xRestrict,
+                         Boolean isAi,
+                         Long authorId,
+                         String description,
+                         Long fileName) {
+        this(artworkId, title, folder, count, extensions, time, moved, moveFolder, moveTime,
+                xRestrict, isAi, authorId, description, fileName, null);
+    }
+
     public ArtworkRecord(long artworkId,
                          String title,
                          String folder,
@@ -30,6 +49,6 @@ public record ArtworkRecord(
                          Long authorId,
                          String description) {
         this(artworkId, title, folder, count, extensions, time, moved, moveFolder, moveTime,
-                xRestrict, isAi, authorId, description, null);
+                xRestrict, isAi, authorId, description, null, null);
     }
 }

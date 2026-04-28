@@ -33,6 +33,7 @@ public class PixivDatabase {
         try { pixivMapper.addAuthorIdColumn(); } catch (Exception ignored) {}
         try { pixivMapper.addDescriptionColumn(); } catch (Exception ignored) {}
         try { pixivMapper.addFileNameColumn(); } catch (Exception ignored) {}
+        try { pixivMapper.addFileNamesColumn(); } catch (Exception ignored) {}
         log.info(messages.getForLog("download.db.log.initialized"));
     }
 
@@ -58,9 +59,16 @@ public class PixivDatabase {
 
     public void insertArtwork(long artworkId, String title, String folder, int count,
                               String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
-                              String description, long fileName) {
+                              String description, long fileName, String fileNames) {
         pixivMapper.insertOrIgnore(artworkId, title, stripTrailingSlash(folder),
-                count, extensions, time, xRestrict, isAi, authorId, description, fileName);
+                count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileNames);
+    }
+
+    public void insertArtwork(long artworkId, String title, String folder, int count,
+                              String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
+                              String description, long fileName) {
+        insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, isAi,
+                authorId, description, fileName, null);
     }
 
     public void insertArtwork(long artworkId, String title, String folder, int count,

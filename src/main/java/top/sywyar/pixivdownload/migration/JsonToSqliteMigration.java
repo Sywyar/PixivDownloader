@@ -278,6 +278,7 @@ public class JsonToSqliteMigration {
                         + "extensions TEXT,"
                         + "time INTEGER UNIQUE,"
                         + "file_name INTEGER NOT NULL DEFAULT 1,"
+                        + "file_names TEXT,"
                         + "moved INTEGER DEFAULT 0,"
                         + "move_folder TEXT,"
                         + "move_time INTEGER)")) {

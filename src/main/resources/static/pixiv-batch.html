@@ -2328,7 +2328,7 @@
 
     function sanitizeFileNamePart(value) {
         let cleaned = value === null || value === undefined ? '' : String(value);
-        cleaned = cleaned.replace(/[\\/:*?"<>|\x00-\x1F]/g, '_').trim().replace(/[. ]+$/g, '');
+        cleaned = cleaned.replace(/[\\/:*?"<>|\x00-\x1F\x7F-\x9F]/g, '_').trim().replace(/[. ]+$/g, '');
         if (WINDOWS_RESERVED_FILE_NAMES.has(cleaned.toUpperCase())) cleaned = '_' + cleaned;
         return cleaned;
     }

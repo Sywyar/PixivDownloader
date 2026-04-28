@@ -32,6 +32,7 @@ public final class ManagedDatabaseSchema {
                         column("author_id", "INTEGER", false, null, 0),
                         column("description", "TEXT", false, null, 0),
                         column("file_name", "INTEGER", true, "1", 0),
+                        column("file_names", "TEXT", false, null, 0),
                         column("moved", "INTEGER", false, "0", 0),
                         column("move_folder", "TEXT", false, null, 0),
                         column("move_time", "INTEGER", false, null, 0)

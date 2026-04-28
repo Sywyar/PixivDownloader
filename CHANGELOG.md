@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [v1.6.1] - 2026-04-28
+
+### Features
+- 收藏夹新增自定义下载目录，支持 `{collection_name}` 模板变量与相对/绝对路径，批量下载指定收藏夹时按该目录保存
+- 启动期数据库结构检查按差异类型分流：仅回填工具支持的列（author_id / R18 / is_ai / description）会自动回填，其他差异（新增表/列/索引等）仅提示不阻塞启动
+- 批量下载新增自定义文件名格式，提供 11 个模板变量（作品 ID/标题/作者/时间戳/页码/AI/R18 分级等），前端即时预览与去重，后端二次验证
+- 批量下载队列展示 Ugoira 动图三阶段精细化进度（ZIP 下载 / 帧解压 / ffmpeg 转换）、图片下载字节进度，以及下载后收藏与收藏夹操作结果彩色标注
+- 收藏夹编辑界面对自定义下载目录提供实时预览，按名称即时展开模板变量并区分相对/绝对路径
+
+### Refactoring
+- GUI 托盘菜单与状态面板从单一入口拆分为批量下载、下载监控、本地画廊三个独立入口
+- 内置 FFmpeg 文件从应用根目录迁移至 tools/ffmpeg/ 子目录
+
 ## [v1.6.0] - 2026-04-28
 
 ### Features
