@@ -2,11 +2,13 @@
 param(
     [string]$Version = "0.0.1-local",
     [switch]$RunTests,
+    [switch]$SkipPortable,
     [switch]$SkipOfflinePortable,
-    [switch]$SkipMsi,
     [switch]$RedownloadFfmpeg,
-    [string[]]$MsiCultures = @("zh-CN", "en-US"),
-    [string[]]$MsiVariants = @("with-ffmpeg", "no-ffmpeg")
+    [string[]]$MsiCultures,
+    [string[]]$MsiVariants,
+    [Alias("SkipMsi")]
+    [switch]$SkipInstaller
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,10 +21,11 @@ $OnlineAppImageRoot = Join-Path $BuildRoot "app-image-online"
 $OnlineAppDir = Join-Path $OnlineAppImageRoot "PixivDownload"
 $OfflineAppImageRoot = Join-Path $BuildRoot "app-image-full"
 $OfflineAppDir = Join-Path $OfflineAppImageRoot "PixivDownload"
-$FfmpegDir = Join-Path $BuildRoot "ffmpeg"
-$FfmpegUnpackDir = Join-Path $FfmpegDir "unpack"
+$InnoToolchainDir = Join-Path $BuildRoot "inno-admin-loader"
 $OutDir = Join-Path $BuildRoot "out"
 $WixDir = Join-Path $BuildRoot "wix"
+$FfmpegDir = Join-Path $BuildRoot "ffmpeg"
+$FfmpegUnpackDir = Join-Path $FfmpegDir "unpack"
 $AppName = "PixivDownload"
 $AppVendor = "sywyar"
 $MainClass = "org.springframework.boot.loader.launch.JarLauncher"
@@ -33,30 +36,11 @@ $FfprobeExe = Join-Path $FfmpegDir "ffprobe.exe"
 $FfmpegLicense = Join-Path $FfmpegDir "ffmpeg-LGPL.txt"
 $OnlineZipPath = Join-Path $OutDir "$AppName-$Version-win-x64-online-portable.zip"
 $OfflineZipPath = Join-Path $OutDir "$AppName-$Version-win-x64-portable.zip"
-$FixWixKeyPathsScript = Join-Path $PSScriptRoot "fix-wix-per-user-keypaths.ps1"
+$SetupPath = Join-Path $OutDir "$AppName-$Version-win-x64-setup.exe"
+$InnoScript = Join-Path $ProjectRoot "packaging/windows/inno/PixivDownload.iss"
 $SetExeExecutionLevelScript = Join-Path $PSScriptRoot "set-windows-exe-requested-execution-level.ps1"
+$PrepareInnoAdminLoaderScript = Join-Path $PSScriptRoot "prepare-inno-admin-loader.ps1"
 $InstallerVersion = $null
-$MsiLocalization = @{
-    "en-US" = @{
-        WxlPath = Join-Path $ProjectRoot "packaging/windows/installer.en-US.wxl"
-        LicenseRtfPath = Join-Path $ProjectRoot "packaging/windows/license.en-US.rtf"
-    }
-    "zh-CN" = @{
-        WxlPath = Join-Path $ProjectRoot "packaging/windows/installer.zh-CN.wxl"
-        LicenseRtfPath = Join-Path $ProjectRoot "packaging/windows/license.zh-CN.rtf"
-    }
-}
-$MsiVariantConfig = @{
-    "with-ffmpeg" = @{
-        IncludeFfmpeg = "yes"
-        RequiresPayload = $true
-    }
-    "no-ffmpeg" = @{
-        IncludeFfmpeg = "no"
-        RequiresPayload = $false
-    }
-}
-$BuiltMsiArtifacts = @()
 
 function Write-Step {
     param([string]$Message)
@@ -88,6 +72,30 @@ function Get-MavenCommand {
     }
 
     throw "Missing Maven command. Install Maven or use the Maven wrapper."
+}
+
+function Get-InnoSetupCompiler {
+    $command = Get-Command "iscc.exe" -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $candidates = @()
+    $programFilesX86 = ${env:ProgramFiles(x86)}
+    if (-not [string]::IsNullOrWhiteSpace($programFilesX86)) {
+        $candidates += Join-Path $programFilesX86 "Inno Setup 6\ISCC.exe"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        $candidates += Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"
+    }
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    throw "Missing required command: iscc.exe. Install Inno Setup 6 or add ISCC.exe to PATH."
 }
 
 function Remove-PathIfExists {
@@ -131,39 +139,13 @@ function Get-InstallerVersion {
 
     $match = [regex]::Match($VersionText, "\d+(?:\.\d+){0,2}")
     if (-not $match.Success) {
-        throw "Installer version must start with up to three numeric components. Received: $VersionText"
+        throw "Installer version must contain up to three numeric components. Received: $VersionText"
     }
 
     return $match.Value
 }
 
-function Get-MsiCultureConfig {
-    param([string]$Culture)
-
-    if (-not $MsiLocalization.ContainsKey($Culture)) {
-        $supported = ($MsiLocalization.Keys | Sort-Object) -join ", "
-        throw "Unsupported MSI culture '$Culture'. Supported values: $supported"
-    }
-
-    return $MsiLocalization[$Culture]
-}
-
-function Get-MsiVariantConfig {
-    param([string]$Variant)
-
-    if (-not $MsiVariantConfig.ContainsKey($Variant)) {
-        $supported = ($MsiVariantConfig.Keys | Sort-Object) -join ", "
-        throw "Unsupported MSI variant '$Variant'. Supported values: $supported"
-    }
-
-    return $MsiVariantConfig[$Variant]
-}
-
 function Ensure-FfmpegPayload {
-    if ($SkipOfflinePortable -and $SkipMsi) {
-        return
-    }
-
     $hasPayload =
         (Test-Path $FfmpegExe) -and
         (Test-Path $FfprobeExe) -and
@@ -208,31 +190,15 @@ Push-Location $ProjectRoot
 try {
     Write-Step "Checking local toolchain"
     $InstallerVersion = Get-InstallerVersion $Version
-    $MsiCultures = @($MsiCultures | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
-    $MsiVariants = @($MsiVariants | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
     $mavenCmd = Get-MavenCommand
     Assert-Command "jlink"
     Assert-Command "jpackage"
-    if (-not $SkipMsi) {
-        if ($MsiCultures.Count -eq 0) {
-            throw "At least one MSI culture must be specified unless -SkipMsi is used."
-        }
-        if ($MsiVariants.Count -eq 0) {
-            throw "At least one MSI variant must be specified unless -SkipMsi is used."
-        }
-        foreach ($culture in $MsiCultures) {
-            [void](Get-MsiCultureConfig $culture)
-        }
-        foreach ($variant in $MsiVariants) {
-            [void](Get-MsiVariantConfig $variant)
-        }
-        Assert-Command "heat.exe"
-        Assert-Command "candle.exe"
-        Assert-Command "light.exe"
+    if (-not $SkipInstaller) {
+        $innoCompilerSource = Get-InnoSetupCompiler
     }
 
     Write-Step "Cleaning local packaging directories"
-    foreach ($path in @($InputDir, $RuntimeDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $OutDir, $WixDir)) {
+    foreach ($path in @($InputDir, $RuntimeDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir)) {
         Remove-PathIfExists $path
     }
     Ensure-Directory $InputDir
@@ -259,7 +225,7 @@ try {
         "--output", $RuntimeDir
     )
 
-    Write-Step "Building online app-image"
+    Write-Step "Building app-image"
     Invoke-External "jpackage" @(
         "--type", "app-image",
         "--name", $AppName,
@@ -277,23 +243,14 @@ try {
     Write-Step "Patching launcher to request administrator rights"
     & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"
 
-    Write-Step "Packaging online portable zip"
-    Compress-Archive -Path $OnlineAppDir -DestinationPath $OnlineZipPath -Force
-
-    $requiresFfmpegPayload = (-not $SkipOfflinePortable)
-    if (-not $SkipMsi) {
-        foreach ($variant in $MsiVariants) {
-            if ((Get-MsiVariantConfig $variant).RequiresPayload) {
-                $requiresFfmpegPayload = $true
-                break
-            }
-        }
-    }
-    if ($requiresFfmpegPayload) {
-        Ensure-FfmpegPayload
+    if (-not $SkipPortable) {
+        Write-Step "Packaging online portable zip"
+        Compress-Archive -Path $OnlineAppDir -DestinationPath $OnlineZipPath -Force
     }
 
     if (-not $SkipOfflinePortable) {
+        Ensure-FfmpegPayload
+
         Write-Step "Building offline app-image"
         Ensure-Directory $OfflineAppImageRoot
         Copy-Item $OnlineAppDir $OfflineAppImageRoot -Recurse -Force
@@ -306,88 +263,34 @@ try {
         Compress-Archive -Path $OfflineAppDir -DestinationPath $OfflineZipPath -Force
     }
 
-    if (-not $SkipMsi) {
-        Write-Step "Harvesting app-image for WiX"
-        Ensure-Directory $WixDir
-        Invoke-External "heat.exe" @(
-            "dir", $OnlineAppDir,
-            "-cg", "AppFiles",
-            "-dr", "INSTALLFOLDER",
-            "-platform", "x64",
-            "-srd",
-            "-sfrag",
-            "-gg",
-            "-var", "var.AppImageDir",
-            "-out", (Join-Path $WixDir "AppFiles.wxs")
+    if (-not $SkipInstaller) {
+        Write-Step "Preparing Inno Setup admin loader"
+        $innoCompiler = & $PrepareInnoAdminLoaderScript -CompilerPath $innoCompilerSource -OutputDirectory $InnoToolchainDir
+
+        Write-Step "Building Windows setup"
+        Invoke-External $innoCompiler @(
+            "/DAppVersion=$Version",
+            "/DInstallerVersion=$InstallerVersion",
+            "/DAppImageDir=$OnlineAppDir",
+            "/DOutputDir=$OutDir",
+            $InnoScript
         )
-        & $FixWixKeyPathsScript `
-            -Path (Join-Path $WixDir "AppFiles.wxs") `
-            -RegistryRoot "HKLM" `
-            -RegistryKey "Software\sywyar\PixivDownload\Components"
-
-        foreach ($variant in $MsiVariants) {
-            $variantConfig = Get-MsiVariantConfig $variant
-
-            Write-Step "Compiling WiX sources ($variant)"
-            $candleArgs = @(
-                "-nologo",
-                "-arch", "x64",
-                "-ext", "WixUIExtension",
-                "-dVersion=$InstallerVersion",
-                "-dAppImageDir=$OnlineAppDir",
-                "-dIncludeFfmpeg=$($variantConfig.IncludeFfmpeg)",
-                "-out", "$WixDir\",
-                "packaging/windows/installer.wxs",
-                (Join-Path $WixDir "AppFiles.wxs")
-            )
-            if ($variantConfig.RequiresPayload) {
-                $candleArgs += @(
-                    "-dFfmpegExe=$FfmpegExe",
-                    "-dFfprobeExe=$FfprobeExe",
-                    "-dFfmpegLicense=$FfmpegLicense"
-                )
-            }
-            Invoke-External "candle.exe" $candleArgs
-
-            foreach ($culture in $MsiCultures) {
-                $cultureConfig = Get-MsiCultureConfig $culture
-                $msiPath = Join-Path $OutDir "$AppName-$Version-win-x64-$culture-$variant.msi"
-
-                Write-Step "Linking MSI ($culture, $variant)"
-                Invoke-External "light.exe" @(
-                    "-nologo",
-                    "-ext", "WixUIExtension",
-                    "-cultures:$culture",
-                    "-loc", $cultureConfig.WxlPath,
-                    "-dWixUILicenseRtf=$($cultureConfig.LicenseRtfPath)",
-                    "-sice:ICE61",
-                    "-sice:ICE64",
-                    "-sice:ICE91",
-                    "-out", $msiPath,
-                    (Join-Path $WixDir "installer.wixobj"),
-                    (Join-Path $WixDir "AppFiles.wixobj")
-                )
-
-                $BuiltMsiArtifacts += [pscustomobject]@{
-                    Culture = $culture
-                    Variant = $variant
-                    Path = $msiPath
-                }
-            }
-        }
     }
 
     Write-Step "Done"
-    Write-Host "Online portable : $OnlineZipPath"
+    if (-not $SkipPortable) {
+        Write-Host "Online portable: $OnlineZipPath"
+    }
     if (-not $SkipOfflinePortable) {
         Write-Host "Offline portable: $OfflineZipPath"
     }
-    if (-not $SkipMsi) {
-        foreach ($artifact in $BuiltMsiArtifacts) {
-            Write-Host ("MSI ({0}, {1}) : {2}" -f $artifact.Culture, $artifact.Variant, $artifact.Path)
-        }
+    if (-not $SkipInstaller) {
+        Write-Host "Windows setup : $SetupPath"
     }
-    Write-Host "Online app dir : $OnlineAppDir"
+    Write-Host "App dir       : $OnlineAppDir"
+    if ($MsiCultures -or $MsiVariants) {
+        Write-Host "Note: MSI options are retained for compatibility and are ignored by the Inno Setup flow."
+    }
 } finally {
     Pop-Location
 }

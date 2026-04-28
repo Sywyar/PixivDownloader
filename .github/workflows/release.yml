@@ -57,11 +57,18 @@ jobs:
           name: jar
           path: target/PixivDownload-*.jar
 
+      - name: Stage release userscripts
+        shell: bash
+        run: |
+          mkdir -p build/release-userscripts
+          cp "build/generated-userscripts/Pixiv All-in-One.user.js" build/release-userscripts/
+          cp "Pixiv 单作品图片下载器(Local download).user.js" build/release-userscripts/
+
       - name: Upload userscript artifact
         uses: actions/upload-artifact@v4
         with:
           name: userscripts
-          path: build/generated-userscripts/*.user.js
+          path: build/release-userscripts/*.user.js
 
   build-windows-installer:
     needs: build-jar
@@ -81,6 +88,10 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+
+      - name: Set up Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
 
       - name: Resolve version
         id: vars
@@ -115,7 +126,7 @@ jobs:
             --compress=2 \
             --output build/runtime
 
-      - name: Build online app-image
+      - name: Build app-image
         shell: bash
         run: |
           jpackage \
@@ -170,104 +181,53 @@ jobs:
           Compress-Archive -Path build/app-image-online/PixivDownload -DestinationPath "build/out/PixivDownload-${{ steps.vars.outputs.version }}-win-x64-online-portable.zip"
           Compress-Archive -Path build/app-image-full/PixivDownload -DestinationPath "build/out/PixivDownload-${{ steps.vars.outputs.version }}-win-x64-portable.zip"
 
-      - name: Verify WiX toolset
+      - name: Build Windows setup
         shell: pwsh
         run: |
-          foreach ($tool in @("heat.exe", "candle.exe", "light.exe")) {
-            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
-              throw "Missing required WiX tool: $tool"
-            }
-          }
-
-      - name: Harvest app-image for WiX
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force build/wix | Out-Null
-          heat.exe dir "build/app-image-online/PixivDownload" `
-            -cg AppFiles `
-            -dr INSTALLFOLDER `
-            -platform x64 `
-            -srd `
-            -sfrag `
-            -gg `
-            -var var.AppImageDir `
-            -out "build/wix/AppFiles.wxs"
-          ./scripts/fix-wix-per-user-keypaths.ps1 `
-            -Path "build/wix/AppFiles.wxs" `
-            -RegistryRoot "HKLM" `
-            -RegistryKey "Software\sywyar\PixivDownload\Components"
-
-      - name: Build localized MSI variants
-        shell: pwsh
-        run: |
-          $cultures = @(
-            @{
-              Culture = 'zh-CN'
-              Wxl = 'packaging/windows/installer.zh-CN.wxl'
-              License = 'packaging/windows/license.zh-CN.rtf'
-            },
-            @{
-              Culture = 'en-US'
-              Wxl = 'packaging/windows/installer.en-US.wxl'
-              License = 'packaging/windows/license.en-US.rtf'
-            }
-          )
-          $variants = @(
-            @{
-              Name = 'with-ffmpeg'
-              IncludeFfmpeg = 'yes'
-              RequiresPayload = $true
-            },
-            @{
-              Name = 'no-ffmpeg'
-              IncludeFfmpeg = 'no'
-              RequiresPayload = $false
-            }
-          )
-
-          foreach ($variant in $variants) {
-            $candleArgs = @(
-              '-nologo'
-              '-arch', 'x64'
-              '-ext', 'WixUIExtension'
-              '-dVersion=${{ steps.vars.outputs.version }}'
-              '-dAppImageDir=build/app-image-online/PixivDownload'
-              "-dIncludeFfmpeg=$($variant.IncludeFfmpeg)"
-              '-out', 'build/wix/'
-              'packaging/windows/installer.wxs'
-              'build/wix/AppFiles.wxs'
-            )
-            if ($variant.RequiresPayload) {
-              $candleArgs += @(
-                '-dFfmpegExe=build/ffmpeg/ffmpeg.exe'
-                '-dFfprobeExe=build/ffmpeg/ffprobe.exe'
-                '-dFfmpegLicense=build/ffmpeg/ffmpeg-LGPL.txt'
-              )
-            }
-            & candle.exe @candleArgs
-            if ($LASTEXITCODE -ne 0) {
-              throw "candle.exe failed for $($variant.Name) with exit code $LASTEXITCODE"
+          function Get-InnoSetupCompiler {
+            $command = Get-Command "iscc.exe" -ErrorAction SilentlyContinue
+            if ($command) {
+              return $command.Source
             }
 
-            foreach ($culture in $cultures) {
-              $lightArgs = @(
-                '-nologo'
-                '-ext', 'WixUIExtension'
-                "-cultures:$($culture.Culture)"
-                '-loc', $culture.Wxl
-                "-dWixUILicenseRtf=$($culture.License)"
-                '-sice:ICE61'
-                '-sice:ICE64'
-                '-sice:ICE91'
-                '-out', "build/out/PixivDownload-${{ steps.vars.outputs.version }}-win-x64-$($culture.Culture)-$($variant.Name).msi"
-                'build/wix/installer.wixobj'
-                'build/wix/AppFiles.wixobj'
-              )
-              & light.exe @lightArgs
-              if ($LASTEXITCODE -ne 0) {
-                throw "light.exe failed for $($culture.Culture) / $($variant.Name) with exit code $LASTEXITCODE"
+            $candidates = @()
+            $programFilesX86 = ${env:ProgramFiles(x86)}
+            if (-not [string]::IsNullOrWhiteSpace($programFilesX86)) {
+              $candidates += Join-Path $programFilesX86 "Inno Setup 6\ISCC.exe"
+            }
+            if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+              $candidates += Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"
+            }
+
+            foreach ($candidate in $candidates) {
+              if (Test-Path $candidate) {
+                return $candidate
               }
             }
+
+            throw "Missing required command: iscc.exe"
+          }
+
+          $version = '${{ steps.vars.outputs.version }}'
+          $installerVersion = [regex]::Match($version, '\d+(?:\.\d+){0,2}').Value
+          if ([string]::IsNullOrWhiteSpace($installerVersion)) {
+            throw "Could not derive installer version from '$version'"
+          }
+
+          $iscc = Get-InnoSetupCompiler
+          $iscc = ./scripts/prepare-inno-admin-loader.ps1 `
+            -CompilerPath $iscc `
+            -OutputDirectory "build/inno-admin-loader"
+          $appImageDir = (Resolve-Path "build/app-image-online/PixivDownload").Path
+          $outputDir = (Resolve-Path "build/out").Path
+          & $iscc `
+            "/DAppVersion=$version" `
+            "/DInstallerVersion=$installerVersion" `
+            "/DAppImageDir=$appImageDir" `
+            "/DOutputDir=$outputDir" `
+            "packaging/windows/inno/PixivDownload.iss"
+          if ($LASTEXITCODE -ne 0) {
+            throw "ISCC failed with exit code $LASTEXITCODE"
           }
 
       - name: Upload Windows artifacts
@@ -275,7 +235,7 @@ jobs:
         with:
           name: windows-installer
           path: |
-            build/out/*.msi
+            build/out/*-setup.exe
             build/out/*-portable.zip
 
   release:
@@ -307,60 +267,75 @@ jobs:
           name: userscripts
           path: artifacts/userscripts
 
+      - name: Build release notes
+        shell: bash
+        run: |
+          awk '
+            BEGIN {
+              version_header = "[" ENVIRON["GITHUB_REF_NAME"] "]"
+            }
+            /^## \[/ {
+              if (found) {
+                exit
+              }
+              if (index($0, version_header) > 0) {
+                found = 1
+                next
+              }
+            }
+            found {
+              print
+            }
+          ' CHANGELOG.md > RELEASE_BODY.md
+
+          if [ ! -s RELEASE_BODY.md ]; then
+            echo "No changelog entry found for ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
+          cat >> RELEASE_BODY.md <<'EOF'
+
+          ## 使用说明
+
+          ### Windows 安装器
+          下载 `PixivDownload-*-win-x64-setup.exe` 并运行。安装器支持语言选择，并在“可选安装任务”页提供“下载并安装 FFmpeg”选项。
+
+          FFmpeg 不再内置到安装包中；勾选该选项后，安装器会在主程序安装完成后联网下载 FFmpeg，并显示独立下载/解压进度。未勾选或下载失败时，普通图片下载不受影响，后续也可以在 GUI 的“状态”页点击“下载 FFmpeg”重试。
+
+          ### Windows 在线便携版
+          下载 `PixivDownload-*-win-x64-online-portable.zip`，解压后运行 `PixivDownload/PixivDownload.exe`。便携版内置精简 JRE，但不内置 FFmpeg。
+
+          ### Windows 完整便携版
+          下载 `PixivDownload-*-win-x64-portable.zip`，解压后运行 `PixivDownload/PixivDownload.exe`。该版本内置精简 JRE、FFmpeg 和 ffprobe，适合未安装 FFmpeg 或需要离线使用的环境。
+
+          ### JAR 包（跨平台）
+
+          需要已安装 Java 17+，通过命令行运行：
+
+          ```
+          java -jar PixivDownload-${{ github.ref_name }}.jar
+          ```
+
+          ### 网页端一站式下载
+
+          启动后访问 `http://localhost:6999/pixiv-batch.html`，无需安装油猴脚本即可完成大部分批量下载操作。
+          访问 `http://localhost:6999/monitor.html` 查看下载进度和历史记录。
+
+          ### 油猴脚本
+
+          如仍需使用油猴脚本，登录后打开 `http://localhost:6999/pixiv-batch.html`，点击页面顶部的“油猴脚本”卡片并安装对应脚本。部署在非 localhost 服务器时，`@connect` 会自动替换为实际地址。
+
+          Release 附件只提供 `Pixiv All-in-One.user.js` 和 `Pixiv 单作品图片下载器(Local download).user.js`。All-in-One 已整合页面批量下载、User 批量下载、URL 批量导入和单作品下载（Java 后端版）；如需这些功能的独立脚本，可通过 `pixiv-batch.html` 的“油猴脚本”卡片安装，或在 GitHub 代码区下载对应 `.user.js` 源文件。
+
+          ## 详细说明请查看 README
+          EOF
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/PixivDownload-${{ github.ref_name }}.jar
-            artifacts/*.msi
+            artifacts/*-setup.exe
             artifacts/*-portable.zip
             artifacts/userscripts/*.user.js
-            *.user.js
-          generate_release_notes: true
-          body: |
-            ## 使用说明
-
-            ### Windows 在线便携版
-
-            下载 `PixivDownload-*-win-x64-online-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`。
-            该版本体积最小，已内置精简 JRE。如果系统已经安装 FFmpeg，下载这个版本即可；普通图片下载也可以直接使用。若系统里没有 FFmpeg 且需要 Ugoira 动图转 WebP，请在 GUI 的“状态”页点击“下载 FFmpeg”。
-
-            ### Windows 离线便携版
-
-            下载 `PixivDownload-*-win-x64-portable.zip`，解压后直接运行 `PixivDownload/PixivDownload.exe`。
-            该版本已内置精简 JRE 和 FFmpeg，开箱即用，适合未安装 FFmpeg 或离线环境。
-
-            ### Windows MSI 安装包
-
-            当前发布包含以下 4 种 MSI：
-            - `PixivDownload-*-win-x64-zh-CN-with-ffmpeg.msi`
-            - `PixivDownload-*-win-x64-zh-CN-no-ffmpeg.msi`
-            - `PixivDownload-*-win-x64-en-US-with-ffmpeg.msi`
-            - `PixivDownload-*-win-x64-en-US-no-ffmpeg.msi`
-
-            选择规则：
-            - `zh-CN` / `en-US` 表示安装器界面语言
-            - `with-ffmpeg` 表示安装包内置 FFmpeg，开箱即用，但体积更大
-            - `no-ffmpeg` 表示安装包不内置 FFmpeg，体积更小，适合系统已安装 FFmpeg 或不需要 Ugoira 转 WebP 的场景
-            - MSI 安装向导不提供安装时切换语言，也不再提供 FFmpeg 组件勾选页，请在下载时直接选好版本
-
-            ### JAR 包（跨平台）
-
-            需要已安装 Java 17+，通过命令行运行：
-
-            ```
-            java -jar PixivDownload-${{ github.ref_name }}.jar
-            ```
-
-            ### 网页端一站式下载
-
-            启动后访问 `http://localhost:6999/pixiv-batch.html`，无需安装油猴脚本即可完成大部分批量下载操作。
-            访问 `http://localhost:6999/monitor.html` 查看下载进度和历史记录。
-
-            ### 油猴脚本
-
-            如仍需使用油猴脚本，登录后打开 `http://localhost:6999/pixiv-batch.html`，点击页面顶部的“油猴脚本”卡片并安装对应脚本。部署在非 localhost 服务器时，`@connect` 会自动替换为实际地址。
-            如果只想安装一个脚本，优先选择 `Pixiv All-in-One.user.js`。它整合了页面批量下载、User 批量下载、URL 批量导入和单作品下载（Java 后端版），`Local download` 仍保持独立脚本。
-            如果多合一脚本遇到问题，请先尝试对应的独立脚本；如果独立版本正常、只有多合一异常，请附带复现步骤和环境信息提交 issue。
-
-            ## 详细说明请查看 README
+          body_path: RELEASE_BODY.md

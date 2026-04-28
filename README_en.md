@@ -88,19 +88,17 @@ PixivDownload is a local Pixiv batch image downloader that supports multiple dow
 
 Download the latest version from [Releases](../../releases):
 
-| Type                                                | Description                                                                                                                                                                            |
-|-----------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `PixivDownload-vX.X.X.jar`                          | Universal JAR, requires Java 17+                                                                                                                                                       |
-| `PixivDownload-*-win-x64-online-portable.zip`       | Windows online portable build with the smallest size; if FFmpeg is already installed on the system, this version is usually enough                                                     |
-| `PixivDownload-*-win-x64-portable.zip`              | Windows offline portable build with bundled slim JRE and FFmpeg, suitable for offline use or systems without FFmpeg                                                                    |
-| `PixivDownload-*-win-x64-<culture>-with-ffmpeg.msi` | Windows installer, currently available in `zh-CN` / `en-US`; bundles FFmpeg and works out of the box, but is larger                                                                    |
-| `PixivDownload-*-win-x64-<culture>-no-ffmpeg.msi`   | Windows installer, currently available in `zh-CN` / `en-US`; does not bundle FFmpeg, so it is smaller and suitable when FFmpeg is already installed or Ugoira conversion is not needed |
+| Type                                          | Description                                                                                                                                 |
+|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| `PixivDownload-vX.X.X.jar`                    | Universal JAR, requires Java 17+                                                                                                            |
+| `PixivDownload-*-win-x64-online-portable.zip` | Windows online portable build with the smallest size; if FFmpeg is already installed on the system, this version is usually enough          |
+| `PixivDownload-*-win-x64-portable.zip`        | Windows offline portable build with bundled slim JRE and FFmpeg, suitable for offline use or systems without FFmpeg                         |
+| `PixivDownload-*-win-x64-setup.exe`           | Windows installer; one setup supports multiple languages, does not bundle FFmpeg, and can optionally download FFmpeg after app installation |
 
-> Windows MSI packages are now split into fixed variants, so choose the package you want before downloading:
-> - `zh-CN` / `en-US`: installer UI language
-> - `with-ffmpeg`: FFmpeg is bundled for an out-of-the-box setup
-> - `no-ffmpeg`: FFmpeg is not bundled; suitable when FFmpeg is already installed or when you only download regular images
-> - The MSI installer no longer offers language switching during setup and no longer provides an FFmpeg component selection page
+> Windows installers now use a single Inno Setup `setup.exe`:
+> - the installer supports multiple UI languages
+> - FFmpeg is not bundled; setup can optionally download and install it after PixivDownload is installed
+> - running setup again on an installed system opens maintenance actions for repair, change, and uninstall
 
 ### 2. Install Userscripts (Optional)
 
@@ -110,9 +108,9 @@ On `pixiv-batch.html`, expand the userscript card at the top of the page and cli
 > [!WARNING]
 > Due to Tampermonkey restrictions, scripts installed this way will stop working when the backend URL changes.
 
-**Method 2: Download manually from Releases**
+**Method 2: Download manually from Releases or the GitHub code view**
 
-Download the scripts from [Releases](../../releases), then drag them into the Tampermonkey dashboard to install:
+Download the scripts from [Releases](../../releases), then drag them into the Tampermonkey dashboard to install. Release assets only keep `Pixiv All-in-One.user.js` and `Pixiv 单作品图片下载器(Local download).user.js`; standalone scripts covered by All-in-One are no longer attached to Releases. If you need one of those standalone scripts, install it from the userscript card on `pixiv-batch.html`, or download the matching `.user.js` source file from the GitHub code view.
 
 <details>
 <summary><strong>This extra step is required when installing userscripts from downloaded release files (expand)</strong></summary>
@@ -125,16 +123,24 @@ Download the scripts from [Releases](../../releases), then drag them into the Ta
 
 </details>
 
+Scripts attached to Releases:
+
 | Script File                              | Recommended Use                                                                                                                  |
 |------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
 | `Pixiv All-in-One.user.js`               | Recommended. Combines page batch download, user batch download, URL bulk import, and single-artwork download (Java backend mode) |
-| `Pixiv 单作品图片下载器(Java后端版).user.js`        | Single artwork page download                                                                                                     |
 | `Pixiv 单作品图片下载器(Local download).user.js` | Single artwork page download (browser local download, no Java backend required)                                                  |
-| `Pixiv User 批量下载器.user.js`               | Batch download from a user homepage                                                                                              |
-| `Pixiv URL 批量导入作品下载器.user.js`            | Bulk artwork import, compatible with export formats from OneTab, N-Tab, and similar tab manager extensions                       |
-| `Pixiv 页面批量下载器.user.js`                  | Page DOM scraping across Pixiv                                                                                                   |
 
-> **If the all-in-one script has issues, try the matching standalone script first, then include reproduction steps and environment details when opening an issue.**
+> **When you need a standalone script covered by All-in-One**: start the app and install it from `pixiv-batch.html`, or download the matching `.user.js` source file from the GitHub code view.
+
+Standalone script reference:
+
+| Script File                              | What It Does                                                                              | Where to Get It                            |
+|------------------------------------------|-------------------------------------------------------------------------------------------|--------------------------------------------|
+| `Pixiv 单作品图片下载器(Java后端版).user.js`        | Downloads from a single artwork page through the Java backend                             | `pixiv-batch.html` / GitHub code view      |
+| `Pixiv 单作品图片下载器(Local download).user.js` | Downloads from a single artwork page in the browser, without the Java backend             | Releases / `pixiv-batch.html` / GitHub code view |
+| `Pixiv User 批量下载器.user.js`               | Batch downloads artworks from a user homepage                                             | `pixiv-batch.html` / GitHub code view      |
+| `Pixiv URL 批量导入作品下载器.user.js`            | Imports artwork URLs in bulk, compatible with exports from OneTab, N-Tab, and similar tools | `pixiv-batch.html` / GitHub code view      |
+| `Pixiv 页面批量下载器.user.js`                  | Scrapes Pixiv pages from the DOM and supports broad Pixiv page capture                    | `pixiv-batch.html` / GitHub code view      |
 
 > **The web interface is recommended first**: `pixiv-batch.html` supports Bulk Artwork Import, User mode, and Search mode without requiring any userscript for batch downloading.
 
@@ -210,11 +216,11 @@ The author column in the history list supports:
 
 Open the `Tools` tab in the desktop GUI to use the following tools directly:
 
-| Tool                               | Description                                                                                                                                                                                                                                                             |
-|------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Image Classification Tool          | Opens a standalone image classification window for organizing downloaded images; launching it does not proactively stop the backend                                                                                                                                     |
-| Database Directory Validation Tool | Checks whether directory paths stored in the database are still accessible; the backend is automatically stopped before launch and restored after the window closes                                                                                                     |
-| Database Backfill Tool             | Fills missing data from version updates in one run; supports database path, proxy, request delay, row limit, dry-run mode, and direct opening of the HTML log page                                                                                                        |
+| Tool                               | Description                                                                                                                                                         |
+|------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Image Classification Tool          | Opens a standalone image classification window for organizing downloaded images; launching it does not proactively stop the backend                                 |
+| Database Directory Validation Tool | Checks whether directory paths stored in the database are still accessible; the backend is automatically stopped before launch and restored after the window closes |
+| Database Backfill Tool             | Fills missing data from version updates in one run; supports database path, proxy, request delay, row limit, dry-run mode, and direct opening of the HTML log page  |
 
 > [!IMPORTANT]
 > The Database Directory Validation Tool and Database Backfill Tool require exclusive SQLite access. The GUI handles backend stop/resume automatically, so you no longer need to stop the service manually and run commands yourself.
@@ -266,10 +272,8 @@ git checkout -b feat/your-change upstream/<default-branch>
 
 - JDK 17 (`pom.xml` currently targets Java 17, and Windows packaging also uses `jlink` and `jpackage`)
 - Maven 3.9+, or the bundled `mvnw` / `mvnw.cmd`
-- PowerShell for Windows packaging; before building MSI packages you also need to install WiX Toolset and make sure `heat.exe`, `candle.exe`, and `light.exe` are available. The current `scripts/package-local.ps1` script calls these classic WiX command-line tools directly, so install a WiX Toolset distribution that includes them.
-- Official WiX Toolset overview/docs: https://docs.firegiant.com/wix/
-- WiX Toolset v3 releases (installer and binary packages that include the tools above): https://github.com/wixtoolset/wix3/releases
-- `curl.exe` if you build the offline portable package or a `with-ffmpeg` MSI, because the packaging script downloads or reuses the FFmpeg payload under `build/ffmpeg`
+- PowerShell for Windows packaging; before building the installer, install Inno Setup 6 and make sure `ISCC.exe` is available. Download it from https://jrsoftware.org/isdl.php
+- `scripts/package-local.ps1` first checks the default `Inno Setup 6\ISCC.exe` install path, then falls back to `PATH`.
 
 ### 3. Daily development and local verification
 
@@ -311,15 +315,15 @@ JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8' ./mvnw test
 
 If the change touches `*.user.js`, static resource assembly, or the script install flow, also run `package` once and verify the userscript list and install links on `http://localhost:6999/pixiv-batch.html`.
 
-### 4. Build Windows portable packages / EXE / MSI
+### 4. Build Windows portable packages / EXE / installer
 
-Use [`scripts/package-local.ps1`](./scripts/package-local.ps1) for local packaging. The script first generates `Pixiv All-in-One.user.js`, then runs Maven `package`, builds a trimmed runtime with `jlink`, creates an app-image with `jpackage` (including `PixivDownload.exe`), and then produces the online portable package, offline portable package, and MSI variants based on the flags you pass.
+Use [`scripts/package-local.ps1`](./scripts/package-local.ps1) for local packaging. The script first generates `Pixiv All-in-One.user.js`, then runs Maven `package`, builds a trimmed runtime with `jlink`, creates an app-image with `jpackage` (including `PixivDownload.exe`), and then produces the online portable package, the FFmpeg-bundled offline portable package, and the Inno Setup installer based on the flags you pass.
 
 ```powershell
 $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 
-# Build portable output only (includes PixivDownload.exe), skip MSI
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipMsi
+# Build portable output only (includes PixivDownload.exe), skip installer
+powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipInstaller
 
 # Build the full Windows artifact set
 powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local
@@ -330,13 +334,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.
 
 Useful options:
 
-- `-SkipOfflinePortable`: skip the offline portable package
-- `-SkipMsi`: skip MSI generation and keep only portable outputs
-- `-MsiCultures zh-CN,en-US`: choose MSI UI languages
-- `-MsiVariants with-ffmpeg,no-ffmpeg`: choose MSI variants
-- `-RedownloadFfmpeg`: force a fresh FFmpeg download
+- `-SkipPortable`: skip the online portable package
+- `-SkipOfflinePortable`: skip the FFmpeg-bundled offline portable package
+- `-SkipInstaller`: skip Inno Setup installer generation and keep only portable outputs (`-SkipMsi` remains available as a compatibility alias)
+- `-RedownloadFfmpeg`: download a fresh FFmpeg payload for the offline portable package
+- `-MsiCultures` and `-MsiVariants`: retained for compatibility; the current Inno Setup packaging flow ignores these options
 
-Artifacts are written to `build/out/` by default. MSI generation requires a working WiX Toolset installation (`heat.exe`, `candle.exe`, `light.exe`). Offline portable packages and `with-ffmpeg` MSI variants also require the FFmpeg payload, which the script prepares automatically.
+Artifacts are written to `build/out/` by default. Offline portable generation downloads or reuses the FFmpeg payload under `build/ffmpeg`; installer generation requires a working Inno Setup 6 installation (`ISCC.exe`).
 
 ### 5. Commit and open a PR
 
