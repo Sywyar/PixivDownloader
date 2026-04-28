@@ -1237,6 +1237,12 @@
             border-color: var(--brand);
         }
 
+        .form-input:disabled {
+            background: #f7f7f7;
+            color: var(--text-secondary);
+            cursor: default;
+        }
+
         .form-hint {
             font-size: 11px;
             color: var(--muted);
@@ -2143,6 +2149,13 @@
                     <div class="form-hint" data-i18n="form.download-root.hint">
                         相对目录会保存到 download.root-folder 下；检测到绝对目录时会直接使用该目录。
                     </div>
+                    <div class="form-field" style="margin-top:10px; margin-bottom:0">
+                        <label class="form-label" data-i18n="form.download-root.final">最终目录</label>
+                        <input class="form-input" id="collectionDownloadRootPreview" disabled>
+                        <div class="form-hint" data-i18n="form.download-root.module-hint">
+                            模块变量：{collection_name} 会在下载时替换为收藏夹名称，名称中的路径分隔符等不安全字符会替换为 _。
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2843,9 +2856,8 @@
         syncCollectionFormTitle();
         document.getElementById('collectionFormName').value = collection ? collection.name : '';
         document.getElementById('collectionDownloadRootEnabled').checked = !!(collection && collection.downloadRoot);
-        document.getElementById('collectionDownloadRoot').value = collection && collection.downloadRoot
-            ? collection.downloadRoot
-            : defaultCollectionDownloadRoot();
+        const existingDownloadRoot = collection && collection.downloadRoot ? collection.downloadRoot : '';
+        document.getElementById('collectionDownloadRoot').value = existingDownloadRoot || defaultCollectionDownloadRoot();
         syncCollectionDownloadRootControls();
         updateFormIconPreview(collection);
         document.getElementById('modalCollectionForm').classList.add('open');
@@ -2860,6 +2872,7 @@
         document.getElementById('collectionFormIconFile').value = '';
         document.getElementById('collectionDownloadRootEnabled').checked = false;
         document.getElementById('collectionDownloadRoot').value = '';
+        document.getElementById('collectionDownloadRootPreview').value = '';
         syncCollectionDownloadRootControls();
     }
 
@@ -2874,6 +2887,43 @@
             input.value = defaultCollectionDownloadRoot();
         }
         document.getElementById('collectionDownloadRootSettings').classList.toggle('visible', enabled);
+        renderCollectionDownloadRootPreview();
+    }
+
+    function renderCollectionDownloadRootPreview() {
+        const preview = document.getElementById('collectionDownloadRootPreview');
+        const inputValue = document.getElementById('collectionDownloadRoot').value.trim();
+        if (!document.getElementById('collectionDownloadRootEnabled').checked || !inputValue) {
+            preview.value = '';
+            return;
+        }
+        const expanded = expandCollectionDownloadRoot(inputValue);
+        preview.value = isAbsoluteCollectionDownloadRoot(expanded)
+            ? expanded
+            : joinPreviewPath('{download.root-folder}', stripLeadingPathSeparators(expanded));
+    }
+
+    function expandCollectionDownloadRoot(value) {
+        return value.replaceAll('{collection_name}', safeCollectionNamePathSegment());
+    }
+
+    function safeCollectionNamePathSegment() {
+        const raw = document.getElementById('collectionFormName').value.trim();
+        if (!raw) return '{collection_name}';
+        const sanitized = Array.from(raw, ch => /[\/\\:*?"<>|\x00-\x1F\x7F]/.test(ch) ? '_' : ch).join('').trim();
+        return sanitized && sanitized !== '.' && sanitized !== '..' ? sanitized : '{collection_name}';
+    }
+
+    function isAbsoluteCollectionDownloadRoot(value) {
+        return /^[A-Za-z]:[\\/]/.test(value) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(value);
+    }
+
+    function stripLeadingPathSeparators(value) {
+        return value.replace(/^[\\/]+/, '');
+    }
+
+    function joinPreviewPath(root, relativePath) {
+        return relativePath ? `${root}/${relativePath}` : root;
     }
 
     function readCollectionDownloadRoot() {
@@ -2922,6 +2972,14 @@
         state.pendingIconClear = true;
         document.getElementById('collectionFormIconFile').value = '';
         updateFormIconPreview(state.editingCollection);
+    });
+
+    document.getElementById('collectionFormName').addEventListener('input', () => {
+        renderCollectionDownloadRootPreview();
+    });
+
+    document.getElementById('collectionDownloadRoot').addEventListener('input', () => {
+        renderCollectionDownloadRootPreview();
     });
 
     document.getElementById('collectionDownloadRootEnabled').addEventListener('change', () => {
