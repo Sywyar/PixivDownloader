@@ -254,10 +254,12 @@ try {
         Write-Step "Building offline app-image"
         Ensure-Directory $OfflineAppImageRoot
         Copy-Item $OnlineAppDir $OfflineAppImageRoot -Recurse -Force
-        Copy-Item $FfmpegExe $OfflineAppDir -Force
-        Copy-Item $FfprobeExe $OfflineAppDir -Force
-        Ensure-Directory (Join-Path $OfflineAppDir "licenses")
-        Copy-Item $FfmpegLicense (Join-Path $OfflineAppDir "licenses") -Force
+        $offlineFfmpegDir = Join-Path $OfflineAppDir "tools\ffmpeg"
+        $offlineFfmpegLicenseDir = Join-Path $offlineFfmpegDir "licenses"
+        Ensure-Directory $offlineFfmpegLicenseDir
+        Copy-Item $FfmpegExe $offlineFfmpegDir -Force
+        Copy-Item $FfprobeExe $offlineFfmpegDir -Force
+        Copy-Item $FfmpegLicense $offlineFfmpegLicenseDir -Force
 
         Write-Step "Packaging offline portable zip"
         Compress-Archive -Path $OfflineAppDir -DestinationPath $OfflineZipPath -Force

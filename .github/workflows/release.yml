@@ -169,10 +169,10 @@ jobs:
         run: |
           mkdir -p build/app-image-full
           cp -R build/app-image-online/PixivDownload build/app-image-full/
-          cp build/ffmpeg/ffmpeg.exe build/app-image-full/PixivDownload/
-          cp build/ffmpeg/ffprobe.exe build/app-image-full/PixivDownload/
-          mkdir -p build/app-image-full/PixivDownload/licenses
-          cp build/ffmpeg/ffmpeg-LGPL.txt build/app-image-full/PixivDownload/licenses/
+          mkdir -p build/app-image-full/PixivDownload/tools/ffmpeg/licenses
+          cp build/ffmpeg/ffmpeg.exe build/app-image-full/PixivDownload/tools/ffmpeg/
+          cp build/ffmpeg/ffprobe.exe build/app-image-full/PixivDownload/tools/ffmpeg/
+          cp build/ffmpeg/ffmpeg-LGPL.txt build/app-image-full/PixivDownload/tools/ffmpeg/licenses/
 
       - name: Package portable zip files
         shell: pwsh
