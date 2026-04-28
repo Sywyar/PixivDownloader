@@ -102,6 +102,14 @@ public class MainFrame extends JFrame {
         return statusPanel.getMonitorUrl();
     }
 
+    public String getBatchUrl() {
+        return statusPanel.getBatchUrl();
+    }
+
+    public String getGalleryUrl() {
+        return statusPanel.getGalleryUrl();
+    }
+
     public void showWindow() {
         if (!isVisible()) {
             setVisible(true);

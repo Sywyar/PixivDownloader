@@ -39,6 +39,9 @@ import java.util.concurrent.ExecutionException;
 public class StatusPanel extends JPanel {
 
     private static final int POLL_INTERVAL_MS = 3000;
+    private static final String BATCH_PAGE = "/pixiv-batch.html";
+    private static final String MONITOR_PAGE = "/monitor.html";
+    private static final String GALLERY_PAGE = "/pixiv-gallery.html";
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final SSLContext TRUST_ALL_SSL = buildTrustAllSslContext();
 
@@ -209,8 +212,9 @@ public class StatusPanel extends JPanel {
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         buttons.setOpaque(false);
 
-        JButton openMonitor = new JButton(message("gui.action.open-web-console"));
-        openMonitor.addActionListener(e -> openMonitor());
+        JButton openBatch = webButton("gui.action.open-batch", BATCH_PAGE);
+        JButton openMonitor = webButton("gui.action.open-monitor", MONITOR_PAGE);
+        JButton openGallery = webButton("gui.action.open-gallery", GALLERY_PAGE);
 
         JButton openFolder = new JButton(message("gui.action.open-download-directory"));
         openFolder.addActionListener(e -> openDownloadFolder());
@@ -218,10 +222,18 @@ public class StatusPanel extends JPanel {
         JButton restart = new JButton(message("gui.action.restart-service"));
         restart.addActionListener(e -> restartService());
 
+        buttons.add(openBatch);
         buttons.add(openMonitor);
+        buttons.add(openGallery);
         buttons.add(openFolder);
         buttons.add(restart);
         return buttons;
+    }
+
+    private JButton webButton(String messageCode, String path) {
+        JButton button = new JButton(message(messageCode));
+        button.addActionListener(e -> openWebPage(path));
+        return button;
     }
 
     private JComponent buildLanguageSelector() {
@@ -646,9 +658,9 @@ public class StatusPanel extends JPanel {
         return (value == null || value.isBlank()) ? fallback : value;
     }
 
-    private void openMonitor() {
+    private void openWebPage(String path) {
         try {
-            Desktop.getDesktop().browse(new URI(serverScheme + "://" + serverDomain + ":" + serverPort + "/monitor.html"));
+            Desktop.getDesktop().browse(new URI(getWebUrl(path)));
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this, message("gui.error.open-browser", e.getMessage()),
                     message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
@@ -720,8 +732,24 @@ public class StatusPanel extends JPanel {
         worker.start();
     }
 
+    public String getWebUrl(String path) {
+        String normalizedPath = path == null || path.isBlank() ? "/" : path;
+        if (!normalizedPath.startsWith("/")) {
+            normalizedPath = "/" + normalizedPath;
+        }
+        return serverScheme + "://" + serverDomain + ":" + serverPort + normalizedPath;
+    }
+
+    public String getBatchUrl() {
+        return getWebUrl(BATCH_PAGE);
+    }
+
     public String getMonitorUrl() {
-        return serverScheme + "://" + serverDomain + ":" + serverPort + "/monitor.html";
+        return getWebUrl(MONITOR_PAGE);
+    }
+
+    public String getGalleryUrl() {
+        return getWebUrl(GALLERY_PAGE);
     }
 
     public void dispose() {

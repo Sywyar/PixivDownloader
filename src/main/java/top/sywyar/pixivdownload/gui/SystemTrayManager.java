@@ -119,10 +119,19 @@ public final class SystemTrayManager {
         showItem.addActionListener(e -> showFrame(frame));
         menu.add(showItem);
 
-        JMenuItem browserItem = new JMenuItem(message("gui.action.open-web-console"));
-        // 点击时才调用 frame.getMonitorUrl()，确保读到 Spring 启动后更新的 scheme/domain
-        browserItem.addActionListener(e -> openBrowser(frame.getMonitorUrl()));
-        menu.add(browserItem);
+        menu.addSeparator();
+
+        JMenuItem batchItem = new JMenuItem(message("gui.action.open-batch"));
+        batchItem.addActionListener(e -> openBrowser(frame.getBatchUrl()));
+        menu.add(batchItem);
+
+        JMenuItem monitorItem = new JMenuItem(message("gui.action.open-monitor"));
+        monitorItem.addActionListener(e -> openBrowser(frame.getMonitorUrl()));
+        menu.add(monitorItem);
+
+        JMenuItem galleryItem = new JMenuItem(message("gui.action.open-gallery"));
+        galleryItem.addActionListener(e -> openBrowser(frame.getGalleryUrl()));
+        menu.add(galleryItem);
 
         JMenuItem folderItem = new JMenuItem(message("gui.action.open-download-directory"));
         folderItem.addActionListener(e -> openFolder(rootFolder));
