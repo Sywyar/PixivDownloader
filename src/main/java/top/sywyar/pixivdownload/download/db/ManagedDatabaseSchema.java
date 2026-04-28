@@ -32,7 +32,7 @@ public final class ManagedDatabaseSchema {
                         column("author_id", "INTEGER", false, null, 0),
                         column("description", "TEXT", false, null, 0),
                         column("file_name", "INTEGER", true, "1", 0),
-                        column("file_names", "TEXT", false, null, 0),
+                        column("file_author_name_id", "INTEGER", false, null, 0),
                         column("moved", "INTEGER", false, "0", 0),
                         column("move_folder", "TEXT", false, null, 0),
                         column("move_time", "INTEGER", false, null, 0)
@@ -50,6 +50,17 @@ public final class ManagedDatabaseSchema {
                 ),
                 List.of(
                         uniqueConstraint("template")
+                )
+        ));
+
+        tables.put("file_author_names", new TableSpec(
+                "file_author_names",
+                List.of(
+                        column("id", "INTEGER", false, null, 1),
+                        column("name", "TEXT", true, null, 0)
+                ),
+                List.of(
+                        uniqueConstraint("name")
                 )
         ));
 

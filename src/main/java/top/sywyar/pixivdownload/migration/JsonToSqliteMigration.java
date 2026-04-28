@@ -278,7 +278,7 @@ public class JsonToSqliteMigration {
                         + "extensions TEXT,"
                         + "time INTEGER UNIQUE,"
                         + "file_name INTEGER NOT NULL DEFAULT 1,"
-                        + "file_names TEXT,"
+                        + "file_author_name_id INTEGER,"
                         + "moved INTEGER DEFAULT 0,"
                         + "move_folder TEXT,"
                         + "move_time INTEGER)")) {
@@ -294,6 +294,12 @@ public class JsonToSqliteMigration {
                 "INSERT OR IGNORE INTO file_name_templates(id, template) VALUES(1, ?)")) {
             defaultFileNameTemplate.setString(1, ArtworkFileNameFormatter.DEFAULT_TEMPLATE);
             defaultFileNameTemplate.executeUpdate();
+        }
+        try (PreparedStatement createFileAuthorNames = conn.prepareStatement(
+                "CREATE TABLE IF NOT EXISTS file_author_names ("
+                        + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                        + "name TEXT NOT NULL UNIQUE)")) {
+            createFileAuthorNames.executeUpdate();
         }
         try (PreparedStatement createStatistics = conn.prepareStatement(
                 "CREATE TABLE IF NOT EXISTS statistics ("

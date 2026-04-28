@@ -19,6 +19,7 @@ public class PixivDatabase {
 
     @PostConstruct
     public void init() {
+        pixivMapper.createFileAuthorNamesTable();
         pixivMapper.createFileNameTemplatesTable();
         pixivMapper.ensureDefaultFileNameTemplate(ArtworkFileNameFormatter.DEFAULT_TEMPLATE);
         pixivMapper.createArtworksTable();
@@ -33,7 +34,7 @@ public class PixivDatabase {
         try { pixivMapper.addAuthorIdColumn(); } catch (Exception ignored) {}
         try { pixivMapper.addDescriptionColumn(); } catch (Exception ignored) {}
         try { pixivMapper.addFileNameColumn(); } catch (Exception ignored) {}
-        try { pixivMapper.addFileNamesColumn(); } catch (Exception ignored) {}
+        try { pixivMapper.addFileAuthorNameIdColumn(); } catch (Exception ignored) {}
         log.info(messages.getForLog("download.db.log.initialized"));
     }
 
@@ -59,9 +60,9 @@ public class PixivDatabase {
 
     public void insertArtwork(long artworkId, String title, String folder, int count,
                               String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
-                              String description, long fileName, String fileNames) {
+                              String description, long fileName, Long fileAuthorNameId) {
         pixivMapper.insertOrIgnore(artworkId, title, stripTrailingSlash(folder),
-                count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileNames);
+                count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId);
     }
 
     public void insertArtwork(long artworkId, String title, String folder, int count,
@@ -104,6 +105,26 @@ public class PixivDatabase {
     public String getFileNameTemplate(long id) {
         String template = pixivMapper.findFileNameTemplateById(id);
         return ArtworkFileNameFormatter.normalizeTemplate(template);
+    }
+
+    /**
+     * 驻留下载时的合规化作者名，返回 ID。优先复用已有记录，不存在时新建。
+     * {@code name} 必须已是 {@link ArtworkFileNameFormatter#sanitize sanitize} 后的值。
+     */
+    public long getOrCreateFileAuthorNameId(String name) {
+        if (name == null || name.isEmpty()) {
+            return 0L;
+        }
+        pixivMapper.insertFileAuthorNameIfAbsent(name);
+        Long id = pixivMapper.findFileAuthorNameId(name);
+        return id == null ? 0L : id;
+    }
+
+    /**
+     * 按 ID 查询合规化作者名。
+     */
+    public String getFileAuthorName(long id) {
+        return pixivMapper.findFileAuthorNameById(id);
     }
 
     private static String stripTrailingSlash(String path) {

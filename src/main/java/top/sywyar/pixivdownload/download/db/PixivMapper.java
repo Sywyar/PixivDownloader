@@ -8,7 +8,7 @@ import java.util.List;
 public interface PixivMapper {
 
     String SELECT_ARTWORK = "SELECT artwork_id, title, folder, count, extensions, time, moved,"
-            + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name, file_names FROM artworks";
+            + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name, file_author_name_id FROM artworks";
 
     // ── DDL ────────────────────────────────────────────────────────────────────
 
@@ -24,11 +24,16 @@ public interface PixivMapper {
             + "author_id INTEGER DEFAULT NULL,"
             + "description TEXT DEFAULT NULL,"
             + "file_name INTEGER NOT NULL DEFAULT 1,"
-            + "file_names TEXT,"
+            + "file_author_name_id INTEGER,"
             + "moved INTEGER DEFAULT 0,"
             + "move_folder TEXT,"
             + "move_time INTEGER)")
     void createArtworksTable();
+
+    @Update("CREATE TABLE IF NOT EXISTS file_author_names ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "name TEXT NOT NULL UNIQUE)")
+    void createFileAuthorNamesTable();
 
     @Update("CREATE TABLE IF NOT EXISTS file_name_templates ("
             + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -80,8 +85,8 @@ public interface PixivMapper {
     @Update("ALTER TABLE artworks ADD COLUMN file_name INTEGER NOT NULL DEFAULT 1")
     void addFileNameColumn();
 
-    @Update("ALTER TABLE artworks ADD COLUMN file_names TEXT")
-    void addFileNamesColumn();
+    @Update("ALTER TABLE artworks ADD COLUMN file_author_name_id INTEGER")
+    void addFileAuthorNameIdColumn();
 
     @Insert("INSERT OR IGNORE INTO file_name_templates(template) VALUES(#{template})")
     void insertFileNameTemplateIfAbsent(@Param("template") String template);
@@ -92,14 +97,25 @@ public interface PixivMapper {
     @Select("SELECT template FROM file_name_templates WHERE id = #{id}")
     String findFileNameTemplateById(@Param("id") long id);
 
+    // ── Author names ────────────────────────────────────────────────────────────
+
+    @Insert("INSERT OR IGNORE INTO file_author_names(name) VALUES(#{name})")
+    void insertFileAuthorNameIfAbsent(@Param("name") String name);
+
+    @Select("SELECT id FROM file_author_names WHERE name = #{name}")
+    Long findFileAuthorNameId(@Param("name") String name);
+
+    @Select("SELECT name FROM file_author_names WHERE id = #{id}")
+    String findFileAuthorNameById(@Param("id") long id);
+
     // ── Artworks ────────────────────────────────────────────────────────────────
 
     @Select(SELECT_ARTWORK + " WHERE artwork_id = #{artworkId}")
     ArtworkRecord findById(long artworkId);
 
     @Insert("INSERT OR IGNORE INTO artworks"
-            + " (artwork_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description, file_name, file_names)"
-            + " VALUES (#{artworkId}, #{title}, #{folder}, #{count}, #{extensions}, #{time}, #{xRestrict}, #{isAi}, #{authorId}, #{description}, #{fileName}, #{fileNames})")
+            + " (artwork_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description, file_name, file_author_name_id)"
+            + " VALUES (#{artworkId}, #{title}, #{folder}, #{count}, #{extensions}, #{time}, #{xRestrict}, #{isAi}, #{authorId}, #{description}, #{fileName}, #{fileAuthorNameId})")
     void insertOrIgnore(@Param("artworkId") long artworkId,
                         @Param("title") String title,
                         @Param("folder") String folder,
@@ -111,7 +127,7 @@ public interface PixivMapper {
                         @Param("authorId") Long authorId,
                         @Param("description") String description,
                         @Param("fileName") long fileName,
-                        @Param("fileNames") String fileNames);
+                        @Param("fileAuthorNameId") Long fileAuthorNameId);
 
     @Select(SELECT_ARTWORK + " WHERE RTRIM(RTRIM(move_folder, '/'), '\\') = #{moveFolder}")
     ArtworkRecord findByNormalizedMoveFolder(String moveFolder);

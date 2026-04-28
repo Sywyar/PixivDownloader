@@ -158,7 +158,7 @@ public final class ArtworkFileNameFormatter {
         return value.toLowerCase(Locale.ROOT);
     }
 
-    private static String sanitize(String value) {
+    static String sanitize(String value) {
         if (value == null) {
             return "";
         }

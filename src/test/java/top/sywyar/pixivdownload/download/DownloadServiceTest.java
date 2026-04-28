@@ -404,7 +404,7 @@ class DownloadServiceTest {
                     "https://www.pixiv.net/", other, null, null);
 
             verify(pixivDatabase).insertArtwork(12345L, "test", tempDir.resolve("12345").toAbsolutePath().toString(),
-                    1, "webp", 1700000100L, 0, false, 999L, null, 1L, "12345_p0");
+                    1, "webp", 1700000100L, 0, false, 999L, null, 1L, null);
         }
     }
 
@@ -445,7 +445,7 @@ class DownloadServiceTest {
                     any()
             );
             verify(pixivDatabase).insertArtwork(12345L, "test", expectedPath.toAbsolutePath().toString(),
-                    1, "webp", 1700000100L, 0, false, null, null, 1L, "12345_p0");
+                    1, "webp", 1700000100L, 0, false, null, null, 1L, null);
             verify(collectionService).addArtwork(7L, 12345L);
         }
     }

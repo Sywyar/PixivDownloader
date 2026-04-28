@@ -15,7 +15,7 @@ public record ArtworkRecord(
         Long authorId,
         String description,
         Long fileName,
-        String fileNames
+        Long fileAuthorNameId
 ) {
     public ArtworkRecord(long artworkId,
                          String title,

@@ -187,7 +187,7 @@ public class DownloadService {
             // 记录下载信息
             recordDownload(artworkId, title, status.getDownloadPath(), fileExtensions,
                     successCount.get(), other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(), other.getTags(),
-                    fileNamePlan.templateId(), fileNamePlan.recordTime(), fileNamePlan.fileNames());
+                    fileNamePlan.templateId(), fileNamePlan.recordTime(), fileNamePlan.fileAuthorNameId());
 
             recordStatistics(imageUrls.size());
             recordAuthorInfo(artworkId, other, cookie);
@@ -422,6 +422,8 @@ public class DownloadService {
         }
         long preferredTime = other.getFileNameTimestamp() == null ? 0L : other.getFileNameTimestamp();
         long recordTime = preferredTime > 0 ? pixivDatabase.getUniqueTime(preferredTime) : pixivDatabase.getUniqueTime();
+        String sanitizedAuthorName = ArtworkFileNameFormatter.sanitize(other.getAuthorName());
+        long fileAuthorNameId = sanitizedAuthorName.isEmpty() ? 0L : pixivDatabase.getOrCreateFileAuthorNameId(sanitizedAuthorName);
         List<String> computed = ArtworkFileNameFormatter.formatAll(
                 template,
                 artworkId,
@@ -437,17 +439,18 @@ public class DownloadService {
         if (!provided.isEmpty() && !provided.equals(computed)) {
             log.debug("前端文件名与后端模板计算结果不一致，使用后端结果: artworkId={}", artworkId);
         }
-        return new FileNamePlan(templateId, recordTime, provided.equals(computed) ? provided : computed);
+        return new FileNamePlan(templateId, recordTime, fileAuthorNameId, provided.equals(computed) ? provided : computed);
     }
 
     private void recordDownload(Long artworkId, String title, String folderPath, HashSet<String> fileExtensions,
                                 int count, int xRestrict, boolean isAi, Long authorId, String description, List<TagDto> tags,
-                                long fileNameId, long recordTime, String fileNames) {
+                                long fileNameId, long recordTime, long fileAuthorNameId) {
         try {
             pixivDatabase.insertArtwork(
                     artworkId, title,
                     Path.of(folderPath).toAbsolutePath().toString(),
-                    count, String.join(",", fileExtensions), recordTime, xRestrict, isAi, authorId, description, fileNameId, fileNames
+                    count, String.join(",", fileExtensions), recordTime, xRestrict, isAi, authorId, description, fileNameId,
+                    fileAuthorNameId > 0 ? fileAuthorNameId : null
             );
             pixivDatabase.saveArtworkTags(artworkId, tags);
         } catch (Exception e) {
@@ -455,16 +458,12 @@ public class DownloadService {
         }
     }
 
-    private record FileNamePlan(long templateId, long recordTime, List<String> baseNames) {
+    private record FileNamePlan(long templateId, long recordTime, long fileAuthorNameId, List<String> baseNames) {
         String baseName(int page) {
             if (page >= 0 && page < baseNames.size()) {
                 return baseNames.get(page);
             }
             return "page_" + Math.max(page, 0);
-        }
-
-        String fileNames() {
-            return String.join(",", baseNames);
         }
     }
 
@@ -620,54 +619,35 @@ public class DownloadService {
     }
 
     private String resolveStoredFileBaseName(ArtworkRecord artwork, int page) {
-        List<String> baseNames = parseStoredBaseNames(artwork);
-        if (baseNames != null && page < baseNames.size()) {
-            return baseNames.get(page);
-        }
-        return recomputeBaseNames(artwork).get(page);
-    }
-
-    private List<String> parseStoredBaseNames(ArtworkRecord artwork) {
-        String stored = artwork.fileNames();
-        if (stored == null || stored.isBlank()) {
-            return null;
-        }
-        String[] parts = stored.split(",");
-        if (parts.length < Math.max(artwork.count(), 1)) {
-            return null;
-        }
-        return List.of(parts);
-    }
-
-    private List<String> recomputeBaseNames(ArtworkRecord artwork) {
         long fileNameId = artwork.fileName() == null
                 ? ArtworkFileNameFormatter.DEFAULT_TEMPLATE_ID
                 : artwork.fileName();
         String template = pixivDatabase.getFileNameTemplate(fileNameId);
-        int count = Math.max(artwork.count(), 1);
-        return ArtworkFileNameFormatter.formatAll(
+        int count = Math.max(artwork.count(), page + 1);
+        String authorName = resolveStoredFileAuthorName(artwork);
+        if (authorName == null && template != null && template.contains("{author_name}")) {
+            log.warn("模板含{author_name}但file_author_name_id为空，作者名将缺失: artworkId={}", artwork.artworkId());
+        }
+        List<String> baseNames = ArtworkFileNameFormatter.formatAll(
                 template,
                 artwork.artworkId(),
                 artwork.title(),
                 artwork.authorId(),
-                resolveAuthorName(artwork.authorId()),
+                authorName,
                 artwork.time(),
                 count,
                 artwork.isAi(),
                 artwork.xRestrict()
         );
+        return baseNames.get(page);
     }
 
-    private String resolveAuthorName(Long authorId) {
-        if (authorId == null) {
+    private String resolveStoredFileAuthorName(ArtworkRecord artwork) {
+        Long fileAuthorNameId = artwork.fileAuthorNameId();
+        if (fileAuthorNameId == null || fileAuthorNameId <= 0) {
             return null;
         }
-        try {
-            return authorService.getAuthorNames(Set.of(authorId)).get(authorId);
-        } catch (Exception e) {
-            log.debug("读取作者名失败: authorId={}", authorId, e);
-            return null;
-        }
+        return pixivDatabase.getFileAuthorName(fileAuthorNameId);
     }
 
     private String resolveArtworkDirectory(ArtworkRecord artwork) {

@@ -33,6 +33,7 @@ PixivDownload is a local Pixiv batch image downloader that supports multiple dow
 - Keyword search download — search Pixiv artworks from the web UI and add them to the queue
 - Animated image auto-conversion to WebP — automatically merge Ugoira frames into delayed WebP
 - Download history management — records downloaded artworks and author metadata, supports resume, and detects author renames automatically
+- Custom file naming — 11 template variables including `{artwork_title}` `{author_name}` `{timestamp}` `{R18}` `{ai}`, freely compose download file names
 - GUI tools page — integrates image classification, database directory validation, and database backfill; tools that require exclusive SQLite access automatically stop and restore the backend
 - Multi-user mode rate limiting — provides quota and rate limiting for shared deployments
 
