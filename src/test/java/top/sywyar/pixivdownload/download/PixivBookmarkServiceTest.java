@@ -46,7 +46,10 @@ class PixivBookmarkServiceTest {
         @ValueSource(strings = {"   "})
         @DisplayName("cookie 为空/null/空白时应直接返回，不调用 RestTemplate")
         void shouldSkipWhenCookieIsBlank(String cookie) {
-            assertThatCode(() -> service.bookmarkArtwork(12345L, cookie)).doesNotThrowAnyException();
+            DownloadActionResult result = service.bookmarkArtwork(12345L, cookie);
+
+            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.SKIPPED);
+            assertThat(result.getMessage()).isEqualTo("未提供 Cookie");
             verifyNoInteractions(restTemplate);
         }
     }
@@ -68,7 +71,9 @@ class PixivBookmarkServiceTest {
             when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(String.class)))
                     .thenReturn(ResponseEntity.ok(bookmarkResponse));
 
-            assertThatCode(() -> service.bookmarkArtwork(12345L, "PHPSESSID=test")).doesNotThrowAnyException();
+            DownloadActionResult result = service.bookmarkArtwork(12345L, "PHPSESSID=test");
+
+            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.SUCCESS);
 
             ArgumentCaptor<HttpEntity<String>> postCaptor = ArgumentCaptor.forClass(HttpEntity.class);
             verify(restTemplate).exchange(
@@ -103,7 +108,8 @@ class PixivBookmarkServiceTest {
             when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(String.class)))
                     .thenReturn(ResponseEntity.ok("<html>no token here</html>"));
 
-            assertThatCode(() -> service.bookmarkArtwork(12345L, "PHPSESSID=test")).doesNotThrowAnyException();
+            DownloadActionResult result = service.bookmarkArtwork(12345L, "PHPSESSID=test");
+            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.FAILED);
             verify(restTemplate, never()).exchange(
                     eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), any(), any(), eq(String.class));
         }
@@ -137,7 +143,9 @@ class PixivBookmarkServiceTest {
             when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(String.class)))
                     .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{}}"));
 
-            assertThatCode(() -> service.bookmarkArtwork(99L, "cookie=val")).doesNotThrowAnyException();
+            DownloadActionResult result = service.bookmarkArtwork(99L, "cookie=val");
+
+            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.SUCCESS);
         }
 
         @Test
@@ -147,7 +155,11 @@ class PixivBookmarkServiceTest {
             when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(String.class)))
                     .thenReturn(ResponseEntity.ok("{\"error\":true,\"message\":\"Not logged in\"}"));
 
-            assertThatCode(() -> service.bookmarkArtwork(99L, "cookie=val")).doesNotThrowAnyException();
+            DownloadActionResult result = service.bookmarkArtwork(99L, "cookie=val");
+
+            assertThat(result.getStatus()).isEqualTo(DownloadActionResult.FAILED);
+            assertThat(result.getMessage()).isEqualTo(TestI18nBeans.appMessages().get("bookmark.result.failed"));
+            assertThat(result.getMessage()).doesNotContain("Not logged in");
         }
 
         @Test

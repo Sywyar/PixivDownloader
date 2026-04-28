@@ -24,13 +24,15 @@ import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -61,6 +63,9 @@ class SSEControllerTest {
 
     @AfterEach
     void tearDown() {
+        if (controller != null) {
+            controller.shutdownProgressExecutor();
+        }
         LocaleContextHolder.resetLocaleContext();
     }
 
@@ -111,6 +116,7 @@ class SSEControllerTest {
 
         controller.handleDownloadProgressEvent(new DownloadProgressEvent(this, 777L, status, "user-1"));
 
+        waitUntil(() -> emitter.events.size() == 1);
         assertThat(emitter.events).hasSize(1);
         SentEvent event = emitter.events.get(0);
         assertThat(event.raw).contains("event:download-status");
@@ -143,6 +149,7 @@ class SSEControllerTest {
 
         controller.handleDownloadProgressEvent(new DownloadProgressEvent(this, 888L, status, "user-1"));
 
+        waitUntil(() -> matchingEmitter.events.size() == 1 && adminEmitter.events.size() == 1);
         assertThat(matchingEmitter.events).hasSize(1);
         assertThat(otherEmitter.events).isEmpty();
         assertThat(adminEmitter.events).hasSize(1);
@@ -261,8 +268,15 @@ class SSEControllerTest {
         return (boolean) accessor.invoke(subscription);
     }
 
+    private void waitUntil(BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+    }
+
     private static final class RecordingSseEmitter extends SseEmitter {
-        private final List<SentEvent> events = new ArrayList<>();
+        private final List<SentEvent> events = new CopyOnWriteArrayList<>();
         private boolean completed;
 
         @Override

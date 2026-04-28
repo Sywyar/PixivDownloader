@@ -39,6 +39,7 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 @Slf4j
 @Service
@@ -128,7 +129,12 @@ public class DownloadService {
                 status.setCurrentImageIndex(0);
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
 
-                successCount.set(ugoiraService.processUgoira(artworkId, other, downloadPath, referer, cookie));
+                Consumer<UgoiraProgress> progressListener = progress -> {
+                    status.setUgoiraProgress(progress);
+                    eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+                };
+                successCount.set(ugoiraService.processUgoira(
+                        artworkId, other, downloadPath, referer, cookie, progressListener));
 
                 status.setDownloadedCount(successCount.get());
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
@@ -152,7 +158,13 @@ public class DownloadService {
                         fileExtensions.add(extension);
                         String filename = artworkId + "_p" + i + "." + extension;
                         Path filePath = downloadPath.resolve(filename);
-                        if (downloadImage(imageUrl, filePath, referer, cookie)) {
+                        int imageNumber = i + 1;
+                        Consumer<ImageDownloadProgress> imageProgressListener = progress -> {
+                            status.setImageProgress(progress);
+                            eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+                        };
+                        if (downloadImage(imageUrl, filePath, referer, cookie,
+                                imageNumber, imageUrls.size(), imageProgressListener)) {
                             successCount.incrementAndGet();
                             status.setDownloadedCount(successCount.get());
                             log.info(logMessage("download.log.progress",
@@ -178,8 +190,6 @@ public class DownloadService {
             recordStatistics(imageUrls.size());
             recordAuthorInfo(artworkId, other, cookie);
 
-            // 更新下载状态为完成
-            status.setCompleted(true);
             status.setSuccessCount(successCount.get());
             status.setFailedCount(imageUrls.size() - successCount.get());
             status.setCurrentImageIndex(-1); // 完成后重置索引
@@ -189,17 +199,24 @@ public class DownloadService {
 
             // 下载后收藏（可选，best-effort）
             if (other.isBookmark()) {
-                pixivBookmarkService.bookmarkArtwork(artworkId, cookie);
+                status.setBookmarkResult(pixivBookmarkService.bookmarkArtwork(artworkId, cookie));
             }
 
             // 下载后加入收藏夹（可选，best-effort）
             if (other.getCollectionId() != null) {
                 try {
-                    collectionService.addArtwork(other.getCollectionId(), artworkId);
+                    boolean added = collectionService.addArtwork(other.getCollectionId(), artworkId);
+                    status.setCollectionResult(added
+                            ? DownloadActionResult.success(messages.get("collection.result.added"))
+                            : DownloadActionResult.exists(messages.get("collection.result.exists")));
                 } catch (Exception e) {
-                    log.warn(logMessage("download.log.collection.add.failed", artworkId, other.getCollectionId(), e.getMessage()));
+                    log.warn(logMessage("download.log.collection.add.failed", artworkId, other.getCollectionId(), e.getMessage()), e);
+                    status.setCollectionResult(DownloadActionResult.failed(messages.get("collection.result.failed")));
                 }
             }
+
+            // 更新下载状态为完成。放在后置动作之后，确保最终事件包含收藏/收藏夹结果。
+            status.setCompleted(true);
 
             // 发送最终完成状态更新
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
@@ -236,7 +253,9 @@ public class DownloadService {
         }
     }
 
-    private boolean downloadImage(String imageUrl, Path filePath, String referer, String cookie) {
+    private boolean downloadImage(String imageUrl, Path filePath, String referer, String cookie,
+                                  int imageNumber, int totalImages,
+                                  Consumer<ImageDownloadProgress> progressListener) {
         int maxRetries = 3;
         int retryCount = 0;
 
@@ -256,13 +275,59 @@ public class DownloadService {
                                 log.error(logMessage("download.log.http-error", response.getStatusCode(), imageUrl));
                                 return false;
                             }
+                            long totalBytes = response.getHeaders().getContentLength();
+                            long[] downloadedBytes = {0L};
+                            int[] lastProgress = {-1};
+                            long[] lastBytes = {0L};
+                            long[] lastAt = {0L};
+                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                    .status(ImageDownloadProgress.STATUS_RUNNING)
+                                    .imageNumber(imageNumber)
+                                    .totalImages(totalImages)
+                                    .downloadedBytes(0L)
+                                    .totalBytes(totalBytes > 0 ? totalBytes : null)
+                                    .progress(totalBytes > 0 ? 0 : null)
+                                    .build());
                             try (InputStream inputStream = response.getBody();
                                  FileOutputStream outputStream = new FileOutputStream(filePath.toFile())) {
                                 byte[] buffer = new byte[4096];
                                 int bytesRead;
                                 while ((bytesRead = inputStream.read(buffer)) != -1) {
                                     outputStream.write(buffer, 0, bytesRead);
+                                    downloadedBytes[0] += bytesRead;
+                                    Integer progress = totalBytes > 0
+                                            ? Math.min(99, (int) (downloadedBytes[0] * 100 / totalBytes))
+                                            : null;
+                                    if (shouldEmitImageByteProgress(
+                                            progress, downloadedBytes[0], lastProgress, lastBytes, lastAt)) {
+                                        publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                                .status(ImageDownloadProgress.STATUS_RUNNING)
+                                                .imageNumber(imageNumber)
+                                                .totalImages(totalImages)
+                                                .downloadedBytes(downloadedBytes[0])
+                                                .totalBytes(totalBytes > 0 ? totalBytes : null)
+                                                .progress(progress)
+                                                .build());
+                                    }
                                 }
+                            }
+                            if (imageNumber < totalImages) {
+                                publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                        .status(ImageDownloadProgress.STATUS_RUNNING)
+                                        .imageNumber(imageNumber + 1)
+                                        .totalImages(totalImages)
+                                        .downloadedBytes(0L)
+                                        .progress(0)
+                                        .build());
+                            } else {
+                                publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                        .status(ImageDownloadProgress.STATUS_COMPLETED)
+                                        .imageNumber(imageNumber)
+                                        .totalImages(totalImages)
+                                        .downloadedBytes(downloadedBytes[0])
+                                        .totalBytes(totalBytes > 0 ? totalBytes : null)
+                                        .progress(100)
+                                        .build());
                             }
                             return true;
                         });
@@ -284,9 +349,40 @@ public class DownloadService {
                     }
                 } else {
                     log.error(logMessage("download.log.retry.exhausted", imageUrl));
+                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                            .status(ImageDownloadProgress.STATUS_FAILED)
+                            .imageNumber(imageNumber)
+                            .totalImages(totalImages)
+                            .build());
                     return false;
                 }
             }
+        }
+        publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                .status(ImageDownloadProgress.STATUS_FAILED)
+                .imageNumber(imageNumber)
+                .totalImages(totalImages)
+                .build());
+        return false;
+    }
+
+    private void publishImageProgress(Consumer<ImageDownloadProgress> progressListener, ImageDownloadProgress progress) {
+        if (progressListener != null) {
+            progressListener.accept(progress);
+        }
+    }
+
+    private boolean shouldEmitImageByteProgress(Integer progress, long bytes,
+                                                int[] lastProgress, long[] lastBytes, long[] lastAt) {
+        long now = System.currentTimeMillis();
+        int currentProgress = progress == null ? -1 : progress;
+        if (currentProgress != lastProgress[0]
+                || bytes - lastBytes[0] >= 512 * 1024
+                || now - lastAt[0] >= 1000) {
+            lastProgress[0] = currentProgress;
+            lastBytes[0] = bytes;
+            lastAt[0] = now;
+            return true;
         }
         return false;
     }

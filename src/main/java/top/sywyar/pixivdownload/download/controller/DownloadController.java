@@ -163,6 +163,10 @@ public class DownloadController {
                 .cancelled(status.isCancelled())
                 .progressPercentage(status.getProgressPercentage())
                 .downloadPath(status.getDownloadPath())
+                .bookmarkResult(status.getBookmarkResult())
+                .collectionResult(status.getCollectionResult())
+                .ugoiraProgress(status.getUgoiraProgress())
+                .imageProgress(status.getImageProgress())
                 .build());
     }
 

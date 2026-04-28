@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.download.response;
 
 import lombok.Builder;
 import lombok.Getter;
+import top.sywyar.pixivdownload.download.DownloadActionResult;
+import top.sywyar.pixivdownload.download.ImageDownloadProgress;
+import top.sywyar.pixivdownload.download.UgoiraProgress;
 
 @Getter
 @Builder
@@ -18,4 +21,8 @@ public class DownloadStatusResponse {
     private boolean cancelled;
     private double progressPercentage;
     private String downloadPath;
+    private DownloadActionResult bookmarkResult;
+    private DownloadActionResult collectionResult;
+    private UgoiraProgress ugoiraProgress;
+    private ImageDownloadProgress imageProgress;
 }

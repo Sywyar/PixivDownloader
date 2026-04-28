@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.download.response;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Getter;
+import top.sywyar.pixivdownload.download.DownloadActionResult;
+import top.sywyar.pixivdownload.download.ImageDownloadProgress;
+import top.sywyar.pixivdownload.download.UgoiraProgress;
 
 @Getter
 @Builder
@@ -20,4 +23,8 @@ public class SseStatusData {
     private final Boolean cancelled;
     private final String folderName;
     private final Integer progress;
+    private final DownloadActionResult bookmarkResult;
+    private final DownloadActionResult collectionResult;
+    private final UgoiraProgress ugoiraProgress;
+    private final ImageDownloadProgress imageProgress;
 }

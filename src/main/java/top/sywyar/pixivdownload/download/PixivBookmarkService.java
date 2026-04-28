@@ -42,22 +42,24 @@ public class PixivBookmarkService {
     }
 
     /**
-     * 收藏作品（best-effort）。任何异常只记录日志，不向调用方抛出。
+     * 收藏作品（best-effort）。任何异常只记录日志并返回失败结果，不向调用方抛出。
      *
      * @param artworkId 作品 ID
      * @param cookie    用户的 Pixiv Cookie 字符串
      */
-    public void bookmarkArtwork(Long artworkId, String cookie) {
+    public DownloadActionResult bookmarkArtwork(Long artworkId, String cookie) {
         if (cookie == null || cookie.isBlank()) {
             log.warn(message("bookmark.log.skip.missing-cookie", id(artworkId)));
-            return;
+            return DownloadActionResult.skipped(messages.get("bookmark.result.skipped.missing-cookie"));
         }
         try {
             String csrfToken = fetchCsrfToken(cookie);
             postBookmark(artworkId, cookie, csrfToken);
             log.info(message("bookmark.log.success", id(artworkId)));
+            return DownloadActionResult.success(messages.get("bookmark.result.success"));
         } catch (Exception e) {
-            log.warn(message("bookmark.log.failed", id(artworkId), e.getMessage()));
+            log.warn(message("bookmark.log.failed", id(artworkId), e.getMessage()), e);
+            return DownloadActionResult.failed(messages.get("bookmark.result.failed"));
         }
     }
 

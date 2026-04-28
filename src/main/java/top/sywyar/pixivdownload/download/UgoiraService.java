@@ -15,6 +15,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -41,6 +42,12 @@ public class UgoiraService {
      */
     public int processUgoira(Long artworkId, DownloadRequest.Other other,
                              Path downloadPath, String referer, String cookie) {
+        return processUgoira(artworkId, other, downloadPath, referer, cookie, null);
+    }
+
+    public int processUgoira(Long artworkId, DownloadRequest.Other other,
+                             Path downloadPath, String referer, String cookie,
+                             Consumer<UgoiraProgress> progressListener) {
         DownloadService.validatePixivUrl(other.getUgoiraZipUrl());
 
         Path zipPath = downloadPath.resolve("_ugoira_frames.zip");
@@ -50,13 +57,32 @@ public class UgoiraService {
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 log.info(message("ugoira.log.zip.download.started", id(artworkId), text(attempt), text(maxAttempts)));
-                if (!downloadZip(other.getUgoiraZipUrl(), zipPath, referer, cookie)) {
+                publishProgress(progressListener, UgoiraProgress.builder()
+                        .phase(UgoiraProgress.PHASE_ZIP)
+                        .status(UgoiraProgress.STATUS_RUNNING)
+                        .attempt(attempt)
+                        .maxAttempts(maxAttempts)
+                        .zipDownloadedBytes(0L)
+                        .zipProgress(0)
+                        .build());
+                if (!downloadZip(other.getUgoiraZipUrl(), zipPath, referer, cookie, attempt, maxAttempts, progressListener)) {
                     log.error(message("ugoira.log.zip.download.failed", id(artworkId), text(attempt), text(maxAttempts)));
                     continue;
                 }
 
                 Files.createDirectories(tempDir);
-                TreeMap<String, Path> frameFiles = extractFrames(artworkId, zipPath, tempDir);
+                int expectedFrames = other.getUgoiraDelays() == null ? 0 : other.getUgoiraDelays().size();
+                publishProgress(progressListener, UgoiraProgress.builder()
+                        .phase(UgoiraProgress.PHASE_EXTRACT)
+                        .status(UgoiraProgress.STATUS_RUNNING)
+                        .attempt(attempt)
+                        .maxAttempts(maxAttempts)
+                        .zipProgress(100)
+                        .extractedFrames(0)
+                        .totalFrames(expectedFrames > 0 ? expectedFrames : null)
+                        .build());
+                TreeMap<String, Path> frameFiles = extractFrames(
+                        artworkId, zipPath, tempDir, progressListener, expectedFrames, attempt, maxAttempts);
                 if (frameFiles.isEmpty()) {
                     log.error(message("ugoira.log.zip.empty", id(artworkId)));
                     continue;
@@ -70,7 +96,8 @@ public class UgoiraService {
                         downloadPath.resolve(artworkId + "_p0_thumb.jpg"),
                         StandardCopyOption.REPLACE_EXISTING);
 
-                if (runFfmpeg(artworkId, orderedFrames, delays, tempDir, downloadPath)) {
+                if (runFfmpeg(artworkId, orderedFrames, delays, tempDir, downloadPath,
+                        attempt, maxAttempts, progressListener)) {
                     return 1;
                 }
 
@@ -93,12 +120,20 @@ public class UgoiraService {
                 }
             }
         }
+        publishProgress(progressListener, UgoiraProgress.builder()
+                .phase(UgoiraProgress.PHASE_FFMPEG)
+                .status(UgoiraProgress.STATUS_FAILED)
+                .build());
         return 0;
     }
 
-    private TreeMap<String, Path> extractFrames(Long artworkId, Path zipPath, Path tempDir) throws IOException {
+    private TreeMap<String, Path> extractFrames(Long artworkId, Path zipPath, Path tempDir,
+                                                Consumer<UgoiraProgress> progressListener,
+                                                int expectedFrames, int attempt, int maxAttempts) throws IOException {
         TreeMap<String, Path> frameFiles = new TreeMap<>();
         Path normalizedTempDir = tempDir.normalize();
+        int[] lastProgress = {-1};
+        long[] lastAt = {0L};
         try (ZipInputStream zis = new ZipInputStream(
                 new FileInputStream(zipPath.toFile()), StandardCharsets.UTF_8)) {
             ZipEntry entry;
@@ -117,10 +152,33 @@ public class UgoiraService {
                         while ((len = zis.read(buf)) != -1) fos.write(buf, 0, len);
                     }
                     frameFiles.put(entry.getName(), framePath);
+                    Integer progress = expectedFrames > 0
+                            ? Math.min(100, (int) Math.round(frameFiles.size() * 100.0 / expectedFrames))
+                            : null;
+                    if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
+                        publishProgress(progressListener, UgoiraProgress.builder()
+                                .phase(UgoiraProgress.PHASE_EXTRACT)
+                                .status(UgoiraProgress.STATUS_RUNNING)
+                                .attempt(attempt)
+                                .maxAttempts(maxAttempts)
+                                .zipProgress(100)
+                                .extractedFrames(frameFiles.size())
+                                .totalFrames(expectedFrames > 0 ? expectedFrames : null)
+                                .build());
+                    }
                 }
                 zis.closeEntry();
             }
         }
+        publishProgress(progressListener, UgoiraProgress.builder()
+                .phase(UgoiraProgress.PHASE_EXTRACT)
+                .status(UgoiraProgress.STATUS_COMPLETED)
+                .attempt(attempt)
+                .maxAttempts(maxAttempts)
+                .zipProgress(100)
+                .extractedFrames(frameFiles.size())
+                .totalFrames(expectedFrames > 0 ? expectedFrames : frameFiles.size())
+                .build());
         return frameFiles;
     }
 
@@ -148,7 +206,9 @@ public class UgoiraService {
     }
 
     private boolean runFfmpeg(Long artworkId, List<Map.Entry<String, Path>> orderedFrames,
-                              List<Integer> delays, Path tempDir, Path downloadPath) throws Exception {
+                              List<Integer> delays, Path tempDir, Path downloadPath,
+                              int attempt, int maxAttempts,
+                              Consumer<UgoiraProgress> progressListener) throws Exception {
         Path listFile = tempDir.resolve("frames.txt");
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < orderedFrames.size(); i++) {
@@ -166,8 +226,24 @@ public class UgoiraService {
 
         Path webpPath = downloadPath.resolve(artworkId + "_p0.webp");
         String ffmpegCommand = detectFfmpegCommand();
+        long durationMs = Math.max(1L, delays.stream().mapToLong(Integer::longValue).sum());
+        publishProgress(progressListener, UgoiraProgress.builder()
+                .phase(UgoiraProgress.PHASE_FFMPEG)
+                .status(UgoiraProgress.STATUS_RUNNING)
+                .attempt(attempt)
+                .maxAttempts(maxAttempts)
+                .zipProgress(100)
+                .extractedFrames(orderedFrames.size())
+                .totalFrames(orderedFrames.size())
+                .ffmpegOutTimeMs(0L)
+                .ffmpegDurationMs(durationMs)
+                .ffmpegProgress(0)
+                .build());
         ProcessBuilder pb = new ProcessBuilder(
                 ffmpegCommand, "-y",
+                "-nostats",
+                "-stats_period", "0.5",
+                "-progress", "pipe:1",
                 "-f", "concat", "-safe", "0",
                 "-i", listFile.toAbsolutePath().toString(),
                 "-vcodec", "libwebp",
@@ -178,17 +254,69 @@ public class UgoiraService {
         );
         pb.redirectErrorStream(true);
         Process process = pb.start();
-        process.getInputStream().transferTo(OutputStream.nullOutputStream());
+        int[] lastProgress = {-1};
+        long[] lastAt = {0L};
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                Long outTimeMs = parseFfmpegOutTimeMs(line);
+                if (outTimeMs == null) {
+                    continue;
+                }
+                int progress = Math.min(99, Math.max(0,
+                        (int) Math.round(outTimeMs * 100.0 / durationMs)));
+                if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
+                    publishProgress(progressListener, UgoiraProgress.builder()
+                            .phase(UgoiraProgress.PHASE_FFMPEG)
+                            .status(UgoiraProgress.STATUS_RUNNING)
+                            .attempt(attempt)
+                            .maxAttempts(maxAttempts)
+                            .zipProgress(100)
+                            .extractedFrames(orderedFrames.size())
+                            .totalFrames(orderedFrames.size())
+                            .ffmpegOutTimeMs(Math.min(outTimeMs, durationMs))
+                            .ffmpegDurationMs(durationMs)
+                            .ffmpegProgress(progress)
+                            .build());
+                }
+            }
+        }
         int exitCode = process.waitFor();
 
         if (exitCode != 0) {
             log.error(message("ugoira.log.ffmpeg.failed", id(artworkId), text(exitCode)));
+            publishProgress(progressListener, UgoiraProgress.builder()
+                    .phase(UgoiraProgress.PHASE_FFMPEG)
+                    .status(UgoiraProgress.STATUS_FAILED)
+                    .attempt(attempt)
+                    .maxAttempts(maxAttempts)
+                    .zipProgress(100)
+                    .extractedFrames(orderedFrames.size())
+                    .totalFrames(orderedFrames.size())
+                    .ffmpegDurationMs(durationMs)
+                    .ffmpegProgress(lastProgress[0] < 0 ? 0 : lastProgress[0])
+                    .build());
             return false;
         }
+        publishProgress(progressListener, UgoiraProgress.builder()
+                .phase(UgoiraProgress.PHASE_FFMPEG)
+                .status(UgoiraProgress.STATUS_COMPLETED)
+                .attempt(attempt)
+                .maxAttempts(maxAttempts)
+                .zipProgress(100)
+                .extractedFrames(orderedFrames.size())
+                .totalFrames(orderedFrames.size())
+                .ffmpegOutTimeMs(durationMs)
+                .ffmpegDurationMs(durationMs)
+                .ffmpegProgress(100)
+                .build());
         return true;
     }
 
-    private boolean downloadZip(String url, Path path, String referer, String cookie) {
+    private boolean downloadZip(String url, Path path, String referer, String cookie,
+                                int outerAttempt, int outerMaxAttempts,
+                                Consumer<UgoiraProgress> progressListener) {
         int maxRetries = 3;
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
             try {
@@ -206,12 +334,43 @@ public class UgoiraService {
                                 log.error(message("ugoira.log.http-error", response.getStatusCode(), url));
                                 return false;
                             }
+                            long totalBytes = response.getHeaders().getContentLength();
+                            long[] downloadedBytes = {0L};
+                            int[] lastProgress = {-1};
+                            long[] lastBytes = {0L};
+                            long[] lastAt = {0L};
                             try (InputStream in = response.getBody();
                                  FileOutputStream out = new FileOutputStream(path.toFile())) {
                                 byte[] buf = new byte[8192];
                                 int len;
-                                while ((len = in.read(buf)) != -1) out.write(buf, 0, len);
+                                while ((len = in.read(buf)) != -1) {
+                                    out.write(buf, 0, len);
+                                    downloadedBytes[0] += len;
+                                    Integer progress = totalBytes > 0
+                                            ? Math.min(99, (int) (downloadedBytes[0] * 100 / totalBytes))
+                                            : null;
+                                    if (shouldEmitByteProgress(progress, downloadedBytes[0], lastProgress, lastBytes, lastAt)) {
+                                        publishProgress(progressListener, UgoiraProgress.builder()
+                                                .phase(UgoiraProgress.PHASE_ZIP)
+                                                .status(UgoiraProgress.STATUS_RUNNING)
+                                                .attempt(outerAttempt)
+                                                .maxAttempts(outerMaxAttempts)
+                                                .zipDownloadedBytes(downloadedBytes[0])
+                                                .zipTotalBytes(totalBytes > 0 ? totalBytes : null)
+                                                .zipProgress(progress)
+                                                .build());
+                                    }
+                                }
                             }
+                            publishProgress(progressListener, UgoiraProgress.builder()
+                                    .phase(UgoiraProgress.PHASE_ZIP)
+                                    .status(UgoiraProgress.STATUS_COMPLETED)
+                                    .attempt(outerAttempt)
+                                    .maxAttempts(outerMaxAttempts)
+                                    .zipDownloadedBytes(downloadedBytes[0])
+                                    .zipTotalBytes(totalBytes > 0 ? totalBytes : null)
+                                    .zipProgress(100)
+                                    .build());
                             return true;
                         });
                 if (Boolean.TRUE.equals(success)) return true;
@@ -228,6 +387,67 @@ public class UgoiraService {
             }
         }
         return false;
+    }
+
+    private void publishProgress(Consumer<UgoiraProgress> progressListener, UgoiraProgress progress) {
+        if (progressListener != null) {
+            progressListener.accept(progress);
+        }
+    }
+
+    private boolean shouldEmitByteProgress(Integer progress, long bytes,
+                                           int[] lastProgress, long[] lastBytes, long[] lastAt) {
+        long now = System.currentTimeMillis();
+        int currentProgress = progress == null ? -1 : progress;
+        if (currentProgress != lastProgress[0]
+                || bytes - lastBytes[0] >= 512 * 1024
+                || now - lastAt[0] >= 1000) {
+            lastProgress[0] = currentProgress;
+            lastBytes[0] = bytes;
+            lastAt[0] = now;
+            return true;
+        }
+        return false;
+    }
+
+    private boolean shouldEmitStepProgress(Integer progress, int[] lastProgress, long[] lastAt) {
+        long now = System.currentTimeMillis();
+        int currentProgress = progress == null ? -1 : progress;
+        if (currentProgress != lastProgress[0] || now - lastAt[0] >= 1000) {
+            lastProgress[0] = currentProgress;
+            lastAt[0] = now;
+            return true;
+        }
+        return false;
+    }
+
+    private Long parseFfmpegOutTimeMs(String line) {
+        if (line == null) {
+            return null;
+        }
+        if (line.startsWith("out_time_ms=")) {
+            try {
+                return Math.max(0L, Long.parseLong(line.substring("out_time_ms=".length()).trim()) / 1000L);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        if (!line.startsWith("out_time=")) {
+            return null;
+        }
+        String value = line.substring("out_time=".length()).trim();
+        String[] parts = value.split(":");
+        if (parts.length != 3) {
+            return null;
+        }
+        try {
+            long hours = Long.parseLong(parts[0]);
+            long minutes = Long.parseLong(parts[1]);
+            double seconds = Double.parseDouble(parts[2]);
+            return Math.max(0L, (long) (((hours * 60 + minutes) * 60 + seconds) * 1000));
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private void cleanup(Path zipPath, Path tempDir) {

@@ -337,7 +337,7 @@ class DownloadServiceTest {
         void setupDownloadPath() {
             lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
             lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any()))
+            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any()))
                     .thenReturn(1);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
         }
@@ -400,7 +400,7 @@ class DownloadServiceTest {
         void setupDownloadPath() {
             lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
             lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any()))
+            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any()))
                     .thenReturn(1);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
         }
@@ -425,7 +425,8 @@ class DownloadServiceTest {
                     same(other),
                     eq(expectedPath),
                     eq("https://www.pixiv.net/"),
-                    isNull()
+                    isNull(),
+                    any()
             );
             verify(pixivDatabase).insertArtwork(12345L, "test", expectedPath.toAbsolutePath().toString(),
                     1, "webp", 1700000100L, 0, false, null, null);

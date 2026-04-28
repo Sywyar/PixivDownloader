@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.download.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.RequiredArgsConstructor;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
@@ -21,20 +21,26 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @RestController
 @RequestMapping("/api/sse")
-@RequiredArgsConstructor
 public class SSEController {
 
     private final TaskScheduler taskScheduler;
     private final SetupService setupService;
     private final AppMessages messages;
+    private final ExecutorService sseProgressExecutor;
 
     private final ConcurrentHashMap<Long, ArtworkSubscription> emitters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, ScheduledFuture<?>> heartbeatTasks = new ConcurrentHashMap<>();
@@ -44,11 +50,33 @@ public class SSEController {
      *  在多人模式下，会按 owner UUID 过滤，避免跨用户事件泄漏。 */
     private final ConcurrentHashMap<String, AggregatedSubscription> aggregatedEmitters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ScheduledFuture<?>> aggregatedHeartbeats = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, PendingProgress> pendingProgress = new ConcurrentHashMap<>();
+    private final AtomicBoolean progressFlushRunning = new AtomicBoolean(false);
+
+    public SSEController(TaskScheduler taskScheduler,
+                         SetupService setupService,
+                         AppMessages messages) {
+        this.taskScheduler = taskScheduler;
+        this.setupService = setupService;
+        this.messages = messages;
+        this.sseProgressExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread thread = new Thread(r, "sse-progress-flush");
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
+    @PreDestroy
+    public void shutdownProgressExecutor() {
+        sseProgressExecutor.shutdownNow();
+    }
 
     private record ArtworkSubscription(SseEmitter emitter, Locale locale) {}
 
     /** 聚合连接的归属信息：admin 可见所有事件；非 admin 仅可见自己 UUID 的事件。 */
     private record AggregatedSubscription(SseEmitter emitter, String ownerUuid, boolean admin, Locale locale) {}
+
+    private record PendingProgress(Long artworkId, DownloadStatus downloadStatus, String userUuid) {}
 
     /**
      * 为特定作品创建SSE连接，实时推送下载进度
@@ -233,7 +261,53 @@ public class SSEController {
     @EventListener
     public void handleDownloadProgressEvent(DownloadProgressEvent event) {
         Long artworkId = event.getArtworkId();
-        DownloadStatus downloadStatus = event.getDownloadStatus();
+        if (artworkId == null) {
+            return;
+        }
+
+        pendingProgress.put(artworkId,
+                new PendingProgress(artworkId, event.getDownloadStatus(), event.getUserUuid()));
+        scheduleProgressFlush();
+    }
+
+    private void scheduleProgressFlush() {
+        if (!progressFlushRunning.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            sseProgressExecutor.execute(this::flushPendingProgress);
+        } catch (RejectedExecutionException e) {
+            progressFlushRunning.set(false);
+            log.warn("SSE progress flush task rejected: {}", e.getMessage());
+        }
+    }
+
+    private void flushPendingProgress() {
+        try {
+            while (!pendingProgress.isEmpty()) {
+                List<PendingProgress> batch = new ArrayList<>(pendingProgress.values());
+                for (PendingProgress progress : batch) {
+                    if (pendingProgress.remove(progress.artworkId(), progress)) {
+                        try {
+                            sendProgressUpdate(progress);
+                        } catch (RuntimeException e) {
+                            log.warn("SSE progress update failed: artworkId={}, error={}",
+                                    progress.artworkId(), e.getMessage());
+                        }
+                    }
+                }
+            }
+        } finally {
+            progressFlushRunning.set(false);
+            if (!pendingProgress.isEmpty()) {
+                scheduleProgressFlush();
+            }
+        }
+    }
+
+    private void sendProgressUpdate(PendingProgress progress) {
+        Long artworkId = progress.artworkId();
+        DownloadStatus downloadStatus = progress.downloadStatus();
 
         // 1) 发送给订阅了该作品的旧式 per-artwork emitter（向后兼容）
         ArtworkSubscription perArtworkSubscription = emitters.get(artworkId);
@@ -247,15 +321,16 @@ public class SSEController {
                                 downloadStatus,
                                 perArtworkSubscription.locale()
                         )));
-            } catch (IOException e) {
-                emitters.remove(artworkId);
+            } catch (IOException | IllegalStateException e) {
+                cancelHeartbeat(artworkId);
+                safeRemoveEmitter(artworkId);
             }
         }
 
         // 2) 按 owner UUID 过滤后发送给聚合 emitter
         //    admin 订阅看到全部；非 admin 仅看到自己 UUID 的事件；事件无 owner 时回退为全员可见
         if (!aggregatedEmitters.isEmpty()) {
-            String eventOwner = event.getUserUuid();
+            String eventOwner = progress.userUuid();
             for (var entry : aggregatedEmitters.entrySet()) {
                 String connectionId = entry.getKey();
                 AggregatedSubscription sub = entry.getValue();
@@ -265,9 +340,9 @@ public class SSEController {
                             .id(String.valueOf(System.currentTimeMillis()))
                             .name("download-status")
                             .data(buildProgressPayload(artworkId, downloadStatus, sub.locale())));
-                } catch (IOException e) {
+                } catch (IOException | IllegalStateException e) {
                     cancelAggregatedHeartbeat(connectionId);
-                    aggregatedEmitters.remove(connectionId);
+                    safeRemoveAggregatedEmitter(connectionId);
                 }
             }
         }
@@ -313,7 +388,11 @@ public class SSEController {
                     .completed(downloadStatus.isCompleted())
                     .failed(downloadStatus.isFailed())
                     .cancelled(downloadStatus.isCancelled())
-                    .folderName(downloadStatus.getFolderName());
+                    .folderName(downloadStatus.getFolderName())
+                    .bookmarkResult(downloadStatus.getBookmarkResult())
+                    .collectionResult(downloadStatus.getCollectionResult())
+                    .ugoiraProgress(downloadStatus.getUgoiraProgress())
+                    .imageProgress(downloadStatus.getImageProgress());
 
             if (downloadStatus.getTotalImages() > 0) {
                 int progress = (int) ((double) downloadStatus.getDownloadedCount()

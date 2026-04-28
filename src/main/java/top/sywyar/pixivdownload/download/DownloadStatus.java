@@ -19,6 +19,10 @@ public class DownloadStatus {
     private String downloadPath;
     private int successCount;
     private int failedCount;
+    private DownloadActionResult bookmarkResult;
+    private DownloadActionResult collectionResult;
+    private UgoiraProgress ugoiraProgress;
+    private ImageDownloadProgress imageProgress;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
 
