@@ -1606,7 +1606,7 @@
             const container = $el('div', {
                 id: 'pixiv-batch-downloader-ui',
                 style: {
-                    position: 'fixed', top: '120px', right: '20px', zIndex: 10000,
+                    position: 'fixed', top: '120px', right: '20px', zIndex: 10002,
                     background: 'white', border: '2px solid #28a745', borderRadius: '8px',
                     padding: '15px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
                     minWidth: '400px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -1659,7 +1659,7 @@
                     position: 'fixed',
                     top: '60px',
                     right: '20px',
-                    zIndex: '10001',
+                    zIndex: '10003',
                     background: '#28a745',
                     color: 'white',
                     border: 'none',
