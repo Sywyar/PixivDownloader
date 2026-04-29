@@ -2799,7 +2799,7 @@
                 const id = Number(row.dataset.id);
                 row.addEventListener('click', e => {
                     if (e.target.closest('.collection-menu')) return;
-                    toggleCollectionFilter(id);
+                    switchCollectionFilter(id);
                 });
             });
             list.querySelectorAll('.collection-menu').forEach(btn => {
@@ -2840,6 +2840,17 @@
     function toggleCollectionFilter(id) {
         if (state.collectionIds.has(id)) state.collectionIds.delete(id);
         else state.collectionIds.add(id);
+        state.page = 0;
+        renderCollections();
+        updateFilterBadge();
+        refreshGalleryForCurrentState();
+    }
+
+    function switchCollectionFilter(id) {
+        const alreadyExclusive = state.collectionIds.size === 1 && state.collectionIds.has(id);
+        if (alreadyExclusive && state.view === 'all') return;
+        state.collectionIds.clear();
+        state.collectionIds.add(id);
         state.page = 0;
         renderCollections();
         updateFilterBadge();
