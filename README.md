@@ -281,7 +281,7 @@ git checkout -b feat/your-change upstream/<default-branch>
 
 ### 3. 日常开发与本地验证
 
-推荐直接走 Maven 生命周期构建：
+Maven 生命周期构建：
 
 ```powershell
 # Windows PowerShell

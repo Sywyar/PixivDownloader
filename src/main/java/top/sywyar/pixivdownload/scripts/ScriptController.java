@@ -67,6 +67,22 @@ public class ScriptController {
             @PathVariable String id,
             @RequestParam(name = "raw", defaultValue = "false") boolean raw,
             HttpServletRequest request) {
+        return serveScript(id, raw, request);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<byte[]> viewScriptSource(
+            @PathVariable String id,
+            @RequestParam(name = "raw", defaultValue = "false") boolean raw,
+            HttpServletRequest request) {
+
+        if (!raw) {
+            return ResponseEntity.notFound().build();
+        }
+        return serveScript(id, true, request);
+    }
+
+    private ResponseEntity<byte[]> serveScript(String id, boolean raw, HttpServletRequest request) {
 
         checkRateLimit(request);
         ScriptResource resource = scriptRegistry.findById(id).orElse(null);

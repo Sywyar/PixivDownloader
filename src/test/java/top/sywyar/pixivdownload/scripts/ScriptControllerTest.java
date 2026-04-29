@@ -102,6 +102,17 @@ class ScriptControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/scripts/{id}?raw=true returns source without .user.js suffix")
+    void viewScriptSource_withoutUserJsSuffix_returnsTextPlain() throws Exception {
+        when(scriptRegistry.findById("test-script")).thenReturn(Optional.of(SAMPLE_RESOURCE));
+
+        mockMvc.perform(get("/api/scripts/test-script").param("raw", "true"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", containsString("text/plain")))
+                .andExpect(content().string(containsString("// ==UserScript==")));
+    }
+
+    @Test
     @DisplayName("非 localhost 请求：YOUR_SERVER_HOST 被替换为实际 host")
     void installScript_nonLocalhost_replacesHost() throws Exception {
         when(scriptRegistry.findById("test-script")).thenReturn(Optional.of(SAMPLE_RESOURCE));
