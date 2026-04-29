@@ -67,52 +67,7 @@ public class GalleryRepository {
             params.addValue("collectionIds", collectionIds);
         }
 
-        List<String> requiredTagOrOptionalAuthorClauses = new ArrayList<>();
-        List<Long> tagIds = q.getTagIds();
-        if (tagIds != null && !tagIds.isEmpty()) {
-            requiredTagOrOptionalAuthorClauses.add("a.artwork_id IN (SELECT artwork_id FROM artwork_tags"
-                    + " WHERE tag_id IN (:tagIds)"
-                    + " GROUP BY artwork_id HAVING COUNT(DISTINCT tag_id) = :tagIdCount)");
-            params.addValue("tagIds", tagIds);
-            params.addValue("tagIdCount", tagIds.size());
-        }
-
-        List<Long> optionalAuthorIds = q.getOptionalAuthorIds();
-        if (optionalAuthorIds != null && !optionalAuthorIds.isEmpty()) {
-            requiredTagOrOptionalAuthorClauses.add("a.author_id IN (:optionalAuthorIds)");
-            params.addValue("optionalAuthorIds", optionalAuthorIds);
-        }
-
-        appendOrGroup(where, requiredTagOrOptionalAuthorClauses);
-
-        List<String> requiredAuthorOrOptionalTagClauses = new ArrayList<>();
-        List<Long> authorIds = q.getAuthorIds();
-        if (authorIds != null && !authorIds.isEmpty()) {
-            requiredAuthorOrOptionalTagClauses.add("a.author_id IN (:authorIds)");
-            params.addValue("authorIds", authorIds);
-        }
-
-        List<Long> optionalTagIds = q.getOptionalTagIds();
-        if (optionalTagIds != null && !optionalTagIds.isEmpty()) {
-            requiredAuthorOrOptionalTagClauses.add("a.artwork_id IN (SELECT DISTINCT artwork_id FROM artwork_tags"
-                    + " WHERE tag_id IN (:optionalTagIds))");
-            params.addValue("optionalTagIds", optionalTagIds);
-        }
-
-        appendOrGroup(where, requiredAuthorOrOptionalTagClauses);
-
-        List<Long> excludedAuthorIds = q.getExcludedAuthorIds();
-        if (excludedAuthorIds != null && !excludedAuthorIds.isEmpty()) {
-            where.append(" AND (a.author_id IS NULL OR a.author_id NOT IN (:excludedAuthorIds))");
-            params.addValue("excludedAuthorIds", excludedAuthorIds);
-        }
-
-        List<Long> excludedTagIds = q.getExcludedTagIds();
-        if (excludedTagIds != null && !excludedTagIds.isEmpty()) {
-            where.append(" AND a.artwork_id NOT IN (SELECT DISTINCT artwork_id FROM artwork_tags"
-                    + " WHERE tag_id IN (:excludedTagIds))");
-            params.addValue("excludedTagIds", excludedTagIds);
-        }
+        appendTagAuthorFilterClauses(where, params, q);
 
         String countSql = "SELECT COUNT(*) FROM artworks a"
                 + " LEFT JOIN authors au ON au.author_id = a.author_id"
@@ -191,6 +146,95 @@ public class GalleryRepository {
             return;
         }
         where.append(" AND (").append(String.join(" OR ", clauses)).append(")");
+    }
+
+    private void appendTagAuthorFilterClauses(StringBuilder where, MapSqlParameterSource params, GalleryQuery q) {
+        List<Long> tagIds = q.getTagIds();
+        List<Long> excludedTagIds = q.getExcludedTagIds();
+        List<Long> optionalTagIds = q.getOptionalTagIds();
+        List<Long> authorIds = q.getAuthorIds();
+        List<Long> excludedAuthorIds = q.getExcludedAuthorIds();
+        List<Long> optionalAuthorIds = q.getOptionalAuthorIds();
+
+        appendExcludedTagClause(where, params, excludedTagIds);
+        appendExcludedAuthorClause(where, params, excludedAuthorIds);
+
+        List<String> positiveClauses = new ArrayList<>();
+        if (hasAny(tagIds) && hasAny(authorIds)) {
+            List<String> mustCore = new ArrayList<>();
+            appendRequiredTagClause(mustCore, params, tagIds);
+            appendRequiredAuthorClause(mustCore, params, authorIds);
+            positiveClauses.add("(" + String.join(" AND ", mustCore) + ")");
+        } else {
+            appendRequiredTagClause(positiveClauses, params, tagIds);
+            appendRequiredAuthorClause(positiveClauses, params, authorIds);
+        }
+        appendOptionalTagClause(positiveClauses, params, optionalTagIds);
+        appendOptionalAuthorClause(positiveClauses, params, optionalAuthorIds);
+        appendOrGroup(where, positiveClauses);
+    }
+
+    @SafeVarargs
+    private boolean hasAny(List<Long>... idLists) {
+        for (List<Long> ids : idLists) {
+            if (ids != null && !ids.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void appendRequiredTagClause(List<String> clauses, MapSqlParameterSource params, List<Long> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) {
+            return;
+        }
+        clauses.add("a.artwork_id IN (SELECT artwork_id FROM artwork_tags"
+                + " WHERE tag_id IN (:tagIds)"
+                + " GROUP BY artwork_id HAVING COUNT(DISTINCT tag_id) = :tagIdCount)");
+        params.addValue("tagIds", tagIds);
+        params.addValue("tagIdCount", tagIds.size());
+    }
+
+    private void appendOptionalTagClause(List<String> clauses, MapSqlParameterSource params, List<Long> optionalTagIds) {
+        if (optionalTagIds == null || optionalTagIds.isEmpty()) {
+            return;
+        }
+        clauses.add("a.artwork_id IN (SELECT DISTINCT artwork_id FROM artwork_tags"
+                + " WHERE tag_id IN (:optionalTagIds))");
+        params.addValue("optionalTagIds", optionalTagIds);
+    }
+
+    private void appendRequiredAuthorClause(List<String> clauses, MapSqlParameterSource params, List<Long> authorIds) {
+        if (authorIds == null || authorIds.isEmpty()) {
+            return;
+        }
+        clauses.add("a.author_id IN (:authorIds)");
+        params.addValue("authorIds", authorIds);
+    }
+
+    private void appendOptionalAuthorClause(List<String> clauses, MapSqlParameterSource params, List<Long> optionalAuthorIds) {
+        if (optionalAuthorIds == null || optionalAuthorIds.isEmpty()) {
+            return;
+        }
+        clauses.add("a.author_id IN (:optionalAuthorIds)");
+        params.addValue("optionalAuthorIds", optionalAuthorIds);
+    }
+
+    private void appendExcludedAuthorClause(StringBuilder where, MapSqlParameterSource params, List<Long> excludedAuthorIds) {
+        if (excludedAuthorIds == null || excludedAuthorIds.isEmpty()) {
+            return;
+        }
+        where.append(" AND (a.author_id IS NULL OR a.author_id NOT IN (:excludedAuthorIds))");
+        params.addValue("excludedAuthorIds", excludedAuthorIds);
+    }
+
+    private void appendExcludedTagClause(StringBuilder where, MapSqlParameterSource params, List<Long> excludedTagIds) {
+        if (excludedTagIds == null || excludedTagIds.isEmpty()) {
+            return;
+        }
+        where.append(" AND a.artwork_id NOT IN (SELECT DISTINCT artwork_id FROM artwork_tags"
+                + " WHERE tag_id IN (:excludedTagIds))");
+        params.addValue("excludedTagIds", excludedTagIds);
     }
 
     public record QueryResult(List<Long> ids, long totalElements) {}

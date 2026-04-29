@@ -48,8 +48,46 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("required tags or optional authors should form the first cross-dimension clause")
-    void shouldApplyRequiredTagsOrOptionalAuthorsClause() {
+    @DisplayName("author-only filters should union required and optional authors")
+    void shouldUnionRequiredAndOptionalAuthorsWhenNoTagsAreSelected() {
+        GalleryQuery query = GalleryQuery.normalize(
+                0, 24, "date", "desc", null, "any", "any",
+                null, null,
+                null,
+                null,
+                null,
+                java.util.List.of(AUTHOR_A),
+                null,
+                java.util.List.of(AUTHOR_E));
+
+        GalleryRepository.QueryResult result = repository.findArtworkIds(query);
+
+        assertThat(result.totalElements()).isEqualTo(3);
+        assertThat(result.ids()).containsExactly(ARTWORK_H, ARTWORK_F, ARTWORK_B);
+    }
+
+    @Test
+    @DisplayName("tag-only filters should union required and optional tags")
+    void shouldUnionRequiredAndOptionalTagsWhenNoAuthorsAreSelected() {
+        GalleryQuery query = GalleryQuery.normalize(
+                0, 24, "date", "desc", null, "any", "any",
+                null, null,
+                java.util.List.of(TAG_C),
+                null,
+                java.util.List.of(TAG_G),
+                null,
+                null,
+                null);
+
+        GalleryRepository.QueryResult result = repository.findArtworkIds(query);
+
+        assertThat(result.totalElements()).isEqualTo(3);
+        assertThat(result.ids()).containsExactly(ARTWORK_K, ARTWORK_F, ARTWORK_B);
+    }
+
+    @Test
+    @DisplayName("required tags and optional authors should union when required authors are not selected")
+    void shouldUnionRequiredTagsAndOptionalAuthorsWhenRequiredAuthorsAreNotSelected() {
         GalleryQuery query = GalleryQuery.normalize(
                 0, 24, "date", "desc", null, "any", "any",
                 null, null,
@@ -67,14 +105,52 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("both cross-dimension positive clauses should be required when both sides are active")
-    void shouldRequireBothCrossDimensionPositiveClauses() {
+    @DisplayName("required tag and author should form the must core while optional terms still release rows")
+    void shouldUseRequiredTagAndAuthorAsMustCoreWithOptionalReleaseTerms() {
         GalleryQuery query = GalleryQuery.normalize(
                 0, 24, "date", "desc", null, "any", "any",
                 null, null,
                 java.util.List.of(TAG_C),
                 null,
                 java.util.List.of(TAG_G),
+                java.util.List.of(AUTHOR_A),
+                null,
+                java.util.List.of(AUTHOR_E));
+
+        GalleryRepository.QueryResult result = repository.findArtworkIds(query);
+
+        assertThat(result.totalElements()).isEqualTo(2);
+        assertThat(result.ids()).containsExactly(ARTWORK_F, ARTWORK_B);
+    }
+
+    @Test
+    @DisplayName("optional tags should release rows when only required tags are selected")
+    void shouldReleaseOptionalTagRowsWhenRequiredAuthorIsNotSelected() {
+        GalleryQuery query = GalleryQuery.normalize(
+                0, 24, "date", "desc", null, "any", "any",
+                null, null,
+                java.util.List.of(TAG_C),
+                null,
+                java.util.List.of(TAG_X),
+                null,
+                null,
+                java.util.List.of(AUTHOR_E));
+
+        GalleryRepository.QueryResult result = repository.findArtworkIds(query);
+
+        assertThat(result.totalElements()).isEqualTo(4);
+        assertThat(result.ids()).containsExactly(ARTWORK_K, ARTWORK_H, ARTWORK_F, ARTWORK_B);
+    }
+
+    @Test
+    @DisplayName("optional authors should release rows even when required tag and author are both selected")
+    void shouldReleaseOptionalAuthorRowsWhenRequiredTagAndAuthorAreBothSelected() {
+        GalleryQuery query = GalleryQuery.normalize(
+                0, 24, "date", "desc", null, "any", "any",
+                null, null,
+                java.util.List.of(TAG_C),
+                null,
+                null,
                 java.util.List.of(AUTHOR_A),
                 null,
                 java.util.List.of(AUTHOR_E));
