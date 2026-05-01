@@ -204,6 +204,7 @@ public class AuthFilter extends OncePerRequestFilter {
                 || path.equals("/intro-canary.html")
                 || path.equals("/favicon.ico")
                 || path.equals("/js/pixiv-i18n.js")
+                || path.equals("/js/pixiv-lang-switcher.js")
                 || path.equals("/js/pixiv-theme.js")
                 || path.startsWith("/api/setup/")
                 || path.startsWith("/api/auth/")
@@ -214,7 +215,8 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isSetupOnlyStaticResource(String path) {
-        return path.equals("/js/pixiv-theme.js");
+        return path.equals("/js/pixiv-lang-switcher.js")
+                || path.equals("/js/pixiv-theme.js");
     }
 
     private boolean isApi(String path) {

@@ -1,56 +1,129 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pixiv 批量下载器 — 初始配置</title>
+<script src="/js/pixiv-i18n.js"></script>
+<script src="/js/pixiv-lang-switcher.js"></script>
+<script src="/js/pixiv-theme.js"></script>
 <style>
+  :root {
+    --page-bg: #f5f5f5;
+    --surface: #ffffff;
+    --surface-selected: #f0fff4;
+    --control-bg: #ffffff;
+    --line: #dddddd;
+    --line-hover: #aaaaaa;
+    --text: #333333;
+    --heading: #555555;
+    --muted: #666666;
+    --brand: #28a745;
+    --danger: #dc3545;
+    --info: #007bff;
+    --status-muted: #666666;
+    --shadow: 0 1px 4px rgba(0,0,0,.12);
+  }
+
+  html[data-theme="dark"] {
+    --page-bg: #101216;
+    --surface: #171a21;
+    --surface-selected: rgba(40, 167, 69, 0.14);
+    --control-bg: #1e2330;
+    --line: #303746;
+    --line-hover: #4b5567;
+    --text: #f4f7fb;
+    --heading: #d6dde8;
+    --muted: #a7b0bf;
+    --brand: #35c765;
+    --danger: #f87171;
+    --info: #60a5fa;
+    --status-muted: #a7b0bf;
+    --shadow: 0 1px 10px rgba(0,0,0,.35);
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #f5f5f5; color: #333; font-size: 14px;
+    background: var(--page-bg); color: var(--text); font-size: 14px;
   }
   header {
     background: #28a745; color: white;
     padding: 14px 20px; font-size: 18px; font-weight: bold; letter-spacing: .5px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .header-title { flex: 1; min-width: 0; }
+  .header-actions {
+    display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  .pixiv-lang-switcher--setup {
+    display: inline-flex; align-items: center;
+  }
+  .pixiv-lang-switcher--setup .pixiv-lang-switcher__select {
+    min-height: 30px; padding: 4px 8px;
+    border: 1px solid rgba(255,255,255,.5); border-radius: 4px;
+    background: transparent; color: white; cursor: pointer;
+    font-size: 12px; font-family: inherit;
+  }
+  .pixiv-lang-switcher--setup .pixiv-lang-switcher__select:hover {
+    background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.75);
+  }
+  .pixiv-lang-switcher--setup .pixiv-lang-switcher__select option {
+    background: var(--surface); color: var(--text);
+  }
+  .pixiv-theme-toggle {
+    width: 30px; height: 30px;
+    border: 1px solid rgba(255,255,255,.5); border-radius: 4px;
+    background: transparent; color: white; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background .2s, border-color .2s;
+  }
+  .pixiv-theme-toggle:hover {
+    background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.75);
+  }
+  .pixiv-theme-toggle svg {
+    width: 15px; height: 15px;
+    fill: none; stroke: currentColor; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
   }
   .page { max-width: 600px; margin: 28px auto; padding: 0 16px 40px; }
   .card {
-    background: white; border-radius: 8px;
-    box-shadow: 0 1px 4px rgba(0,0,0,.12);
+    background: var(--surface); border-radius: 8px;
+    box-shadow: var(--shadow);
     padding: 20px; margin-bottom: 14px;
   }
   .card-title {
-    font-weight: bold; font-size: 13px; color: #555;
+    font-weight: bold; font-size: 13px; color: var(--heading);
     margin-bottom: 14px; text-transform: uppercase; letter-spacing: .4px;
   }
-  .welcome-text { color: #555; font-size: 13px; line-height: 1.6; }
+  .welcome-text { color: var(--heading); font-size: 13px; line-height: 1.6; }
 
   /* Form fields */
   .field { margin-bottom: 12px; }
-  .field label { display: block; font-size: 12px; color: #555; margin-bottom: 4px; font-weight: bold; }
+  .field label { display: block; font-size: 12px; color: var(--heading); margin-bottom: 4px; font-weight: bold; }
   .field input[type=text],
   .field input[type=password] {
     width: 100%; padding: 8px 10px;
-    border: 1px solid #ddd; border-radius: 5px;
+    border: 1px solid var(--line); border-radius: 5px;
+    background: var(--control-bg); color: var(--text);
     font-size: 13px; transition: border-color .15s;
   }
-  .field input:focus { outline: none; border-color: #28a745; }
+  .field input:focus { outline: none; border-color: var(--brand); }
 
   /* Mode selection */
   .mode-option {
-    border: 2px solid #ddd; border-radius: 6px;
+    border: 2px solid var(--line); border-radius: 6px;
     padding: 12px 14px; margin-bottom: 10px; cursor: pointer;
     transition: border-color .15s, background .15s;
   }
-  .mode-option:hover { border-color: #aaa; }
-  .mode-option.selected { border-color: #28a745; background: #f0fff4; }
+  .mode-option:hover { border-color: var(--line-hover); }
+  .mode-option.selected { border-color: var(--brand); background: var(--surface-selected); }
   .mode-option label {
     display: flex; align-items: center; gap: 8px; cursor: pointer;
     font-weight: bold; font-size: 13px; margin-bottom: 5px;
   }
   .mode-option label input[type=radio] { width: 15px; height: 15px; cursor: pointer; }
-  .mode-desc { font-size: 12px; color: #666; line-height: 1.5; padding-left: 23px; }
+  .mode-desc { font-size: 12px; color: var(--muted); line-height: 1.5; padding-left: 23px; }
 
   /* Buttons */
   .btn {
@@ -60,54 +133,64 @@
   }
   .btn:hover { opacity: .85; }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
-  .btn-green { background: #28a745; }
+  .btn-green { background: var(--brand); }
 
   /* Status message */
   #status-msg {
     text-align: center; font-size: 13px;
     min-height: 20px; margin-bottom: 10px;
     padding: 6px 0;
+    color: var(--status-muted);
   }
+  #status-msg[data-tone="error"] { color: var(--danger); }
+  #status-msg[data-tone="info"] { color: var(--info); }
+  #status-msg[data-tone="success"] { color: var(--brand); }
 </style>
 </head>
 <body>
 
-<header>Pixiv 批量下载器 — 初始配置</header>
+<header>
+  <span class="header-title" data-i18n="header.title">Pixiv 批量下载器 — 初始配置</span>
+  <span class="header-actions" id="headerActions"></span>
+</header>
 
 <div class="page">
 
   <div class="card">
-    <div class="card-title">欢迎使用</div>
-    <p class="welcome-text">
+    <div class="card-title" data-i18n="welcome.title">欢迎使用</div>
+    <p class="welcome-text" data-i18n-html="welcome.body">
       检测到这是首次运行，请完成以下初始配置。<br>
       配置完成后将不会再次显示此页面。
     </p>
   </div>
 
   <div class="card">
-    <div class="card-title">管理员账号</div>
+    <div class="card-title" data-i18n="account.title">管理员账号</div>
     <div class="field">
-      <label>用户名</label>
-      <input type="text" id="username" placeholder="设置管理员用户名" autocomplete="username">
+      <label data-i18n="field.username">用户名</label>
+      <input type="text" id="username" placeholder="设置管理员用户名" autocomplete="username"
+             data-i18n-placeholder="field.username.placeholder">
     </div>
     <div class="field">
-      <label>密码（至少 6 位）</label>
-      <input type="password" id="password" placeholder="设置密码" autocomplete="new-password">
+      <label data-i18n="field.password">密码（至少 6 位）</label>
+      <input type="password" id="password" placeholder="设置密码" autocomplete="new-password"
+             data-i18n-placeholder="field.password.placeholder">
     </div>
     <div class="field">
-      <label>确认密码</label>
-      <input type="password" id="confirm-password" placeholder="再次输入密码" autocomplete="new-password">
+      <label data-i18n="field.confirm-password">确认密码</label>
+      <input type="password" id="confirm-password" placeholder="再次输入密码" autocomplete="new-password"
+             data-i18n-placeholder="field.confirm-password.placeholder">
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title">使用模式</div>
+    <div class="card-title" data-i18n="mode.title">使用模式</div>
     <div class="mode-option selected" id="opt-solo" onclick="selectMode('solo')">
       <label>
         <input type="radio" name="mode" value="solo" checked>
-        自用模式
+        <span data-i18n="mode.solo">自用模式</span>
       </label>
-      <div class="mode-desc">
+      <div class="mode-desc" data-i18n="mode.solo.desc">
         仅供个人使用。访问需要登录验证，可选择是否保持登录状态。
         所有配置（Cookie、设置、队列）统一保存在服务器，多设备共享同一状态。
       </div>
@@ -115,9 +198,9 @@
     <div class="mode-option" id="opt-multi" onclick="selectMode('multi')">
       <label>
         <input type="radio" name="mode" value="multi">
-        多人使用模式
+        <span data-i18n="mode.multi">多人使用模式</span>
       </label>
-      <div class="mode-desc">
+      <div class="mode-desc" data-i18n="mode.multi.desc">
         多人共享服务。无需登录，每个用户的配置独立保存在各自浏览器的本地存储中，互不干扰。
       </div>
     </div>
@@ -125,7 +208,7 @@
 
   <div class="card">
     <div id="status-msg"></div>
-    <button class="btn btn-green" id="submit-btn" onclick="submitSetup()">完成配置</button>
+    <button class="btn btn-green" id="submit-btn" onclick="submitSetup()" data-i18n="button.submit">完成配置</button>
   </div>
 
 </div>
@@ -133,16 +216,74 @@
 <script>
 'use strict';
 
+let pageI18n = null;
+let activeStatus = null;
+
+function st(key, fallback, vars) {
+  if (pageI18n) return pageI18n.t(key, fallback, vars);
+  if (!vars) return fallback;
+  return String(fallback).replace(/\{([a-zA-Z0-9_.-]+)\}/g, (match, name) => (
+    Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : match
+  ));
+}
+
+function applyStaticPageTranslations() {
+  document.title = st('page.title', 'Pixiv 批量下载器 — 初始配置');
+  if (pageI18n) pageI18n.apply(document.body);
+  syncStatusText();
+}
+
+async function initPageI18n() {
+  pageI18n = await PixivI18n.create({namespaces: ['setup', 'common']});
+  await PixivLangSwitcher.mount({
+    mountPoint: document.getElementById('headerActions'),
+    i18n: pageI18n,
+    variant: 'setup',
+    showLabel: false,
+    onChange: function (nextClient) {
+      pageI18n = nextClient;
+      applyStaticPageTranslations();
+    }
+  });
+  PixivTheme.mount({
+    mountPoint: document.getElementById('headerActions')
+  });
+  applyStaticPageTranslations();
+}
+
 function selectMode(mode) {
   document.querySelector(`input[value="${mode}"]`).checked = true;
   document.getElementById('opt-solo').classList.toggle('selected', mode === 'solo');
   document.getElementById('opt-multi').classList.toggle('selected', mode === 'multi');
 }
 
-function showStatus(msg, color) {
+function showStatus(msg, tone) {
   const el = document.getElementById('status-msg');
   el.textContent = msg;
-  el.style.color = color || '#666';
+  if (tone) {
+    el.dataset.tone = tone;
+  } else {
+    delete el.dataset.tone;
+  }
+}
+
+function setStatusKey(key, fallback, vars, tone) {
+  activeStatus = {key, fallback, vars, tone};
+  showStatus(st(key, fallback, vars), tone);
+}
+
+function setStatusText(text, tone) {
+  activeStatus = {text, tone};
+  showStatus(text, tone);
+}
+
+function syncStatusText() {
+  if (!activeStatus) return;
+  if (activeStatus.key) {
+    showStatus(st(activeStatus.key, activeStatus.fallback, activeStatus.vars), activeStatus.tone);
+  } else {
+    showStatus(activeStatus.text, activeStatus.tone);
+  }
 }
 
 async function submitSetup() {
@@ -151,13 +292,13 @@ async function submitSetup() {
   const confirm  = document.getElementById('confirm-password').value;
   const mode     = document.querySelector('input[name="mode"]:checked').value;
 
-  if (!username) { showStatus('请填写用户名', '#dc3545'); return; }
-  if (password.length < 6) { showStatus('密码长度至少 6 位', '#dc3545'); return; }
-  if (password !== confirm) { showStatus('两次密码输入不一致', '#dc3545'); return; }
+  if (!username) { setStatusKey('validation.username-required', '请填写用户名', null, 'error'); return; }
+  if (password.length < 6) { setStatusKey('validation.password-short', '密码长度至少 6 位', null, 'error'); return; }
+  if (password !== confirm) { setStatusKey('validation.password-mismatch', '两次密码输入不一致', null, 'error'); return; }
 
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
-  showStatus('正在保存配置...', '#007bff');
+  setStatusKey('status.saving', '正在保存配置...', null, 'info');
 
   try {
     const res = await fetch('/api/setup/init', {
@@ -166,14 +307,19 @@ async function submitSetup() {
       body: JSON.stringify({ username, password, mode })
     });
     const data = await res.json();
-    if (!res.ok) { showStatus(data.error || '配置失败', '#dc3545'); btn.disabled = false; return; }
+    if (!res.ok) {
+      if (data.error) setStatusText(data.error, 'error');
+      else setStatusKey('status.failed', '配置失败', null, 'error');
+      btn.disabled = false;
+      return;
+    }
 
-    showStatus('配置完成！正在跳转...', '#28a745');
+    setStatusKey('status.complete', '配置完成！正在跳转...', null, 'success');
     setTimeout(() => {
       window.location.href = mode === 'solo' ? '/login.html' : '/pixiv-batch.html';
     }, 800);
   } catch (e) {
-    showStatus('网络错误：' + e.message, '#dc3545');
+    setStatusKey('status.network-error', '网络错误：{message}', {message: e.message}, 'error');
     btn.disabled = false;
   }
 }
@@ -183,8 +329,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Enter') submitSetup();
 });
 
-// 若已配置完成则跳转
-(async () => {
+async function redirectIfComplete() {
   try {
     const res = await fetch('/api/setup/status');
     const data = await res.json();
@@ -192,6 +337,11 @@ document.addEventListener('keydown', e => {
       window.location.href = data.mode === 'solo' ? '/login.html' : '/pixiv-batch.html';
     }
   } catch {}
+}
+
+(async function initSetupPage() {
+  await initPageI18n();
+  await redirectIfComplete();
 })();
 </script>
 </body>

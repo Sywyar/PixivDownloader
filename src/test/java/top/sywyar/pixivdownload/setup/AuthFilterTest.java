@@ -197,6 +197,7 @@ class AuthFilterTest {
                 "/intro.html",
                 "/intro-canary.html",
                 "/favicon.ico",
+                "/js/pixiv-i18n.js",
                 "/api/setup/status",
                 "/api/auth/login",
                 "/api/auth/check"
@@ -437,6 +438,39 @@ class AuthFilterTest {
             authFilter.doFilterInternal(request, response, filterChain);
 
             assertThat(response.getRedirectedUrl()).isEqualTo("/setup.html");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/js/pixiv-lang-switcher.js",
+                "/js/pixiv-theme.js"
+        })
+        @DisplayName("setup 未完成时本地 IP 应能加载 setup 页面依赖的脚本")
+        void shouldAllowSetupPageScriptsFromLocalAddress(String path) throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI(path);
+            request.setRemoteAddr("127.0.0.1");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/js/pixiv-lang-switcher.js",
+                "/js/pixiv-theme.js"
+        })
+        @DisplayName("setup 未完成时非本地 IP 不应加载 setup 页面专用脚本")
+        void shouldRejectSetupPageScriptsFromRemoteAddress(String path) throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
         }
     }
 
