@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 页面批量下载器
 // @namespace    http://tampermonkey.net/
-// @version      1.0.6
+// @version      1.0.7
 // @description  抓取当前 Pixiv 页面（搜索页、关注动态、排行榜、主页等）上的所有作品
 // @author       Sywyar
 // @match        https://www.pixiv.net/*
@@ -620,6 +620,202 @@
         })[c]);
     }
 
+    /* ========== 进度/后处理结果渲染辅助 ========== */
+    function uiLang() {
+        try { return PixivUserscriptI18n.getLang(); } catch (e) { return 'zh-CN'; }
+    }
+
+    function actionOutcomePart(action, labels) {
+        if (!action) return null;
+        const status = String(action.status || '').toLowerCase();
+        const reason = action.message ? String(action.message) : '';
+        let text = labels.unknown;
+        if (status === 'success') text = labels.success;
+        else if (status === 'failed') text = labels.failed;
+        else if (status === 'skipped') text = labels.skipped;
+        else if (status === 'exists') text = labels.exists;
+        if ((status === 'failed' || status === 'skipped') && reason) {
+            text = text + (uiLang() === 'en-US' ? ': ' : '：') + reason;
+        } else if (!['success', 'failed', 'skipped', 'exists'].includes(status) && reason) {
+            text = text + (uiLang() === 'en-US' ? ': ' : '：') + reason;
+        }
+        const tone = status === 'success' || status === 'exists'
+            ? 'success'
+            : status === 'failed' || status === 'skipped'
+                ? 'error'
+                : 'warning';
+        return { text, tone };
+    }
+
+    function postDownloadOutcomeParts(data) {
+        const parts = [];
+        if (data && data.bookmarkResult) {
+            parts.push(actionOutcomePart(data.bookmarkResult, {
+                success: t('common.outcome.pixiv-bookmark.success', 'Pixiv 收藏成功'),
+                failed: t('common.outcome.pixiv-bookmark.failed', 'Pixiv 收藏失败'),
+                skipped: t('common.outcome.pixiv-bookmark.skipped', 'Pixiv 收藏跳过'),
+                exists: t('common.outcome.pixiv-bookmark.exists', 'Pixiv 已收藏'),
+                unknown: t('common.outcome.pixiv-bookmark.unknown', 'Pixiv 收藏状态未知')
+            }));
+        }
+        if (data && data.collectionResult) {
+            parts.push(actionOutcomePart(data.collectionResult, {
+                success: t('common.outcome.collection.success', '加入收藏夹成功'),
+                failed: t('common.outcome.collection.failed', '加入收藏夹失败'),
+                skipped: t('common.outcome.collection.skipped', '收藏夹加入跳过'),
+                exists: t('common.outcome.collection.exists', '已在收藏夹中'),
+                unknown: t('common.outcome.collection.unknown', '收藏夹状态未知')
+            }));
+        }
+        return parts.filter(Boolean);
+    }
+
+    function appendPostDownloadOutcome(base, data) {
+        const parts = postDownloadOutcomeParts(data);
+        if (!parts.length) return base;
+        const sep = uiLang() === 'en-US' ? '; ' : '；';
+        return base + sep + parts.map(p => p.text).join(sep);
+    }
+
+    function buildPostDownloadMessageParts(base, baseTone, data) {
+        const sep = uiLang() === 'en-US' ? '; ' : '；';
+        const parts = [{ text: base, tone: baseTone }].concat(postDownloadOutcomeParts(data));
+        return parts.map((part, idx) => ({
+            text: part.text + (idx < parts.length - 1 ? sep : ''),
+            tone: part.tone
+        }));
+    }
+
+    function toneColor(tone, fallback) {
+        return ({
+            success: '#28a745',
+            error: '#dc3545',
+            warning: '#e6a700',
+            info: '#007bff'
+        })[tone] || fallback || '#666';
+    }
+
+    function mergeUgoiraProgress(existing, incoming) {
+        if (!incoming) return existing || null;
+        return { ...(existing || {}), ...incoming };
+    }
+
+    function clampProgressValue(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return null;
+        return Math.max(0, Math.min(100, Math.round(n)));
+    }
+
+    function formatBytes(bytes) {
+        const n = Number(bytes);
+        if (!Number.isFinite(n) || n < 0) return '';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let value = n;
+        let idx = 0;
+        while (value >= 1024 && idx < units.length - 1) {
+            value /= 1024;
+            idx++;
+        }
+        const digits = idx === 0 || value >= 10 ? 0 : 1;
+        return `${value.toFixed(digits)} ${units[idx]}`;
+    }
+
+    function formatDurationMs(ms) {
+        const n = Number(ms);
+        if (!Number.isFinite(n) || n < 0) return '';
+        const totalSeconds = Math.round(n / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return minutes > 0 ? `${minutes}:${String(seconds).padStart(2, '0')}` : `${seconds}s`;
+    }
+
+    function miniProgressHtml(label, valueText, progress, color) {
+        const pctValue = clampProgressValue(progress);
+        const pctText = pctValue === null ? '' : `${pctValue}%`;
+        const right = [valueText, pctText].filter(Boolean).join(' · ');
+        const width = pctValue === null ? 100 : pctValue;
+        const opacity = pctValue === null ? '.28' : '1';
+        return `<div style="margin-top:4px;">
+            <div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:2px;color:#666;"><span>${escapeHtml(label)}</span><span>${escapeHtml(right)}</span></div>
+            <div style="width:100%;height:4px;background:#e0e0e0;border-radius:2px;overflow:hidden;"><div style="height:100%;width:${width}%;background:${color};opacity:${opacity};transition:width 0.3s;"></div></div>
+           </div>`;
+    }
+
+    function formatImageDownloadProgressHtml(progress, status) {
+        if (!progress || ['completed', 'failed', 'skipped'].includes(status)) return '';
+        const imageText = progress.imageNumber && progress.totalImages
+            ? t('common.image-download.index', '第 {current}/{total} 张', { current: progress.imageNumber, total: progress.totalImages })
+            : '';
+        const bytesText = progress.totalBytes > 0
+            ? `${formatBytes(progress.downloadedBytes || 0)} / ${formatBytes(progress.totalBytes)}`
+            : formatBytes(progress.downloadedBytes || 0);
+        const valueText = [imageText, bytesText].filter(Boolean).join(' · ');
+        return miniProgressHtml(
+            t('common.image-download.label', '图片下载'),
+            valueText,
+            progress.progress,
+            progress.status === 'failed' ? '#dc3545' : '#0ea5e9'
+        );
+    }
+
+    function formatUgoiraProgressHtml(progress, itemStatus) {
+        if (!progress || itemStatus === 'completed' || progress.status === 'completed') return '';
+        const phase = String(progress.phase || '');
+        const status = String(progress.status || '');
+        const parts = [];
+
+        const hasZip = phase === 'zip' || phase === 'extract' || phase === 'ffmpeg'
+            || progress.zipDownloadedBytes !== undefined || progress.zipProgress !== undefined;
+        if (hasZip) {
+            const zipBytes = progress.zipTotalBytes > 0
+                ? `${formatBytes(progress.zipDownloadedBytes || 0)} / ${formatBytes(progress.zipTotalBytes)}`
+                : formatBytes(progress.zipDownloadedBytes || 0);
+            parts.push(miniProgressHtml(
+                t('common.ugoira.zip', '动图压缩包'),
+                zipBytes,
+                progress.zipProgress,
+                '#0ea5e9'
+            ));
+        }
+
+        const hasFfmpeg = phase === 'ffmpeg' || progress.ffmpegProgress !== undefined || status === 'completed';
+        if (hasFfmpeg) {
+            const timeText = progress.ffmpegDurationMs > 0
+                ? `${formatDurationMs(progress.ffmpegOutTimeMs || 0)} / ${formatDurationMs(progress.ffmpegDurationMs)}`
+                : '';
+            parts.push(miniProgressHtml(
+                t('common.ugoira.ffmpeg', 'ffmpeg 转换'),
+                timeText,
+                progress.ffmpegProgress,
+                status === 'failed' ? '#dc3545' : '#6610f2'
+            ));
+        }
+
+        if (phase === 'extract') {
+            const extracted = progress.totalFrames > 0
+                ? t('common.ugoira.extracting-count', '正在解压帧 {current}/{total}', {
+                    current: progress.extractedFrames || 0,
+                    total: progress.totalFrames
+                })
+                : t('common.ugoira.extracting', '正在解压帧');
+            parts.push(`<div style="font-size:10px;color:#666;margin-top:4px;">${escapeHtml(extracted)}</div>`);
+        } else if (status === 'failed') {
+            parts.push(`<div style="font-size:10px;color:#dc3545;margin-top:4px;">${escapeHtml(t('common.ugoira.failed', '动图处理失败'))}</div>`);
+        }
+
+        return parts.length ? `<div>${parts.join('')}</div>` : '';
+    }
+
+    function renderQueueDescHtml(q, fallbackText, statusColorFn) {
+        const fallbackColor = statusColorFn(q.status);
+        if (Array.isArray(q.lastMessageParts) && q.lastMessageParts.length) {
+            return q.lastMessageParts
+                .map(part => `<span style="color:${toneColor(part.tone, fallbackColor)};font-weight:bold;">${escapeHtml(part.text)}</span>`)
+                .join('');
+        }
+        return `<span style="color:${fallbackColor};font-weight:bold;">${escapeHtml(fallbackText)}</span>`;
+    }
+
     /* ========== 页面作品 ID 抓取 ========== */
     function scrapePageArtworkIds() {
         const seen = new Set();
@@ -990,7 +1186,7 @@
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed.queue)) {
                     this.queue = parsed.queue.map(q =>
-                        q.status === 'downloading' ? { ...q, status: 'idle', lastMessage: '刷新后重置' } : q
+                        q.status === 'downloading' ? { ...q, status: 'idle', lastMessage: '刷新后重置', lastMessageParts: null } : q
                     );
                     this.isPaused = !!parsed.isPaused;
                     this.stats = parsed.stats || { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
@@ -1047,7 +1243,12 @@
                         id: String(id), title: `ID: ${id}`,
                         url: `https://www.pixiv.net/artworks/${id}`,
                         status: 'idle', totalImages: 0, downloadedCount: 0,
-                        startTime: null, endTime: null, lastMessage: ''
+                        startTime: null, endTime: null, lastMessage: '',
+                        lastMessageParts: null,
+                        bookmarkResult: null,
+                        collectionResult: null,
+                        ugoiraProgress: null,
+                        imageProgress: null
                     });
                     added++;
                 }
@@ -1067,7 +1268,12 @@
             const intervalMs = this.getIntervalMs();
             const maxConcurrent = this.globalSettings.concurrent;
 
-            this.queue.forEach(q => { if (['idle', 'failed', 'paused'].includes(q.status)) q.status = 'pending'; });
+            this.queue.forEach(q => {
+                if (['idle', 'failed', 'paused'].includes(q.status)) {
+                    q.status = 'pending';
+                    q.lastMessageParts = null;
+                }
+            });
             this.isRunning = true;
             this.isPaused = false;
             this.stopRequested = false;
@@ -1143,6 +1349,11 @@
         }
 
         async _processSingle({ item }) {
+            item.lastMessageParts = null;
+            item.bookmarkResult = null;
+            item.collectionResult = null;
+            item.ugoiraProgress = null;
+            item.imageProgress = null;
             item.lastMessage = '正在检查历史记录...';
             this.ui.renderQueue(this.queue);
 
@@ -1231,13 +1442,21 @@
                 if (final && final.completed) {
                     const dCount = final.downloadedCount !== undefined ? final.downloadedCount : item.totalImages;
                     item.downloadedCount = dCount;
+                    item.bookmarkResult = final.bookmarkResult || null;
+                    item.collectionResult = final.collectionResult || null;
+                    item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, final.ugoiraProgress);
+                    item.imageProgress = final.imageProgress || item.imageProgress || null;
                     if (dCount < item.totalImages) {
                         item.status = 'failed';
-                        item.lastMessage = `失败 — 仅 ${dCount}/${item.totalImages} 张已下载`;
+                        const baseMessage = `失败 — 仅 ${dCount}/${item.totalImages} 张已下载`;
+                        item.lastMessage = appendPostDownloadOutcome(baseMessage, final);
+                        item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'error', final);
                         this.ui.setStatus(`失败：${item.title} (文件缺失)`, 'error');
                     } else {
                         item.status = 'completed';
-                        item.lastMessage = `已完成，共 ${dCount} 张`;
+                        const baseMessage = `已完成，共 ${dCount} 张`;
+                        item.lastMessage = appendPostDownloadOutcome(baseMessage, final);
+                        item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'success', final);
                         this.ui.setStatus(`完成：${item.title}`, 'success');
                         if (quotaInfo.enabled) {
                             quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
@@ -1245,6 +1464,8 @@
                         }
                     }
                 } else if (final && final.failed) {
+                    item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, final.ugoiraProgress);
+                    item.imageProgress = final.imageProgress || item.imageProgress || null;
                     item.status = 'failed';
                     item.lastMessage = `失败 — ${final.message || '后端报告失败'}`;
                     this.ui.setStatus(`失败：${item.title}`, 'error');
@@ -1254,12 +1475,20 @@
                         if (check && check.completed) {
                             const dCount = check.downloadedCount !== undefined ? check.downloadedCount : 0;
                             item.downloadedCount = dCount;
+                            item.bookmarkResult = check.bookmarkResult || null;
+                            item.collectionResult = check.collectionResult || null;
+                            item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, check.ugoiraProgress);
+                            item.imageProgress = check.imageProgress || item.imageProgress || null;
                             if (dCount < item.totalImages) {
                                 item.status = 'failed';
-                                item.lastMessage = `失败 — 文件缺失 (${dCount}/${item.totalImages})`;
+                                const baseMessage = `失败 — 文件缺失 (${dCount}/${item.totalImages})`;
+                                item.lastMessage = appendPostDownloadOutcome(baseMessage, check);
+                                item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'error', check);
                             } else {
                                 item.status = 'completed';
-                                item.lastMessage = `已完成（确认），共 ${dCount} 张`;
+                                const baseMessage = `已完成（确认），共 ${dCount} 张`;
+                                item.lastMessage = appendPostDownloadOutcome(baseMessage, check);
+                                item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'success', check);
                             }
                         } else {
                             item.status = 'failed';
@@ -1333,10 +1562,13 @@
                         finish(data);
                     } else {
                         const q = this.queue.find(x => x.id === String(artworkId));
-                        if (q && data.downloadedCount !== undefined) {
-                            q.downloadedCount = data.downloadedCount;
+                        if (q) {
+                            if (data.downloadedCount !== undefined) q.downloadedCount = data.downloadedCount;
+                            if (data.ugoiraProgress) q.ugoiraProgress = mergeUgoiraProgress(q.ugoiraProgress, data.ugoiraProgress);
+                            if (data.imageProgress) q.imageProgress = data.imageProgress;
                             this.saveToStorage();
                             this.ui.renderQueue(this.queue);
+                            this.ui.setCurrent(q);
                         }
                         clearTimeout(timer);
                         timer = setTimeout(() => finish(null), timeoutMs);
@@ -1784,7 +2016,17 @@
             if (!this.manager) return;
             const failed = this.manager.queue.filter(q => q.status === 'failed');
             if (!failed.length) { alert(t('page.alert.no-failed', '当前没有失败的作品！')); return; }
-            failed.forEach(q => { q.status = 'pending'; q.lastMessage = ''; q.startTime = null; q.endTime = null; });
+            failed.forEach(q => {
+                q.status = 'pending';
+                q.lastMessage = '';
+                q.lastMessageParts = null;
+                q.bookmarkResult = null;
+                q.collectionResult = null;
+                q.ugoiraProgress = null;
+                q.imageProgress = null;
+                q.startTime = null;
+                q.endTime = null;
+            });
             this.manager.saveToStorage();
             this.renderQueue(this.manager.queue);
             this.handleStart();
@@ -1831,12 +2073,15 @@
                     style: { padding: '5px', marginBottom: '3px', background: 'white', fontSize: '10px', borderLeft: `3px solid ${this._colorByStatus(q.status)}` }
                 });
                 const desc = translateStatusText(q.lastMessage || this._statusText(q.status));
+                const descHtml = renderQueueDescHtml(q, desc, (s) => this._colorByStatus(s));
+                const detailProgress = formatImageDownloadProgressHtml(q.imageProgress, q.status)
+                    + formatUgoiraProgressHtml(q.ugoiraProgress, q.status);
                 const canRemove = q.status !== 'downloading';
                 const removeBtn = canRemove
                     ? `<button data-remove-id="${q.id}" title="${t('common.action.remove', '从队列移除')}" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:11px;padding:1px 2px;line-height:1;">✕</button>`
                     : '';
                 const linkBtn = `<a href="https://www.pixiv.net/artworks/${q.id}" target="_blank" title="${t('common.action.open-artwork', '打开作品页面')}" style="color:#007bff;font-size:11px;padding:1px 2px;text-decoration:none;line-height:1;">🔗</a>`;
-                item.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:4px;">${escapeHtml(q.title || 'ID: ' + q.id)}</strong><span style="display:flex;gap:1px;flex-shrink:0;">${linkBtn}${removeBtn}</span></div><div>ID: ${q.id} | <span style="color:${this._colorByStatus(q.status)};font-weight:bold;">${escapeHtml(desc)}</span></div>${this._progressHtml(q)}`;
+                item.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:4px;">${escapeHtml(q.title || 'ID: ' + q.id)}</strong><span style="display:flex;gap:1px;flex-shrink:0;">${linkBtn}${removeBtn}</span></div><div>ID: ${q.id} | ${descHtml}</div>${this._progressHtml(q)}${detailProgress}`;
                 node.appendChild(item);
             }
             node.onclick = (e) => {
@@ -1854,7 +2099,9 @@
         setCurrent(item) {
             const c = this.elements.currentDownload;
             if (!item) { c.innerHTML = `<strong>${t('common.current.label', '当前下载:')}</strong> ${t('common.current.none', '无')}`; return; }
-            c.innerHTML = `<strong>${t('common.current.label', '当前下载:')}</strong> ${escapeHtml(item.title)} (ID: ${item.id})${this._progressHtml(item, true)}`;
+            const detailProgress = formatImageDownloadProgressHtml(item.imageProgress, item.status)
+                + formatUgoiraProgressHtml(item.ugoiraProgress, item.status);
+            c.innerHTML = `<strong>${t('common.current.label', '当前下载:')}</strong> ${escapeHtml(item.title)} (ID: ${item.id})${this._progressHtml(item, true)}${detailProgress}`;
         }
 
         setStatus(msg, type = 'info') {
