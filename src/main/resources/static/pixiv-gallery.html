@@ -6,6 +6,7 @@
     <title>Pixiv Gallery</title>
     <script src="/js/pixiv-i18n.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <style>
         :root {
@@ -28,6 +29,37 @@
             --filter-or: #16a34a;
             --filter-or-bg: rgba(22, 163, 74, 0.08);
             --sidebar-shadow: 8px 0 40px rgba(0, 0, 0, 0.08);
+            --control-bg: #ffffff;
+            --control-muted-bg: #fafafa;
+            --hover-bg: #f5f5f5;
+            --soft-bg: #f7fbff;
+            --pink-soft-bg: #fff0f6;
+            --scrollbar-thumb: #dddddd;
+        }
+
+        html[data-theme="dark"] {
+            --bg: #101216;
+            --surface: #171a21;
+            --line: #2a303b;
+            --text: #f4f7fb;
+            --muted: #8d98aa;
+            --muted-2: #748094;
+            --text-secondary: #d6dde8;
+            --brand: #4bb3ff;
+            --danger: #f87171;
+            --filter-must: #7aa7ff;
+            --filter-must-bg: rgba(122, 167, 255, 0.16);
+            --filter-not: #fb7185;
+            --filter-not-bg: rgba(251, 113, 133, 0.16);
+            --filter-or: #4ade80;
+            --filter-or-bg: rgba(74, 222, 128, 0.16);
+            --sidebar-shadow: 8px 0 40px rgba(0, 0, 0, 0.38);
+            --control-bg: #1e2330;
+            --control-muted-bg: #151922;
+            --hover-bg: #222838;
+            --soft-bg: rgba(75, 179, 255, 0.1);
+            --pink-soft-bg: #3a2035;
+            --scrollbar-thumb: #3b4352;
         }
 
         * {
@@ -494,6 +526,59 @@
             position: sticky;
             top: 0;
             z-index: 5;
+        }
+
+        .topbar-actions {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .pixiv-lang-switcher--default {
+            color: var(--text-secondary) !important;
+        }
+
+        .pixiv-lang-switcher--default .pixiv-lang-switcher__select {
+            border-color: var(--line) !important;
+            background: var(--control-bg) !important;
+            color: var(--text-secondary) !important;
+        }
+
+        .pixiv-lang-switcher--default .pixiv-lang-switcher__select option {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        .pixiv-theme-toggle {
+            width: 32px;
+            height: 32px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: border-color 0.15s, color 0.15s, background 0.15s;
+        }
+
+        .pixiv-theme-toggle:hover {
+            border-color: var(--brand);
+            color: var(--brand);
+            background: var(--hover-bg);
+        }
+
+        .pixiv-theme-toggle svg {
+            width: 16px;
+            height: 16px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
 
         .search-box {
@@ -1813,6 +1898,115 @@
             text-align: center;
         }
 
+        html[data-theme="dark"] .sidebar-toggle,
+        html[data-theme="dark"] .filter-btn,
+        html[data-theme="dark"] .chip,
+        html[data-theme="dark"] .filter-mode-btn,
+        html[data-theme="dark"] .tag-search-box,
+        html[data-theme="dark"] .page-btn,
+        html[data-theme="dark"] .form-input,
+        html[data-theme="dark"] .btn,
+        html[data-theme="dark"] .context-menu,
+        html[data-theme="dark"] .mobile-menu-btn,
+        html[data-theme="dark"] .filter-summary-bar .clear,
+        html[data-theme="dark"] .author-row-btn,
+        html[data-theme="dark"] .author-works-arrow {
+            background: var(--control-bg);
+            color: var(--text-secondary);
+        }
+
+        html[data-theme="dark"] .search-box,
+        html[data-theme="dark"] .filter-panel {
+            background: var(--control-muted-bg);
+        }
+
+        html[data-theme="dark"] .search-box:focus-within {
+            background: var(--surface);
+        }
+
+        html[data-theme="dark"] .nav-item:hover,
+        html[data-theme="dark"] .collection-item:hover,
+        html[data-theme="dark"] .collection-menu:hover,
+        html[data-theme="dark"] .section-add:hover,
+        html[data-theme="dark"] .modal-close:hover,
+        html[data-theme="dark"] .collection-row:hover,
+        html[data-theme="dark"] .context-item:hover {
+            background: var(--hover-bg);
+        }
+
+        html[data-theme="dark"] .nav-item.active,
+        html[data-theme="dark"] .collection-item.selected {
+            background: rgba(75, 179, 255, 0.12);
+        }
+
+        html[data-theme="dark"] .filter-btn.active,
+        html[data-theme="dark"] .chip.active {
+            border-color: var(--brand);
+            color: var(--brand);
+            background: rgba(75, 179, 255, 0.14);
+        }
+
+        html[data-theme="dark"] .page-btn.active,
+        html[data-theme="dark"] .btn-primary {
+            background: var(--brand);
+            border-color: var(--brand);
+            color: #fff;
+        }
+
+        html[data-theme="dark"] .btn-danger {
+            border-color: rgba(248, 113, 113, 0.45);
+            color: var(--danger);
+        }
+
+        html[data-theme="dark"] .modal {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .work-thumb,
+        html[data-theme="dark"] .author-work-thumb,
+        html[data-theme="dark"] .icon-preview {
+            background: var(--control-bg);
+        }
+
+        html[data-theme="dark"] .collection-icon,
+        html[data-theme="dark"] .chip .chip-icon,
+        html[data-theme="dark"] .collection-row-icon {
+            background: var(--pink-soft-bg);
+        }
+
+        html[data-theme="dark"] .filter-summary-bar {
+            background: var(--soft-bg);
+        }
+
+        html[data-theme="dark"] .context-item.danger:hover {
+            background: rgba(248, 113, 113, 0.12);
+        }
+
+        html[data-theme="dark"] .form-input:disabled {
+            background: #242a36;
+            color: var(--muted);
+        }
+
+        html[data-theme="dark"] .thumb-heart {
+            background: rgba(20, 24, 33, 0.88);
+        }
+
+        html[data-theme="dark"] .thumb-heart svg,
+        html[data-theme="dark"] .sidebar-toggle svg,
+        html[data-theme="dark"] .mobile-menu-btn svg {
+            stroke: var(--text-secondary);
+        }
+
+        html[data-theme="dark"] .author-works-strip::-webkit-scrollbar-thumb {
+            background: var(--scrollbar-thumb);
+        }
+
+        html[data-theme="dark"] #filterTagChips:not(.expanded).has-overflow::after,
+        html[data-theme="dark"] #filterAuthorChips:not(.expanded).has-overflow::after {
+            background: linear-gradient(90deg, rgba(21, 25, 34, 0) 0%, var(--control-muted-bg) 40%, var(--control-muted-bg) 100%);
+        }
+
         @media (max-width: 768px) {
             .sidebar {
                 position: fixed;
@@ -1995,7 +2189,7 @@
                 <span data-i18n="filter.label">筛选</span>
                 <span class="filter-badge" id="filterBadge">0</span>
             </button>
-            <div id="langSwitcherAnchor" style="margin-left:auto;"></div>
+            <div class="topbar-actions" id="langSwitcherAnchor"></div>
         </div>
 
         <div class="filter-panel" id="filterPanel">
@@ -2377,6 +2571,9 @@
                 }
                 reloadCurrentView();
             }
+        });
+        PixivTheme.mount({
+            mountPoint: document.getElementById('langSwitcherAnchor')
         });
         applyStaticPageTranslations();
     }

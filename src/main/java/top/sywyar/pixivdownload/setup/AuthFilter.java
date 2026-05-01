@@ -95,6 +95,13 @@ public class AuthFilter extends OncePerRequestFilter {
             }
         }
 
+        if (isSetupOnlyStaticResource(path)
+                && !setupService.isSetupComplete()
+                && !NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
+            sendTextError(req, res, 403, "auth.local-only", "Forbidden: local access only");
+            return;
+        }
+
         if (isPublic(path)) {
             chain.doFilter(req, res);
             return;
@@ -197,12 +204,17 @@ public class AuthFilter extends OncePerRequestFilter {
                 || path.equals("/intro-canary.html")
                 || path.equals("/favicon.ico")
                 || path.equals("/js/pixiv-i18n.js")
+                || path.equals("/js/pixiv-theme.js")
                 || path.startsWith("/api/setup/")
                 || path.startsWith("/api/auth/")
                 || path.startsWith("/api/i18n/")
                 || path.startsWith("/api/gui/")
                 || path.startsWith("/api/scripts/")
                 || path.startsWith("/vendor/");
+    }
+
+    private boolean isSetupOnlyStaticResource(String path) {
+        return path.equals("/js/pixiv-theme.js");
     }
 
     private boolean isApi(String path) {

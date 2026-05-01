@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>作品详情 - Pixiv Gallery</title>
     <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <style>
         :root {
@@ -17,6 +19,27 @@
             --brand: #0096fa;
             --danger: #dc2626;
             --page-max: 1200px;
+            --control-bg: #ffffff;
+            --control-muted-bg: #f5f5f5;
+            --hover-bg: #f5f5f5;
+            --pink-soft-bg: #fff0f6;
+            --scrollbar-thumb: #dddddd;
+        }
+
+        html[data-theme="dark"] {
+            --bg: #101216;
+            --surface: #171a21;
+            --line: #2a303b;
+            --text: #f4f7fb;
+            --muted: #8d98aa;
+            --text-secondary: #d6dde8;
+            --brand: #4bb3ff;
+            --danger: #f87171;
+            --control-bg: #1e2330;
+            --control-muted-bg: #151922;
+            --hover-bg: #222838;
+            --pink-soft-bg: #3a2035;
+            --scrollbar-thumb: #3b4352;
         }
 
         * {
@@ -32,7 +55,7 @@
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
             color: var(--text);
-            background: #fafafa;
+            background: var(--bg);
         }
 
         a {
@@ -84,6 +107,59 @@
             font-size: 14px;
             font-weight: 600;
             color: var(--muted);
+        }
+
+        .topbar-actions {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .pixiv-lang-switcher--default {
+            color: var(--text-secondary) !important;
+        }
+
+        .pixiv-lang-switcher--default .pixiv-lang-switcher__select {
+            border-color: var(--line) !important;
+            background: var(--control-bg) !important;
+            color: var(--text-secondary) !important;
+        }
+
+        .pixiv-lang-switcher--default .pixiv-lang-switcher__select option {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        .pixiv-theme-toggle {
+            width: 32px;
+            height: 32px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: border-color 0.15s, color 0.15s, background 0.15s;
+        }
+
+        .pixiv-theme-toggle:hover {
+            border-color: var(--brand);
+            color: var(--brand);
+            background: var(--hover-bg);
+        }
+
+        .pixiv-theme-toggle svg {
+            width: 16px;
+            height: 16px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
 
         .wrapper {
@@ -848,6 +924,55 @@
             color: var(--muted);
             font-size: 14px;
         }
+
+        html[data-theme="dark"] .topbar,
+        html[data-theme="dark"] .panel,
+        html[data-theme="dark"] .modal {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .back-btn,
+        html[data-theme="dark"] .expand-btn,
+        html[data-theme="dark"] .heart-btn,
+        html[data-theme="dark"] .thumb-strip-arrow,
+        html[data-theme="dark"] .form-input,
+        html[data-theme="dark"] .btn {
+            background: var(--control-bg);
+            color: var(--text-secondary);
+        }
+
+        html[data-theme="dark"] .viewer-image,
+        html[data-theme="dark"] .tag,
+        html[data-theme="dark"] .thumb-item .thumb-box,
+        html[data-theme="dark"] .related-thumb {
+            background: var(--control-muted-bg);
+        }
+
+        html[data-theme="dark"] .author-card-link:hover,
+        html[data-theme="dark"] .modal-close:hover,
+        html[data-theme="dark"] .collection-row:hover {
+            background: var(--hover-bg);
+        }
+
+        html[data-theme="dark"] .heart-btn.liked {
+            border-color: var(--danger);
+            color: var(--danger);
+            background: rgba(248, 113, 113, 0.12);
+        }
+
+        html[data-theme="dark"] .collection-row-icon {
+            background: var(--pink-soft-bg);
+        }
+
+        html[data-theme="dark"] .thumb-strip::-webkit-scrollbar-thumb {
+            background: var(--scrollbar-thumb);
+        }
+
+        html[data-theme="dark"] .form-input {
+            border-color: var(--line);
+            color: var(--text);
+        }
     </style>
 </head>
 <body>
@@ -862,6 +987,7 @@
     </button>
     <a class="back-btn" href="/pixiv-gallery.html"><span id="galleryBtnLabel">画廊</span></a>
     <span class="topbar-title" id="topbarTitle"></span>
+    <div class="topbar-actions" id="langSwitcherAnchor"></div>
 </div>
 
 <div class="wrapper" id="mainWrapper">
@@ -1025,6 +1151,22 @@
 
     async function initPageI18n() {
         pageI18n = await PixivI18n.create({namespaces: ['artwork', 'common']});
+        await PixivLangSwitcher.mount({
+            mountPoint: document.getElementById('langSwitcherAnchor'),
+            i18n: pageI18n,
+            onChange: function (nextClient) {
+                pageI18n = nextClient;
+                applyStaticPageTranslations();
+                if (state.artwork) {
+                    renderDetail();
+                    renderAuthor();
+                    updateHeart();
+                }
+            }
+        });
+        PixivTheme.mount({
+            mountPoint: document.getElementById('langSwitcherAnchor')
+        });
         applyStaticPageTranslations();
     }
 

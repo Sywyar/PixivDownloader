@@ -6,9 +6,48 @@
     <title>Pixiv 批量下载器</title>
     <script src="/js/pixiv-i18n.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <style>
+        :root {
+            --page-bg: #f5f5f5;
+            --surface: #ffffff;
+            --surface-muted: #fafafa;
+            --control-bg: #f9f9f9;
+            --control-muted-bg: #f5f5f5;
+            --line: #dddddd;
+            --line-strong: #cccccc;
+            --text: #333333;
+            --muted: #666666;
+            --muted-2: #888888;
+            --heading: #555555;
+            --progress-bg: #e0e0e0;
+            --hover-bg: #eeeeee;
+            --warning-bg: #fff8e1;
+            --warning-text: #856404;
+            --current-bg: #f0f8ff;
+        }
+
+        html[data-theme="dark"] {
+            --page-bg: #101216;
+            --surface: #171a21;
+            --surface-muted: #151922;
+            --control-bg: #1e2330;
+            --control-muted-bg: #202634;
+            --line: #303746;
+            --line-strong: #3a4353;
+            --text: #f4f7fb;
+            --muted: #a7b0bf;
+            --muted-2: #8d98aa;
+            --heading: #d6dde8;
+            --progress-bg: #2b3342;
+            --hover-bg: #242b3a;
+            --warning-bg: #332910;
+            --warning-text: #facc15;
+            --current-bg: rgba(0, 123, 255, 0.12);
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -17,8 +56,8 @@
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: #f5f5f5;
-            color: #333;
+            background: var(--page-bg);
+            color: var(--text);
             font-size: 14px;
         }
 
@@ -641,6 +680,14 @@
             flex: 1;
         }
 
+        .app-nav-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
         .app-nav-login,
         .app-nav-logout {
             font-size: 12px;
@@ -664,7 +711,6 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            margin-right: 12px;
             padding: 4px 10px 4px 12px;
             border: 1px solid rgba(255, 255, 255, 0.5);
             border-radius: 4px;
@@ -714,6 +760,35 @@
         .pixiv-lang-switcher--green .pixiv-lang-switcher__select option:checked {
             background: #007bff;
             color: white;
+        }
+
+        .pixiv-theme-toggle--green {
+            width: 30px;
+            height: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 4px;
+            background: transparent;
+            color: white;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, border-color 0.2s;
+        }
+
+        .pixiv-theme-toggle--green:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.75);
+        }
+
+        .pixiv-theme-toggle--green svg {
+            width: 15px;
+            height: 15px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
 
         /* ---- Search Mode ---- */
@@ -1029,6 +1104,171 @@
             border-color: #28a745;
             cursor: default;
         }
+
+        html[data-theme="dark"] .card,
+        html[data-theme="dark"] #quota-bar {
+            background: var(--surface);
+            color: var(--text);
+            box-shadow: 0 1px 10px rgba(0, 0, 0, 0.35);
+        }
+
+        html[data-theme="dark"] .card-title,
+        html[data-theme="dark"] .setting-item label,
+        html[data-theme="dark"] .filename-help,
+        html[data-theme="dark"] .search-filter-row span,
+        html[data-theme="dark"] .search-extra-title,
+        html[data-theme="dark"] .search-extra-item label,
+        html[data-theme="dark"] .search-fill-label {
+            color: var(--heading);
+        }
+
+        html[data-theme="dark"] .cookie-hint,
+        html[data-theme="dark"] .filename-help-note,
+        html[data-theme="dark"] #status-bar,
+        html[data-theme="dark"] .queue-item .q-meta,
+        html[data-theme="dark"] .prog-label,
+        html[data-theme="dark"] .search-extra-note,
+        html[data-theme="dark"] .search-fill-note,
+        html[data-theme="dark"] .search-spinner,
+        html[data-theme="dark"] .search-pagination .pg-info,
+        html[data-theme="dark"] #quota-bar .qb-reset {
+            color: var(--muted-2);
+        }
+
+        html[data-theme="dark"] input:not([type=checkbox]):not([type=radio]),
+        html[data-theme="dark"] textarea,
+        html[data-theme="dark"] select {
+            background: var(--control-bg);
+            border-color: var(--line);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select {
+            background-color: transparent;
+            background-image: linear-gradient(45deg, transparent 50%, white 50%),
+                              linear-gradient(135deg, white 50%, transparent 50%);
+            background-position: calc(100% - 8px) 50%, calc(100% - 4px) 50%;
+            background-size: 4px 4px, 4px 4px;
+            background-repeat: no-repeat;
+            border: none;
+            color: white;
+        }
+
+        html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select option {
+            background: var(--surface);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .cookie-fmt button,
+        html[data-theme="dark"] .tab,
+        html[data-theme="dark"] .unit-toggle,
+        html[data-theme="dark"] .btn-sm,
+        html[data-theme="dark"] .search-pagination button {
+            background: var(--control-bg);
+            border-color: var(--line);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .cookie-fmt button.active,
+        html[data-theme="dark"] .tab.active,
+        html[data-theme="dark"] .search-pagination button.pg-active {
+            color: white;
+        }
+
+        html[data-theme="dark"] .cookie-fmt button.active {
+            background: #007bff;
+            border-color: #007bff;
+        }
+
+        html[data-theme="dark"] .tab.active,
+        html[data-theme="dark"] .search-pagination button.pg-active {
+            background: #28a745;
+            border-color: #28a745;
+        }
+
+        html[data-theme="dark"] .btn-sm:hover,
+        html[data-theme="dark"] .unit-toggle:hover,
+        html[data-theme="dark"] .search-pagination button:hover:not(:disabled) {
+            background: var(--hover-bg);
+        }
+
+        html[data-theme="dark"] .queue-item,
+        html[data-theme="dark"] .search-extra-filters {
+            background: var(--surface-muted);
+            border-color: var(--line);
+        }
+
+        html[data-theme="dark"] #current-card {
+            background: var(--current-bg);
+        }
+
+        html[data-theme="dark"] .prog-bg,
+        html[data-theme="dark"] #quota-bar .qb-fill-bg {
+            background: var(--progress-bg);
+        }
+
+        html[data-theme="dark"] #archive-card {
+            background: var(--warning-bg);
+            color: var(--warning-text);
+        }
+
+        html[data-theme="dark"] #archive-card .ac-title,
+        html[data-theme="dark"] #archive-card .ac-status,
+        html[data-theme="dark"] #archive-card .ac-countdown {
+            color: var(--warning-text);
+        }
+
+        html[data-theme="dark"] .filename-token-grid code,
+        html[data-theme="dark"] .search-thumb,
+        html[data-theme="dark"] .search-thumb img {
+            background: var(--control-muted-bg);
+        }
+
+        html[data-theme="dark"] .search-thumb .thumb-title {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text);
+        }
+
+        html[data-theme="dark"] .search-spinner-icon {
+            border-color: var(--line);
+            border-top-color: #28a745;
+        }
+
+        html[data-theme="dark"] [style*="background:#fafafa"],
+        html[data-theme="dark"] [style*="background: #fafafa"] {
+            background: var(--surface-muted) !important;
+        }
+
+        html[data-theme="dark"] [style*="background:#fff4db"],
+        html[data-theme="dark"] [style*="background: #fff4db"],
+        html[data-theme="dark"] [style*="background:#fff8e1"],
+        html[data-theme="dark"] [style*="background: #fff8e1"] {
+            background: var(--warning-bg) !important;
+            color: var(--warning-text) !important;
+        }
+
+        html[data-theme="dark"] [style*="background:#fff;"],
+        html[data-theme="dark"] [style*="background: #fff;"] {
+            background: var(--control-bg) !important;
+        }
+
+        html[data-theme="dark"] [style*="border:1px solid #ddd"],
+        html[data-theme="dark"] [style*="border:1px solid #e0e0e0"],
+        html[data-theme="dark"] [style*="border:1px solid #e5e5e5"] {
+            border-color: var(--line) !important;
+        }
+
+        html[data-theme="dark"] [style*="color:#555"] {
+            color: var(--heading) !important;
+        }
+
+        html[data-theme="dark"] [style*="color:#666"],
+        html[data-theme="dark"] [style*="color:#777"],
+        html[data-theme="dark"] [style*="color:#888"],
+        html[data-theme="dark"] [style*="color:#999"],
+        html[data-theme="dark"] [style*="color:#aaa"] {
+            color: var(--muted-2) !important;
+        }
     </style>
 </head>
 <body>
@@ -1044,7 +1284,7 @@
     <a href="/pixiv-gallery.html" class="app-nav-link" target="_blank" rel="noopener">
         <i class="fas fa-images"></i> <span data-i18n="nav.gallery">GALLERY</span>
     </a>
-    <div id="langSwitcherAnchor" style="margin-right:12px;"></div>
+    <div class="app-nav-actions" id="langSwitcherAnchor"></div>
     <div class="app-nav-spacer"></div>
     <button id="login-btn" style="display:none;" class="app-nav-login"
             onclick="location.href='/login.html?redirect=/pixiv-batch.html'" data-i18n="auth.login">Login</button>
@@ -1413,6 +1653,10 @@
                     loadUserscripts();
                 }
             }
+        });
+        PixivTheme.mount({
+            mountPoint: document.getElementById('langSwitcherAnchor'),
+            variant: 'green'
         });
         applyStaticPageTranslations();
     }
