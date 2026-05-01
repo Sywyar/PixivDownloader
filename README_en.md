@@ -172,6 +172,15 @@ After first startup, the browser automatically opens `setup.html`. Enter a usern
 
 The configuration is written to `state/setup_config.json`, and the setup wizard will not appear again. Delete this file and restart to initialize the app again.
 
+> [!NOTE]
+> **Rate limiting behind a reverse proxy / CDN in multi mode**
+>
+> In multi mode, both the guest API rate limit (`multi-mode.request-limit-minute`) and the static-resource per-IP rate limit (`multi-mode.static-resource-request-limit-minute`) are keyed on the TCP source IP (`request.getRemoteAddr()`). If the service is deployed behind nginx, Caddy, Cloudflare or another reverse proxy / CDN, every request appears to come from the proxy node IP, which causes:
+> - All visitors share a single counter — when any one user exhausts the quota, every visitor is rejected together;
+> - The trusted proxy IP is the most likely target to hit the cap.
+>
+> If you must run behind a reverse proxy, do the rate limiting at the proxy layer using the real client IP (`X-Forwarded-For` / `X-Real-IP`), and either raise the backend limits or set them to `0` to disable, so the two layers do not collide.
+
 ### 2. Configure Proxy
 
 The backend accesses the Pixiv CDN through an HTTP proxy. Please configure it via **GUI → Config → Proxy**, then **restart the service** for changes to take effect:

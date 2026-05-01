@@ -175,6 +175,15 @@ PixivDownload.exe
 
 配置写入 `state/setup_config.json` 后不再显示。删除该文件并重启可重新初始化。
 
+> [!NOTE]
+> **多人模式部署在反向代理 / CDN 后的限流说明**
+>
+> 多人模式下的游客 API 限流（`multi-mode.request-limit-minute`）和静态资源 IP 限流（`multi-mode.static-resource-request-limit-minute`）都基于 TCP 源 IP（`request.getRemoteAddr()`）。如果服务部署在 nginx、Caddy、Cloudflare 等反向代理或 CDN 之后，所有请求看到的源 IP 都是反代节点 IP，会出现以下问题：
+> - 所有用户共享同一个限流计数，任意一个用户打满配额会让全部访客一起被拒绝；
+> - 受信任的反代节点 IP 反而最容易被打满。
+>
+> 如果必须放在反代后面，建议在反代层根据真实客户端 IP（`X-Forwarded-For` / `X-Real-IP`）做限流，并把后端的限流配置调高或设为 `0` 关闭，避免双重限流相互影响。
+
 ### 2. 配置代理
 
 后端通过 HTTP 代理访问 Pixiv CDN。请你通过 **GUI -> 配置 -> 代理** 进行设置，编辑代理配置后**重启服务**生效：

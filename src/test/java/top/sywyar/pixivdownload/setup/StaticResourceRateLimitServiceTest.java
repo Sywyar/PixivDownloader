@@ -79,4 +79,22 @@ class StaticResourceRateLimitServiceTest {
             }
         }
     }
+
+    @Nested
+    @DisplayName("跟踪 IP 数量上限")
+    class WhenTrackedIpsAtCapacity {
+
+        @Test
+        @DisplayName("达到上限后新 IP 应被拒绝，已记录 IP 仍正常计数")
+        void shouldDenyNewIpsAtCapacityButKeepExistingTracked() {
+            multiModeConfig.setStaticResourceRequestLimitMinute(1000);
+
+            for (int i = 0; i < StaticResourceRateLimitService.MAX_TRACKED_IPS; i++) {
+                assertThat(service.isAllowed("10.0." + (i >>> 8) + "." + (i & 0xFF))).isTrue();
+            }
+
+            assertThat(service.isAllowed("203.0.113.99")).isFalse();
+            assertThat(service.isAllowed("10.0.0.0")).isTrue();
+        }
+    }
 }
