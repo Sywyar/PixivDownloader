@@ -657,6 +657,63 @@
             background: var(--control-bg);
         }
 
+        /* Series view */
+        .series-view { display: none; flex-direction: column; gap: 0; }
+        .series-view.active { display: flex; }
+        .series-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 14px;
+        }
+        .series-card {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 14px 16px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: var(--surface);
+            cursor: pointer;
+            transition: transform .15s, box-shadow .15s, border-color .15s;
+        }
+        .series-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, .08);
+            border-color: var(--brand);
+        }
+        .series-card-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            word-break: break-word;
+        }
+        .series-card-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .series-card-author {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-right: 8px;
+        }
+        .series-card-count {
+            font-size: 11px;
+            background: var(--control-muted-bg);
+            color: var(--text);
+            padding: 2px 8px;
+            border-radius: 10px;
+            white-space: nowrap;
+        }
+
         /* Modal & toast */
         .modal-backdrop {
             position: fixed; inset: 0;
@@ -887,6 +944,16 @@
                 </div>
                 <span class="nav-label" data-i18n="novel:nav.by-author">按作者查看小说</span>
             </a>
+            <a class="nav-item" data-view="series" href="#" id="navViewSeries">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 6h16"/>
+                        <path d="M4 12h16"/>
+                        <path d="M4 18h10"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="novel:nav.by-series">按系列查看小说</span>
+            </a>
         </nav>
 
         <div class="sidebar-divider"></div>
@@ -1076,6 +1143,11 @@
                 <div id="authorGrid" class="author-grid"></div>
                 <div id="authorPagination" class="pagination"></div>
             </section>
+
+            <section class="series-view" id="seriesView">
+                <div id="seriesGrid" class="series-grid"></div>
+                <div id="seriesPagination" class="pagination"></div>
+            </section>
         </div>
     </main>
 </div>
@@ -1107,7 +1179,7 @@ const HEART_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.
 
 let pageI18n;
 const state = {
-    view: 'all',                // 'all' | 'authors'
+    view: 'all',                // 'all' | 'authors' | 'series'
     page: 0,
     sort: 'date',
     order: 'desc',
@@ -1130,7 +1202,8 @@ const state = {
     authorSearch: '',
     exclusiveAuthorId: null,
     exclusiveAuthorName: '',
-    authorsView: { page: 0, totalPages: 0, content: [] }
+    authorsView: { page: 0, totalPages: 0, content: [] },
+    seriesView: { page: 0, totalPages: 0, content: [] }
 };
 
 async function init() {
@@ -1237,6 +1310,7 @@ function setupEventHandlers() {
     // View nav
     document.getElementById('navViewAll').addEventListener('click', e => { e.preventDefault(); switchView('all'); });
     document.getElementById('navViewAuthors').addEventListener('click', e => { e.preventDefault(); switchView('authors'); });
+    document.getElementById('navViewSeries').addEventListener('click', e => { e.preventDefault(); switchView('series'); });
 
     // Collections create btn → main gallery
     document.getElementById('btnCreateCollection').addEventListener('click', () => {
@@ -1536,27 +1610,30 @@ function switchView(v) {
     setActiveViewNav();
     state.page = 0;
     state.authorsView.page = 0;
+    state.seriesView.page = 0;
     reloadCurrentView();
 }
 
 function setActiveViewNav() {
     document.getElementById('navViewAll').classList.toggle('active', state.view === 'all');
     document.getElementById('navViewAuthors').classList.toggle('active', state.view === 'authors');
+    document.getElementById('navViewSeries').classList.toggle('active', state.view === 'series');
     const grid = document.getElementById('grid');
     const pag = document.getElementById('pagination');
     const av = document.getElementById('authorView');
-    if (state.view === 'authors') {
-        grid.style.display = 'none'; pag.style.display = 'none';
-        av.classList.add('active');
-    } else {
-        grid.style.display = ''; pag.style.display = '';
-        av.classList.remove('active');
-    }
+    const sv = document.getElementById('seriesView');
+    const isAuthors = state.view === 'authors';
+    const isSeries = state.view === 'series';
+    grid.style.display = (isAuthors || isSeries) ? 'none' : '';
+    pag.style.display = (isAuthors || isSeries) ? 'none' : '';
+    av.classList.toggle('active', isAuthors);
+    sv.classList.toggle('active', isSeries);
 }
 
 function reloadCurrentView() {
     setActiveViewNav();
     if (state.view === 'authors') reloadAuthorsView();
+    else if (state.view === 'series') reloadSeriesView();
     else reloadNovels();
 }
 
@@ -1774,6 +1851,75 @@ function updateArrowState(strip, leftBtn, rightBtn) {
     const atEnd = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 1;
     leftBtn.disabled = atStart;
     rightBtn.disabled = atEnd || strip.scrollWidth <= strip.clientWidth;
+}
+
+// ---------- Series view ----------
+async function reloadSeriesView() {
+    const grid = document.getElementById('seriesGrid');
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.loading', '加载中...'))}</div>`;
+    try {
+        const params = new URLSearchParams({
+            page: String(state.seriesView.page),
+            size: String(PAGE_SIZE),
+            sort: 'novels'
+        });
+        if (state.search) params.set('search', state.search);
+        const r = await fetch(`/api/gallery/novels/series?${params.toString()}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        state.seriesView.content = data.content || [];
+        state.seriesView.totalPages = data.totalPages || 0;
+        renderSeriesView(state.seriesView.content);
+        renderPagination('seriesPagination', state.seriesView.totalPages, state.seriesView.page,
+            p => { state.seriesView.page = p; reloadSeriesView(); });
+    } catch (e) {
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
+        document.getElementById('seriesPagination').innerHTML = '';
+    }
+}
+
+function renderSeriesView(seriesList) {
+    const grid = document.getElementById('seriesGrid');
+    if (!seriesList.length) {
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:batch.gallery.series-empty', '暂无系列'))}</div>`;
+        return;
+    }
+    const unknownAuthor = pageI18n.t('novel:status.unknown-author', '未知');
+    const fallbackSeriesTitle = pageI18n.t('novel:series.unknown-title', '未命名系列');
+    grid.innerHTML = seriesList.map(s => {
+        const title = s.title || fallbackSeriesTitle;
+        const author = s.authorName || (s.authorId != null ? '#' + s.authorId : unknownAuthor);
+        const countText = pageI18n.t('novel:batch.gallery.series-by-novels', '{count} 部', { count: s.novelCount });
+        return `
+        <div class="series-card" data-series-id="${s.seriesId}" data-series-title="${esc(s.title || '')}" title="${esc(title)}">
+            <div class="series-card-title">${esc(title)}</div>
+            <div class="series-card-meta">
+                <span class="series-card-author">${esc(author)}</span>
+                <span class="series-card-count">${esc(countText)}</span>
+            </div>
+        </div>`;
+    }).join('');
+    grid.querySelectorAll('.series-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const sid = Number(card.dataset.seriesId);
+            const stitle = card.dataset.seriesTitle || '';
+            applySeriesFilterFromCard(sid, stitle);
+        });
+    });
+}
+
+function applySeriesFilterFromCard(seriesId, seriesTitle) {
+    state.selectedSeries.clear();
+    state.selectedSeries.set(seriesId, 'must');
+    if (!state.series.some(s => s.seriesId === seriesId)) {
+        state.series = [{ seriesId, title: seriesTitle, authorId: null, authorName: '', novelCount: 0 }, ...state.series];
+    }
+    renderSeriesChips();
+    state.view = 'all';
+    state.page = 0;
+    setActiveViewNav();
+    updateFilterBadge();
+    reloadCurrentView();
 }
 
 async function loadAuthorWorks(authorId, strip) {
