@@ -81,6 +81,28 @@ public interface NovelMapper {
     @Update("CREATE INDEX IF NOT EXISTS idx_novel_collections_novel ON novel_collections(novel_id)")
     void createNovelCollectionsNovelIndex();
 
+    @Update("CREATE TABLE IF NOT EXISTS novel_images ("
+            + "novel_id INTEGER NOT NULL,"
+            + "image_id TEXT NOT NULL,"
+            + "ext TEXT NOT NULL,"
+            + "PRIMARY KEY (novel_id, image_id))")
+    void createNovelImagesTable();
+
+    @Insert("INSERT OR REPLACE INTO novel_images(novel_id, image_id, ext)"
+            + " VALUES(#{novelId}, #{imageId}, #{ext})")
+    void insertNovelImage(@Param("novelId") long novelId,
+                          @Param("imageId") String imageId,
+                          @Param("ext") String ext);
+
+    @Select("SELECT ext FROM novel_images WHERE novel_id = #{novelId} AND image_id = #{imageId}")
+    String findNovelImageExt(@Param("novelId") long novelId, @Param("imageId") String imageId);
+
+    @Select("SELECT image_id FROM novel_images WHERE novel_id = #{novelId}")
+    List<String> findNovelImageIds(@Param("novelId") long novelId);
+
+    @Delete("DELETE FROM novel_images WHERE novel_id = #{novelId}")
+    void deleteNovelImages(@Param("novelId") long novelId);
+
     // ── Novels CRUD ─────────────────────────────────────────────────────────────
 
     @Select(SELECT_NOVEL + " WHERE novel_id = #{novelId}")

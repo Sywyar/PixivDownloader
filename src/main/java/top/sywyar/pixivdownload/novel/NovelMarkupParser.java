@@ -1,7 +1,9 @@
 package top.sywyar.pixivdownload.novel;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -23,6 +25,22 @@ public final class NovelMarkupParser {
 
     public enum Format { TXT, HTML, XHTML }
 
+    /**
+     * 把内嵌图片占位符（{@code [uploadedimage:id]} / {@code [pixivimage:id]}）解析为可展示的 URL。
+     * 返回 {@code null} 表示没有可用图片，渲染器回退到占位文本。
+     */
+    public interface ImageResolver {
+        /** 上传图占位 → 图片 URL（可为相对或绝对）。 */
+        String uploadedImage(String id);
+        /** Pixiv 插图占位 → 图片 URL（可为相对或绝对）。 */
+        String pixivImage(String id);
+
+        ImageResolver NONE = new ImageResolver() {
+            @Override public String uploadedImage(String id) { return null; }
+            @Override public String pixivImage(String id) { return null; }
+        };
+    }
+
     private static final Pattern INLINE_PATTERN = Pattern.compile(
             "\\[\\[rb:(?<rbBase>[^>\\]]+?)\\s*>\\s*(?<rbRuby>[^\\]]+?)\\]\\]"
                     + "|\\[\\[jumpuri:(?<juText>[^>\\]]+?)\\s*>\\s*(?<juUrl>[^\\]]+?)\\]\\]"
@@ -36,14 +54,32 @@ public final class NovelMarkupParser {
 
     private NovelMarkupParser() {}
 
-    /** Pixiv 标记 → 三种格式的正文。 */
+    /** 扫描原始正文中出现的 [uploadedimage:id] 占位符 ID 列表（按出现顺序去重）。 */
+    public static Set<String> findUploadedImageIds(String raw) {
+        if (raw == null || raw.isEmpty()) return Set.of();
+        Set<String> ids = new LinkedHashSet<>();
+        Matcher m = Pattern.compile("\\[uploadedimage:(\\d+)\\]").matcher(raw);
+        while (m.find()) ids.add(m.group(1));
+        return ids;
+    }
+
+    /** Pixiv 标记 → 三种格式的正文（不解析内嵌图片，使用占位符渲染）。 */
     public static String render(String raw, Format format) {
+        return render(raw, format, ImageResolver.NONE);
+    }
+
+    /**
+     * Pixiv 标记 → 三种格式的正文。HTML/XHTML 输出在 {@code resolver} 返回非空 URL 时
+     * 把图片占位符替换为 {@code <img>} 标签；TXT 输出永远使用占位符（保证下载文件中可读）。
+     */
+    public static String render(String raw, Format format, ImageResolver resolver) {
         if (raw == null) raw = "";
+        if (resolver == null) resolver = ImageResolver.NONE;
         List<Block> blocks = tokenize(raw);
         return switch (format) {
             case TXT -> renderTxt(blocks);
-            case HTML -> renderHtml(blocks, false);
-            case XHTML -> renderHtml(blocks, true);
+            case HTML -> renderHtml(blocks, false, resolver);
+            case XHTML -> renderHtml(blocks, true, resolver);
         };
     }
 
@@ -128,7 +164,7 @@ public final class NovelMarkupParser {
 
     // ── HTML / XHTML renderer ──────────────────────────────────────────────────
 
-    private static String renderHtml(List<Block> blocks, boolean xhtml) {
+    private static String renderHtml(List<Block> blocks, boolean xhtml, ImageResolver resolver) {
         StringBuilder out = new StringBuilder();
         boolean sectionOpen = false;
         out.append(openSection(xhtml));
@@ -152,7 +188,7 @@ public final class NovelMarkupParser {
                     String[] paragraphs = b.text.split("\n{2,}");
                     for (String p : paragraphs) {
                         if (p.isEmpty()) continue;
-                        out.append("<p>").append(renderInlineHtml(p, xhtml)).append("</p>\n");
+                        out.append("<p>").append(renderInlineHtml(p, xhtml, resolver)).append("</p>\n");
                     }
                 }
             }
@@ -167,7 +203,7 @@ public final class NovelMarkupParser {
                 : "<section class=\"novel-page\">\n";
     }
 
-    private static String renderInlineHtml(String text, boolean xhtml) {
+    private static String renderInlineHtml(String text, boolean xhtml, ImageResolver resolver) {
         Matcher m = INLINE_PATTERN.matcher(text);
         StringBuilder out = new StringBuilder();
         int last = 0;
@@ -190,23 +226,39 @@ public final class NovelMarkupParser {
                         .append(escapeHtml(m.group("jumpPage")))
                         .append("</span>");
             } else if (m.group("upImg") != null) {
-                String br = xhtml ? "<br />" : "<br>";
-                out.append("<figure class=\"novel-image\" data-uploaded-image=\"")
-                        .append(escapeAttr(m.group("upImg")))
-                        .append("\"><span class=\"novel-image-placeholder\">[图片 #")
-                        .append(escapeHtml(m.group("upImg")))
-                        .append("]</span></figure>");
+                String id = m.group("upImg");
+                String url = resolver.uploadedImage(id);
+                appendImageFigure(out, url, "data-uploaded-image", id, "[图片 #", xhtml);
             } else if (m.group("pxImg") != null) {
-                out.append("<figure class=\"novel-image\" data-pixiv-image=\"")
-                        .append(escapeAttr(m.group("pxImg")))
-                        .append("\"><span class=\"novel-image-placeholder\">[Pixiv图 #")
-                        .append(escapeHtml(m.group("pxImg")))
-                        .append("]</span></figure>");
+                String id = m.group("pxImg");
+                String url = resolver.pixivImage(id);
+                appendImageFigure(out, url, "data-pixiv-image", id, "[Pixiv图 #", xhtml);
             }
             last = m.end();
         }
         appendEscapedWithBreaks(out, text.substring(last));
         return out.toString();
+    }
+
+    private static void appendImageFigure(StringBuilder out, String url, String dataAttr,
+                                          String id, String placeholderPrefix, boolean xhtml) {
+        out.append("<figure class=\"novel-image\" ")
+                .append(dataAttr).append("=\"")
+                .append(escapeAttr(id))
+                .append("\">");
+        if (url != null && !url.isBlank()) {
+            String selfClose = xhtml ? " />" : ">";
+            out.append("<img src=\"").append(escapeAttr(url))
+                    .append("\" alt=\"").append(escapeAttr(placeholderPrefix)).append(escapeAttr(id)).append("]\"")
+                    .append(" loading=\"lazy\"")
+                    .append(selfClose);
+        } else {
+            out.append("<span class=\"novel-image-placeholder\">")
+                    .append(escapeHtml(placeholderPrefix))
+                    .append(escapeHtml(id))
+                    .append("]</span>");
+        }
+        out.append("</figure>");
     }
 
     private static void appendEscapedWithBreaks(StringBuilder out, String text) {

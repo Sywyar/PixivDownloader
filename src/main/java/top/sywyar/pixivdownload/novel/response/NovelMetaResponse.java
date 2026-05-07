@@ -6,6 +6,7 @@ import lombok.Getter;
 import top.sywyar.pixivdownload.download.db.TagDto;
 
 import java.util.List;
+import java.util.Map;
 
 @Getter
 @AllArgsConstructor
@@ -33,4 +34,6 @@ public class NovelMetaResponse {
     private final String language;
     private final String coverUrl;
     private final Long uploadTimestamp;
+    /** [uploadedimage:id] → 原图 URL（pximg.net）。可能为空。 */
+    private final Map<String, String> textEmbeddedImages;
 }

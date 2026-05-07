@@ -21,7 +21,15 @@
         }[c]));
     }
 
-    function renderInline(text) {
+    function imageFigure(dataAttr, id, placeholderPrefix, url) {
+        const head = `<figure class="novel-image" ${dataAttr}="${escapeHtml(id)}">`;
+        if (url) {
+            return `${head}<img src="${escapeHtml(url)}" alt="${escapeHtml(placeholderPrefix)}${escapeHtml(id)}]" loading="lazy"></figure>`;
+        }
+        return `${head}<span class="novel-image-placeholder">${escapeHtml(placeholderPrefix)}${escapeHtml(id)}]</span></figure>`;
+    }
+
+    function renderInline(text, resolver) {
         let out = '';
         let last = 0;
         let m;
@@ -35,9 +43,13 @@
             } else if (m[5] !== undefined) {
                 out += `<span class="novel-jump">↗ p.${escapeHtml(m[5])}</span>`;
             } else if (m[6] !== undefined) {
-                out += `<figure class="novel-image" data-uploaded-image="${escapeHtml(m[6])}"><span class="novel-image-placeholder">[图片 #${escapeHtml(m[6])}]</span></figure>`;
+                const url = resolver && typeof resolver.uploadedImage === 'function'
+                    ? resolver.uploadedImage(m[6]) : null;
+                out += imageFigure('data-uploaded-image', m[6], '[图片 #', url);
             } else if (m[7] !== undefined) {
-                out += `<figure class="novel-image" data-pixiv-image="${escapeHtml(m[7])}"><span class="novel-image-placeholder">[Pixiv图 #${escapeHtml(m[7])}]</span></figure>`;
+                const url = resolver && typeof resolver.pixivImage === 'function'
+                    ? resolver.pixivImage(m[7]) : null;
+                out += imageFigure('data-pixiv-image', m[7], '[Pixiv图 #', url);
             }
             last = m.index + m[0].length;
         }
@@ -45,7 +57,7 @@
         return out;
     }
 
-    function render(raw) {
+    function render(raw, resolver) {
         if (!raw) return '<section class="novel-page"></section>';
         const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         const lines = normalized.split('\n');
@@ -85,7 +97,7 @@
                 const paragraphs = b.text.split(/\n{2,}/);
                 for (const p of paragraphs) {
                     if (!p) continue;
-                    html += `<p>${renderInline(p)}</p>`;
+                    html += `<p>${renderInline(p, resolver)}</p>`;
                 }
             }
         }

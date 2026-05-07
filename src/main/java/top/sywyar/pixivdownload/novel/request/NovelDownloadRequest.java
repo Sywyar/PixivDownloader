@@ -4,6 +4,7 @@ import lombok.Data;
 import top.sywyar.pixivdownload.download.db.TagDto;
 
 import java.util.List;
+import java.util.Map;
 
 @Data
 public class NovelDownloadRequest {
@@ -43,5 +44,7 @@ public class NovelDownloadRequest {
         private Long uploadTimestamp;
         /** 封面 URL（pximg），用于在系列目录页生成缩略图；可选。 */
         private String coverUrl;
+        /** [uploadedimage:id] → pximg 原图 URL；可选。 */
+        private Map<String, String> embeddedImages;
     }
 }

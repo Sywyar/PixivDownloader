@@ -268,6 +268,16 @@ public final class ManagedDatabaseSchema {
                 )
         ));
 
+        tables.put("novel_images", new TableSpec(
+                "novel_images",
+                List.of(
+                        column("novel_id", "INTEGER", true, null, 1),
+                        column("image_id", "TEXT", true, null, 2),
+                        column("ext", "TEXT", true, null, 0)
+                ),
+                List.of()
+        ));
+
         return new DatabaseSchema(Map.copyOf(tables));
     }
 

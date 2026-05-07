@@ -194,11 +194,22 @@
 
         .series-nav {
             display: grid;
-            grid-template-columns: 1fr auto 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 8px;
             margin: 0 0 16px;
+            width: 100%;
         }
-        .series-nav .btn { width: 100%; justify-content: center; min-height: 44px; }
+        .series-nav .btn {
+            width: 100%;
+            min-width: 0;
+            justify-content: center;
+            min-height: 44px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: block;
+            line-height: 44px;
+            padding: 0 10px;
+        }
         .series-nav .btn.disabled-look {
             opacity: .4;
             pointer-events: none;
@@ -239,6 +250,15 @@
             padding: 1em;
             border: 1px dashed var(--line);
             border-radius: 8px;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+        .content-card .novel-image img {
+            display: block;
+            margin: 0 auto;
+            max-width: 90%;
+            height: auto;
+            border-radius: 4px;
         }
         .content-card .novel-image-placeholder { color: var(--muted); }
         .content-card .novel-jump { color: var(--muted); font-size: 0.85em; }
@@ -499,7 +519,7 @@ function renderRemote(meta) {
     });
     renderDescription(meta.description);
     renderTags(meta.tags || []);
-    renderContent(meta.content || '');
+    renderContent(meta.content || '', buildImageResolver({ remote: meta.textEmbeddedImages || {} }));
 }
 
 async function renderLocal(view) {
@@ -518,11 +538,15 @@ async function renderLocal(view) {
     renderDescription(view.description);
     renderTags(view.tags || []);
     // Local view doesn't include content; need a fresh fetch
+    const localIds = new Set(view.embeddedImageIds || []);
     try {
         const remote = await fetch(`/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`);
         if (remote.ok) {
             const meta = await remote.json();
-            renderContent(meta.content || '');
+            renderContent(meta.content || '', buildImageResolver({
+                local: localIds,
+                remote: meta.textEmbeddedImages || {}
+            }));
             return;
         }
     } catch {}
@@ -572,8 +596,31 @@ function renderTags(tags) {
     ).join('');
 }
 
-function renderContent(raw) {
-    document.getElementById('content-card').innerHTML = PixivNovelRender.render(raw);
+function renderContent(raw, resolver) {
+    document.getElementById('content-card').innerHTML = PixivNovelRender.render(raw, resolver);
+}
+
+/**
+ * 构造内嵌图片解析器：
+ * - opts.local: Set<string>，已落盘到本地的 [uploadedimage:id] ID 集合，命中时走本地接口；
+ * - opts.remote: { id: pximgUrl }，未在本地的 ID 走 thumbnail-proxy 透传 pximg。
+ */
+function buildImageResolver(opts) {
+    const local = opts && opts.local ? opts.local : null;
+    const remote = opts && opts.remote ? opts.remote : {};
+    return {
+        uploadedImage(id) {
+            if (local && local.has(String(id))) {
+                return `/api/gallery/novel/${encodeURIComponent(novelId)}/embed/${encodeURIComponent(id)}`;
+            }
+            const pximg = remote[id];
+            if (pximg) {
+                return `/api/pixiv/thumbnail-proxy?url=${encodeURIComponent(pximg)}`;
+            }
+            return null;
+        },
+        pixivImage() { return null; }
+    };
 }
 
 async function loadSeriesNav() {

@@ -160,7 +160,8 @@ public class NovelGalleryService {
                 r.isOriginal(),
                 r.xLanguage(),
                 tags,
-                r.coverExt()
+                r.coverExt(),
+                novelDatabase.getNovelImageIds(r.novelId())
         );
     }
 
@@ -300,7 +301,8 @@ public class NovelGalleryService {
             Boolean isOriginal,
             String xLanguage,
             List<TagDto> tags,
-            String coverExt
+            String coverExt,
+            List<String> embeddedImageIds
     ) {}
 
     public record SeriesNeighbors(Long seriesId, String seriesTitle, Long currentOrder,

@@ -29,11 +29,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -541,9 +537,7 @@ public class PixivProxyController {
                 if (orderMap.containsKey(item.id())) filtered.add(item);
             }
             if (!filtered.isEmpty()) {
-                filtered.sort((a, c) -> Integer.compare(
-                        a.seriesOrder(),
-                        c.seriesOrder()));
+                filtered.sort(Comparator.comparingInt(SeriesResponse.SeriesItem::seriesOrder));
                 items = filtered;
             }
         }
@@ -638,8 +632,33 @@ public class PixivProxyController {
                 b.path("isOriginal").asBoolean(false),
                 b.path("language").asText(""),
                 b.path("coverUrl").asText(""),
-                uploadTimestamp
+                uploadTimestamp,
+                extractTextEmbeddedImages(b)
         ));
+    }
+
+    /**
+     * 抽取 Pixiv 小说 AJAX 响应中的 {@code body.textEmbeddedImages}。
+     * 结构示例：{@code "1234": { "novelImageId": "1234", "urls": { "original": "https://i.pximg.net/.../1234.jpg" } }}。
+     * 仅保留 {@code original} URL，且只接受 pximg.net 主机。
+     */
+    private static Map<String, String> extractTextEmbeddedImages(JsonNode body) {
+        JsonNode node = body.path("textEmbeddedImages");
+        if (!node.isObject() || node.isEmpty()) return Map.of();
+        Map<String, String> out = new LinkedHashMap<>();
+        node.fields().forEachRemaining(e -> {
+            String url = e.getValue().path("urls").path("original").asText("");
+            if (url.isBlank()) return;
+            try {
+                URI uri = URI.create(url);
+                String host = uri.getHost();
+                if (host == null || !host.endsWith(".pximg.net")) return;
+            } catch (IllegalArgumentException ignored) {
+                return;
+            }
+            out.put(e.getKey(), url);
+        });
+        return out;
     }
 
     @GetMapping("/novel/series/{seriesId}")

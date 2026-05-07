@@ -28,6 +28,7 @@ public class NovelDatabase {
         novelMapper.createNovelTagsTagIndex();
         novelMapper.createNovelCollectionsTable();
         novelMapper.createNovelCollectionsNovelIndex();
+        novelMapper.createNovelImagesTable();
         // 幂等迁移：旧库 novels 表补 cover_ext 列；列已存在抛异常吞掉
         try { novelMapper.addCoverExtColumn(); } catch (Exception ignored) {}
     }
@@ -79,7 +80,29 @@ public class NovelDatabase {
     public void deleteNovel(long novelId) {
         novelMapper.deleteNovelTags(novelId);
         novelMapper.deleteAllNovelCollections(novelId);
+        novelMapper.deleteNovelImages(novelId);
         novelMapper.deleteById(novelId);
+    }
+
+    // ── Embedded images ────────────────────────────────────────────────────────
+
+    public void saveNovelImage(long novelId, String imageId, String ext) {
+        if (imageId == null || imageId.isBlank() || ext == null || ext.isBlank()) return;
+        novelMapper.insertNovelImage(novelId, imageId, ext);
+    }
+
+    public String getNovelImageExt(long novelId, String imageId) {
+        if (imageId == null || imageId.isBlank()) return null;
+        return novelMapper.findNovelImageExt(novelId, imageId);
+    }
+
+    public List<String> getNovelImageIds(long novelId) {
+        List<String> ids = novelMapper.findNovelImageIds(novelId);
+        return ids == null ? Collections.emptyList() : ids;
+    }
+
+    public void clearNovelImages(long novelId) {
+        novelMapper.deleteNovelImages(novelId);
     }
 
     public long countNovels() {

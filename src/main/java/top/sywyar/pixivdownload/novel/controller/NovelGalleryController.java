@@ -170,6 +170,32 @@ public class NovelGalleryController {
         return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
     }
 
+    /**
+     * 内嵌图片字节流，路径: {novelFolder}/embed_{imageId}.{ext}。
+     * imageId 来自 [uploadedimage:id] 占位符；不存在时 404。
+     */
+    @GetMapping("/novel/{novelId}/embed/{imageId}")
+    public ResponseEntity<byte[]> getNovelEmbeddedImage(@PathVariable long novelId,
+                                                        @PathVariable String imageId,
+                                                        HttpServletRequest httpRequest) throws IOException {
+        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        if (imageId == null || imageId.isBlank() || !imageId.matches("[0-9A-Za-z_-]{1,40}")) {
+            return ResponseEntity.notFound().build();
+        }
+        NovelRecord rec = novelDatabase.getNovel(novelId);
+        if (rec == null) return ResponseEntity.notFound().build();
+        String ext = novelDatabase.getNovelImageExt(novelId, imageId);
+        if (ext == null || ext.isBlank()) return ResponseEntity.notFound().build();
+        Path file = Paths.get(rec.folder(), "embed_" + imageId + "." + ext);
+        if (!Files.isRegularFile(file)) {
+            return ResponseEntity.notFound().build();
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(mimeFor(ext)));
+        headers.setCacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic());
+        return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
+    }
+
     private String resolveStoredNovelBaseName(NovelRecord rec) {
         String template = rec.fileName() == null
                 ? ArtworkFileNameFormatter.DEFAULT_TEMPLATE
@@ -189,6 +215,7 @@ public class NovelGalleryController {
             case "jpg", "jpeg" -> "image/jpeg";
             case "png" -> "image/png";
             case "webp" -> "image/webp";
+            case "gif" -> "image/gif";
             default -> "application/octet-stream";
         };
     }

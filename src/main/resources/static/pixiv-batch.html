@@ -3588,7 +3588,8 @@
                     collectionId,
                     format: fmt,
                     uploadTimestamp: meta.uploadTimestamp,
-                    coverUrl: meta.coverUrl
+                    coverUrl: meta.coverUrl,
+                    embeddedImages: meta.textEmbeddedImages || {}
                 }
             };
             item.lastMessage = bt('queue.message.waiting-completion', '下载中，等待完成...');

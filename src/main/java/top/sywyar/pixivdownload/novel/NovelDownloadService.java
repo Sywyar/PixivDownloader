@@ -15,7 +15,6 @@ import top.sywyar.pixivdownload.download.DownloadActionResult;
 import top.sywyar.pixivdownload.download.PixivBookmarkService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
@@ -29,8 +28,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -63,6 +64,9 @@ public class NovelDownloadService {
     private static final String USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
     private static final Set<String> COVER_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp");
+    private static final Set<String> IMAGE_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp", "gif");
+    /** 单本小说最多下载多少张内嵌图，避免极端情况吃满磁盘。 */
+    private static final int MAX_EMBEDDED_IMAGES_PER_NOVEL = 200;
 
     private final DownloadConfig downloadConfig;
     private final PixivDatabase pixivDatabase;
@@ -144,13 +148,19 @@ public class NovelDownloadService {
                     timestamp, 1, other.isAi(), other.getXRestrict());
             String baseName = names.isEmpty() ? String.valueOf(novelId) : names.get(0);
 
+            // Best-effort 内嵌图片下载（与正文同目录、embed_{id}.{ext}）；
+            // 写入 HTML/EPUB 之前完成，使写入时即可解析为本地图片链接。
+            Map<String, String> embeddedExts = downloadEmbeddedImages(
+                    novelId, rawContent, other.getEmbeddedImages(), downloadPath, request.getCookie());
+
             // Write file
             status.setStage("writing");
             String ext = format.ext();
             Path outputFile = downloadPath.resolve(baseName + "." + ext);
+            NovelMarkupParser.ImageResolver resolver = localFolderResolver(embeddedExts);
             switch (format) {
                 case TXT -> writeTxt(outputFile, rawContent);
-                case HTML -> writeHtml(outputFile, title, rawContent, other);
+                case HTML -> writeHtml(outputFile, title, rawContent, other, resolver);
                 case EPUB -> writeEpub(outputFile, title, other.getAuthorName(),
                         other.getLanguage(), rawContent);
             }
@@ -309,8 +319,9 @@ public class NovelDownloadService {
     }
 
     private void writeHtml(Path file, String title, String raw,
-                           NovelDownloadRequest.Other other) throws IOException {
-        String body = NovelMarkupParser.render(raw, NovelMarkupParser.Format.HTML);
+                           NovelDownloadRequest.Other other,
+                           NovelMarkupParser.ImageResolver resolver) throws IOException {
+        String body = NovelMarkupParser.render(raw, NovelMarkupParser.Format.HTML, resolver);
         StringBuilder html = new StringBuilder()
                 .append("<!DOCTYPE html>\n")
                 .append("<html lang=\"")
@@ -319,13 +330,123 @@ public class NovelDownloadService {
                 .append(escapeHtml(title))
                 .append("</title>\n<style>\n")
                 .append("body{font-family:serif;line-height:1.7;max-width:42em;margin:2em auto;padding:0 1em;}\n")
-                .append("h1,h2{font-weight:700;}\nfigure.novel-image{text-align:center;color:#888;}\n")
+                .append("h1,h2{font-weight:700;}\n")
+                .append("figure.novel-image{text-align:center;margin:1em 0;max-width:100%;}\n")
+                .append("figure.novel-image img{display:block;margin:0 auto;max-width:90%;height:auto;}\n")
                 .append(".novel-image-placeholder{color:#888;}\n.novel-jump{color:#888;font-size:0.85em;}\n")
                 .append("ruby rt{font-size:0.6em;}\n")
                 .append("</style>\n</head>\n<body>\n<h1>").append(escapeHtml(title)).append("</h1>\n")
                 .append(body)
                 .append("</body>\n</html>\n");
         Files.writeString(file, html.toString(), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 把已落盘的内嵌图扩展名映射成 {@link NovelMarkupParser.ImageResolver}：
+     * {@code [uploadedimage:id]} → 同目录下相对路径 {@code embed_{id}.{ext}}。
+     * pixivimage 暂不支持下载，保持占位符。
+     */
+    private static NovelMarkupParser.ImageResolver localFolderResolver(Map<String, String> exts) {
+        if (exts == null || exts.isEmpty()) return NovelMarkupParser.ImageResolver.NONE;
+        return new NovelMarkupParser.ImageResolver() {
+            @Override public String uploadedImage(String id) {
+                String ext = exts.get(id);
+                return ext == null ? null : "embed_" + id + "." + ext;
+            }
+            @Override public String pixivImage(String id) { return null; }
+        };
+    }
+
+    /**
+     * 扫描 raw 中出现的 {@code [uploadedimage:id]}，逐张下载至 {@code {downloadPath}/embed_{id}.{ext}}，
+     * 持久化映射到 {@code novel_images} 表。
+     * Best-effort：单张失败不抛异常；URL 缺失或非 pximg.net 一律跳过。
+     *
+     * @return id → 实际落盘扩展名的映射（仅成功的条目）。
+     */
+    private Map<String, String> downloadEmbeddedImages(long novelId, String rawContent,
+                                                       Map<String, String> urlMap,
+                                                       Path downloadPath, String cookie) {
+        Set<String> ids = NovelMarkupParser.findUploadedImageIds(rawContent);
+        if (ids.isEmpty() || urlMap == null || urlMap.isEmpty()) {
+            // 没有占位符或者前端没传 URL（可能为公开 API 限制等），直接跳过
+            return Map.of();
+        }
+        // 清掉历史记录，避免遗留旧 ext
+        novelDatabase.clearNovelImages(novelId);
+        Map<String, String> success = new LinkedHashMap<>();
+        int budget = MAX_EMBEDDED_IMAGES_PER_NOVEL;
+        for (String id : ids) {
+            if (budget-- <= 0) {
+                log.warn("novel embedded image budget exhausted: novelId={}", novelId);
+                break;
+            }
+            String url = urlMap.get(id);
+            if (url == null || url.isBlank()) continue;
+            String ext = downloadOneEmbeddedImage(novelId, id, url, downloadPath, cookie);
+            if (ext != null) success.put(id, ext);
+        }
+        if (!success.isEmpty()) {
+            log.info("novel embedded images downloaded: novelId={}, count={}/{}", novelId, success.size(), ids.size());
+        }
+        return success;
+    }
+
+    private String downloadOneEmbeddedImage(long novelId, String imageId, String url,
+                                            Path downloadPath, String cookie) {
+        URI uri;
+        try {
+            uri = URI.create(url);
+        } catch (IllegalArgumentException e) {
+            log.warn("novel embed image skipped — malformed url: novelId={}, id={}, url={}", novelId, imageId, url);
+            return null;
+        }
+        String host = uri.getHost();
+        if (host == null || !host.endsWith(".pximg.net")) {
+            log.warn("novel embed image skipped — host not pximg.net: novelId={}, id={}, host={}", novelId, imageId, host);
+            return null;
+        }
+        String ext = inferImageExt(uri.getPath());
+        Path target = downloadPath.resolve("embed_" + imageId + "." + ext);
+        try {
+            Boolean ok = downloadRestTemplate.execute(url, HttpMethod.GET,
+                    request -> {
+                        request.getHeaders().set("Referer", PIXIV_REFERER);
+                        request.getHeaders().set("User-Agent", USER_AGENT);
+                        if (cookie != null && !cookie.isBlank()) {
+                            request.getHeaders().set("Cookie", cookie);
+                        }
+                    },
+                    response -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            return Boolean.FALSE;
+                        }
+                        Files.copy(response.getBody(), target, StandardCopyOption.REPLACE_EXISTING);
+                        return Boolean.TRUE;
+                    });
+            if (Boolean.TRUE.equals(ok)) {
+                novelDatabase.saveNovelImage(novelId, imageId, ext);
+                return ext;
+            }
+            log.warn("novel embed image non-2xx: novelId={}, id={}", novelId, imageId);
+            return null;
+        } catch (Exception e) {
+            log.warn("novel embed image download failed: novelId={}, id={}, url={} — {}",
+                    novelId, imageId, url, e.getMessage());
+            return null;
+        }
+    }
+
+    private static String inferImageExt(String path) {
+        if (path == null) return "jpg";
+        int slash = path.lastIndexOf('/');
+        String last = slash >= 0 ? path.substring(slash + 1) : path;
+        int dot = last.lastIndexOf('.');
+        if (dot < 0 || dot == last.length() - 1) return "jpg";
+        String candidate = last.substring(dot + 1).toLowerCase(Locale.ROOT);
+        int q = candidate.indexOf('?');
+        if (q >= 0) candidate = candidate.substring(0, q);
+        return IMAGE_EXT_WHITELIST.contains(candidate) ? candidate : "jpg";
     }
 
     private void writeEpub(Path file, String title, String author, String language,
