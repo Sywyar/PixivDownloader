@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="page.title">小说详情 - Pixiv Gallery</title>
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <script src="/js/pixiv-novel-render.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <style>
+        :root {
+            --bg: #ffffff;
+            --surface: #ffffff;
+            --line: #efefef;
+            --text: #111111;
+            --muted: #aaaaaa;
+            --text-secondary: #333333;
+            --brand: #0096fa;
+            --danger: #dc2626;
+            --control-bg: #ffffff;
+            --control-muted-bg: #f5f5f5;
+            --hover-bg: #f5f5f5;
+            --pink-soft-bg: #fff0f6;
+            --scrollbar-thumb: #dddddd;
+            --page-max: 880px;
+        }
+
+        html[data-theme="dark"] {
+            --bg: #101216;
+            --surface: #171a21;
+            --line: #2a303b;
+            --text: #f4f7fb;
+            --muted: #8d98aa;
+            --text-secondary: #d6dde8;
+            --brand: #4bb3ff;
+            --danger: #f87171;
+            --control-bg: #1e2330;
+            --control-muted-bg: #151922;
+            --hover-bg: #222838;
+            --pink-soft-bg: #3a2035;
+            --scrollbar-thumb: #3b4352;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { min-height: 100%; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+            color: var(--text);
+            background: var(--bg);
+        }
+        a { color: inherit; text-decoration: none; }
+        button { font-family: inherit; }
+
+        .topbar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--line);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+        }
+        .topbar-actions {
+            margin-left: auto;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            height: 34px;
+            padding: 0 14px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .btn:hover { border-color: var(--brand); color: var(--brand); }
+        .btn.btn-brand {
+            background: var(--brand);
+            color: #fff;
+            border-color: var(--brand);
+        }
+        .btn.btn-brand:hover { opacity: .9; }
+        .btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+        .main {
+            max-width: var(--page-max);
+            margin: 0 auto;
+            padding: 24px 20px 48px;
+        }
+
+        .meta-card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .meta-card::after { content: ""; display: block; clear: both; }
+        .cover-wrap {
+            float: right;
+            width: 140px;
+            margin: 0 0 12px 16px;
+            aspect-ratio: 3 / 4;
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--control-muted-bg);
+        }
+        .cover-wrap img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        @media (max-width: 600px) {
+            .cover-wrap {
+                float: none;
+                width: 100%;
+                max-width: 220px;
+                margin: 0 auto 16px;
+            }
+        }
+        .title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+        .by-author {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        .by-author a:hover { color: var(--brand); }
+        .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: var(--control-muted-bg);
+            color: var(--text-secondary);
+            border: 1px solid var(--line);
+        }
+        .badge.r18 { background: var(--pink-soft-bg); color: #d63384; border-color: transparent; }
+        .badge.r18g { background: var(--danger); color: #fff; border-color: transparent; }
+        .badge.ai { background: #fff7e0; color: #b87b00; border-color: transparent; }
+        html[data-theme="dark"] .badge.ai { background: #3a2f00; color: #ffd166; }
+        .badge.original { background: #e7f7ee; color: #167b3a; border-color: transparent; }
+        html[data-theme="dark"] .badge.original { background: #133b22; color: #4cd47c; }
+
+        .meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 12px;
+        }
+
+        .description {
+            white-space: pre-wrap;
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.7;
+            border-top: 1px dashed var(--line);
+            padding-top: 12px;
+            margin-top: 12px;
+        }
+
+        .tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 12px;
+        }
+        .tag {
+            font-size: 12px;
+            padding: 3px 10px;
+            border-radius: 999px;
+            background: var(--control-muted-bg);
+            color: var(--text-secondary);
+            border: 1px solid var(--line);
+            cursor: default;
+        }
+        .tag .translated { color: var(--muted); margin-left: 4px; }
+
+        .series-nav {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 8px;
+            margin: 0 0 16px;
+        }
+        .series-nav .btn { width: 100%; justify-content: center; min-height: 44px; }
+        .series-nav .btn.disabled-look {
+            opacity: .4;
+            pointer-events: none;
+        }
+
+        .content-card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 24px 28px;
+            line-height: 1.85;
+            font-size: 15px;
+            font-family: 'Noto Serif SC', "Source Han Serif", "宋体", serif;
+            color: var(--text);
+        }
+        .content-card section.novel-page {
+            margin-bottom: 24px;
+            padding-bottom: 24px;
+            border-bottom: 1px dashed var(--line);
+        }
+        .content-card section.novel-page:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+        .content-card h2.novel-chapter {
+            font-size: 18px;
+            margin: 1em 0 0.6em;
+            padding-bottom: 6px;
+            border-bottom: 2px solid var(--brand);
+            display: inline-block;
+        }
+        .content-card p { margin: 0 0 0.6em; }
+        .content-card ruby rt { font-size: 0.6em; color: var(--muted); }
+        .content-card .novel-image {
+            text-align: center;
+            margin: 1em 0;
+            padding: 1em;
+            border: 1px dashed var(--line);
+            border-radius: 8px;
+        }
+        .content-card .novel-image-placeholder { color: var(--muted); }
+        .content-card .novel-jump { color: var(--muted); font-size: 0.85em; }
+        .content-card a { color: var(--brand); text-decoration: underline; }
+
+        .empty {
+            color: var(--muted);
+            text-align: center;
+            padding: 40px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+<div class="topbar">
+    <button class="btn" onclick="history.back()" data-i18n="button.back">返回</button>
+    <a class="btn" href="/pixiv-gallery.html?type=novel" data-i18n="button.gallery">画廊</a>
+    <div class="topbar-actions">
+        <a class="btn" id="btn-pixiv" href="#" target="_blank" rel="noopener" data-i18n="button.pixiv-novel">Pixiv 原小说链接</a>
+    </div>
+</div>
+
+<div class="main">
+    <div id="loading" class="empty" data-i18n="status.loading">加载中...</div>
+    <div id="root" style="display:none;">
+        <div class="meta-card">
+            <div class="cover-wrap" id="novel-cover" style="display:none;">
+                <img id="novel-cover-img" alt="" onerror="document.getElementById('novel-cover').style.display='none'">
+            </div>
+            <div class="title" id="novel-title">—</div>
+            <div class="by-author" id="novel-author">—</div>
+            <div class="badges" id="novel-badges"></div>
+            <div class="meta-row" id="novel-meta-row"></div>
+            <div class="description" id="novel-description"></div>
+            <div class="tags" id="novel-tags"></div>
+        </div>
+
+        <div class="series-nav" id="series-nav" style="display:none;">
+            <a class="btn" id="series-prev" href="#" data-i18n="series.prev">上一章</a>
+            <a class="btn" id="series-index" href="#" data-i18n="series.index">目录</a>
+            <a class="btn" id="series-next" href="#" data-i18n="series.next">下一章</a>
+        </div>
+
+        <div class="content-card" id="content-card"></div>
+    </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const novelId = params.get('id');
+let pageI18n;
+
+async function loadAll() {
+    pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common'] });
+    pageI18n.apply();
+    if (!novelId) {
+        document.getElementById('loading').textContent = pageI18n.t('status.missing-id');
+        return;
+    }
+    document.getElementById('btn-pixiv').href = `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(novelId)}`;
+    try {
+        await loadNovel();
+        await loadSeriesNav();
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('root').style.display = 'block';
+    } catch (e) {
+        document.getElementById('loading').textContent = pageI18n.t('status.novel-load-failed', null, { message: String(e && e.message ? e.message : e) });
+    }
+}
+
+async function loadNovel() {
+    const r = await fetch(`/api/gallery/novel/${encodeURIComponent(novelId)}`);
+    if (!r.ok) {
+        // Fallback: try fetching from Pixiv proxy
+        const remote = await fetch(`/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`);
+        if (!remote.ok) throw new Error(`HTTP ${r.status}`);
+        const meta = await remote.json();
+        renderRemote(meta);
+        return;
+    }
+    const view = await r.json();
+    await renderLocal(view);
+}
+
+function showCover() {
+    const wrap = document.getElementById('novel-cover');
+    const img = document.getElementById('novel-cover-img');
+    img.src = `/api/gallery/novel/${encodeURIComponent(novelId)}/cover`;
+    wrap.style.display = 'block';
+}
+
+function renderRemote(meta) {
+    if (meta.coverUrl) showCover();
+    document.getElementById('novel-title').textContent = meta.title || '';
+    document.getElementById('novel-author').innerHTML = meta.authorId
+        ? `<a href="https://www.pixiv.net/users/${meta.authorId}" target="_blank">${escapeHtml(meta.authorName || '')}</a>`
+        : escapeHtml(meta.authorName || pageI18n.t('status.unknown-author'));
+    renderBadges({ xRestrict: meta.xRestrict, isAi: meta.isAi, isOriginal: meta.isOriginal });
+    renderMetaRow({
+        wordCount: meta.wordCount,
+        textLength: meta.textLength,
+        language: meta.language,
+        uploadTimestamp: meta.uploadTimestamp
+    });
+    renderDescription(meta.description);
+    renderTags(meta.tags || []);
+    renderContent(meta.content || '');
+}
+
+async function renderLocal(view) {
+    if (view.coverExt) showCover();
+    document.getElementById('novel-title').textContent = view.title || '';
+    document.getElementById('novel-author').innerHTML = view.authorId
+        ? `<a href="https://www.pixiv.net/users/${view.authorId}" target="_blank">${escapeHtml(view.authorName || '')}</a>`
+        : escapeHtml(view.authorName || pageI18n.t('status.unknown-author'));
+    renderBadges({ xRestrict: view.xRestrict, isAi: view.isAi, isOriginal: view.isOriginal });
+    renderMetaRow({
+        wordCount: view.wordCount,
+        textLength: view.textLength,
+        language: view.xLanguage,
+        uploadTimestamp: view.time
+    });
+    renderDescription(view.description);
+    renderTags(view.tags || []);
+    // Local view doesn't include content; need a fresh fetch
+    try {
+        const remote = await fetch(`/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`);
+        if (remote.ok) {
+            const meta = await remote.json();
+            renderContent(meta.content || '');
+            return;
+        }
+    } catch {}
+    document.getElementById('content-card').innerHTML = `<div class="empty">${pageI18n.t('status.load-failed')}</div>`;
+}
+
+function renderBadges(o) {
+    const parts = [];
+    if (o.xRestrict === 1) parts.push('<span class="badge r18">R-18</span>');
+    if (o.xRestrict === 2) parts.push('<span class="badge r18g">R-18G</span>');
+    if (o.isAi) parts.push('<span class="badge ai">AI</span>');
+    if (o.isOriginal) parts.push(`<span class="badge original">${escapeHtml(pageI18n.t('meta.original'))}</span>`);
+    document.getElementById('novel-badges').innerHTML = parts.join('');
+}
+
+function renderMetaRow(o) {
+    const parts = [];
+    if (o.wordCount != null && o.wordCount > 0) {
+        parts.push(`<span>${escapeHtml(pageI18n.t('meta.word-count', null, { count: o.wordCount }))}</span>`);
+    }
+    if (o.textLength != null && o.textLength > 0 && o.textLength !== o.wordCount) {
+        parts.push(`<span>${escapeHtml(pageI18n.t('meta.text-length', null, { count: o.textLength }))}</span>`);
+    }
+    if (o.language) {
+        parts.push(`<span>${escapeHtml(pageI18n.t('meta.language', null, { lang: o.language }))}</span>`);
+    }
+    if (o.uploadTimestamp) {
+        const d = new Date(o.uploadTimestamp * 1000);
+        if (!isNaN(d.getTime())) {
+            parts.push(`<span>${escapeHtml(pageI18n.t('meta.upload', null, { time: d.toISOString().slice(0, 16).replace('T', ' ') }))}</span>`);
+        }
+    }
+    document.getElementById('novel-meta-row').innerHTML = parts.join('');
+}
+
+function renderDescription(text) {
+    document.getElementById('novel-description').textContent = text || pageI18n.t('status.no-description');
+}
+
+function renderTags(tags) {
+    if (!tags || tags.length === 0) {
+        document.getElementById('novel-tags').innerHTML = `<span class="tag">${escapeHtml(pageI18n.t('status.no-tags'))}</span>`;
+        return;
+    }
+    document.getElementById('novel-tags').innerHTML = tags.map(t =>
+        `<span class="tag">${escapeHtml(t.name || '')}${t.translatedName ? `<span class="translated">${escapeHtml(t.translatedName)}</span>` : ''}</span>`
+    ).join('');
+}
+
+function renderContent(raw) {
+    document.getElementById('content-card').innerHTML = PixivNovelRender.render(raw);
+}
+
+async function loadSeriesNav() {
+    try {
+        const r = await fetch(`/api/gallery/novel/${encodeURIComponent(novelId)}/series`);
+        if (!r.ok) return;
+        const nav = await r.json();
+        if (!nav.seriesId) return;
+        const wrap = document.getElementById('series-nav');
+        wrap.style.display = 'grid';
+        const prev = document.getElementById('series-prev');
+        const next = document.getElementById('series-next');
+        const index = document.getElementById('series-index');
+        if (nav.prev) {
+            prev.href = `/pixiv-novel.html?id=${nav.prev.novelId}`;
+            prev.classList.remove('disabled-look');
+            prev.textContent = pageI18n.t('series.prev', null, { order: nav.prev.seriesOrder, title: nav.prev.title });
+        } else {
+            prev.classList.add('disabled-look');
+            prev.textContent = pageI18n.t('series.prev', null, { order: '-', title: '' });
+        }
+        if (nav.next) {
+            next.href = `/pixiv-novel.html?id=${nav.next.novelId}`;
+            next.classList.remove('disabled-look');
+            next.textContent = pageI18n.t('series.next', null, { order: nav.next.seriesOrder, title: nav.next.title });
+        } else {
+            next.classList.add('disabled-look');
+            next.textContent = pageI18n.t('series.next', null, { order: '-', title: '' });
+        }
+        index.href = `https://www.pixiv.net/novel/series/${nav.seriesId}`;
+        index.target = '_blank';
+        index.textContent = pageI18n.t('series.index') + (nav.seriesTitle ? ` · ${nav.seriesTitle}` : '');
+    } catch {}
+}
+
+function escapeHtml(s) {
+    return PixivNovelRender.escapeHtml(s);
+}
+
+loadAll();
+</script>
+</body>
+</html>

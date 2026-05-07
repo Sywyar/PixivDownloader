@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="novel:gallery.type.novel">小说</title>
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <style>
+        .admin-only { display: none !important; }
+        body.admin-mode .admin-only { display: revert !important; }
+        body.admin-mode #navInviteManage { display: flex !important; }
+        body:not(.admin-mode) #btnCreateCollection { display: none !important; }
+    </style>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <style>
+        :root {
+            --sidebar-width: 300px;
+            --sidebar-collapsed: 64px;
+            --bg: #ffffff;
+            --surface: #ffffff;
+            --line: #efefef;
+            --text: #111111;
+            --muted: #aaaaaa;
+            --muted-2: #bbbbbb;
+            --text-secondary: #333333;
+            --brand: #0096fa;
+            --danger: #dc2626;
+            --filter-must: #2563eb;
+            --filter-must-bg: rgba(37, 99, 235, 0.08);
+            --filter-not: #dc2626;
+            --filter-not-bg: rgba(220, 38, 38, 0.08);
+            --filter-or: #16a34a;
+            --filter-or-bg: rgba(22, 163, 74, 0.08);
+            --sidebar-shadow: 8px 0 40px rgba(0, 0, 0, 0.08);
+            --control-bg: #ffffff;
+            --control-muted-bg: #fafafa;
+            --hover-bg: #f5f5f5;
+            --soft-bg: #f7fbff;
+            --pink-soft-bg: #fff0f6;
+            --scrollbar-thumb: #dddddd;
+        }
+        html[data-theme="dark"] {
+            --bg: #101216;
+            --surface: #171a21;
+            --line: #2a303b;
+            --text: #f4f7fb;
+            --muted: #8d98aa;
+            --muted-2: #748094;
+            --text-secondary: #d6dde8;
+            --brand: #4bb3ff;
+            --danger: #f87171;
+            --filter-must: #7aa7ff;
+            --filter-must-bg: rgba(122, 167, 255, 0.16);
+            --filter-not: #fb7185;
+            --filter-not-bg: rgba(251, 113, 133, 0.16);
+            --filter-or: #4ade80;
+            --filter-or-bg: rgba(74, 222, 128, 0.16);
+            --sidebar-shadow: 8px 0 40px rgba(0, 0, 0, 0.38);
+            --control-bg: #1e2330;
+            --control-muted-bg: #151922;
+            --hover-bg: #222838;
+            --soft-bg: rgba(75, 179, 255, 0.1);
+            --pink-soft-bg: #3a2035;
+            --scrollbar-thumb: #3b4352;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+            color: var(--text);
+            background: var(--bg);
+        }
+        a { color: inherit; text-decoration: none; }
+        button { font-family: inherit; }
+
+        .app-shell { display: flex; min-height: 100vh; }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            min-width: var(--sidebar-width);
+            height: 100vh;
+            position: sticky;
+            top: 0;
+            background: var(--surface);
+            box-shadow: var(--sidebar-shadow);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            overflow-x: hidden;
+            transition: width 0.25s ease, min-width 0.25s ease;
+            z-index: 10;
+        }
+        .sidebar.collapsed { width: var(--sidebar-collapsed); min-width: var(--sidebar-collapsed); }
+        .sidebar-header {
+            padding: 20px 16px;
+            display: flex; align-items: center; gap: 12px;
+        }
+        .sidebar.collapsed .sidebar-header { justify-content: center; padding: 20px 0; }
+        .sidebar-logo {
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #0096fa 0%, #46b8ff 100%);
+            flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .sidebar-logo svg { width: 18px; height: 18px; fill: white; }
+        .sidebar-brand { font-size: 16px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; }
+        .sidebar.collapsed .sidebar-brand { display: none; }
+        .sidebar-toggle {
+            margin-left: auto;
+            width: 28px; height: 28px;
+            border: none;
+            background: #f5f5f5;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+        .sidebar-toggle:hover { background: #eeeeee; }
+        .sidebar-toggle svg {
+            width: 16px; height: 16px;
+            stroke: #666; fill: none; stroke-width: 2;
+            stroke-linecap: round; stroke-linejoin: round;
+            transition: transform 0.25s;
+        }
+        .sidebar.collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+        .sidebar.collapsed .sidebar-toggle { margin-left: 0; }
+
+        .sidebar-nav { padding: 0 8px; }
+        .nav-item {
+            display: flex; align-items: center; gap: 12px;
+            padding: 0 12px; height: 44px;
+            border-radius: 8px; cursor: pointer;
+            transition: background 0.15s;
+            white-space: nowrap; overflow: hidden;
+            color: inherit;
+        }
+        .sidebar.collapsed .nav-item { justify-content: center; padding: 0; }
+        .nav-item:hover { background: #f5f5f5; }
+        .nav-item.active { background: #f0f4ff; }
+        .nav-item.active .nav-icon { color: #4a6cf7; }
+        .nav-item.active .nav-label { color: #4a6cf7; font-weight: 500; }
+        .nav-item.current { cursor: default; pointer-events: none; }
+        .nav-item.current .nav-icon { color: var(--brand); }
+        .nav-item.current .nav-label { color: var(--brand); font-weight: 600; }
+        .nav-icon {
+            width: 28px; height: 28px;
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; color: #666;
+        }
+        .nav-icon svg { width: 16px; height: 16px; }
+        .nav-label { font-size: 14px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+        .sidebar.collapsed .nav-label { display: none; }
+
+        .sidebar-divider { height: 1px; background: var(--line); margin: 8px 16px; }
+        .sidebar.collapsed .sidebar-divider { margin: 8px 10px; }
+
+        .section-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 16px 16px 8px;
+        }
+        .sidebar.collapsed .section-header { justify-content: center; padding: 16px 0 8px; }
+        .section-title {
+            font-size: 11px; font-weight: 600;
+            color: var(--muted-2);
+            text-transform: uppercase; letter-spacing: 0.08em;
+        }
+        .sidebar.collapsed .section-title { display: none; }
+        .section-add {
+            width: 20px; height: 20px;
+            border-radius: 4px;
+            border: none; background: transparent;
+            color: var(--muted); cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .section-add:hover { background: #f0f4ff; color: var(--brand); }
+        .section-add svg {
+            width: 14px; height: 14px;
+            stroke: currentColor; stroke-width: 2; fill: none;
+            stroke-linecap: round; stroke-linejoin: round;
+        }
+        .sidebar.collapsed .section-add { display: none; }
+
+        .collection-item {
+            display: flex; align-items: center; gap: 12px;
+            padding: 0 12px; height: 44px;
+            border-radius: 8px; cursor: pointer;
+            transition: background 0.15s;
+            white-space: nowrap; overflow: hidden;
+        }
+        .sidebar.collapsed .collection-item { justify-content: center; padding: 0; }
+        .collection-item:hover { background: #f5f5f5; }
+        .collection-item.selected { background: rgba(0, 150, 250, 0.08); }
+        .collection-item.selected .collection-label { color: var(--brand); font-weight: 500; }
+        .collection-icon {
+            width: 28px; height: 28px;
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            background: #fff0f6; color: #e84393;
+            overflow: hidden;
+        }
+        .collection-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .collection-icon svg { width: 14px; height: 14px; }
+        .collection-label { flex: 1; font-size: 14px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; }
+        .sidebar.collapsed .collection-label { display: none; }
+        .collection-count { font-size: 12px; color: var(--muted-2); flex-shrink: 0; }
+        .sidebar.collapsed .collection-count { display: none; }
+
+        .sidebar-footer { margin-top: auto; padding: 16px; border-top: 1px solid var(--line); }
+        .sidebar.collapsed .sidebar-footer { padding: 12px 8px; }
+        .user-card { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; }
+        .sidebar.collapsed .user-card { justify-content: center; padding: 8px 0; }
+        .user-avatar {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: linear-gradient(135deg, #0096fa, #46b8ff);
+            flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            color: white; font-size: 13px; font-weight: 600;
+        }
+        .user-info { overflow: hidden; }
+        .sidebar.collapsed .user-info { display: none; }
+        .user-name { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .user-status { font-size: 11px; color: var(--muted); }
+
+        /* Main content */
+        .main-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .topbar {
+            padding: 16px 32px;
+            display: flex; align-items: center; gap: 16px;
+            border-bottom: 1px solid var(--line);
+            background: var(--surface);
+            position: sticky; top: 0; z-index: 5;
+        }
+        .topbar-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+        /* Lang/theme switcher style overrides */
+        .pixiv-lang-switcher--default { color: var(--text-secondary) !important; }
+        .pixiv-lang-switcher--default .pixiv-lang-switcher__select {
+            border-color: var(--line) !important;
+            background: var(--control-bg) !important;
+            color: var(--text-secondary) !important;
+        }
+        .pixiv-lang-switcher--default .pixiv-lang-switcher__select option {
+            background: var(--surface); color: var(--text);
+        }
+        .pixiv-theme-toggle {
+            width: 32px; height: 32px;
+            border: 1px solid var(--line); border-radius: 8px;
+            background: var(--control-bg); color: var(--text-secondary);
+            cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center;
+        }
+        .pixiv-theme-toggle:hover { border-color: var(--brand); color: var(--brand); background: var(--hover-bg); }
+        .pixiv-theme-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+        .search-box {
+            flex: 1; max-width: 480px;
+            display: flex; align-items: center; gap: 10px;
+            height: 40px; padding: 0 16px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fafafa;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .search-box:focus-within { border-color: var(--brand); background: #fff; }
+        .search-box svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+        .search-box input {
+            flex: 1; border: none; outline: none; background: transparent;
+            font-size: 13px; font-family: inherit; color: var(--text);
+        }
+        .search-box input::placeholder { color: var(--muted); }
+
+        .filter-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            height: 40px; padding: 0 14px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fff;
+            font-size: 13px; color: var(--text-secondary);
+            cursor: pointer; position: relative;
+        }
+        .filter-btn:hover { border-color: var(--brand); color: var(--brand); }
+        .filter-btn.active { border-color: var(--brand); color: var(--brand); background: rgba(0, 150, 250, 0.08); }
+        .filter-btn svg { width: 14px; height: 14px; }
+        .filter-badge {
+            position: absolute; top: -4px; right: -4px;
+            min-width: 16px; height: 16px;
+            border-radius: 8px;
+            background: var(--danger); color: #fff;
+            font-size: 10px; font-weight: 700;
+            padding: 0 4px;
+            display: none;
+            align-items: center; justify-content: center;
+        }
+        .filter-badge.visible { display: inline-flex; }
+
+        /* Filter panel */
+        .filter-panel {
+            border-bottom: 1px solid var(--line);
+            background: #fafafa;
+            padding: 16px 32px;
+            display: none;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .filter-panel.open { display: flex; }
+        .filter-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .filter-row-label {
+            font-size: 12px; font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase; letter-spacing: 0.05em;
+            min-width: 64px;
+        }
+        .chip {
+            display: inline-flex; align-items: center; gap: 4px;
+            height: 28px; padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fff;
+            font-size: 12px; color: var(--text-secondary);
+            cursor: pointer; transition: all 0.15s;
+        }
+        .chip:hover { border-color: var(--brand); color: var(--brand); }
+        .chip.active { border-color: var(--brand); color: var(--brand); background: rgba(0,150,250,0.08); font-weight: 500; }
+        .chip.filter-selected.mode-must { border-color: var(--filter-must); color: var(--filter-must); background: var(--filter-must-bg); font-weight: 500; }
+        .chip.filter-selected.mode-not { border-color: var(--filter-not); color: var(--filter-not); background: var(--filter-not-bg); font-weight: 500; }
+        .chip.filter-selected.mode-or { border-color: var(--filter-or); color: var(--filter-or); background: var(--filter-or-bg); font-weight: 500; }
+        .chip-count { color: var(--muted); margin-left: 4px; font-size: 11px; }
+        .chip .tag-trans { color: var(--muted); margin-left: 4px; font-size: 11px; }
+
+        .filter-chip-list { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+        .filter-chip-list .chip-empty { font-size: 12px; color: var(--muted); }
+        .filter-tags-row { align-items: flex-start; }
+        #filterTagsRow, #filterSeriesRow { margin-top: 8px; }
+        #filterAuthorsRow { margin-top: 12px; padding-top: 20px; border-top: 1px solid var(--line); }
+        .filter-tags-main { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+        .filter-tags-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .filter-mode-group { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .filter-mode-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            height: 28px; padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fff; color: var(--text-secondary);
+            font-size: 12px; cursor: pointer;
+        }
+        .filter-mode-btn.active { font-weight: 600; }
+        .filter-mode-btn.mode-must.active { border-color: var(--filter-must); color: var(--filter-must); background: var(--filter-must-bg); }
+        .filter-mode-btn.mode-not.active { border-color: var(--filter-not); color: var(--filter-not); background: var(--filter-not-bg); }
+        .filter-mode-btn.mode-or.active { border-color: var(--filter-or); color: var(--filter-or); background: var(--filter-or-bg); }
+        .tag-search-box {
+            display: inline-flex; align-items: center; gap: 6px;
+            height: 28px; padding: 0 10px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fff;
+        }
+        .tag-search-box:focus-within { border-color: var(--brand); }
+        .tag-search-box svg { width: 12px; height: 12px; color: var(--muted); flex-shrink: 0; }
+        .tag-search-box input {
+            border: none; outline: none; background: transparent;
+            font-size: 12px; font-family: inherit; color: var(--text);
+            width: 160px;
+        }
+        .tag-search-box input::placeholder { color: var(--muted); }
+        #filterTagChips, #filterSeriesChips, #filterAuthorChips {
+            max-height: 64px; overflow: hidden; transition: max-height 0.2s ease;
+        }
+        #filterTagChips.expanded, #filterSeriesChips.expanded, #filterAuthorChips.expanded {
+            max-height: 600px; overflow-y: auto;
+        }
+        .filter-reset {
+            align-self: flex-start;
+            height: 30px; padding: 0 14px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--text-secondary);
+            font-size: 12px; cursor: pointer;
+        }
+        .filter-reset:hover { border-color: var(--danger); color: var(--danger); }
+
+        /* Filter summary bars */
+        .filter-summary-bar {
+            display: none;
+            align-items: center; gap: 10px;
+            padding: 10px 14px;
+            margin-bottom: 12px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            background: #f7fbff;
+        }
+        .filter-summary-bar.visible { display: flex; }
+        .filter-summary-bar .label { font-size: 12px; color: var(--brand); }
+        .filter-summary-bar .name { font-size: 14px; font-weight: 600; color: var(--text-secondary); }
+        .filter-summary-bar .clear {
+            margin-left: auto;
+            border: 1px solid var(--line); background: #fff;
+            color: var(--text-secondary);
+            border-radius: 999px;
+            padding: 4px 12px; font-size: 12px;
+            cursor: pointer;
+        }
+        html[data-theme="dark"] .filter-summary-bar { background: var(--soft-bg); }
+
+        /* Gallery */
+        .gallery-wrapper { padding: 24px 32px; flex: 1; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 16px;
+            transition: border-color .15s, box-shadow .15s;
+            cursor: pointer;
+            display: flex; flex-direction: column; gap: 8px;
+            min-height: 140px;
+            overflow: hidden;
+        }
+        .card:hover { border-color: var(--brand); box-shadow: 0 6px 18px rgba(0,0,0,0.06); }
+        .card-cover {
+            margin: -16px -16px 4px;
+            aspect-ratio: 3 / 4;
+            background: var(--control-muted-bg);
+            overflow: hidden;
+        }
+        .card-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .card-title {
+            font-size: 15px; font-weight: 600;
+            color: var(--text); line-height: 1.4;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .card-author { color: var(--text-secondary); font-size: 13px; }
+        .card-meta { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+        .badges { display: flex; flex-wrap: wrap; gap: 4px; }
+        .badge {
+            font-size: 11px; padding: 2px 8px;
+            border-radius: 999px;
+            background: var(--control-muted-bg);
+            color: var(--text-secondary);
+            border: 1px solid var(--line);
+        }
+        .badge.r18 { background: var(--pink-soft-bg); color: #d63384; border-color: transparent; }
+        .badge.r18g { background: var(--danger); color: #fff; border-color: transparent; }
+        .badge.ai { background: #fff7e0; color: #b87b00; border-color: transparent; }
+        html[data-theme="dark"] .badge.ai { background: #3a2f00; color: #ffd166; }
+        .badge.original { background: #e7f7ee; color: #167b3a; border-color: transparent; }
+        html[data-theme="dark"] .badge.original { background: #133b22; color: #4cd47c; }
+
+        .empty { text-align: center; color: var(--muted); padding: 60px 0; font-size: 14px; }
+
+        .pagination {
+            margin: 24px 0 8px;
+            display: flex; justify-content: center; gap: 6px; flex-wrap: wrap;
+        }
+        .pagination button {
+            min-width: 36px; height: 32px;
+            padding: 0 10px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            cursor: pointer; font-size: 13px;
+        }
+        .pagination button.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+        .pagination button[disabled] { opacity: .4; cursor: not-allowed; }
+
+        /* Authors view */
+        .author-view { display: none; }
+        .author-view.active { display: block; }
+        .author-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+        }
+        .author-card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 16px;
+            cursor: pointer;
+            display: flex; align-items: center; gap: 12px;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .author-card:hover { border-color: var(--brand); box-shadow: 0 6px 18px rgba(0,0,0,0.06); }
+        .author-card-avatar {
+            width: 44px; height: 44px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #0096fa, #46b8ff);
+            color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; flex-shrink: 0;
+        }
+        .author-card-info { flex: 1; min-width: 0; }
+        .author-card-name {
+            font-size: 14px; font-weight: 600; color: var(--text);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .author-card-meta { font-size: 12px; color: var(--muted); }
+
+        /* Mobile */
+        .mobile-menu-btn {
+            display: none;
+            width: 36px; height: 36px;
+            border: none; background: #f5f5f5; border-radius: 8px;
+            cursor: pointer; align-items: center; justify-content: center;
+        }
+        .mobile-menu-btn svg { width: 18px; height: 18px; stroke: #666; fill: none; stroke-width: 2; }
+        .mobile-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 99;
+        }
+        .mobile-overlay.active { display: block; }
+
+        /* Dark mode */
+        html[data-theme="dark"] .sidebar-toggle,
+        html[data-theme="dark"] .mobile-menu-btn,
+        html[data-theme="dark"] .filter-btn,
+        html[data-theme="dark"] .chip,
+        html[data-theme="dark"] .filter-mode-btn,
+        html[data-theme="dark"] .tag-search-box,
+        html[data-theme="dark"] .filter-reset,
+        html[data-theme="dark"] .filter-summary-bar .clear {
+            background: var(--control-bg); color: var(--text-secondary);
+        }
+        html[data-theme="dark"] .search-box,
+        html[data-theme="dark"] .filter-panel {
+            background: var(--control-muted-bg);
+        }
+        html[data-theme="dark"] .search-box:focus-within { background: var(--surface); }
+        html[data-theme="dark"] .nav-item:hover,
+        html[data-theme="dark"] .collection-item:hover,
+        html[data-theme="dark"] .section-add:hover {
+            background: var(--hover-bg);
+        }
+        html[data-theme="dark"] .nav-item.active,
+        html[data-theme="dark"] .collection-item.selected {
+            background: rgba(75, 179, 255, 0.12);
+        }
+        html[data-theme="dark"] .filter-btn.active,
+        html[data-theme="dark"] .chip.active {
+            border-color: var(--brand); color: var(--brand);
+            background: rgba(75, 179, 255, 0.14);
+        }
+        html[data-theme="dark"] .collection-icon { background: var(--pink-soft-bg); }
+        html[data-theme="dark"] .sidebar-toggle svg,
+        html[data-theme="dark"] .mobile-menu-btn svg { stroke: var(--text-secondary); }
+
+        @media (max-width: 768px) {
+            .sidebar { position: fixed; left: 0; top: 0; transform: translateX(-100%); z-index: 100; }
+            .sidebar.mobile-open { transform: translateX(0); }
+            .gallery-wrapper { padding: 16px; }
+            .topbar { padding: 12px 16px; }
+            .filter-panel { padding: 14px 16px; }
+            .mobile-menu-btn { display: flex !important; }
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+    <aside class="sidebar collapsed" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+            </div>
+            <span class="sidebar-brand" data-i18n="sidebar.brand">Pixiv Gallery</span>
+            <button class="sidebar-toggle" onclick="toggleSidebar()" data-i18n-title="sidebar.toggle.title" title="Toggle sidebar">
+                <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+        </div>
+
+        <div class="section-header">
+            <span class="section-title" data-i18n="section.view">视图</span>
+        </div>
+        <nav class="sidebar-nav">
+            <a class="nav-item" href="/pixiv-gallery.html">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="nav.all">全部图片</span>
+            </a>
+            <a class="nav-item active" data-view="all" href="#" id="navViewAll">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                        <line x1="9" y1="7" x2="15" y2="7"/>
+                        <line x1="9" y1="11" x2="15" y2="11"/>
+                        <line x1="9" y1="15" x2="13" y2="15"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="novel:gallery.type.novel">小说</span>
+            </a>
+            <a class="nav-item" data-view="authors" href="#" id="navViewAuthors">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="novel:nav.by-author">按作者查看小说</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="section-header">
+            <span class="section-title" data-i18n="section.collections">收藏夹</span>
+            <button class="section-add" id="btnCreateCollection" title="新建收藏夹（前往主画廊）">
+                <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+        </div>
+        <div class="sidebar-nav" id="collectionList"></div>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="section-header">
+            <span class="section-title" data-i18n="section.navigation">导航</span>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-item current" aria-current="page">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                        <polyline points="21 15 16 10 5 21"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="novel:gallery.type.novel">小说</span>
+            </div>
+            <a class="nav-item" href="/pixiv-batch.html" target="_blank" rel="noopener">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="nav.download">下载</span>
+            </a>
+            <a class="nav-item" href="/monitor.html" target="_blank" rel="noopener">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                        <line x1="8" y1="21" x2="16" y2="21"/>
+                        <line x1="12" y1="17" x2="12" y2="21"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="nav.monitor">监控</span>
+            </a>
+            <a class="nav-item admin-only" id="navInviteManage" href="/pixiv-invite-manage.html">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 11l3 3L22 4"/>
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                    </svg>
+                </div>
+                <span class="nav-label">邀请码管理</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="user-card">
+                <div class="user-avatar">P</div>
+                <div class="user-info">
+                    <div class="user-name">Pixiv User</div>
+                    <div class="user-status" data-i18n="status.online">在线</div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <div class="mobile-overlay" id="mobileOverlay" onclick="closeMobileSidebar()"></div>
+
+    <main class="main-content">
+        <div class="topbar">
+            <button class="mobile-menu-btn" onclick="openMobileSidebar()">
+                <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <label class="search-box">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input type="text" id="searchInput" data-i18n-placeholder="novel:search.placeholder" placeholder="按标题搜索...">
+            </label>
+            <button class="filter-btn" id="filterToggle">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                </svg>
+                <span data-i18n="filter.label">筛选</span>
+                <span class="filter-badge" id="filterBadge">0</span>
+            </button>
+            <div class="topbar-actions" id="langSwitcherAnchor"></div>
+        </div>
+
+        <div class="filter-panel" id="filterPanel">
+            <div class="filter-row">
+                <span class="filter-row-label" data-i18n="filter.sort.label">排序</span>
+                <button class="chip active" data-sort="date" data-i18n="filter.sort.date">时间</button>
+                <button class="chip" data-sort="novelId" data-i18n="novel:filter.sort.novel-id">小说 ID</button>
+                <button class="chip" data-sort="wordCount" data-i18n="novel:filter.sort.word-count">字数</button>
+                <button class="chip" data-sort="series" data-i18n="novel:filter.sort.series">系列</button>
+                <button class="chip" id="orderToggle" data-order="desc" style="margin-left:auto">↓ 降序</button>
+            </div>
+            <div class="filter-row">
+                <span class="filter-row-label" data-i18n="filter.r18.label">R-18</span>
+                <button class="chip active" data-r18="any" data-i18n="filter.option.all">全部</button>
+                <button class="chip" data-r18="r18plus">R-18+</button>
+                <button class="chip" data-r18="r18" data-i18n="filter.r18.only">仅 R-18</button>
+                <button class="chip" data-r18="r18g" data-i18n="filter.r18.only-g">仅 R-18G</button>
+                <button class="chip" data-r18="no" data-i18n="filter.option.exclude">排除</button>
+            </div>
+            <div class="filter-row">
+                <span class="filter-row-label" data-i18n="filter.ai.label">AI</span>
+                <button class="chip active" data-ai="any" data-i18n="filter.option.all">全部</button>
+                <button class="chip" data-ai="yes" data-i18n="filter.ai.only">仅 AI</button>
+                <button class="chip" data-ai="no" data-i18n="filter.option.exclude">排除</button>
+            </div>
+            <div class="filter-row">
+                <span class="filter-row-label" data-i18n="filter.collections.label">收藏夹</span>
+                <div class="filter-chip-list" id="filterCollectionChips"></div>
+            </div>
+            <div class="filter-row filter-tags-row" id="filterSeriesRow">
+                <span class="filter-row-label" data-i18n="filter.series.label">系列</span>
+                <div class="filter-tags-main">
+                    <div class="filter-tags-controls">
+                        <label class="tag-search-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" id="seriesSearchInput" placeholder="搜索系列...">
+                        </label>
+                        <button class="chip" id="seriesFilterReset" type="button" data-i18n="filter.reset">重置筛选</button>
+                        <button class="chip" id="seriesExpandToggle" type="button" data-i18n="filter.expand">展开全部</button>
+                    </div>
+                    <div class="filter-chip-list" id="filterSeriesChips"></div>
+                </div>
+            </div>
+            <div class="filter-row filter-tags-row" id="filterTagsRow">
+                <span class="filter-row-label" data-i18n="filter.tags.label">标签</span>
+                <div class="filter-tags-main">
+                    <div class="filter-tags-controls">
+                        <label class="tag-search-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" id="tagSearchInput" placeholder="搜索标签...">
+                        </label>
+                        <div class="filter-mode-group" id="tagModeButtons">
+                            <button class="filter-mode-btn mode-must active" data-filter-mode="must" type="button" data-i18n="filter.mode.must">必须有</button>
+                            <button class="filter-mode-btn mode-not" data-filter-mode="not" type="button" data-i18n="filter.mode.not">不能有</button>
+                            <button class="filter-mode-btn mode-or" data-filter-mode="or" type="button" data-i18n="filter.mode.or">或者有</button>
+                        </div>
+                        <button class="chip" id="tagFilterReset" type="button" data-i18n="filter.reset">重置筛选</button>
+                        <button class="chip" id="tagExpandToggle" type="button" data-i18n="filter.expand">展开全部</button>
+                    </div>
+                    <div class="filter-chip-list" id="filterTagChips"></div>
+                </div>
+            </div>
+            <div class="filter-row filter-tags-row" id="filterAuthorsRow">
+                <span class="filter-row-label" data-i18n="filter.authors.label">作者</span>
+                <div class="filter-tags-main">
+                    <div class="filter-tags-controls">
+                        <label class="tag-search-box">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" id="authorSearchInput" placeholder="搜索作者...">
+                        </label>
+                        <div class="filter-mode-group" id="authorModeButtons">
+                            <button class="filter-mode-btn mode-must active" data-filter-mode="must" type="button" data-i18n="filter.mode.must">必须有</button>
+                            <button class="filter-mode-btn mode-not" data-filter-mode="not" type="button" data-i18n="filter.mode.not">不能有</button>
+                            <button class="filter-mode-btn mode-or" data-filter-mode="or" type="button" data-i18n="filter.mode.or">或者有</button>
+                        </div>
+                        <button class="chip" id="authorFilterReset" type="button" data-i18n="filter.reset">重置筛选</button>
+                        <button class="chip" id="authorExpandToggle" type="button" data-i18n="filter.expand">展开全部</button>
+                    </div>
+                    <div class="filter-chip-list" id="filterAuthorChips"></div>
+                </div>
+            </div>
+            <button class="filter-reset" id="filterReset" data-i18n="filter.reset">重置筛选</button>
+        </div>
+
+        <div class="gallery-wrapper">
+            <div class="filter-summary-bar" id="authorFilterBar">
+                <span class="label" data-i18n="summary.authors">仅显示作者：</span>
+                <span class="name" id="authorFilterName"></span>
+                <button class="clear" id="authorFilterClear" data-i18n="filter.clear">清除筛选</button>
+            </div>
+
+            <div id="grid" class="grid"></div>
+            <div id="pagination" class="pagination"></div>
+
+            <section class="author-view" id="authorView">
+                <div id="authorGrid" class="author-grid"></div>
+                <div id="authorPagination" class="pagination"></div>
+            </section>
+        </div>
+    </main>
+</div>
+
+<script>
+const PAGE_SIZE = 24;
+const HEART_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+
+let pageI18n;
+const state = {
+    view: 'all',                // 'all' | 'authors'
+    page: 0,
+    sort: 'date',
+    order: 'desc',
+    r18: 'any',
+    ai: 'any',
+    search: '',
+    collections: [],
+    selectedCollections: new Set(),
+    tags: [],
+    selectedTags: new Map(),    // tagId -> 'must'|'not'|'or'
+    tagMode: 'must',
+    tagSearch: '',
+    series: [],
+    selectedSeries: new Map(),  // seriesId -> 'must'|'not'
+    seriesMode: 'must',
+    seriesSearch: '',
+    authors: [],
+    selectedAuthors: new Map(), // authorId -> 'must'|'not'|'or'
+    authorMode: 'must',
+    authorSearch: '',
+    exclusiveAuthorId: null,
+    exclusiveAuthorName: '',
+    authorsView: { page: 0, totalPages: 0, content: [] }
+};
+
+async function init() {
+    pageI18n = await PixivI18n.create({ namespaces: ['gallery', 'novel', 'common'] });
+    pageI18n.apply();
+    await PixivLangSwitcher.mount({
+        mountPoint: document.getElementById('langSwitcherAnchor'),
+        i18n: pageI18n,
+        showLabel: false,
+        onChange: (next) => { pageI18n = next; pageI18n.apply(); reloadCurrentView(); }
+    });
+    PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') });
+    setupEventHandlers();
+    setupAdminMode();
+    await loadCollections();
+    await loadTags();
+    await loadSeries();
+    await loadAuthors();
+    reloadCurrentView();
+}
+
+function setupEventHandlers() {
+    // Search
+    document.getElementById('searchInput').addEventListener('input', debounce(() => {
+        state.search = document.getElementById('searchInput').value.trim();
+        state.page = 0;
+        reloadCurrentView();
+    }, 250));
+    // Filter toggle
+    document.getElementById('filterToggle').addEventListener('click', () => {
+        document.getElementById('filterPanel').classList.toggle('open');
+        document.getElementById('filterToggle').classList.toggle('active');
+    });
+    // Sort chips
+    document.querySelectorAll('.chip[data-sort]').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.chip[data-sort]').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            state.sort = chip.dataset.sort;
+            state.page = 0;
+            reloadCurrentView();
+        });
+    });
+    // Order toggle
+    document.getElementById('orderToggle').addEventListener('click', () => {
+        const btn = document.getElementById('orderToggle');
+        const next = btn.dataset.order === 'desc' ? 'asc' : 'desc';
+        btn.dataset.order = next;
+        btn.textContent = next === 'desc' ? '↓ 降序' : '↑ 升序';
+        state.order = next;
+        state.page = 0;
+        reloadCurrentView();
+    });
+    // R18 chips
+    document.querySelectorAll('.chip[data-r18]').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            state.r18 = chip.dataset.r18;
+            state.page = 0;
+            updateFilterBadge();
+            reloadCurrentView();
+        });
+    });
+    // AI chips
+    document.querySelectorAll('.chip[data-ai]').forEach(chip => {
+        chip.addEventListener('click', () => {
+            document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            state.ai = chip.dataset.ai;
+            state.page = 0;
+            updateFilterBadge();
+            reloadCurrentView();
+        });
+    });
+    // Mode group buttons (tag/author/series — series only must/not)
+    bindModeGroup('tagModeButtons', mode => { state.tagMode = mode; });
+    bindModeGroup('authorModeButtons', mode => { state.authorMode = mode; });
+    // Search inputs
+    document.getElementById('tagSearchInput').addEventListener('input', debounce(() => {
+        state.tagSearch = document.getElementById('tagSearchInput').value.trim();
+        loadTags();
+    }, 250));
+    document.getElementById('seriesSearchInput').addEventListener('input', debounce(() => {
+        state.seriesSearch = document.getElementById('seriesSearchInput').value.trim();
+        loadSeries();
+    }, 250));
+    document.getElementById('authorSearchInput').addEventListener('input', debounce(() => {
+        state.authorSearch = document.getElementById('authorSearchInput').value.trim();
+        loadAuthors();
+    }, 250));
+    // Reset / expand
+    document.getElementById('tagFilterReset').addEventListener('click', () => { state.selectedTags.clear(); renderTagChips(); state.page = 0; updateFilterBadge(); reloadCurrentView(); });
+    document.getElementById('seriesFilterReset').addEventListener('click', () => { state.selectedSeries.clear(); renderSeriesChips(); state.page = 0; updateFilterBadge(); reloadCurrentView(); });
+    document.getElementById('authorFilterReset').addEventListener('click', () => { state.selectedAuthors.clear(); state.exclusiveAuthorId = null; renderAuthorChips(); updateAuthorFilterBar(); state.page = 0; updateFilterBadge(); reloadCurrentView(); });
+    document.getElementById('tagExpandToggle').addEventListener('click', () => toggleExpand('filterTagChips', 'tagExpandToggle'));
+    document.getElementById('seriesExpandToggle').addEventListener('click', () => toggleExpand('filterSeriesChips', 'seriesExpandToggle'));
+    document.getElementById('authorExpandToggle').addEventListener('click', () => toggleExpand('filterAuthorChips', 'authorExpandToggle'));
+    document.getElementById('filterReset').addEventListener('click', resetAllFilters);
+    document.getElementById('authorFilterClear').addEventListener('click', () => {
+        state.exclusiveAuthorId = null; state.selectedAuthors.clear(); renderAuthorChips(); updateAuthorFilterBar(); state.page = 0; updateFilterBadge(); reloadCurrentView();
+    });
+
+    // View nav
+    document.getElementById('navViewAll').addEventListener('click', e => { e.preventDefault(); switchView('all'); });
+    document.getElementById('navViewAuthors').addEventListener('click', e => { e.preventDefault(); switchView('authors'); });
+
+    // Collections create btn → main gallery
+    document.getElementById('btnCreateCollection').addEventListener('click', () => {
+        window.open('/pixiv-gallery.html', '_blank', 'noopener');
+    });
+}
+
+function bindModeGroup(groupId, onChange) {
+    const group = document.getElementById(groupId);
+    group.querySelectorAll('.filter-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            group.querySelectorAll('.filter-mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            onChange(btn.dataset.filterMode);
+        });
+    });
+}
+
+function toggleExpand(chipsId, btnId) {
+    const el = document.getElementById(chipsId);
+    el.classList.toggle('expanded');
+    document.getElementById(btnId).textContent = el.classList.contains('expanded')
+        ? pageI18n.t('filter.collapse', '收起')
+        : pageI18n.t('filter.expand', '展开全部');
+}
+
+function resetAllFilters() {
+    state.r18 = 'any'; state.ai = 'any';
+    document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
+    document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
+    state.selectedCollections.clear();
+    state.selectedTags.clear(); state.selectedSeries.clear(); state.selectedAuthors.clear();
+    state.exclusiveAuthorId = null;
+    renderCollections(); renderTagChips(); renderSeriesChips(); renderAuthorChips();
+    renderCollectionFilterChips(); updateAuthorFilterBar();
+    state.page = 0;
+    updateFilterBadge();
+    reloadCurrentView();
+}
+
+function updateFilterBadge() {
+    let n = 0;
+    if (state.r18 !== 'any') n++;
+    if (state.ai !== 'any') n++;
+    if (state.selectedCollections.size) n += state.selectedCollections.size;
+    if (state.selectedTags.size) n += state.selectedTags.size;
+    if (state.selectedSeries.size) n += state.selectedSeries.size;
+    if (state.selectedAuthors.size) n += state.selectedAuthors.size;
+    if (state.exclusiveAuthorId != null) n++;
+    const badge = document.getElementById('filterBadge');
+    badge.textContent = String(n);
+    badge.classList.toggle('visible', n > 0);
+}
+
+let lastTimer;
+function debounce(fn, ms) {
+    return (...args) => { clearTimeout(lastTimer); lastTimer = setTimeout(() => fn(...args), ms); };
+}
+
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+function openMobileSidebar() {
+    document.getElementById('sidebar').classList.add('mobile-open');
+    document.getElementById('mobileOverlay').classList.add('active');
+}
+function closeMobileSidebar() {
+    document.getElementById('sidebar').classList.remove('mobile-open');
+    document.getElementById('mobileOverlay').classList.remove('active');
+}
+
+async function setupAdminMode() {
+    try {
+        const ok = await fetch('/api/admin/invites/access-check', { credentials: 'same-origin' });
+        if (ok.ok) document.body.classList.add('admin-mode');
+    } catch (_) { /* not admin */ }
+}
+
+// ---------- Collections (sidebar + filter chips) ----------
+async function loadCollections() {
+    try {
+        const r = await fetch('/api/collections', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const data = await r.json();
+        state.collections = data.collections || [];
+        renderCollections();
+        renderCollectionFilterChips();
+    } catch (e) { console.warn('load collections failed', e); }
+}
+
+function renderCollections() {
+    const list = document.getElementById('collectionList');
+    if (!state.collections.length) {
+        list.innerHTML = `<div style="padding:8px 16px; font-size:12px; color:var(--muted)">${esc(pageI18n.t('status.no-collections', '暂无收藏夹'))}</div>`;
+        return;
+    }
+    list.innerHTML = state.collections.map(c => {
+        const selected = state.selectedCollections.has(c.id) ? 'selected' : '';
+        const icon = c.iconExt
+            ? `<img src="/api/collections/${c.id}/icon?v=${c.createdTime}" alt="">`
+            : HEART_SVG;
+        return `<div class="collection-item ${selected}" data-id="${c.id}">
+            <div class="collection-icon">${icon}</div>
+            <span class="collection-label">${esc(c.name)}</span>
+        </div>`;
+    }).join('');
+    list.querySelectorAll('.collection-item').forEach(row => {
+        row.addEventListener('click', () => switchCollectionFilter(Number(row.dataset.id)));
+    });
+}
+
+function renderCollectionFilterChips() {
+    const box = document.getElementById('filterCollectionChips');
+    if (!state.collections.length) {
+        box.innerHTML = `<span class="chip-empty">${esc(pageI18n.t('status.no-collections', '暂无收藏夹'))}</span>`;
+        return;
+    }
+    box.innerHTML = state.collections.map(c => {
+        const active = state.selectedCollections.has(c.id) ? 'active' : '';
+        return `<button class="chip ${active}" data-collection-id="${c.id}">${esc(c.name)}</button>`;
+    }).join('');
+    box.querySelectorAll('.chip[data-collection-id]').forEach(chip => {
+        chip.addEventListener('click', () => toggleCollectionFilter(Number(chip.dataset.collectionId)));
+    });
+}
+
+function toggleCollectionFilter(id) {
+    if (state.selectedCollections.has(id)) state.selectedCollections.delete(id);
+    else state.selectedCollections.add(id);
+    state.page = 0;
+    renderCollections(); renderCollectionFilterChips();
+    updateFilterBadge();
+    reloadCurrentView();
+}
+
+function switchCollectionFilter(id) {
+    const exclusive = state.selectedCollections.size === 1 && state.selectedCollections.has(id);
+    state.selectedCollections.clear();
+    if (!exclusive) state.selectedCollections.add(id);
+    state.page = 0;
+    renderCollections(); renderCollectionFilterChips();
+    updateFilterBadge();
+    reloadCurrentView();
+}
+
+// ---------- Tags ----------
+async function loadTags() {
+    try {
+        const params = new URLSearchParams({ limit: '300' });
+        if (state.tagSearch) params.set('search', state.tagSearch);
+        const r = await fetch(`/api/gallery/novels/tags?${params.toString()}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        state.tags = data.tags || [];
+        renderTagChips();
+    } catch (e) { console.warn('load tags failed', e); }
+}
+
+function renderTagChips() {
+    const box = document.getElementById('filterTagChips');
+    if (!state.tags.length) {
+        box.innerHTML = `<span class="chip-empty">${esc(pageI18n.t('filter.tags.empty', '暂无可用标签'))}</span>`;
+        return;
+    }
+    box.innerHTML = state.tags.map(t => {
+        const mode = state.selectedTags.get(t.tagId);
+        const cls = mode ? `filter-selected mode-${mode}` : '';
+        const trans = t.translatedName ? `<span class="tag-trans">${esc(t.translatedName)}</span>` : '';
+        return `<button class="chip ${cls}" data-tag-id="${t.tagId}">${esc(t.name)}${trans}<span class="chip-count">${t.novelCount}</span></button>`;
+    }).join('');
+    box.querySelectorAll('.chip[data-tag-id]').forEach(chip => {
+        chip.addEventListener('click', () => toggleTagSelection(Number(chip.dataset.tagId)));
+    });
+}
+
+function toggleTagSelection(tagId) {
+    const current = state.selectedTags.get(tagId);
+    if (current === state.tagMode) state.selectedTags.delete(tagId);
+    else state.selectedTags.set(tagId, state.tagMode);
+    state.page = 0;
+    renderTagChips();
+    updateFilterBadge();
+    reloadCurrentView();
+}
+
+// ---------- Series ----------
+async function loadSeries() {
+    try {
+        const params = new URLSearchParams({ size: '200', sort: 'novels' });
+        if (state.seriesSearch) params.set('search', state.seriesSearch);
+        const r = await fetch(`/api/gallery/novels/series?${params.toString()}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        state.series = data.content || [];
+        renderSeriesChips();
+    } catch (e) { console.warn('load series failed', e); }
+}
+
+function renderSeriesChips() {
+    const box = document.getElementById('filterSeriesChips');
+    if (!state.series.length) {
+        box.innerHTML = `<span class="chip-empty">${esc(pageI18n.t('filter.series.empty', '暂无系列'))}</span>`;
+        return;
+    }
+    box.innerHTML = state.series.map(s => {
+        const mode = state.selectedSeries.get(s.seriesId);
+        const cls = mode ? `filter-selected mode-${mode}` : '';
+        return `<button class="chip ${cls}" data-series-id="${s.seriesId}">${esc(s.title)}<span class="chip-count">${s.novelCount}</span></button>`;
+    }).join('');
+    box.querySelectorAll('.chip[data-series-id]').forEach(chip => {
+        chip.addEventListener('click', () => toggleSeriesSelection(Number(chip.dataset.seriesId)));
+    });
+}
+
+function toggleSeriesSelection(seriesId) {
+    const current = state.selectedSeries.get(seriesId);
+    // 系列只支持 must/not（点击循环：none → must → not → none）
+    const next = current === 'must' ? 'not' : (current === 'not' ? null : 'must');
+    if (next === null) state.selectedSeries.delete(seriesId);
+    else state.selectedSeries.set(seriesId, next);
+    state.page = 0;
+    renderSeriesChips();
+    updateFilterBadge();
+    reloadCurrentView();
+}
+
+// ---------- Authors ----------
+async function loadAuthors() {
+    try {
+        const params = new URLSearchParams({ size: '200', sort: 'novels' });
+        if (state.authorSearch) params.set('search', state.authorSearch);
+        const r = await fetch(`/api/gallery/novels/authors?${params.toString()}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        state.authors = data.content || [];
+        renderAuthorChips();
+    } catch (e) { console.warn('load authors failed', e); }
+}
+
+function renderAuthorChips() {
+    const box = document.getElementById('filterAuthorChips');
+    if (!state.authors.length) {
+        box.innerHTML = `<span class="chip-empty">${esc(pageI18n.t('filter.authors.empty', '暂无作者'))}</span>`;
+        return;
+    }
+    box.innerHTML = state.authors.map(a => {
+        const mode = state.selectedAuthors.get(a.authorId);
+        const cls = mode ? `filter-selected mode-${mode}` : '';
+        return `<button class="chip ${cls}" data-author-id="${a.authorId}">${esc(a.name)}<span class="chip-count">${a.novelCount}</span></button>`;
+    }).join('');
+    box.querySelectorAll('.chip[data-author-id]').forEach(chip => {
+        chip.addEventListener('click', () => toggleAuthorSelection(Number(chip.dataset.authorId)));
+    });
+}
+
+function toggleAuthorSelection(authorId) {
+    const current = state.selectedAuthors.get(authorId);
+    if (current === state.authorMode) state.selectedAuthors.delete(authorId);
+    else state.selectedAuthors.set(authorId, state.authorMode);
+    state.page = 0;
+    renderAuthorChips();
+    updateFilterBadge();
+    reloadCurrentView();
+}
+
+function setAuthorFilterExclusive(authorId, name) {
+    state.exclusiveAuthorId = authorId;
+    state.exclusiveAuthorName = name || ('#' + authorId);
+    state.selectedAuthors.clear();
+    state.view = 'all';
+    setActiveViewNav();
+    state.page = 0;
+    updateAuthorFilterBar();
+    renderAuthorChips();
+    updateFilterBadge();
+    reloadCurrentView();
+}
+
+function updateAuthorFilterBar() {
+    const bar = document.getElementById('authorFilterBar');
+    if (state.exclusiveAuthorId != null) {
+        document.getElementById('authorFilterName').textContent = state.exclusiveAuthorName;
+        bar.classList.add('visible');
+    } else {
+        bar.classList.remove('visible');
+    }
+}
+
+// ---------- View switching ----------
+function switchView(v) {
+    state.view = v;
+    setActiveViewNav();
+    state.page = 0;
+    state.authorsView.page = 0;
+    reloadCurrentView();
+}
+
+function setActiveViewNav() {
+    document.getElementById('navViewAll').classList.toggle('active', state.view === 'all');
+    document.getElementById('navViewAuthors').classList.toggle('active', state.view === 'authors');
+    const grid = document.getElementById('grid');
+    const pag = document.getElementById('pagination');
+    const av = document.getElementById('authorView');
+    if (state.view === 'authors') {
+        grid.style.display = 'none'; pag.style.display = 'none';
+        av.classList.add('active');
+    } else {
+        grid.style.display = ''; pag.style.display = '';
+        av.classList.remove('active');
+    }
+}
+
+function reloadCurrentView() {
+    setActiveViewNav();
+    if (state.view === 'authors') reloadAuthorsView();
+    else reloadNovels();
+}
+
+// ---------- Novels list ----------
+async function reloadNovels() {
+    const params = new URLSearchParams({
+        page: String(state.page), size: String(PAGE_SIZE),
+        sort: state.sort, order: state.order, r18: state.r18, ai: state.ai
+    });
+    if (state.search) params.set('search', state.search);
+    if (state.selectedCollections.size) params.set('collectionIds', Array.from(state.selectedCollections).join(','));
+
+    const must = [], not = [], or = [];
+    state.selectedTags.forEach((mode, id) => (mode === 'must' ? must : mode === 'not' ? not : or).push(id));
+    if (must.length) params.set('tagIds', must.join(','));
+    if (not.length) params.set('notTagIds', not.join(','));
+    if (or.length) params.set('orTagIds', or.join(','));
+
+    const sMust = [], sNot = [];
+    state.selectedSeries.forEach((mode, id) => (mode === 'must' ? sMust : sNot).push(id));
+    if (sMust.length) params.set('seriesIds', sMust.join(','));
+    if (sNot.length) params.set('notSeriesIds', sNot.join(','));
+
+    const aMust = [], aNot = [], aOr = [];
+    state.selectedAuthors.forEach((mode, id) => (mode === 'must' ? aMust : mode === 'not' ? aNot : aOr).push(id));
+    if (state.exclusiveAuthorId != null) aMust.push(state.exclusiveAuthorId);
+    if (aMust.length) params.set('authorIds', aMust.join(','));
+    if (aNot.length) params.set('notAuthorIds', aNot.join(','));
+    if (aOr.length) params.set('orAuthorIds', aOr.join(','));
+
+    try {
+        const r = await fetch(`/api/gallery/novels?${params.toString()}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        renderGrid(data.content || []);
+        renderPagination('pagination', data.totalPages || 0, data.page || 0, p => { state.page = p; reloadNovels(); });
+    } catch (e) {
+        document.getElementById('grid').innerHTML = `<div class="empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
+        document.getElementById('pagination').innerHTML = '';
+    }
+}
+
+function renderGrid(items) {
+    const grid = document.getElementById('grid');
+    if (!items.length) {
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.empty', '暂无小说'))}</div>`;
+        return;
+    }
+    grid.innerHTML = items.map(item => {
+        const badges = [];
+        if (item.xRestrict === 1) badges.push('<span class="badge r18">R-18</span>');
+        if (item.xRestrict === 2) badges.push('<span class="badge r18g">R-18G</span>');
+        if (item.isAi) badges.push('<span class="badge ai">AI</span>');
+        if (item.isOriginal) badges.push(`<span class="badge original">${esc(pageI18n.t('novel:meta.original', '原创'))}</span>`);
+        const meta = [];
+        if (item.wordCount && item.wordCount > 0) meta.push(esc(pageI18n.t('novel:meta.word-count', '{count} 字', { count: item.wordCount })));
+        else if (item.textLength && item.textLength > 0) meta.push(esc(pageI18n.t('novel:meta.text-length', '{count} 字符', { count: item.textLength })));
+        if (item.seriesId && item.seriesId > 0 && item.seriesOrder != null) meta.push('#' + item.seriesOrder);
+        const cover = item.coverExt
+            ? `<div class="card-cover"><img loading="lazy" src="/api/gallery/novel/${item.novelId}/cover" alt="" onerror="this.parentElement.style.display='none'"></div>`
+            : '';
+        return `<a class="card" href="/pixiv-novel.html?id=${item.novelId}">
+            ${cover}
+            <div class="card-title">${esc(item.title || '')}</div>
+            <div class="card-author">${esc(item.authorName || pageI18n.t('novel:status.unknown-author', '未知作者'))}</div>
+            <div class="badges">${badges.join('')}</div>
+            <div class="card-meta">${meta.map(m => `<span>${m}</span>`).join('')}</div>
+        </a>`;
+    }).join('');
+}
+
+// ---------- Authors view ----------
+async function reloadAuthorsView() {
+    try {
+        const params = new URLSearchParams({
+            page: String(state.authorsView.page),
+            size: String(PAGE_SIZE),
+            sort: 'novels'
+        });
+        if (state.search) params.set('search', state.search);
+        const r = await fetch(`/api/gallery/novels/authors?${params.toString()}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        state.authorsView.content = data.content || [];
+        state.authorsView.totalPages = data.totalPages || 0;
+        renderAuthorsGrid(state.authorsView.content);
+        renderPagination('authorPagination', state.authorsView.totalPages, state.authorsView.page,
+            p => { state.authorsView.page = p; reloadAuthorsView(); });
+    } catch (e) {
+        document.getElementById('authorGrid').innerHTML = `<div class="empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
+        document.getElementById('authorPagination').innerHTML = '';
+    }
+}
+
+function renderAuthorsGrid(authors) {
+    const grid = document.getElementById('authorGrid');
+    if (!authors.length) {
+        grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('status.no-authors', '暂无作者'))}</div>`;
+        return;
+    }
+    grid.innerHTML = authors.map(a => {
+        const initial = (a.name || '').charAt(0).toUpperCase() || '?';
+        return `<div class="author-card" data-author-id="${a.authorId}" data-author-name="${esc(a.name || '')}">
+            <div class="author-card-avatar">${esc(initial)}</div>
+            <div class="author-card-info">
+                <div class="author-card-name">${esc(a.name || '#' + a.authorId)}</div>
+                <div class="author-card-meta">${a.novelCount} ${esc(pageI18n.t('novel:status.empty', '部'))} · #${a.authorId}</div>
+            </div>
+        </div>`;
+    }).join('');
+    grid.querySelectorAll('.author-card').forEach(card => {
+        card.addEventListener('click', () => {
+            setAuthorFilterExclusive(Number(card.dataset.authorId), card.dataset.authorName);
+        });
+    });
+}
+
+// ---------- Pagination helper ----------
+function renderPagination(elementId, totalPages, page, onClick) {
+    const wrap = document.getElementById(elementId);
+    if (totalPages <= 1) { wrap.innerHTML = ''; return; }
+    const max = Math.min(totalPages, 9);
+    const start = Math.max(0, Math.min(page - 4, totalPages - max));
+    const buttons = [];
+    buttons.push(`<button data-pg="${page - 1}" ${page === 0 ? 'disabled' : ''}>‹</button>`);
+    for (let i = start; i < start + max; i++) {
+        buttons.push(`<button class="${i === page ? 'active' : ''}" data-pg="${i}">${i + 1}</button>`);
+    }
+    buttons.push(`<button data-pg="${page + 1}" ${page >= totalPages - 1 ? 'disabled' : ''}>›</button>`);
+    wrap.innerHTML = buttons.join('');
+    wrap.querySelectorAll('button[data-pg]').forEach(btn => {
+        if (btn.disabled) return;
+        btn.addEventListener('click', () => onClick(Number(btn.dataset.pg)));
+    });
+}
+
+function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+init();
+</script>
+</body>
+</html>

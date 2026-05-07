@@ -213,14 +213,22 @@ public class PixivDatabase {
             if (t == null) continue;
             String name = t.getName();
             if (name == null || name.isBlank()) continue;
-            String translated = t.getTranslatedName();
-            if (translated != null && translated.isBlank()) translated = null;
-            pixivMapper.upsertTag(name, translated);
-            Long tagId = pixivMapper.findTagIdByName(name);
+            Long tagId = upsertTagAndGetId(name, t.getTranslatedName());
             if (tagId != null) {
                 pixivMapper.insertArtworkTag(artworkId, tagId);
             }
         }
+    }
+
+    /**
+     * Upsert a tag (by name) into the shared {@code tags} pool and return its id.
+     * Used by both artwork and novel tag persistence so they share the same id space.
+     */
+    public Long upsertTagAndGetId(String name, String translatedName) {
+        if (name == null || name.isBlank()) return null;
+        String translated = (translatedName != null && translatedName.isBlank()) ? null : translatedName;
+        pixivMapper.upsertTag(name, translated);
+        return pixivMapper.findTagIdByName(name);
     }
 
     public List<TagDto> getArtworkTags(long artworkId) {

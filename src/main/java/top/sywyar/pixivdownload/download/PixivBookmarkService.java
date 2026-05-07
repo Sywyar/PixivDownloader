@@ -19,6 +19,7 @@ public class PixivBookmarkService {
 
     private static final String PIXIV_HOME   = "https://www.pixiv.net/";
     private static final String BOOKMARK_URL = "https://www.pixiv.net/ajax/illusts/bookmarks/add";
+    private static final String NOVEL_BOOKMARK_URL = "https://www.pixiv.net/ajax/novels/bookmarks/add";
     private static final String USER_AGENT   =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
     // 新版 Pixiv (Next.js)：JSON 内嵌于 JS 字符串，引号被转义为 \"  →  token\":\"<value>\"
@@ -108,6 +109,47 @@ public class PixivBookmarkService {
     }
 
     private record BookmarkRequest(String illust_id, int restrict, String comment, List<String> tags) {}
+
+    private record NovelBookmarkRequest(String novel_id, int restrict, String comment, List<String> tags) {}
+
+    /**
+     * 收藏小说（best-effort）。失败仅记录日志。
+     */
+    public DownloadActionResult bookmarkNovel(Long novelId, String cookie) {
+        if (cookie == null || cookie.isBlank()) {
+            log.warn(message("bookmark.log.skip.missing-cookie", id(novelId)));
+            return DownloadActionResult.skipped(messages.get("bookmark.result.skipped.missing-cookie"));
+        }
+        try {
+            String csrfToken = fetchCsrfToken(cookie);
+            postNovelBookmark(novelId, cookie, csrfToken);
+            log.info(message("bookmark.log.success", id(novelId)));
+            return DownloadActionResult.success(messages.get("bookmark.result.success"));
+        } catch (Exception e) {
+            log.warn(message("bookmark.log.failed", id(novelId), e.getMessage()), e);
+            return DownloadActionResult.failed(messages.get("bookmark.result.failed"));
+        }
+    }
+
+    private void postNovelBookmark(Long novelId, String cookie, String csrfToken) throws Exception {
+        HttpHeaders headers = buildBaseHeaders(cookie);
+        headers.set("x-csrf-token", csrfToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        NovelBookmarkRequest body = new NovelBookmarkRequest(String.valueOf(novelId), 0, "", List.of());
+        String bodyJson = objectMapper.writeValueAsString(body);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                NOVEL_BOOKMARK_URL, HttpMethod.POST, new HttpEntity<>(bodyJson, headers), String.class);
+
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new IllegalStateException(message("bookmark.log.reason.api.non-2xx", response.getStatusCode()));
+        }
+        JsonNode root = objectMapper.readTree(response.getBody());
+        if (root.path("error").asBoolean(false)) {
+            throw new IllegalStateException(message("bookmark.log.reason.api.error", root.path("message").asText()));
+        }
+    }
 
     private void postBookmark(Long artworkId, String cookie, String csrfToken) throws Exception {
         HttpHeaders headers = buildBaseHeaders(cookie);

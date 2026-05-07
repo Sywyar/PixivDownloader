@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -38,6 +39,8 @@ class CollectionServiceTest {
     private CollectionIconService iconService;
     @Mock
     private DownloadConfig downloadConfig;
+    @Mock
+    private NovelDatabase novelDatabase;
 
     private CollectionService collectionService;
 
@@ -48,7 +51,8 @@ class CollectionServiceTest {
                 collectionMapper,
                 iconService,
                 TestI18nBeans.appMessages(),
-                downloadConfig
+                downloadConfig,
+                novelDatabase
         );
     }
 
@@ -72,12 +76,12 @@ class CollectionServiceTest {
         @DisplayName("单斜杠开头的目录应按 download.root-folder 下的相对目录处理")
         void shouldResolveSingleSlashPrefixedPathAsRelativePath() {
             when(collectionMapper.findById(7L)).thenReturn(new Collection(
-                    7L, "safe", null, "/test", 0, 1700000000L, 0
+                    7L, "safe", null, "/src/main/test", 0, 1700000000L, 0
             ));
 
             Path resolved = collectionService.resolveDownloadRoot(7L, tempDir);
 
-            assertThat(resolved).isEqualTo(tempDir.toAbsolutePath().normalize().resolve("test"));
+            assertThat(resolved).isEqualTo(tempDir.toAbsolutePath().normalize().resolve("src/main/test"));
         }
 
         @Test

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 批量导入作品下载器
 // @namespace    http://tampermonkey.net/
-// @version      2.0.10
+// @version      2.0.11
 // @description  粘贴作品链接列表批量下载，格式为 url | title，兼容 One-Tab，N-Tab 等标签页管理插件导出格式，支持严格的下载状态校验。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -1136,9 +1136,17 @@
         parseAndSetFromText(rawText) {
             const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
             let items = [];
-            const regex = /https?:\/\/www\.pixiv\.net\/artworks\/(\d+)/;
+            const illustRegex = /https?:\/\/www\.pixiv\.net\/artworks\/(\d+)/;
+            const novelRegex = /https?:\/\/www\.pixiv\.net\/novel\/show\.php\?[^\s|]*?\bid=(\d+)/;
+            const novelSeriesRegex = /https?:\/\/www\.pixiv\.net\/novel\/series\/(\d+)/;
+            const novelIds = [];
+            const novelSeriesIds = [];
             for (const ln of lines) {
-                const m = ln.match(regex);
+                let m = ln.match(novelSeriesRegex);
+                if (m) { novelSeriesIds.push(m[1]); continue; }
+                m = ln.match(novelRegex);
+                if (m) { novelIds.push(m[1]); continue; }
+                m = ln.match(illustRegex);
                 if (m) {
                     const id = m[1];
                     let title = ln.split('|')[1] || '';
@@ -1148,7 +1156,101 @@
             }
             items = this.dedupeQueueItems(items);
             this.setQueue(items);
-            this.ui.setStatus(`解析完成：找到 ${items.length} 个作品`, 'success');
+            const novelTotal = novelIds.length + novelSeriesIds.length;
+            if (novelTotal > 0 && typeof this.triggerNovelDownloads === 'function') {
+                this.triggerNovelDownloads(novelIds, novelSeriesIds);
+            }
+            this.ui.setStatus(
+                `解析完成：插画 ${items.length} 个` +
+                (novelTotal > 0 ? `，小说 ${novelTotal} 个（已直接发起下载，不进入插画队列）` : ''),
+                'success'
+            );
+        }
+
+        /** 小说独立通道：v1 仅 URL 导入支持，逐项后台调度，不进入插画队列 */
+        triggerNovelDownloads(novelIds, novelSeriesIds) {
+            const serverBase = (typeof getBackendURL === 'function') ? '' : '';
+            // 复用主下载基址；getBackendURL 已包含 /api/download/pixiv
+            const base = (typeof getBackendURL === 'function')
+                ? getBackendURL().replace(/\/api\/download\/pixiv$/, '')
+                : '';
+            const cookie = document.cookie || '';
+            const dispatchOne = (novelId, forcedSeries) => new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${base}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`,
+                    headers: {'X-Pixiv-Cookie': cookie},
+                    onload: (res) => {
+                        if (res.status < 200 || res.status >= 300) { resolve(false); return; }
+                        let meta;
+                        try { meta = JSON.parse(res.responseText); } catch { resolve(false); return; }
+                        const seriesInfo = forcedSeries || (meta.seriesId ? {
+                            seriesId: meta.seriesId, seriesOrder: meta.seriesOrder, seriesTitle: meta.seriesTitle
+                        } : null);
+                        const body = {
+                            novelId: Number(novelId),
+                            title: meta.title,
+                            cookie,
+                            content: meta.content,
+                            other: {
+                                authorId: meta.authorId,
+                                authorName: meta.authorName,
+                                xRestrict: meta.xRestrict,
+                                ai: meta.isAi,
+                                original: meta.isOriginal,
+                                language: meta.language,
+                                wordCount: meta.wordCount,
+                                textLength: meta.textLength,
+                                pageCount: meta.pageCount,
+                                description: meta.description,
+                                tags: meta.tags,
+                                seriesId: seriesInfo ? seriesInfo.seriesId : null,
+                                seriesOrder: seriesInfo ? seriesInfo.seriesOrder : null,
+                                seriesTitle: seriesInfo ? seriesInfo.seriesTitle : null,
+                                format: 'txt',
+                                uploadTimestamp: meta.uploadTimestamp,
+                                coverUrl: meta.coverUrl
+                            }
+                        };
+                        GM_xmlhttpRequest({
+                            method: 'POST',
+                            url: `${base}/api/download/pixiv/novel`,
+                            headers: {'Content-Type': 'application/json'},
+                            data: JSON.stringify(body),
+                            onload: () => resolve(true),
+                            onerror: () => resolve(false)
+                        });
+                    },
+                    onerror: () => resolve(false)
+                });
+            });
+            const dispatchSeries = (seriesId) => new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${base}/api/pixiv/novel/series/${encodeURIComponent(seriesId)}?page=1`,
+                    headers: {'X-Pixiv-Cookie': cookie},
+                    onload: async (res) => {
+                        if (res.status < 200 || res.status >= 300) { resolve(false); return; }
+                        let data;
+                        try { data = JSON.parse(res.responseText); } catch { resolve(false); return; }
+                        const items = data.items || [];
+                        const meta = data.series || {};
+                        for (const it of items) {
+                            await dispatchOne(it.id, {
+                                seriesId: meta.seriesId || Number(seriesId),
+                                seriesOrder: it.seriesOrder, seriesTitle: meta.title
+                            });
+                            await new Promise(r => setTimeout(r, 800));
+                        }
+                        resolve(true);
+                    },
+                    onerror: () => resolve(false)
+                });
+            });
+            (async () => {
+                for (const id of novelIds) await dispatchOne(id);
+                for (const sid of novelSeriesIds) await dispatchSeries(sid);
+            })();
         }
 
         getIntervalMs() {

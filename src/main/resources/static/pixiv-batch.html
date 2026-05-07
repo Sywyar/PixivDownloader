@@ -1514,6 +1514,18 @@
                     <option value="" data-i18n="option.collection.none">（不加入收藏夹）</option>
                 </select>
             </div>
+            <div class="setting-item">
+                <label for="s-novel-format" data-i18n-ns="novel" data-i18n="batch.format-label">小说格式:</label>
+                <select id="s-novel-format" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                    <option value="txt" data-i18n-ns="novel" data-i18n="format.txt">纯文本（TXT）</option>
+                    <option value="html" data-i18n-ns="novel" data-i18n="format.html">网页（HTML）</option>
+                    <option value="epub" data-i18n-ns="novel" data-i18n="format.epub">电子书（EPUB）</option>
+                </select>
+            </div>
+            <div class="setting-item">
+                <input type="checkbox" id="s-novel-merge">
+                <label for="s-novel-merge" style="cursor:pointer;" data-i18n-ns="novel" data-i18n="batch.merge-label">系列下载完成后生成合订本</label>
+            </div>
             <div class="setting-item filename-setting">
                 <label for="s-file-name-template" data-i18n="label.settings.filename-template">文件名格式:</label>
                 <input type="text" id="s-file-name-template" value="{artwork_id}_p{page}" spellcheck="false">
@@ -1648,7 +1660,7 @@
     }
 
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: ['batch', 'common']});
+        pageI18n = await PixivI18n.create({namespaces: ['batch', 'common', 'novel']});
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
@@ -1721,7 +1733,9 @@
             R18Only: false,
             bookmark: false,
             collectionId: null,
-            fileNameTemplate: DEFAULT_FILE_NAME_TEMPLATE
+            fileNameTemplate: DEFAULT_FILE_NAME_TEMPLATE,
+            novelFormat: 'txt',
+            mergeNovelSeries: false
         }
     };
 
@@ -2940,6 +2954,10 @@
 
     async function processSingle(item) {
         item.lastMessageParts = null;
+        if (item.kind === 'novel') {
+            await processNovelItem(item);
+            return;
+        }
         item.lastMessage = bt('queue.message.checking-history', '正在检查历史记录...');
         renderQueue();
 
@@ -3221,26 +3239,273 @@
     function parseNTab() {
         const text = document.getElementById('ntab-textarea').value;
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-        const regex = /https?:\/\/www\.pixiv\.net\/artworks\/(\d+)/;
-        let items = [];
+        const illustRegex = /https?:\/\/www\.pixiv\.net\/artworks\/(\d+)/;
+        const novelRegex = /https?:\/\/www\.pixiv\.net\/novel\/show\.php\?[^\s|]*?\bid=(\d+)/;
+        const novelSeriesRegex = /https?:\/\/www\.pixiv\.net\/novel\/series\/(\d+)/;
+        let illustItems = [];
+        const novelItems = [];
+        const novelSeriesIds = [];
         for (const ln of lines) {
-            const m = ln.match(regex);
+            const ns = ln.match(novelSeriesRegex);
+            if (ns) { novelSeriesIds.push(ns[1]); continue; }
+            const n = ln.match(novelRegex);
+            if (n) {
+                const novelId = n[1];
+                const titleRaw = (ln.split('|')[1] || '').trim();
+                novelItems.push({
+                    id: 'n' + novelId,
+                    novelId,
+                    kind: 'novel',
+                    title: titleRaw || bt('queue.novel-fallback', '小说 {id}', {id: novelId})
+                });
+                continue;
+            }
+            const m = ln.match(illustRegex);
             if (m) {
                 const id = m[1];
                 const titleRaw = (ln.split('|')[1] || '').trim();
-                items.push({id, title: titleRaw || bt('queue.artwork-fallback', '作品 {id}', {id})});
+                illustItems.push({id, title: titleRaw || bt('queue.artwork-fallback', '作品 {id}', {id})});
             }
         }
-        items = dedupeQueueItems(items);
-        if (!items.length) {
+        illustItems = dedupeQueueItems(illustItems);
+        const dedupedNovelItems = dedupeQueueItems(novelItems);
+        if (!illustItems.length && !dedupedNovelItems.length && novelSeriesIds.length === 0) {
             setStatus(bt('status.ntab-none', '未解析到任何作品链接'), 'error');
             return;
         }
-        const added = addItemsToQueue(items.map(x => x.id), items, 'ntab', '');
+        const addedIllusts = illustItems.length
+            ? addItemsToQueue(illustItems.map(x => x.id), illustItems, 'ntab', '') : 0;
+        const addedNovels = dedupedNovelItems.length
+            ? addItemsToQueue(dedupedNovelItems.map(x => x.id), dedupedNovelItems, 'ntab-novel', '') : 0;
+        // 小说系列异步展开后挂入队列
+        if (novelSeriesIds.length > 0) {
+            for (const sid of novelSeriesIds) {
+                expandNovelSeriesIntoQueue(sid).catch(e => {
+                    console.warn('novel series expand failed', sid, e);
+                    setStatus(bt('status.novel-series-expand-failed',
+                        '小说系列展开失败：{id}', {id: sid}), 'error');
+                });
+            }
+        }
+        const total = illustItems.length + dedupedNovelItems.length + novelSeriesIds.length;
+        const added = addedIllusts + addedNovels + (novelSeriesIds.length > 0 ? novelSeriesIds.length : 0);
         setStatus(
-            bt('status.parsed-summary', '解析完成：共 {total} 个，新增 {added} 个', {total: items.length, added}),
+            bt('status.parsed-summary', '解析完成：共 {total} 个，新增 {added} 个',
+                {total, added}),
             'success'
         );
+    }
+
+    /* ============================================================
+       小说下载通道：作为 kind=='novel' 的队列项参与统一调度
+       —— ID 命名空间用 'n' 前缀避免与插画 ID 冲突
+    ============================================================ */
+    async function expandNovelSeriesIntoQueue(seriesId) {
+        const cookie = getCookie();
+        const headers = {};
+        if (cookie) headers['X-Pixiv-Cookie'] = cookie;
+        let page = 1;
+        const collected = [];
+        let seriesMeta = null;
+        while (true) {
+            const r = await fetch(`${BASE}/api/pixiv/novel/series/${encodeURIComponent(seriesId)}?page=${page}`, {headers});
+            if (!r.ok) throw new Error('series fetch HTTP ' + r.status);
+            const data = await r.json();
+            if (!seriesMeta) seriesMeta = data.series;
+            for (const it of (data.items || [])) collected.push(it);
+            if (data.isLastPage) break;
+            page++;
+            if (page > 50) break;
+        }
+        if (collected.length === 0) {
+            setStatus(bt('status.novel-series-empty', '小说系列为空：{id}', {id: seriesId}), 'warning');
+            return;
+        }
+        const items = collected.map(it => ({
+            id: 'n' + it.id,
+            novelId: String(it.id),
+            kind: 'novel',
+            title: it.title || bt('queue.novel-fallback', '小说 {id}', {id: it.id}),
+            seriesId: seriesMeta ? seriesMeta.seriesId : Number(seriesId),
+            seriesOrder: it.seriesOrder,
+            seriesTitle: seriesMeta ? seriesMeta.title : null,
+            authorId: it.userId ? Number(it.userId) : (seriesMeta ? seriesMeta.authorId : null),
+            authorName: it.userName || (seriesMeta ? seriesMeta.authorName : ''),
+            xRestrict: it.xRestrict,
+            mergeAfterSeriesId: !!state.settings.mergeNovelSeries ? Number(seriesId) : null
+        }));
+        const deduped = dedupeQueueItems(items);
+        addItemsToQueue(deduped.map(x => x.id), deduped, 'ntab-novel', '');
+    }
+
+    async function processNovelItem(item) {
+        item.lastMessage = bt('queue.message.fetching-info', '正在获取作品信息...');
+        setCurrent(item);
+        renderQueue();
+        const cookie = getCookie();
+        const headers = {};
+        if (cookie) headers['X-Pixiv-Cookie'] = cookie;
+        try {
+            const novelId = item.novelId || String(item.id).replace(/^n/, '');
+            const metaRes = await fetch(`${BASE}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`, {headers});
+            if (!metaRes.ok) throw new Error('meta HTTP ' + metaRes.status);
+            const meta = await metaRes.json();
+
+            if (state.settings.R18Only && Number(meta.xRestrict || 0) < 1) {
+                item.status = 'skipped';
+                item.lastMessage = bt('queue.message.skipped-not-r18', '跳过 — 非 R18 内容');
+                item.endTime = new Date().toISOString();
+                updateStats();
+                saveQueue();
+                renderQueue();
+                return;
+            }
+
+            item.title = meta.title || item.title;
+            if (meta.authorId) item.authorId = meta.authorId;
+            if (meta.authorName) item.authorName = meta.authorName;
+            item.xRestrict = Number(meta.xRestrict || 0);
+            item.isAi = !!meta.isAi;
+            item.totalImages = 1;
+            item.downloadedCount = 0;
+            saveQueue();
+            renderQueue();
+
+            const fmt = (state.settings.novelFormat || 'txt').toLowerCase();
+            const seriesInfo = (item.seriesId && item.seriesId > 0) ? {
+                seriesId: Number(item.seriesId),
+                seriesOrder: item.seriesOrder,
+                seriesTitle: item.seriesTitle
+            } : (meta.seriesId ? {
+                seriesId: meta.seriesId,
+                seriesOrder: meta.seriesOrder,
+                seriesTitle: meta.seriesTitle
+            } : null);
+            const collectionId = await resolveBatchCollectionIdForDownload();
+            const body = {
+                novelId: Number(novelId),
+                title: meta.title,
+                cookie: cookie || null,
+                content: meta.content,
+                other: {
+                    authorId: meta.authorId,
+                    authorName: meta.authorName,
+                    xRestrict: meta.xRestrict,
+                    ai: meta.isAi,
+                    original: meta.isOriginal,
+                    language: meta.language,
+                    wordCount: meta.wordCount,
+                    textLength: meta.textLength,
+                    pageCount: meta.pageCount,
+                    description: meta.description,
+                    tags: meta.tags,
+                    seriesId: seriesInfo ? seriesInfo.seriesId : null,
+                    seriesOrder: seriesInfo ? seriesInfo.seriesOrder : null,
+                    seriesTitle: seriesInfo ? seriesInfo.seriesTitle : null,
+                    fileNameTemplate: state.settings.fileNameTemplate,
+                    bookmark: !!state.settings.bookmark,
+                    collectionId,
+                    format: fmt,
+                    uploadTimestamp: meta.uploadTimestamp,
+                    coverUrl: meta.coverUrl
+                }
+            };
+            item.lastMessage = bt('queue.message.waiting-completion', '下载中，等待完成...');
+            renderQueue();
+            const dlRes = await fetch(`${BASE}/api/download/pixiv/novel`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                credentials: 'same-origin',
+                body: JSON.stringify(body)
+            });
+            const dlData = await dlRes.json().catch(() => ({}));
+            if (dlRes.status === 429 && dlData.quotaExceeded) {
+                if (!quotaExceededHandled) {
+                    quotaExceededHandled = true;
+                    handleQuotaExceeded(dlData);
+                }
+                throw new Error('quota_exceeded');
+            }
+            if (dlRes.status === 200 && dlData.alreadyDownloaded) {
+                item.status = 'skipped';
+                item.lastMessage = bt('queue.message.skipped-server-downloaded', '跳过 — 已下载（服务器确认）');
+                item.endTime = new Date().toISOString();
+                updateStats();
+                saveQueue();
+                renderQueue();
+                return;
+            }
+            if (!dlRes.ok) throw new Error(dlData.message || ('HTTP ' + dlRes.status));
+
+            // 轮询小说下载状态
+            const start = Date.now();
+            while (Date.now() - start < STATUS_TIMEOUT_MS) {
+                await sleep(800);
+                const sRes = await fetch(`${BASE}/api/download/novel/status/${encodeURIComponent(novelId)}`);
+                if (!sRes.ok) continue;
+                const status = await sRes.json();
+                if (status.completed) {
+                    if (status.failed) {
+                        item.status = 'failed';
+                        item.lastMessage = bt('queue.message.failed', '失败 — {message}',
+                            {message: status.message || ''});
+                    } else {
+                        item.status = 'completed';
+                        item.downloadedCount = 1;
+                        item.bookmarkResult = status.bookmarkResult || null;
+                        item.collectionResult = status.collectionResult || null;
+                        item.lastMessage = bt('queue.message.completed', '完成');
+                    }
+                    item.endTime = new Date().toISOString();
+                    updateStats();
+                    saveQueue();
+                    renderQueue();
+                    if (item.status === 'completed' && item.mergeAfterSeriesId) {
+                        await maybeTriggerSeriesMerge(item.mergeAfterSeriesId);
+                    }
+                    return;
+                }
+                if (status.stage) {
+                    item.lastMessage = bt('queue.message.stage', '阶段：{stage}', {stage: status.stage});
+                    renderQueue();
+                }
+            }
+            item.status = 'failed';
+            item.lastMessage = bt('queue.message.timeout', '超时');
+            item.endTime = new Date().toISOString();
+            updateStats();
+            saveQueue();
+            renderQueue();
+        } catch (e) {
+            item.status = 'failed';
+            item.lastMessage = bt('queue.message.failed', '失败 — {message}', {message: e.message || String(e)});
+            item.endTime = new Date().toISOString();
+            updateStats();
+            saveQueue();
+            renderQueue();
+            throw e;
+        }
+    }
+
+    // 当系列内最后一个待合并章节完成后，触发合订
+    const _novelMergeFiredSeries = new Set();
+    async function maybeTriggerSeriesMerge(seriesId) {
+        if (!seriesId) return;
+        const remaining = state.queue.filter(q => q.kind === 'novel'
+            && q.mergeAfterSeriesId === seriesId
+            && !['completed', 'failed', 'skipped'].includes(q.status));
+        if (remaining.length > 0) return;
+        if (_novelMergeFiredSeries.has(seriesId)) return;
+        _novelMergeFiredSeries.add(seriesId);
+        const fmt = (state.settings.novelFormat || 'txt').toLowerCase();
+        try {
+            await fetch(`${BASE}/api/gallery/novel/series/${encodeURIComponent(seriesId)}/merge?format=${fmt}`, {
+                method: 'POST', credentials: 'same-origin'
+            });
+            setStatus(bt('status.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: seriesId}), 'success');
+        } catch (e) {
+            console.warn('merge failed', seriesId, e);
+        }
     }
 
     function addItemsToQueue(idList, metaList, source, username, defaultAuthorId, defaultAuthorName) {
@@ -3255,6 +3520,9 @@
             const authorName = m.authorName || defaultAuthorName || '';
             state.queue.push({
                 id,
+                kind: m.kind || 'illust',
+                novelId: m.novelId || null,
+                mergeAfterSeriesId: m.mergeAfterSeriesId || null,
                 title: m.title || bt('queue.artwork-fallback', '作品 {id}', {id}),
                 status: state.isRunning ? 'pending' : 'idle',
                 source: source || 'ntab',
@@ -3262,6 +3530,7 @@
                 authorId,
                 authorName,
                 isAi: typeof m.isAi === 'boolean' ? m.isAi : null,
+                xRestrict: typeof m.xRestrict === 'number' ? m.xRestrict : null,
                 seriesId: m.seriesId ? Number(m.seriesId) : null,
                 seriesOrder: m.seriesOrder != null ? Number(m.seriesOrder) : null,
                 seriesTitle: m.seriesTitle || null,
@@ -3540,13 +3809,20 @@
             const removeBtn = canRemove
                 ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="${esc(bt('queue.remove', '移除'))}" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
                 : '';
-            const linkBtn = `<a href="https://www.pixiv.net/artworks/${q.id}" target="_blank" onclick="event.stopPropagation();" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`;
+            const isNovel = q.kind === 'novel';
+            const linkHref = isNovel
+                ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(q.novelId || String(q.id).replace(/^n/, ''))}`
+                : `https://www.pixiv.net/artworks/${q.id}`;
+            const linkBtn = `<a href="${linkHref}" target="_blank" onclick="event.stopPropagation();" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`;
+            const novelTag = isNovel
+                ? `<span style="background:#0d9488;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">📕 ${esc(bt('queue.novel', '小说'))}</span>`
+                : '';
             return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
       <div class="q-title" style="display:flex;align-items:center;gap:2px;">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(q.title)}${srcLabel}${R18Label}${AILabel}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(q.title)}${novelTag}${srcLabel}${R18Label}${AILabel}</span>
         ${linkBtn}${removeBtn}
       </div>
-      <div class="q-meta">ID: ${q.id} | ${descHtml}</div>
+      <div class="q-meta">ID: ${isNovel ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)' : q.id} | ${descHtml}</div>
       ${prog}
       ${detailProg}
     </div>`;
@@ -3666,6 +3942,10 @@
             const sel = document.getElementById('s-collection');
             sel.value = String(state.settings.collectionId);
         }
+        const fmtEl = document.getElementById('s-novel-format');
+        if (fmtEl) fmtEl.value = (state.settings.novelFormat || 'txt');
+        const mergeEl = document.getElementById('s-novel-merge');
+        if (mergeEl) mergeEl.checked = !!state.settings.mergeNovelSeries;
         toggleSkipHistoryOptions();
     }
 
@@ -3680,6 +3960,10 @@
         state.settings.fileNameTemplate = normalizeFileNameTemplate(document.getElementById('s-file-name-template').value);
         const sel = document.getElementById('s-collection');
         state.settings.collectionId = sel.value ? Number(sel.value) : null;
+        const fmtEl = document.getElementById('s-novel-format');
+        if (fmtEl) state.settings.novelFormat = (fmtEl.value || 'txt').toLowerCase();
+        const mergeEl = document.getElementById('s-novel-merge');
+        if (mergeEl) state.settings.mergeNovelSeries = !!mergeEl.checked;
         toggleSkipHistoryOptions();
         saveSettings();
     }
@@ -4259,6 +4543,14 @@
     function parseSeriesInputUrl(text) {
         if (!text) return null;
         const trimmed = text.trim();
+        const novelSeriesMatch = trimmed.match(/\/novel\/series\/(\d+)/);
+        if (novelSeriesMatch) {
+            return {kind: 'novel-series', seriesId: Number(novelSeriesMatch[1])};
+        }
+        const novelMatch = trimmed.match(/\/novel\/show\.php\?[^\s]*?\bid=(\d+)/);
+        if (novelMatch) {
+            return {kind: 'novel-artwork', novelId: novelMatch[1]};
+        }
         const seriesMatch = trimmed.match(/\/user\/(\d+)\/series\/(\d+)/);
         if (seriesMatch) {
             return {kind: 'series', seriesId: Number(seriesMatch[2])};
@@ -4299,6 +4591,28 @@
         const parsed = parseSeriesInputUrl(input.value);
         if (!parsed) {
             setStatus(bt('status.series-url-invalid', '请输入有效的系列 URL 或作品 URL'), 'error');
+            return;
+        }
+        // 小说 / 小说系列：走统一队列（kind=='novel'）参与调度
+        if (parsed.kind === 'novel-series') {
+            setStatus(bt('status.novel-series-loading', '正在展开小说系列：{id}', {id: parsed.seriesId}), 'info');
+            try {
+                await expandNovelSeriesIntoQueue(String(parsed.seriesId));
+            } catch (e) {
+                setStatus(bt('status.novel-series-expand-failed', '小说系列展开失败：{id}', {id: parsed.seriesId}), 'error');
+            }
+            return;
+        }
+        if (parsed.kind === 'novel-artwork') {
+            const item = {
+                id: 'n' + parsed.novelId,
+                novelId: String(parsed.novelId),
+                kind: 'novel',
+                title: bt('queue.novel-fallback', '小说 {id}', {id: parsed.novelId})
+            };
+            const added = addItemsToQueue([item.id], [item], 'series-novel', '');
+            setStatus(bt('status.parsed-summary', '解析完成：共 {total} 个，新增 {added} 个',
+                {total: 1, added}), 'success');
             return;
         }
         cleanupSeriesBlobUrls();
@@ -4806,8 +5120,9 @@
         });
 
         // Settings change → auto-save
-        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-R18', 's-bookmark', 's-collection', 's-file-name-template'].forEach(id => {
+        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-R18', 's-bookmark', 's-collection', 's-file-name-template', 's-novel-format', 's-novel-merge'].forEach(id => {
             const el = document.getElementById(id);
+            if (!el) return;
             el.addEventListener('change', syncSettings);
             if (el.type === 'number' || el.type === 'text') el.addEventListener('input', syncSettings);
         });

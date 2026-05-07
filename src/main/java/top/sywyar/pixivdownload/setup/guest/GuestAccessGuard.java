@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelRecord;
 
 import java.util.List;
 
@@ -22,6 +24,7 @@ import java.util.List;
 public class GuestAccessGuard {
 
     private final PixivDatabase pixivDatabase;
+    private final NovelDatabase novelDatabase;
 
     /**
      * 抽出当前请求挂载的访客邀请会话；可能为 {@code null}。
@@ -56,6 +59,55 @@ public class GuestAccessGuard {
         if (rec == null) return false;
         if (!matchesAgeRating(rec.xRestrict(), session)) return false;
         return matchesWhitelist(rec, session);
+    }
+
+    /**
+     * 若当前请求是访客身份，校验小说是否在其可见范围内；越界抛 403。
+     */
+    public void requireNovelVisible(HttpServletRequest request, long novelId) {
+        GuestInviteSession session = extractSession(request);
+        if (session == null) return;
+        if (!isNovelVisibleToGuest(novelId, session)) {
+            throw new LocalizedException(HttpStatus.FORBIDDEN,
+                    "guest.invite.forbidden",
+                    "该小说不在你的可见范围内");
+        }
+    }
+
+    /**
+     * 单篇小说的可见性判定。规则与 {@link #isVisibleToGuest} 相同，但读取 {@code novels} 表与
+     * {@code novel_tags} 表（标签 id 与插画共享 {@code tags} 池，所以 OR 语义与白名单可直接复用）。
+     */
+    public boolean isNovelVisibleToGuest(long novelId, GuestInviteSession session) {
+        NovelRecord rec = novelDatabase.getNovel(novelId);
+        if (rec == null) return false;
+        if (!matchesAgeRating(rec.xRestrict(), session)) return false;
+        return matchesNovelWhitelist(rec, session);
+    }
+
+    private boolean matchesNovelWhitelist(NovelRecord rec, GuestInviteSession session) {
+        List<TagDto> tags = novelDatabase.getNovelTags(rec.novelId());
+
+        if (!session.tagUnrestricted()) {
+            if (tags != null && !tags.isEmpty()) {
+                for (TagDto tag : tags) {
+                    Long id = tag.getTagId();
+                    if (id != null && !session.tagIds().contains(id)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        if (!session.authorUnrestricted()) {
+            if (rec.authorId() != null && !session.authorIds().contains(rec.authorId())) {
+                return false;
+            }
+        }
+
+        boolean tagPass = session.tagUnrestricted() || hasTagHit(tags, session.tagIds());
+        if (tagPass) return true;
+        return session.authorUnrestricted()
+                || (rec.authorId() != null && session.authorIds().contains(rec.authorId()));
     }
 
     private boolean matchesAgeRating(Integer xRestrict, GuestInviteSession session) {

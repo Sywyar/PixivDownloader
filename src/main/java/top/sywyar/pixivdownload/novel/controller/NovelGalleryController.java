@@ -1,0 +1,214 @@
+package top.sywyar.pixivdownload.novel.controller;
+
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
+import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.novel.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.NovelGalleryService;
+import top.sywyar.pixivdownload.novel.NovelMergeService;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
+
+@RestController
+@RequestMapping("/api/gallery")
+@RequiredArgsConstructor
+public class NovelGalleryController {
+
+    private final NovelGalleryService novelGalleryService;
+    private final NovelMergeService novelMergeService;
+    private final NovelDatabase novelDatabase;
+    private final PixivDatabase pixivDatabase;
+    private final GuestAccessGuard guestAccessGuard;
+    private final AppMessages messages;
+
+    @GetMapping("/novels")
+    public NovelGalleryService.PagedNovels listNovels(
+            @RequestParam(required = false, defaultValue = "0") Integer page,
+            @RequestParam(required = false, defaultValue = "24") Integer size,
+            @RequestParam(required = false, defaultValue = "date") String sort,
+            @RequestParam(required = false, defaultValue = "desc") String order,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, defaultValue = "any") String r18,
+            @RequestParam(required = false, defaultValue = "any") String ai,
+            @RequestParam(required = false) String collectionIds,
+            @RequestParam(required = false) String tagIds,
+            @RequestParam(required = false) String notTagIds,
+            @RequestParam(required = false) String orTagIds,
+            @RequestParam(required = false) String authorIds,
+            @RequestParam(required = false) String notAuthorIds,
+            @RequestParam(required = false) String orAuthorIds,
+            @RequestParam(required = false) Long authorId,
+            @RequestParam(required = false) String seriesIds,
+            @RequestParam(required = false) String notSeriesIds,
+            @RequestParam(required = false) Long seriesId,
+            HttpServletRequest httpRequest) {
+        // Note: 访客可见性目前在单作品端点处校验，列表端点的全量访客过滤可在后续 PR 引入。
+        java.util.Set<Long> mustAuthors = parseLongCsv(authorIds);
+        if (authorId != null && authorId > 0) {
+            if (mustAuthors == null) mustAuthors = new java.util.LinkedHashSet<>();
+            mustAuthors.add(authorId);
+        }
+        java.util.Set<Long> mustSeries = parseLongCsv(seriesIds);
+        if (seriesId != null && seriesId > 0) {
+            if (mustSeries == null) mustSeries = new java.util.LinkedHashSet<>();
+            mustSeries.add(seriesId);
+        }
+        return novelGalleryService.query(new NovelGalleryService.NovelGalleryQuery(
+                Math.max(0, page), Math.max(1, Math.min(size, 200)),
+                sort, order, search, r18, ai,
+                parseLongCsv(collectionIds),
+                parseLongCsv(tagIds), parseLongCsv(notTagIds), parseLongCsv(orTagIds),
+                mustAuthors, parseLongCsv(notAuthorIds), parseLongCsv(orAuthorIds),
+                mustSeries, parseLongCsv(notSeriesIds)));
+    }
+
+    private static java.util.Set<Long> parseLongCsv(String csv) {
+        if (csv == null || csv.isBlank()) return null;
+        java.util.LinkedHashSet<Long> out = new java.util.LinkedHashSet<>();
+        for (String s : csv.split(",")) {
+            try { out.add(Long.parseLong(s.trim())); } catch (NumberFormatException ignored) {}
+        }
+        return out.isEmpty() ? null : out;
+    }
+
+    @GetMapping("/novels/authors")
+    public NovelGalleryService.PagedAuthors listAuthors(
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "24") int size,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, defaultValue = "name") String sort) {
+        return novelGalleryService.getPagedAuthorsWithNovels(page, size, search, sort);
+    }
+
+    @GetMapping("/novels/series")
+    public NovelGalleryService.PagedSeries listNovelSeries(
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "24") int size,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, defaultValue = "title") String sort) {
+        return novelGalleryService.getPagedSeriesWithNovels(page, size, search, sort);
+    }
+
+    @GetMapping("/novels/tags")
+    public java.util.Map<String, Object> listNovelTags(
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false, defaultValue = "500") int limit) {
+        return java.util.Map.of("tags", novelGalleryService.listTags(search, limit));
+    }
+
+    @GetMapping("/novel/{novelId}")
+    public ResponseEntity<NovelGalleryService.NovelView> findNovel(@PathVariable long novelId,
+                                                                    HttpServletRequest httpRequest) {
+        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        NovelGalleryService.NovelView view = novelGalleryService.find(novelId);
+        return view == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(view);
+    }
+
+    @GetMapping("/novel/{novelId}/by-series")
+    public ResponseEntity<List<NovelGalleryService.NovelView>> bySeries(
+            @PathVariable long novelId,
+            @RequestParam(defaultValue = "30") int limit,
+            HttpServletRequest httpRequest) {
+        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        NovelGalleryService.NovelView current = novelGalleryService.find(novelId);
+        if (current == null || current.seriesId() == null || current.seriesId() <= 0) {
+            return ResponseEntity.ok(List.of());
+        }
+        return ResponseEntity.ok(novelGalleryService.bySeries(current.seriesId(), limit));
+    }
+
+    @GetMapping("/novel/{novelId}/series")
+    public ResponseEntity<NovelSeriesNavResponse> seriesNav(
+            @PathVariable long novelId,
+            HttpServletRequest httpRequest) {
+        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        NovelGalleryService.SeriesNeighbors n = novelGalleryService.seriesNeighbors(novelId);
+        if (n == null) {
+            return ResponseEntity.ok(new NovelSeriesNavResponse(null, null, null, null, null));
+        }
+        return ResponseEntity.ok(new NovelSeriesNavResponse(
+                n.seriesId(), n.seriesTitle(), n.currentOrder(),
+                n.prev() == null ? null : new NeighborView(
+                        n.prev().novelId(), n.prev().title(), n.prev().seriesOrder()),
+                n.next() == null ? null : new NeighborView(
+                        n.next().novelId(), n.next().title(), n.next().seriesOrder())
+        ));
+    }
+
+    @GetMapping("/novel/{novelId}/cover")
+    public ResponseEntity<byte[]> getNovelCover(@PathVariable long novelId,
+                                                HttpServletRequest httpRequest) throws IOException {
+        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        NovelRecord rec = novelDatabase.getNovel(novelId);
+        if (rec == null || rec.coverExt() == null || rec.coverExt().isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+        String baseName = resolveStoredNovelBaseName(rec);
+        Path file = Paths.get(rec.folder(), baseName + "_thumb." + rec.coverExt());
+        if (!Files.isRegularFile(file)) {
+            return ResponseEntity.notFound().build();
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(mimeFor(rec.coverExt())));
+        headers.setCacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic());
+        return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
+    }
+
+    private String resolveStoredNovelBaseName(NovelRecord rec) {
+        String template = rec.fileName() == null
+                ? ArtworkFileNameFormatter.DEFAULT_TEMPLATE
+                : pixivDatabase.getFileNameTemplate(rec.fileName());
+        String authorName = rec.fileAuthorNameId() == null
+                ? ""
+                : pixivDatabase.getFileAuthorName(rec.fileAuthorNameId());
+        if (authorName == null) authorName = "";
+        List<String> names = ArtworkFileNameFormatter.formatAll(
+                template, rec.novelId(), rec.title(), rec.authorId(), authorName,
+                rec.time(), 1, rec.isAi(), rec.xRestrict());
+        return names.isEmpty() ? String.valueOf(rec.novelId()) : names.get(0);
+    }
+
+    private static String mimeFor(String ext) {
+        return switch (ext.toLowerCase(Locale.ROOT)) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "webp" -> "image/webp";
+            default -> "application/octet-stream";
+        };
+    }
+
+    @PostMapping("/novel/series/{seriesId}/merge")
+    public ResponseEntity<MergeResponse> mergeSeries(
+            @PathVariable long seriesId,
+            @RequestParam(defaultValue = "txt") String format) throws IOException {
+        NovelDownloadService.NovelFormat fmt = NovelDownloadService.NovelFormat.parse(format);
+        NovelMergeService.MergeResult result = novelMergeService.merge(seriesId, fmt);
+        return ResponseEntity.ok(new MergeResponse(
+                result.success(), result.message(),
+                result.mergedPath(), result.chapterCount(), fmt.ext()));
+    }
+
+    public record NovelSeriesNavResponse(Long seriesId, String seriesTitle, Long currentOrder,
+                                         NeighborView prev, NeighborView next) {}
+
+    public record NeighborView(long novelId, String title, long seriesOrder) {}
+
+    public record MergeResponse(boolean success, String message,
+                                String mergedPath, int chapterCount, String format) {}
+}

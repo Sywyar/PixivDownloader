@@ -201,6 +201,73 @@ public final class ManagedDatabaseSchema {
                 )
         ));
 
+        tables.put("novels", new TableSpec(
+                "novels",
+                List.of(
+                        column("novel_id", "INTEGER", false, null, 1),
+                        column("title", "TEXT", true, null, 0),
+                        column("folder", "TEXT", true, null, 0),
+                        column("count", "INTEGER", true, null, 0),
+                        column("extensions", "TEXT", true, null, 0),
+                        column("time", "INTEGER", true, null, 0),
+                        column("R18", "INTEGER", false, null, 0),
+                        column("is_ai", "INTEGER", false, null, 0),
+                        column("author_id", "INTEGER", false, null, 0),
+                        column("description", "TEXT", false, null, 0),
+                        column("file_name", "INTEGER", true, "1", 0),
+                        column("file_author_name_id", "INTEGER", false, null, 0),
+                        column("series_id", "INTEGER", false, null, 0),
+                        column("series_order", "INTEGER", false, null, 0),
+                        column("word_count", "INTEGER", false, null, 0),
+                        column("text_length", "INTEGER", false, null, 0),
+                        column("page_count", "INTEGER", false, null, 0),
+                        column("is_original", "INTEGER", false, null, 0),
+                        column("x_language", "TEXT", false, null, 0),
+                        column("raw_content", "TEXT", false, null, 0),
+                        column("cover_ext", "TEXT", false, null, 0),
+                        column("moved", "INTEGER", false, "0", 0),
+                        column("move_folder", "TEXT", false, null, 0),
+                        column("move_time", "INTEGER", false, null, 0)
+                ),
+                List.of(
+                        uniqueConstraint("time")
+                )
+        ));
+
+        tables.put("novel_series", new TableSpec(
+                "novel_series",
+                List.of(
+                        column("series_id", "INTEGER", false, null, 1),
+                        column("title", "TEXT", true, null, 0),
+                        column("author_id", "INTEGER", false, null, 0),
+                        column("updated_time", "INTEGER", true, null, 0)
+                ),
+                List.of()
+        ));
+
+        tables.put("novel_tags", new TableSpec(
+                "novel_tags",
+                List.of(
+                        column("novel_id", "INTEGER", true, null, 1),
+                        column("tag_id", "INTEGER", true, null, 2)
+                ),
+                List.of(
+                        explicitIndex("idx_novel_tags_tag_id", false, "tag_id")
+                )
+        ));
+
+        tables.put("novel_collections", new TableSpec(
+                "novel_collections",
+                List.of(
+                        column("collection_id", "INTEGER", true, null, 1),
+                        column("novel_id", "INTEGER", true, null, 2),
+                        column("added_time", "INTEGER", true, null, 0)
+                ),
+                List.of(
+                        explicitIndex("idx_novel_collections_novel", false, "novel_id")
+                )
+        ));
+
         return new DatabaseSchema(Map.copyOf(tables));
     }
 

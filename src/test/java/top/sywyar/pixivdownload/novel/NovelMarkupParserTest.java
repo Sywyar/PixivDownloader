@@ -1,0 +1,89 @@
+package top.sywyar.pixivdownload.novel;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@DisplayName("NovelMarkupParser tests")
+class NovelMarkupParserTest {
+
+    @Test
+    @DisplayName("TXT 模式：剥离 Pixiv 标记，仅保留 ruby 基词与跳转 URL")
+    void txtStripsMarkup() {
+        String raw = "本文 [[rb:漢字 > かんじ]] 与 [[jumpuri:站点 > https://example.com]] 与 [jump:5]\n"
+                + "[uploadedimage:42] 和 [pixivimage:1234-2]";
+        String txt = NovelMarkupParser.render(raw, NovelMarkupParser.Format.TXT);
+        assertThat(txt).contains("漢字");
+        assertThat(txt).doesNotContain("[[rb");
+        assertThat(txt).contains("站点 (https://example.com)");
+        assertThat(txt).doesNotContain("[jump:5]");
+        assertThat(txt).contains("[图片#42]");
+        assertThat(txt).contains("[Pixiv图#1234-2]");
+    }
+
+    @Test
+    @DisplayName("TXT 模式：[chapter:..] 转为带框标题，[newpage] 产生空行")
+    void txtChapterAndNewpage() {
+        String raw = "前文\n[chapter:第一章 序]\n章节内容\n[newpage]\n下一页";
+        String txt = NovelMarkupParser.render(raw, NovelMarkupParser.Format.TXT);
+        assertThat(txt).contains("【第一章 序】");
+        assertThat(txt.indexOf("章节内容")).isGreaterThan(txt.indexOf("【第一章 序】"));
+        assertThat(txt).contains("下一页");
+    }
+
+    @Test
+    @DisplayName("HTML 模式：ruby 渲染为 <ruby> 标签；jumpuri 渲染为 <a>；换页拆分 <section>")
+    void htmlSemanticRendering() {
+        String raw = "[[rb:漢字 > かんじ]]\n"
+                + "[[jumpuri:链接 > https://example.com/?a=1&b=2]]\n"
+                + "[chapter:章一]\n"
+                + "[newpage]\n"
+                + "下一页";
+        String html = NovelMarkupParser.render(raw, NovelMarkupParser.Format.HTML);
+        assertThat(html).contains("<ruby>漢字<rt>かんじ</rt></ruby>");
+        assertThat(html).contains("<a href=\"https://example.com/?a=1&amp;b=2\"");
+        assertThat(html).contains("<h2 class=\"novel-chapter\">章一</h2>");
+        assertThat(html).contains("<section class=\"novel-page\">");
+        assertThat(html).contains("</section>");
+        // newpage 至少切出两个 section
+        long sectionCount = html.split("<section ", -1).length - 1;
+        assertThat(sectionCount).isGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("XHTML 模式：epub:type 命名空间前缀存在；img placeholder 存在")
+    void xhtmlEpubTypeAndImage() {
+        String raw = "[uploadedimage:99]\n[pixivimage:777]";
+        String xhtml = NovelMarkupParser.render(raw, NovelMarkupParser.Format.XHTML);
+        assertThat(xhtml).contains("epub:type=\"chapter\"");
+        assertThat(xhtml).contains("data-uploaded-image=\"99\"");
+        assertThat(xhtml).contains("data-pixiv-image=\"777\"");
+    }
+
+    @Test
+    @DisplayName("HTML 转义：< > & 字符全部转义；不会破坏标签")
+    void htmlEscapesUnsafeChars() {
+        String raw = "<script>alert(\"x\")</script> & 普通文本";
+        String html = NovelMarkupParser.render(raw, NovelMarkupParser.Format.HTML);
+        assertThat(html).doesNotContain("<script>");
+        assertThat(html).contains("&lt;script&gt;");
+        assertThat(html).contains("&amp;");
+    }
+
+    @Test
+    @DisplayName("空输入安全处理")
+    void handlesEmptyAndNullInput() {
+        assertThat(NovelMarkupParser.render(null, NovelMarkupParser.Format.TXT)).isEqualTo("");
+        assertThat(NovelMarkupParser.render("", NovelMarkupParser.Format.HTML)).contains("<section");
+    }
+
+    @Test
+    @DisplayName("单个换行在 HTML 中转 <br />，双换行分段")
+    void singleNewlineBecomesBr() {
+        String raw = "第一行\n第二行\n\n第二段";
+        String html = NovelMarkupParser.render(raw, NovelMarkupParser.Format.HTML);
+        assertThat(html).contains("第一行<br />第二行");
+        assertThat(html.split("<p>", -1).length - 1).isEqualTo(2);
+    }
+}

@@ -44,6 +44,8 @@ public class AuthFilter extends OncePerRequestFilter {
             "/monitor.html",
             "/pixiv-gallery.html",
             "/pixiv-artwork.html",
+            "/pixiv-novel.html",
+            "/pixiv-novel-gallery.html",
             "/pixiv-series.html",
             "/pixiv-invite-manage.html",
             "/pixiv-invite-detail.html",
@@ -70,6 +72,8 @@ public class AuthFilter extends OncePerRequestFilter {
     private static final Set<String> GUEST_ALLOWED_EXACT = Set.of(
             "/pixiv-gallery.html",
             "/pixiv-artwork.html",
+            "/pixiv-novel.html",
+            "/pixiv-novel-gallery.html",
             "/pixiv-series.html",
             "/api/downloaded/statistics",
             "/api/downloaded/history",
@@ -88,7 +92,8 @@ public class AuthFilter extends OncePerRequestFilter {
             "/api/series",
             "/api/gallery/",
             "/api/collections",
-            "/api/pixiv/artwork/"
+            "/api/pixiv/artwork/",
+            "/api/pixiv/novel/"
     );
 
     /** 访客邀请 cookie 名（浏览器会话 cookie，不带 Max-Age）。 */

@@ -9,6 +9,7 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -35,6 +36,7 @@ public class CollectionService {
     private final CollectionIconService iconService;
     private final AppMessages messages;
     private final DownloadConfig downloadConfig;
+    private final NovelDatabase novelDatabase;
 
     @PostConstruct
     public void init() {
@@ -167,6 +169,24 @@ public class CollectionService {
             result.computeIfAbsent(artworkId, k -> new ArrayList<>()).add(collectionId);
         }
         return result;
+    }
+
+    public boolean addNovel(long collectionId, long novelId) {
+        requireExists(collectionId);
+        return novelDatabase.addToCollection(collectionId, novelId);
+    }
+
+    public boolean removeNovel(long collectionId, long novelId) {
+        requireExists(collectionId);
+        return novelDatabase.removeFromCollection(collectionId, novelId);
+    }
+
+    public List<Long> novelCollectionsOf(long novelId) {
+        return novelDatabase.getCollectionIdsForNovel(novelId);
+    }
+
+    public List<Long> novelIdsInCollection(long collectionId) {
+        return novelDatabase.getNovelIdsInCollection(collectionId);
     }
 
     public List<Long> artworkIdsInCollections(Set<Long> collectionIds) {

@@ -126,7 +126,7 @@ class PixivProxyControllerTest {
         @DisplayName("非法 order 参数应返回 400")
         void shouldRejectInvalidOrder() throws Exception {
             mockMvc.perform(get("/api/pixiv/search")
-                            .param("word", "test")
+                            .param("word", "src/main/test")
                             .param("order", "invalid_order"))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").value(containsString("order")));
@@ -136,7 +136,7 @@ class PixivProxyControllerTest {
         @DisplayName("非法 mode 参数应返回 400")
         void shouldRejectInvalidMode() throws Exception {
             mockMvc.perform(get("/api/pixiv/search")
-                            .param("word", "test")
+                            .param("word", "src/main/test")
                             .param("mode", "adult"))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").value(containsString("mode")));
@@ -146,7 +146,7 @@ class PixivProxyControllerTest {
         @DisplayName("非法 sMode 参数应返回 400")
         void shouldRejectInvalidSMode() throws Exception {
             mockMvc.perform(get("/api/pixiv/search")
-                            .param("word", "test")
+                            .param("word", "src/main/test")
                             .param("sMode", "s_invalid"))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").value(containsString("sMode")));
@@ -161,7 +161,7 @@ class PixivProxyControllerTest {
             when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(String.class)))
                     .thenReturn(ResponseEntity.ok(errorResponse));
 
-            mockMvc.perform(get("/api/pixiv/search").param("word", "test"))
+            mockMvc.perform(get("/api/pixiv/search").param("word", "src/main/test"))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").value("Rate limit exceeded"));
         }
@@ -319,7 +319,7 @@ class PixivProxyControllerTest {
         @DisplayName("当前 SEARCH_FILL_DISABLED=true 时应直接返回 503")
         void shouldReturn503BecauseFeatureIsDisabled() throws Exception {
             mockMvc.perform(get("/api/pixiv/search/fill")
-                            .param("word", "test")
+                            .param("word", "src/main/test")
                             .param("page", "1")
                             .param("extraPages", "2"))
                     .andExpect(status().isServiceUnavailable())
