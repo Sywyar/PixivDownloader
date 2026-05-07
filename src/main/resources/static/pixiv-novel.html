@@ -250,6 +250,127 @@
             padding: 40px 0;
             font-size: 14px;
         }
+
+        .heart-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            height: 34px;
+            padding: 0 12px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            transition: all .15s;
+        }
+        .heart-btn:hover { border-color: var(--danger); color: var(--danger); }
+        .heart-btn.liked { border-color: var(--danger); color: var(--danger); background: var(--pink-soft-bg); }
+        .heart-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; }
+        .heart-btn.liked svg { fill: currentColor; }
+
+        .modal-backdrop {
+            position: fixed; inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+            display: none;
+            align-items: center; justify-content: center;
+            z-index: 1000;
+            padding: 16px;
+        }
+        .modal-backdrop.open { display: flex; }
+        .modal {
+            background: var(--surface);
+            border-radius: 12px;
+            width: 100%;
+            max-width: 440px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            max-height: 90vh;
+            display: flex; flex-direction: column;
+            color: var(--text);
+        }
+        .modal-head {
+            padding: 20px 24px 12px;
+            display: flex; align-items: center; justify-content: space-between;
+            border-bottom: 1px solid var(--line);
+        }
+        .modal-title { font-size: 16px; font-weight: 700; }
+        .modal-close {
+            width: 28px; height: 28px;
+            border: none; background: transparent;
+            cursor: pointer; border-radius: 4px;
+            color: var(--muted); font-size: 18px;
+        }
+        .modal-close:hover { background: var(--hover-bg); color: var(--text); }
+        .modal-body { padding: 20px 24px; overflow-y: auto; }
+        .modal-foot {
+            padding: 12px 24px 20px;
+            display: flex; justify-content: flex-end; gap: 8px;
+            border-top: 1px solid var(--line);
+        }
+        .form-input {
+            width: 100%; height: 38px;
+            padding: 0 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--control-bg);
+            color: var(--text);
+            font-size: 13px;
+            font-family: inherit;
+            outline: none;
+        }
+        .form-input:focus { border-color: var(--brand); }
+
+        .collection-list {
+            display: flex; flex-direction: column;
+            gap: 4px;
+            max-height: 320px;
+            overflow-y: auto;
+        }
+        .collection-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .collection-row:hover { background: var(--hover-bg); }
+        .collection-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+        .collection-row-icon {
+            width: 28px; height: 28px;
+            border-radius: 6px;
+            overflow: hidden;
+            flex-shrink: 0;
+            background: var(--pink-soft-bg);
+            color: #e84393;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .collection-row-icon img { width: 100%; height: 100%; object-fit: cover; }
+        .collection-row-icon svg { width: 14px; height: 14px; }
+        .collection-row-name { flex: 1; font-size: 13px; color: var(--text); }
+        .collection-count { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+
+        .toast-container {
+            position: fixed;
+            bottom: 24px; left: 50%;
+            transform: translateX(-50%);
+            display: flex; flex-direction: column; gap: 8px;
+            z-index: 2000;
+        }
+        .toast {
+            padding: 10px 16px;
+            border-radius: 8px;
+            color: #fff;
+            background: #333;
+            font-size: 13px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+            animation: toastIn .2s ease;
+        }
+        .toast.error { background: var(--danger); }
+        .toast.success { background: #10b981; }
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
@@ -257,6 +378,10 @@
     <button class="btn" onclick="history.back()" data-i18n="button.back">返回</button>
     <a class="btn" href="/pixiv-gallery.html?type=novel" data-i18n="button.gallery">画廊</a>
     <div class="topbar-actions">
+        <button class="heart-btn" id="heartBtn" type="button" style="display:none">
+            <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            <span id="heartLabel" data-i18n="button.favorite">收藏</span>
+        </button>
         <a class="btn" id="btn-pixiv" href="#" target="_blank" rel="noopener" data-i18n="button.pixiv-novel">Pixiv 原小说链接</a>
     </div>
 </div>
@@ -286,10 +411,38 @@
     </div>
 </div>
 
+<div class="modal-backdrop" id="modalAddToCollection">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title" data-i18n="panel.add-to-collection">添加到收藏夹</span>
+            <button class="modal-close" id="addToCollectionClose" type="button">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="display:flex; gap:6px; margin-bottom:16px">
+                <input class="form-input" id="quickCreateName" data-i18n-placeholder="placeholder.quick-create" placeholder="快速新建收藏夹" maxlength="40" style="flex:1">
+                <button class="btn" id="quickCreateBtn" data-i18n="common:button.create" type="button">新建</button>
+            </div>
+            <div class="collection-list" id="addToCollectionList"></div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" id="addToCollectionDone" data-i18n="common:button.done" type="button">完成</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
 <script>
 const params = new URLSearchParams(location.search);
 const novelId = params.get('id');
 let pageI18n;
+
+const HEART_DEFAULT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+
+const collectionState = {
+    list: [],
+    membership: new Set()
+};
 
 async function loadAll() {
     pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common'] });
@@ -304,6 +457,7 @@ async function loadAll() {
         await loadSeriesNav();
         document.getElementById('loading').style.display = 'none';
         document.getElementById('root').style.display = 'block';
+        loadCollectionState();
     } catch (e) {
         document.getElementById('loading').textContent = pageI18n.t('status.novel-load-failed', null, { message: String(e && e.message ? e.message : e) });
     }
@@ -457,6 +611,158 @@ async function loadSeriesNav() {
 
 function escapeHtml(s) {
     return PixivNovelRender.escapeHtml(s);
+}
+
+// ---------- Collections ----------
+async function loadCollectionState() {
+    try {
+        const [listRes, ofRes] = await Promise.all([
+            fetch('/api/collections', { credentials: 'same-origin' }),
+            fetch(`/api/collections/novels/of/${encodeURIComponent(novelId)}`, { credentials: 'same-origin' })
+        ]);
+        if (listRes.ok) {
+            const data = await listRes.json();
+            collectionState.list = data.collections || [];
+        }
+        if (ofRes.ok) {
+            const data = await ofRes.json();
+            collectionState.membership = new Set(data.collectionIds || []);
+        }
+        document.getElementById('heartBtn').style.display = '';
+        updateHeart();
+    } catch (e) {
+        // silent — heart stays hidden
+    }
+}
+
+function updateHeart() {
+    const btn = document.getElementById('heartBtn');
+    const liked = collectionState.membership.size > 0;
+    btn.classList.toggle('liked', liked);
+    document.getElementById('heartLabel').textContent = liked
+        ? pageI18n.t('button.favorite-active', '已收藏 ({count})', { count: collectionState.membership.size })
+        : pageI18n.t('button.favorite', '收藏');
+}
+
+function iconHtml(c) {
+    return c.iconExt
+        ? `<img src="/api/collections/${c.id}/icon?v=${c.createdTime}" alt="">`
+        : HEART_DEFAULT_SVG;
+}
+
+async function refreshMembership() {
+    try {
+        const r = await fetch(`/api/collections/novels/of/${encodeURIComponent(novelId)}`, { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const data = await r.json();
+        collectionState.membership = new Set(data.collectionIds || []);
+        updateHeart();
+    } catch (e) {}
+}
+
+async function refreshCollections() {
+    try {
+        const r = await fetch('/api/collections', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const data = await r.json();
+        collectionState.list = data.collections || [];
+    } catch (e) {}
+}
+
+async function openAddToCollectionModal() {
+    await refreshCollections();
+    await refreshMembership();
+    renderAddToCollectionList();
+    document.getElementById('modalAddToCollection').classList.add('open');
+}
+
+function closeAddToCollectionModal() {
+    document.getElementById('modalAddToCollection').classList.remove('open');
+    updateHeart();
+}
+
+function renderAddToCollectionList() {
+    const list = document.getElementById('addToCollectionList');
+    if (!collectionState.list.length) {
+        list.innerHTML = `<div style="padding:24px; text-align:center; color:var(--muted); font-size:13px">${escapeHtml(pageI18n.t('status.no-collections', '暂无收藏夹，请先新建'))}</div>`;
+        return;
+    }
+    list.innerHTML = collectionState.list.map(c => {
+        const checked = collectionState.membership.has(c.id) ? 'checked' : '';
+        return `<label class="collection-row" data-id="${c.id}">
+            <input type="checkbox" ${checked}>
+            <div class="collection-row-icon">${iconHtml(c)}</div>
+            <div class="collection-row-name">${escapeHtml(c.name)}</div>
+            <span class="collection-count">${c.novelCount ?? 0}</span>
+        </label>`;
+    }).join('');
+    list.querySelectorAll('.collection-row').forEach(row => {
+        const id = Number(row.dataset.id);
+        const cb = row.querySelector('input[type="checkbox"]');
+        cb.addEventListener('change', async () => {
+            try {
+                if (cb.checked) {
+                    const r = await fetch(`/api/collections/${id}/novels/${encodeURIComponent(novelId)}`, { method: 'POST', credentials: 'same-origin' });
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    collectionState.membership.add(id);
+                } else {
+                    const r = await fetch(`/api/collections/${id}/novels/${encodeURIComponent(novelId)}`, { method: 'DELETE', credentials: 'same-origin' });
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    collectionState.membership.delete(id);
+                }
+                updateHeart();
+            } catch (e) {
+                cb.checked = !cb.checked;
+                toast(pageI18n.t('toast.action-failed', '操作失败'), 'error');
+            }
+        });
+    });
+}
+
+document.getElementById('heartBtn').addEventListener('click', openAddToCollectionModal);
+document.getElementById('addToCollectionClose').addEventListener('click', closeAddToCollectionModal);
+document.getElementById('addToCollectionDone').addEventListener('click', closeAddToCollectionModal);
+document.getElementById('modalAddToCollection').addEventListener('click', e => {
+    if (e.target.id === 'modalAddToCollection') closeAddToCollectionModal();
+});
+
+document.getElementById('quickCreateBtn').addEventListener('click', async () => {
+    const input = document.getElementById('quickCreateName');
+    const name = input.value.trim();
+    if (!name) return;
+    const btn = document.getElementById('quickCreateBtn');
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/collections', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const c = await r.json();
+        input.value = '';
+        collectionState.list.push(c);
+        collectionState.list.sort((a, b) => (a.sortOrder - b.sortOrder) || (a.id - b.id));
+        const link = await fetch(`/api/collections/${c.id}/novels/${encodeURIComponent(novelId)}`, { method: 'POST', credentials: 'same-origin' });
+        if (link.ok) collectionState.membership.add(c.id);
+        renderAddToCollectionList();
+        toast(pageI18n.t('toast.created', '已创建'), 'success');
+    } catch (e) {
+        toast(pageI18n.t('toast.create-failed', '创建失败'), 'error');
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+function toast(msg, type) {
+    const c = document.getElementById('toastContainer');
+    if (!c) return;
+    const el = document.createElement('div');
+    el.className = 'toast' + (type ? ' ' + type : '');
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => el.remove(), 2800);
 }
 
 loadAll();

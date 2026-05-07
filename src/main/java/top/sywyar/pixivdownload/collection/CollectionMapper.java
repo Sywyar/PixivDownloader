@@ -33,13 +33,15 @@ public interface CollectionMapper {
 
     @Select("SELECT c.id, c.name, c.icon_ext AS iconExt, c.download_root AS downloadRoot,"
             + " c.sort_order AS sortOrder, c.created_time AS createdTime,"
-            + " COALESCE((SELECT COUNT(*) FROM artwork_collections ac WHERE ac.collection_id = c.id), 0) AS artworkCount"
+            + " COALESCE((SELECT COUNT(*) FROM artwork_collections ac WHERE ac.collection_id = c.id), 0) AS artworkCount,"
+            + " COALESCE((SELECT COUNT(*) FROM novel_collections nc WHERE nc.collection_id = c.id), 0) AS novelCount"
             + " FROM collections c ORDER BY c.sort_order, c.id")
     List<top.sywyar.pixivdownload.collection.Collection> findAll();
 
     @Select("SELECT c.id, c.name, c.icon_ext AS iconExt, c.download_root AS downloadRoot,"
             + " c.sort_order AS sortOrder, c.created_time AS createdTime,"
-            + " COALESCE((SELECT COUNT(*) FROM artwork_collections ac WHERE ac.collection_id = c.id), 0) AS artworkCount"
+            + " COALESCE((SELECT COUNT(*) FROM artwork_collections ac WHERE ac.collection_id = c.id), 0) AS artworkCount,"
+            + " COALESCE((SELECT COUNT(*) FROM novel_collections nc WHERE nc.collection_id = c.id), 0) AS novelCount"
             + " FROM collections c WHERE c.id = #{id}")
     top.sywyar.pixivdownload.collection.Collection findById(@Param("id") long id);
 

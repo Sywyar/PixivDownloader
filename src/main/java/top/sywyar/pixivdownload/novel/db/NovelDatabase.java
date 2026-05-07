@@ -193,6 +193,10 @@ public class NovelDatabase {
         return novelMapper.findCollectionIdsByNovelId(novelId);
     }
 
+    public List<java.util.Map<String, Object>> findCollectionLinksByNovels(java.util.Collection<Long> novelIds) {
+        return novelMapper.findCollectionLinksByNovels(novelIds);
+    }
+
     public List<Long> getNovelIdsInCollection(long collectionId) {
         return novelMapper.findNovelIdsByCollectionId(collectionId);
     }

@@ -136,4 +136,29 @@ public class CollectionController {
         Map<Long, List<Long>> memberships = collectionService.membershipsOf(ids);
         return ResponseEntity.ok(Map.of("memberships", memberships));
     }
+
+    @PostMapping("/{id}/novels/{novelId}")
+    public ResponseEntity<Map<String, Object>> addNovel(@PathVariable long id, @PathVariable long novelId) {
+        boolean added = collectionService.addNovel(id, novelId);
+        return ResponseEntity.ok(Map.of("added", added));
+    }
+
+    @DeleteMapping("/{id}/novels/{novelId}")
+    public ResponseEntity<Map<String, Object>> removeNovel(@PathVariable long id, @PathVariable long novelId) {
+        boolean removed = collectionService.removeNovel(id, novelId);
+        return ResponseEntity.ok(Map.of("removed", removed));
+    }
+
+    @GetMapping("/novels/of/{novelId}")
+    public ResponseEntity<Map<String, Object>> novelCollectionsOf(@PathVariable long novelId) {
+        List<Long> ids = collectionService.novelCollectionsOf(novelId);
+        return ResponseEntity.ok(Map.of("collectionIds", ids));
+    }
+
+    @PostMapping("/novels/memberships")
+    public ResponseEntity<Map<String, Object>> novelMemberships(@RequestBody Map<String, List<Long>> body) {
+        List<Long> ids = body == null ? List.of() : body.getOrDefault("novelIds", List.of());
+        Map<Long, List<Long>> memberships = collectionService.novelMembershipsOf(ids);
+        return ResponseEntity.ok(Map.of("memberships", memberships));
+    }
 }

@@ -11,5 +11,6 @@ public record Collection(
         String downloadRoot,
         int sortOrder,
         long createdTime,
-        int artworkCount
+        int artworkCount,
+        int novelCount
 ) {}

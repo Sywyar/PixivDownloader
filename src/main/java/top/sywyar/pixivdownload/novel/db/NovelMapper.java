@@ -232,6 +232,15 @@ public interface NovelMapper {
     @Select("SELECT collection_id FROM novel_collections WHERE novel_id = #{novelId}")
     List<Long> findCollectionIdsByNovelId(@Param("novelId") long novelId);
 
+    @Select({
+            "<script>",
+            "SELECT novel_id AS novelId, collection_id AS collectionId FROM novel_collections",
+            "WHERE novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "</script>"
+    })
+    List<java.util.Map<String, Object>> findCollectionLinksByNovels(@Param("ids") Collection<Long> novelIds);
+
     @Select("SELECT novel_id FROM novel_collections WHERE collection_id = #{collectionId}")
     List<Long> findNovelIdsByCollectionId(@Param("collectionId") long collectionId);
 

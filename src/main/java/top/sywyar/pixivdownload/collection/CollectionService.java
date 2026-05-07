@@ -185,6 +185,17 @@ public class CollectionService {
         return novelDatabase.getCollectionIdsForNovel(novelId);
     }
 
+    public Map<Long, List<Long>> novelMembershipsOf(List<Long> novelIds) {
+        Map<Long, List<Long>> result = new HashMap<>();
+        if (novelIds == null || novelIds.isEmpty()) return result;
+        for (Map<String, Object> row : novelDatabase.findCollectionLinksByNovels(novelIds)) {
+            Long novelId = ((Number) row.get("novelId")).longValue();
+            Long collectionId = ((Number) row.get("collectionId")).longValue();
+            result.computeIfAbsent(novelId, k -> new ArrayList<>()).add(collectionId);
+        }
+        return result;
+    }
+
     public List<Long> novelIdsInCollection(long collectionId) {
         return novelDatabase.getNovelIdsInCollection(collectionId);
     }
