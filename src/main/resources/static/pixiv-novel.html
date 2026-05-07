@@ -583,7 +583,18 @@ function renderMetaRow(o) {
 }
 
 function renderDescription(text) {
-    document.getElementById('novel-description').textContent = text || pageI18n.t('status.no-description');
+    const el = document.getElementById('novel-description');
+    if (text && text.trim()) {
+        // Pixiv 简介本身是受限 HTML（<br>, <a>, <strong> 等），与 pixiv-artwork.html 保持一致
+        // 直接用 innerHTML 让 <br>/<br/> 等渲染为真实换行；并把链接强制在新标签页打开。
+        el.innerHTML = text;
+        el.querySelectorAll('a').forEach(a => {
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+        });
+    } else {
+        el.textContent = pageI18n.t('status.no-description');
+    }
 }
 
 function renderTags(tags) {
