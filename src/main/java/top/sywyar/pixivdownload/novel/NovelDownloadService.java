@@ -314,14 +314,14 @@ public class NovelDownloadService {
     }
 
     private void writeTxt(Path file, String raw) throws IOException {
-        String txt = NovelMarkupParser.render(raw, NovelMarkupParser.Format.TXT);
+        String txt = NovelMarkupParser.render(raw, NovelMarkupParser.Format.TXT, imageLabels());
         Files.writeString(file, txt, StandardCharsets.UTF_8);
     }
 
     private void writeHtml(Path file, String title, String raw,
                            NovelDownloadRequest.Other other,
                            NovelMarkupParser.ImageResolver resolver) throws IOException {
-        String body = NovelMarkupParser.render(raw, NovelMarkupParser.Format.HTML, resolver);
+        String body = NovelMarkupParser.render(raw, NovelMarkupParser.Format.HTML, resolver, imageLabels());
         StringBuilder html = new StringBuilder()
                 .append("<!DOCTYPE html>\n")
                 .append("<html lang=\"")
@@ -451,10 +451,39 @@ public class NovelDownloadService {
 
     private void writeEpub(Path file, String title, String author, String language,
                            String raw) throws IOException {
-        String body = NovelMarkupParser.render(raw, NovelMarkupParser.Format.XHTML);
+        String body = NovelMarkupParser.render(raw, NovelMarkupParser.Format.XHTML, imageLabels());
         byte[] epub = NovelEpubWriter.write(title, author, language,
-                List.of(new NovelEpubWriter.Chapter(title, body)));
+                List.of(new NovelEpubWriter.Chapter(title, body)),
+                epubLabels());
         Files.write(file, epub);
+    }
+
+    private NovelMarkupParser.ImageLabels imageLabels() {
+        return new NovelMarkupParser.ImageLabels() {
+            @Override public String uploadedImage(String id) {
+                return messages.get("novel.render.uploaded-image", id);
+            }
+
+            @Override public String pixivImage(String id) {
+                return messages.get("novel.render.pixiv-image", id);
+            }
+        };
+    }
+
+    private NovelEpubWriter.Labels epubLabels() {
+        return new NovelEpubWriter.Labels() {
+            @Override public String untitled() {
+                return messages.get("novel.epub.untitled");
+            }
+
+            @Override public String unknownAuthor() {
+                return messages.get("novel.epub.unknown-author");
+            }
+
+            @Override public String chapter(int index) {
+                return messages.get("novel.epub.chapter", index);
+            }
+        };
     }
 
     private static String escapeHtml(String s) {

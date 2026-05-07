@@ -21,12 +21,20 @@
         }[c]));
     }
 
-    function imageFigure(dataAttr, id, placeholderPrefix, url) {
+    function imageFigure(dataAttr, id, label, url) {
         const head = `<figure class="novel-image" ${dataAttr}="${escapeHtml(id)}">`;
         if (url) {
-            return `${head}<img src="${escapeHtml(url)}" alt="${escapeHtml(placeholderPrefix)}${escapeHtml(id)}]" loading="lazy"></figure>`;
+            return `${head}<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy"></figure>`;
         }
-        return `${head}<span class="novel-image-placeholder">${escapeHtml(placeholderPrefix)}${escapeHtml(id)}]</span></figure>`;
+        return `${head}<span class="novel-image-placeholder">${escapeHtml(label)}</span></figure>`;
+    }
+
+    function imageLabel(resolver, kind, id) {
+        const labels = resolver && resolver.labels ? resolver.labels : null;
+        if (labels && typeof labels[kind] === 'function') {
+            return labels[kind](id);
+        }
+        return kind === 'uploadedImage' ? `[uploadedimage:${id}]` : `[pixivimage:${id}]`;
     }
 
     function renderInline(text, resolver) {
@@ -45,11 +53,11 @@
             } else if (m[6] !== undefined) {
                 const url = resolver && typeof resolver.uploadedImage === 'function'
                     ? resolver.uploadedImage(m[6]) : null;
-                out += imageFigure('data-uploaded-image', m[6], '[图片 #', url);
+                out += imageFigure('data-uploaded-image', m[6], imageLabel(resolver, 'uploadedImage', m[6]), url);
             } else if (m[7] !== undefined) {
                 const url = resolver && typeof resolver.pixivImage === 'function'
                     ? resolver.pixivImage(m[7]) : null;
-                out += imageFigure('data-pixiv-image', m[7], '[Pixiv图 #', url);
+                out += imageFigure('data-pixiv-image', m[7], imageLabel(resolver, 'pixivImage', m[7]), url);
             }
             last = m.index + m[0].length;
         }

@@ -620,6 +620,14 @@ function buildImageResolver(opts) {
     const local = opts && opts.local ? opts.local : null;
     const remote = opts && opts.remote ? opts.remote : {};
     return {
+        labels: {
+            uploadedImage(id) {
+                return pageI18n.t('render.uploaded-image', null, { id });
+            },
+            pixivImage(id) {
+                return pageI18n.t('render.pixiv-image', null, { id });
+            }
+        },
         uploadedImage(id) {
             if (local && local.has(String(id))) {
                 return `/api/gallery/novel/${encodeURIComponent(novelId)}/embed/${encodeURIComponent(id)}`;

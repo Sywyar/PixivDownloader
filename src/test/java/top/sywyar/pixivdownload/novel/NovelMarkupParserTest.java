@@ -18,8 +18,8 @@ class NovelMarkupParserTest {
         assertThat(txt).doesNotContain("[[rb");
         assertThat(txt).contains("站点 (https://example.com)");
         assertThat(txt).doesNotContain("[jump:5]");
-        assertThat(txt).contains("[图片#42]");
-        assertThat(txt).contains("[Pixiv图#1234-2]");
+        assertThat(txt).contains("[uploadedimage:42]");
+        assertThat(txt).contains("[pixivimage:1234-2]");
     }
 
     @Test
@@ -59,6 +59,29 @@ class NovelMarkupParserTest {
         assertThat(xhtml).contains("epub:type=\"chapter\"");
         assertThat(xhtml).contains("data-uploaded-image=\"99\"");
         assertThat(xhtml).contains("data-pixiv-image=\"777\"");
+    }
+
+    @Test
+    @DisplayName("图片占位符支持调用方传入本地化文案")
+    void imageLabelsAreProvidedByCaller() {
+        NovelMarkupParser.ImageLabels labels = new NovelMarkupParser.ImageLabels() {
+            @Override public String uploadedImage(String id) {
+                return "上传图 #" + id;
+            }
+
+            @Override public String pixivImage(String id) {
+                return "Pixiv image #" + id;
+            }
+        };
+
+        String txt = NovelMarkupParser.render("[uploadedimage:42] [pixivimage:1234-2]",
+                NovelMarkupParser.Format.TXT, labels);
+        String html = NovelMarkupParser.render("[uploadedimage:42]",
+                NovelMarkupParser.Format.HTML, NovelMarkupParser.ImageResolver.NONE, labels);
+
+        assertThat(txt).contains("上传图 #42");
+        assertThat(txt).contains("Pixiv image #1234-2");
+        assertThat(html).contains("上传图 #42");
     }
 
     @Test

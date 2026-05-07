@@ -64,7 +64,7 @@ class CollectionServiceTest {
         @DisplayName("应保留 UTF-8 字符并清理模板中的不安全路径分隔符")
         void shouldResolveUtf8TemplateAsSafeRelativePath() {
             when(collectionMapper.findById(7L)).thenReturn(new Collection(
-                    7L, "中文😀/unsafe", null, "{collection_name}", 0, 1700000000L, 0
+                    7L, "中文😀/unsafe", null, "{collection_name}", 0, 1700000000L, 0, 0
             ));
 
             Path resolved = collectionService.resolveDownloadRoot(7L, tempDir);
@@ -76,7 +76,7 @@ class CollectionServiceTest {
         @DisplayName("单斜杠开头的目录应按 download.root-folder 下的相对目录处理")
         void shouldResolveSingleSlashPrefixedPathAsRelativePath() {
             when(collectionMapper.findById(7L)).thenReturn(new Collection(
-                    7L, "safe", null, "/src/main/test", 0, 1700000000L, 0
+                    7L, "safe", null, "/src/main/test", 0, 1700000000L, 0, 0
             ));
 
             Path resolved = collectionService.resolveDownloadRoot(7L, tempDir);
@@ -88,7 +88,7 @@ class CollectionServiceTest {
         @DisplayName("相对目录不能逃出 download.root-folder")
         void shouldRejectRelativePathEscapingRootFolder() {
             when(collectionMapper.findById(7L)).thenReturn(new Collection(
-                    7L, "safe", null, null, 0, 1700000000L, 0
+                    7L, "safe", null, null, 0, 1700000000L, 0, 0
             ));
 
             assertThatThrownBy(() -> collectionService.updateDownloadRoot(7L, "../outside"))
@@ -102,8 +102,8 @@ class CollectionServiceTest {
         void shouldAcceptAbsoluteDownloadRoot() {
             Path absoluteRoot = tempDir.resolve("absolute-root").toAbsolutePath();
             when(collectionMapper.findById(7L))
-                    .thenReturn(new Collection(7L, "safe", null, null, 0, 1700000000L, 0))
-                    .thenReturn(new Collection(7L, "safe", null, absoluteRoot.toString(), 0, 1700000000L, 0));
+                    .thenReturn(new Collection(7L, "safe", null, null, 0, 1700000000L, 0, 0))
+                    .thenReturn(new Collection(7L, "safe", null, absoluteRoot.toString(), 0, 1700000000L, 0, 0));
 
             collectionService.updateDownloadRoot(7L, absoluteRoot.toString());
 

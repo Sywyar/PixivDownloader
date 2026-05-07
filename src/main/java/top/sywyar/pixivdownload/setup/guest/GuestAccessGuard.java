@@ -69,7 +69,7 @@ public class GuestAccessGuard {
         if (session == null) return;
         if (!isNovelVisibleToGuest(novelId, session)) {
             throw new LocalizedException(HttpStatus.FORBIDDEN,
-                    "guest.invite.forbidden",
+                    "guest.invite.novel.forbidden",
                     "该小说不在你的可见范围内");
         }
     }

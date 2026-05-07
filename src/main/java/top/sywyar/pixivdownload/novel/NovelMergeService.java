@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
@@ -28,23 +29,24 @@ public class NovelMergeService {
 
     private final DownloadConfig downloadConfig;
     private final NovelDatabase novelDatabase;
+    private final AppMessages messages;
 
     public record MergeResult(boolean success, String message, String mergedPath, int chapterCount) {}
 
     public MergeResult merge(long seriesId, NovelDownloadService.NovelFormat format) throws IOException {
         if (seriesId <= 0) {
-            return new MergeResult(false, "invalid series id", null, 0);
+            return new MergeResult(false, messages.get("novel.merge.invalid-series-id"), null, 0);
         }
         List<NovelRecord> chapters = novelDatabase.getNovelsBySeriesId(seriesId);
         if (chapters.isEmpty()) {
-            return new MergeResult(false, "no chapters", null, 0);
+            return new MergeResult(false, messages.get("novel.merge.no-chapters"), null, 0);
         }
 
         NovelSeries series = novelDatabase.getSeries(seriesId);
         String seriesTitle = series == null || series.title() == null || series.title().isBlank()
                 ? String.valueOf(seriesId) : series.title();
         String safeTitle = ArtworkFileNameFormatter.normalizeBaseName(
-                seriesTitle + "_合订", String.valueOf(seriesId));
+                seriesTitle + "_" + messages.get("novel.merge.suffix"), String.valueOf(seriesId));
         Path outDir = Paths.get(downloadConfig.getRootFolder())
                 .resolve("novel-series-" + seriesId);
         Files.createDirectories(outDir);
@@ -57,7 +59,7 @@ public class NovelMergeService {
         }
         log.info("novel series merged: seriesId={}, format={}, file={}",
                 seriesId, format.ext(), outFile);
-        return new MergeResult(true, "merged", outFile.toString(), chapters.size());
+        return new MergeResult(true, messages.get("novel.merge.success"), outFile.toString(), chapters.size());
     }
 
     private void writeTxt(Path file, String seriesTitle, List<NovelRecord> chapters) throws IOException {
@@ -69,7 +71,8 @@ public class NovelMergeService {
             sb.append("\n\n=== ").append(chapterTitle).append(" ===\n\n");
             String body = NovelMarkupParser.render(
                     r.rawContent() == null ? "" : r.rawContent(),
-                    NovelMarkupParser.Format.TXT);
+                    NovelMarkupParser.Format.TXT,
+                    imageLabels());
             sb.append(body);
         }
         Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
@@ -90,7 +93,8 @@ public class NovelMergeService {
             sb.append("<h2>").append(escapeHtml(chapterTitle)).append("</h2>\n");
             sb.append(NovelMarkupParser.render(
                     r.rawContent() == null ? "" : r.rawContent(),
-                    NovelMarkupParser.Format.HTML));
+                    NovelMarkupParser.Format.HTML,
+                    imageLabels()));
         }
         sb.append("</body>\n</html>\n");
         Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
@@ -105,15 +109,44 @@ public class NovelMergeService {
                     ? "#" + r.novelId() : r.title();
             String body = NovelMarkupParser.render(
                     r.rawContent() == null ? "" : r.rawContent(),
-                    NovelMarkupParser.Format.XHTML);
+                    NovelMarkupParser.Format.XHTML,
+                    imageLabels());
             epubChapters.add(new NovelEpubWriter.Chapter(chapterTitle, body));
             if (firstLang.equals("ja") && r.xLanguage() != null && !r.xLanguage().isBlank()) {
                 firstLang = r.xLanguage();
             }
         }
         byte[] epub = NovelEpubWriter.write(seriesTitle, firstAuthor == null ? "" : firstAuthor,
-                firstLang, epubChapters);
+                firstLang, epubChapters, epubLabels());
         Files.write(file, epub);
+    }
+
+    private NovelMarkupParser.ImageLabels imageLabels() {
+        return new NovelMarkupParser.ImageLabels() {
+            @Override public String uploadedImage(String id) {
+                return messages.get("novel.render.uploaded-image", id);
+            }
+
+            @Override public String pixivImage(String id) {
+                return messages.get("novel.render.pixiv-image", id);
+            }
+        };
+    }
+
+    private NovelEpubWriter.Labels epubLabels() {
+        return new NovelEpubWriter.Labels() {
+            @Override public String untitled() {
+                return messages.get("novel.epub.untitled");
+            }
+
+            @Override public String unknownAuthor() {
+                return messages.get("novel.epub.unknown-author");
+            }
+
+            @Override public String chapter(int index) {
+                return messages.get("novel.epub.chapter", index);
+            }
+        };
     }
 
     private static String escapeHtml(String s) {

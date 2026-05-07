@@ -1473,11 +1473,11 @@
         <div class="kind-switcher" id="user-kind-switcher" role="radiogroup">
             <label class="active" data-kind="illust">
                 <input type="radio" name="user-kind" value="illust" checked>
-                <span data-i18n-ns="novel" data-i18n="batch.user.kind-illust">插画+漫画+动图</span>
+                <span data-i18n="novel:batch.user.kind-illust">插画+漫画+动图</span>
             </label>
             <label data-kind="novel">
                 <input type="radio" name="user-kind" value="novel">
-                <span data-i18n-ns="novel" data-i18n="batch.user.kind-novel">小说</span>
+                <span data-i18n="novel:batch.user.kind-novel">小说</span>
             </label>
         </div>
         <div class="user-row">
@@ -1495,11 +1495,11 @@
         <div class="kind-switcher" id="search-kind-switcher" role="radiogroup">
             <label class="active" data-kind="illust">
                 <input type="radio" name="search-kind" value="illust" checked>
-                <span data-i18n-ns="novel" data-i18n="batch.search.kind-illust">插画+漫画+动图</span>
+                <span data-i18n="novel:batch.search.kind-illust">插画+漫画+动图</span>
             </label>
             <label data-kind="novel">
                 <input type="radio" name="search-kind" value="novel">
-                <span data-i18n-ns="novel" data-i18n="batch.search.kind-novel">小说</span>
+                <span data-i18n="novel:batch.search.kind-novel">小说</span>
             </label>
         </div>
         <div class="search-controls">
@@ -1559,12 +1559,12 @@
                            onchange="handleSearchFilterChange()">
                 </div>
                 <div class="search-extra-item search-novel-only" style="display:none;">
-                    <label for="search-words-min" data-i18n-ns="novel" data-i18n="batch.search.words-min">最少字数</label>
+                    <label for="search-words-min" data-i18n="novel:batch.search.words-min">最少字数</label>
                     <input type="number" id="search-words-min" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"
                            onchange="handleSearchFilterChange()">
                 </div>
                 <div class="search-extra-item search-novel-only" style="display:none;">
-                    <label for="search-words-max" data-i18n-ns="novel" data-i18n="batch.search.words-max">最多字数</label>
+                    <label for="search-words-max" data-i18n="novel:batch.search.words-max">最多字数</label>
                     <input type="number" id="search-words-max" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"
                            onchange="handleSearchFilterChange()">
                 </div>
@@ -1664,16 +1664,16 @@
                 </select>
             </div>
             <div class="setting-item">
-                <label for="s-novel-format" data-i18n-ns="novel" data-i18n="batch.format-label">小说格式:</label>
+                <label for="s-novel-format" data-i18n="novel:batch.format-label">小说格式:</label>
                 <select id="s-novel-format" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
-                    <option value="txt" data-i18n-ns="novel" data-i18n="format.txt">纯文本（TXT）</option>
-                    <option value="html" data-i18n-ns="novel" data-i18n="format.html">网页（HTML）</option>
-                    <option value="epub" data-i18n-ns="novel" data-i18n="format.epub">电子书（EPUB）</option>
+                    <option value="txt" data-i18n="novel:format.txt">纯文本（TXT）</option>
+                    <option value="html" data-i18n="novel:format.html">网页（HTML）</option>
+                    <option value="epub" data-i18n="novel:format.epub">电子书（EPUB）</option>
                 </select>
             </div>
             <div class="setting-item">
                 <input type="checkbox" id="s-novel-merge">
-                <label for="s-novel-merge" style="cursor:pointer;" data-i18n-ns="novel" data-i18n="batch.merge-label">系列下载完成后生成合订本</label>
+                <label for="s-novel-merge" style="cursor:pointer;" data-i18n="novel:batch.merge-label">系列下载完成后生成合订本</label>
             </div>
             <div class="setting-item filename-setting">
                 <label for="s-file-name-template" data-i18n="label.settings.filename-template">文件名格式:</label>
@@ -1773,7 +1773,7 @@
 
     function bt(key, fallback, vars) {
         if (pageI18n) {
-            return pageI18n.t('batch:' + key, fallback, vars);
+            return pageI18n.t(key.includes(':') ? key : 'batch:' + key, fallback, vars);
         }
         return interpolate(fallback != null ? fallback : key, vars);
     }
@@ -1784,6 +1784,11 @@
 
     function summarySeparator() {
         return uiLang() === 'en-US' ? ', ' : '，';
+    }
+
+    function novelStageLabel(stage) {
+        if (!stage) return '';
+        return bt('queue.stage.' + stage, stage);
     }
 
     function summaryJoin(parts) {
@@ -3648,7 +3653,7 @@
                     return;
                 }
                 if (status.stage) {
-                    item.lastMessage = bt('queue.message.stage', '阶段：{stage}', {stage: status.stage});
+                    item.lastMessage = bt('queue.message.stage', '阶段：{stage}', {stage: novelStageLabel(status.stage)});
                     renderQueue();
                 }
             }

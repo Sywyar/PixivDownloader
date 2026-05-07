@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel;
 
+import top.sywyar.pixivdownload.i18n.MessageBundles;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -45,13 +47,41 @@ public final class NovelEpubWriter {
 
     public record Chapter(String title, String xhtmlBody) {}
 
+    public interface Labels {
+        String untitled();
+        String unknownAuthor();
+        String chapter(int index);
+
+        static Labels fromMessages() {
+            return new Labels() {
+                @Override public String untitled() {
+                    return MessageBundles.get("novel.epub.untitled");
+                }
+
+                @Override public String unknownAuthor() {
+                    return MessageBundles.get("novel.epub.unknown-author");
+                }
+
+                @Override public String chapter(int index) {
+                    return MessageBundles.get("novel.epub.chapter", index);
+                }
+            };
+        }
+    }
+
     public static byte[] write(String bookTitle, String author, String language,
                                List<Chapter> chapters) throws IOException {
+        return write(bookTitle, author, language, chapters, Labels.fromMessages());
+    }
+
+    public static byte[] write(String bookTitle, String author, String language,
+                               List<Chapter> chapters, Labels labels) throws IOException {
         if (chapters == null || chapters.isEmpty()) {
             throw new IllegalArgumentException("at least one chapter required");
         }
-        String safeTitle = (bookTitle == null || bookTitle.isBlank()) ? "Untitled" : bookTitle.trim();
-        String safeAuthor = (author == null || author.isBlank()) ? "Unknown" : author.trim();
+        if (labels == null) labels = Labels.fromMessages();
+        String safeTitle = (bookTitle == null || bookTitle.isBlank()) ? labels.untitled() : bookTitle.trim();
+        String safeAuthor = (author == null || author.isBlank()) ? labels.unknownAuthor() : author.trim();
         String safeLang = (language == null || language.isBlank()) ? "ja" : language.trim();
         String bookId = "urn:uuid:" + UUID.randomUUID();
 
@@ -77,12 +107,13 @@ public final class NovelEpubWriter {
             for (int i = 0; i < chapters.size(); i++) {
                 Chapter ch = chapters.get(i);
                 String filename = "chapter-" + (i + 1) + ".xhtml";
-                putDeflated(zip, "OEBPS/" + filename, chapterXhtml(ch.title(), ch.xhtmlBody(), safeLang));
+                putDeflated(zip, "OEBPS/" + filename,
+                        chapterXhtml(chapterTitle(ch.title(), i, labels), ch.xhtmlBody(), safeLang));
                 chapterFiles.add(filename);
             }
             putDeflated(zip, "OEBPS/content.opf",
                     contentOpf(safeTitle, safeAuthor, safeLang, bookId, chapters, chapterFiles));
-            putDeflated(zip, "OEBPS/toc.ncx", tocNcx(safeTitle, bookId, chapters, chapterFiles));
+            putDeflated(zip, "OEBPS/toc.ncx", tocNcx(safeTitle, bookId, chapters, chapterFiles, labels));
         }
         return raw.toByteArray();
     }
@@ -159,11 +190,10 @@ public final class NovelEpubWriter {
     }
 
     private static String tocNcx(String title, String bookId, List<Chapter> chapters,
-                                 List<String> chapterFiles) {
+                                 List<String> chapterFiles, Labels labels) {
         StringBuilder navMap = new StringBuilder();
         for (int i = 0; i < chapters.size(); i++) {
-            String chTitle = chapters.get(i).title();
-            if (chTitle == null || chTitle.isBlank()) chTitle = "Chapter " + (i + 1);
+            String chTitle = chapterTitle(chapters.get(i).title(), i, labels);
             navMap.append("    <navPoint id=\"nav").append(i + 1)
                     .append("\" playOrder=\"").append(i + 1).append("\">\n")
                     .append("      <navLabel><text>").append(escapeXml(chTitle)).append("</text></navLabel>\n")
@@ -183,6 +213,10 @@ public final class NovelEpubWriter {
                 + navMap
                 + "  </navMap>\n"
                 + "</ncx>\n";
+    }
+
+    private static String chapterTitle(String title, int index, Labels labels) {
+        return title == null || title.isBlank() ? labels.chapter(index + 1) : title;
     }
 
     private static String escapeXml(String s) {

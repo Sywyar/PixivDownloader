@@ -960,7 +960,7 @@
 
         <div class="section-header">
             <span class="section-title" data-i18n="section.collections">收藏夹</span>
-            <button class="section-add" id="btnCreateCollection" title="新建收藏夹（前往主画廊）">
+            <button class="section-add" id="btnCreateCollection" data-i18n-title="novel:collection.new-main-gallery" title="新建收藏夹（前往主画廊）">
                 <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
         </div>
@@ -1009,7 +1009,7 @@
                         <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
                     </svg>
                 </div>
-                <span class="nav-label">邀请码管理</span>
+                <span class="nav-label" data-i18n="nav.invite-manage">邀请码管理</span>
             </a>
         </nav>
 
@@ -1054,7 +1054,7 @@
                 <button class="chip" data-sort="novelId" data-i18n="novel:filter.sort.novel-id">小说 ID</button>
                 <button class="chip" data-sort="wordCount" data-i18n="novel:filter.sort.word-count">字数</button>
                 <button class="chip" data-sort="series" data-i18n="novel:filter.sort.series">系列</button>
-                <button class="chip" id="orderToggle" data-order="desc" style="margin-left:auto">↓ 降序</button>
+                <button class="chip" id="orderToggle" data-order="desc" data-i18n="filter.order.desc" style="margin-left:auto">↓ 降序</button>
             </div>
             <div class="filter-row">
                 <span class="filter-row-label" data-i18n="filter.r18.label">R-18</span>
@@ -1080,7 +1080,7 @@
                     <div class="filter-tags-controls">
                         <label class="tag-search-box">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                            <input type="text" id="seriesSearchInput" placeholder="搜索系列...">
+                            <input type="text" id="seriesSearchInput" data-i18n-placeholder="novel:filter.series.search.placeholder" placeholder="搜索系列...">
                         </label>
                         <button class="chip" id="seriesFilterReset" type="button" data-i18n="filter.reset">重置筛选</button>
                         <button class="chip" id="seriesExpandToggle" type="button" data-i18n="filter.expand">展开全部</button>
@@ -1094,7 +1094,7 @@
                     <div class="filter-tags-controls">
                         <label class="tag-search-box">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                            <input type="text" id="tagSearchInput" placeholder="搜索标签...">
+                            <input type="text" id="tagSearchInput" data-i18n-placeholder="filter.tags.search.placeholder" placeholder="搜索标签...">
                         </label>
                         <div class="filter-mode-group" id="tagModeButtons">
                             <button class="filter-mode-btn mode-must active" data-filter-mode="must" type="button" data-i18n="filter.mode.must">必须有</button>
@@ -1113,7 +1113,7 @@
                     <div class="filter-tags-controls">
                         <label class="tag-search-box">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                            <input type="text" id="authorSearchInput" placeholder="搜索作者...">
+                            <input type="text" id="authorSearchInput" data-i18n-placeholder="filter.authors.search.placeholder" placeholder="搜索作者...">
                         </label>
                         <div class="filter-mode-group" id="authorModeButtons">
                             <button class="filter-mode-btn mode-must active" data-filter-mode="must" type="button" data-i18n="filter.mode.must">必须有</button>
@@ -1209,11 +1209,17 @@ const state = {
 async function init() {
     pageI18n = await PixivI18n.create({ namespaces: ['gallery', 'novel', 'common'] });
     pageI18n.apply();
+    updateOrderToggleLabel();
     await PixivLangSwitcher.mount({
         mountPoint: document.getElementById('langSwitcherAnchor'),
         i18n: pageI18n,
         showLabel: false,
-        onChange: (next) => { pageI18n = next; pageI18n.apply(); reloadCurrentView(); }
+        onChange: (next) => {
+            pageI18n = next;
+            pageI18n.apply();
+            updateOrderToggleLabel();
+            reloadCurrentView();
+        }
     });
     PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') });
     setupEventHandlers();
@@ -1223,6 +1229,13 @@ async function init() {
     await loadSeries();
     await loadAuthors();
     reloadCurrentView();
+}
+
+function updateOrderToggleLabel() {
+    const btn = document.getElementById('orderToggle');
+    if (!btn) return;
+    const key = btn.dataset.order === 'asc' ? 'filter.order.asc' : 'filter.order.desc';
+    btn.textContent = pageI18n ? pageI18n.t(key, btn.textContent) : btn.textContent;
 }
 
 function setupEventHandlers() {
@@ -1252,7 +1265,7 @@ function setupEventHandlers() {
         const btn = document.getElementById('orderToggle');
         const next = btn.dataset.order === 'desc' ? 'asc' : 'desc';
         btn.dataset.order = next;
-        btn.textContent = next === 'desc' ? '↓ 降序' : '↑ 升序';
+        updateOrderToggleLabel();
         state.order = next;
         state.page = 0;
         reloadCurrentView();
@@ -1682,7 +1695,7 @@ function renderGrid(items) {
         grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.empty', '暂无小说'))}</div>`;
         return;
     }
-    const heartTitle = esc(pageI18n.t('common:collection.add', '添加到收藏夹'));
+    const heartTitle = esc(pageI18n.t('collection.add', '添加到收藏夹'));
     grid.innerHTML = items.map(item => {
         const badges = [];
         if (item.xRestrict === 1) badges.push('<span class="badge r18">R-18</span>');

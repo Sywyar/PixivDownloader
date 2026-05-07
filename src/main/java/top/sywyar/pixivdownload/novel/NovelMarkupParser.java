@@ -41,6 +41,16 @@ public final class NovelMarkupParser {
         };
     }
 
+    public interface ImageLabels {
+        String uploadedImage(String id);
+        String pixivImage(String id);
+
+        ImageLabels MARKUP = new ImageLabels() {
+            @Override public String uploadedImage(String id) { return "[uploadedimage:" + id + "]"; }
+            @Override public String pixivImage(String id) { return "[pixivimage:" + id + "]"; }
+        };
+    }
+
     private static final Pattern INLINE_PATTERN = Pattern.compile(
             "\\[\\[rb:(?<rbBase>[^>\\]]+?)\\s*>\\s*(?<rbRuby>[^\\]]+?)\\]\\]"
                     + "|\\[\\[jumpuri:(?<juText>[^>\\]]+?)\\s*>\\s*(?<juUrl>[^\\]]+?)\\]\\]"
@@ -65,7 +75,11 @@ public final class NovelMarkupParser {
 
     /** Pixiv 标记 → 三种格式的正文（不解析内嵌图片，使用占位符渲染）。 */
     public static String render(String raw, Format format) {
-        return render(raw, format, ImageResolver.NONE);
+        return render(raw, format, ImageResolver.NONE, ImageLabels.MARKUP);
+    }
+
+    public static String render(String raw, Format format, ImageLabels labels) {
+        return render(raw, format, ImageResolver.NONE, labels);
     }
 
     /**
@@ -73,13 +87,18 @@ public final class NovelMarkupParser {
      * 把图片占位符替换为 {@code <img>} 标签；TXT 输出永远使用占位符（保证下载文件中可读）。
      */
     public static String render(String raw, Format format, ImageResolver resolver) {
+        return render(raw, format, resolver, ImageLabels.MARKUP);
+    }
+
+    public static String render(String raw, Format format, ImageResolver resolver, ImageLabels labels) {
         if (raw == null) raw = "";
         if (resolver == null) resolver = ImageResolver.NONE;
+        if (labels == null) labels = ImageLabels.MARKUP;
         List<Block> blocks = tokenize(raw);
         return switch (format) {
-            case TXT -> renderTxt(blocks);
-            case HTML -> renderHtml(blocks, false, resolver);
-            case XHTML -> renderHtml(blocks, true, resolver);
+            case TXT -> renderTxt(blocks, labels);
+            case HTML -> renderHtml(blocks, false, resolver, labels);
+            case XHTML -> renderHtml(blocks, true, resolver, labels);
         };
     }
 
@@ -116,7 +135,7 @@ public final class NovelMarkupParser {
 
     // ── TXT renderer ────────────────────────────────────────────────────────────
 
-    private static String renderTxt(List<Block> blocks) {
+    private static String renderTxt(List<Block> blocks, ImageLabels labels) {
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < blocks.size(); i++) {
             Block b = blocks.get(i);
@@ -131,7 +150,7 @@ public final class NovelMarkupParser {
                     out.append("\n");
                 }
                 case PARAGRAPH -> {
-                    out.append(renderInlineTxt(b.text));
+                    out.append(renderInlineTxt(b.text, labels));
                     if (i < blocks.size() - 1) out.append('\n');
                 }
             }
@@ -139,7 +158,7 @@ public final class NovelMarkupParser {
         return out.toString();
     }
 
-    private static String renderInlineTxt(String text) {
+    private static String renderInlineTxt(String text, ImageLabels labels) {
         Matcher m = INLINE_PATTERN.matcher(text);
         StringBuilder out = new StringBuilder();
         int last = 0;
@@ -152,9 +171,9 @@ public final class NovelMarkupParser {
             } else if (m.group("jumpPage") != null) {
                 // skip page jumps in plain text
             } else if (m.group("upImg") != null) {
-                out.append("[图片#").append(m.group("upImg")).append("]");
+                out.append(labels.uploadedImage(m.group("upImg")));
             } else if (m.group("pxImg") != null) {
-                out.append("[Pixiv图#").append(m.group("pxImg")).append("]");
+                out.append(labels.pixivImage(m.group("pxImg")));
             }
             last = m.end();
         }
@@ -164,7 +183,7 @@ public final class NovelMarkupParser {
 
     // ── HTML / XHTML renderer ──────────────────────────────────────────────────
 
-    private static String renderHtml(List<Block> blocks, boolean xhtml, ImageResolver resolver) {
+    private static String renderHtml(List<Block> blocks, boolean xhtml, ImageResolver resolver, ImageLabels labels) {
         StringBuilder out = new StringBuilder();
         boolean sectionOpen = false;
         out.append(openSection(xhtml));
@@ -188,7 +207,7 @@ public final class NovelMarkupParser {
                     String[] paragraphs = b.text.split("\n{2,}");
                     for (String p : paragraphs) {
                         if (p.isEmpty()) continue;
-                        out.append("<p>").append(renderInlineHtml(p, xhtml, resolver)).append("</p>\n");
+                        out.append("<p>").append(renderInlineHtml(p, xhtml, resolver, labels)).append("</p>\n");
                     }
                 }
             }
@@ -203,7 +222,7 @@ public final class NovelMarkupParser {
                 : "<section class=\"novel-page\">\n";
     }
 
-    private static String renderInlineHtml(String text, boolean xhtml, ImageResolver resolver) {
+    private static String renderInlineHtml(String text, boolean xhtml, ImageResolver resolver, ImageLabels labels) {
         Matcher m = INLINE_PATTERN.matcher(text);
         StringBuilder out = new StringBuilder();
         int last = 0;
@@ -228,11 +247,11 @@ public final class NovelMarkupParser {
             } else if (m.group("upImg") != null) {
                 String id = m.group("upImg");
                 String url = resolver.uploadedImage(id);
-                appendImageFigure(out, url, "data-uploaded-image", id, "[图片 #", xhtml);
+                appendImageFigure(out, url, "data-uploaded-image", id, labels.uploadedImage(id), xhtml);
             } else if (m.group("pxImg") != null) {
                 String id = m.group("pxImg");
                 String url = resolver.pixivImage(id);
-                appendImageFigure(out, url, "data-pixiv-image", id, "[Pixiv图 #", xhtml);
+                appendImageFigure(out, url, "data-pixiv-image", id, labels.pixivImage(id), xhtml);
             }
             last = m.end();
         }
@@ -241,7 +260,7 @@ public final class NovelMarkupParser {
     }
 
     private static void appendImageFigure(StringBuilder out, String url, String dataAttr,
-                                          String id, String placeholderPrefix, boolean xhtml) {
+                                          String id, String label, boolean xhtml) {
         out.append("<figure class=\"novel-image\" ")
                 .append(dataAttr).append("=\"")
                 .append(escapeAttr(id))
@@ -249,14 +268,13 @@ public final class NovelMarkupParser {
         if (url != null && !url.isBlank()) {
             String selfClose = xhtml ? " />" : ">";
             out.append("<img src=\"").append(escapeAttr(url))
-                    .append("\" alt=\"").append(escapeAttr(placeholderPrefix)).append(escapeAttr(id)).append("]\"")
+                    .append("\" alt=\"").append(escapeAttr(label)).append("\"")
                     .append(" loading=\"lazy\"")
                     .append(selfClose);
         } else {
             out.append("<span class=\"novel-image-placeholder\">")
-                    .append(escapeHtml(placeholderPrefix))
-                    .append(escapeHtml(id))
-                    .append("]</span>");
+                    .append(escapeHtml(label))
+                    .append("</span>");
         }
         out.append("</figure>");
     }
