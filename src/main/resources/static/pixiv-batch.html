@@ -1686,7 +1686,7 @@
                     <div><code>{artwork_title}</code> <span data-i18n="filename.var.artwork-title">合规化作品标题</span></div>
                     <div><code>{author_id}</code> <span data-i18n="filename.var.author-id">作者 ID</span></div>
                     <div><code>{author_name}</code> <span data-i18n="filename.var.author-name">合规化作者名</span></div>
-                    <div><code>{timestamp}</code> <span data-i18n="filename.var.timestamp">秒级时间戳</span></div>
+                    <div><code>{timestamp}</code> <span data-i18n="filename.var.timestamp">毫秒级时间戳</span></div>
                     <div><code>{page}</code> <span data-i18n="filename.var.page">当前页码</span></div>
                     <div><code>{count}</code> <span data-i18n="filename.var.count">总页码</span></div>
                     <div><code>{ai}</code> <span data-i18n="filename.var.ai">AI 时为 AI，否则为空</span></div>
@@ -2852,7 +2852,7 @@
         const delayMs = getImageDelayMs();
         const collectionId = await resolveBatchCollectionIdForDownload();
         const fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
-        const fileNameTimestamp = Math.floor(Date.now() / 1000);
+        const fileNameTimestamp = Date.now();
         const fileNames = buildDownloadFileNames(fileNameTemplate, {
             artworkId,
             title,

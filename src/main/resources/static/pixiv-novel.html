@@ -574,7 +574,7 @@ function renderMetaRow(o) {
         parts.push(`<span>${escapeHtml(pageI18n.t('meta.language', null, { lang: o.language }))}</span>`);
     }
     if (o.uploadTimestamp) {
-        const d = new Date(o.uploadTimestamp * 1000);
+        const d = new Date(o.uploadTimestamp);
         if (!isNaN(d.getTime())) {
             parts.push(`<span>${escapeHtml(pageI18n.t('meta.upload', null, { time: d.toISOString().slice(0, 16).replace('T', ' ') }))}</span>`);
         }

@@ -40,7 +40,7 @@ public class NovelDownloadRequest {
         private int delayMs;
         /** TXT / HTML / EPUB；不区分大小写。 */
         private String format;
-        /** Pixiv 上传时间，单位秒。 */
+        /** Pixiv upload timestamp, in epoch milliseconds. */
         private Long uploadTimestamp;
         /** 封面 URL（pximg），用于在系列目录页生成缩略图；可选。 */
         private String coverUrl;

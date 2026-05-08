@@ -6,8 +6,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
 @Repository
@@ -16,6 +18,14 @@ public class PixivDatabase {
 
     private final PixivMapper pixivMapper;
     private final AppMessages messages;
+
+    /**
+     * 进程内已分配但可能尚未持久化的最大时间戳。
+     * 用于在并发下载时避免多个 worker 同时拿到相同的 unique time —— DB 行尚未写入前，
+     * 仅依赖 {@code countByTime} 的旧实现会让所有并发调用拿到同一秒，
+     * 后续 {@code INSERT OR IGNORE} 静默丢弃冲突行，导致下载成功但记录丢失。
+     */
+    private final AtomicLong lastIssuedTime = new AtomicLong(0);
 
     @PostConstruct
     public void init() {
@@ -37,27 +47,39 @@ public class PixivDatabase {
         try { pixivMapper.addFileAuthorNameIdColumn(); } catch (Exception ignored) {}
         try { pixivMapper.addSeriesIdColumn(); } catch (Exception ignored) {}
         try { pixivMapper.addSeriesOrderColumn(); } catch (Exception ignored) {}
+        pixivMapper.migrateArtworkTimestampsToMillis();
+        pixivMapper.migrateArtworkMoveTimestampsToMillis();
+        Long maxTime = pixivMapper.findMaxTime();
+        if (maxTime != null) {
+            lastIssuedTime.set(maxTime);
+        }
         log.info(messages.getForLog("download.db.log.initialized"));
     }
 
     /**
-     * 获取一个不与现有记录冲突的唯一时间戳（秒级）
+     * 获取一个不与现有记录冲突的唯一时间戳（毫秒级）
      */
-    public synchronized long getUniqueTime() {
-        return getUniqueTime(System.currentTimeMillis() / 1000);
+    public long getUniqueTime() {
+        return getUniqueTime(TimestampUtils.nowMillis());
     }
 
-    public synchronized long getUniqueTime(long preferredTime) {
-        long time = System.currentTimeMillis() / 1000;
-        if (preferredTime > 0) {
-            time = preferredTime;
+    public long getUniqueTime(long preferredTime) {
+        long normalizedPreferred = TimestampUtils.toMillis(preferredTime);
+        long base = normalizedPreferred > 0 ? normalizedPreferred : TimestampUtils.nowMillis();
+        long candidate;
+        // CAS 推进进程内计数器：保证两个并发调用永远不会拿到相同时间。
+        while (true) {
+            long last = lastIssuedTime.get();
+            candidate = Math.max(base, last + 1);
+            if (lastIssuedTime.compareAndSet(last, candidate)) {
+                break;
+            }
         }
-        int count;
-        do {
-            count = pixivMapper.countByTime(time);
-            if (count > 0) time++;
-        } while (count > 0);
-        return time;
+        // 兜底：若计数器初始化后仍有 DB 行（如外部工具写入）使用了相同时间，向后跳过。
+        while (pixivMapper.countByTime(candidate) > 0) {
+            candidate = lastIssuedTime.incrementAndGet();
+        }
+        return candidate;
     }
 
     public void insertArtwork(long artworkId, String title, String folder, int count,
@@ -170,8 +192,8 @@ public class PixivDatabase {
         return pixivMapper.findAllIdsSortedByTimeDesc();
     }
 
-    public List<ArtworkRecord> getArtworksOlderThan(long beforeTimeSec) {
-        return pixivMapper.findByTimeBefore(beforeTimeSec);
+    public List<ArtworkRecord> getArtworksOlderThan(long beforeTimeMillis) {
+        return pixivMapper.findByTimeBefore(beforeTimeMillis);
     }
 
     public long countArtworks() {

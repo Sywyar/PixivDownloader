@@ -31,6 +31,14 @@ public interface CollectionMapper {
             + " ON artwork_collections(artwork_id)")
     void createArtworkCollectionsArtworkIndex();
 
+    @Update("UPDATE collections SET created_time = created_time * 1000"
+            + " WHERE created_time > 0 AND created_time < 1000000000000")
+    int migrateCollectionTimestampsToMillis();
+
+    @Update("UPDATE artwork_collections SET added_time = added_time * 1000"
+            + " WHERE added_time > 0 AND added_time < 1000000000000")
+    int migrateArtworkCollectionTimestampsToMillis();
+
     @Select("SELECT c.id, c.name, c.icon_ext AS iconExt, c.download_root AS downloadRoot,"
             + " c.sort_order AS sortOrder, c.created_time AS createdTime,"
             + " COALESCE((SELECT COUNT(*) FROM artwork_collections ac WHERE ac.collection_id = c.id), 0) AS artworkCount,"

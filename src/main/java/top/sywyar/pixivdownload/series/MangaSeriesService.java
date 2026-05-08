@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -66,6 +67,7 @@ public class MangaSeriesService {
     @PostConstruct
     public void init() {
         mangaSeriesMapper.createMangaSeriesTable();
+        mangaSeriesMapper.migrateSeriesTimestampsToMillis();
     }
 
     public List<MangaSeries> getAllSeries() {
@@ -134,7 +136,7 @@ public class MangaSeriesService {
     public void observe(long seriesId, String title, Long authorId) {
         if (seriesId <= 0) return;
         String normalizedTitle = StringUtils.hasText(title) ? title.trim() : null;
-        long now = Instant.now().getEpochSecond();
+        long now = TimestampUtils.nowMillis();
 
         // 先尝试插入；返回 1 = 新行已建（首次观测），返回 0 = 行已存在（落入合并分支）。
         // 这样并发的两次 observe 不会都看到 existing == null 然后都走 INSERT OR IGNORE 而漏掉 update。

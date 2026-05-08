@@ -15,6 +15,10 @@ public interface MangaSeriesMapper {
             + "updated_time INTEGER NOT NULL)")
     void createMangaSeriesTable();
 
+    @Update("UPDATE manga_series SET updated_time = updated_time * 1000"
+            + " WHERE updated_time > 0 AND updated_time < 1000000000000")
+    int migrateSeriesTimestampsToMillis();
+
     @Insert("INSERT OR IGNORE INTO manga_series(series_id, title, author_id, updated_time)"
             + " VALUES(#{id}, #{title}, #{authorId}, #{updatedTime})")
     int insertIfAbsent(@Param("id") long id,

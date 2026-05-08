@@ -97,6 +97,14 @@ public interface PixivMapper {
     @Update("ALTER TABLE artworks ADD COLUMN series_order INTEGER DEFAULT NULL")
     void addSeriesOrderColumn();
 
+    @Update("UPDATE artworks SET time = time * 1000"
+            + " WHERE time > 0 AND time < 1000000000000")
+    int migrateArtworkTimestampsToMillis();
+
+    @Update("UPDATE artworks SET move_time = move_time * 1000"
+            + " WHERE move_time IS NOT NULL AND move_time > 0 AND move_time < 1000000000000")
+    int migrateArtworkMoveTimestampsToMillis();
+
     @Insert("INSERT OR IGNORE INTO file_name_templates(template) VALUES(#{template})")
     void insertFileNameTemplateIfAbsent(@Param("template") String template);
 
@@ -159,6 +167,9 @@ public interface PixivMapper {
 
     @Select("SELECT COUNT(*) FROM artworks WHERE time = #{time}")
     int countByTime(long time);
+
+    @Select("SELECT MAX(time) FROM artworks")
+    Long findMaxTime();
 
     @Select("SELECT COUNT(*) FROM artworks")
     long countAll();

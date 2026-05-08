@@ -55,6 +55,14 @@ public interface NovelMapper {
     @Update("ALTER TABLE novels ADD COLUMN cover_ext TEXT DEFAULT NULL")
     void addCoverExtColumn();
 
+    @Update("UPDATE novels SET time = time * 1000"
+            + " WHERE time > 0 AND time < 1000000000000")
+    int migrateNovelTimestampsToMillis();
+
+    @Update("UPDATE novels SET move_time = move_time * 1000"
+            + " WHERE move_time IS NOT NULL AND move_time > 0 AND move_time < 1000000000000")
+    int migrateNovelMoveTimestampsToMillis();
+
     @Update("CREATE TABLE IF NOT EXISTS novel_series ("
             + "series_id INTEGER PRIMARY KEY,"
             + "title TEXT NOT NULL,"
@@ -78,6 +86,10 @@ public interface NovelMapper {
             + "PRIMARY KEY (collection_id, novel_id))")
     void createNovelCollectionsTable();
 
+    @Update("UPDATE novel_collections SET added_time = added_time * 1000"
+            + " WHERE added_time > 0 AND added_time < 1000000000000")
+    int migrateNovelCollectionTimestampsToMillis();
+
     @Update("CREATE INDEX IF NOT EXISTS idx_novel_collections_novel ON novel_collections(novel_id)")
     void createNovelCollectionsNovelIndex();
 
@@ -87,6 +99,10 @@ public interface NovelMapper {
             + "ext TEXT NOT NULL,"
             + "PRIMARY KEY (novel_id, image_id))")
     void createNovelImagesTable();
+
+    @Update("UPDATE novel_series SET updated_time = updated_time * 1000"
+            + " WHERE updated_time > 0 AND updated_time < 1000000000000")
+    int migrateNovelSeriesTimestampsToMillis();
 
     @Insert("INSERT OR REPLACE INTO novel_images(novel_id, image_id, ext)"
             + " VALUES(#{novelId}, #{imageId}, #{ext})")
@@ -113,6 +129,9 @@ public interface NovelMapper {
 
     @Select("SELECT COUNT(*) FROM novels WHERE time = #{time}")
     int countByTime(@Param("time") long time);
+
+    @Select("SELECT MAX(time) FROM novels")
+    Long findMaxTime();
 
     @Select("SELECT COUNT(*) FROM novels")
     long countAll();

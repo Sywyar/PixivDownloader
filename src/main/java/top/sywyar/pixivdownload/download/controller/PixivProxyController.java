@@ -611,7 +611,7 @@ public class PixivProxyController {
         Integer textLength = b.has("characterCount") ? b.path("characterCount").asInt(0) : null;
         String content = b.path("content").asText("");
         Integer pageCount = countPages(content);
-        Long uploadTimestamp = parsePixivIsoToEpoch(b.path("uploadDate").asText(null));
+        Long uploadTimestamp = parsePixivIsoToEpochMillis(b.path("uploadDate").asText(null));
         return ResponseEntity.ok(new NovelMetaResponse(
                 parsedId,
                 b.path("title").asText(""),
@@ -731,7 +731,7 @@ public class PixivProxyController {
                             it.path("userName").asText(authorName),
                             it.path("seriesOrder").asInt(it.path("order").asInt(0)),
                             it.path("url").asText(""),
-                            parsePixivIsoToEpoch(it.path("uploadDate").asText(null))
+                            parsePixivIsoToEpochMillis(it.path("uploadDate").asText(null))
                     ));
                 }
             }
@@ -829,10 +829,10 @@ public class PixivProxyController {
         return pages;
     }
 
-    private static Long parsePixivIsoToEpoch(String iso) {
+    private static Long parsePixivIsoToEpochMillis(String iso) {
         if (iso == null || iso.isBlank()) return null;
         try {
-            return java.time.OffsetDateTime.parse(iso).toEpochSecond();
+            return java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli();
         } catch (Exception e) {
             return null;
         }

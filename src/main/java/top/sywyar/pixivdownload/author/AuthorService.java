@@ -14,6 +14,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -55,6 +56,7 @@ public class AuthorService {
     @PostConstruct
     public void init() {
         authorMapper.createAuthorsTable();
+        authorMapper.migrateAuthorTimestampsToMillis();
     }
 
     public List<Author> getAllAuthors() {
@@ -121,7 +123,7 @@ public class AuthorService {
 
         if (existing == null) {
             String initialName = StringUtils.hasText(normalizedHint) ? normalizedHint : String.valueOf(authorId);
-            authorMapper.insertIfAbsent(authorId, initialName, nowSeconds());
+            authorMapper.insertIfAbsent(authorId, initialName, TimestampUtils.nowMillis());
             log.info(message(
                     "author.log.observe.first-record",
                     authorId,
@@ -173,7 +175,7 @@ public class AuthorService {
                 return;
             }
 
-            authorMapper.updateName(authorId, actualName, nowSeconds());
+            authorMapper.updateName(authorId, actualName, TimestampUtils.nowMillis());
             log.info(message(
                     "author.log.rename.updated",
                     existing.name(),
@@ -236,10 +238,6 @@ public class AuthorService {
 
     private static boolean isErrorResponse(JsonNode root) {
         return root == null || root.path("error").asBoolean(false);
-    }
-
-    private static long nowSeconds() {
-        return Instant.now().getEpochSecond();
     }
 
     private static String normalizeHintName(String hintName) {

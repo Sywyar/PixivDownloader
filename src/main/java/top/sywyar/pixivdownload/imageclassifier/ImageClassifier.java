@@ -1392,7 +1392,7 @@ public class ImageClassifier extends JFrame {
 
         Map<String, Object> body = new HashMap<>();
         body.put("movePath", movePath);
-        body.put("moveTime", System.currentTimeMillis() / 1000);
+        body.put("moveTime", System.currentTimeMillis());
 
         try {
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);

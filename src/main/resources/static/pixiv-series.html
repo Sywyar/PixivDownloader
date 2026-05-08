@@ -1462,9 +1462,9 @@
         return `https://www.pixiv.net/user/${authorId}/series/${seriesId}`;
     }
 
-    function formatTime(seconds) {
-        if (!seconds) return '';
-        const date = new Date(Number(seconds) * 1000);
+    function formatTime(epochMillis) {
+        if (!epochMillis) return '';
+        const date = new Date(Number(epochMillis));
         if (Number.isNaN(date.getTime())) return '';
         const locale = pageI18n ? pageI18n.lang : undefined;
         return new Intl.DateTimeFormat(locale, {

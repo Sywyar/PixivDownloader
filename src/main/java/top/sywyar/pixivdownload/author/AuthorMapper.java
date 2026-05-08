@@ -14,6 +14,10 @@ public interface AuthorMapper {
             + "updated_time INTEGER NOT NULL)")
     void createAuthorsTable();
 
+    @Update("UPDATE authors SET updated_time = updated_time * 1000"
+            + " WHERE updated_time > 0 AND updated_time < 1000000000000")
+    int migrateAuthorTimestampsToMillis();
+
     @Insert("INSERT OR IGNORE INTO authors(author_id, name, updated_time)"
             + " VALUES(#{id}, #{name}, #{updatedTime})")
     int insertIfAbsent(@Param("id") long id,

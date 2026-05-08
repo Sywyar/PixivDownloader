@@ -19,7 +19,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -593,7 +592,7 @@ public class ArtworksBackFill {
     }
 
     private static void upsertSeries(Connection conn, long seriesId, String title, Long authorId) throws SQLException {
-        long nowSeconds = Instant.now().getEpochSecond();
+        long nowMillis = System.currentTimeMillis();
         // 与 MangaSeriesService.observe 对齐：title 或 author 任一变化都触发 update。
         // 之前 WHERE 含 `AND title <> ?` 会让仅 author 变化的场景无更新，导致回填工具落后于运行时。
         try (PreparedStatement insertSeries = conn.prepareStatement(
@@ -609,7 +608,7 @@ public class ArtworksBackFill {
             } else {
                 insertSeries.setLong(3, authorId);
             }
-            insertSeries.setLong(4, nowSeconds);
+            insertSeries.setLong(4, nowMillis);
             insertSeries.executeUpdate();
 
             updateSeries.setString(1, title);
@@ -622,7 +621,7 @@ public class ArtworksBackFill {
                 updateSeries.setLong(6, authorId);
                 updateSeries.setLong(7, authorId);
             }
-            updateSeries.setLong(3, nowSeconds);
+            updateSeries.setLong(3, nowMillis);
             updateSeries.setLong(4, seriesId);
             updateSeries.setString(5, title);
             updateSeries.executeUpdate();
@@ -630,18 +629,18 @@ public class ArtworksBackFill {
     }
 
     private static void upsertAuthor(Connection conn, long authorId, String authorName) throws SQLException {
-        long nowSeconds = Instant.now().getEpochSecond();
+        long nowMillis = System.currentTimeMillis();
         try (PreparedStatement insertAuthor = conn.prepareStatement(
                 "INSERT OR IGNORE INTO authors(author_id, name, updated_time) VALUES(?, ?, ?)");
              PreparedStatement updateAuthor = conn.prepareStatement(
                      "UPDATE authors SET name = ?, updated_time = ? WHERE author_id = ? AND name <> ?")) {
             insertAuthor.setLong(1, authorId);
             insertAuthor.setString(2, authorName);
-            insertAuthor.setLong(3, nowSeconds);
+            insertAuthor.setLong(3, nowMillis);
             insertAuthor.executeUpdate();
 
             updateAuthor.setString(1, authorName);
-            updateAuthor.setLong(2, nowSeconds);
+            updateAuthor.setLong(2, nowMillis);
             updateAuthor.setLong(3, authorId);
             updateAuthor.setString(4, authorName);
             updateAuthor.executeUpdate();

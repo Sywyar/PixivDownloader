@@ -48,6 +48,7 @@ public class DownloadRequest {
         private List<TagDto> tags;
         private String fileNameTemplate;
         private List<String> fileNames;
+        /** Filename template timestamp, in epoch milliseconds. */
         private Long fileNameTimestamp;
         private Long seriesId;
         private Long seriesOrder;

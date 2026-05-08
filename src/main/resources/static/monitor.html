@@ -1517,8 +1517,8 @@
             .replace(/"/g, '&quot;');
     }
 
-    function formatDateTime(unixSeconds) {
-        const d = new Date(unixSeconds * 1000);
+    function formatDateTime(epochMillis) {
+        const d = new Date(epochMillis);
         const locale = localeTag();
         return {
             date: d.toLocaleDateString(locale),
@@ -1992,7 +1992,7 @@
 
         const monthly = {};
         artworks.forEach(a => {
-            const d   = new Date(a.time * 1000);
+            const d   = new Date(a.time);
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             monthly[key] = (monthly[key] || 0) + a.count;
         });

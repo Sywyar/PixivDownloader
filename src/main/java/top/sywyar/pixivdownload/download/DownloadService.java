@@ -26,6 +26,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
+import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -426,7 +427,7 @@ public class DownloadService {
         if (templateId <= 0) {
             templateId = ArtworkFileNameFormatter.DEFAULT_TEMPLATE_ID;
         }
-        long preferredTime = other.getFileNameTimestamp() == null ? 0L : other.getFileNameTimestamp();
+        long preferredTime = TimestampUtils.toMillis(other.getFileNameTimestamp());
         long recordTime = preferredTime > 0 ? pixivDatabase.getUniqueTime(preferredTime) : pixivDatabase.getUniqueTime();
         String sanitizedAuthorName = ArtworkFileNameFormatter.sanitize(other.getAuthorName());
         long fileAuthorNameId = sanitizedAuthorName.isEmpty() ? 0L : pixivDatabase.getOrCreateFileAuthorNameId(sanitizedAuthorName);
@@ -515,7 +516,7 @@ public class DownloadService {
             if (existing == null) {
                 return;
             }
-            pixivDatabase.updateArtworkMove(artworkId, movePath, moveTime);
+            pixivDatabase.updateArtworkMove(artworkId, movePath, TimestampUtils.toMillis(moveTime));
             if (!existing.moved()) {
                 pixivDatabase.incrementMoved();
             }

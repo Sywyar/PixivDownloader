@@ -372,8 +372,8 @@ public class UserQuotaService {
     @Scheduled(fixedRate = 3_600_000)
     public void cleanupTimedDeleteArtworks() {
         if (!"timed-delete".equals(config.getPostDownloadMode())) return;
-        long cutoffSec = System.currentTimeMillis() / 1000 - (long) config.getDeleteAfterHours() * 3600;
-        List<ArtworkRecord> oldArtworks = pixivDatabase.getArtworksOlderThan(cutoffSec);
+        long cutoffMillis = System.currentTimeMillis() - (long) config.getDeleteAfterHours() * 3_600_000L;
+        List<ArtworkRecord> oldArtworks = pixivDatabase.getArtworksOlderThan(cutoffMillis);
         if (oldArtworks.isEmpty()) return;
         log.info(message("quota.log.timed-delete.started", oldArtworks.size()));
         for (ArtworkRecord artwork : oldArtworks) {

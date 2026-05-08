@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -159,7 +160,7 @@ public class JsonToSqliteMigration {
                         int count = artwork.path("count").asInt();
                         String extensions = artwork.path("extensions").asText(null);
                         long time = artwork.has("time")
-                                ? artwork.path("time").asLong()
+                                ? TimestampUtils.toMillis(artwork.path("time").asLong())
                                 : nextUniqueTime(countTimeStmt);
 
                         insertStmt.setLong(1, artworkId);
@@ -172,7 +173,7 @@ public class JsonToSqliteMigration {
 
                         if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
                             String moveFolder = stripTrailingSlash(artwork.path("moveFolder").asText(null));
-                            long moveTime = artwork.path("moveTime").asLong();
+                            long moveTime = TimestampUtils.toMillis(artwork.path("moveTime").asLong());
                             updateMoveStmt.setString(1, moveFolder);
                             updateMoveStmt.setLong(2, moveTime);
                             updateMoveStmt.setLong(3, artworkId);
@@ -226,7 +227,7 @@ public class JsonToSqliteMigration {
     }
 
     private static long nextUniqueTime(PreparedStatement countTimeStmt) throws SQLException {
-        long time = System.currentTimeMillis() / 1000;
+        long time = TimestampUtils.nowMillis();
         while (true) {
             countTimeStmt.setLong(1, time);
             try (ResultSet rs = countTimeStmt.executeQuery()) {

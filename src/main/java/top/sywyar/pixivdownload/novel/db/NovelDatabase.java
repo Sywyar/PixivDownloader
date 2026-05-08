@@ -6,11 +6,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.util.TimestampUtils;
 
-import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
 @Repository
@@ -19,6 +20,13 @@ public class NovelDatabase {
 
     private final NovelMapper novelMapper;
     private final PixivDatabase pixivDatabase;
+
+    /**
+     * 进程内已分配但可能尚未持久化的最大 novel time。
+     * 与 {@link PixivDatabase#getUniqueTime} 同样的原因 —— 防止并发下载时多个 worker
+     * 拿到相同时间戳后被 {@code INSERT OR REPLACE} 互相覆盖导致已写入的行丢失。
+     */
+    private final AtomicLong lastIssuedTime = new AtomicLong(0);
 
     @PostConstruct
     public void init() {
@@ -31,23 +39,35 @@ public class NovelDatabase {
         novelMapper.createNovelImagesTable();
         // 幂等迁移：旧库 novels 表补 cover_ext 列；列已存在抛异常吞掉
         try { novelMapper.addCoverExtColumn(); } catch (Exception ignored) {}
-    }
-
-    public synchronized long getUniqueTime() {
-        return getUniqueTime(System.currentTimeMillis() / 1000);
-    }
-
-    public synchronized long getUniqueTime(long preferredTime) {
-        long time = System.currentTimeMillis() / 1000;
-        if (preferredTime > 0) {
-            time = preferredTime;
+        novelMapper.migrateNovelTimestampsToMillis();
+        novelMapper.migrateNovelMoveTimestampsToMillis();
+        novelMapper.migrateNovelCollectionTimestampsToMillis();
+        novelMapper.migrateNovelSeriesTimestampsToMillis();
+        Long maxTime = novelMapper.findMaxTime();
+        if (maxTime != null) {
+            lastIssuedTime.set(maxTime);
         }
-        int count;
-        do {
-            count = novelMapper.countByTime(time);
-            if (count > 0) time++;
-        } while (count > 0);
-        return time;
+    }
+
+    public long getUniqueTime() {
+        return getUniqueTime(TimestampUtils.nowMillis());
+    }
+
+    public long getUniqueTime(long preferredTime) {
+        long normalizedPreferred = TimestampUtils.toMillis(preferredTime);
+        long base = normalizedPreferred > 0 ? normalizedPreferred : TimestampUtils.nowMillis();
+        long candidate;
+        while (true) {
+            long last = lastIssuedTime.get();
+            candidate = Math.max(base, last + 1);
+            if (lastIssuedTime.compareAndSet(last, candidate)) {
+                break;
+            }
+        }
+        while (novelMapper.countByTime(candidate) > 0) {
+            candidate = lastIssuedTime.incrementAndGet();
+        }
+        return candidate;
     }
 
     public void insertNovel(long novelId, String title, String folder, int count,
@@ -187,7 +207,7 @@ public class NovelDatabase {
 
     public void observeSeries(long seriesId, String title, Long authorId) {
         if (seriesId <= 0) return;
-        long now = Instant.now().getEpochSecond();
+        long now = TimestampUtils.nowMillis();
         String safeTitle = (title == null || title.isBlank()) ? String.valueOf(seriesId) : title.trim();
         int inserted = novelMapper.insertSeriesIfAbsent(seriesId, safeTitle, authorId, now);
         if (inserted > 0) return;
@@ -205,7 +225,7 @@ public class NovelDatabase {
     // ── Collections ────────────────────────────────────────────────────────────
 
     public boolean addToCollection(long collectionId, long novelId) {
-        return novelMapper.insertNovelCollection(collectionId, novelId, Instant.now().getEpochSecond()) > 0;
+        return novelMapper.insertNovelCollection(collectionId, novelId, TimestampUtils.nowMillis()) > 0;
     }
 
     public boolean removeFromCollection(long collectionId, long novelId) {

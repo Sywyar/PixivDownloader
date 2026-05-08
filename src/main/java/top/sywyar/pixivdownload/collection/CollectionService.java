@@ -10,10 +10,10 @@ import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -44,6 +44,8 @@ public class CollectionService {
         try { collectionMapper.addDownloadRootColumn(); } catch (Exception ignored) {}
         collectionMapper.createArtworkCollectionsTable();
         collectionMapper.createArtworkCollectionsArtworkIndex();
+        collectionMapper.migrateCollectionTimestampsToMillis();
+        collectionMapper.migrateArtworkCollectionTimestampsToMillis();
     }
 
     public List<Collection> listAll() {
@@ -73,7 +75,7 @@ public class CollectionService {
         insert.setIconExt(null);
         insert.setDownloadRoot(cleanDownloadRoot);
         insert.setSortOrder(0);
-        insert.setCreatedTime(Instant.now().getEpochSecond());
+        insert.setCreatedTime(TimestampUtils.nowMillis());
         collectionMapper.insert(insert);
         Long newId = insert.getId();
         if (newId == null) {
@@ -143,7 +145,7 @@ public class CollectionService {
 
     public boolean addArtwork(long collectionId, long artworkId) {
         requireExists(collectionId);
-        int changed = collectionMapper.addArtwork(collectionId, artworkId, Instant.now().getEpochSecond());
+        int changed = collectionMapper.addArtwork(collectionId, artworkId, TimestampUtils.nowMillis());
         return changed > 0;
     }
 

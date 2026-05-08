@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
+import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.io.IOException;
 import java.net.URI;
@@ -136,7 +137,8 @@ public class NovelDownloadService {
 
             // Resolve filename template
             long timestamp = other.getFileNameTimestamp() != null
-                    ? other.getFileNameTimestamp() : Instant.now().getEpochSecond();
+                    ? TimestampUtils.toMillis(other.getFileNameTimestamp())
+                    : TimestampUtils.nowMillis();
             String template = ArtworkFileNameFormatter.normalizeTemplate(other.getFileNameTemplate());
             long templateId = pixivDatabase.getOrCreateFileNameTemplateId(template);
             String safeAuthorName = ArtworkFileNameFormatter.normalizeBaseName(
@@ -170,7 +172,7 @@ public class NovelDownloadService {
 
             // Persist DB
             long uniqueTime = novelDatabase.getUniqueTime(
-                    other.getUploadTimestamp() != null ? other.getUploadTimestamp() : timestamp);
+                    other.getUploadTimestamp() != null ? TimestampUtils.toMillis(other.getUploadTimestamp()) : timestamp);
             novelDatabase.insertNovel(novelId, title, downloadPath.toString(), 1, ext, uniqueTime,
                     other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(),
                     templateId, fileAuthorNameId, other.getSeriesId(), other.getSeriesOrder(),

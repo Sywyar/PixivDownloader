@@ -9,6 +9,7 @@ public class MoveArtworkRequest {
     @NotBlank(message = "{validation.move.path.required}")
     private String movePath;
 
+    /** Move timestamp, in epoch milliseconds. */
     @NotNull(message = "{validation.move.time.required}")
     private Long moveTime;
 }
