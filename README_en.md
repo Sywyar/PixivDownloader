@@ -23,13 +23,13 @@ PixivDownload is a local Pixiv batch image downloader that supports multiple dow
 
 ### Features
 
-- `pixiv-batch.html` [one-stop download page](#4-web-batch-download), supporting bulk artwork import, user batch download, and search batch download; with the page scraping userscript, you usually do not need other scripts
+- `pixiv-batch.html` [one-stop download page](#4-web-batch-download), supporting bulk import single works, user batch download, and search batch download; with the page scraping userscript, you usually do not need other scripts
 - Page batch download — scrape all artworks from Pixiv pages such as search results, following feed, rankings, and more
 - `monitor.html` [one-stop management page](#5-download-monitor), with multi-dimensional filtering/sorting and download history filtering by author
 - The `pixiv-gallery.html` gallery page supports multiple viewing formats, various filters, and a **favorites list**. It can be used in conjunction with `pixiv-artwork.html` to view artwork.
 - Single artwork download — one-click download on artwork pages
 - User homepage batch download — download all works from a specified user
-- Bulk artwork import — paste artwork link lists in `url | title` format; compatible with export formats from OneTab, N-Tab, and similar tab manager extensions
+- Bulk import single works — paste single-work link lists in `url | title` format; compatible with export formats from OneTab, N-Tab, and similar tab manager extensions
 - Keyword search download — search Pixiv artworks from the web UI and add them to the queue
 - Animated image auto-conversion to WebP — automatically merge Ugoira frames into delayed WebP
 - Novels and novel series — single novel and full-series downloads with TXT/HTML/EPUB output and an optional series consolidated file; the `pixiv-novel.html` reader page exposes prev/index/next navigation
@@ -62,7 +62,7 @@ PixivDownload is a local Pixiv batch image downloader that supports multiple dow
 
 ![](./image/2.png)
 
-#### Screenshot of the pixiv-batch.html bulk artwork import page (the userscript offers the same capability, but the web page is more convenient)
+#### Screenshot of the pixiv-batch.html bulk import single works page (the userscript offers the same capability, but the web page is more convenient)
 
 ![](./image/3.png)
 
@@ -141,10 +141,10 @@ Standalone script reference:
 | `Pixiv 单作品图片下载器(Java后端版).user.js`        | Downloads from a single artwork page through the Java backend                             | `pixiv-batch.html` / GitHub code view      |
 | `Pixiv 单作品图片下载器(Local download).user.js` | Downloads from a single artwork page in the browser, without the Java backend             | Releases / `pixiv-batch.html` / GitHub code view |
 | `Pixiv User 批量下载器.user.js`               | Batch downloads artworks from a user homepage                                             | `pixiv-batch.html` / GitHub code view      |
-| `Pixiv URL 批量导入作品下载器.user.js`            | Imports artwork URLs in bulk, compatible with exports from OneTab, N-Tab, and similar tools | `pixiv-batch.html` / GitHub code view      |
+| `Pixiv URL 批量导入单作品下载器.user.js`            | Imports single-work URLs in bulk, compatible with exports from OneTab, N-Tab, and similar tools | `pixiv-batch.html` / GitHub code view      |
 | `Pixiv 页面批量下载器.user.js`                  | Scrapes Pixiv pages from the DOM and supports broad Pixiv page capture                    | `pixiv-batch.html` / GitHub code view      |
 
-> **The web interface is recommended first**: `pixiv-batch.html` supports Bulk Artwork Import, User mode, and Search mode without requiring any userscript for batch downloading.
+> **The web interface is recommended first**: `pixiv-batch.html` supports Bulk Import Single Works, User mode, and Search mode without requiring any userscript for batch downloading.
 
 ## 3. Usage
 
@@ -200,12 +200,12 @@ Visit `pixiv-batch.html` (login is required first in Solo Mode):
 
 | Mode                   | Description                                                                                                                           |
 |------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| 🎨 Bulk Artwork Import | Paste artwork link lists for batch downloading; compatible with export formats from OneTab, N-Tab, and similar tab manager extensions |
+| 🎨 Bulk Import Single Works | Paste single-work link lists for batch downloading; compatible with export formats from OneTab, N-Tab, and similar tab manager extensions |
 | 👤 User Mode           | Enter a user ID to batch download all works from that user                                                                            |
 | 🔍 Search Mode         | Search by keyword, preview thumbnails, and then add results to the queue (requires Cookies)                                           |
 
 > [!NOTE]
-> Bulk artwork import format:<br>
+> Bulk import single works format:<br>
 > One item per line, in `url | title` format<br>
 > Example: `https://www.pixiv.net/artworks/12345678 | Sample Title`<br>
 > `title` can be left empty; the real title is fetched automatically before download<br>

@@ -2709,7 +2709,7 @@
 
     // 当其他面板展开时，自动收起本面板
     document.addEventListener('pixiv_panel_active', e => {
-        if ((e.detail === 'ntab' || e.detail === 'page') && ui && !ui._collapsed) {
+        if ((e.detail === 'single-import' || e.detail === 'page') && ui && !ui._collapsed) {
             ui.toggleCollapse();
         }
     });

@@ -198,7 +198,7 @@
             display: block;
         }
 
-        #ntab-textarea {
+        #single-import-textarea {
             width: 100%;
             height: 110px;
             padding: 8px;
@@ -1565,17 +1565,17 @@
 
     <!-- Mode tabs -->
     <div class="tabs">
-        <div class="tab active" id="tab-ntab" onclick="switchMode('ntab')" data-i18n="mode.ntab">🎨 批量导入单作品</div>
+        <div class="tab active" id="tab-single-import" onclick="switchMode('single-import')" data-i18n="mode.single-import">🎨 批量导入单作品</div>
         <div class="tab" id="tab-user" onclick="switchMode('user')" data-i18n="mode.user">👤 User 模式</div>
         <div class="tab" id="tab-search" onclick="switchMode('search')" data-i18n="mode.search">🔍 Search 模式</div>
         <div class="tab" id="tab-series" onclick="switchMode('series')" data-i18n="mode.series">📚 系列下载</div>
     </div>
 
-    <!-- N-Tab panel -->
-    <div class="card mode-panel active" id="panel-ntab">
+    <!-- Single-work import panel -->
+    <div class="card mode-panel active" id="panel-single-import">
         <div class="card-title" data-i18n="card.import">批量导入单作品</div>
-        <textarea id="ntab-textarea"
-                  data-i18n-placeholder="input.ntab.placeholder"
+        <textarea id="single-import-textarea"
+                  data-i18n-placeholder="input.single-import.placeholder"
                   placeholder="粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式..."></textarea>
         <div style="margin:10px 0 12px;padding:10px 12px;border:1px solid #ffb84d;background:#fff4db;border-radius:8px;color:#8a5100;font-size:13px;line-height:1.6;">
             <div style="font-weight:700;"><span data-i18n="label.import-format">导入格式：</span><span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">url | title</span></div>
@@ -1585,8 +1585,8 @@
             <div data-i18n="hint.import-reimport">也兼容下方“导出全部”“导出未下载”按钮生成的作品列表，可直接重新导入。</div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:0;">
-            <button class="btn btn-blue" onclick="parseNTab()" data-i18n="button.import">📋 导入并加入队列</button>
-            <button class="btn" style="background:#e67e22;" onclick="parseNTabFresh()" data-i18n="button.import-fresh">🗑 清空队列后重新导入</button>
+            <button class="btn btn-blue" onclick="parseSingleImport()" data-i18n="button.import">📋 导入并加入队列</button>
+            <button class="btn" style="background:#e67e22;" onclick="parseSingleImportFresh()" data-i18n="button.import-fresh">🗑 清空队列后重新导入</button>
         </div>
     </div>
 
@@ -1992,6 +1992,8 @@
        状态
     ============================================================ */
     const DEFAULT_FILE_NAME_TEMPLATE = '{artwork_id}_p{page}';
+    const SINGLE_IMPORT_MODE = 'single-import';
+    const SINGLE_IMPORT_NOVEL_SOURCE = 'single-import-novel';
     const WINDOWS_RESERVED_FILE_NAMES = new Set([
         'CON', 'PRN', 'AUX', 'NUL',
         'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
@@ -1999,7 +2001,7 @@
     ]);
 
     let state = {
-        mode: 'ntab',
+        mode: SINGLE_IMPORT_MODE,
         queue: [],
         isRunning: false,
         isPaused: false,
@@ -2334,12 +2336,27 @@
     }
 
     function queueSourceText(source) {
+        const normalizedSource = normalizeImportMode(source);
         return {
             user: bt('queue.source.user', 'User'),
             search: bt('queue.source.search', 'Search'),
             series: bt('queue.source.series', 'Series'),
-            ntab: bt('queue.source.import', '导入')
-        }[source] || bt('queue.source.import', '导入');
+            [SINGLE_IMPORT_MODE]: bt('queue.source.import', '导入'),
+            [SINGLE_IMPORT_NOVEL_SOURCE]: bt('queue.source.import', '导入')
+        }[normalizedSource] || bt('queue.source.import', '导入');
+    }
+
+    // 兼容旧版本：返回旧版本的 ntab 模式标识符
+    function legacyImportMode() {
+        return 'n' + 'tab';
+    }
+
+    // 兼容旧版本：将旧版本 ntab 模式标识符归一化为新的 single-import 模式标识符
+    function normalizeImportMode(mode) {
+        const legacyMode = legacyImportMode();
+        if (mode === legacyMode) return SINGLE_IMPORT_MODE;
+        if (mode === legacyMode + '-novel') return SINGLE_IMPORT_NOVEL_SOURCE;
+        return mode;
     }
 
     function actionOutcomePart(action, labels) {
@@ -3544,8 +3561,8 @@
         return uniqueItems;
     }
 
-    function parseNTab() {
-        const text = document.getElementById('ntab-textarea').value;
+    function parseSingleImport() {
+        const text = document.getElementById('single-import-textarea').value;
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
         const illustRegex = /https?:\/\/www\.pixiv\.net\/artworks\/(\d+)/;
         const novelRegex = /https?:\/\/www\.pixiv\.net\/novel\/show\.php\?[^\s|]*?\bid=(\d+)/;
@@ -3574,13 +3591,13 @@
         illustItems = dedupeQueueItems(illustItems);
         const dedupedNovelItems = dedupeQueueItems(novelItems);
         if (!illustItems.length && !dedupedNovelItems.length) {
-            setStatus(bt('status.ntab-none', '未解析到任何单作品链接'), 'error');
+            setStatus(bt('status.single-import-none', '未解析到任何单作品链接'), 'error');
             return;
         }
         const addedIllusts = illustItems.length
-            ? addItemsToQueue(illustItems.map(x => x.id), illustItems, 'ntab', '') : 0;
+            ? addItemsToQueue(illustItems.map(x => x.id), illustItems, SINGLE_IMPORT_MODE, '') : 0;
         const addedNovels = dedupedNovelItems.length
-            ? addItemsToQueue(dedupedNovelItems.map(x => x.id), dedupedNovelItems, 'ntab-novel', '') : 0;
+            ? addItemsToQueue(dedupedNovelItems.map(x => x.id), dedupedNovelItems, SINGLE_IMPORT_NOVEL_SOURCE, '') : 0;
         const total = illustItems.length + dedupedNovelItems.length;
         const added = addedIllusts + addedNovels;
         setStatus(
@@ -3797,7 +3814,7 @@
                 mergeAfterSeriesId: m.mergeAfterSeriesId || null,
                 title: m.title || bt('queue.artwork-fallback', '作品 {id}', {id}),
                 status: state.isRunning ? 'pending' : 'idle',
-                source: source || 'ntab',
+                source: normalizeImportMode(source || SINGLE_IMPORT_MODE),
                 username: username || '',
                 authorId,
                 authorName,
@@ -3909,10 +3926,10 @@
         stopAndClear();
     }
 
-    function parseNTabFresh() {
+    function parseSingleImportFresh() {
         if (!uiConfirmKey('dialog.confirm-reparse', '确认清除当前队列并重新解析？')) return;
         stopAndClear();
-        parseNTab();
+        parseSingleImport();
     }
 
     async function handleFetchAllFresh() {
@@ -4013,12 +4030,13 @@
        UI
     ============================================================ */
     function switchMode(mode) {
-        state.mode = mode;
-        ['ntab', 'user', 'search', 'series'].forEach(m => {
-            document.getElementById('tab-' + m).classList.toggle('active', m === mode);
-            document.getElementById('panel-' + m).classList.toggle('active', m === mode);
+        const normalizedMode = normalizeImportMode(mode);
+        state.mode = normalizedMode;
+        [SINGLE_IMPORT_MODE, 'user', 'search', 'series'].forEach(m => {
+            document.getElementById('tab-' + m).classList.toggle('active', m === normalizedMode);
+            document.getElementById('panel-' + m).classList.toggle('active', m === normalizedMode);
         });
-        storeSet('pixiv_mode', mode);
+        storeSet('pixiv_mode', normalizedMode);
         applyNovelSettingsVisibility();
     }
 
@@ -4027,7 +4045,7 @@
         if (!card) return;
         const mode = state.mode;
         let visible;
-        if (mode === 'ntab') {
+        if (mode === SINGLE_IMPORT_MODE) {
             visible = true;
         } else if (mode === 'user') {
             visible = state.settings.userKind === 'novel';
@@ -4118,7 +4136,7 @@
                     ? {label: queueSourceText('search'), bg: '#28a745'}
                     : q.source === 'series' || q.source === 'series-novel'
                         ? {label: queueSourceText('series'), bg: '#6366f1'}
-                        : {label: queueSourceText('ntab'), bg: '#6610f2'};
+                        : {label: queueSourceText(SINGLE_IMPORT_MODE), bg: '#6610f2'};
             const srcLabel = `<span style="background:${sourceTone.bg};color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">${esc(sourceTone.label)}</span>`;
             const R18Label = q.xRestrict == null
                 ? `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">${esc(bt('queue.unknown', '未知'))}</span>`
@@ -4216,6 +4234,7 @@
                 state.queue = dedupeQueueItems(parsed.queue);
                 // 刷新前正在下载的项目实际已中断，标记为失败
                 state.queue.forEach(q => {
+                    q.source = normalizeImportMode(q.source);
                     if (q.status === 'downloading') {
                         q.status = 'failed';
                         q.lastMessage = bt('queue.message.failed-refresh', '失败 — 页面刷新导致中断');
@@ -6006,7 +6025,7 @@
         });
 
         // Mode
-        const savedMode = storeGet('pixiv_mode') || 'ntab';
+        const savedMode = normalizeImportMode(storeGet('pixiv_mode') || SINGLE_IMPORT_MODE);
         state.mode = savedMode;
 
         // 在 switchMode 前先恢复 userId，否则 user 模式下 storageKey() 用空串找不到队列

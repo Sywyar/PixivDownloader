@@ -17,7 +17,7 @@ public class DownloadConfig {
     /**
      * User 模式下载目录结构：
      * false（默认）→ {rootFolder}/{username}/{artworkId}/
-     * true          → {rootFolder}/{artworkId}/（与 N-Tab 相同）
+     * true          → {rootFolder}/{artworkId}/（与批量导入单作品相同）
      */
     private boolean userFlatFolder = false;
 

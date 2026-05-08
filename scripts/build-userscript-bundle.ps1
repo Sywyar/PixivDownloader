@@ -163,14 +163,14 @@ if (-not $grantValues.Contains("GM_registerMenuCommand")) {
     $null = $grantValues.Add("GM_registerMenuCommand")
 }
 
-# Bundle pins run-at to document-end: page/user/URL import modules touch
+# Bundle pins run-at to document-end: page/user/bulk import single works modules touch
 # document.body synchronously in their top-level init, so the DOM must exist.
 # The Java single-artwork module uses its own waitForPageLoad() and tolerates
 # document-end just fine.
 $runAt = "document-end"
 $metadataLines = [System.Collections.Generic.List[string]]::new()
-$bundleDescriptionZh = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("Ly8gQGRlc2NyaXB0aW9uICBQaXhpdiDlpJrlkIjkuIDkuIvovb3ohJrmnKzvvIzmlbTlkIjpobXpnaLmibnph4/kuIvovb3jgIFVc2VyIOaJuemHj+S4i+i9veOAgVVSTCDmibnph4/lr7zlhaXlkozljZXkvZzlk4HkuIvovb3vvIhKYXZh5ZCO56uv54mI77yJ44CC5aaC5aSa5ZCI5LiA6ISa5pys5byC5bi477yM6K+35YWI5bCd6K+V5a+55bqU54us56uL6ISa5pys77yM5YaN5bCG5Lik56eN6ISa5pys55qE6KGo546w5LiA5bm26ZmE5LiK5ZCO5o+Q5LqkIGlzc3Vl44CC"))
-$bundleDescriptionEn = "// @description:en  Pixiv all-in-one downloader for page batch, user batch, URL import, and single-artwork download (Java backend). If the bundle misbehaves, try the matching standalone script first; if only the bundle fails, open an issue with reproduction details."
+$bundleDescriptionZh = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("Ly8gQGRlc2NyaXB0aW9uICBQaXhpdiDlpJrlkIjkuIDkuIvovb3ohJrmnKzvvIzmlbTlkIjpobXpnaLmibnph4/kuIvovb3jgIFVc2VyIOaJuemHj+S4i+i9veOAgeaJuemHj+WvvOWFpeWNleS9nOWTgeWSjOWNleS9nOWTgeS4i+i9ve+8iEphdmHlkI7nq6/niYjvvInjgILlpoLlpJrlkIjkuIDohJrmnKzlvILluLjvvIzor7flhYjlsJ3or5Xlr7nlupTni6znq4vohJrmnKzvvIzlho3lsIbkuKTnp43ohJrmnKznmoTooajnjrDkuIDlubbpmYTkuIrlkI7mj5DkuqQgaXNzdWXjgII="))
+$bundleDescriptionEn = "// @description:en  Pixiv all-in-one downloader for page batch, user batch, bulk import single works, and single-artwork download (Java backend). If the bundle misbehaves, try the matching standalone script first; if only the bundle fails, open an issue with reproduction details."
 
 $null = $metadataLines.Add("// ==UserScript==")
 $null = $metadataLines.Add("// @name         Pixiv All-in-One Downloader")

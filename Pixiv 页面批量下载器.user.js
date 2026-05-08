@@ -2400,7 +2400,7 @@
 
     // Cross-script panel coordination
     document.addEventListener('pixiv_panel_active', e => {
-        if ((e.detail === 'ntab' || e.detail === 'user') && ui && !ui._collapsed) {
+        if ((e.detail === 'single-import' || e.detail === 'user') && ui && !ui._collapsed) {
             ui.toggleCollapse();
         }
     });

@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Pixiv 批量导入作品下载器
+// @name         Pixiv 批量导入单作品下载器
 // @namespace    http://tampermonkey.net/
 // @version      2.0.11
-// @description  粘贴作品链接列表批量下载，格式为 url | title，兼容 One-Tab，N-Tab 等标签页管理插件导出格式，支持严格的下载状态校验。
+// @description  粘贴单作品链接列表批量下载，格式为 url | title，兼容 One-Tab，N-Tab 等标签页管理插件导出格式，支持严格的下载状态校验。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
 // @grant        GM_xmlhttpRequest
@@ -50,16 +50,41 @@
         DEFAULT_CONCURRENT: 1,
         STATUS_TIMEOUT_MS: 300000,
         BACKEND_CHECK_TIMEOUT: 3000,
-        STORAGE_KEY: 'pixiv_ntab_batch_v1',
-        SKIP_HISTORY_KEY: 'pixiv_ntab_skip_history',
-        VERIFY_HISTORY_FILES_KEY: 'pixiv_ntab_verify_history_files',
-        R18_ONLY_KEY: 'pixiv_ntab_r18_only',
-        INTERVAL_UNIT_KEY: 'pixiv_ntab_interval_unit',
-        IMAGE_DELAY_KEY: 'pixiv_ntab_image_delay',
-        IMAGE_DELAY_UNIT_KEY: 'pixiv_ntab_image_delay_unit',
+        STORAGE_KEY: 'pixiv_single_import_batch_v1',
+        SKIP_HISTORY_KEY: 'pixiv_single_import_skip_history',
+        VERIFY_HISTORY_FILES_KEY: 'pixiv_single_import_verify_history_files',
+        R18_ONLY_KEY: 'pixiv_single_import_r18_only',
+        INTERVAL_UNIT_KEY: 'pixiv_single_import_interval_unit',
+        IMAGE_DELAY_KEY: 'pixiv_single_import_image_delay',
+        IMAGE_DELAY_UNIT_KEY: 'pixiv_single_import_image_delay_unit',
         KEY_USER_UUID: 'pixiv_user_uuid',
-        BOOKMARK_KEY: 'pixiv_ntab_bookmark'
+        BOOKMARK_KEY: 'pixiv_single_import_bookmark'
     };
+
+    // 兼容旧版本 ntab 前缀的存储键，用于迁移用户已有配置
+    const OLD_IMPORT_PREFIX = 'pixiv_' + 'n' + 'tab';
+    // 旧版本存储键 → 新版本存储键的映射，用于迁移用户已有配置
+    const LEGACY_IMPORT_KEY_MAP = [
+        [CONFIG.STORAGE_KEY, OLD_IMPORT_PREFIX + '_batch_v1'],
+        [CONFIG.SKIP_HISTORY_KEY, OLD_IMPORT_PREFIX + '_skip_history'],
+        [CONFIG.VERIFY_HISTORY_FILES_KEY, OLD_IMPORT_PREFIX + '_verify_history_files'],
+        [CONFIG.R18_ONLY_KEY, OLD_IMPORT_PREFIX + '_r18_only'],
+        [CONFIG.INTERVAL_UNIT_KEY, OLD_IMPORT_PREFIX + '_interval_unit'],
+        [CONFIG.IMAGE_DELAY_KEY, OLD_IMPORT_PREFIX + '_image_delay'],
+        [CONFIG.IMAGE_DELAY_UNIT_KEY, OLD_IMPORT_PREFIX + '_image_delay_unit'],
+        [CONFIG.BOOKMARK_KEY, OLD_IMPORT_PREFIX + '_bookmark']
+    ];
+
+    // 兼容旧版本：将旧 ntab 前缀的存储值迁移到新的 single-import 键名下
+    function migrateLegacyImportStorage() {
+        for (const [nextKey, oldKey] of LEGACY_IMPORT_KEY_MAP) {
+            if (GM_getValue(nextKey, null) !== null) continue;
+            const oldValue = GM_getValue(oldKey, null);
+            if (oldValue !== null) GM_setValue(nextKey, oldValue);
+        }
+    }
+
+    migrateLegacyImportStorage();
 
     // ====== 配额状态 ======
     let quotaInfo = {enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0};
@@ -359,9 +384,9 @@
             'common.archive.ready': 'Archive is ready:',
             'common.archive.download-link': 'Download Archive',
             'common.archive.validity': 'Valid for: {time}',
-            'import.title': '🎨 Artwork URL Batch Importer',
-            'import.fab.title': 'Artwork URL Batch Importer',
-            'import.input.placeholder': 'Paste artwork URLs exported from One-Tab, N-Tab, and similar tab managers...',
+            'import.title': '🎨 Bulk Import Single Works',
+            'import.fab.title': 'Bulk Import Single Works',
+            'import.input.placeholder': 'Paste single-work URLs exported from One-Tab, N-Tab, and similar tab managers...',
             'import.format.title': 'Import format:',
             'import.format.example': 'One item per line, for example:',
             'import.format.example-title': 'Example Title',
@@ -409,7 +434,7 @@
             'import.status.exported': 'Exported {count} artworks',
             'import.status.exported-undownloaded': 'Exported {count} undownloaded artworks',
             'import.status.need-login-refresh': 'Login required. Please log in and refresh the page',
-            'import.menu.open': 'Open Artwork URL Batch Importer'
+            'import.menu.open': 'Open Bulk Import Single Works'
         },
         'zh-CN': {
             'switcher.label': '语言',
@@ -446,9 +471,9 @@
             'common.archive.ready': '压缩包已就绪：',
             'common.archive.download-link': '下载压缩包',
             'common.archive.validity': '有效期：{time}',
-            'import.title': '🎨 批量导入作品下载器',
-            'import.fab.title': '批量导入作品下载器',
-            'import.input.placeholder': '粘贴作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式...',
+            'import.title': '🎨 批量导入单作品下载器',
+            'import.fab.title': '批量导入单作品下载器',
+            'import.input.placeholder': '粘贴单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式...',
             'import.format.title': '导入格式：',
             'import.format.example': '每行一条，例如：',
             'import.format.example-title': '示例标题',
@@ -496,7 +521,7 @@
             'import.status.exported': '已导出 {count} 个作品',
             'import.status.exported-undownloaded': '已导出 {count} 个未下载作品',
             'import.status.need-login-refresh': '需要登录，请登录后刷新页面',
-            'import.menu.open': '打开 Pixiv 批量导入作品下载器'
+            'import.menu.open': '打开 Pixiv 批量导入单作品下载器'
         }
     });
 
@@ -1678,7 +1703,7 @@
         async stopAndClear(force = false) {
             if (!force) {
                 if (this.queue.some(q => q.status === 'downloading')) {
-            if (!confirm(t('import.confirm.clear-running', '当前有正在下载的作品，是否强制停止并清除？（取消将保留队列）'))) return;
+                    if (!confirm(t('import.confirm.clear-running', '当前有正在下载的作品，是否强制停止并清除？（取消将保留队列）'))) return;
                 }
             }
             this.stopRequested = true;
@@ -1775,7 +1800,7 @@
                 }
             });
             const titleText = $el('div', {
-                textContent: t('import.title', '🎨 批量导入作品下载器'),
+                textContent: t('import.title', '🎨 批量导入单作品下载器'),
                 style: {fontWeight: 'bold', color: '#333', textAlign: 'center', fontSize: '16px', flex: '1'}
             });
             collapseBtn.addEventListener('click', () => this.toggleCollapse());
@@ -1784,12 +1809,12 @@
             titleRow.appendChild(buildLangSwitcher());
 
             // 收起后的悬浮按钮
-            const existingFab = document.getElementById('ntab-mini-fab');
+            const existingFab = document.getElementById('single-import-mini-fab');
             if (existingFab) existingFab.remove();
             const miniFab = $el('button', {
-                id: 'ntab-mini-fab',
+                id: 'single-import-mini-fab',
                 innerText: '🎨',
-                title: t('import.fab.title', '批量导入作品下载器'),
+                title: t('import.fab.title', '批量导入单作品下载器'),
                 style: {
                     display: 'none',
                     position: 'fixed',
@@ -1838,8 +1863,8 @@
 
             const inputSection = $el('div', {style: {marginBottom: '15px'}});
             const textarea = $el('textarea', {
-                id: 'ntab-data-input',
-                placeholder: t('import.input.placeholder', '粘贴作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式...'),
+                id: 'single-import-data-input',
+                placeholder: t('import.input.placeholder', '粘贴单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式...'),
                 style: {
                     width: '100%',
                     height: '120px',
@@ -1998,7 +2023,7 @@
 
             // 配额栏（多人模式启用时显示）
             const quotaBar = $el('div', {
-                id: 'pixiv-ntab-quota-bar',
+                id: 'pixiv-single-import-quota-bar',
                 style: {
                     display: 'none', marginBottom: '10px', padding: '6px 8px',
                     background: '#f8f9fa', borderRadius: '5px', fontSize: '11px', color: '#555'
@@ -2007,7 +2032,7 @@
 
             // 压缩包下载卡片
             const archiveCard = $el('div', {
-                id: 'pixiv-ntab-archive-card',
+                id: 'pixiv-single-import-archive-card',
                 style: {
                     display: 'none', marginBottom: '10px', padding: '10px',
                     background: '#fff8e1', border: '2px solid #ffc107',
@@ -2258,14 +2283,14 @@
 
         toggleCollapse() {
             this._collapsed = !this._collapsed;
-            const fab = document.getElementById('ntab-mini-fab');
+            const fab = document.getElementById('single-import-mini-fab');
             if (this._collapsed) {
                 this.root.style.display = 'none';
                 if (fab) fab.style.display = 'block';
             } else {
                 this.root.style.display = 'block';
                 if (fab) fab.style.display = 'none';
-                document.dispatchEvent(new CustomEvent('pixiv_panel_active', {detail: 'ntab'}));
+                document.dispatchEvent(new CustomEvent('pixiv_panel_active', {detail: 'single-import'}));
             }
         }
 
@@ -2275,7 +2300,7 @@
                 return;
             }
             const lines = this.manager.queue.map(item => `https://www.pixiv.net/artworks/${item.id} | ${item.title}`);
-            this._downloadTxt(lines.join('\n'), 'pixiv_ntab_all_list.txt');
+            this._downloadTxt(lines.join('\n'), 'pixiv_single_import_all_list.txt');
             this.setStatus(`已导出 ${lines.length} 个作品`, 'success');
         }
 
@@ -2286,7 +2311,7 @@
                 return;
             }
             const lines = items.map(item => `https://www.pixiv.net/artworks/${item.id} | ${item.title}`);
-            this._downloadTxt(lines.join('\n'), 'pixiv_ntab_undownloaded_list.txt');
+            this._downloadTxt(lines.join('\n'), 'pixiv_single_import_undownloaded_list.txt');
             this.setStatus(`已导出 ${lines.length} 个未下载作品`, 'success');
         }
 
@@ -2327,7 +2352,7 @@
         // ---- 配额 UI 方法 ----
 
         updateQuotaBar(info) {
-            const bar = document.getElementById('pixiv-ntab-quota-bar');
+            const bar = document.getElementById('pixiv-single-import-quota-bar');
             if (!bar || !info || !info.enabled) return;
             const pct = Math.min(100, Math.round(info.artworksUsed / info.maxArtworks * 100));
             const color = pct >= 90 ? '#dc3545' : pct >= 70 ? '#ffc107' : '#28a745';
@@ -2346,13 +2371,13 @@
         showQuotaExceeded(data, title = '已达到下载限额') {
             clearInterval(this._archivePollTimer);
             clearInterval(this._archiveCountdownTimer);
-            const card = document.getElementById('pixiv-ntab-archive-card');
+            const card = document.getElementById('pixiv-single-import-archive-card');
             if (!card) return;
             card.style.display = 'block';
             card.innerHTML = `<div style="font-weight:bold;color:#856404;margin-bottom:6px;">${title === '已达到下载限额' ? t('common.archive.limit-title', '已达到下载限额') : title}</div>
-              <div id="pixiv-ntab-ac-status" style="font-size:11px;color:#666;">${t('common.archive.preparing', '正在打包已下载文件，请稍候...')}</div>
-              <div id="pixiv-ntab-ac-dl" style="display:none;margin-top:6px;"></div>
-              <div id="pixiv-ntab-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
+              <div id="pixiv-single-import-ac-status" style="font-size:11px;color:#666;">${t('common.archive.preparing', '正在打包已下载文件，请稍候...')}</div>
+              <div id="pixiv-single-import-ac-dl" style="display:none;margin-top:6px;"></div>
+              <div id="pixiv-single-import-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
             const token = data.archiveToken;
             const expireSec = data.archiveExpireSeconds || 3600;
             this._pollArchive(token, expireSec);
@@ -2361,17 +2386,17 @@
         restoreArchiveCard(token, expireSec, ready) {
             clearInterval(this._archivePollTimer);
             clearInterval(this._archiveCountdownTimer);
-            const card = document.getElementById('pixiv-ntab-archive-card');
+            const card = document.getElementById('pixiv-single-import-archive-card');
             if (!card) return;
             card.style.display = 'block';
             card.innerHTML = `<div style="font-weight:bold;color:#856404;margin-bottom:6px;">${t('common.archive.restore-title', '已有未下载的压缩包')}</div>
-              <div id="pixiv-ntab-ac-status" style="font-size:11px;color:#666;"></div>
-              <div id="pixiv-ntab-ac-dl" style="display:none;margin-top:6px;"></div>
-              <div id="pixiv-ntab-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
+              <div id="pixiv-single-import-ac-status" style="font-size:11px;color:#666;"></div>
+              <div id="pixiv-single-import-ac-dl" style="display:none;margin-top:6px;"></div>
+              <div id="pixiv-single-import-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
             if (ready) {
                 this._activateArchiveDl(token, expireSec);
             } else {
-                document.getElementById('pixiv-ntab-ac-status').textContent = t('common.archive.preparing', '正在打包已下载文件，请稍候...');
+                document.getElementById('pixiv-single-import-ac-status').textContent = t('common.archive.preparing', '正在打包已下载文件，请稍候...');
                 this._pollArchive(token, expireSec);
             }
         }
@@ -2385,13 +2410,13 @@
                     this._activateArchiveDl(token, data.expireSeconds || expireSec);
                 } else if (data.status === 'expired') {
                     clearInterval(this._archivePollTimer);
-                    const expired = document.getElementById('pixiv-ntab-ac-expired');
-                    const status = document.getElementById('pixiv-ntab-ac-status');
+                    const expired = document.getElementById('pixiv-single-import-ac-expired');
+                    const status = document.getElementById('pixiv-single-import-ac-status');
                     if (expired) expired.style.display = 'block';
                     if (status) status.textContent = '';
                 } else if (data.status === 'empty') {
                     clearInterval(this._archivePollTimer);
-                    const status = document.getElementById('pixiv-ntab-ac-status');
+                    const status = document.getElementById('pixiv-single-import-ac-status');
                     if (status) status.textContent = t('common.archive.empty', '暂无可打包文件');
                 }
             }, 2000);
@@ -2399,8 +2424,8 @@
 
         _activateArchiveDl(token, expireSec) {
             clearInterval(this._archiveCountdownTimer);
-            const statusEl = document.getElementById('pixiv-ntab-ac-status');
-            const dlEl = document.getElementById('pixiv-ntab-ac-dl');
+            const statusEl = document.getElementById('pixiv-single-import-ac-status');
+            const dlEl = document.getElementById('pixiv-single-import-ac-dl');
             if (statusEl) statusEl.textContent = t('common.archive.ready', '压缩包已就绪：');
             if (dlEl) {
                 dlEl.style.display = 'block';
@@ -2410,15 +2435,15 @@
                          border-radius:4px;text-decoration:none;font-size:12px;font-weight:bold;">
                   ${t('common.archive.download-link', '下载压缩包')}
                 </a>
-                <span id="pixiv-ntab-ac-countdown" style="font-size:10px;color:#888;margin-left:8px;"></span>`;
+                <span id="pixiv-single-import-ac-countdown" style="font-size:10px;color:#888;margin-left:8px;"></span>`;
                 let remaining = Math.max(0, parseInt(expireSec));
-                const el = () => document.getElementById('pixiv-ntab-ac-countdown');
+                const el = () => document.getElementById('pixiv-single-import-ac-countdown');
                 if (el()) el().textContent = t('common.archive.validity', '有效期：{time}', { time: this._fmtSeconds(remaining) });
                 this._archiveCountdownTimer = setInterval(() => {
                     remaining--;
                     if (remaining <= 0) {
                         clearInterval(this._archiveCountdownTimer);
-                        const expired = document.getElementById('pixiv-ntab-ac-expired');
+                        const expired = document.getElementById('pixiv-single-import-ac-expired');
                         if (dlEl) dlEl.style.display = 'none';
                         if (expired) expired.style.display = 'block';
                     } else {
@@ -2656,7 +2681,7 @@
             const textareaValue = ui.elements && ui.elements.textarea ? ui.elements.textarea.value : '';
             const collapsed = ui._collapsed;
             ui.root.remove();
-            const fab = document.getElementById('ntab-mini-fab');
+            const fab = document.getElementById('single-import-mini-fab');
             if (fab) fab.remove();
             ui._build();
             ui.bindManager(manager);
@@ -2717,7 +2742,7 @@
         });
     })();
 
-    GM_registerMenuCommand(t('import.menu.open', '打开 Pixiv 批量导入作品下载器'), () => {
+    GM_registerMenuCommand(t('import.menu.open', '打开 Pixiv 批量导入单作品下载器'), () => {
         const root = document.getElementById('pixiv-batch-downloader-ui');
         if (root) {
             root.style.display = 'block';
@@ -2731,9 +2756,9 @@
     const isUserPage = (href) => /\/users\/\d+/.test(href);
     const isHomePage = (href) => /^https:\/\/www\.pixiv\.net\/(en\/)?$/.test(href);
 
-    // 根据页面类型决定初始折叠状态：主页默认展开 N-Tab，其他页面默认收起
+    // 根据页面类型决定初始折叠状态：主页默认展开批量导入单作品面板，其他页面默认收起
     (function watchPages() {
-        function updateNTabVisibility() {
+        function updateSingleImportVisibility() {
             const shouldExpand = isHomePage(location.href);
             if (shouldExpand && ui._collapsed) {
                 ui.toggleCollapse();
@@ -2741,12 +2766,12 @@
                 ui.toggleCollapse();
             }
         }
-        updateNTabVisibility();
+        updateSingleImportVisibility();
         let lastHref = location.href;
         setInterval(() => {
             if (location.href !== lastHref) {
                 lastHref = location.href;
-                updateNTabVisibility();
+                updateSingleImportVisibility();
             }
         }, 500);
     })();

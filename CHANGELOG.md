@@ -190,7 +190,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [v1.4.6] - 2026-04-19
 
 ### Miscellaneous
-- 重命名 Pixiv 批量导入作品下载器.user.js 为 Pixiv URL 批量导入作品下载器.user.js
+- 重命名 Pixiv 批量导入单作品下载器.user.js 为 Pixiv URL 批量导入单作品下载器.user.js
 
 ### Features
 - 实现 Pixiv 作者信息持久化、监控页作者筛选排序与作者回填工具
