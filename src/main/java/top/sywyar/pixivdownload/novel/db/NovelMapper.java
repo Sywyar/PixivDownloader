@@ -19,7 +19,8 @@ public interface NovelMapper {
             + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
             + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"
             + " series_id AS seriesId, series_order AS seriesOrder,"
-            + " word_count AS wordCount, text_length AS textLength, page_count AS pageCount,"
+            + " word_count AS wordCount, text_length AS textLength,"
+            + " reading_time_seconds AS readingTimeSeconds, page_count AS pageCount,"
             + " is_original AS isOriginal, x_language AS xLanguage, raw_content AS rawContent,"
             + " cover_ext AS coverExt"
             + " FROM novels";
@@ -41,6 +42,7 @@ public interface NovelMapper {
             + "series_order INTEGER DEFAULT NULL,"
             + "word_count INTEGER DEFAULT NULL,"
             + "text_length INTEGER DEFAULT NULL,"
+            + "reading_time_seconds INTEGER DEFAULT NULL,"
             + "page_count INTEGER DEFAULT NULL,"
             + "is_original INTEGER DEFAULT NULL,"
             + "x_language TEXT DEFAULT NULL,"
@@ -54,6 +56,9 @@ public interface NovelMapper {
     /** 幂等迁移：旧库为已存在的 novels 表补 cover_ext 列；列已存在时调用方需吞掉异常 */
     @Update("ALTER TABLE novels ADD COLUMN cover_ext TEXT DEFAULT NULL")
     void addCoverExtColumn();
+
+    @Update("ALTER TABLE novels ADD COLUMN reading_time_seconds INTEGER DEFAULT NULL")
+    void addReadingTimeSecondsColumn();
 
     @Update("UPDATE novels SET time = time * 1000"
             + " WHERE time > 0 AND time < 1000000000000")
@@ -142,11 +147,11 @@ public interface NovelMapper {
     @Insert("INSERT OR REPLACE INTO novels"
             + " (novel_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description,"
             + " file_name, file_author_name_id, series_id, series_order,"
-            + " word_count, text_length, page_count, is_original, x_language, raw_content, cover_ext)"
+            + " word_count, text_length, reading_time_seconds, page_count, is_original, x_language, raw_content, cover_ext)"
             + " VALUES (#{novelId}, #{title}, #{folder}, #{count}, #{extensions}, #{time},"
             + " #{xRestrict}, #{isAi}, #{authorId}, #{description},"
             + " #{fileName}, #{fileAuthorNameId}, #{seriesId}, #{seriesOrder},"
-            + " #{wordCount}, #{textLength}, #{pageCount}, #{isOriginal}, #{xLanguage}, #{rawContent}, #{coverExt})")
+            + " #{wordCount}, #{textLength}, #{readingTimeSeconds}, #{pageCount}, #{isOriginal}, #{xLanguage}, #{rawContent}, #{coverExt})")
     void insertOrReplace(@Param("novelId") long novelId,
                          @Param("title") String title,
                          @Param("folder") String folder,
@@ -163,6 +168,7 @@ public interface NovelMapper {
                          @Param("seriesOrder") Long seriesOrder,
                          @Param("wordCount") Integer wordCount,
                          @Param("textLength") Integer textLength,
+                         @Param("readingTimeSeconds") Integer readingTimeSeconds,
                          @Param("pageCount") Integer pageCount,
                          @Param("isOriginal") Boolean isOriginal,
                          @Param("xLanguage") String xLanguage,

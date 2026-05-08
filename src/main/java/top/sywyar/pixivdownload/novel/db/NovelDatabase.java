@@ -39,6 +39,7 @@ public class NovelDatabase {
         novelMapper.createNovelImagesTable();
         // 幂等迁移：旧库 novels 表补 cover_ext 列；列已存在抛异常吞掉
         try { novelMapper.addCoverExtColumn(); } catch (Exception ignored) {}
+        try { novelMapper.addReadingTimeSecondsColumn(); } catch (Exception ignored) {}
         novelMapper.migrateNovelTimestampsToMillis();
         novelMapper.migrateNovelMoveTimestampsToMillis();
         novelMapper.migrateNovelCollectionTimestampsToMillis();
@@ -75,14 +76,13 @@ public class NovelDatabase {
                             Long authorId, String description,
                             long fileName, Long fileAuthorNameId,
                             Long seriesId, Long seriesOrder,
-                            Integer wordCount, Integer textLength, Integer pageCount,
-                            Boolean isOriginal, String xLanguage, String rawContent,
-                            String coverExt) {
+                            Integer wordCount, Integer textLength, Integer readingTimeSeconds,
+                            Integer pageCount, Boolean isOriginal, String xLanguage,
+                            String rawContent, String coverExt) {
         novelMapper.insertOrReplace(novelId, title, stripTrailingSlash(folder),
                 count, extensions, time, xRestrict, isAi, authorId, description,
                 fileName, fileAuthorNameId, seriesId, seriesOrder,
-                wordCount, textLength, pageCount, isOriginal, xLanguage, rawContent,
-                coverExt);
+                wordCount, textLength, readingTimeSeconds, pageCount, isOriginal, xLanguage, rawContent, coverExt);
     }
 
     public void updateCoverExt(long novelId, String coverExt) {

@@ -514,6 +514,7 @@ function renderRemote(meta) {
     renderMetaRow({
         wordCount: meta.wordCount,
         textLength: meta.textLength,
+        readingTimeSeconds: meta.readingTimeSeconds,
         language: meta.language,
         uploadTimestamp: meta.uploadTimestamp
     });
@@ -532,6 +533,7 @@ async function renderLocal(view) {
     renderMetaRow({
         wordCount: view.wordCount,
         textLength: view.textLength,
+        readingTimeSeconds: view.readingTimeSeconds,
         language: view.xLanguage,
         uploadTimestamp: view.time
     });
@@ -562,6 +564,25 @@ function renderBadges(o) {
     document.getElementById('novel-badges').innerHTML = parts.join('');
 }
 
+function formatReadingDuration(seconds) {
+    const total = Math.floor(Number(seconds || 0));
+    if (!Number.isFinite(total) || total <= 0) return '';
+    const hour = Math.floor(total / 3600);
+    const minute = Math.floor((total % 3600) / 60);
+    const second = total % 60;
+    const parts = [];
+    if (hour > 0) parts.push(pageI18n.t('duration.hour', '{count} 小时', { count: hour }));
+    if (minute > 0) parts.push(pageI18n.t('duration.minute', '{count} 分钟', { count: minute }));
+    if (second > 0 && hour === 0) parts.push(pageI18n.t('duration.second', '{count} 秒', { count: second }));
+    if (!parts.length) parts.push(pageI18n.t('duration.second', '{count} 秒', { count: total }));
+    return parts.join(' ');
+}
+
+function formatReadingTime(seconds) {
+    const text = formatReadingDuration(seconds);
+    return text ? pageI18n.t('meta.reading-time', '预计阅读：{time}', { time: text }) : '';
+}
+
 function renderMetaRow(o) {
     const parts = [];
     if (o.wordCount != null && o.wordCount > 0) {
@@ -570,6 +591,8 @@ function renderMetaRow(o) {
     if (o.textLength != null && o.textLength > 0 && o.textLength !== o.wordCount) {
         parts.push(`<span>${escapeHtml(pageI18n.t('meta.text-length', null, { count: o.textLength }))}</span>`);
     }
+    const readingText = formatReadingTime(o.readingTimeSeconds);
+    if (readingText) parts.push(`<span>${escapeHtml(readingText)}</span>`);
     if (o.language) {
         parts.push(`<span>${escapeHtml(pageI18n.t('meta.language', null, { lang: o.language }))}</span>`);
     }

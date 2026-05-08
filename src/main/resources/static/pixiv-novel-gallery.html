@@ -754,6 +754,14 @@
             display: flex; justify-content: flex-end; gap: 8px;
             border-top: 1px solid var(--line);
         }
+        .form-field { margin-bottom: 14px; }
+        .form-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
         .form-input {
             width: 100%; height: 40px;
             padding: 0 12px;
@@ -766,6 +774,50 @@
             outline: none;
         }
         .form-input:focus { border-color: var(--brand); }
+        .form-input:disabled {
+            background: var(--control-muted-bg);
+            color: var(--text-secondary);
+            cursor: default;
+        }
+        .form-hint {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            user-select: none;
+        }
+        .checkbox-row input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+        .info-icon {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 1px solid var(--muted-2);
+            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 1;
+            cursor: help;
+            flex-shrink: 0;
+        }
+        .download-root-settings {
+            display: none;
+            margin-top: 10px;
+        }
+        .download-root-settings.visible { display: block; }
         .btn {
             display: inline-flex; align-items: center; gap: 6px;
             height: 36px; padding: 0 16px;
@@ -812,6 +864,33 @@
         .collection-row-icon svg { width: 14px; height: 14px; }
         .collection-row-name { flex: 1; font-size: 13px; color: var(--text); }
         .collection-row .collection-count { font-size: 12px; color: var(--muted-2); flex-shrink: 0; }
+        .icon-preview {
+            width: 64px;
+            height: 64px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--control-muted-bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+        .icon-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .icon-preview svg {
+            width: 24px;
+            height: 24px;
+        }
+        .icon-upload-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .icon-upload-wrap input[type="file"] { display: none; }
         .toast-container {
             position: fixed;
             bottom: 24px; left: 50%;
@@ -960,7 +1039,7 @@
 
         <div class="section-header">
             <span class="section-title" data-i18n="section.collections">收藏夹</span>
-            <button class="section-add" id="btnCreateCollection" data-i18n-title="novel:collection.new-main-gallery" title="新建收藏夹（前往主画廊）">
+            <button class="section-add" id="btnCreateCollection" data-i18n-title="collection.new" title="新建收藏夹">
                 <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
         </div>
@@ -1152,6 +1231,68 @@
     </main>
 </div>
 
+<div class="modal-backdrop" id="modalCollectionForm">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title" id="collectionFormTitle" data-i18n="collection.form.create">新建收藏夹</span>
+            <button class="modal-close" id="collectionFormClose" type="button">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-field">
+                <label class="form-label" data-i18n="form.name">名称</label>
+                <input class="form-input" id="collectionFormName" maxlength="40" data-i18n-placeholder="form.name.placeholder" placeholder="例如：喜欢的作品">
+            </div>
+            <div class="form-field">
+                <label class="form-label" data-i18n="form.icon">图标（可选）</label>
+                <div class="icon-upload-wrap">
+                    <div class="icon-preview" id="collectionFormIconPreview">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                        </svg>
+                    </div>
+                    <div style="flex:1">
+                        <button class="btn" id="collectionFormIconChoose" data-i18n="button.choose-image" type="button">
+                            选择图片
+                        </button>
+                        <button class="btn" id="collectionFormIconClear" style="display:none; margin-left:8px" data-i18n="button.clear" type="button">清除
+                        </button>
+                        <input type="file" id="collectionFormIconFile" accept="image/png,image/jpeg,image/webp">
+                        <div class="form-hint" data-i18n="form.icon.hint">支持 PNG / JPG / WEBP，最大 1MB</div>
+                    </div>
+                </div>
+            </div>
+            <div class="form-field">
+                <label class="checkbox-row">
+                    <input type="checkbox" id="collectionDownloadRootEnabled">
+                    <span data-i18n="form.download-root.toggle">为此文件夹修改下载目录</span>
+                    <span class="info-icon"
+                          data-i18n-title="form.download-root.tooltip"
+                          title="只会将在批量下载中设定了收藏到这个收藏夹时会保存到这个目录中，并不会将手动收藏的作品移动到这个目录下">!</span>
+                </label>
+                <div class="download-root-settings" id="collectionDownloadRootSettings">
+                    <input class="form-input" id="collectionDownloadRoot" maxlength="500"
+                           data-i18n-placeholder="form.download-root.placeholder" placeholder="/{collection_name}">
+                    <div class="form-hint" data-i18n="form.download-root.hint">
+                        相对目录会保存到 download.root-folder 下；检测到绝对目录时会直接使用该目录。
+                    </div>
+                    <div class="form-field" style="margin-top:10px; margin-bottom:0">
+                        <label class="form-label" data-i18n="form.download-root.final">最终目录</label>
+                        <input class="form-input" id="collectionDownloadRootPreview" disabled>
+                        <div class="form-hint" data-i18n="form.download-root.module-hint">
+                            模块变量：{collection_name} 会在下载时替换为收藏夹名称，名称中的路径分隔符等不安全字符会替换为 _。
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" id="collectionFormCancel" data-i18n="common:button.cancel" type="button">取消</button>
+            <button class="btn btn-primary" id="collectionFormSubmit" data-i18n="common:button.save" type="button">保存</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-backdrop" id="modalAddToCollection">
     <div class="modal">
         <div class="modal-head">
@@ -1203,7 +1344,10 @@ const state = {
     exclusiveAuthorId: null,
     exclusiveAuthorName: '',
     authorsView: { page: 0, totalPages: 0, content: [] },
-    seriesView: { page: 0, totalPages: 0, content: [] }
+    seriesView: { page: 0, totalPages: 0, content: [] },
+    editingCollection: null,
+    pendingIconFile: null,
+    pendingIconClear: false
 };
 
 async function init() {
@@ -1218,6 +1362,7 @@ async function init() {
             pageI18n = next;
             pageI18n.apply();
             updateOrderToggleLabel();
+            syncCollectionFormTitle();
             reloadCurrentView();
         }
     });
@@ -1325,9 +1470,36 @@ function setupEventHandlers() {
     document.getElementById('navViewAuthors').addEventListener('click', e => { e.preventDefault(); switchView('authors'); });
     document.getElementById('navViewSeries').addEventListener('click', e => { e.preventDefault(); switchView('series'); });
 
-    // Collections create btn → main gallery
-    document.getElementById('btnCreateCollection').addEventListener('click', () => {
-        window.open('/pixiv-gallery.html', '_blank', 'noopener');
+    document.getElementById('btnCreateCollection').addEventListener('click', () => openCollectionFormModal(null));
+    document.getElementById('collectionFormClose').addEventListener('click', closeCollectionFormModal);
+    document.getElementById('collectionFormCancel').addEventListener('click', closeCollectionFormModal);
+    document.getElementById('collectionFormIconChoose').addEventListener('click', () => {
+        document.getElementById('collectionFormIconFile').click();
+    });
+    document.getElementById('collectionFormIconFile').addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 1024 * 1024) {
+            toast(pageI18n.t('gallery:toast.icon-too-large', '图标大小不能超过 1MB'), 'error');
+            e.target.value = '';
+            return;
+        }
+        state.pendingIconFile = file;
+        state.pendingIconClear = false;
+        updateFormIconPreview(state.editingCollection);
+    });
+    document.getElementById('collectionFormIconClear').addEventListener('click', () => {
+        state.pendingIconFile = null;
+        state.pendingIconClear = true;
+        document.getElementById('collectionFormIconFile').value = '';
+        updateFormIconPreview(state.editingCollection);
+    });
+    document.getElementById('collectionFormName').addEventListener('input', renderCollectionDownloadRootPreview);
+    document.getElementById('collectionDownloadRoot').addEventListener('input', renderCollectionDownloadRootPreview);
+    document.getElementById('collectionDownloadRootEnabled').addEventListener('change', syncCollectionDownloadRootControls);
+    document.getElementById('collectionFormSubmit').addEventListener('click', submitCollectionForm);
+    document.getElementById('modalCollectionForm').addEventListener('click', e => {
+        if (e.target.id === 'modalCollectionForm') closeCollectionFormModal();
     });
 }
 
@@ -1398,6 +1570,206 @@ async function setupAdminMode() {
         const ok = await fetch('/api/admin/invites/access-check', { credentials: 'same-origin' });
         if (ok.ok) document.body.classList.add('admin-mode');
     } catch (_) { /* not admin */ }
+}
+
+// ---------- Collection CRUD ----------
+async function collectionApi(url, options = {}) {
+    const r = await fetch(url, {
+        credentials: 'same-origin',
+        ...options,
+        headers: {
+            'Accept': 'application/json',
+            ...(options.headers || {})
+        }
+    });
+    if (r.status === 401) {
+        window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
+        throw new Error('Unauthorized');
+    }
+    if (!r.ok) {
+        let msg = 'HTTP ' + r.status;
+        try {
+            const data = await r.json();
+            if (data && data.error) msg = data.error;
+            else if (data && data.message) msg = data.message;
+        } catch (_) { /* keep HTTP status */ }
+        throw new Error(msg);
+    }
+    const ct = r.headers.get('content-type') || '';
+    return ct.includes('application/json') ? r.json() : r.text();
+}
+
+function openCollectionFormModal(collection) {
+    state.editingCollection = collection;
+    state.pendingIconFile = null;
+    state.pendingIconClear = false;
+    syncCollectionFormTitle();
+    document.getElementById('collectionFormName').value = collection ? collection.name : '';
+    document.getElementById('collectionDownloadRootEnabled').checked = !!(collection && collection.downloadRoot);
+    const existingDownloadRoot = collection && collection.downloadRoot ? collection.downloadRoot : '';
+    document.getElementById('collectionDownloadRoot').value = existingDownloadRoot || defaultCollectionDownloadRoot();
+    syncCollectionDownloadRootControls();
+    updateFormIconPreview(collection);
+    document.getElementById('modalCollectionForm').classList.add('open');
+    setTimeout(() => document.getElementById('collectionFormName').focus(), 50);
+}
+
+function closeCollectionFormModal() {
+    document.getElementById('modalCollectionForm').classList.remove('open');
+    state.editingCollection = null;
+    state.pendingIconFile = null;
+    state.pendingIconClear = false;
+    document.getElementById('collectionFormIconFile').value = '';
+    document.getElementById('collectionDownloadRootEnabled').checked = false;
+    document.getElementById('collectionDownloadRoot').value = '';
+    document.getElementById('collectionDownloadRootPreview').value = '';
+    syncCollectionDownloadRootControls();
+}
+
+function syncCollectionFormTitle() {
+    const title = document.getElementById('collectionFormTitle');
+    if (!title || !pageI18n) return;
+    title.textContent = state.editingCollection
+        ? pageI18n.t('gallery:collection.form.edit', '编辑收藏夹')
+        : pageI18n.t('gallery:collection.form.create', '新建收藏夹');
+}
+
+function defaultCollectionDownloadRoot() {
+    return '/{collection_name}';
+}
+
+function syncCollectionDownloadRootControls() {
+    const enabled = document.getElementById('collectionDownloadRootEnabled').checked;
+    const input = document.getElementById('collectionDownloadRoot');
+    if (enabled && !input.value.trim()) {
+        input.value = defaultCollectionDownloadRoot();
+    }
+    document.getElementById('collectionDownloadRootSettings').classList.toggle('visible', enabled);
+    renderCollectionDownloadRootPreview();
+}
+
+function renderCollectionDownloadRootPreview() {
+    const preview = document.getElementById('collectionDownloadRootPreview');
+    const inputValue = document.getElementById('collectionDownloadRoot').value.trim();
+    if (!document.getElementById('collectionDownloadRootEnabled').checked || !inputValue) {
+        preview.value = '';
+        return;
+    }
+    const expanded = expandCollectionDownloadRoot(inputValue);
+    preview.value = isAbsoluteCollectionDownloadRoot(expanded)
+        ? expanded
+        : joinPreviewPath('{download.root-folder}', stripLeadingPathSeparators(expanded));
+}
+
+function expandCollectionDownloadRoot(value) {
+    return value.replaceAll('{collection_name}', safeCollectionNamePathSegment());
+}
+
+function safeCollectionNamePathSegment() {
+    const raw = document.getElementById('collectionFormName').value.trim();
+    if (!raw) return '{collection_name}';
+    const sanitized = Array.from(raw, ch => /[\/\\:*?"<>|\x00-\x1F\x7F]/.test(ch) ? '_' : ch).join('').trim();
+    return sanitized && sanitized !== '.' && sanitized !== '..' ? sanitized : '{collection_name}';
+}
+
+function isAbsoluteCollectionDownloadRoot(value) {
+    return /^[A-Za-z]:[\\/]/.test(value) || /^[\\/]{2}[^\\/]+[\\/][^\\/]+/.test(value);
+}
+
+function stripLeadingPathSeparators(value) {
+    return value.replace(/^[\\/]+/, '');
+}
+
+function joinPreviewPath(root, relativePath) {
+    return relativePath ? `${root}/${relativePath}` : root;
+}
+
+function readCollectionDownloadRoot() {
+    if (!document.getElementById('collectionDownloadRootEnabled').checked) return null;
+    return document.getElementById('collectionDownloadRoot').value.trim();
+}
+
+function hasControlCharacter(value) {
+    return /[\x00-\x1F\x7F]/.test(value);
+}
+
+function updateFormIconPreview(collection) {
+    const preview = document.getElementById('collectionFormIconPreview');
+    const clearBtn = document.getElementById('collectionFormIconClear');
+    if (state.pendingIconFile) {
+        const url = URL.createObjectURL(state.pendingIconFile);
+        preview.innerHTML = `<img src="${url}" alt="">`;
+        clearBtn.style.display = '';
+    } else if (collection && collection.iconExt && !state.pendingIconClear) {
+        preview.innerHTML = `<img src="/api/collections/${collection.id}/icon?v=${Date.now()}" alt="">`;
+        clearBtn.style.display = '';
+    } else {
+        preview.innerHTML = HEART_SVG;
+        clearBtn.style.display = 'none';
+    }
+}
+
+async function submitCollectionForm() {
+    const name = document.getElementById('collectionFormName').value.trim();
+    if (!name) {
+        toast(pageI18n.t('gallery:toast.name-required', '请输入名称'), 'error');
+        return;
+    }
+    const downloadRoot = readCollectionDownloadRoot();
+    if (document.getElementById('collectionDownloadRootEnabled').checked && !downloadRoot) {
+        toast(pageI18n.t('gallery:toast.download-root-required', '请填写下载目录'), 'error');
+        return;
+    }
+    if (downloadRoot && hasControlCharacter(downloadRoot)) {
+        toast(pageI18n.t('gallery:toast.download-root-invalid', '下载目录不能包含控制字符'), 'error');
+        return;
+    }
+
+    const btn = document.getElementById('collectionFormSubmit');
+    btn.disabled = true;
+    try {
+        let collection;
+        if (state.editingCollection) {
+            await collectionApi(`/api/collections/${state.editingCollection.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            await collectionApi(`/api/collections/${state.editingCollection.id}/download-root`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ downloadRoot })
+            });
+            collection = { ...state.editingCollection, name, downloadRoot };
+        } else {
+            collection = await collectionApi('/api/collections', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, downloadRoot })
+            });
+        }
+
+        if (state.pendingIconFile) {
+            const form = new FormData();
+            form.append('file', state.pendingIconFile);
+            await collectionApi(`/api/collections/${collection.id}/icon`, { method: 'POST', body: form });
+        } else if (state.pendingIconClear && state.editingCollection) {
+            await collectionApi(`/api/collections/${collection.id}/icon`, { method: 'DELETE' });
+        }
+
+        toast(
+            state.editingCollection
+                ? pageI18n.t('gallery:toast.saved', '已保存')
+                : pageI18n.t('gallery:toast.created', '创建成功'),
+            'success'
+        );
+        closeCollectionFormModal();
+        await loadCollections();
+    } catch (e) {
+        toast(e.message || pageI18n.t('gallery:toast.save-failed', '保存失败'), 'error');
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 // ---------- Collections (sidebar + filter chips) ----------
@@ -1689,6 +2061,25 @@ async function reloadNovels() {
     }
 }
 
+function formatReadingDuration(seconds) {
+    const total = Math.floor(Number(seconds || 0));
+    if (!Number.isFinite(total) || total <= 0) return '';
+    const hour = Math.floor(total / 3600);
+    const minute = Math.floor((total % 3600) / 60);
+    const second = total % 60;
+    const parts = [];
+    if (hour > 0) parts.push(pageI18n.t('novel:duration.hour', '{count} 小时', { count: hour }));
+    if (minute > 0) parts.push(pageI18n.t('novel:duration.minute', '{count} 分钟', { count: minute }));
+    if (second > 0 && hour === 0) parts.push(pageI18n.t('novel:duration.second', '{count} 秒', { count: second }));
+    if (!parts.length) parts.push(pageI18n.t('novel:duration.second', '{count} 秒', { count: total }));
+    return parts.join(' ');
+}
+
+function formatReadingTime(seconds) {
+    const text = formatReadingDuration(seconds);
+    return text ? pageI18n.t('novel:meta.reading-time', '预计阅读：{time}', { time: text }) : '';
+}
+
 function renderGrid(items) {
     const grid = document.getElementById('grid');
     if (!items.length) {
@@ -1705,6 +2096,8 @@ function renderGrid(items) {
         const meta = [];
         if (item.wordCount && item.wordCount > 0) meta.push(esc(pageI18n.t('novel:meta.word-count', '{count} 字', { count: item.wordCount })));
         else if (item.textLength && item.textLength > 0) meta.push(esc(pageI18n.t('novel:meta.text-length', '{count} 字符', { count: item.textLength })));
+        const readingText = formatReadingTime(item.readingTimeSeconds);
+        if (readingText) meta.push(esc(readingText));
         if (item.seriesId && item.seriesId > 0 && item.seriesOrder != null) meta.push('#' + item.seriesOrder);
         const cover = item.coverExt
             ? `<div class="card-cover"><img loading="lazy" src="/api/gallery/novel/${item.novelId}/cover" alt="" onerror="this.parentElement.style.display='none'"></div>`

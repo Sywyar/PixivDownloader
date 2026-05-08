@@ -20,6 +20,7 @@ public record NovelRecord(
         Long seriesOrder,
         Integer wordCount,
         Integer textLength,
+        Integer readingTimeSeconds,
         Integer pageCount,
         Boolean isOriginal,
         String xLanguage,

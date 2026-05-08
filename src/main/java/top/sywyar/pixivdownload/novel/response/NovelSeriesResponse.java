@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel.response;
 
+import top.sywyar.pixivdownload.download.db.TagDto;
+
 import java.util.List;
 
 public record NovelSeriesResponse(
@@ -27,10 +29,12 @@ public record NovelSeriesResponse(
             int aiType,
             int wordCount,
             int textLength,
+            Integer readingTimeSeconds,
             String userId,
             String userName,
             int seriesOrder,
             String coverUrl,
-            Long uploadTimestamp
+            Long uploadTimestamp,
+            List<TagDto> tags
     ) {}
 }

@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.response.*;
+import top.sywyar.pixivdownload.novel.NovelCoverUrlResolver;
 import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
@@ -224,11 +225,14 @@ public class PixivProxyController {
     private static List<TagDto> extractTags(JsonNode body) {
         JsonNode tagsArr = body.path("tags").path("tags");
         if (!tagsArr.isArray() || tagsArr.isEmpty()) {
+            tagsArr = body.path("tags");
+        }
+        if (!tagsArr.isArray() || tagsArr.isEmpty()) {
             return List.of();
         }
         List<TagDto> out = new ArrayList<>();
         for (JsonNode t : tagsArr) {
-            String name = t.path("tag").asText("");
+            String name = t.isTextual() ? t.asText("") : t.path("tag").asText(t.path("name").asText(""));
             if (name.isEmpty()) continue;
             String translated = null;
             JsonNode translation = t.path("translation");
@@ -239,6 +243,57 @@ public class PixivProxyController {
             out.add(new TagDto(name, translated));
         }
         return out;
+    }
+
+    private static Integer extractReadingTimeSeconds(JsonNode node) {
+        String[] fieldNames = {"readingTimeSeconds", "readingTime", "readTime", "estimatedReadingTime"};
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (value.isMissingNode() || value.isNull()) continue;
+            if (value.isNumber()) {
+                int seconds = value.asInt(0);
+                return seconds > 0 ? seconds : null;
+            }
+            String raw = value.asText("").trim();
+            if (raw.isEmpty()) continue;
+            String digits = raw.replaceAll("[^0-9]", "");
+            if (digits.isEmpty()) continue;
+            try {
+                int seconds = Integer.parseInt(digits);
+                return seconds > 0 ? seconds : null;
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static String extractNovelCoverUrl(JsonNode node) {
+        for (String parent : List.of("imageUrls", "urls")) {
+            JsonNode urls = node.path(parent);
+            if (urls.isObject()) {
+                for (String key : List.of("original", "large", "regular", "medium", "squareMedium")) {
+                    String cover = urls.path(key).asText("");
+                    if (!cover.isBlank()) {
+                        return NovelCoverUrlResolver.preferHighResolution(cover);
+                    }
+                }
+            }
+        }
+        for (String key : List.of("coverUrl", "url", "thumbnailUrl")) {
+            String cover = node.path(key).asText("");
+            if (!cover.isBlank()) {
+                return NovelCoverUrlResolver.preferHighResolution(cover);
+            }
+        }
+        return "";
+    }
+
+    private static Long extractUploadTimestamp(JsonNode node) {
+        for (String fieldName : List.of("uploadDate", "createDate", "updateDate")) {
+            Long parsed = parsePixivIsoToEpochMillis(node.path(fieldName).asText(null));
+            if (parsed != null) return parsed;
+        }
+        return null;
     }
 
     @GetMapping("/artwork/{artworkId}/pages")
@@ -609,9 +664,10 @@ public class PixivProxyController {
         }
         Integer wordCount = b.has("wordCount") ? b.path("wordCount").asInt(0) : null;
         Integer textLength = b.has("characterCount") ? b.path("characterCount").asInt(0) : null;
+        Integer readingTimeSeconds = extractReadingTimeSeconds(b);
         String content = b.path("content").asText("");
         Integer pageCount = countPages(content);
-        Long uploadTimestamp = parsePixivIsoToEpochMillis(b.path("uploadDate").asText(null));
+        Long uploadTimestamp = extractUploadTimestamp(b);
         return ResponseEntity.ok(new NovelMetaResponse(
                 parsedId,
                 b.path("title").asText(""),
@@ -628,10 +684,11 @@ public class PixivProxyController {
                 content,
                 wordCount,
                 textLength,
+                readingTimeSeconds,
                 pageCount,
                 b.path("isOriginal").asBoolean(false),
                 b.path("language").asText(""),
-                b.path("coverUrl").asText(""),
+                extractNovelCoverUrl(b),
                 uploadTimestamp,
                 extractTextEmbeddedImages(b)
         ));
@@ -727,11 +784,13 @@ public class PixivProxyController {
                             it.path("aiType").asInt(0),
                             it.path("wordCount").asInt(0),
                             it.path("textLength").asInt(it.path("characterCount").asInt(0)),
+                            extractReadingTimeSeconds(it),
                             it.path("userId").asText(String.valueOf(authorId == null ? "" : authorId)),
                             it.path("userName").asText(authorName),
                             it.path("seriesOrder").asInt(it.path("order").asInt(0)),
-                            it.path("url").asText(""),
-                            parsePixivIsoToEpochMillis(it.path("uploadDate").asText(null))
+                            extractNovelCoverUrl(it),
+                            extractUploadTimestamp(it),
+                            extractTags(it)
                     ));
                 }
             }

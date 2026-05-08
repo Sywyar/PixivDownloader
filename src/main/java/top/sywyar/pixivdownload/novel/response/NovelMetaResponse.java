@@ -28,6 +28,7 @@ public class NovelMetaResponse {
     private final String content;
     private final Integer wordCount;
     private final Integer textLength;
+    private final Integer readingTimeSeconds;
     private final Integer pageCount;
     @JsonProperty("isOriginal")
     private final boolean isOriginal;

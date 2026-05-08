@@ -176,8 +176,8 @@ public class NovelDownloadService {
             novelDatabase.insertNovel(novelId, title, downloadPath.toString(), 1, ext, uniqueTime,
                     other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(),
                     templateId, fileAuthorNameId, other.getSeriesId(), other.getSeriesOrder(),
-                    other.getWordCount(), other.getTextLength(), other.getPageCount(),
-                    other.isOriginal(), other.getLanguage(), rawContent, coverExt);
+                    other.getWordCount(), other.getTextLength(), other.getReadingTimeSeconds(),
+                    other.getPageCount(), other.isOriginal(), other.getLanguage(), rawContent, coverExt);
 
             // Tags
             if (other.getTags() != null && !other.getTags().isEmpty()) {
@@ -261,6 +261,16 @@ public class NovelDownloadService {
      */
     private String downloadCover(String coverUrl, Path downloadPath, String baseName, String cookie) {
         if (coverUrl == null || coverUrl.isBlank()) return null;
+        for (String candidateUrl : NovelCoverUrlResolver.downloadCandidates(coverUrl)) {
+            String ext = downloadCoverCandidate(candidateUrl, downloadPath, baseName, cookie);
+            if (ext != null) {
+                return ext;
+            }
+        }
+        return null;
+    }
+
+    private String downloadCoverCandidate(String coverUrl, Path downloadPath, String baseName, String cookie) {
         URI uri;
         try {
             uri = URI.create(coverUrl);

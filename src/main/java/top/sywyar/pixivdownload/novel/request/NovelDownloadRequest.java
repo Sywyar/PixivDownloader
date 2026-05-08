@@ -26,6 +26,7 @@ public class NovelDownloadRequest {
         private String language;
         private Integer wordCount;
         private Integer textLength;
+        private Integer readingTimeSeconds;
         private Integer pageCount;
         private String description;
         private List<TagDto> tags;

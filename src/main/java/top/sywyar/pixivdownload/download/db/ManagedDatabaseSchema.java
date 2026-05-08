@@ -220,6 +220,7 @@ public final class ManagedDatabaseSchema {
                         column("series_order", "INTEGER", false, null, 0),
                         column("word_count", "INTEGER", false, null, 0),
                         column("text_length", "INTEGER", false, null, 0),
+                        column("reading_time_seconds", "INTEGER", false, null, 0),
                         column("page_count", "INTEGER", false, null, 0),
                         column("is_original", "INTEGER", false, null, 0),
                         column("x_language", "TEXT", false, null, 0),
