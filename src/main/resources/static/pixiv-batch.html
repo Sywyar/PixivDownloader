@@ -1663,18 +1663,6 @@
                     <option value="" data-i18n="option.collection.none">（不加入收藏夹）</option>
                 </select>
             </div>
-            <div class="setting-item">
-                <label for="s-novel-format" data-i18n="novel:batch.format-label">小说格式:</label>
-                <select id="s-novel-format" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
-                    <option value="txt" data-i18n="novel:format.txt">纯文本（TXT）</option>
-                    <option value="html" data-i18n="novel:format.html">网页（HTML）</option>
-                    <option value="epub" data-i18n="novel:format.epub">电子书（EPUB）</option>
-                </select>
-            </div>
-            <div class="setting-item">
-                <input type="checkbox" id="s-novel-merge">
-                <label for="s-novel-merge" style="cursor:pointer;" data-i18n="novel:batch.merge-label">系列下载完成后生成合订本</label>
-            </div>
             <div class="setting-item filename-setting">
                 <label for="s-file-name-template" data-i18n="label.settings.filename-template">文件名格式:</label>
                 <input type="text" id="s-file-name-template" value="{artwork_id}_p{page}" spellcheck="false">
@@ -1696,6 +1684,25 @@
                 </div>
                 <div class="filename-help-note" data-i18n="filename.help.note">格式生成的是不含扩展名的文件名主干，重复名称会自动追加页码。</div>
             </details>
+        </div>
+    </div>
+
+    <!-- Novel Settings -->
+    <div class="card" id="novel-settings-card">
+        <div class="card-title" data-i18n="card.novel-settings">小说设置</div>
+        <div class="settings-grid">
+            <div class="setting-item">
+                <label for="s-novel-format" data-i18n="novel:batch.format-label">小说格式:</label>
+                <select id="s-novel-format" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                    <option value="txt" data-i18n="novel:format.txt">纯文本（TXT）</option>
+                    <option value="html" data-i18n="novel:format.html">网页（HTML）</option>
+                    <option value="epub" data-i18n="novel:format.epub">电子书（EPUB）</option>
+                </select>
+            </div>
+            <div class="setting-item">
+                <input type="checkbox" id="s-novel-merge">
+                <label for="s-novel-merge" style="cursor:pointer;" data-i18n="novel:batch.merge-label">系列下载完成后生成合订本</label>
+            </div>
         </div>
     </div>
 
@@ -3930,6 +3937,24 @@
             document.getElementById('panel-' + m).classList.toggle('active', m === mode);
         });
         storeSet('pixiv_mode', mode);
+        applyNovelSettingsVisibility();
+    }
+
+    function applyNovelSettingsVisibility() {
+        const card = document.getElementById('novel-settings-card');
+        if (!card) return;
+        const mode = state.mode;
+        let visible;
+        if (mode === 'user') {
+            visible = state.settings.userKind === 'novel';
+        } else if (mode === 'search') {
+            visible = state.settings.searchKind === 'novel';
+        } else if (mode === 'series') {
+            visible = false;
+        } else {
+            visible = true;
+        }
+        card.style.display = visible ? '' : 'none';
     }
 
     function setStatus(msg, type = 'info') {
@@ -4167,6 +4192,7 @@
         applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
         applyKindSwitcherUI('search-kind-switcher', state.settings.searchKind);
         applySearchKindUI();
+        applyNovelSettingsVisibility();
         toggleSkipHistoryOptions();
     }
 
@@ -5502,9 +5528,12 @@
         });
 
         // Kind switchers (User / Search)
-        bindKindSwitcher('user-kind-switcher', 'userKind');
+        bindKindSwitcher('user-kind-switcher', 'userKind', () => {
+            applyNovelSettingsVisibility();
+        });
         bindKindSwitcher('search-kind-switcher', 'searchKind', () => {
             applySearchKindUI();
+            applyNovelSettingsVisibility();
             // 切换 kind 后清掉旧结果，避免误导
             cleanupBlobUrls();
             searchState.rawResults = [];
