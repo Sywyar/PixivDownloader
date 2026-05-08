@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [v1.8.0] - 2026-05-08
+
+### Features
+- 新增 Pixiv 小说下载能力，支持通过小说 ID、小说详情页 URL 和小说系列 URL 获取元数据并下载为 TXT、HTML 或 EPUB，下载记录会持久化小说标题、作者、标签、分级、系列顺序、字数、页数、封面和原始 Pixiv 标记内容
+- 新增本地小说画廊 `pixiv-novel-gallery.html` 与小说阅读页 `pixiv-novel.html`，支持小说列表、搜索筛选、分页、封面展示、作者入口、系列导航、上一章/下一章跳转和本地内容阅读
+- 新增小说系列合订功能，可将已下载的同系列章节按顺序合并导出为 TXT、HTML 或 EPUB，单章文件仍会保留
+- 批量下载页支持按 Pixiv 用户和搜索结果批量加入小说队列，并在小说下载场景展示小说格式、合订等专用设置
+- 收藏夹支持同时包含作品和小说，小说下载完成后可按选择的收藏夹自动归档，并在作者视图中统计和展示小说相关内容
+- 小说内容渲染支持 Pixiv 常见标记，包括分页、章节、注音、跳转链接、Pixiv 图片引用和上传图片引用；小说内嵌上传图片会随内容下载并在本地页面中展示
+- URL 批量导入 userscript 支持识别 Pixiv 小说和小说系列链接，并提交到后端小说下载流程
+- 访客访问控制扩展到小说相关画廊与详情资源，邀请码用户只能查看符合可见范围的内容
+
+### Bug Fixes
+- 修复高并发加入漫画系列队列时概率性缺项的问题，提高批量队列构建的完整性
+
+### Documentation
+- README.md 与 README_en.md 补充小说下载相关说明
+
+### Tests
+- 新增小说标记解析与 EPUB 生成相关测试，并补充 Pixiv 代理和收藏夹对小说场景的回归覆盖
+
 ## [v1.7.1] - 2026.5.6
 
 ### Features
