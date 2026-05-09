@@ -1373,6 +1373,7 @@
 
     function buildSeriesDirectoryHref(seriesId, currentId, currentOrder) {
         const params = new URLSearchParams();
+        params.set('type', 'artwork');
         params.set('seriesId', String(seriesId));
         if (currentId != null) params.set('currentId', String(currentId));
         const order = numericSeriesOrder(currentOrder);

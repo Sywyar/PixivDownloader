@@ -3989,6 +3989,14 @@
         return `/pixiv-gallery.html?${params.toString()}`;
     }
 
+    function buildSeriesDirectoryHref({seriesId, seriesTitle} = {}) {
+        const params = new URLSearchParams();
+        params.set('type', 'artwork');
+        if (seriesId != null) params.set('seriesId', String(seriesId));
+        if (seriesTitle) params.set('seriesTitle', seriesTitle);
+        return `/pixiv-series.html?${params.toString()}`;
+    }
+
     let authorSearchTimer = null;
     document.getElementById('authorSearchInput').addEventListener('input', e => {
         const v = e.target.value;
@@ -4574,7 +4582,7 @@
                     <div class="author-row-count">${escapeHtml(t('series.count', '{count} artworks · #{seriesId}', {count: s.artworkCount, seriesId: s.seriesId}))}</div>
                     ${author}
                     <div class="author-row-actions">
-                        <button class="author-row-btn" data-filter-series="${s.seriesId}" type="button">${escapeHtml(t('button.view-all', 'View All'))}</button>
+                        <button class="author-row-btn" data-open-series-directory="${s.seriesId}" type="button">${escapeHtml(t('button.view-all', 'View All'))}</button>
                     </div>
                 </div>
                 <div class="author-row-works">
@@ -4598,6 +4606,16 @@
                 const series = state.series.content.find(s => s.seriesId === id);
                 const title = series ? series.title : state.seriesNames.get(id);
                 window.location.assign(buildGalleryFilterHref({seriesId: id, seriesTitle: title}));
+            });
+        });
+
+        container.querySelectorAll('[data-open-series-directory]').forEach(el => {
+            el.addEventListener('click', e => {
+                e.stopPropagation();
+                const id = Number(el.dataset.openSeriesDirectory);
+                const series = state.series.content.find(s => s.seriesId === id);
+                const title = series ? series.title : state.seriesNames.get(id);
+                window.location.assign(buildSeriesDirectoryHref({seriesId: id, seriesTitle: title}));
             });
         });
 

@@ -1373,7 +1373,31 @@ async function init() {
     await loadTags();
     await loadSeries();
     await loadAuthors();
+    applyInitialUrlState();
     reloadCurrentView();
+}
+
+function applyInitialUrlState() {
+    const params = new URLSearchParams(location.search);
+    const ids = [];
+    const addId = value => {
+        const id = Number(value);
+        if (Number.isInteger(id) && id > 0 && !ids.includes(id)) ids.push(id);
+    };
+    addId(params.get('seriesId'));
+    (params.get('seriesIds') || '').split(',').forEach(addId);
+    if (!ids.length) return;
+
+    state.selectedSeries.clear();
+    ids.forEach(id => state.selectedSeries.set(id, 'must'));
+    if (ids.length === 1 && !state.series.some(s => Number(s.seriesId) === ids[0])) {
+        const title = params.get('seriesTitle') || `#${ids[0]}`;
+        state.series = [{ seriesId: ids[0], title, authorId: null, authorName: '', novelCount: 0 }, ...state.series];
+    }
+    state.view = 'all';
+    state.page = 0;
+    renderSeriesChips();
+    updateFilterBadge();
 }
 
 function updateOrderToggleLabel() {
@@ -2309,9 +2333,18 @@ function renderSeriesView(seriesList) {
         card.addEventListener('click', () => {
             const sid = Number(card.dataset.seriesId);
             const stitle = card.dataset.seriesTitle || '';
-            applySeriesFilterFromCard(sid, stitle);
+            window.location.href = buildSeriesDirectoryHref(sid, stitle);
         });
     });
+}
+
+function buildSeriesDirectoryHref(seriesId, seriesTitle) {
+    const params = new URLSearchParams({
+        type: 'novel',
+        seriesId: String(seriesId)
+    });
+    if (seriesTitle) params.set('seriesTitle', seriesTitle);
+    return `/pixiv-series.html?${params.toString()}`;
 }
 
 function applySeriesFilterFromCard(seriesId, seriesTitle) {

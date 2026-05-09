@@ -199,6 +199,9 @@
             margin: 0 0 16px;
             width: 100%;
         }
+        .series-nav.series-nav-bottom {
+            margin: 16px 0 0;
+        }
         .series-nav .btn {
             width: 100%;
             min-width: 0;
@@ -428,6 +431,12 @@
         </div>
 
         <div class="content-card" id="content-card"></div>
+
+        <div class="series-nav series-nav-bottom" id="series-nav-bottom" style="display:none;">
+            <a class="btn" id="series-prev-bottom" href="#" data-i18n="series.prev">上一章</a>
+            <a class="btn" id="series-index-bottom" href="#" data-i18n="series.index">目录</a>
+            <a class="btn" id="series-next-bottom" href="#" data-i18n="series.next">下一章</a>
+        </div>
     </div>
 </div>
 
@@ -671,31 +680,56 @@ async function loadSeriesNav() {
         if (!r.ok) return;
         const nav = await r.json();
         if (!nav.seriesId) return;
-        const wrap = document.getElementById('series-nav');
-        wrap.style.display = 'grid';
-        const prev = document.getElementById('series-prev');
-        const next = document.getElementById('series-next');
-        const index = document.getElementById('series-index');
-        if (nav.prev) {
-            prev.href = `/pixiv-novel.html?id=${nav.prev.novelId}`;
-            prev.classList.remove('disabled-look');
-            prev.textContent = pageI18n.t('series.prev', null, { order: nav.prev.seriesOrder, title: nav.prev.title });
-        } else {
-            prev.classList.add('disabled-look');
-            prev.textContent = pageI18n.t('series.prev', null, { order: '-', title: '' });
-        }
-        if (nav.next) {
-            next.href = `/pixiv-novel.html?id=${nav.next.novelId}`;
-            next.classList.remove('disabled-look');
-            next.textContent = pageI18n.t('series.next', null, { order: nav.next.seriesOrder, title: nav.next.title });
-        } else {
-            next.classList.add('disabled-look');
-            next.textContent = pageI18n.t('series.next', null, { order: '-', title: '' });
-        }
-        index.href = `https://www.pixiv.net/novel/series/${nav.seriesId}`;
-        index.target = '_blank';
-        index.textContent = pageI18n.t('series.index') + (nav.seriesTitle ? ` · ${nav.seriesTitle}` : '');
+        renderSeriesNavSet(nav, {
+            wrap: 'series-nav',
+            prev: 'series-prev',
+            index: 'series-index',
+            next: 'series-next'
+        });
+        renderSeriesNavSet(nav, {
+            wrap: 'series-nav-bottom',
+            prev: 'series-prev-bottom',
+            index: 'series-index-bottom',
+            next: 'series-next-bottom'
+        });
     } catch {}
+}
+
+function renderSeriesNavSet(nav, ids) {
+    const wrap = document.getElementById(ids.wrap);
+    const prev = document.getElementById(ids.prev);
+    const next = document.getElementById(ids.next);
+    const index = document.getElementById(ids.index);
+    if (!wrap || !prev || !next || !index) return;
+
+    wrap.style.display = 'grid';
+    if (nav.prev) {
+        prev.href = `/pixiv-novel.html?id=${nav.prev.novelId}`;
+        prev.classList.remove('disabled-look');
+        prev.textContent = pageI18n.t('series.prev', null, { order: nav.prev.seriesOrder, title: nav.prev.title });
+    } else {
+        prev.classList.add('disabled-look');
+        prev.textContent = pageI18n.t('series.prev', null, { order: '-', title: '' });
+    }
+    if (nav.next) {
+        next.href = `/pixiv-novel.html?id=${nav.next.novelId}`;
+        next.classList.remove('disabled-look');
+        next.textContent = pageI18n.t('series.next', null, { order: nav.next.seriesOrder, title: nav.next.title });
+    } else {
+        next.classList.add('disabled-look');
+        next.textContent = pageI18n.t('series.next', null, { order: '-', title: '' });
+    }
+    const indexParams = new URLSearchParams({
+        type: 'novel',
+        seriesId: String(nav.seriesId),
+        currentId: String(novelId)
+    });
+    if (nav.seriesTitle) indexParams.set('seriesTitle', nav.seriesTitle);
+    if (nav.currentOrder != null) indexParams.set('order', String(nav.currentOrder));
+    index.href = `/pixiv-series.html?${indexParams.toString()}`;
+    index.removeAttribute('target');
+    index.removeAttribute('rel');
+    index.textContent = pageI18n.t('series.index') + (nav.seriesTitle ? ` · ${nav.seriesTitle}` : '');
 }
 
 function escapeHtml(s) {
