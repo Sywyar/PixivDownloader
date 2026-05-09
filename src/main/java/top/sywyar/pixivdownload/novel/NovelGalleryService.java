@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.novel;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
+import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.novel.db.NovelAuthorSummary;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -151,7 +152,7 @@ public class NovelGalleryService {
                 r.isAi(),
                 r.authorId(),
                 authorName,
-                r.description(),
+                PixivDescriptionHtml.normalizeLinks(r.description()),
                 r.seriesId(),
                 r.seriesOrder(),
                 r.wordCount(),

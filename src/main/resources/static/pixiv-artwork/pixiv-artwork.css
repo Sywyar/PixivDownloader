@@ -376,6 +376,9 @@
 
         .artwork-desc a {
             color: var(--brand);
+            text-decoration: underline;
+            text-underline-offset: 2px;
+            word-break: break-all;
         }
 
         .tags {

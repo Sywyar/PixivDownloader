@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
+import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.download.DownloadActionResult;
 import top.sywyar.pixivdownload.download.PixivBookmarkService;
@@ -171,10 +172,11 @@ public class NovelDownloadService {
             String coverExt = downloadCover(other.getCoverUrl(), downloadPath, baseName, request.getCookie());
 
             // Persist DB
+            String description = PixivDescriptionHtml.normalizeLinks(other.getDescription());
             long uniqueTime = novelDatabase.getUniqueTime(
                     other.getUploadTimestamp() != null ? TimestampUtils.toMillis(other.getUploadTimestamp()) : timestamp);
             novelDatabase.insertNovel(novelId, title, downloadPath.toAbsolutePath().toString(), 1, ext, uniqueTime,
-                    other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(),
+                    other.getXRestrict(), other.isAi(), other.getAuthorId(), description,
                     templateId, fileAuthorNameId, other.getSeriesId(), other.getSeriesOrder(),
                     other.getWordCount(), other.getTextLength(), other.getReadingTimeSeconds(),
                     other.getPageCount(), other.isOriginal(), other.getLanguage(), rawContent, coverExt);

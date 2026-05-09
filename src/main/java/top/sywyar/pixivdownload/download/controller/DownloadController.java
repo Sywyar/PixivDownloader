@@ -8,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.author.AuthorService;
+import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.DownloadStatus;
@@ -347,7 +348,7 @@ public class DownloadController {
                 .isAi(artwork.isAi())
                 .authorId(artwork.authorId())
                 .authorName(artwork.authorId() == null ? null : authorNames.get(artwork.authorId()))
-                .description(artwork.description())
+                .description(PixivDescriptionHtml.normalizeLinks(artwork.description()))
                 .fileName(artwork.fileName())
                 .fileNameTemplate(pixivDatabase.getFileNameTemplate(resolveFileNameId(artwork)))
                 .tags(tags)

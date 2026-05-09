@@ -12,6 +12,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.response.*;
@@ -202,7 +203,7 @@ public class PixivProxyController {
                 b.path("bookmarkCount").asInt(-1),
                 parsePositiveLong(b.path("userId").asText(null)),
                 b.path("userName").asText(""),
-                b.path("description").asText(""),
+                PixivDescriptionHtml.normalizeLinks(b.path("description").asText("")),
                 extractTags(b),
                 seriesId,
                 seriesOrder,
@@ -676,7 +677,7 @@ public class PixivProxyController {
                 b.path("bookmarkCount").asInt(-1),
                 parsePositiveLong(b.path("userId").asText(null)),
                 b.path("userName").asText(""),
-                b.path("description").asText(""),
+                PixivDescriptionHtml.normalizeLinks(b.path("description").asText("")),
                 extractTags(b),
                 seriesId,
                 seriesOrder,

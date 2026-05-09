@@ -162,6 +162,12 @@
             padding-top: 12px;
             margin-top: 12px;
         }
+        .description a {
+            color: var(--brand);
+            text-decoration: underline;
+            text-underline-offset: 2px;
+            word-break: break-all;
+        }
 
         .tags {
             display: flex;
