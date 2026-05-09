@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -33,6 +34,7 @@ public class CollectionController {
     private final CollectionService collectionService;
     private final CollectionIconService iconService;
     private final GalleryRepository galleryRepository;
+    private final GuestAccessGuard guestAccessGuard;
 
     @GetMapping
     public CollectionListResponse list(HttpServletRequest httpRequest) {
@@ -96,7 +98,9 @@ public class CollectionController {
     }
 
     @GetMapping("/{id}/icon")
-    public ResponseEntity<byte[]> downloadIcon(@PathVariable long id) throws IOException {
+    public ResponseEntity<byte[]> downloadIcon(@PathVariable long id,
+                                               HttpServletRequest httpRequest) throws IOException {
+        requireGuestCollectionVisible(httpRequest, id);
         Collection c = collectionService.get(id);
         if (c == null || c.iconExt() == null) {
             return ResponseEntity.notFound().build();
@@ -125,7 +129,9 @@ public class CollectionController {
     }
 
     @GetMapping("/of/{artworkId}")
-    public ResponseEntity<Map<String, Object>> collectionsOf(@PathVariable long artworkId) {
+    public ResponseEntity<Map<String, Object>> collectionsOf(@PathVariable long artworkId,
+                                                             HttpServletRequest httpRequest) {
+        guestAccessGuard.requireVisible(httpRequest, artworkId);
         List<Long> ids = collectionService.collectionsOf(artworkId);
         return ResponseEntity.ok(Map.of("collectionIds", ids));
     }
@@ -150,7 +156,9 @@ public class CollectionController {
     }
 
     @GetMapping("/novels/of/{novelId}")
-    public ResponseEntity<Map<String, Object>> novelCollectionsOf(@PathVariable long novelId) {
+    public ResponseEntity<Map<String, Object>> novelCollectionsOf(@PathVariable long novelId,
+                                                                  HttpServletRequest httpRequest) {
+        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
         List<Long> ids = collectionService.novelCollectionsOf(novelId);
         return ResponseEntity.ok(Map.of("collectionIds", ids));
     }
@@ -160,5 +168,16 @@ public class CollectionController {
         List<Long> ids = body == null ? List.of() : body.getOrDefault("novelIds", List.of());
         Map<Long, List<Long>> memberships = collectionService.novelMembershipsOf(ids);
         return ResponseEntity.ok(Map.of("memberships", memberships));
+    }
+
+    private void requireGuestCollectionVisible(HttpServletRequest request, long collectionId) {
+        GuestInviteSession session = GuestAccessGuard.extractSession(request);
+        if (session == null) return;
+        Set<Long> visible = galleryRepository.findVisibleCollectionIds(GuestRestriction.from(session));
+        if (!visible.contains(collectionId)) {
+            throw new LocalizedException(HttpStatus.FORBIDDEN,
+                    "guest.invite.forbidden",
+                    "该作品不在你的可见范围内");
+        }
     }
 }
