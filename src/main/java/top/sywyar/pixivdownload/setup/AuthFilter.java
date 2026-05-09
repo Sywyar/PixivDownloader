@@ -65,7 +65,22 @@ public class AuthFilter extends OncePerRequestFilter {
             "/api/series",
             "/api/gallery/",
             "/api/collections",
-            "/api/admin/"
+            "/api/admin/",
+            "/monitor/",
+            "/pixiv-gallery/",
+            "/pixiv-artwork/",
+            "/pixiv-novel/",
+            "/pixiv-novel-gallery/",
+            "/pixiv-series/",
+            "/pixiv-invite-manage/",
+            "/pixiv-invite-detail/"
+    );
+
+    private static final List<String> PUBLIC_PAGE_STATIC_PREFIX_PATHS = List.of(
+            "/index/",
+            "/intro/",
+            "/intro-canary/",
+            "/login/"
     );
 
     /** 访客邀请会话被允许访问的精确路径。 */
@@ -93,7 +108,12 @@ public class AuthFilter extends OncePerRequestFilter {
             "/api/gallery/",
             "/api/collections",
             "/api/pixiv/artwork/",
-            "/api/pixiv/novel/"
+            "/api/pixiv/novel/",
+            "/pixiv-gallery/",
+            "/pixiv-artwork/",
+            "/pixiv-novel/",
+            "/pixiv-novel-gallery/",
+            "/pixiv-series/"
     );
 
     /** 访客邀请 cookie 名（浏览器会话 cookie，不带 Max-Age）。 */
@@ -174,7 +194,7 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (path.equals("/setup.html")) {
+        if (isSetupPagePath(path)) {
             if (!NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
                 sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
                 return;
@@ -302,9 +322,11 @@ public class AuthFilter extends OncePerRequestFilter {
                 || path.equals("/intro.html")
                 || path.equals("/intro-canary.html")
                 || path.equals("/favicon.ico")
+                || path.startsWith("/css/")
                 || path.equals("/js/pixiv-i18n.js")
                 || path.equals("/js/pixiv-lang-switcher.js")
                 || path.equals("/js/pixiv-theme.js")
+                || isPublicPageStaticResource(path)
                 || path.startsWith("/api/setup/")
                 || path.startsWith("/api/auth/")
                 || path.startsWith("/api/i18n/")
@@ -315,7 +337,21 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private boolean isSetupOnlyStaticResource(String path) {
         return path.equals("/js/pixiv-lang-switcher.js")
-                || path.equals("/js/pixiv-theme.js");
+                || path.equals("/js/pixiv-theme.js")
+                || path.startsWith("/setup/");
+    }
+
+    private boolean isPublicPageStaticResource(String path) {
+        for (String prefix : PUBLIC_PAGE_STATIC_PREFIX_PATHS) {
+            if (path.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSetupPagePath(String path) {
+        return path.equals("/setup.html") || path.startsWith("/setup/");
     }
 
     private boolean isApi(String path) {

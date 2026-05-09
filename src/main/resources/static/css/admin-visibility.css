@@ -1,0 +1,8 @@
+/* 默认隐藏管理员专属元素，避免页面闪烁。JS 探测后再展示。 */
+.admin-only { display: none !important; }
+body.admin-mode .admin-only { display: revert !important; }
+body.admin-mode #btnInviteGuest { display: flex !important; }
+body.admin-mode #navInviteManage { display: flex !important; }
+body:not(.admin-mode) .thumb-heart,
+body:not(.admin-mode) #btnCreateCollection,
+body:not(.admin-mode) #collectionContextMenu { display: none !important; }

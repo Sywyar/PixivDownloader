@@ -20,8 +20,10 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -210,6 +212,12 @@ class AuthFilterTest {
                 "/intro-canary.html",
                 "/favicon.ico",
                 "/js/pixiv-i18n.js",
+                "/css/admin-visibility.css",
+                "/index/index.js",
+                "/intro/intro.css",
+                "/intro-canary/intro-canary.js",
+                "/login/login.css",
+                "/login/login.js",
                 "/api/setup/status",
                 "/api/auth/login",
                 "/api/auth/check"
@@ -241,6 +249,23 @@ class AuthFilterTest {
         void shouldRejectSetupHtmlFromRemoteAddress() throws Exception {
             request.setMethod("GET");
             request.setRequestURI("/setup.html");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/setup/setup.css",
+                "/setup/setup.js"
+        })
+        @DisplayName("setup 鎷嗗垎璧勬簮闈炴湰鍦?IP 搴旇繑鍥?403")
+        void shouldRejectSetupStaticResourcesFromRemoteAddress(String path) throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI(path);
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
@@ -390,7 +415,14 @@ class AuthFilterTest {
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {"/pixiv-gallery.html", "/pixiv-artwork.html"})
+        @ValueSource(strings = {
+                "/pixiv-gallery.html",
+                "/pixiv-artwork.html",
+                "/pixiv-gallery/pixiv-gallery.css",
+                "/pixiv-artwork/pixiv-artwork.js",
+                "/monitor/monitor.js",
+                "/pixiv-invite-manage/pixiv-invite-manage.css"
+        })
         @DisplayName("画廊/作品详情页应按 monitor 权限保护，未登录时重定向到 /login.html")
         void shouldRedirectGalleryPagesToLoginWhenNotLoggedIn(String path) throws Exception {
             request.setMethod("GET");
@@ -401,6 +433,24 @@ class AuthFilterTest {
 
             assertThat(response.getRedirectedUrl()).startsWith("/login.html?redirect=");
             verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("璁垮閭€璇蜂細璇濆簲鑳藉姞杞界敾寤婇〉鎷嗗垎璧勬簮")
+        void shouldAllowGuestInviteToLoadGallerySplitResource() throws Exception {
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false, true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI("/pixiv-gallery/pixiv-gallery.js");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+            verify(guestInviteService).recordHit(1L);
         }
 
         @ParameterizedTest
@@ -455,7 +505,9 @@ class AuthFilterTest {
         @ParameterizedTest
         @ValueSource(strings = {
                 "/js/pixiv-lang-switcher.js",
-                "/js/pixiv-theme.js"
+                "/js/pixiv-theme.js",
+                "/setup/setup.css",
+                "/setup/setup.js"
         })
         @DisplayName("setup 未完成时本地 IP 应能加载 setup 页面依赖的脚本")
         void shouldAllowSetupPageScriptsFromLocalAddress(String path) throws Exception {
@@ -471,7 +523,9 @@ class AuthFilterTest {
         @ParameterizedTest
         @ValueSource(strings = {
                 "/js/pixiv-lang-switcher.js",
-                "/js/pixiv-theme.js"
+                "/js/pixiv-theme.js",
+                "/setup/setup.css",
+                "/setup/setup.js"
         })
         @DisplayName("setup 未完成时非本地 IP 不应加载 setup 页面专用脚本")
         void shouldRejectSetupPageScriptsFromRemoteAddress(String path) throws Exception {

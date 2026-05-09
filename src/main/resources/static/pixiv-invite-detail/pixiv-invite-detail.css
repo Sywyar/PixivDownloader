@@ -1,0 +1,159 @@
+:root {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --line: #efefef;
+    --text: #111111;
+    --muted: #888888;
+    --text-secondary: #333333;
+    --brand: #0096fa;
+    --danger: #dc2626;
+    --control-bg: #ffffff;
+    --control-muted-bg: #fafafa;
+    --hover-bg: #f5f5f5;
+    --scrollbar-thumb: #dddddd;
+}
+html[data-theme="dark"] {
+    --bg: #101216;
+    --surface: #171a21;
+    --line: #2a303b;
+    --text: #f4f7fb;
+    --muted: #8d98aa;
+    --text-secondary: #d6dde8;
+    --brand: #4bb3ff;
+    --danger: #f87171;
+    --control-bg: #1e2330;
+    --control-muted-bg: #151922;
+    --hover-bg: #222838;
+    --scrollbar-thumb: #3b4352;
+}
+html, html[data-theme="dark"] {
+    --text-muted: var(--muted);
+    --border: var(--line);
+    --surface-muted: var(--control-muted-bg);
+    --surface-hover: var(--hover-bg);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px; min-height: 100vh;
+}
+a { color: inherit; text-decoration: none; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 6px; }
+
+.topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    position: sticky; top: 0; z-index: 50;
+}
+.topbar .brand { font-size: 16px; font-weight: 600; flex: 1; }
+.topbar .back-link {
+    font-size: 13px; color: var(--muted); padding: 6px 10px; border-radius: 6px;
+}
+.topbar .back-link:hover { background: var(--hover-bg); color: var(--text); }
+.topbar-actions {
+    margin-left: auto; display: inline-flex; align-items: center;
+    gap: 8px; flex-shrink: 0;
+}
+
+.pixiv-lang-switcher--default { color: var(--text-secondary) !important; }
+.pixiv-lang-switcher--default .pixiv-lang-switcher__select {
+    border: 1px solid var(--line) !important;
+    background: var(--control-bg) !important;
+    color: var(--text-secondary) !important;
+    padding: 4px 8px !important;
+    border-radius: 6px !important;
+    font-size: 13px !important;
+}
+.pixiv-lang-switcher--default .pixiv-lang-switcher__select option {
+    background: var(--surface);
+    color: var(--text);
+}
+.pixiv-theme-toggle {
+    width: 32px; height: 32px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--control-bg); color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.pixiv-theme-toggle:hover { border-color: var(--brand); color: var(--brand); background: var(--hover-bg); }
+.pixiv-theme-toggle svg {
+    width: 16px; height: 16px; fill: none; stroke: currentColor;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
+
+.wrap { max-width: 960px; margin: 24px auto; padding: 0 24px; display: grid; gap: 16px; }
+.card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 18px 20px;
+}
+.card-title {
+    font-size: 12px; color: var(--muted); margin-bottom: 14px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
+}
+.info-row {
+    display: grid; grid-template-columns: 130px 1fr;
+    padding: 10px 0; border-bottom: 1px dashed var(--line);
+    font-size: 13px;
+}
+.info-row:last-child { border-bottom: none; }
+.info-row .lbl { color: var(--muted); }
+.info-row .val { color: var(--text); }
+.code-block {
+    display: flex; gap: 8px; align-items: center; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--control-muted-bg); margin-top: 4px;
+    font-family: ui-monospace, "JetBrains Mono", Consolas, monospace; font-size: 12px;
+}
+.code-block .v { flex: 1; word-break: break-all; }
+.copy-btn, .op-btn {
+    padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    border: 1px solid var(--line); background: var(--control-bg); color: inherit;
+    transition: background-color .15s, border-color .15s;
+}
+.copy-btn:hover, .op-btn:hover { background: var(--hover-bg); }
+.op-btn.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
+.op-btn.primary:hover { filter: brightness(1.1); background: var(--brand); }
+.op-btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+.op-btn.danger:hover { filter: brightness(1.1); background: var(--danger); }
+.ops { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.summary-row {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.summary-row .summary-text { color: var(--text); font-size: 13px; flex: 1; }
+.view-detail-btn {
+    padding: 4px 12px; border-radius: 999px; font-size: 12px; cursor: pointer;
+    border: 1px solid var(--brand); background: transparent; color: var(--brand);
+    transition: background-color .15s;
+}
+.view-detail-btn:hover { background: var(--brand); color: #fff; }
+
+.chart-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.chart-toolbar .filter-chip {
+    padding: 5px 12px; border-radius: 999px; cursor: pointer; font-size: 12px;
+    border: 1px solid var(--line); background: var(--control-bg); color: inherit;
+    transition: all .15s;
+}
+.chart-toolbar .filter-chip:hover { background: var(--hover-bg); }
+.chart-toolbar .filter-chip.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+.chart-wrap { position: relative; }
+canvas#statsCanvas { width: 100%; height: 280px; display: block; }
+
+.chart-tooltip {
+    position: absolute; pointer-events: none; z-index: 10;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; font-size: 12px; line-height: 1.4;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+    transform: translate(-50%, calc(-100% - 12px));
+    white-space: nowrap; opacity: 0; transition: opacity 0.12s;
+}
+.chart-tooltip.show { opacity: 1; }
+
+.error { padding: 16px; color: var(--danger); }
