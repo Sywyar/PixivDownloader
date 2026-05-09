@@ -3,12 +3,16 @@ package top.sywyar.pixivdownload;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.validation.ConstraintViolation;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -39,6 +43,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(e.getStatusCode()).body(new ErrorResponse(e.getReason()));
     }
 
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<ErrorResponse> handleNotFound(Exception e, Locale locale) {
+        log.debug(logMessage("error.log.request.not-found", fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));
+        String message = messages.getOrDefault(locale, "error.request.not-found", "请求的资源不存在");
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ErrorResponse(message));
+    }
+
     @ExceptionHandler(SecurityException.class)
     public ResponseEntity<ErrorResponse> handleSecurity(SecurityException e) {
         log.warn(logMessage("error.log.security.failed", fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));
@@ -67,7 +78,12 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(IOException.class)
-    public ResponseEntity<ErrorResponse> handleIOException(IOException e, Locale locale) {
+    public ResponseEntity<?> handleIOException(IOException e, Locale locale) {
+        if (isClientDisconnect(e)) {
+            log.debug(logMessage("error.log.client-disconnected",
+                    fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));
+            return ResponseEntity.noContent().build();
+        }
         String message = messages.getOrDefault(locale, "error.io", "服务器 IO 错误: {0}", e.getMessage());
         log.error(logMessage("error.log.io.exception", fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())), e);
         return ResponseEntity.internalServerError().body(new ErrorResponse(message));
@@ -117,6 +133,31 @@ public class GlobalExceptionHandler {
 
     private String fallbackLogDetail(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private boolean isClientDisconnect(IOException e) {
+        Throwable current = e;
+        while (current != null) {
+            if (current instanceof AsyncRequestNotUsableException
+                    || "org.apache.catalina.connector.ClientAbortException".equals(current.getClass().getName())) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase(Locale.ROOT);
+                if (normalized.contains("broken pipe")
+                        || normalized.contains("connection reset")
+                        || normalized.contains("connection was aborted")
+                        || normalized.contains("connection aborted")
+                        || normalized.contains("forcibly closed")
+                        || message.contains("你的主机中的软件中止")
+                        || message.contains("远程主机强迫关闭")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private String logMessage(String code, Object... args) {

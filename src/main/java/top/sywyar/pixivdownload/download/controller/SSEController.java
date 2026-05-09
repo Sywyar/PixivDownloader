@@ -20,10 +20,16 @@ import top.sywyar.pixivdownload.setup.SetupService;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -31,6 +37,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 
 @Slf4j
 @RestController
@@ -41,6 +50,8 @@ public class SSEController {
     private final SetupService setupService;
     private final AppMessages messages;
     private final ExecutorService sseProgressExecutor;
+    private final SecureRandom secureRandom = new SecureRandom();
+    private final byte[] closeTokenKey = new byte[32];
 
     private final ConcurrentHashMap<Long, ArtworkSubscription> emitters = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, ScheduledFuture<?>> heartbeatTasks = new ConcurrentHashMap<>();
@@ -52,6 +63,9 @@ public class SSEController {
     private final ConcurrentHashMap<String, ScheduledFuture<?>> aggregatedHeartbeats = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, PendingProgress> pendingProgress = new ConcurrentHashMap<>();
     private final AtomicBoolean progressFlushRunning = new AtomicBoolean(false);
+    private static final int GCM_IV_BYTES = 12;
+    private static final int GCM_TAG_BITS = 128;
+    private static final long CLOSE_TOKEN_MAX_AGE_MILLIS = Duration.ofHours(25).toMillis();
 
     public SSEController(TaskScheduler taskScheduler,
                          SetupService setupService,
@@ -59,6 +73,7 @@ public class SSEController {
         this.taskScheduler = taskScheduler;
         this.setupService = setupService;
         this.messages = messages;
+        this.secureRandom.nextBytes(closeTokenKey);
         this.sseProgressExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "sse-progress-flush");
             thread.setDaemon(true);
@@ -78,48 +93,45 @@ public class SSEController {
 
     private record PendingProgress(Long artworkId, DownloadStatus downloadStatus, String userUuid) {}
 
+    private record CloseTokenPayload(String connectionId, String ownerUuid, boolean admin, long issuedAtMillis) {}
+
     /**
      * 为特定作品创建SSE连接，实时推送下载进度
      */
     @GetMapping(value = "/download/{artworkId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter createSSEConnection(@PathVariable Long artworkId) throws IOException {
+    public SseEmitter createSSEConnection(@PathVariable Long artworkId) {
         SseEmitter emitter = new SseEmitter(300000L); // 5分钟超时
         emitters.put(artworkId, new ArtworkSubscription(emitter, currentRequestLocale()));
 
         // 设置完成和超时处理
         emitter.onCompletion(() -> {
-            cancelHeartbeat(artworkId);
-            safeRemoveEmitter(artworkId);
+            cleanupArtworkEmitter(artworkId);
             log.info(logMessage("sse.log.connection.completed", id(artworkId)));
         });
 
         emitter.onTimeout(() -> {
-            cancelHeartbeat(artworkId);
-            safeRemoveEmitter(artworkId);
+            cleanupArtworkEmitter(artworkId);
             log.error(logMessage("sse.log.connection.timeout", id(artworkId)));
         });
 
         emitter.onError((e) -> {
-            cancelHeartbeat(artworkId);
-            safeRemoveEmitter(artworkId);
-            log.error(logMessage("sse.log.connection.error", id(artworkId), e.getMessage()));
+            cleanupArtworkEmitter(artworkId);
+            log.debug(logMessage("sse.log.connection.error", id(artworkId), e.getMessage()));
         });
 
         // 立即发送初始状态
-        sendStatusUpdate(artworkId);
+        if (!sendStatusUpdate(artworkId)) {
+            cleanupArtworkEmitter(artworkId);
+            return emitter;
+        }
 
         // 定期发送心跳，记录 Future 以便连接关闭时取消
         ScheduledFuture<?> heartbeat = taskScheduler.scheduleAtFixedRate(() -> {
-            try {
-                if (isEmitterValid(artworkId)) {
-                    emitter.send(SseEmitter.event()
-                            .id(String.valueOf(System.currentTimeMillis()))
-                            .name("heartbeat")
-                            .data("ping"));
-                }
-            } catch (IOException e) {
-                cancelHeartbeat(artworkId);
-                safeRemoveEmitter(artworkId);
+            if (isEmitterValid(artworkId) && !sendEvent(emitter, SseEmitter.event()
+                    .id(String.valueOf(System.currentTimeMillis()))
+                    .name("heartbeat")
+                    .data("ping"))) {
+                cleanupArtworkEmitter(artworkId);
             }
         }, Duration.ofSeconds(30));
         heartbeatTasks.put(artworkId, heartbeat);
@@ -149,44 +161,36 @@ public class SSEController {
                 emitter, ownerUuid, admin, currentRequestLocale()));
 
         emitter.onCompletion(() -> {
-            cancelAggregatedHeartbeat(connectionId);
-            aggregatedEmitters.remove(connectionId);
+            cleanupAggregatedEmitter(connectionId);
             log.debug(logMessage("sse.log.aggregated.completed", connectionId));
         });
         emitter.onTimeout(() -> {
-            cancelAggregatedHeartbeat(connectionId);
-            safeRemoveAggregatedEmitter(connectionId);
+            cleanupAggregatedEmitter(connectionId);
             log.debug(logMessage("sse.log.aggregated.timeout", connectionId));
         });
         emitter.onError((e) -> {
-            cancelAggregatedHeartbeat(connectionId);
-            aggregatedEmitters.remove(connectionId);
+            cleanupAggregatedEmitter(connectionId);
             log.debug(logMessage("sse.log.aggregated.error", connectionId, e.getMessage()));
         });
 
         // 立即发送一个握手事件，便于前端确认连接成功
-        try {
-            emitter.send(SseEmitter.event()
-                    .id(String.valueOf(System.currentTimeMillis()))
-                    .name("aggregated-ready")
-                    .data(connectionId));
-        } catch (IOException e) {
-            aggregatedEmitters.remove(connectionId);
-            log.warn(logMessage("sse.log.aggregated.initial-send-failed", connectionId, e.getMessage()));
+        String closeToken = createAggregatedCloseToken(connectionId, ownerUuid, admin, System.currentTimeMillis());
+        if (!sendEvent(emitter, SseEmitter.event()
+                .id(String.valueOf(System.currentTimeMillis()))
+                .name("aggregated-ready")
+                .data(closeToken))) {
+            cleanupAggregatedEmitter(connectionId);
+            log.debug(logMessage("sse.log.aggregated.initial-send-failed", connectionId, "client disconnected"));
+            return emitter;
         }
 
         ScheduledFuture<?> heartbeat = taskScheduler.scheduleAtFixedRate(() -> {
-            try {
-                AggregatedSubscription sub = aggregatedEmitters.get(connectionId);
-                if (sub != null) {
-                    sub.emitter().send(SseEmitter.event()
-                            .id(String.valueOf(System.currentTimeMillis()))
-                            .name("heartbeat")
-                            .data("ping"));
-                }
-            } catch (IOException e) {
-                cancelAggregatedHeartbeat(connectionId);
-                aggregatedEmitters.remove(connectionId);
+            AggregatedSubscription sub = aggregatedEmitters.get(connectionId);
+            if (sub != null && !sendEvent(sub.emitter(), SseEmitter.event()
+                    .id(String.valueOf(System.currentTimeMillis()))
+                    .name("heartbeat")
+                    .data("ping"))) {
+                cleanupAggregatedEmitter(connectionId);
             }
         }, Duration.ofSeconds(30));
         aggregatedHeartbeats.put(connectionId, heartbeat);
@@ -199,8 +203,33 @@ public class SSEController {
      */
     @PostMapping("/close/{artworkId}")
     public ResponseEntity<DownloadResponse> closeSSEConnection(@PathVariable Long artworkId) {
-        safeRemoveEmitter(artworkId);
+        completeArtworkEmitter(artworkId);
         log.info(logMessage("sse.log.connection.closed", id(artworkId)));
+        return ResponseEntity.ok(DownloadResponse.builder()
+                .success(true)
+                .message(messages.get("sse.connection.closed"))
+                .build());
+    }
+
+    @PostMapping("/close/aggregated/{connectionId}")
+    public ResponseEntity<DownloadResponse> closeAggregatedSSEConnection(@PathVariable String connectionId,
+                                                                         HttpServletRequest request) {
+        CloseTokenPayload payload = parseAggregatedCloseToken(connectionId);
+        if (payload == null) {
+            return ResponseEntity.status(403).body(DownloadResponse.builder()
+                    .success(false)
+                    .message(messages.get("auth.unauthorized"))
+                    .build());
+        }
+        AggregatedSubscription sub = aggregatedEmitters.get(payload.connectionId());
+        if (sub != null && !canCloseAggregatedSubscription(sub, payload, request)) {
+            return ResponseEntity.status(403).body(DownloadResponse.builder()
+                    .success(false)
+                    .message(messages.get("auth.unauthorized"))
+                    .build());
+        }
+        completeAggregatedEmitter(payload.connectionId());
+        log.debug(logMessage("sse.log.aggregated.closed", payload.connectionId()));
         return ResponseEntity.ok(DownloadResponse.builder()
                 .success(true)
                 .message(messages.get("sse.connection.closed"))
@@ -217,25 +246,43 @@ public class SSEController {
         if (task != null) task.cancel(false);
     }
 
-    private void safeRemoveEmitter(Long artworkId) {
+    private void cleanupArtworkEmitter(Long artworkId) {
+        cancelHeartbeat(artworkId);
+        removeArtworkEmitter(artworkId, false);
+    }
+
+    private void completeArtworkEmitter(Long artworkId) {
+        cancelHeartbeat(artworkId);
         ArtworkSubscription subscription = emitters.remove(artworkId);
-        if (subscription != null) {
-            try {
-                subscription.emitter().complete();
-            } catch (IllegalStateException ignored) {
-                // emitter 已经完成或关闭，无需再次完成，属于预期情况
-            }
+        if (subscription != null && sendClosingEvent(subscription.emitter(), id(artworkId))) {
+            completeEmitter(subscription.emitter());
         }
     }
 
-    private void safeRemoveAggregatedEmitter(String connectionId) {
+    private void removeArtworkEmitter(Long artworkId, boolean complete) {
+        ArtworkSubscription subscription = emitters.remove(artworkId);
+        if (complete && subscription != null) {
+            completeEmitter(subscription.emitter());
+        }
+    }
+
+    private void cleanupAggregatedEmitter(String connectionId) {
+        cancelAggregatedHeartbeat(connectionId);
+        removeAggregatedEmitter(connectionId, false);
+    }
+
+    private void completeAggregatedEmitter(String connectionId) {
+        cancelAggregatedHeartbeat(connectionId);
         AggregatedSubscription sub = aggregatedEmitters.remove(connectionId);
-        if (sub != null) {
-            try {
-                sub.emitter().complete();
-            } catch (IllegalStateException ignored) {
-                // 已完成，属于预期情况
-            }
+        if (sub != null && sendClosingEvent(sub.emitter(), connectionId)) {
+            completeEmitter(sub.emitter());
+        }
+    }
+
+    private void removeAggregatedEmitter(String connectionId, boolean complete) {
+        AggregatedSubscription sub = aggregatedEmitters.remove(connectionId);
+        if (complete && sub != null) {
+            completeEmitter(sub.emitter());
         }
     }
 
@@ -246,10 +293,10 @@ public class SSEController {
     /**
      * 发送初始状态更新到前端
      */
-    public void sendStatusUpdate(Long artworkId) throws IOException {
+    public boolean sendStatusUpdate(Long artworkId) {
         ArtworkSubscription subscription = emitters.get(artworkId);
-        if (subscription == null) return;
-        subscription.emitter().send(SseEmitter.event()
+        if (subscription == null) return false;
+        return sendEvent(subscription.emitter(), SseEmitter.event()
                 .id(String.valueOf(System.currentTimeMillis()))
                 .name("download-status")
                 .data(buildConnectionEstablishedPayload(artworkId, subscription.locale())));
@@ -312,18 +359,15 @@ public class SSEController {
         // 1) 发送给订阅了该作品的旧式 per-artwork emitter（向后兼容）
         ArtworkSubscription perArtworkSubscription = emitters.get(artworkId);
         if (perArtworkSubscription != null) {
-            try {
-                perArtworkSubscription.emitter().send(SseEmitter.event()
-                        .id(String.valueOf(System.currentTimeMillis()))
-                        .name("download-status")
-                        .data(buildProgressPayload(
-                                artworkId,
-                                downloadStatus,
-                                perArtworkSubscription.locale()
-                        )));
-            } catch (IOException | IllegalStateException e) {
-                cancelHeartbeat(artworkId);
-                safeRemoveEmitter(artworkId);
+            if (!sendEvent(perArtworkSubscription.emitter(), SseEmitter.event()
+                    .id(String.valueOf(System.currentTimeMillis()))
+                    .name("download-status")
+                    .data(buildProgressPayload(
+                            artworkId,
+                            downloadStatus,
+                            perArtworkSubscription.locale()
+                    )))) {
+                cleanupArtworkEmitter(artworkId);
             }
         }
 
@@ -335,16 +379,37 @@ public class SSEController {
                 String connectionId = entry.getKey();
                 AggregatedSubscription sub = entry.getValue();
                 if (!shouldDeliverToSubscription(sub, eventOwner)) continue;
-                try {
-                    sub.emitter().send(SseEmitter.event()
-                            .id(String.valueOf(System.currentTimeMillis()))
-                            .name("download-status")
-                            .data(buildProgressPayload(artworkId, downloadStatus, sub.locale())));
-                } catch (IOException | IllegalStateException e) {
-                    cancelAggregatedHeartbeat(connectionId);
-                    safeRemoveAggregatedEmitter(connectionId);
+                if (!sendEvent(sub.emitter(), SseEmitter.event()
+                        .id(String.valueOf(System.currentTimeMillis()))
+                        .name("download-status")
+                        .data(buildProgressPayload(artworkId, downloadStatus, sub.locale())))) {
+                    cleanupAggregatedEmitter(connectionId);
                 }
             }
+        }
+    }
+
+    private boolean sendEvent(SseEmitter emitter, SseEmitter.SseEventBuilder event) {
+        try {
+            emitter.send(event);
+            return true;
+        } catch (IOException | IllegalStateException e) {
+            return false;
+        }
+    }
+
+    private boolean sendClosingEvent(SseEmitter emitter, String id) {
+        return sendEvent(emitter, SseEmitter.event()
+                .id(String.valueOf(System.currentTimeMillis()))
+                .name("sse-closing")
+                .data(id));
+    }
+
+    private void completeEmitter(SseEmitter emitter) {
+        try {
+            emitter.complete();
+        } catch (IllegalStateException ignored) {
+            // emitter 已经完成或关闭，无需再次完成，属于预期情况
         }
     }
 
@@ -352,6 +417,79 @@ public class SSEController {
         if (sub.admin()) return true;          // admin 看全部
         if (eventOwnerUuid == null) return true; // 事件无归属信息时回退为全员可见（向后兼容）
         return eventOwnerUuid.equals(sub.ownerUuid());
+    }
+
+    private boolean canCloseAggregatedSubscription(AggregatedSubscription sub,
+                                                   CloseTokenPayload payload,
+                                                   HttpServletRequest request) {
+        if (payload.admin() != sub.admin()
+                || !Objects.equals(payload.ownerUuid(), sub.ownerUuid())
+                || System.currentTimeMillis() - payload.issuedAtMillis() > CLOSE_TOKEN_MAX_AGE_MILLIS) {
+            return false;
+        }
+        if (setupService.isAdminLoggedIn(request)) {
+            return true;
+        }
+        if (sub.admin()) {
+            return false;
+        }
+        return sub.ownerUuid() != null && sub.ownerUuid().equals(UuidUtils.extractOrGenerateUuid(request));
+    }
+
+    private String createAggregatedCloseToken(String connectionId, String ownerUuid, boolean admin, long issuedAtMillis) {
+        String payload = String.join("|",
+                "v1",
+                connectionId,
+                ownerUuid == null ? "" : ownerUuid,
+                String.valueOf(admin),
+                String.valueOf(issuedAtMillis));
+        byte[] iv = new byte[GCM_IV_BYTES];
+        secureRandom.nextBytes(iv);
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(closeTokenKey, "AES"),
+                    new GCMParameterSpec(GCM_TAG_BITS, iv));
+            byte[] encrypted = cipher.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            byte[] token = ByteBuffer.allocate(iv.length + encrypted.length)
+                    .put(iv)
+                    .put(encrypted)
+                    .array();
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(token);
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("Failed to create SSE close token", e);
+        }
+    }
+
+    private CloseTokenPayload parseAggregatedCloseToken(String token) {
+        if (token == null || token.isBlank() || token.length() > 2048) {
+            return null;
+        }
+        try {
+            byte[] tokenBytes = Base64.getUrlDecoder().decode(token);
+            if (tokenBytes.length <= GCM_IV_BYTES) {
+                return null;
+            }
+            byte[] iv = new byte[GCM_IV_BYTES];
+            byte[] encrypted = new byte[tokenBytes.length - GCM_IV_BYTES];
+            System.arraycopy(tokenBytes, 0, iv, 0, GCM_IV_BYTES);
+            System.arraycopy(tokenBytes, GCM_IV_BYTES, encrypted, 0, encrypted.length);
+
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(closeTokenKey, "AES"),
+                    new GCMParameterSpec(GCM_TAG_BITS, iv));
+            String decoded = new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
+            String[] parts = decoded.split("\\|", -1);
+            if (parts.length != 5 || !"v1".equals(parts[0])) {
+                return null;
+            }
+            return new CloseTokenPayload(
+                    parts[1],
+                    parts[2].isBlank() ? null : parts[2],
+                    Boolean.parseBoolean(parts[3]),
+                    Long.parseLong(parts[4]));
+        } catch (IllegalArgumentException | GeneralSecurityException e) {
+            return null;
+        }
     }
 
     /**

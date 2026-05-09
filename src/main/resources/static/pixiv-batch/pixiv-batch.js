@@ -118,6 +118,7 @@
         userId: '',
         username: '',
         sharedSse: null,        // 共享 EventSource 单例
+        sharedSseConnectionId: null,
         sseRefs: {},            // artworkId -> 引用计数，最后一个释放时关闭共享连接
         sseListeners: {},
         stats: {success: 0, failed: 0, active: 0, skipped: 0},
@@ -1190,6 +1191,16 @@
     function ensureSharedSSE() {
         if (state.sharedSse) return;
         const src = new EventSource(`${BASE}/api/sse/download`);
+        src.addEventListener('aggregated-ready', e => {
+            state.sharedSseConnectionId = e.data || null;
+        });
+        src.addEventListener('sse-closing', () => {
+            if (state.sharedSse === src) {
+                state.sharedSse = null;
+                state.sharedSseConnectionId = null;
+            }
+            try { src.close(); } catch {}
+        });
         src.addEventListener('download-status', e => {
             try {
                 const data = JSON.parse(e.data);
@@ -1201,6 +1212,35 @@
         });
         // EventSource 自动重连，无需手动处理 onerror
         state.sharedSse = src;
+    }
+
+    function notifyAggregatedSSEClosed(connectionId) {
+        if (!connectionId) return Promise.resolve();
+        return fetch(`${BASE}/api/sse/close/aggregated/${encodeURIComponent(connectionId)}`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            keepalive: true
+        }).catch(() => {});
+    }
+
+    function closeSharedSSE() {
+        const src = state.sharedSse;
+        const connectionId = state.sharedSseConnectionId;
+        state.sharedSse = null;
+        state.sharedSseConnectionId = null;
+        let closed = false;
+        const closeLocal = () => {
+            if (closed) return;
+            closed = true;
+            if (src) {
+                try { src.close(); } catch {}
+            }
+        };
+        const fallbackTimer = setTimeout(closeLocal, 1000);
+        notifyAggregatedSSEClosed(connectionId).finally(() => {
+            clearTimeout(fallbackTimer);
+            closeLocal();
+        });
     }
 
     function openSSE(artworkId) {
@@ -1217,8 +1257,7 @@
         }
         delete state.sseListeners[key];
         if (Object.keys(state.sseRefs).length === 0 && state.sharedSse) {
-            try { state.sharedSse.close(); } catch {}
-            state.sharedSse = null;
+            closeSharedSSE();
         }
     }
 
@@ -1226,8 +1265,7 @@
         state.sseRefs = {};
         state.sseListeners = {};
         if (state.sharedSse) {
-            try { state.sharedSse.close(); } catch {}
-            state.sharedSse = null;
+            closeSharedSSE();
         }
     }
 

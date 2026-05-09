@@ -204,6 +204,70 @@ class SSEControllerTest {
         assertThat(emitter.completed).isTrue();
     }
 
+    @Test
+    @DisplayName("closeAggregatedSSEConnection 应取消心跳并完成聚合连接")
+    void shouldCloseAggregatedConnectionAndCancelHeartbeat() throws Exception {
+        String ownerUuid = "123e4567-e89b-12d3-a456-426614174000";
+        RecordingSseEmitter emitter = new RecordingSseEmitter();
+        putAggregatedSubscription("conn-1", emitter, ownerUuid, false, Locale.US);
+        aggregatedHeartbeatTasks().put("conn-1", heartbeatFuture);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-User-UUID", ownerUuid);
+        String closeToken = createAggregatedCloseToken("conn-1", ownerUuid, false);
+
+        var response = controller.closeAggregatedSSEConnection(closeToken, request);
+
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().isSuccess()).isTrue();
+        assertThat(aggregatedEmitters()).doesNotContainKey("conn-1");
+        assertThat(aggregatedHeartbeatTasks()).doesNotContainKey("conn-1");
+        assertThat(emitter.events).hasSize(1);
+        assertThat(emitter.events.get(0).raw).contains("event:sse-closing");
+        assertThat(emitter.completed).isTrue();
+        verify(heartbeatFuture).cancel(false);
+    }
+
+    @Test
+    @DisplayName("closeAggregatedSSEConnection 应拒绝关闭不属于当前用户的聚合连接")
+    void shouldRejectClosingAggregatedConnectionOwnedByAnotherUser() throws Exception {
+        String ownerUuid = "123e4567-e89b-12d3-a456-426614174000";
+        RecordingSseEmitter emitter = new RecordingSseEmitter();
+        putAggregatedSubscription("conn-1", emitter, ownerUuid, false, Locale.US);
+        aggregatedHeartbeatTasks().put("conn-1", heartbeatFuture);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-User-UUID", "223e4567-e89b-12d3-a456-426614174000");
+        String closeToken = createAggregatedCloseToken("conn-1", ownerUuid, false);
+
+        var response = controller.closeAggregatedSSEConnection(closeToken, request);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(403);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().isSuccess()).isFalse();
+        assertThat(aggregatedEmitters()).containsKey("conn-1");
+        assertThat(aggregatedHeartbeatTasks()).containsKey("conn-1");
+        assertThat(emitter.events).isEmpty();
+        assertThat(emitter.completed).isFalse();
+    }
+
+    @Test
+    @DisplayName("发送失败时应清理聚合连接但不再 complete 已损坏的响应")
+    void shouldCleanupAggregatedConnectionWithoutCompleteAfterSendFailure() throws Exception {
+        FailingSseEmitter emitter = new FailingSseEmitter();
+        putAggregatedSubscription("broken", emitter, "user-1", false, Locale.US);
+        aggregatedHeartbeatTasks().put("broken", heartbeatFuture);
+
+        DownloadStatus status = new DownloadStatus(123L, "test", 1);
+        status.setDownloadedCount(1);
+
+        controller.handleDownloadProgressEvent(new DownloadProgressEvent(this, 123L, status, "user-1"));
+
+        waitUntil(() -> !aggregatedEmitters().containsKey("broken"));
+        assertThat(aggregatedEmitters()).doesNotContainKey("broken");
+        assertThat(aggregatedHeartbeatTasks()).doesNotContainKey("broken");
+        assertThat(emitter.completed).isFalse();
+        verify(heartbeatFuture).cancel(false);
+    }
+
     @SuppressWarnings("unchecked")
     private ConcurrentHashMap<Long, Object> artworkEmitters() {
         return (ConcurrentHashMap<Long, Object>) ReflectionTestUtils.getField(controller, "emitters");
@@ -275,6 +339,15 @@ class SSEControllerTest {
         }
     }
 
+    private String createAggregatedCloseToken(String connectionId, String ownerUuid, boolean admin) {
+        return ReflectionTestUtils.invokeMethod(controller,
+                "createAggregatedCloseToken",
+                connectionId,
+                ownerUuid,
+                admin,
+                System.currentTimeMillis());
+    }
+
     private static final class RecordingSseEmitter extends SseEmitter {
         private final List<SentEvent> events = new CopyOnWriteArrayList<>();
         private boolean completed;
@@ -292,6 +365,21 @@ class SSEControllerTest {
                 }
             }
             events.add(new SentEvent(raw.toString(), payload));
+        }
+
+        @Override
+        public void complete() {
+            completed = true;
+            super.complete();
+        }
+    }
+
+    private static final class FailingSseEmitter extends SseEmitter {
+        private boolean completed;
+
+        @Override
+        public void send(SseEventBuilder builder) throws IOException {
+            throw new IOException("client disconnected");
         }
 
         @Override

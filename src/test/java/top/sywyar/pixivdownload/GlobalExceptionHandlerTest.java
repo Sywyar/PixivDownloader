@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
+import java.io.IOException;
 import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.*;
@@ -49,5 +50,16 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode().value()).isEqualTo(500);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getError()).isEqualTo("发生未处理异常");
+    }
+
+    @Test
+    @DisplayName("客户端断开导致的 IO 异常应视为无响应体的正常断连")
+    void shouldTreatClientDisconnectAsNoContent() {
+        IOException ex = new IOException("你的主机中的软件中止了一个已建立的连接。");
+
+        ResponseEntity<?> response = handler.handleIOException(ex, Locale.SIMPLIFIED_CHINESE);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(204);
+        assertThat(response.getBody()).isNull();
     }
 }
