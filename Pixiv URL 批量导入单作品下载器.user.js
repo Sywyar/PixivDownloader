@@ -37,6 +37,9 @@
         get SSE_BASE() {
             return serverBase + '/api/sse/download';
         },        // /{artworkId}
+        get SSE_CLOSE_BASE() {
+            return serverBase + '/api/sse/close/aggregated';
+        },
         get QUOTA_INIT_URL() {
             return serverBase + '/api/quota/init';
         },
@@ -873,31 +876,39 @@
             this.reader = null;
             this.connected = false;
             this.connecting = false;
+            this.batchActive = false;
             this.listeners = new Map();        // artworkId -> [fn]
             this.activeArtworks = new Set();   // 当前需要监听的作品集合
+            this.connectionId = null;
+            this.closing = false;
             this._buffer = '';
             this._closeTimer = null;
             this._reconnectTimer = null;
         }
 
         // 兼容旧调用点的语义：
-        // open(id) 表示开始关注该作品的进度（必要时建立共享连接）
-        // close(id) 表示不再关注该作品；当所有关注都释放后延迟关闭共享连接
+        // open(id) / close(id) 只增删作品监听；共享连接由批量任务生命周期统一开关
+        openShared() {
+            this._cancelDeferredClose();
+            if (this.closing) this._cleanup();
+            this.batchActive = true;
+            this.closing = false;
+            this._ensureConnection();
+        }
+
         open(artworkId) {
             const key = String(artworkId);
             this.activeArtworks.add(key);
-            this._cancelDeferredClose();
-            this._ensureConnection();
         }
 
         close(artworkId) {
             const key = String(artworkId);
             this.activeArtworks.delete(key);
             this.listeners.delete(key);
-            if (this.activeArtworks.size === 0) this._scheduleDeferredClose();
         }
 
         closeAll() {
+            this.batchActive = false;
             this.activeArtworks.clear();
             this.listeners.clear();
             this._closeNow();
@@ -916,6 +927,7 @@
 
         _openConnection() {
             this.connecting = true;
+            this.closing = false;
             this._buffer = '';
             const headers = {};
             if (userUUID) headers['X-User-UUID'] = userUUID;
@@ -954,7 +966,12 @@
             const decoder = new TextDecoder();
             const pump = () => {
                 this.reader.read().then(({done, value}) => {
-                    if (done) { this._cleanup(); this._scheduleReconnect(); return; }
+                    if (done) {
+                        const shouldReconnect = !this.closing;
+                        this._cleanup();
+                        if (shouldReconnect) this._scheduleReconnect();
+                        return;
+                    }
                     const chunk = decoder.decode(value, {stream: true});
                     this._buffer += chunk;
                     const parts = this._buffer.split('\n\n');
@@ -963,8 +980,13 @@
                         if (!part.trim()) continue;
                         this._processEvent(part);
                     }
+                    if (!this.reader) return;
                     pump();
-                }).catch(() => { this._cleanup(); this._scheduleReconnect(); });
+                }).catch(() => {
+                    const shouldReconnect = !this.closing;
+                    this._cleanup();
+                    if (shouldReconnect) this._scheduleReconnect();
+                });
             };
             pump();
         }
@@ -975,6 +997,15 @@
             for (const line of rawEvent.split('\n')) {
                 if (line.startsWith('event:')) eventName = line.substring(6).trim();
                 else if (line.startsWith('data:')) dataLines.push(line.substring(5));
+            }
+            if (eventName === 'aggregated-ready') {
+                this.connectionId = dataLines.join('\n').trim() || null;
+                return;
+            }
+            if (eventName === 'sse-closing') {
+                this.closing = true;
+                this._cleanup();
+                return;
             }
             if (eventName !== 'download-status' || dataLines.length === 0) return;
             try {
@@ -988,11 +1019,12 @@
         }
 
         _scheduleReconnect() {
-            if (this.activeArtworks.size === 0) return;
+            if (this.closing) return;
+            if (!this.batchActive) return;
             if (this._reconnectTimer) return;
             this._reconnectTimer = setTimeout(() => {
                 this._reconnectTimer = null;
-                if (this.activeArtworks.size > 0 && !this.connected && !this.connecting) {
+                if (this.batchActive && !this.connected && !this.connecting) {
                     this._openConnection();
                 }
             }, 2000);
@@ -1011,17 +1043,46 @@
         }
 
         _closeNow() {
-            this._cleanup();
             this._cancelDeferredClose();
             if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+            if (!this.connected && !this.connecting && !this.handle && !this.reader) {
+                this.connectionId = null;
+                this.closing = false;
+                return;
+            }
+            this.closing = true;
+            const connectionId = this.connectionId;
+            this.connectionId = null;
+            if (connectionId) this._notifyAggregatedClose(connectionId);
+            setTimeout(() => {
+                if (this.closing) this._cleanup();
+            }, 1000);
+        }
+
+        _notifyAggregatedClose(connectionId) {
+            const headers = {};
+            if (userUUID) headers['X-User-UUID'] = userUUID;
+            try {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: `${CONFIG.SSE_CLOSE_BASE}/${encodeURIComponent(connectionId)}`,
+                    headers,
+                    timeout: 2000,
+                    onload: () => {},
+                    onerror: () => {},
+                    ontimeout: () => {}
+                });
+            } catch (e) {}
         }
 
         _cleanup() {
             this.connected = false;
             this.connecting = false;
+            this.connectionId = null;
             if (this.reader) { try { this.reader.cancel(); } catch (e) {} this.reader = null; }
             if (this.handle) { try { this.handle.abort(); } catch (e) {} this.handle = null; }
             this._buffer = '';
+            this.closing = false;
         }
     }
 
@@ -1317,11 +1378,16 @@
             this.ui.renderQueue(this.queue);
             this.ui.setStatus('开始批量下载', 'info');
 
-            const workers = [];
-            for (let i = 0; i < Math.max(1, maxConcurrent); i++) {
-                workers.push(this.workerLoop(intervalMs));
+            this.sse.openShared();
+            try {
+                const workers = [];
+                for (let i = 0; i < Math.max(1, maxConcurrent); i++) {
+                    workers.push(this.workerLoop(intervalMs));
+                }
+                await Promise.all(workers);
+            } finally {
+                this.sse.closeAll();
             }
-            await Promise.all(workers);
             this.isRunning = false;
             this.saveToStorage();
             this.ui.setStatus('批量下载结束', 'info');

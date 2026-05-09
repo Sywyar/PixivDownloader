@@ -119,7 +119,7 @@
         username: '',
         sharedSse: null,        // 共享 EventSource 单例
         sharedSseConnectionId: null,
-        sseRefs: {},            // artworkId -> 引用计数，最后一个释放时关闭共享连接
+        sseRefs: {},            // artworkId -> 引用计数；共享连接由批量任务生命周期统一关闭
         sseListeners: {},
         stats: {success: 0, failed: 0, active: 0, skipped: 0},
         settings: {
@@ -1246,7 +1246,6 @@
     function openSSE(artworkId) {
         const key = String(artworkId);
         state.sseRefs[key] = (state.sseRefs[key] || 0) + 1;
-        ensureSharedSSE();
     }
 
     function closeSSE(artworkId) {
@@ -1256,9 +1255,6 @@
             if (state.sseRefs[key] <= 0) delete state.sseRefs[key];
         }
         delete state.sseListeners[key];
-        if (Object.keys(state.sseRefs).length === 0 && state.sharedSse) {
-            closeSharedSSE();
-        }
     }
 
     function closeAllSSE() {
@@ -1361,11 +1357,16 @@
             'info'
         );
 
-        const workers = [];
-        for (let i = 0; i < Math.max(1, concurrent); i++) {
-            workers.push(workerLoop(intervalMs));
+        ensureSharedSSE();
+        try {
+            const workers = [];
+            for (let i = 0; i < Math.max(1, concurrent); i++) {
+                workers.push(workerLoop(intervalMs));
+            }
+            await Promise.all(workers);
+        } finally {
+            closeAllSSE();
         }
-        await Promise.all(workers);
 
         state.isRunning = false;
         saveQueue();
@@ -1993,9 +1994,12 @@
         if (state.isRunning && added > 0 && state.activeWorkers === 0) {
             const concurrent = Math.max(1, state.settings.concurrent);
             const intervalMs = getIntervalMs();
+            ensureSharedSSE();
             const workers = [];
             for (let i = 0; i < concurrent; i++) workers.push(workerLoop(intervalMs));
-            Promise.all(workers).then(() => {
+            Promise.all(workers).finally(() => {
+                closeAllSSE();
+            }).then(() => {
                 state.isRunning = false;
                 saveQueue();
                 setStatus(bt('status.batch-finished', '批量下载结束'), 'info');
