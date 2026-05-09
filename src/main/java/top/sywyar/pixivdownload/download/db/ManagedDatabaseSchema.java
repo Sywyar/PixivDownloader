@@ -225,10 +225,7 @@ public final class ManagedDatabaseSchema {
                         column("is_original", "INTEGER", false, null, 0),
                         column("x_language", "TEXT", false, null, 0),
                         column("raw_content", "TEXT", false, null, 0),
-                        column("cover_ext", "TEXT", false, null, 0),
-                        column("moved", "INTEGER", false, "0", 0),
-                        column("move_folder", "TEXT", false, null, 0),
-                        column("move_time", "INTEGER", false, null, 0)
+                        column("cover_ext", "TEXT", false, null, 0)
                 ),
                 List.of(
                         uniqueConstraint("time")

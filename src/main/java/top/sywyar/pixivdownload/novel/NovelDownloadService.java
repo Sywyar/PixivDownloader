@@ -131,9 +131,9 @@ public class NovelDownloadService {
             }
             String folderName = "novel-" + novelId;
             downloadPath = downloadPath.resolve(folderName);
+            status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
-            status.setFolderName(displayFolderName(downloadRoot, downloadPath));
 
             // Resolve filename template
             long timestamp = other.getFileNameTimestamp() != null
@@ -173,7 +173,7 @@ public class NovelDownloadService {
             // Persist DB
             long uniqueTime = novelDatabase.getUniqueTime(
                     other.getUploadTimestamp() != null ? TimestampUtils.toMillis(other.getUploadTimestamp()) : timestamp);
-            novelDatabase.insertNovel(novelId, title, downloadPath.toString(), 1, ext, uniqueTime,
+            novelDatabase.insertNovel(novelId, title, downloadPath.toAbsolutePath().toString(), 1, ext, uniqueTime,
                     other.getXRestrict(), other.isAi(), other.getAuthorId(), other.getDescription(),
                     templateId, fileAuthorNameId, other.getSeriesId(), other.getSeriesOrder(),
                     other.getWordCount(), other.getTextLength(), other.getReadingTimeSeconds(),

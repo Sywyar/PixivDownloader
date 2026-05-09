@@ -41,7 +41,6 @@ public class NovelDatabase {
         try { novelMapper.addCoverExtColumn(); } catch (Exception ignored) {}
         try { novelMapper.addReadingTimeSecondsColumn(); } catch (Exception ignored) {}
         novelMapper.migrateNovelTimestampsToMillis();
-        novelMapper.migrateNovelMoveTimestampsToMillis();
         novelMapper.migrateNovelCollectionTimestampsToMillis();
         novelMapper.migrateNovelSeriesTimestampsToMillis();
         Long maxTime = novelMapper.findMaxTime();
@@ -131,10 +130,6 @@ public class NovelDatabase {
 
     public List<Long> getAllNovelIdsSortedByTimeDesc() {
         return novelMapper.findAllIdsSortedByTimeDesc();
-    }
-
-    public void updateNovelMove(long novelId, String movePath, long moveTime) {
-        novelMapper.updateMove(novelId, stripTrailingSlash(movePath), moveTime);
     }
 
     public void updateExtensions(long novelId, String extensions) {

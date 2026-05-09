@@ -111,7 +111,7 @@ public class DownloadService {
             // 创建文件夹结构
             Path downloadRoot = resolveEffectiveDownloadRoot(other);
             Path downloadPath = downloadRoot;
-            if (other.isUserDownload() && !downloadConfig.isUserFlatFolder()) {
+            if (other.isUserDownload() && other.getUsername() != null && !downloadConfig.isUserFlatFolder()) {
                 downloadPath = downloadPath.resolve(other.getUsername());
 
                 if (other.getXRestrict() == 2) {

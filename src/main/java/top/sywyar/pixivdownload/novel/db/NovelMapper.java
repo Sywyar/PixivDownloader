@@ -14,8 +14,7 @@ import java.util.List;
 @Mapper
 public interface NovelMapper {
 
-    String SELECT_NOVEL = "SELECT novel_id AS novelId, title, folder, count, extensions, time, moved,"
-            + " move_folder AS moveFolder, move_time AS moveTime,"
+    String SELECT_NOVEL = "SELECT novel_id AS novelId, title, folder, count, extensions, time,"
             + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
             + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"
             + " series_id AS seriesId, series_order AS seriesOrder,"
@@ -47,10 +46,7 @@ public interface NovelMapper {
             + "is_original INTEGER DEFAULT NULL,"
             + "x_language TEXT DEFAULT NULL,"
             + "raw_content TEXT DEFAULT NULL,"
-            + "cover_ext TEXT DEFAULT NULL,"
-            + "moved INTEGER DEFAULT 0,"
-            + "move_folder TEXT,"
-            + "move_time INTEGER)")
+            + "cover_ext TEXT DEFAULT NULL)")
     void createNovelsTable();
 
     /** 幂等迁移：旧库为已存在的 novels 表补 cover_ext 列；列已存在时调用方需吞掉异常 */
@@ -63,10 +59,6 @@ public interface NovelMapper {
     @Update("UPDATE novels SET time = time * 1000"
             + " WHERE time > 0 AND time < 1000000000000")
     int migrateNovelTimestampsToMillis();
-
-    @Update("UPDATE novels SET move_time = move_time * 1000"
-            + " WHERE move_time IS NOT NULL AND move_time > 0 AND move_time < 1000000000000")
-    int migrateNovelMoveTimestampsToMillis();
 
     @Update("CREATE TABLE IF NOT EXISTS novel_series ("
             + "series_id INTEGER PRIMARY KEY,"
@@ -180,12 +172,6 @@ public interface NovelMapper {
 
     @Delete("DELETE FROM novels WHERE novel_id = #{novelId}")
     void deleteById(@Param("novelId") long novelId);
-
-    @Update("UPDATE novels SET moved = 1, move_folder = #{movePath}, move_time = #{moveTime}"
-            + " WHERE novel_id = #{novelId}")
-    void updateMove(@Param("novelId") long novelId,
-                    @Param("movePath") String movePath,
-                    @Param("moveTime") long moveTime);
 
     @Update("UPDATE novels SET extensions = #{extensions} WHERE novel_id = #{novelId}")
     void updateExtensions(@Param("novelId") long novelId, @Param("extensions") String extensions);
