@@ -175,9 +175,12 @@ function setupEventHandlers() {
     });
 
     // View nav
-    document.getElementById('navViewAll').addEventListener('click', e => { e.preventDefault(); switchView('all'); });
-    document.getElementById('navViewAuthors').addEventListener('click', e => { e.preventDefault(); switchView('authors'); });
-    document.getElementById('navViewSeries').addEventListener('click', e => { e.preventDefault(); switchView('series'); });
+    document.querySelectorAll('.nav-item[data-view], .gallery-type-option[data-view]').forEach(el => {
+        el.addEventListener('click', e => {
+            e.preventDefault();
+            switchView(el.dataset.view);
+        });
+    });
 
     document.getElementById('btnCreateCollection').addEventListener('click', () => openCollectionFormModal(null));
     document.getElementById('collectionFormClose').addEventListener('click', closeCollectionFormModal);
@@ -735,8 +738,9 @@ function switchView(v) {
 }
 
 function setActiveViewNav() {
-    document.getElementById('navViewAuthors').classList.toggle('active', state.view === 'authors');
-    document.getElementById('navViewSeries').classList.toggle('active', state.view === 'series');
+    document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+        el.classList.toggle('active', el.dataset.view === state.view);
+    });
     const grid = document.getElementById('grid');
     const pag = document.getElementById('pagination');
     const av = document.getElementById('authorView');
