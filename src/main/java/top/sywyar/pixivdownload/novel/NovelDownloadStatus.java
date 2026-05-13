@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 public class NovelDownloadStatus {
     private Long novelId;
     private String title;
+    private String ownerUuid;
     private String format;
     private String stage;
     private String folderName;
@@ -22,8 +23,13 @@ public class NovelDownloadStatus {
     private LocalDateTime endTime;
 
     public NovelDownloadStatus(Long novelId, String title, String format) {
+        this(novelId, title, format, null);
+    }
+
+    public NovelDownloadStatus(Long novelId, String title, String format, String ownerUuid) {
         this.novelId = novelId;
         this.title = title;
+        this.ownerUuid = ownerUuid;
         this.format = format;
         this.stage = "pending";
         this.startTime = LocalDateTime.now();

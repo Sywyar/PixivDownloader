@@ -54,7 +54,7 @@ public class GuiStatusController {
      */
     @GetMapping("/status")
     public ResponseEntity<GuiStatusResponse> status(HttpServletRequest req) {
-        if (!NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
+        if (!NetworkUtils.isLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
@@ -80,7 +80,7 @@ public class GuiStatusController {
      */
     @PostMapping("/restart")
     public ResponseEntity<Void> restart(HttpServletRequest req) {
-        if (!NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
+        if (!NetworkUtils.isLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 

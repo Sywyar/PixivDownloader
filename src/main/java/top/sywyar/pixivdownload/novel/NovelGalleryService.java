@@ -11,12 +11,16 @@ import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.novel.db.NovelSeriesSummary;
 import top.sywyar.pixivdownload.novel.db.NovelTagOption;
+import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -25,6 +29,7 @@ public class NovelGalleryService {
 
     private final NovelDatabase novelDatabase;
     private final AuthorService authorService;
+    private final GuestAccessGuard guestAccessGuard;
 
     public PagedNovels query(NovelGalleryQuery q) {
         // 简单实现：内存过滤。规模按本地下载量计算可接受；后续可下沉到 SQL。
@@ -57,6 +62,7 @@ public class NovelGalleryService {
             if (idCandidates != null && !idCandidates.contains(id)) continue;
             NovelRecord r = novelDatabase.getNovel(id);
             if (r == null) continue;
+            if (q.guestSession() != null && !guestAccessGuard.isNovelVisibleToGuest(id, q.guestSession())) continue;
             if (!matchAgeFilter(r.xRestrict(), q.r18())) continue;
             if (!matchAiFilter(r.isAi(), q.ai())) continue;
             if (!search.isEmpty() && !r.title().toLowerCase(Locale.ROOT).contains(search)) continue;
@@ -237,6 +243,33 @@ public class NovelGalleryService {
         return new PagedAuthors(rows, total, safePage, safeSize, totalPages);
     }
 
+    public PagedAuthors getPagedAuthorsWithNovels(int page, int size, String search, String sort,
+                                                  GuestInviteSession session) {
+        if (session == null) {
+            return getPagedAuthorsWithNovels(page, size, search, sort);
+        }
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(Math.max(1, size), 200);
+        String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        for (NovelRecord novel : visibleNovels(session)) {
+            if (novel.authorId() != null && novel.authorId() > 0) {
+                counts.merge(novel.authorId(), 1L, Long::sum);
+            }
+        }
+        Map<Long, String> names = authorService.getAuthorNames(counts.keySet());
+        List<NovelAuthorSummary> rows = counts.entrySet().stream()
+                .map(entry -> new NovelAuthorSummary(entry.getKey(),
+                        names.getOrDefault(entry.getKey(), String.valueOf(entry.getKey())),
+                        entry.getValue()))
+                .filter(item -> term.isEmpty()
+                        || String.valueOf(item.authorId()).contains(term)
+                        || (item.name() != null && item.name().toLowerCase(Locale.ROOT).contains(term)))
+                .sorted(authorSummaryComparator(sort))
+                .toList();
+        return pageAuthors(rows, safePage, safeSize);
+    }
+
     public PagedSeries getPagedSeriesWithNovels(int page, int size, String search, String sort) {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), 200);
@@ -250,10 +283,120 @@ public class NovelGalleryService {
         return new PagedSeries(rows, total, safePage, safeSize, totalPages);
     }
 
+    public PagedSeries getPagedSeriesWithNovels(int page, int size, String search, String sort,
+                                                GuestInviteSession session) {
+        if (session == null) {
+            return getPagedSeriesWithNovels(page, size, search, sort);
+        }
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(Math.max(1, size), 200);
+        String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        Map<Long, Long> counts = new LinkedHashMap<>();
+        for (NovelRecord novel : visibleNovels(session)) {
+            if (novel.seriesId() != null && novel.seriesId() > 0) {
+                counts.merge(novel.seriesId(), 1L, Long::sum);
+            }
+        }
+        Set<Long> authorIds = new HashSet<>();
+        Map<Long, NovelSeries> seriesById = new LinkedHashMap<>();
+        for (Long seriesId : counts.keySet()) {
+            NovelSeries series = novelDatabase.getSeries(seriesId);
+            if (series != null) {
+                seriesById.put(seriesId, series);
+                if (series.authorId() != null && series.authorId() > 0) {
+                    authorIds.add(series.authorId());
+                }
+            }
+        }
+        Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
+        List<NovelSeriesSummary> rows = counts.entrySet().stream()
+                .map(entry -> {
+                    NovelSeries series = seriesById.get(entry.getKey());
+                    String title = series == null ? String.valueOf(entry.getKey()) : series.title();
+                    Long authorId = series == null ? null : series.authorId();
+                    String authorName = authorId == null ? null : authorNames.get(authorId);
+                    return new NovelSeriesSummary(entry.getKey(), title, authorId, authorName, entry.getValue());
+                })
+                .filter(item -> term.isEmpty()
+                        || String.valueOf(item.seriesId()).contains(term)
+                        || (item.title() != null && item.title().toLowerCase(Locale.ROOT).contains(term))
+                        || (item.authorName() != null && item.authorName().toLowerCase(Locale.ROOT).contains(term)))
+                .sorted(seriesSummaryComparator(sort))
+                .toList();
+        return pageSeries(rows, safePage, safeSize);
+    }
+
     public List<NovelTagOption> listTags(String search, int limit) {
         String s = (search == null || search.isBlank()) ? "%" : "%" + search.trim() + "%";
         int safeLimit = Math.min(Math.max(1, limit), 5000);
         return novelDatabase.findTagsForNovels(s, safeLimit);
+    }
+
+    public List<NovelTagOption> listTags(String search, int limit, GuestInviteSession session) {
+        if (session == null) {
+            return listTags(search, limit);
+        }
+        String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        int safeLimit = Math.min(Math.max(1, limit), 5000);
+        Map<Long, MutableTagSummary> counts = new LinkedHashMap<>();
+        for (NovelRecord novel : visibleNovels(session)) {
+            for (TagDto tag : novelDatabase.getNovelTags(novel.novelId())) {
+                if (tag.getTagId() == null) {
+                    continue;
+                }
+                String name = tag.getName() == null ? "" : tag.getName();
+                String translated = tag.getTranslatedName();
+                if (!term.isEmpty()
+                        && !name.toLowerCase(Locale.ROOT).contains(term)
+                        && (translated == null || !translated.toLowerCase(Locale.ROOT).contains(term))) {
+                    continue;
+                }
+                counts.computeIfAbsent(tag.getTagId(),
+                        id -> new MutableTagSummary(id, name, translated)).count++;
+            }
+        }
+        return counts.values().stream()
+                .map(item -> new NovelTagOption(item.tagId, item.name, item.translatedName, item.count))
+                .sorted(Comparator.comparingLong(NovelTagOption::novelCount).reversed()
+                        .thenComparing(option -> option.name() == null ? "" : option.name().toLowerCase(Locale.ROOT)))
+                .limit(safeLimit)
+                .toList();
+    }
+
+    private Comparator<NovelAuthorSummary> authorSummaryComparator(String sort) {
+        Comparator<NovelAuthorSummary> comparator = switch (sort == null ? "name" : sort) {
+            case "novels" -> Comparator.comparingLong(NovelAuthorSummary::novelCount).reversed();
+            case "authorId" -> Comparator.comparingLong(NovelAuthorSummary::authorId);
+            default -> Comparator.comparing(item -> item.name() == null
+                    ? "" : item.name().toLowerCase(Locale.ROOT));
+        };
+        return comparator.thenComparingLong(NovelAuthorSummary::authorId);
+    }
+
+    private PagedAuthors pageAuthors(List<NovelAuthorSummary> rows, int page, int size) {
+        int total = rows.size();
+        int from = Math.min(page * size, total);
+        int to = Math.min(from + size, total);
+        int totalPages = (int) Math.ceil((double) total / size);
+        return new PagedAuthors(rows.subList(from, to), total, page, size, totalPages);
+    }
+
+    private Comparator<NovelSeriesSummary> seriesSummaryComparator(String sort) {
+        Comparator<NovelSeriesSummary> comparator = switch (sort == null ? "title" : sort) {
+            case "novels" -> Comparator.comparingLong(NovelSeriesSummary::novelCount).reversed();
+            case "seriesId" -> Comparator.comparingLong(NovelSeriesSummary::seriesId);
+            default -> Comparator.comparing(item -> item.title() == null
+                    ? "" : item.title().toLowerCase(Locale.ROOT));
+        };
+        return comparator.thenComparingLong(NovelSeriesSummary::seriesId);
+    }
+
+    private PagedSeries pageSeries(List<NovelSeriesSummary> rows, int page, int size) {
+        int total = rows.size();
+        int from = Math.min(page * size, total);
+        int to = Math.min(from + size, total);
+        int totalPages = (int) Math.ceil((double) total / size);
+        return new PagedSeries(rows.subList(from, to), total, page, size, totalPages);
     }
 
     public record PagedAuthors(List<NovelAuthorSummary> content, long totalElements,
@@ -267,17 +410,29 @@ public class NovelGalleryService {
                                     Set<Long> collectionIds,
                                     Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
                                     Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
-                                    Set<Long> seriesIds, Set<Long> notSeriesIds) {
+                                    Set<Long> seriesIds, Set<Long> notSeriesIds,
+                                    GuestInviteSession guestSession) {
+        public NovelGalleryQuery(int page, int size, String sort, String order,
+                                 String search, String r18, String ai,
+                                 Set<Long> collectionIds,
+                                 Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
+                                 Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
+                                 Set<Long> seriesIds, Set<Long> notSeriesIds) {
+            this(page, size, sort, order, search, r18, ai, collectionIds,
+                    tagIds, notTagIds, orTagIds, authorIds, notAuthorIds, orAuthorIds,
+                    seriesIds, notSeriesIds, null);
+        }
+
         public NovelGalleryQuery(int page, int size, String sort, String order,
                                  String search, String r18, String ai) {
             this(page, size, sort, order, search, r18, ai, null,
-                    null, null, null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null, null);
         }
         public NovelGalleryQuery(int page, int size, String sort, String order,
                                  String search, String r18, String ai,
                                  Set<Long> collectionIds) {
             this(page, size, sort, order, search, r18, ai, collectionIds,
-                    null, null, null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -312,4 +467,33 @@ public class NovelGalleryService {
                                   NeighborView prev, NeighborView next) {}
 
     public record NeighborView(long novelId, String title, long seriesOrder) {}
+
+    private List<NovelRecord> visibleNovels(GuestInviteSession session) {
+        if (session == null) {
+            return List.of();
+        }
+        List<NovelRecord> out = new ArrayList<>();
+        for (Long id : novelDatabase.getAllNovelIdsSortedByTimeDesc()) {
+            if (guestAccessGuard.isNovelVisibleToGuest(id, session)) {
+                NovelRecord novel = novelDatabase.getNovel(id);
+                if (novel != null) {
+                    out.add(novel);
+                }
+            }
+        }
+        return out;
+    }
+
+    private static final class MutableTagSummary {
+        private final long tagId;
+        private final String name;
+        private final String translatedName;
+        private long count;
+
+        private MutableTagSummary(long tagId, String name, String translatedName) {
+            this.tagId = tagId;
+            this.name = name;
+            this.translatedName = translatedName;
+        }
+    }
 }

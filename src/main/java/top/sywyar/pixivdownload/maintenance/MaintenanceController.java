@@ -52,7 +52,7 @@ public class MaintenanceController {
     }
 
     private void requireLocal(HttpServletRequest request) {
-        if (!NetworkUtils.isLocalAddress(request.getRemoteAddr())) {
+        if (!NetworkUtils.isLocalRequest(request)) {
             throw new LocalizedException(HttpStatus.FORBIDDEN,
                     "auth.local-only", "Forbidden: local access only");
         }

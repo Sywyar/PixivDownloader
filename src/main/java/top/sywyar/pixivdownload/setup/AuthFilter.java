@@ -141,7 +141,7 @@ public class AuthFilter extends OncePerRequestFilter {
         // 维护窗口：非本地管理员一律 503（避免维护中错改数据）
         MaintenanceCoordinator maintenance = maintenanceCoordinatorProvider.getIfAvailable();
         if (maintenance != null && maintenance.isPaused()
-                && !(NetworkUtils.isLocalAddress(req.getRemoteAddr())
+                && !(NetworkUtils.isLocalRequest(req)
                         && setupService.isAdminLoggedIn(req))) {
             res.setStatus(503);
             res.setHeader(HttpHeaders.RETRY_AFTER, "60");
@@ -178,7 +178,7 @@ public class AuthFilter extends OncePerRequestFilter {
 
         if (isSetupOnlyStaticResource(path)
                 && !setupService.isSetupComplete()
-                && !NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
+                && !NetworkUtils.isLocalRequest(req)) {
             sendTextError(req, res, 403, "auth.local-only", "Forbidden: local access only");
             return;
         }
@@ -195,7 +195,7 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         if (isSetupPagePath(path)) {
-            if (!NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
+            if (!NetworkUtils.isLocalRequest(req)) {
                 sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
                 return;
             }
@@ -264,14 +264,14 @@ public class AuthFilter extends OncePerRequestFilter {
 
         if (path.startsWith("/api/downloaded/") || path.equals("/api/download/status")) {
             if ("POST".equalsIgnoreCase(method) && path.contains("/downloaded/move/")) {
-                if (!NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
+                if (!NetworkUtils.isLocalRequest(req)) {
                     sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
                     return;
                 }
                 chain.doFilter(req, res);
                 return;
             }
-            if (NetworkUtils.isLocalAddress(req.getRemoteAddr())) {
+            if (NetworkUtils.isLocalRequest(req)) {
                 chain.doFilter(req, res);
                 return;
             }

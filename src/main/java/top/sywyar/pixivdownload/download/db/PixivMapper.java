@@ -180,6 +180,10 @@ public interface PixivMapper {
     @Select("SELECT artwork_id FROM artworks ORDER BY time DESC")
     List<Long> findAllIdsSortedByTimeDesc();
 
+    @Select("SELECT artwork_id FROM artworks"
+            + " ORDER BY COALESCE(author_id, 9223372036854775807), time DESC")
+    List<Long> findAllIdsSortedByAuthorIdAsc();
+
     @Select("SELECT artwork_id FROM artworks ORDER BY time DESC LIMIT #{size} OFFSET #{offset}")
     List<Long> findIdsSortedByTimeDescPaged(@Param("size") int size, @Param("offset") int offset);
 

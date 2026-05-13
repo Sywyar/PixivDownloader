@@ -27,7 +27,6 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledFuture;
@@ -73,13 +72,17 @@ class SSEControllerTest {
     @DisplayName("createSSEConnection 应按请求语言注册作品级连接并安排心跳")
     void shouldRegisterArtworkEmitterWithCurrentLocale() throws Exception {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+        String ownerUuid = "123e4567-e89b-12d3-a456-426614174000";
+        when(setupService.getMode()).thenReturn("multi");
+        MockHttpServletRequest request = requestWithUuid(ownerUuid);
 
-        SseEmitter emitter = controller.createSSEConnection(12345L);
+        SseEmitter emitter = controller.createSSEConnection(12345L, request);
 
+        String key = "user:" + ownerUuid + ":12345";
         assertThat(emitter.getTimeout()).isEqualTo(300000L);
-        assertThat(artworkEmitters()).containsKey(12345L);
-        assertThat(subscriptionLocale(artworkEmitters().get(12345L))).isEqualTo(Locale.SIMPLIFIED_CHINESE);
-        assertThat(heartbeatTasks()).containsKey(12345L);
+        assertThat(artworkEmitters()).containsKey(key);
+        assertThat(subscriptionLocale(artworkEmitters().get(key))).isEqualTo(Locale.SIMPLIFIED_CHINESE);
+        assertThat(heartbeatTasks()).containsKey(key);
         verify(taskScheduler).scheduleAtFixedRate(any(Runnable.class), eq(Duration.ofSeconds(30)));
     }
 
@@ -167,11 +170,9 @@ class SSEControllerTest {
     @DisplayName("createAggregatedSSEConnection 应记录 owner UUID 和语言")
     void shouldRegisterAggregatedEmitterWithOwnerAndLocale() throws Exception {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+        when(setupService.getMode()).thenReturn("multi");
 
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setRemoteAddr("127.0.0.1");
-        request.addHeader("User-Agent", "JUnit");
-        request.addHeader("X-User-UUID", "123e4567-e89b-12d3-a456-426614174000");
+        MockHttpServletRequest request = requestWithUuid("123e4567-e89b-12d3-a456-426614174000");
 
         SseEmitter emitter = controller.createAggregatedSSEConnection(request);
 
@@ -194,13 +195,13 @@ class SSEControllerTest {
         RecordingSseEmitter emitter = new RecordingSseEmitter();
         putArtworkSubscription(999L, emitter, Locale.US);
 
-        var response = controller.closeSSEConnection(999L);
+        var response = controller.closeSSEConnection(999L, new MockHttpServletRequest());
 
         assertThat(response.getBody()).isNotNull();
         DownloadResponse body = response.getBody();
         assertThat(body.isSuccess()).isTrue();
         assertThat(body.getMessage()).isEqualTo("SSE连接已安全关闭");
-        assertThat(artworkEmitters()).doesNotContainKey(999L);
+        assertThat(artworkEmitters()).doesNotContainKey("admin:999");
         assertThat(emitter.completed).isTrue();
     }
 
@@ -269,13 +270,13 @@ class SSEControllerTest {
     }
 
     @SuppressWarnings("unchecked")
-    private ConcurrentHashMap<Long, Object> artworkEmitters() {
-        return (ConcurrentHashMap<Long, Object>) ReflectionTestUtils.getField(controller, "emitters");
+    private ConcurrentHashMap<String, Object> artworkEmitters() {
+        return (ConcurrentHashMap<String, Object>) ReflectionTestUtils.getField(controller, "emitters");
     }
 
     @SuppressWarnings("unchecked")
-    private ConcurrentHashMap<Long, ScheduledFuture<?>> heartbeatTasks() {
-        return (ConcurrentHashMap<Long, ScheduledFuture<?>>) ReflectionTestUtils.getField(controller, "heartbeatTasks");
+    private ConcurrentHashMap<String, ScheduledFuture<?>> heartbeatTasks() {
+        return (ConcurrentHashMap<String, ScheduledFuture<?>>) ReflectionTestUtils.getField(controller, "heartbeatTasks");
     }
 
     @SuppressWarnings("unchecked")
@@ -289,7 +290,8 @@ class SSEControllerTest {
     }
 
     private void putArtworkSubscription(Long artworkId, SseEmitter emitter, Locale locale) throws Exception {
-        artworkEmitters().put(artworkId, instantiateInnerRecord("ArtworkSubscription", emitter, locale));
+        artworkEmitters().put("admin:" + artworkId,
+                instantiateInnerRecord("ArtworkSubscription", emitter, artworkId, null, true, locale));
     }
 
     private void putAggregatedSubscription(
@@ -337,6 +339,14 @@ class SSEControllerTest {
         while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
             Thread.sleep(10);
         }
+    }
+
+    private MockHttpServletRequest requestWithUuid(String ownerUuid) {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("127.0.0.1");
+        request.addHeader("User-Agent", "JUnit");
+        request.addHeader("X-User-UUID", ownerUuid);
+        return request;
     }
 
     private String createAggregatedCloseToken(String connectionId, String ownerUuid, boolean admin) {

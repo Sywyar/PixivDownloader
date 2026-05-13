@@ -42,6 +42,10 @@ public class NovelDownloadController {
                     .message(messages.get("pixiv.proxy.novel.id.invalid", String.valueOf(request.getNovelId())))
                     .build());
         }
+        if (request.getOther() == null) {
+            request.setOther(new NovelDownloadRequest.Other());
+        }
+        NovelDownloadService.validateUserDownloadFolder(request.getOther());
         String mode = setupService.getMode();
         if ("multi".equals(mode)) {
             String pdMode = multiModeConfig.getPostDownloadMode();
@@ -56,8 +60,10 @@ public class NovelDownloadController {
         stripUnauthorizedCollectionSelection(request, mode, isAdmin);
 
         String userUuid = null;
-        if (!isAdmin && "multi".equals(mode) && multiModeConfig.getQuota().isEnabled()) {
+        if (!isAdmin && "multi".equals(mode)) {
             userUuid = UuidUtils.extractOrGenerateUuid(httpRequest);
+        }
+        if (userUuid != null && multiModeConfig.getQuota().isEnabled()) {
             UserQuotaService.QuotaCheckResult check = userQuotaService.checkAndReserve(userUuid, 1);
             if (!check.allowed()) {
                 String archiveToken = userQuotaService.triggerArchive(userUuid);
@@ -85,8 +91,12 @@ public class NovelDownloadController {
     }
 
     @GetMapping("/download/novel/status/{novelId}")
-    public ResponseEntity<NovelDownloadStatusResponse> getStatus(@PathVariable Long novelId) {
-        NovelDownloadStatus status = novelDownloadService.getStatus(novelId);
+    public ResponseEntity<NovelDownloadStatusResponse> getStatus(@PathVariable Long novelId,
+                                                                 HttpServletRequest httpRequest) {
+        boolean adminScope = !"multi".equals(setupService.getMode()) || setupService.isAdminLoggedIn(httpRequest);
+        NovelDownloadStatus status = adminScope
+                ? novelDownloadService.getStatus(novelId)
+                : novelDownloadService.getStatus(novelId, UuidUtils.extractOrGenerateUuid(httpRequest), false);
         if (status == null) {
             return ResponseEntity.ok(new NovelDownloadStatusResponse(
                     false, messages.get("download.status.not-found"),

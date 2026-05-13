@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.scheduling.TaskScheduler;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
@@ -32,6 +33,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.lenient;
@@ -76,6 +78,63 @@ class DownloadServiceTest {
         downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService,
                 downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService, authorService,
                 collectionService, mangaSeriesService, APP_MESSAGES);
+    }
+
+    @Nested
+    @DisplayName("validateUserDownloadFolder")
+    class ValidateUserDownloadFolderTests {
+
+        @ParameterizedTest
+        @ValueSource(strings = {"", " ", ".", "..", "../escape", "..\\escape", "C:\\temp", "/tmp/escape", "safe/../escape"})
+        @DisplayName("不安全用户名目录段应被拒绝")
+        void shouldRejectUnsafeUsernameFolder(String username) {
+            DownloadRequest.Other other = new DownloadRequest.Other();
+            other.setUserDownload(true);
+            other.setUsername(username);
+
+            assertThatThrownBy(() -> DownloadService.validateUserDownloadFolder(other))
+                    .isInstanceOf(LocalizedException.class)
+                    .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
+                            .isEqualTo("download.path.segment.invalid"));
+        }
+
+        @Test
+        @DisplayName("普通用户名目录段应通过")
+        void shouldAcceptPlainUsernameFolder() {
+            DownloadRequest.Other other = new DownloadRequest.Other();
+            other.setUserDownload(true);
+            other.setUsername("pixiv_user_123");
+
+            assertThatCode(() -> DownloadService.validateUserDownloadFolder(other))
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    @Nested
+    @DisplayName("download status ownership")
+    class DownloadStatusOwnershipTests {
+
+        @Test
+        @SuppressWarnings("unchecked")
+        @DisplayName("same artwork id is isolated by owner")
+        void shouldIsolateSameArtworkIdByOwner() {
+            ConcurrentHashMap<String, DownloadStatus> statuses =
+                    (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
+                            .getField(downloadService, "downloadStatusMap");
+            DownloadStatus ownerA = new DownloadStatus(123L, "owner-a-title", 1, "owner-a");
+            DownloadStatus ownerB = new DownloadStatus(123L, "owner-b-title", 1, "owner-b");
+            statuses.put("owner-a:123", ownerA);
+            statuses.put("owner-b:123", ownerB);
+
+            assertThat(downloadService.getDownloadStatus(123L, "owner-a", false)).isSameAs(ownerA);
+            assertThat(downloadService.getDownloadStatus(123L, "owner-b", false)).isSameAs(ownerB);
+            assertThat(downloadService.getDownloadStatus("owner-a", false)).containsExactly(123L);
+
+            downloadService.cancelDownload(123L, "owner-a", false);
+
+            assertThat(ownerA.isCancelled()).isTrue();
+            assertThat(ownerB.isCancelled()).isFalse();
+        }
     }
 
     // ========== validatePixivUrl (SSRF 防护) ==========

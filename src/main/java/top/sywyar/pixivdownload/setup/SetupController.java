@@ -8,7 +8,11 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
@@ -31,8 +35,6 @@ public class SetupController {
     private final LoginRateLimitService loginRateLimitService;
     private final MultiModeConfig multiModeConfig;
 
-    // ---- Setup endpoints -----------------------------------------------
-
     @GetMapping("/api/setup/status")
     public SetupStatusResponse status() {
         return new SetupStatusResponse(
@@ -43,19 +45,25 @@ public class SetupController {
     }
 
     @PostMapping("/api/setup/init")
-    public SetupInitResponse init(@Valid @RequestBody SetupInitRequest request) throws IOException {
+    public SetupInitResponse init(@Valid @RequestBody SetupInitRequest request,
+                                  HttpServletRequest httpRequest) throws IOException {
+        if (!NetworkUtils.isLocalRequest(httpRequest)) {
+            throw new LocalizedException(
+                    HttpStatus.FORBIDDEN,
+                    "auth.local-only",
+                    "Forbidden: local access only"
+            );
+        }
         if (setupService.isSetupComplete()) {
             throw new LocalizedException(
                     HttpStatus.FORBIDDEN,
                     "setup.init.already-completed",
-                    "已完成配置，不可重复初始化"
+                    "Setup already completed"
             );
         }
         setupService.init(request.getUsername(), request.getPassword(), request.getMode());
         return new SetupInitResponse(true, request.getMode());
     }
-
-    // ---- Auth endpoints ------------------------------------------------
 
     @PostMapping("/api/auth/login")
     public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request, HttpServletRequest httpRequest) {
@@ -64,14 +72,14 @@ public class SetupController {
             throw new LocalizedException(
                     HttpStatus.TOO_MANY_REQUESTS,
                     "setup.login.rate-limit.exceeded",
-                    "登录尝试过于频繁，请稍后再试"
+                    "Too many login attempts. Please try again later."
             );
         }
         if (!setupService.checkLogin(request.getUsername(), request.getPassword())) {
             throw new LocalizedException(
                     HttpStatus.UNAUTHORIZED,
                     "setup.login.invalid-credentials",
-                    "用户名或密码错误"
+                    "Invalid username or password"
             );
         }
 
@@ -111,10 +119,6 @@ public class SetupController {
     }
 
     private String getClientIp(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            return xff.split(",")[0].trim();
-        }
         return request.getRemoteAddr();
     }
 }

@@ -64,4 +64,31 @@ class PixivDescriptionHtmlTest {
 
         assertThat(PixivDescriptionHtml.normalizeLinks(html)).contains("href=\"#\"");
     }
+
+    @Test
+    @DisplayName("unsafe tags and event attributes are removed")
+    void removesUnsafeTagsAndAttributes() {
+        String html = """
+                <img src=x onerror=alert(1)><a href="/users/1" onclick="alert(1)">safe</a><script>alert(2)</script>
+                """;
+
+        String normalized = PixivDescriptionHtml.normalizeLinks(html);
+
+        assertThat(normalized).doesNotContain("<img");
+        assertThat(normalized).doesNotContain("<script");
+        assertThat(normalized).doesNotContain("onclick");
+        assertThat(normalized).contains("href=\"https://www.pixiv.net/users/1\"");
+        assertThat(normalized).contains("target=\"_blank\"");
+    }
+
+    @Test
+    @DisplayName("plain text angle brackets are escaped")
+    void escapesPlainTextAngleBrackets() {
+        String html = "1 < 2 & <b>not bold</b>";
+
+        String normalized = PixivDescriptionHtml.normalizeLinks(html);
+
+        assertThat(normalized).contains("1 &lt; 2 &amp; not bold");
+        assertThat(normalized).doesNotContain("<b>");
+    }
 }

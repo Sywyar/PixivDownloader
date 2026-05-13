@@ -233,7 +233,7 @@ class DownloadControllerTest {
                     eq("https://www.pixiv.net/"),
                     argThat(other -> other != null && other.getCollectionId() == null),
                     any(),
-                    isNull()
+                    notNull()
             );
         }
 

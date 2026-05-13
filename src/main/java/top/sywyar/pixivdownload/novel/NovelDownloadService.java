@@ -11,12 +11,14 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.download.DownloadActionResult;
 import top.sywyar.pixivdownload.download.PixivBookmarkService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
@@ -81,7 +83,7 @@ public class NovelDownloadService {
     private final TaskScheduler taskScheduler;
     private final AppMessages messages;
 
-    private final ConcurrentHashMap<Long, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
 
     public NovelDownloadService(DownloadConfig downloadConfig,
                                 PixivDatabase pixivDatabase,
@@ -112,18 +114,20 @@ public class NovelDownloadService {
                 ? new NovelDownloadRequest.Other() : request.getOther();
         NovelFormat format = NovelFormat.parse(other.getFormat());
         String title = request.getTitle() == null ? String.valueOf(novelId) : request.getTitle();
-        NovelDownloadStatus status = new NovelDownloadStatus(novelId, title, format.ext());
-        statusMap.put(novelId, status);
+        NovelDownloadStatus status = new NovelDownloadStatus(novelId, title, format.ext(), userUuid);
+        String statusKey = statusKey(novelId, userUuid);
+        statusMap.put(statusKey, status);
 
         try {
             String rawContent = request.getContent() == null ? "" : request.getContent();
             status.setStage("preparing");
 
             // Resolve folder
-            Path downloadRoot = resolveEffectiveDownloadRoot(other);
+            validateUserDownloadFolder(other);
+            Path downloadRoot = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
             Path downloadPath = downloadRoot;
             if (other.isUserDownload() && other.getUsername() != null && !downloadConfig.isUserFlatFolder()) {
-                downloadPath = downloadPath.resolve(other.getUsername());
+                downloadPath = downloadPath.resolve(SafePathSegment.requireSafeDirectoryName(other.getUsername()));
                 if (other.getXRestrict() == 2) {
                     downloadPath = downloadPath.resolve("R18G");
                 } else if (other.getXRestrict() == 1) {
@@ -131,7 +135,8 @@ public class NovelDownloadService {
                 }
             }
             String folderName = "novel-" + novelId;
-            downloadPath = downloadPath.resolve(folderName);
+            downloadPath = downloadPath.resolve(folderName).normalize();
+            ensureWithinDownloadRoot(downloadRoot, downloadPath);
             status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
@@ -230,13 +235,42 @@ public class NovelDownloadService {
             status.setErrorMessage(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
             taskScheduler.schedule(
-                    () -> statusMap.remove(novelId),
+                    () -> statusMap.remove(statusKey),
                     Instant.now().plusSeconds(300));
         }
     }
 
     public NovelDownloadStatus getStatus(Long novelId) {
-        return statusMap.get(novelId);
+        return findAnyStatus(novelId);
+    }
+
+    public NovelDownloadStatus getStatus(Long novelId, String ownerUuid, boolean admin) {
+        if (admin) {
+            return findAnyStatus(novelId);
+        }
+        return statusMap.get(statusKey(novelId, ownerUuid));
+    }
+
+    public static void validateUserDownloadFolder(NovelDownloadRequest.Other other) {
+        if (other != null && other.isUserDownload() && other.getUsername() != null) {
+            SafePathSegment.requireSafeDirectoryName(other.getUsername());
+        }
+    }
+
+    private NovelDownloadStatus findAnyStatus(Long novelId) {
+        if (novelId == null) {
+            return null;
+        }
+        for (NovelDownloadStatus status : statusMap.values()) {
+            if (novelId.equals(status.getNovelId())) {
+                return status;
+            }
+        }
+        return null;
+    }
+
+    private String statusKey(Long novelId, String ownerUuid) {
+        return (ownerUuid == null ? "admin" : ownerUuid) + ":" + novelId;
     }
 
     private Path resolveEffectiveDownloadRoot(NovelDownloadRequest.Other other) {
@@ -245,6 +279,16 @@ public class NovelDownloadService {
             return collectionService.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
         }
         return defaultRoot;
+    }
+
+    private void ensureWithinDownloadRoot(Path downloadRoot, Path downloadPath) {
+        if (!downloadPath.startsWith(downloadRoot)) {
+            throw LocalizedException.badRequest(
+                    "download.path.segment.invalid",
+                    "Unsafe download subdirectory: {0}",
+                    downloadPath
+            );
+        }
     }
 
     private String displayFolderName(Path root, Path downloadPath) {

@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.novel.NovelMergeService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -58,7 +59,6 @@ public class NovelGalleryController {
             @RequestParam(required = false) String notSeriesIds,
             @RequestParam(required = false) Long seriesId,
             HttpServletRequest httpRequest) {
-        // Note: 访客可见性目前在单作品端点处校验，列表端点的全量访客过滤可在后续 PR 引入。
         java.util.Set<Long> mustAuthors = parseLongCsv(authorIds);
         if (authorId != null && authorId > 0) {
             if (mustAuthors == null) mustAuthors = new java.util.LinkedHashSet<>();
@@ -75,7 +75,8 @@ public class NovelGalleryController {
                 parseLongCsv(collectionIds),
                 parseLongCsv(tagIds), parseLongCsv(notTagIds), parseLongCsv(orTagIds),
                 mustAuthors, parseLongCsv(notAuthorIds), parseLongCsv(orAuthorIds),
-                mustSeries, parseLongCsv(notSeriesIds)));
+                mustSeries, parseLongCsv(notSeriesIds),
+                GuestAccessGuard.extractSession(httpRequest)));
     }
 
     private static java.util.Set<Long> parseLongCsv(String csv) {
@@ -92,8 +93,10 @@ public class NovelGalleryController {
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "24") int size,
             @RequestParam(required = false) String search,
-            @RequestParam(required = false, defaultValue = "name") String sort) {
-        return novelGalleryService.getPagedAuthorsWithNovels(page, size, search, sort);
+            @RequestParam(required = false, defaultValue = "name") String sort,
+            HttpServletRequest httpRequest) {
+        return novelGalleryService.getPagedAuthorsWithNovels(page, size, search, sort,
+                GuestAccessGuard.extractSession(httpRequest));
     }
 
     @GetMapping("/novels/series")
@@ -101,15 +104,19 @@ public class NovelGalleryController {
             @RequestParam(required = false, defaultValue = "0") int page,
             @RequestParam(required = false, defaultValue = "24") int size,
             @RequestParam(required = false) String search,
-            @RequestParam(required = false, defaultValue = "title") String sort) {
-        return novelGalleryService.getPagedSeriesWithNovels(page, size, search, sort);
+            @RequestParam(required = false, defaultValue = "title") String sort,
+            HttpServletRequest httpRequest) {
+        return novelGalleryService.getPagedSeriesWithNovels(page, size, search, sort,
+                GuestAccessGuard.extractSession(httpRequest));
     }
 
     @GetMapping("/novels/tags")
     public java.util.Map<String, Object> listNovelTags(
             @RequestParam(required = false) String search,
-            @RequestParam(required = false, defaultValue = "500") int limit) {
-        return java.util.Map.of("tags", novelGalleryService.listTags(search, limit));
+            @RequestParam(required = false, defaultValue = "500") int limit,
+            HttpServletRequest httpRequest) {
+        return java.util.Map.of("tags", novelGalleryService.listTags(search, limit,
+                GuestAccessGuard.extractSession(httpRequest)));
     }
 
     @GetMapping("/novel/{novelId}")
@@ -130,7 +137,9 @@ public class NovelGalleryController {
         if (current == null || current.seriesId() == null || current.seriesId() <= 0) {
             return ResponseEntity.ok(List.of());
         }
-        return ResponseEntity.ok(novelGalleryService.bySeries(current.seriesId(), limit));
+        return ResponseEntity.ok(filterForGuest(
+                novelGalleryService.bySeries(current.seriesId(), limit),
+                GuestAccessGuard.extractSession(httpRequest)));
     }
 
     @GetMapping("/novel/{novelId}/series")
@@ -144,11 +153,31 @@ public class NovelGalleryController {
         }
         return ResponseEntity.ok(new NovelSeriesNavResponse(
                 n.seriesId(), n.seriesTitle(), n.currentOrder(),
-                n.prev() == null ? null : new NeighborView(
-                        n.prev().novelId(), n.prev().title(), n.prev().seriesOrder()),
-                n.next() == null ? null : new NeighborView(
-                        n.next().novelId(), n.next().title(), n.next().seriesOrder())
+                visibleNeighbor(n.prev(), GuestAccessGuard.extractSession(httpRequest)),
+                visibleNeighbor(n.next(), GuestAccessGuard.extractSession(httpRequest))
         ));
+    }
+
+    private NeighborView visibleNeighbor(NovelGalleryService.NeighborView neighbor,
+                                         GuestInviteSession session) {
+        if (neighbor == null) {
+            return null;
+        }
+        if (session != null && !guestAccessGuard.isNovelVisibleToGuest(neighbor.novelId(), session)) {
+            return null;
+        }
+        return new NeighborView(neighbor.novelId(), neighbor.title(), neighbor.seriesOrder());
+    }
+
+    private List<NovelGalleryService.NovelView> filterForGuest(
+            List<NovelGalleryService.NovelView> items,
+            GuestInviteSession session) {
+        if (session == null || items == null || items.isEmpty()) {
+            return items;
+        }
+        return items.stream()
+                .filter(item -> guestAccessGuard.isNovelVisibleToGuest(item.novelId(), session))
+                .toList();
     }
 
     @GetMapping("/novel/{novelId}/cover")

@@ -192,6 +192,10 @@ public class PixivDatabase {
         return pixivMapper.findAllIdsSortedByTimeDesc();
     }
 
+    public List<Long> getArtworkIdsSortedByAuthorIdAsc() {
+        return pixivMapper.findAllIdsSortedByAuthorIdAsc();
+    }
+
     public List<ArtworkRecord> getArtworksOlderThan(long beforeTimeMillis) {
         return pixivMapper.findByTimeBefore(beforeTimeMillis);
     }

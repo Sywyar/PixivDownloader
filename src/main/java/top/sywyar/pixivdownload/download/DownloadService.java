@@ -13,6 +13,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
+import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
@@ -61,7 +63,7 @@ public class DownloadService {
     private final AppMessages messages;
 
     // 存储下载状态
-    private final ConcurrentHashMap<Long, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
 
     public DownloadService(DownloadConfig downloadConfig,
                            ApplicationEventPublisher eventPublisher,
@@ -97,8 +99,9 @@ public class DownloadService {
             other = new DownloadRequest.Other();
         }
         // 初始化下载状态
-        DownloadStatus status = new DownloadStatus(artworkId, title, imageUrls.size());
-        downloadStatusMap.put(artworkId, status);
+        DownloadStatus status = new DownloadStatus(artworkId, title, imageUrls.size(), userUuid);
+        String statusKey = statusKey(artworkId, userUuid);
+        downloadStatusMap.put(statusKey, status);
 
         // 发送初始状态更新
         eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
@@ -109,10 +112,11 @@ public class DownloadService {
             String folderName = String.valueOf(artworkId);
 
             // 创建文件夹结构
-            Path downloadRoot = resolveEffectiveDownloadRoot(other);
+            validateUserDownloadFolder(other);
+            Path downloadRoot = resolveEffectiveDownloadRoot(other).toAbsolutePath().normalize();
             Path downloadPath = downloadRoot;
             if (other.isUserDownload() && other.getUsername() != null && !downloadConfig.isUserFlatFolder()) {
-                downloadPath = downloadPath.resolve(other.getUsername());
+                downloadPath = downloadPath.resolve(SafePathSegment.requireSafeDirectoryName(other.getUsername()));
 
                 if (other.getXRestrict() == 2) {
                     downloadPath = downloadPath.resolve("R18G");
@@ -120,7 +124,8 @@ public class DownloadService {
                     downloadPath = downloadPath.resolve("R18");
                 }
             }
-            downloadPath = downloadPath.resolve(folderName);
+            downloadPath = downloadPath.resolve(folderName).normalize();
+            ensureWithinDownloadRoot(downloadRoot, downloadPath);
             status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
@@ -238,7 +243,7 @@ public class DownloadService {
         } finally {
             // 下载完成后，保留状态5分钟供查询，然后清理
             taskScheduler.schedule(
-                    () -> downloadStatusMap.remove(artworkId),
+                    () -> downloadStatusMap.remove(statusKey),
                     Instant.now().plusSeconds(300)
             );
         }
@@ -250,6 +255,22 @@ public class DownloadService {
             return collectionService.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
         }
         return defaultRoot;
+    }
+
+    public static void validateUserDownloadFolder(DownloadRequest.Other other) {
+        if (other != null && other.isUserDownload() && other.getUsername() != null) {
+            SafePathSegment.requireSafeDirectoryName(other.getUsername());
+        }
+    }
+
+    private void ensureWithinDownloadRoot(Path downloadRoot, Path downloadPath) {
+        if (!downloadPath.startsWith(downloadRoot)) {
+            throw LocalizedException.badRequest(
+                    "download.path.segment.invalid",
+                    "Unsafe download subdirectory: {0}",
+                    downloadPath
+            );
+        }
     }
 
     private String displayFolderName(Path root, Path downloadPath) {
@@ -398,21 +419,79 @@ public class DownloadService {
 
     // 获取下载状态
     public DownloadStatus getDownloadStatus(Long artworkId) {
-        return downloadStatusMap.get(artworkId);
+        return findAnyStatus(artworkId);
+    }
+
+    public DownloadStatus getDownloadStatus(Long artworkId, String ownerUuid, boolean admin) {
+        if (admin) {
+            return findAnyStatus(artworkId);
+        }
+        return downloadStatusMap.get(statusKey(artworkId, ownerUuid));
     }
 
     public List<Long> getDownloadStatus() {
-        List<Long> downloadStatus = new LinkedList<>();
-        downloadStatusMap.forEachKey(10, downloadStatus::add);
-        return downloadStatus;
+        Set<Long> downloadStatus = new LinkedHashSet<>();
+        downloadStatusMap.forEach(10, (key, status) -> downloadStatus.add(status.getArtworkId()));
+        return new LinkedList<>(downloadStatus);
+    }
+
+    public List<Long> getDownloadStatus(String ownerUuid, boolean admin) {
+        if (admin) {
+            return getDownloadStatus();
+        }
+        Set<Long> downloadStatus = new LinkedHashSet<>();
+        downloadStatusMap.forEach(10, (key, status) -> {
+            if (canAccessStatus(status, ownerUuid, false)) {
+                downloadStatus.add(status.getArtworkId());
+            }
+        });
+        return new LinkedList<>(downloadStatus);
     }
 
     // 取消下载
     public void cancelDownload(Long artworkId) {
-        DownloadStatus status = downloadStatusMap.get(artworkId);
+        downloadStatusMap.forEach(10, (key, status) -> {
+            if (Objects.equals(status.getArtworkId(), artworkId)) {
+                status.setCancelled(true);
+            }
+        });
+    }
+
+    public void cancelDownload(Long artworkId, String ownerUuid, boolean admin) {
+        if (admin) {
+            cancelDownload(artworkId);
+            return;
+        }
+        DownloadStatus status = getDownloadStatus(artworkId, ownerUuid, admin);
         if (status != null) {
             status.setCancelled(true);
         }
+    }
+
+    private boolean canAccessStatus(DownloadStatus status, String ownerUuid, boolean admin) {
+        if (status == null) {
+            return false;
+        }
+        if (admin) {
+            return true;
+        }
+        return status.getOwnerUuid() != null && status.getOwnerUuid().equals(ownerUuid);
+    }
+
+    private DownloadStatus findAnyStatus(Long artworkId) {
+        if (artworkId == null) {
+            return null;
+        }
+        for (DownloadStatus status : downloadStatusMap.values()) {
+            if (Objects.equals(status.getArtworkId(), artworkId)) {
+                return status;
+            }
+        }
+        return null;
+    }
+
+    private String statusKey(Long artworkId, String ownerUuid) {
+        return (ownerUuid == null ? "admin" : ownerUuid) + ":" + artworkId;
     }
 
     private String getFileExtension(String url) {
@@ -457,7 +536,8 @@ public class DownloadService {
             pixivDatabase.insertArtwork(
                     artworkId, title,
                     Path.of(folderPath).toAbsolutePath().toString(),
-                    count, String.join(",", fileExtensions), recordTime, xRestrict, isAi, authorId, description, fileNameId,
+                    count, String.join(",", fileExtensions), recordTime, xRestrict, isAi, authorId,
+                    PixivDescriptionHtml.normalizeLinks(description), fileNameId,
                     fileAuthorNameId > 0 ? fileAuthorNameId : null,
                     seriesId, seriesOrder
             );
@@ -736,6 +816,10 @@ public class DownloadService {
 
     public List<Long> getSortTimeArtwork() {
         return pixivDatabase.getArtworkIdsSortedByTimeDesc();
+    }
+
+    public List<Long> getSortAuthorArtwork() {
+        return pixivDatabase.getArtworkIdsSortedByAuthorIdAsc();
     }
 
     public List<Long> getSortTimeArtworkPaged(int page, int size) {

@@ -115,6 +115,25 @@ class SetupControllerTest {
         }
 
         @Test
+        @DisplayName("远程地址不允许首次初始化")
+        void shouldRejectRemoteInit() throws Exception {
+            mockMvc.perform(post("/api/setup/init")
+                            .with(request -> {
+                                request.setRemoteAddr("203.0.113.10");
+                                return request;
+                            })
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of(
+                                    "username", "admin",
+                                    "password", "password123",
+                                    "mode", "solo"
+                            ))))
+                    .andExpect(status().isForbidden());
+
+            verify(setupService, never()).init(any(), any(), any());
+        }
+
+        @Test
         @DisplayName("已完成配置时应返回 403")
         void shouldReturn403WhenAlreadySetup() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
