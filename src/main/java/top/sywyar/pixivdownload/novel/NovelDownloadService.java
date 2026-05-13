@@ -257,6 +257,10 @@ public class NovelDownloadService {
         }
     }
 
+    /**
+     * 在所有 owner 中查找首个匹配 novelId 的下载状态。
+     * 仅用于 admin / solo 路径——multi 模式下两个用户并发下载同一小说时返回任意一方，不保证稳定性。
+     */
     private NovelDownloadStatus findAnyStatus(Long novelId) {
         if (novelId == null) {
             return null;

@@ -193,6 +193,14 @@ public class SetupService {
         return token != null && isValidSession(token);
     }
 
+    /**
+     * 是否拥有"全局可见"权限：solo 模式下任何请求都拥有；multi 模式仅登录管理员拥有。
+     * 用于下载状态、聚合 SSE 等需要在多用户场景下区分访问范围的端点。
+     */
+    public boolean hasAdminScope(HttpServletRequest request) {
+        return !"multi".equals(getMode()) || isAdminLoggedIn(request);
+    }
+
     public void removeSession(String token) {
         if (token == null) return;
         sessions.remove(token);

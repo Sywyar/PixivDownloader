@@ -91,4 +91,15 @@ class PixivDescriptionHtmlTest {
         assertThat(normalized).contains("1 &lt; 2 &amp; not bold");
         assertThat(normalized).doesNotContain("<b>");
     }
+
+    @Test
+    @DisplayName("data-href and other custom attributes are not mistaken for href")
+    void doesNotMatchHrefSubstringsInOtherAttributes() {
+        String html = "<a data-href=\"https://evil.com\" href=\"/users/1\">ok</a>";
+
+        String normalized = PixivDescriptionHtml.normalizeLinks(html);
+
+        assertThat(normalized).contains("href=\"https://www.pixiv.net/users/1\"");
+        assertThat(normalized).doesNotContain("evil.com");
+    }
 }

@@ -459,6 +459,29 @@ public class GalleryRepository {
         return total == null ? 0 : total;
     }
 
+    /** 该访客可见的作品聚合统计：作品数 / 图片总数 / 已移动数。 */
+    public GuestStatistics findGuestStatistics(GuestRestriction r) {
+        if (r == null) return new GuestStatistics(0, 0, 0);
+        StringBuilder sql = new StringBuilder(
+                "SELECT COUNT(*) AS artwork_count,"
+                        + " COALESCE(SUM(CASE WHEN a.count > 0 THEN a.count ELSE 0 END), 0) AS image_count,"
+                        + " SUM(CASE WHEN a.moved = 1 THEN 1 ELSE 0 END) AS moved_count"
+                        + " FROM artworks a WHERE 1=1");
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        appendVisibilityClauses(sql, params, r, "Stats");
+        return jdbc.query(sql.toString(), params, rs -> {
+            if (rs.next()) {
+                return new GuestStatistics(
+                        rs.getInt("artwork_count"),
+                        rs.getInt("image_count"),
+                        rs.getInt("moved_count"));
+            }
+            return new GuestStatistics(0, 0, 0);
+        });
+    }
+
+    public record GuestStatistics(int artworks, int images, int moved) {}
+
     /** 该访客可见的"含有可见作品"的收藏夹 ID 集合。 */
     public Set<Long> findVisibleCollectionIds(GuestRestriction r) {
         if (r == null) return Collections.emptySet();

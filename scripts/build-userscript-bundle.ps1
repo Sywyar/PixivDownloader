@@ -11,6 +11,9 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $ProjectRoot "build\generated-userscripts"
 }
 
+# 先同步 scripts/shared 下的共享片段到所有标准 .user.js，保证 bundle 内联的版本是最新的。
+& (Join-Path $PSScriptRoot "sync-shared-snippets.ps1")
+
 $BundleFileName = "Pixiv All-in-One.user.js"
 $SourceDefinitions = @(
     @{

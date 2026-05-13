@@ -1120,6 +1120,7 @@
         }
     };
 
+    // >>> SHARED:sse-manager.js
     /* ========== SSE 管理器（共享单连接版：所有作品复用同一条聚合 SSE，按 artworkId 路由） ========== */
     class SSEManager {
         constructor() {
@@ -1136,6 +1137,7 @@
             this._closeTimer = null;
             this._reconnectTimer = null;
         }
+
         // 兼容旧调用点的语义：
         // open(id) / close(id) 只增删作品监听；共享连接由批量任务生命周期统一开关
         openShared() {
@@ -1145,30 +1147,36 @@
             this.closing = false;
             this._ensureConnection();
         }
+
         open(artworkId) {
             const key = String(artworkId);
             this.activeArtworks.add(key);
         }
+
         close(artworkId) {
             const key = String(artworkId);
             this.activeArtworks.delete(key);
             this.listeners.delete(key);
         }
+
         closeAll() {
             this.batchActive = false;
             this.activeArtworks.clear();
             this.listeners.clear();
             this._closeNow();
         }
+
         addListener(artworkId, fn) {
             const key = String(artworkId);
             if (!this.listeners.has(key)) this.listeners.set(key, []);
             this.listeners.get(key).push(fn);
         }
+
         _ensureConnection() {
             if (this.connected || this.connecting) return;
             this._openConnection();
         }
+
         _openConnection() {
             this.connecting = true;
             this.closing = false;
@@ -1191,7 +1199,11 @@
                         }
                         this._readStream(stream);
                     },
-                    onerror: (err) => { console.error('SSE connection error', err); this._cleanup(); this._scheduleReconnect(); },
+                    onerror: (err) => {
+                        console.error('SSE connection error', err);
+                        this._cleanup();
+                        this._scheduleReconnect();
+                    },
                     ontimeout: () => { this._cleanup(); this._scheduleReconnect(); }
                 });
             } catch (err) {
@@ -1200,21 +1212,22 @@
                 this._scheduleReconnect();
             }
         }
+
         _readStream(stream) {
             this.reader = stream.getReader();
             const decoder = new TextDecoder();
             const pump = () => {
-                this.reader.read().then(({ done, value }) => {
+                this.reader.read().then(({done, value}) => {
                     if (done) {
                         const shouldReconnect = !this.closing;
                         this._cleanup();
                         if (shouldReconnect) this._scheduleReconnect();
                         return;
                     }
-                    const chunk = decoder.decode(value, { stream: true });
+                    const chunk = decoder.decode(value, {stream: true});
                     this._buffer += chunk;
                     const parts = this._buffer.split('\n\n');
-                    this._buffer = parts.pop();
+                    this._buffer = parts.pop(); // 最后一段可能不完整，留作缓冲
                     for (const part of parts) {
                         if (!part.trim()) continue;
                         this._processEvent(part);
@@ -1229,6 +1242,7 @@
             };
             pump();
         }
+
         _processEvent(rawEvent) {
             let eventName = '';
             const dataLines = [];
@@ -1255,6 +1269,7 @@
                 if (fns) fns.forEach(fn => fn(parsed));
             } catch (e) { /* 握手 / 心跳等非 download-status JSON 忽略 */ }
         }
+
         _scheduleReconnect() {
             if (this.closing) return;
             if (!this.batchActive) return;
@@ -1266,6 +1281,7 @@
                 }
             }, 2000);
         }
+
         _scheduleDeferredClose() {
             this._cancelDeferredClose();
             this._closeTimer = setTimeout(() => {
@@ -1273,9 +1289,11 @@
                 if (this.activeArtworks.size === 0) this._closeNow();
             }, 30000);
         }
+
         _cancelDeferredClose() {
             if (this._closeTimer) { clearTimeout(this._closeTimer); this._closeTimer = null; }
         }
+
         _closeNow() {
             this._cancelDeferredClose();
             if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
@@ -1292,6 +1310,7 @@
                 if (this.closing) this._cleanup();
             }, 1000);
         }
+
         _notifyAggregatedClose(connectionId) {
             const headers = {};
             if (userUUID) headers['X-User-UUID'] = userUUID;
@@ -1307,6 +1326,7 @@
                 });
             } catch (e) {}
         }
+
         _cleanup() {
             this.connected = false;
             this.connecting = false;
@@ -1317,7 +1337,7 @@
             this.closing = false;
         }
     }
-
+    // <<< SHARED:sse-manager.js
     /* ========== 下载管理器 ========== */
     class DownloadManager {
         constructor(ui) {

@@ -3,15 +3,15 @@ package top.sywyar.pixivdownload.novel;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.novel.db.NovelAuthorSummary;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.novel.db.NovelSeriesSummary;
 import top.sywyar.pixivdownload.novel.db.NovelTagOption;
-import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.ArrayList;
@@ -28,8 +28,8 @@ import java.util.Set;
 public class NovelGalleryService {
 
     private final NovelDatabase novelDatabase;
+    private final NovelGalleryRepository novelGalleryRepository;
     private final AuthorService authorService;
-    private final GuestAccessGuard guestAccessGuard;
 
     public PagedNovels query(NovelGalleryQuery q) {
         // 简单实现：内存过滤。规模按本地下载量计算可接受；后续可下沉到 SQL。
@@ -47,6 +47,18 @@ public class NovelGalleryService {
         } else {
             idCandidates = null;
         }
+        // 访客可见性下沉到 SQL：把可见 id 集合与 collection 过滤求交集
+        if (q.guestSession() != null) {
+            Set<Long> visible = novelGalleryRepository.findVisibleNovelIdSet(GuestRestriction.from(q.guestSession()));
+            if (idCandidates == null) {
+                idCandidates = visible;
+            } else {
+                idCandidates.retainAll(visible);
+            }
+            if (idCandidates.isEmpty()) {
+                return new PagedNovels(List.of(), 0, q.page(), q.size(), 0);
+            }
+        }
         List<Long> allIds = novelDatabase.getAllNovelIdsSortedByTimeDesc();
         List<NovelView> filtered = new ArrayList<>();
         String search = q.search() == null ? "" : q.search().toLowerCase(Locale.ROOT);
@@ -62,7 +74,6 @@ public class NovelGalleryService {
             if (idCandidates != null && !idCandidates.contains(id)) continue;
             NovelRecord r = novelDatabase.getNovel(id);
             if (r == null) continue;
-            if (q.guestSession() != null && !guestAccessGuard.isNovelVisibleToGuest(id, q.guestSession())) continue;
             if (!matchAgeFilter(r.xRestrict(), q.r18())) continue;
             if (!matchAiFilter(r.isAi(), q.ai())) continue;
             if (!search.isEmpty() && !r.title().toLowerCase(Locale.ROOT).contains(search)) continue;
@@ -158,7 +169,7 @@ public class NovelGalleryService {
                 r.isAi(),
                 r.authorId(),
                 authorName,
-                PixivDescriptionHtml.normalizeLinks(r.description()),
+                r.description(),
                 r.seriesId(),
                 r.seriesOrder(),
                 r.wordCount(),
@@ -251,17 +262,17 @@ public class NovelGalleryService {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), 200);
         String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
-        Map<Long, Long> counts = new LinkedHashMap<>();
-        for (NovelRecord novel : visibleNovels(session)) {
-            if (novel.authorId() != null && novel.authorId() > 0) {
-                counts.merge(novel.authorId(), 1L, Long::sum);
-            }
+        List<NovelAuthorSummary> rawCounts = novelGalleryRepository
+                .findVisibleNovelAuthorCounts(GuestRestriction.from(session));
+        Set<Long> authorIds = new HashSet<>();
+        for (NovelAuthorSummary item : rawCounts) {
+            authorIds.add(item.authorId());
         }
-        Map<Long, String> names = authorService.getAuthorNames(counts.keySet());
-        List<NovelAuthorSummary> rows = counts.entrySet().stream()
-                .map(entry -> new NovelAuthorSummary(entry.getKey(),
-                        names.getOrDefault(entry.getKey(), String.valueOf(entry.getKey())),
-                        entry.getValue()))
+        Map<Long, String> names = authorService.getAuthorNames(authorIds);
+        List<NovelAuthorSummary> rows = rawCounts.stream()
+                .map(item -> new NovelAuthorSummary(item.authorId(),
+                        names.getOrDefault(item.authorId(), String.valueOf(item.authorId())),
+                        item.novelCount()))
                 .filter(item -> term.isEmpty()
                         || String.valueOf(item.authorId()).contains(term)
                         || (item.name() != null && item.name().toLowerCase(Locale.ROOT).contains(term)))
@@ -291,31 +302,27 @@ public class NovelGalleryService {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), 200);
         String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
-        Map<Long, Long> counts = new LinkedHashMap<>();
-        for (NovelRecord novel : visibleNovels(session)) {
-            if (novel.seriesId() != null && novel.seriesId() > 0) {
-                counts.merge(novel.seriesId(), 1L, Long::sum);
-            }
-        }
+        List<NovelSeriesSummary> rawCounts = novelGalleryRepository
+                .findVisibleNovelSeriesCounts(GuestRestriction.from(session));
         Set<Long> authorIds = new HashSet<>();
         Map<Long, NovelSeries> seriesById = new LinkedHashMap<>();
-        for (Long seriesId : counts.keySet()) {
-            NovelSeries series = novelDatabase.getSeries(seriesId);
+        for (NovelSeriesSummary item : rawCounts) {
+            NovelSeries series = novelDatabase.getSeries(item.seriesId());
             if (series != null) {
-                seriesById.put(seriesId, series);
+                seriesById.put(item.seriesId(), series);
                 if (series.authorId() != null && series.authorId() > 0) {
                     authorIds.add(series.authorId());
                 }
             }
         }
         Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
-        List<NovelSeriesSummary> rows = counts.entrySet().stream()
-                .map(entry -> {
-                    NovelSeries series = seriesById.get(entry.getKey());
-                    String title = series == null ? String.valueOf(entry.getKey()) : series.title();
+        List<NovelSeriesSummary> rows = rawCounts.stream()
+                .map(item -> {
+                    NovelSeries series = seriesById.get(item.seriesId());
+                    String title = series == null ? String.valueOf(item.seriesId()) : series.title();
                     Long authorId = series == null ? null : series.authorId();
                     String authorName = authorId == null ? null : authorNames.get(authorId);
-                    return new NovelSeriesSummary(entry.getKey(), title, authorId, authorName, entry.getValue());
+                    return new NovelSeriesSummary(item.seriesId(), title, authorId, authorName, item.novelCount());
                 })
                 .filter(item -> term.isEmpty()
                         || String.valueOf(item.seriesId()).contains(term)
@@ -336,31 +343,8 @@ public class NovelGalleryService {
         if (session == null) {
             return listTags(search, limit);
         }
-        String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
-        int safeLimit = Math.min(Math.max(1, limit), 5000);
-        Map<Long, MutableTagSummary> counts = new LinkedHashMap<>();
-        for (NovelRecord novel : visibleNovels(session)) {
-            for (TagDto tag : novelDatabase.getNovelTags(novel.novelId())) {
-                if (tag.getTagId() == null) {
-                    continue;
-                }
-                String name = tag.getName() == null ? "" : tag.getName();
-                String translated = tag.getTranslatedName();
-                if (!term.isEmpty()
-                        && !name.toLowerCase(Locale.ROOT).contains(term)
-                        && (translated == null || !translated.toLowerCase(Locale.ROOT).contains(term))) {
-                    continue;
-                }
-                counts.computeIfAbsent(tag.getTagId(),
-                        id -> new MutableTagSummary(id, name, translated)).count++;
-            }
-        }
-        return counts.values().stream()
-                .map(item -> new NovelTagOption(item.tagId, item.name, item.translatedName, item.count))
-                .sorted(Comparator.comparingLong(NovelTagOption::novelCount).reversed()
-                        .thenComparing(option -> option.name() == null ? "" : option.name().toLowerCase(Locale.ROOT)))
-                .limit(safeLimit)
-                .toList();
+        return novelGalleryRepository.findVisibleNovelTagCounts(
+                GuestRestriction.from(session), search, limit);
     }
 
     private Comparator<NovelAuthorSummary> authorSummaryComparator(String sort) {
@@ -468,32 +452,4 @@ public class NovelGalleryService {
 
     public record NeighborView(long novelId, String title, long seriesOrder) {}
 
-    private List<NovelRecord> visibleNovels(GuestInviteSession session) {
-        if (session == null) {
-            return List.of();
-        }
-        List<NovelRecord> out = new ArrayList<>();
-        for (Long id : novelDatabase.getAllNovelIdsSortedByTimeDesc()) {
-            if (guestAccessGuard.isNovelVisibleToGuest(id, session)) {
-                NovelRecord novel = novelDatabase.getNovel(id);
-                if (novel != null) {
-                    out.add(novel);
-                }
-            }
-        }
-        return out;
-    }
-
-    private static final class MutableTagSummary {
-        private final long tagId;
-        private final String name;
-        private final String translatedName;
-        private long count;
-
-        private MutableTagSummary(long tagId, String name, String translatedName) {
-            this.tagId = tagId;
-            this.name = name;
-            this.translatedName = translatedName;
-        }
-    }
 }

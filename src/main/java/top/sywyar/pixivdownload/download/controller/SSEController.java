@@ -99,7 +99,7 @@ public class SSEController {
     @GetMapping(value = "/download/{artworkId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter createSSEConnection(@PathVariable Long artworkId, HttpServletRequest request) {
         SseEmitter emitter = new SseEmitter(300_000L);
-        boolean admin = hasAdminSseScope(request);
+        boolean admin = setupService.hasAdminScope(request);
         String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
         String subscriptionKey = artworkSubscriptionKey(artworkId, ownerUuid, admin);
         emitters.put(subscriptionKey, new ArtworkSubscription(
@@ -140,7 +140,7 @@ public class SSEController {
     public SseEmitter createAggregatedSSEConnection(HttpServletRequest request) {
         SseEmitter emitter = new SseEmitter(86_400_000L);
         String connectionId = UUID.randomUUID().toString();
-        boolean admin = hasAdminSseScope(request);
+        boolean admin = setupService.hasAdminScope(request);
         String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
         aggregatedEmitters.put(connectionId, new AggregatedSubscription(
                 emitter, ownerUuid, admin, currentRequestLocale()));
@@ -185,7 +185,7 @@ public class SSEController {
     @PostMapping("/close/{artworkId}")
     public ResponseEntity<DownloadResponse> closeSSEConnection(@PathVariable Long artworkId,
                                                                HttpServletRequest request) {
-        boolean admin = hasAdminSseScope(request);
+        boolean admin = setupService.hasAdminScope(request);
         String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
         completeArtworkEmitter(artworkSubscriptionKey(artworkId, ownerUuid, admin));
         log.info(logMessage("sse.log.connection.closed", id(artworkId)));
@@ -498,10 +498,6 @@ public class SSEController {
 
     private Locale currentRequestLocale() {
         return AppLocale.normalize(LocaleContextHolder.getLocale());
-    }
-
-    private boolean hasAdminSseScope(HttpServletRequest request) {
-        return !"multi".equals(setupService.getMode()) || setupService.isAdminLoggedIn(request);
     }
 
     private String artworkSubscriptionKey(Long artworkId, String ownerUuid, boolean admin) {

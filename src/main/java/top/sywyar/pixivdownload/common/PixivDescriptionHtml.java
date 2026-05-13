@@ -15,7 +15,7 @@ public final class PixivDescriptionHtml {
     private static final Pattern TAG_PATTERN = Pattern.compile(
             "(?i)<\\s*(/?)\\s*([a-z][a-z0-9:-]*)([^>]*)>");
     private static final Pattern HREF_ATTR_PATTERN = Pattern.compile(
-            "(?i)\\bhref\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s\"'>`]+))");
+            "(?i)(?<=\\s|^)href\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s\"'>`]+))");
 
     private PixivDescriptionHtml() {
     }

@@ -180,6 +180,9 @@ public interface PixivMapper {
     @Select("SELECT artwork_id FROM artworks ORDER BY time DESC")
     List<Long> findAllIdsSortedByTimeDesc();
 
+    /**
+     * 按 author_id 升序、time 降序排列。NULL author_id 用 Long.MAX_VALUE 作为哨兵排到末尾。
+     */
     @Select("SELECT artwork_id FROM artworks"
             + " ORDER BY COALESCE(author_id, 9223372036854775807), time DESC")
     List<Long> findAllIdsSortedByAuthorIdAsc();

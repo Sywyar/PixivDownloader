@@ -869,6 +869,7 @@
         }
     };
 
+    // >>> SHARED:sse-manager.js
     /* ========== SSE 管理器（共享单连接版：所有作品复用同一条聚合 SSE，按 artworkId 路由） ========== */
     class SSEManager {
         constructor() {
@@ -1085,7 +1086,7 @@
             this.closing = false;
         }
     }
-
+    // <<< SHARED:sse-manager.js
     /* ========== 下载管理器 ========== */
     class DownloadManager {
         constructor(ui) {

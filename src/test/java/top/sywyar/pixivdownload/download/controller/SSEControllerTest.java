@@ -73,7 +73,7 @@ class SSEControllerTest {
     void shouldRegisterArtworkEmitterWithCurrentLocale() throws Exception {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         String ownerUuid = "123e4567-e89b-12d3-a456-426614174000";
-        when(setupService.getMode()).thenReturn("multi");
+        when(setupService.hasAdminScope(any())).thenReturn(false);
         MockHttpServletRequest request = requestWithUuid(ownerUuid);
 
         SseEmitter emitter = controller.createSSEConnection(12345L, request);
@@ -170,7 +170,7 @@ class SSEControllerTest {
     @DisplayName("createAggregatedSSEConnection 应记录 owner UUID 和语言")
     void shouldRegisterAggregatedEmitterWithOwnerAndLocale() throws Exception {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
-        when(setupService.getMode()).thenReturn("multi");
+        when(setupService.hasAdminScope(any())).thenReturn(false);
 
         MockHttpServletRequest request = requestWithUuid("123e4567-e89b-12d3-a456-426614174000");
 
@@ -191,6 +191,7 @@ class SSEControllerTest {
     @DisplayName("closeSSEConnection 应返回本地化响应并移除连接")
     void shouldCloseConnectionAndReturnLocalizedMessage() throws Exception {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+        when(setupService.hasAdminScope(any())).thenReturn(true);
 
         RecordingSseEmitter emitter = new RecordingSseEmitter();
         putArtworkSubscription(999L, emitter, Locale.US);

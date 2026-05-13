@@ -8,7 +8,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.DownloadStatus;
@@ -19,6 +18,9 @@ import top.sywyar.pixivdownload.download.request.ArtworkBatchRequest;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.request.MoveArtworkRequest;
 import top.sywyar.pixivdownload.download.response.*;
+import top.sywyar.pixivdownload.gallery.GalleryQuery;
+import top.sywyar.pixivdownload.gallery.GalleryRepository;
+import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
@@ -49,6 +51,7 @@ public class DownloadController {
     private final PixivDatabase pixivDatabase;
     private final AuthorService authorService;
     private final GuestAccessGuard guestAccessGuard;
+    private final GalleryRepository galleryRepository;
     private final AppMessages messages;
 
     @PostMapping("/download/pixiv")
@@ -129,10 +132,6 @@ public class DownloadController {
         return UuidUtils.extractOrGenerateUuid(req);
     }
 
-    private boolean hasAdminDownloadStatusScope(HttpServletRequest request) {
-        return !"multi".equals(setupService.getMode()) || setupService.isAdminLoggedIn(request);
-    }
-
     private void stripUnauthorizedCollectionSelection(DownloadRequest request, String mode, boolean isAdmin) {
         DownloadRequest.Other other = request.getOther();
         if (other == null || other.getCollectionId() == null) {
@@ -155,7 +154,7 @@ public class DownloadController {
     @GetMapping("/download/status/{artworkId}")
     public ResponseEntity<DownloadStatusResponse> getDownloadStatus(@PathVariable Long artworkId,
                                                                     HttpServletRequest httpRequest) {
-        boolean adminScope = hasAdminDownloadStatusScope(httpRequest);
+        boolean adminScope = setupService.hasAdminScope(httpRequest);
         DownloadStatus status = adminScope
                 ? downloadService.getDownloadStatus(artworkId)
                 : downloadService.getDownloadStatus(artworkId, extractUserUuid(httpRequest), false);
@@ -190,7 +189,7 @@ public class DownloadController {
 
     @GetMapping("download/status/active")
     public ResponseEntity<ActiveDownloadResponse> getActiveDownload(HttpServletRequest httpRequest) {
-        boolean adminScope = hasAdminDownloadStatusScope(httpRequest);
+        boolean adminScope = setupService.hasAdminScope(httpRequest);
         List<Long> active = adminScope
                 ? downloadService.getDownloadStatus()
                 : downloadService.getDownloadStatus(extractUserUuid(httpRequest), false);
@@ -201,7 +200,7 @@ public class DownloadController {
     @PostMapping("/cancel/{artworkId}")
     public ResponseEntity<DownloadResponse> cancelDownload(@PathVariable Long artworkId,
                                                            HttpServletRequest httpRequest) {
-        if (hasAdminDownloadStatusScope(httpRequest)) {
+        if (setupService.hasAdminScope(httpRequest)) {
             downloadService.cancelDownload(artworkId);
         } else {
             downloadService.cancelDownload(artworkId, extractUserUuid(httpRequest), false);
@@ -377,21 +376,9 @@ public class DownloadController {
     }
 
     private StatisticsResponse getGuestStatistics(GuestInviteSession session) {
-        int artworks = 0;
-        int images = 0;
-        int moved = 0;
-        for (Long artworkId : getVisibleArtworkIds(session)) {
-            ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
-            if (artwork == null) {
-                continue;
-            }
-            artworks++;
-            images += Math.max(artwork.count(), 0);
-            if (artwork.moved()) {
-                moved++;
-            }
-        }
-        return new StatisticsResponse(true, artworks, images, moved,
+        GalleryRepository.GuestStatistics stats = galleryRepository.findGuestStatistics(
+                GuestRestriction.from(session));
+        return new StatisticsResponse(true, stats.artworks(), stats.images(), stats.moved(),
                 messages.get("download.statistics.success"));
     }
 
@@ -399,16 +386,18 @@ public class DownloadController {
                                                       GuestInviteSession session) {
         int safePage = Math.max(0, page);
         int safeSize = Math.max(1, Math.min(size, 200));
-        List<Long> sortedIds = "author_id".equals(sort)
-                ? downloadService.getSortAuthorArtwork()
-                : downloadService.getSortTimeArtwork();
-        List<Long> visibleIds = sortedIds.stream()
-                .filter(id -> guestAccessGuard.isVisibleToGuest(id, session))
-                .toList();
-        int from = Math.min(safePage * safeSize, visibleIds.size());
-        int to = Math.min(from + safeSize, visibleIds.size());
+        GalleryQuery query = GalleryQuery.builder()
+                .page(safePage)
+                .size(safeSize)
+                .sort("author_id".equals(sort) ? "authorId" : "date")
+                .order("desc")
+                .r18("any")
+                .ai("any")
+                .guestRestriction(GuestRestriction.from(session))
+                .build();
+        GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(query);
         List<ArtworkRecord> artworks = new LinkedList<>();
-        for (Long artworkId : visibleIds.subList(from, to)) {
+        for (Long artworkId : result.ids()) {
             ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
             if (artwork != null) {
                 artworks.add(artwork);
@@ -418,14 +407,22 @@ public class DownloadController {
         List<DownloadedResponse> responses = artworks.stream()
                 .map(artwork -> toDownloadedResponse(artwork, authorNames))
                 .toList();
-        int totalPages = (int) Math.ceil((double) visibleIds.size() / safeSize);
-        return new PagedHistoryResponse(responses, visibleIds.size(), safePage, safeSize, totalPages);
+        long total = result.totalElements();
+        int totalPages = (int) Math.ceil((double) total / safeSize);
+        return new PagedHistoryResponse(responses, total, safePage, safeSize, totalPages);
     }
 
     private List<Long> getVisibleArtworkIds(GuestInviteSession session) {
-        return downloadService.getSortTimeArtwork().stream()
-                .filter(id -> guestAccessGuard.isVisibleToGuest(id, session))
-                .toList();
+        GalleryQuery query = GalleryQuery.builder()
+                .page(0)
+                .size(Integer.MAX_VALUE)
+                .sort("date")
+                .order("desc")
+                .r18("any")
+                .ai("any")
+                .guestRestriction(GuestRestriction.from(session))
+                .build();
+        return galleryRepository.findArtworkIds(query).ids();
     }
 
     private DownloadedResponse toDownloadedResponse(ArtworkRecord artwork, Map<Long, String> authorNames) {
@@ -444,7 +441,7 @@ public class DownloadController {
                 .isAi(artwork.isAi())
                 .authorId(artwork.authorId())
                 .authorName(artwork.authorId() == null ? null : authorNames.get(artwork.authorId()))
-                .description(PixivDescriptionHtml.normalizeLinks(artwork.description()))
+                .description(artwork.description())
                 .fileName(artwork.fileName())
                 .fileNameTemplate(pixivDatabase.getFileNameTemplate(resolveFileNameId(artwork)))
                 .tags(tags)

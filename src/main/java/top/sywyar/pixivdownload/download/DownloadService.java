@@ -448,7 +448,10 @@ public class DownloadService {
         return new LinkedList<>(downloadStatus);
     }
 
-    // 取消下载
+    /**
+     * 取消该 artworkId 的所有下载（admin / solo 路径）。
+     * multi 模式下若两个用户并发下载同一作品，此调用会同时取消双方任务；普通用户取消请走带 ownerUuid 的重载。
+     */
     public void cancelDownload(Long artworkId) {
         downloadStatusMap.forEach(10, (key, status) -> {
             if (Objects.equals(status.getArtworkId(), artworkId)) {
@@ -478,6 +481,10 @@ public class DownloadService {
         return status.getOwnerUuid() != null && status.getOwnerUuid().equals(ownerUuid);
     }
 
+    /**
+     * 在所有 owner 中查找首个匹配 artworkId 的下载状态。
+     * 仅用于 admin / solo 路径——当 multi 模式下两个用户并发下载同一作品时，返回值是任意一方，不保证稳定性。
+     */
     private DownloadStatus findAnyStatus(Long artworkId) {
         if (artworkId == null) {
             return null;

@@ -54,6 +54,8 @@ class DownloadControllerTest {
     private AuthorService authorService;
     @Mock
     private top.sywyar.pixivdownload.setup.guest.GuestAccessGuard guestAccessGuard;
+    @Mock
+    private top.sywyar.pixivdownload.gallery.GalleryRepository galleryRepository;
 
     private MultiModeConfig multiModeConfig;
 
@@ -62,7 +64,7 @@ class DownloadControllerTest {
         multiModeConfig = new MultiModeConfig();
         DownloadController controller = new DownloadController(
                 downloadService, setupService, userQuotaService, multiModeConfig, pixivDatabase, authorService,
-                guestAccessGuard, APP_MESSAGES);
+                guestAccessGuard, galleryRepository, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -92,6 +94,7 @@ class DownloadControllerTest {
             status.setDownloadedCount(3);
             status.setCurrentImageIndex(2);
             status.setDownloadPath("/path/to/download");
+            when(setupService.hasAdminScope(any())).thenReturn(true);
             when(downloadService.getDownloadStatus(12345L)).thenReturn(status);
 
             mockMvc.perform(get("/api/download/status/12345"))
@@ -105,6 +108,7 @@ class DownloadControllerTest {
         @Test
         @DisplayName("不存在的下载任务应返回未找到")
         void shouldReturnNotFoundStatus() throws Exception {
+            when(setupService.hasAdminScope(any())).thenReturn(true);
             when(downloadService.getDownloadStatus(99999L)).thenReturn(null);
 
             mockMvc.perform(get("/api/download/status/99999").locale(Locale.SIMPLIFIED_CHINESE))
@@ -119,6 +123,7 @@ class DownloadControllerTest {
     @Test
     @DisplayName("GET /api/download/status/active 应返回活跃下载列表")
     void shouldReturnActiveDownloads() throws Exception {
+        when(setupService.hasAdminScope(any())).thenReturn(true);
         when(downloadService.getDownloadStatus()).thenReturn(List.of(1L, 2L, 3L));
 
         mockMvc.perform(get("/api/download/status/active"))
@@ -134,6 +139,7 @@ class DownloadControllerTest {
     @Test
     @DisplayName("POST /api/cancel/{artworkId} 应取消下载")
     void shouldCancelDownload() throws Exception {
+        when(setupService.hasAdminScope(any())).thenReturn(true);
         mockMvc.perform(post("/api/cancel/12345").locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))

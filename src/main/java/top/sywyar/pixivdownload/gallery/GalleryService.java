@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
-import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
@@ -155,7 +154,7 @@ public class GalleryService {
                 .isAi(artwork.isAi())
                 .authorId(artwork.authorId())
                 .authorName(artwork.authorId() == null ? null : authorNames.get(artwork.authorId()))
-                .description(PixivDescriptionHtml.normalizeLinks(artwork.description()))
+                .description(artwork.description())
                 .fileName(artwork.fileName())
                 .fileNameTemplate(pixivDatabase.getFileNameTemplate(artwork.fileName() == null ? 1L : artwork.fileName()))
                 .tags(tags)
