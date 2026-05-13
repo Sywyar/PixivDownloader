@@ -64,6 +64,12 @@ public class AdminInviteController {
         return Map.of("success", true);
     }
 
+    @DeleteMapping("/expired")
+    public Map<String, Object> deleteExpired() {
+        int deleted = guestInviteService.deleteExpired(System.currentTimeMillis());
+        return Map.of("success", true, "deleted", deleted);
+    }
+
     @DeleteMapping("/{id}")
     public Map<String, Boolean> delete(@PathVariable long id) {
         guestInviteService.delete(id);

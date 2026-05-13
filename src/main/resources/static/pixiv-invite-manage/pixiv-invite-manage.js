@@ -11,7 +11,7 @@ function interpolate(template, vars) {
         Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : m);
 }
 
-const state = { invites: [], filter: 'all', keyword: '' };
+const state = { invites: [], filter: 'all', keyword: '', deletingExpired: false };
 
 async function api(url, options) {
     const res = await fetch(url, {
@@ -51,6 +51,26 @@ function statusOf(item) {
     if (item.expireTime != null && Date.now() > item.expireTime) return 'expired';
     if (item.paused) return 'paused';
     return 'active';
+}
+function expiredInviteCount() {
+    const now = Date.now();
+    return state.invites.filter(it => it.expireTime != null && now > it.expireTime).length;
+}
+function showToast(message, kind) {
+    if (window.InviteModals && window.InviteModals.showToast) {
+        window.InviteModals.showToast(message, kind);
+    } else {
+        alert(message);
+    }
+}
+function setDeleteExpiredBusy(busy) {
+    state.deletingExpired = busy;
+    const btn = document.getElementById('btnDeleteExpired');
+    if (!btn) return;
+    btn.disabled = busy;
+    btn.textContent = busy
+        ? tr('invite:bulk.delete-expired.running', '删除中...')
+        : tr('invite:bulk.delete-expired', '删除所有已过期的邀请码');
 }
 
 function renderTable() {
@@ -202,6 +222,32 @@ document.getElementById('btnNewInvite').addEventListener('click', () => {
             loadInvites();
         }
     });
+});
+
+document.getElementById('btnDeleteExpired').addEventListener('click', async () => {
+    if (state.deletingExpired) return;
+    const count = expiredInviteCount();
+    const confirmMessage = count > 0
+        ? tr('invite:bulk.delete-expired.confirm-count',
+            '确认删除当前 {count} 个已过期的邀请码吗？此操作不可恢复。', { count })
+        : tr('invite:bulk.delete-expired.confirm',
+            '确认删除所有目前已过期的邀请码吗？此操作不可恢复。');
+    if (!confirm(confirmMessage)) return;
+
+    setDeleteExpiredBusy(true);
+    try {
+        const result = await api('/api/admin/invites/expired', { method: 'DELETE' });
+        const deleted = Number(result.deleted || 0);
+        showToast(deleted > 0
+            ? tr('invite:toast.expired-deleted', '已删除 {count} 个已过期的邀请码', { count: deleted })
+            : tr('invite:toast.expired-none', '没有需要删除的已过期邀请码'),
+            'success');
+        await loadInvites();
+    } catch (e) {
+        showToast(tr('invite:toast.failed', '{0}', { 0: e.message }), 'error');
+    } finally {
+        setDeleteExpiredBusy(false);
+    }
 });
 
 (async () => {

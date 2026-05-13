@@ -162,6 +162,9 @@ public interface GuestInviteMapper {
             + " OR (expire_time IS NOT NULL AND expire_time < #{now})")
     List<Long> findExpiredOrRevokedIds(@Param("now") long now);
 
+    @Select("SELECT id FROM guest_invites WHERE expire_time IS NOT NULL AND expire_time < #{now}")
+    List<Long> findExpiredIds(@Param("now") long now);
+
     @Update("UPDATE guest_invites SET total_request_count = total_request_count + 1,"
             + " last_used_time = #{now},"
             + " first_used_time = COALESCE(first_used_time, #{now})"

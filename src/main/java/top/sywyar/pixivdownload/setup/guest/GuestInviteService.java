@@ -213,6 +213,20 @@ public class GuestInviteService {
         mapper.deleteInvite(id);
     }
 
+    @Transactional
+    public int deleteExpired(long now) {
+        List<Long> ids = mapper.findExpiredIds(now);
+        for (Long id : ids) {
+            mapper.purgeInviteTags(id);
+            mapper.purgeInviteAuthors(id);
+            mapper.purgeInviteNovelTags(id);
+            mapper.purgeInviteNovelAuthors(id);
+            mapper.purgeInviteAccessStats(id);
+            mapper.deleteInvite(id);
+        }
+        return ids.size();
+    }
+
     // ── 查询 ────────────────────────────────────────────────────────────────
 
     public List<InviteSummary> list() {

@@ -28,6 +28,12 @@
         <button class="filter-chip" data-filter="expired" data-i18n="invite:filter.expired">已过期</button>
         <button class="filter-chip" data-filter="unused" data-i18n="invite:filter.unused">未使用</button>
     </div>
+    <div class="bulk-actions">
+        <div class="bulk-actions-title" data-i18n="invite:bulk.title">批量操作</div>
+        <div class="bulk-actions-controls">
+            <button class="btn-danger" id="btnDeleteExpired" type="button" data-i18n="invite:bulk.delete-expired">删除所有已过期的邀请码</button>
+        </div>
+    </div>
     <div id="tableContainer">
         <div class="empty" data-i18n="invite:loading">加载中…</div>
     </div>
