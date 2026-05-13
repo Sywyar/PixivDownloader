@@ -13,6 +13,8 @@ public record InviteSummary(
         boolean allowR18g,
         boolean tagUnrestricted,
         boolean authorUnrestricted,
+        boolean novelTagUnrestricted,
+        boolean novelAuthorUnrestricted,
         boolean paused,
         boolean used,
         long totalRequestCount,

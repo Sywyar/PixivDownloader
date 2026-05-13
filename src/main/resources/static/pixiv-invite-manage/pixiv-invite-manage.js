@@ -151,6 +151,25 @@ async function fetchAuthorsForPicker() {
     }
     return all;
 }
+async function fetchNovelTagsForPicker() {
+    const data = await api('/api/gallery/novels/tags?limit=2000');
+    return (data.tags || []).map(t => ({
+        id: t.tagId,
+        name: t.translatedName ? `${t.name} · ${t.translatedName}` : t.name
+    }));
+}
+async function fetchNovelAuthorsForPicker() {
+    const all = []; let page = 0; let totalPages = 1;
+    while (page < totalPages && page < 50) {
+        const data = await api(`/api/gallery/novels/authors?page=${page}&size=200&sort=name`);
+        const list = data.content || [];
+        for (const a of list) all.push({ id: a.authorId, name: a.name || ('#' + a.authorId) });
+        totalPages = data.totalPages || 1;
+        page++;
+        if (list.length === 0) break;
+    }
+    return all;
+}
 
 document.querySelectorAll('.filter-chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -171,6 +190,8 @@ document.getElementById('btnNewInvite').addEventListener('click', () => {
         submitText: tr('invite:modal.create.submit', '创建邀请链接'),
         fetchTags: fetchTagsForPicker,
         fetchAuthors: fetchAuthorsForPicker,
+        fetchNovelTags: fetchNovelTagsForPicker,
+        fetchNovelAuthors: fetchNovelAuthorsForPicker,
         onSubmit: async (payload) => {
             const result = await api('/api/admin/invites', {
                 method: 'POST',

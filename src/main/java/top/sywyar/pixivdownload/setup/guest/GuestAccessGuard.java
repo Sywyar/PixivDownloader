@@ -88,26 +88,26 @@ public class GuestAccessGuard {
     private boolean matchesNovelWhitelist(NovelRecord rec, GuestInviteSession session) {
         List<TagDto> tags = novelDatabase.getNovelTags(rec.novelId());
 
-        if (!session.tagUnrestricted()) {
+        if (!session.novelTagUnrestricted()) {
             if (tags != null && !tags.isEmpty()) {
                 for (TagDto tag : tags) {
                     Long id = tag.getTagId();
-                    if (id != null && !session.tagIds().contains(id)) {
+                    if (id != null && !session.novelTagIds().contains(id)) {
                         return false;
                     }
                 }
             }
         }
-        if (!session.authorUnrestricted()) {
-            if (rec.authorId() != null && !session.authorIds().contains(rec.authorId())) {
+        if (!session.novelAuthorUnrestricted()) {
+            if (rec.authorId() != null && !session.novelAuthorIds().contains(rec.authorId())) {
                 return false;
             }
         }
 
-        boolean tagPass = session.tagUnrestricted() || hasTagHit(tags, session.tagIds());
+        boolean tagPass = session.novelTagUnrestricted() || hasTagHit(tags, session.novelTagIds());
         if (tagPass) return true;
-        return session.authorUnrestricted()
-                || (rec.authorId() != null && session.authorIds().contains(rec.authorId()));
+        return session.novelAuthorUnrestricted()
+                || (rec.authorId() != null && session.novelAuthorIds().contains(rec.authorId()));
     }
 
     private boolean matchesAgeRating(Integer xRestrict, GuestInviteSession session) {

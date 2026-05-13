@@ -16,6 +16,8 @@ public record InviteDetail(
         boolean allowR18g,
         boolean tagUnrestricted,
         boolean authorUnrestricted,
+        boolean novelTagUnrestricted,
+        boolean novelAuthorUnrestricted,
         boolean paused,
         boolean used,
         long totalRequestCount,
@@ -23,7 +25,9 @@ public record InviteDetail(
         Long lastUsedTime,
         long createdTime,
         List<TagBrief> tags,
-        List<AuthorBrief> authors) {
+        List<AuthorBrief> authors,
+        List<TagBrief> novelTags,
+        List<AuthorBrief> novelAuthors) {
 
     public record TagBrief(long tagId, String name, String translatedName) {}
 

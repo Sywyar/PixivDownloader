@@ -3,6 +3,9 @@
  * 邀请码相关的共享 modal：创建/编辑邀请、配置可见标签或作者、展示邀请链接结果、Toast。
  * 由 pixiv-gallery.html、pixiv-invite-manage.html、pixiv-invite-detail.html 复用。
  *
+ * 可见范围按媒体类型拆分为漫画/插画侧（tag/author）与小说侧（novelTag/novelAuthor），
+ * 分别独立配置；语义和取数源相互独立。
+ *
  * 使用 CSS 变量保证暗色模式自动适配；调用方需要在页面上提供主题变量
  * （--bg / --surface / --surface-muted / --text / --text-muted / --border / --brand）。
  */
@@ -26,6 +29,8 @@
         'picker.toggle.hidden': '不可见',
         'picker.tag.title': '配置可见标签',
         'picker.author.title': '配置可见作者',
+        'picker.novel-tag.title': '配置小说可见标签',
+        'picker.novel-author.title': '配置小说可见作者',
         'picker.meta': '共 {total} 项',
         'modal.create.title': '邀请访客',
         'modal.create.submit': '创建邀请链接',
@@ -39,7 +44,8 @@
         'modal.preset.365': '365天',
         'modal.preset.permanent': '永久',
         'modal.field.age-rating': '可见年龄分级',
-        'modal.field.range': '可见范围',
+        'modal.field.range.illust': '漫画/插画可见范围',
+        'modal.field.range.novel': '小说可见范围',
         'modal.btn.config-tags': '配置可见标签',
         'modal.btn.config-authors': '配置可见作者',
         'modal.summary.tags': '标签：{value}',
@@ -266,6 +272,8 @@
      * - 勾选状态下点击行：该行变为不可见。自动取消勾选并将 selected 设为 (全部 - 该行)。
      * - 未勾选状态下点击行：该行翻转可见状态（可见集合添加/移除）。
      *   若移除后 selected 与 items 等大（全部可见），自动重新勾选并清空 selected。
+     *
+     * {@code kind} 用于解析标题键：tag / author / novel-tag / novel-author。
      */
     function openVisibilityPicker(opts) {
         const { kind, items, onSubmit } = opts;
@@ -275,7 +283,7 @@
         let keyword = '';
 
         const backdrop = el('div', { class: 'invite-modal-backdrop open' });
-        const titleKey = kind === 'tag' ? 'picker.tag.title' : 'picker.author.title';
+        const titleKey = resolvePickerTitleKey(kind);
         const list = el('div', { class: 'invite-picker-list' });
 
         function isVisible(item) {
@@ -404,6 +412,16 @@
         renderList();
     }
 
+    function resolvePickerTitleKey(kind) {
+        switch (kind) {
+            case 'novel-tag': return 'picker.novel-tag.title';
+            case 'novel-author': return 'picker.novel-author.title';
+            case 'author': return 'picker.author.title';
+            case 'tag':
+            default: return 'picker.tag.title';
+        }
+    }
+
     // ---------- create / edit form ----------
     function openInviteFormModal(opts) {
         const prefill = opts.prefill || {};
@@ -412,12 +430,20 @@
         let allowSfw = isEdit ? prefill.allowSfw !== false : true;
         let allowR18 = isEdit ? !!prefill.allowR18 : true;
         let allowR18g = isEdit ? !!prefill.allowR18g : true;
+        // 漫画/插画侧
         let tagUnrestricted = prefill.tagUnrestricted !== false;
         let authorUnrestricted = prefill.authorUnrestricted !== false;
         let tagIds = new Set(prefill.tagIds || []);
         let authorIds = new Set(prefill.authorIds || []);
         const tagsSnapshot = prefill.tagsSnapshot || null;
         const authorsSnapshot = prefill.authorsSnapshot || null;
+        // 小说侧
+        let novelTagUnrestricted = prefill.novelTagUnrestricted !== false;
+        let novelAuthorUnrestricted = prefill.novelAuthorUnrestricted !== false;
+        let novelTagIds = new Set(prefill.novelTagIds || []);
+        let novelAuthorIds = new Set(prefill.novelAuthorIds || []);
+        const novelTagsSnapshot = prefill.novelTagsSnapshot || null;
+        const novelAuthorsSnapshot = prefill.novelAuthorsSnapshot || null;
 
         const nameInput = el('input', {
             class: 'invite-input', value: prefill.name || '',
@@ -467,53 +493,69 @@
             makeCheckbox(t('age.r18g'), allowR18g, v => allowR18g = v)
         ]);
 
-        const summary = el('div', { class: 'invite-help' });
+        const illustSummary = el('div', { class: 'invite-help' });
+        const novelSummary = el('div', { class: 'invite-help' });
+        function summaryLine(kind, unrestrictedFlag, selectedSet) {
+            const valueKey = unrestrictedFlag ? 'modal.summary.all'
+                : null;
+            const value = valueKey ? t(valueKey) : t('modal.summary.count', { count: selectedSet.size });
+            return t(kind === 'tag' ? 'modal.summary.tags' : 'modal.summary.authors', { value });
+        }
         function renderSummary() {
-            const tagPart = tagUnrestricted
-                ? t('modal.summary.tags', { value: t('modal.summary.all') })
-                : t('modal.summary.tags', { value: t('modal.summary.count', { count: tagIds.size }) });
-            const authorPart = authorUnrestricted
-                ? t('modal.summary.authors', { value: t('modal.summary.all') })
-                : t('modal.summary.authors', { value: t('modal.summary.count', { count: authorIds.size }) });
-            summary.textContent = tagPart + ' · ' + authorPart + ' ' + t('modal.summary.hint');
+            illustSummary.textContent = summaryLine('tag', tagUnrestricted, tagIds)
+                + ' · ' + summaryLine('author', authorUnrestricted, authorIds)
+                + ' ' + t('modal.summary.hint');
+            novelSummary.textContent = summaryLine('tag', novelTagUnrestricted, novelTagIds)
+                + ' · ' + summaryLine('author', novelAuthorUnrestricted, novelAuthorIds)
+                + ' ' + t('modal.summary.hint');
         }
 
-        const tagPickerBtn = el('button', { type: 'button', class: 'invite-btn',
-            text: t('modal.btn.config-tags'),
-            onclick: async () => {
-                tagPickerBtn.disabled = true;
-                try {
-                    const items = tagsSnapshot ? tagsSnapshot.slice() : await opts.fetchTags();
-                    openVisibilityPicker({
-                        kind: 'tag', items,
-                        unrestricted: tagUnrestricted,
-                        selectedIds: tagIds,
-                        onSubmit: ({ unrestricted, ids }) => {
-                            tagUnrestricted = unrestricted;
-                            tagIds = new Set(ids);
-                            renderSummary();
-                        }
-                    });
-                } finally { tagPickerBtn.disabled = false; }
-            } });
-        const authorPickerBtn = el('button', { type: 'button', class: 'invite-btn',
-            text: t('modal.btn.config-authors'),
-            onclick: async () => {
-                authorPickerBtn.disabled = true;
-                try {
-                    const items = authorsSnapshot ? authorsSnapshot.slice() : await opts.fetchAuthors();
-                    openVisibilityPicker({
-                        kind: 'author', items,
-                        unrestricted: authorUnrestricted,
-                        selectedIds: authorIds,
-                        onSubmit: ({ unrestricted, ids }) => {
-                            authorUnrestricted = unrestricted;
-                            authorIds = new Set(ids);
-                            renderSummary();
-                        }
-                    });
-                } finally { authorPickerBtn.disabled = false; }
-            } });
+        function makePickerBtn(kind, getItemsFn, getState, setState) {
+            const btn = el('button', { type: 'button', class: 'invite-btn',
+                text: t(kind === 'tag' || kind === 'novel-tag' ? 'modal.btn.config-tags' : 'modal.btn.config-authors'),
+                onclick: async () => {
+                    btn.disabled = true;
+                    try {
+                        const items = await getItemsFn();
+                        const state = getState();
+                        openVisibilityPicker({
+                            kind, items,
+                            unrestricted: state.unrestricted,
+                            selectedIds: state.ids,
+                            onSubmit: ({ unrestricted, ids }) => {
+                                setState({ unrestricted, ids: new Set(ids) });
+                                renderSummary();
+                            }
+                        });
+                    } finally { btn.disabled = false; }
+                } });
+            return btn;
+        }
+
+        const illustTagBtn = makePickerBtn(
+            'tag',
+            async () => tagsSnapshot ? tagsSnapshot.slice() : await opts.fetchTags(),
+            () => ({ unrestricted: tagUnrestricted, ids: tagIds }),
+            ({ unrestricted, ids }) => { tagUnrestricted = unrestricted; tagIds = ids; }
+        );
+        const illustAuthorBtn = makePickerBtn(
+            'author',
+            async () => authorsSnapshot ? authorsSnapshot.slice() : await opts.fetchAuthors(),
+            () => ({ unrestricted: authorUnrestricted, ids: authorIds }),
+            ({ unrestricted, ids }) => { authorUnrestricted = unrestricted; authorIds = ids; }
+        );
+        const novelTagBtn = makePickerBtn(
+            'novel-tag',
+            async () => novelTagsSnapshot ? novelTagsSnapshot.slice() : await opts.fetchNovelTags(),
+            () => ({ unrestricted: novelTagUnrestricted, ids: novelTagIds }),
+            ({ unrestricted, ids }) => { novelTagUnrestricted = unrestricted; novelTagIds = ids; }
+        );
+        const novelAuthorBtn = makePickerBtn(
+            'novel-author',
+            async () => novelAuthorsSnapshot ? novelAuthorsSnapshot.slice() : await opts.fetchNovelAuthors(),
+            () => ({ unrestricted: novelAuthorUnrestricted, ids: novelAuthorIds }),
+            ({ unrestricted, ids }) => { novelAuthorUnrestricted = unrestricted; novelAuthorIds = ids; }
+        );
 
         renderSummary();
 
@@ -536,8 +578,12 @@
             if (!allowSfw && !allowR18 && !allowR18g) {
                 errorBox.textContent = t('modal.error.age-empty'); return;
             }
-            if (!tagUnrestricted && tagIds.size === 0
-                && !authorUnrestricted && authorIds.size === 0) {
+            const allDimensionsHidden =
+                !tagUnrestricted && tagIds.size === 0
+                && !authorUnrestricted && authorIds.size === 0
+                && !novelTagUnrestricted && novelTagIds.size === 0
+                && !novelAuthorUnrestricted && novelAuthorIds.size === 0;
+            if (allDimensionsHidden) {
                 errorBox.textContent = t('modal.error.whitelist-empty');
                 return;
             }
@@ -545,7 +591,9 @@
                 name, expireDays,
                 allowSfw, allowR18, allowR18g,
                 tagUnrestricted, tagIds: tagUnrestricted ? [] : Array.from(tagIds),
-                authorUnrestricted, authorIds: authorUnrestricted ? [] : Array.from(authorIds)
+                authorUnrestricted, authorIds: authorUnrestricted ? [] : Array.from(authorIds),
+                novelTagUnrestricted, novelTagIds: novelTagUnrestricted ? [] : Array.from(novelTagIds),
+                novelAuthorUnrestricted, novelAuthorIds: novelAuthorUnrestricted ? [] : Array.from(novelAuthorIds)
             };
             submitBtn.disabled = true;
             try {
@@ -575,9 +623,14 @@
                 ageRow
             ]),
             el('div', { class: 'invite-field' }, [
-                el('label', { class: 'invite-field-label', text: t('modal.field.range') }),
-                el('div', { class: 'invite-row' }, [tagPickerBtn, authorPickerBtn]),
-                summary
+                el('label', { class: 'invite-field-label', text: t('modal.field.range.illust') }),
+                el('div', { class: 'invite-row' }, [illustTagBtn, illustAuthorBtn]),
+                illustSummary
+            ]),
+            el('div', { class: 'invite-field' }, [
+                el('label', { class: 'invite-field-label', text: t('modal.field.range.novel') }),
+                el('div', { class: 'invite-row' }, [novelTagBtn, novelAuthorBtn]),
+                novelSummary
             ]),
             errorBox
         ]);

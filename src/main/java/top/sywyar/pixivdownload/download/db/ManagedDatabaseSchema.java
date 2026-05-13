@@ -158,6 +158,8 @@ public final class ManagedDatabaseSchema {
                         column("allow_r18g", "INTEGER", true, "0", 0),
                         column("tag_unrestricted", "INTEGER", true, "1", 0),
                         column("author_unrestricted", "INTEGER", true, "1", 0),
+                        column("novel_tag_unrestricted", "INTEGER", false, null, 0),
+                        column("novel_author_unrestricted", "INTEGER", false, null, 0),
                         column("created_time", "INTEGER", true, null, 0),
                         column("paused", "INTEGER", true, "0", 0),
                         column("revoked", "INTEGER", true, "0", 0),
@@ -182,6 +184,24 @@ public final class ManagedDatabaseSchema {
 
         tables.put("guest_invite_authors", new TableSpec(
                 "guest_invite_authors",
+                List.of(
+                        column("invite_id", "INTEGER", true, null, 1),
+                        column("author_id", "INTEGER", true, null, 2)
+                ),
+                List.of()
+        ));
+
+        tables.put("guest_invite_novel_tags", new TableSpec(
+                "guest_invite_novel_tags",
+                List.of(
+                        column("invite_id", "INTEGER", true, null, 1),
+                        column("tag_id", "INTEGER", true, null, 2)
+                ),
+                List.of()
+        ));
+
+        tables.put("guest_invite_novel_authors", new TableSpec(
+                "guest_invite_novel_authors",
                 List.of(
                         column("invite_id", "INTEGER", true, null, 1),
                         column("author_id", "INTEGER", true, null, 2)

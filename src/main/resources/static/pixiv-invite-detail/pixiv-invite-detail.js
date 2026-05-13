@@ -6,6 +6,8 @@ let chartDays = 7;
 let pageI18n = null;
 let cachedTags = null;
 let cachedAuthors = null;
+let cachedNovelTags = null;
+let cachedNovelAuthors = null;
 let chartContext = null;
 let lastBuckets = [];
 let lastHoverPoint = null;
@@ -76,22 +78,27 @@ function ageRatingLabel(d) {
 }
 
 /**
- * 渲染"可见标签"或"可见作者"维度。
+ * 渲染"可见标签"或"可见作者"维度的摘要单元格。
  * 三种状态：全部可见 / 全部不可见 / 部分可见；查看详细按钮始终可点击。
+ *
+ * {@code kind} 决定数据源与文案：tag / author / novel-tag / novel-author。
  */
 function renderVisibilityCell(unrestricted, entries, kind) {
+    const isTagSide = kind === 'tag' || kind === 'novel-tag';
     let summaryText;
     if (unrestricted) {
-        summaryText = kind === 'tag'
+        summaryText = isTagSide
             ? tr('invite:detail.value.tags-all', '全部标签')
             : tr('invite:detail.value.authors-all', '全部作者');
     } else if (!entries || entries.length === 0) {
-        summaryText = kind === 'tag'
+        summaryText = isTagSide
             ? tr('invite:detail.value.tags-none', '全部不可见')
             : tr('invite:detail.value.authors-none', '全部不可见');
     } else {
-        const summaryKey = kind === 'tag' ? 'invite:detail.value.summary.tags' : 'invite:detail.value.summary.authors';
-        const summaryFallback = kind === 'tag' ? '可见 {visible} 个标签' : '可见 {visible} 个作者';
+        const summaryKey = isTagSide
+            ? 'invite:detail.value.summary.tags'
+            : 'invite:detail.value.summary.authors';
+        const summaryFallback = isTagSide ? '可见 {visible} 个标签' : '可见 {visible} 个作者';
         summaryText = tr(summaryKey, summaryFallback, { visible: entries.length });
     }
     return `
@@ -119,8 +126,10 @@ function render() {
             : escapeHtml(tr('invite:detail.value.used.none', '未使用'))}</div></div>
         <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.total', '累计访问'))}</div><div class="val">${d.totalRequestCount}</div></div>
         <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.age', '年龄分级'))}</div><div class="val">${ageRatingLabel(d)}</div></div>
-        <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.tags', '可见标签'))}</div><div class="val">${renderVisibilityCell(d.tagUnrestricted, d.tags, 'tag')}</div></div>
-        <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.authors', '可见作者'))}</div><div class="val">${renderVisibilityCell(d.authorUnrestricted, d.authors, 'author')}</div></div>
+        <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.tags.illust', '漫画可见标签'))}</div><div class="val">${renderVisibilityCell(d.tagUnrestricted, d.tags, 'tag')}</div></div>
+        <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.authors.illust', '漫画可见作者'))}</div><div class="val">${renderVisibilityCell(d.authorUnrestricted, d.authors, 'author')}</div></div>
+        <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.tags.novel', '小说可见标签'))}</div><div class="val">${renderVisibilityCell(d.novelTagUnrestricted, d.novelTags, 'novel-tag')}</div></div>
+        <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.authors.novel', '小说可见作者'))}</div><div class="val">${renderVisibilityCell(d.novelAuthorUnrestricted, d.novelAuthors, 'novel-author')}</div></div>
         <div class="info-row"><div class="lbl">${escapeHtml(tr('invite:detail.field.url', '邀请链接'))}</div>
             <div class="val"><div class="code-block"><span class="v">${escapeHtml(d.url)}</span>
                 <button class="copy-btn" data-copy="${escapeHtml(d.url)}">${escapeHtml(tr('invite:copy', '复制'))}</button></div></div></div>
@@ -253,17 +262,64 @@ async function fetchAuthorsForPicker() {
     cachedAuthors = all;
     return cachedAuthors;
 }
+async function fetchNovelTagsForPicker() {
+    if (cachedNovelTags) return cachedNovelTags;
+    const data = await api('/api/gallery/novels/tags?limit=2000');
+    cachedNovelTags = (data.tags || []).map(t => ({
+        id: t.tagId,
+        name: t.translatedName ? `${t.name} · ${t.translatedName}` : t.name
+    }));
+    return cachedNovelTags;
+}
+async function fetchNovelAuthorsForPicker() {
+    if (cachedNovelAuthors) return cachedNovelAuthors;
+    const all = []; let page = 0; let totalPages = 1;
+    while (page < totalPages && page < 50) {
+        const data = await api(`/api/gallery/novels/authors?page=${page}&size=200&sort=name`);
+        const list = data.content || [];
+        for (const a of list) all.push({ id: a.authorId, name: a.name || ('#' + a.authorId) });
+        totalPages = data.totalPages || 1;
+        page++;
+        if (list.length === 0) break;
+    }
+    cachedNovelAuthors = all;
+    return cachedNovelAuthors;
+}
 
+/**
+ * 把单维度的"查看详细"打开为可编辑 picker，提交时只更新对应维度，其它三维度保持原值。
+ */
 function openViewDetailPicker(kind) {
-    const fetched = (kind === 'tag') ? fetchTagsForPicker() : fetchAuthorsForPicker();
+    const fetched = (() => {
+        switch (kind) {
+            case 'tag': return fetchTagsForPicker();
+            case 'author': return fetchAuthorsForPicker();
+            case 'novel-tag': return fetchNovelTagsForPicker();
+            case 'novel-author': return fetchNovelAuthorsForPicker();
+            default: return Promise.resolve([]);
+        }
+    })();
     Promise.resolve(fetched).then(list => {
+        const initialUnrestricted = ({
+            'tag': detail.tagUnrestricted,
+            'author': detail.authorUnrestricted,
+            'novel-tag': detail.novelTagUnrestricted,
+            'novel-author': detail.novelAuthorUnrestricted,
+        })[kind];
+        const initialIds = (() => {
+            switch (kind) {
+                case 'tag': return (detail.tags || []).map(t => t.tagId);
+                case 'author': return (detail.authors || []).map(a => a.authorId);
+                case 'novel-tag': return (detail.novelTags || []).map(t => t.tagId);
+                case 'novel-author': return (detail.novelAuthors || []).map(a => a.authorId);
+                default: return [];
+            }
+        })();
         window.InviteModals.openVisibilityPicker({
             kind,
             items: list,
-            unrestricted: kind === 'tag' ? detail.tagUnrestricted : detail.authorUnrestricted,
-            selectedIds: kind === 'tag'
-                ? (detail.tags || []).map(t => t.tagId)
-                : (detail.authors || []).map(a => a.authorId),
+            unrestricted: initialUnrestricted,
+            selectedIds: initialIds,
             onSubmit: async ({ unrestricted, ids }) => {
                 const expireDays = detail.expireTime == null
                     ? null
@@ -274,15 +330,34 @@ function openViewDetailPicker(kind) {
                     allowSfw: detail.allowSfw,
                     allowR18: detail.allowR18,
                     allowR18g: detail.allowR18g,
-                    tagUnrestricted: kind === 'tag' ? unrestricted : detail.tagUnrestricted,
-                    tagIds: kind === 'tag'
-                        ? (unrestricted ? [] : ids)
-                        : (detail.tags || []).map(t => t.tagId),
-                    authorUnrestricted: kind === 'author' ? unrestricted : detail.authorUnrestricted,
-                    authorIds: kind === 'author'
-                        ? (unrestricted ? [] : ids)
-                        : (detail.authors || []).map(a => a.authorId),
+                    tagUnrestricted: detail.tagUnrestricted,
+                    tagIds: (detail.tags || []).map(t => t.tagId),
+                    authorUnrestricted: detail.authorUnrestricted,
+                    authorIds: (detail.authors || []).map(a => a.authorId),
+                    novelTagUnrestricted: detail.novelTagUnrestricted,
+                    novelTagIds: (detail.novelTags || []).map(t => t.tagId),
+                    novelAuthorUnrestricted: detail.novelAuthorUnrestricted,
+                    novelAuthorIds: (detail.novelAuthors || []).map(a => a.authorId),
                 };
+                // 仅覆盖被编辑的那一维
+                switch (kind) {
+                    case 'tag':
+                        payload.tagUnrestricted = unrestricted;
+                        payload.tagIds = unrestricted ? [] : ids;
+                        break;
+                    case 'author':
+                        payload.authorUnrestricted = unrestricted;
+                        payload.authorIds = unrestricted ? [] : ids;
+                        break;
+                    case 'novel-tag':
+                        payload.novelTagUnrestricted = unrestricted;
+                        payload.novelTagIds = unrestricted ? [] : ids;
+                        break;
+                    case 'novel-author':
+                        payload.novelAuthorUnrestricted = unrestricted;
+                        payload.novelAuthorIds = unrestricted ? [] : ids;
+                        break;
+                }
                 try {
                     await api('/api/admin/invites/' + detail.id, {
                         method: 'PUT',
@@ -316,6 +391,10 @@ function openEditModal() {
         authorUnrestricted: detail.authorUnrestricted,
         tagIds: (detail.tags || []).map(t => t.tagId),
         authorIds: (detail.authors || []).map(a => a.authorId),
+        novelTagUnrestricted: detail.novelTagUnrestricted,
+        novelAuthorUnrestricted: detail.novelAuthorUnrestricted,
+        novelTagIds: (detail.novelTags || []).map(t => t.tagId),
+        novelAuthorIds: (detail.novelAuthors || []).map(a => a.authorId),
     };
     window.InviteModals.openInviteFormModal({
         title: tr('invite:modal.edit.title', '编辑邀请'),
@@ -324,6 +403,8 @@ function openEditModal() {
         editing: true,
         fetchTags: fetchTagsForPicker,
         fetchAuthors: fetchAuthorsForPicker,
+        fetchNovelTags: fetchNovelTagsForPicker,
+        fetchNovelAuthors: fetchNovelAuthorsForPicker,
         onSubmit: async (payload) => {
             await api('/api/admin/invites/' + detail.id, {
                 method: 'PUT',
@@ -521,28 +602,30 @@ function onChartHover(e) {
     }
 }
 
-if (!inviteId) {
-    document.getElementById('wrap').innerHTML =
-        '<div class="card"><div class="error">缺少 ?id 参数</div></div>';
-} else {
-    (async () => {
+(async () => {
+    try {
+        pageI18n = await PixivI18n.create({ namespaces: ['invite', 'common'] });
+        window.PixivInvitesI18n = pageI18n;
+        if (pageI18n.apply) pageI18n.apply();
+    } catch (_) {}
+    if (!inviteId) {
+        document.getElementById('wrap').innerHTML =
+            '<div class="card"><div class="error">'
+            + escapeHtml(tr('invite:detail.missing-id', '缺少 ?id 参数'))
+            + '</div></div>';
+        return;
+    }
+    if (window.PixivLangSwitcher && window.PixivLangSwitcher.mount && pageI18n) {
         try {
-            pageI18n = await PixivI18n.create({ namespaces: ['invite', 'common'] });
-            window.PixivInvitesI18n = pageI18n;
-            if (pageI18n.apply) pageI18n.apply();
+            await window.PixivLangSwitcher.mount({
+                mountPoint: document.getElementById('langSwitcherAnchor'),
+                i18n: pageI18n,
+                onChange: client => { pageI18n = client; window.PixivInvitesI18n = client; render(); }
+            });
         } catch (_) {}
-        if (window.PixivLangSwitcher && window.PixivLangSwitcher.mount && pageI18n) {
-            try {
-                await window.PixivLangSwitcher.mount({
-                    mountPoint: document.getElementById('langSwitcherAnchor'),
-                    i18n: pageI18n,
-                    onChange: client => { pageI18n = client; window.PixivInvitesI18n = client; render(); }
-                });
-            } catch (_) {}
-        }
-        if (window.PixivTheme && window.PixivTheme.mount) {
-            try { window.PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') }); } catch (_) {}
-        }
-        load();
-    })();
-}
+    }
+    if (window.PixivTheme && window.PixivTheme.mount) {
+        try { window.PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') }); } catch (_) {}
+    }
+    load();
+})();

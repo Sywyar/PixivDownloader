@@ -179,12 +179,14 @@
     }
 
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: ['gallery', 'common']});
+        pageI18n = await PixivI18n.create({namespaces: ['gallery', 'invite', 'common']});
+        window.PixivInvitesI18n = pageI18n;
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
             onChange: function (nextClient) {
                 pageI18n = nextClient;
+                window.PixivInvitesI18n = nextClient;
                 applyStaticPageTranslations();
                 renderCollections();
                 renderTagChips();
@@ -2271,43 +2273,63 @@
             const host = window.location.hostname;
             const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
             if (isLocal) {
-                const proceed = window.confirm('当前服务器地址为本地（' + host
-                    + '），通过此按钮生成的链接他人可能无法访问。是否继续？');
-                if (!proceed) return;
+                const warning = pageI18n
+                    ? pageI18n.t('invite:warning.local',
+                        '当前服务器地址为本地（{host}），通过此按钮生成的链接他人可能无法访问。是否继续？',
+                        { host })
+                    : '当前服务器地址为本地（' + host
+                        + '），通过此按钮生成的链接他人可能无法访问。是否继续？';
+                if (!window.confirm(warning)) return;
             }
             openCreateModal();
         });
 
+        async function fetchIllustTags() {
+            const data = await api('/api/gallery/tags?limit=2000');
+            return (data.tags || []).map(t => ({
+                id: t.tagId,
+                name: t.translatedName ? `${t.name} · ${t.translatedName}` : t.name,
+                secondary: ''
+            }));
+        }
+        async function fetchPagedAuthors(endpoint) {
+            const all = [];
+            let page = 0; let totalPages = 1;
+            while (page < totalPages && page < 50) {
+                const data = await api(`${endpoint}?page=${page}&size=200&sort=name`);
+                const list = data.items || data.content || data.authors || data.data || [];
+                for (const a of list) {
+                    const id = a.authorId != null ? a.authorId : a.id;
+                    if (id == null) continue;
+                    all.push({ id, name: a.name || ('#' + id), secondary: '' });
+                }
+                totalPages = data.totalPages != null ? data.totalPages
+                    : (list.length === 200 ? page + 2 : page + 1);
+                page++;
+                if (list.length === 0) break;
+            }
+            return all;
+        }
+        async function fetchNovelTags() {
+            const data = await api('/api/gallery/novels/tags?limit=2000');
+            return (data.tags || []).map(t => ({
+                id: t.tagId,
+                name: t.translatedName ? `${t.name} · ${t.translatedName}` : t.name,
+                secondary: ''
+            }));
+        }
+
         function openCreateModal() {
+            const tr = (key, fallback, vars) => pageI18n
+                ? pageI18n.t('invite:' + key, fallback, vars)
+                : fallback;
             window.InviteModals.openInviteFormModal({
-                title: '邀请访客',
-                submitText: '创建邀请链接',
-                fetchTags: async () => {
-                    const data = await api('/api/gallery/tags?limit=2000');
-                    return (data.tags || []).map(t => ({
-                        id: t.tagId,
-                        name: t.translatedName ? `${t.name} · ${t.translatedName}` : t.name,
-                        secondary: ''
-                    }));
-                },
-                fetchAuthors: async () => {
-                    const all = [];
-                    let page = 0; let totalPages = 1;
-                    while (page < totalPages && page < 50) {
-                        const data = await api(`/api/authors/paged?page=${page}&size=200&sort=name`);
-                        const list = data.items || data.content || data.authors || data.data || [];
-                        for (const a of list) {
-                            const id = a.authorId != null ? a.authorId : a.id;
-                            if (id == null) continue;
-                            all.push({ id, name: a.name || ('#' + id), secondary: '' });
-                        }
-                        totalPages = data.totalPages != null ? data.totalPages
-                            : (list.length === 200 ? page + 2 : page + 1);
-                        page++;
-                        if (list.length === 0) break;
-                    }
-                    return all;
-                },
+                title: tr('modal.create.title', '邀请访客'),
+                submitText: tr('modal.create.submit', '创建邀请链接'),
+                fetchTags: fetchIllustTags,
+                fetchAuthors: () => fetchPagedAuthors('/api/authors/paged'),
+                fetchNovelTags: fetchNovelTags,
+                fetchNovelAuthors: () => fetchPagedAuthors('/api/gallery/novels/authors'),
                 onSubmit: async (payload) => {
                     const result = await api('/api/admin/invites', {
                         method: 'POST',

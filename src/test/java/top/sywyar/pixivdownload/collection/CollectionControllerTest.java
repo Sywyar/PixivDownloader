@@ -120,7 +120,9 @@ class CollectionControllerTest {
     private MockHttpServletRequest guestRequest() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute(GuestInviteSession.REQUEST_ATTR, new GuestInviteSession(
-                1L, "invite-code", true, false, false, true, Set.of(), true, Set.of()
+                1L, "invite-code", true, false, false,
+                true, Set.of(), true, Set.of(),
+                true, Set.of(), true, Set.of()
         ));
         return request;
     }

@@ -439,7 +439,9 @@ class AuthFilterTest {
         @DisplayName("璁垮閭€璇蜂細璇濆簲鑳藉姞杞界敾寤婇〉鎷嗗垎璧勬簮")
         void shouldAllowGuestInviteToLoadGallerySplitResource() throws Exception {
             when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
-                    1L, "invite-code", true, false, false, true, Set.of(), true, Set.of()
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
             )));
 
             request.setMethod("GET");

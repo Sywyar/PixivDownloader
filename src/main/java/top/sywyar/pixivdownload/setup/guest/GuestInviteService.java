@@ -31,6 +31,8 @@ import java.util.Set;
  *   <li>{@code expire_time != null && now > expire_time} 或 {@code revoked = 1}：立即物理删除，{@link #resolveByCode} 返回空。</li>
  *   <li>{@code paused = 1}：暂时不可用，{@link #resolveByCode} 返回空但记录保留以便恢复。</li>
  * </ul>
+ *
+ * <p>白名单分漫画/插画侧 (tag/author) 与小说侧 (novelTag/novelAuthor) 两套独立配置。
  */
 @Slf4j
 @Service
@@ -60,8 +62,38 @@ public class GuestInviteService {
         mapper.createInvitesCodeIndex();
         mapper.createInviteTagsTable();
         mapper.createInviteAuthorsTable();
+        mapper.createInviteNovelTagsTable();
+        mapper.createInviteNovelAuthorsTable();
         mapper.createAccessStatsTable();
         mapper.createAccessStatsBucketIndex();
+        // 旧库迁移：为缺少 novel_* 列的库追加列；ALTER TABLE 不支持 IF NOT EXISTS，依赖异常吞并。
+        addColumnIfMissing(mapper::addNovelTagUnrestrictedColumn, "novel_tag_unrestricted");
+        addColumnIfMissing(mapper::addNovelAuthorUnrestrictedColumn, "novel_author_unrestricted");
+        // 一次性迁移：把漫画侧的白名单内容/开关复制到小说侧；只对 novel_* 仍为 NULL 的行生效。
+        try {
+            int copiedTags = mapper.copyTagsToNovelSide();
+            int copiedAuthors = mapper.copyAuthorsToNovelSide();
+            int updatedTagFlag = mapper.setNovelTagUnrestrictedFromLegacy();
+            int updatedAuthorFlag = mapper.setNovelAuthorUnrestrictedFromLegacy();
+            if (copiedTags + copiedAuthors + updatedTagFlag + updatedAuthorFlag > 0) {
+                log.info("Guest invite novel-side migrated: tags={}, authors={}, tagFlag={}, authorFlag={}",
+                        copiedTags, copiedAuthors, updatedTagFlag, updatedAuthorFlag);
+            }
+        } catch (Exception e) {
+            log.warn("Guest invite novel-side migration failed: {}", e.getMessage());
+        }
+    }
+
+    private void addColumnIfMissing(Runnable addColumn, String columnName) {
+        try {
+            addColumn.run();
+        } catch (Exception e) {
+            // SQLite 在列已存在时会抛 "duplicate column name"，视为幂等成功。
+            String msg = String.valueOf(e.getMessage());
+            if (!msg.toLowerCase().contains("duplicate column")) {
+                log.debug("ALTER TABLE add column {} ignored: {}", columnName, msg);
+            }
+        }
     }
 
     // ── 创建 / 编辑 / 暂停 / 删除 ─────────────────────────────────────────────
@@ -80,11 +112,17 @@ public class GuestInviteService {
         Set<Long> authorIds = sanitizeIds(req.getAuthorIds());
         if (authorUnrestricted) authorIds.clear();
 
-        if (!tagUnrestricted && tagIds.isEmpty() && !authorUnrestricted && authorIds.isEmpty()) {
-            throw new LocalizedException(HttpStatus.BAD_REQUEST,
-                    "guest.invite.whitelist.empty",
-                    "未选择任何可见标签或可见作者");
-        }
+        boolean novelTagUnrestricted = req.isNovelTagUnrestricted();
+        Set<Long> novelTagIds = sanitizeIds(req.getNovelTagIds());
+        if (novelTagUnrestricted) novelTagIds.clear();
+
+        boolean novelAuthorUnrestricted = req.isNovelAuthorUnrestricted();
+        Set<Long> novelAuthorIds = sanitizeIds(req.getNovelAuthorIds());
+        if (novelAuthorUnrestricted) novelAuthorIds.clear();
+
+        validateWhitelistNonEmpty(
+                tagUnrestricted, tagIds, authorUnrestricted, authorIds,
+                novelTagUnrestricted, novelTagIds, novelAuthorUnrestricted, novelAuthorIds);
 
         GuestInviteRow row = new GuestInviteRow();
         row.setCode(generateUniqueCode());
@@ -95,11 +133,15 @@ public class GuestInviteService {
         row.setAllowR18g(req.isAllowR18g());
         row.setTagUnrestricted(tagUnrestricted);
         row.setAuthorUnrestricted(authorUnrestricted);
+        row.setNovelTagUnrestricted(novelTagUnrestricted);
+        row.setNovelAuthorUnrestricted(novelAuthorUnrestricted);
         row.setCreatedTime(System.currentTimeMillis());
         mapper.insertInvite(row);
 
         for (Long tagId : tagIds) mapper.insertInviteTag(row.getId(), tagId);
         for (Long authorId : authorIds) mapper.insertInviteAuthor(row.getId(), authorId);
+        for (Long tagId : novelTagIds) mapper.insertInviteNovelTag(row.getId(), tagId);
+        for (Long authorId : novelAuthorIds) mapper.insertInviteNovelAuthor(row.getId(), authorId);
 
         log.info("Guest invite created: id={}, name={}, expireTime={}", row.getId(), name, expireTime);
         return row.getId();
@@ -110,23 +152,42 @@ public class GuestInviteService {
         GuestInviteRow row = requireExisting(id);
         validateAgeRating(req.isAllowSfw(), req.isAllowR18(), req.isAllowR18g());
 
+        boolean tagUnrestricted = req.isTagUnrestricted();
+        Set<Long> tagIds = sanitizeIds(req.getTagIds());
+        if (tagUnrestricted) tagIds.clear();
+        boolean authorUnrestricted = req.isAuthorUnrestricted();
+        Set<Long> authorIds = sanitizeIds(req.getAuthorIds());
+        if (authorUnrestricted) authorIds.clear();
+        boolean novelTagUnrestricted = req.isNovelTagUnrestricted();
+        Set<Long> novelTagIds = sanitizeIds(req.getNovelTagIds());
+        if (novelTagUnrestricted) novelTagIds.clear();
+        boolean novelAuthorUnrestricted = req.isNovelAuthorUnrestricted();
+        Set<Long> novelAuthorIds = sanitizeIds(req.getNovelAuthorIds());
+        if (novelAuthorUnrestricted) novelAuthorIds.clear();
+
+        validateWhitelistNonEmpty(
+                tagUnrestricted, tagIds, authorUnrestricted, authorIds,
+                novelTagUnrestricted, novelTagIds, novelAuthorUnrestricted, novelAuthorIds);
+
         row.setName(sanitizeName(req.getName()));
         row.setExpireTime(computeExpireTime(req.getExpireDays()));
         row.setAllowSfw(req.isAllowSfw());
         row.setAllowR18(req.isAllowR18());
         row.setAllowR18g(req.isAllowR18g());
-        row.setTagUnrestricted(req.isTagUnrestricted());
-        row.setAuthorUnrestricted(req.isAuthorUnrestricted());
+        row.setTagUnrestricted(tagUnrestricted);
+        row.setAuthorUnrestricted(authorUnrestricted);
+        row.setNovelTagUnrestricted(novelTagUnrestricted);
+        row.setNovelAuthorUnrestricted(novelAuthorUnrestricted);
         mapper.updateInviteCore(row);
 
         mapper.deleteInviteTags(id);
         mapper.deleteInviteAuthors(id);
-        if (!req.isTagUnrestricted()) {
-            for (Long tagId : sanitizeIds(req.getTagIds())) mapper.insertInviteTag(id, tagId);
-        }
-        if (!req.isAuthorUnrestricted()) {
-            for (Long authorId : sanitizeIds(req.getAuthorIds())) mapper.insertInviteAuthor(id, authorId);
-        }
+        mapper.deleteInviteNovelTags(id);
+        mapper.deleteInviteNovelAuthors(id);
+        for (Long tagId : tagIds) mapper.insertInviteTag(id, tagId);
+        for (Long authorId : authorIds) mapper.insertInviteAuthor(id, authorId);
+        for (Long tagId : novelTagIds) mapper.insertInviteNovelTag(id, tagId);
+        for (Long authorId : novelAuthorIds) mapper.insertInviteNovelAuthor(id, authorId);
     }
 
     @Transactional
@@ -146,6 +207,8 @@ public class GuestInviteService {
         requireExisting(id);
         mapper.purgeInviteTags(id);
         mapper.purgeInviteAuthors(id);
+        mapper.purgeInviteNovelTags(id);
+        mapper.purgeInviteNovelAuthors(id);
         mapper.purgeInviteAccessStats(id);
         mapper.deleteInvite(id);
     }
@@ -169,6 +232,12 @@ public class GuestInviteService {
         List<InviteDetail.AuthorBrief> authors = mapper.findInviteAuthors(id).stream()
                 .map(a -> new InviteDetail.AuthorBrief(a.authorId(), a.name()))
                 .toList();
+        List<InviteDetail.TagBrief> novelTags = mapper.findInviteNovelTags(id).stream()
+                .map(t -> new InviteDetail.TagBrief(t.tagId(), t.name(), t.translatedName()))
+                .toList();
+        List<InviteDetail.AuthorBrief> novelAuthors = mapper.findInviteNovelAuthors(id).stream()
+                .map(a -> new InviteDetail.AuthorBrief(a.authorId(), a.name()))
+                .toList();
         return InviteDetail.builder()
                 .id(row.getId())
                 .code(row.getCode())
@@ -180,6 +249,8 @@ public class GuestInviteService {
                 .allowR18g(row.isAllowR18g())
                 .tagUnrestricted(row.isTagUnrestricted())
                 .authorUnrestricted(row.isAuthorUnrestricted())
+                .novelTagUnrestricted(resolveNovelTagUnrestricted(row))
+                .novelAuthorUnrestricted(resolveNovelAuthorUnrestricted(row))
                 .paused(row.isPaused())
                 .used(row.getFirstUsedTime() != null)
                 .totalRequestCount(row.getTotalRequestCount())
@@ -188,6 +259,8 @@ public class GuestInviteService {
                 .createdTime(row.getCreatedTime())
                 .tags(tags)
                 .authors(authors)
+                .novelTags(novelTags)
+                .novelAuthors(novelAuthors)
                 .build();
     }
 
@@ -207,11 +280,16 @@ public class GuestInviteService {
         if (row.isRevoked() || (row.getExpireTime() != null && now > row.getExpireTime())) {
             mapper.purgeInviteTags(row.getId());
             mapper.purgeInviteAuthors(row.getId());
+            mapper.purgeInviteNovelTags(row.getId());
+            mapper.purgeInviteNovelAuthors(row.getId());
             mapper.purgeInviteAccessStats(row.getId());
             mapper.deleteInvite(row.getId());
             return Optional.empty();
         }
         if (row.isPaused()) return Optional.empty();
+
+        boolean novelTagUnrestricted = resolveNovelTagUnrestricted(row);
+        boolean novelAuthorUnrestricted = resolveNovelAuthorUnrestricted(row);
 
         Set<Long> tagIds = row.isTagUnrestricted()
                 ? Set.of()
@@ -219,6 +297,12 @@ public class GuestInviteService {
         Set<Long> authorIds = row.isAuthorUnrestricted()
                 ? Set.of()
                 : Collections.unmodifiableSet(new LinkedHashSet<>(mapper.findInviteAuthorIds(row.getId())));
+        Set<Long> novelTagIds = novelTagUnrestricted
+                ? Set.of()
+                : Collections.unmodifiableSet(new LinkedHashSet<>(mapper.findInviteNovelTagIds(row.getId())));
+        Set<Long> novelAuthorIds = novelAuthorUnrestricted
+                ? Set.of()
+                : Collections.unmodifiableSet(new LinkedHashSet<>(mapper.findInviteNovelAuthorIds(row.getId())));
 
         return Optional.of(new GuestInviteSession(
                 row.getId(),
@@ -229,7 +313,11 @@ public class GuestInviteService {
                 row.isTagUnrestricted(),
                 tagIds,
                 row.isAuthorUnrestricted(),
-                authorIds));
+                authorIds,
+                novelTagUnrestricted,
+                novelTagIds,
+                novelAuthorUnrestricted,
+                novelAuthorIds));
     }
 
     /**
@@ -280,6 +368,8 @@ public class GuestInviteService {
         for (Long id : ids) {
             mapper.purgeInviteTags(id);
             mapper.purgeInviteAuthors(id);
+            mapper.purgeInviteNovelTags(id);
+            mapper.purgeInviteNovelAuthors(id);
             mapper.purgeInviteAccessStats(id);
         }
         if (!ids.isEmpty()) {
@@ -307,6 +397,19 @@ public class GuestInviteService {
         return row;
     }
 
+    /** 兼容旧库：迁移失败 / 列读出 NULL 时，回退到漫画侧的 unrestricted 值。 */
+    private boolean resolveNovelTagUnrestricted(GuestInviteRow row) {
+        return row.getNovelTagUnrestricted() == null
+                ? row.isTagUnrestricted()
+                : row.getNovelTagUnrestricted();
+    }
+
+    private boolean resolveNovelAuthorUnrestricted(GuestInviteRow row) {
+        return row.getNovelAuthorUnrestricted() == null
+                ? row.isAuthorUnrestricted()
+                : row.getNovelAuthorUnrestricted();
+    }
+
     private InviteSummary toSummary(GuestInviteRow row) {
         return InviteSummary.builder()
                 .id(row.getId())
@@ -318,6 +421,8 @@ public class GuestInviteService {
                 .allowR18g(row.isAllowR18g())
                 .tagUnrestricted(row.isTagUnrestricted())
                 .authorUnrestricted(row.isAuthorUnrestricted())
+                .novelTagUnrestricted(resolveNovelTagUnrestricted(row))
+                .novelAuthorUnrestricted(resolveNovelAuthorUnrestricted(row))
                 .paused(row.isPaused())
                 .used(row.getFirstUsedTime() != null)
                 .totalRequestCount(row.getTotalRequestCount())
@@ -332,6 +437,25 @@ public class GuestInviteService {
             throw new LocalizedException(HttpStatus.BAD_REQUEST,
                     "guest.invite.age-rating.empty",
                     "请至少选择一个可见的年龄分级");
+        }
+    }
+
+    /**
+     * 至少存在一项白名单允许可见（漫画或小说任一维度），否则拒绝创建/更新。
+     */
+    private void validateWhitelistNonEmpty(
+            boolean tagUnrestricted, Set<Long> tagIds,
+            boolean authorUnrestricted, Set<Long> authorIds,
+            boolean novelTagUnrestricted, Set<Long> novelTagIds,
+            boolean novelAuthorUnrestricted, Set<Long> novelAuthorIds) {
+        boolean anyAllowed = tagUnrestricted || !tagIds.isEmpty()
+                || authorUnrestricted || !authorIds.isEmpty()
+                || novelTagUnrestricted || !novelTagIds.isEmpty()
+                || novelAuthorUnrestricted || !novelAuthorIds.isEmpty();
+        if (!anyAllowed) {
+            throw new LocalizedException(HttpStatus.BAD_REQUEST,
+                    "guest.invite.whitelist.empty",
+                    "未选择任何可见标签或可见作者");
         }
     }
 

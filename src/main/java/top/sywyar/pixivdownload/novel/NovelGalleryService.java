@@ -49,7 +49,7 @@ public class NovelGalleryService {
         }
         // 访客可见性下沉到 SQL：把可见 id 集合与 collection 过滤求交集
         if (q.guestSession() != null) {
-            Set<Long> visible = novelGalleryRepository.findVisibleNovelIdSet(GuestRestriction.from(q.guestSession()));
+            Set<Long> visible = novelGalleryRepository.findVisibleNovelIdSet(GuestRestriction.forNovel(q.guestSession()));
             if (idCandidates == null) {
                 idCandidates = visible;
             } else {
@@ -263,7 +263,7 @@ public class NovelGalleryService {
         int safeSize = Math.min(Math.max(1, size), 200);
         String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         List<NovelAuthorSummary> rawCounts = novelGalleryRepository
-                .findVisibleNovelAuthorCounts(GuestRestriction.from(session));
+                .findVisibleNovelAuthorCounts(GuestRestriction.forNovel(session));
         Set<Long> authorIds = new HashSet<>();
         for (NovelAuthorSummary item : rawCounts) {
             authorIds.add(item.authorId());
@@ -303,7 +303,7 @@ public class NovelGalleryService {
         int safeSize = Math.min(Math.max(1, size), 200);
         String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         List<NovelSeriesSummary> rawCounts = novelGalleryRepository
-                .findVisibleNovelSeriesCounts(GuestRestriction.from(session));
+                .findVisibleNovelSeriesCounts(GuestRestriction.forNovel(session));
         Set<Long> authorIds = new HashSet<>();
         Map<Long, NovelSeries> seriesById = new LinkedHashMap<>();
         for (NovelSeriesSummary item : rawCounts) {
@@ -344,7 +344,7 @@ public class NovelGalleryService {
             return listTags(search, limit);
         }
         return novelGalleryRepository.findVisibleNovelTagCounts(
-                GuestRestriction.from(session), search, limit);
+                GuestRestriction.forNovel(session), search, limit);
     }
 
     private Comparator<NovelAuthorSummary> authorSummaryComparator(String sort) {
