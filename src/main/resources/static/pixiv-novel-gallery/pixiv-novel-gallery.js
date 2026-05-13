@@ -707,7 +707,6 @@ function switchView(v) {
 }
 
 function setActiveViewNav() {
-    document.getElementById('navViewAll').classList.toggle('active', state.view === 'all');
     document.getElementById('navViewAuthors').classList.toggle('active', state.view === 'authors');
     document.getElementById('navViewSeries').classList.toggle('active', state.view === 'series');
     const grid = document.getElementById('grid');

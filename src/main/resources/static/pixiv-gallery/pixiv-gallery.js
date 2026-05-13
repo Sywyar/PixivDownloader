@@ -184,6 +184,7 @@
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
+            showLabel: false,
             onChange: function (nextClient) {
                 pageI18n = nextClient;
                 window.PixivInvitesI18n = nextClient;
@@ -206,6 +207,7 @@
         });
         applyStaticPageTranslations();
     }
+
 
     // ---------- API helpers ----------
     async function api(url, options = {}) {
@@ -1843,7 +1845,7 @@
     });
 
     // ---------- View switch ----------
-    document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+    document.querySelectorAll('.nav-item[data-view], .gallery-type-option[data-view]').forEach(el => {
         el.addEventListener('click', e => {
             e.preventDefault();
             switchView(el.dataset.view);
