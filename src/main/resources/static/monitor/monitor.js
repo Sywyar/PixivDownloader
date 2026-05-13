@@ -37,7 +37,6 @@
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
             variant: 'cyberpunk',
-            showLabel: false,
             onChange: function (nextClient) {
                 pageI18n = nextClient;
                 applyStaticPageTranslations();

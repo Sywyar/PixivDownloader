@@ -91,6 +91,7 @@
         'filterSeriesTitle',
         'openFilter',
     ];
+    const SIDEBAR_STATE_STORAGE_KEY = 'pixiv:gallery-sidebar-state';
 
     // ---------- Image cache (in-memory + sessionStorage for thumbs) ----------
     const ImageCache = (() => {
@@ -184,7 +185,6 @@
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
-            showLabel: false,
             onChange: function (nextClient) {
                 pageI18n = nextClient;
                 window.PixivInvitesI18n = nextClient;
@@ -618,8 +618,31 @@
     }
 
     // ---------- Sidebar ----------
+    function restoreSidebarState() {
+        const sidebar = document.getElementById('sidebar');
+        if (!sidebar) return;
+
+        let savedState = null;
+        try {
+            savedState = localStorage.getItem(SIDEBAR_STATE_STORAGE_KEY);
+        } catch (_) {
+        }
+
+        sidebar.classList.toggle('collapsed', savedState === 'closed');
+    }
+
+    function saveSidebarState(collapsed) {
+        try {
+            localStorage.setItem(SIDEBAR_STATE_STORAGE_KEY, collapsed ? 'closed' : 'open');
+        } catch (_) {
+        }
+    }
+
     function toggleSidebar() {
-        document.getElementById('sidebar').classList.toggle('collapsed');
+        const sidebar = document.getElementById('sidebar');
+        if (!sidebar) return;
+        const collapsed = sidebar.classList.toggle('collapsed');
+        saveSidebarState(collapsed);
     }
 
     function openMobileSidebar() {
@@ -2232,6 +2255,8 @@
 
     // ---------- Boot ----------
     (async function init() {
+        restoreSidebarState();
+
         // 立即渲染静态控件，避免主界面被网络请求阻塞
         renderFilterModeButtons('tag');
         renderFilterModeButtons('author');

@@ -22,20 +22,10 @@
         }
 
         var variant = (options && options.variant) || 'default';
-        var showLabel = options && options.showLabel !== false;
-
         var wrapper = document.createElement('span');
         wrapper.className = 'pixiv-lang-switcher pixiv-lang-switcher--' + variant;
         if (variant === 'default') {
             wrapper.style.cssText = DEFAULT_INLINE_WRAPPER;
-        }
-
-        var label = null;
-        if (showLabel) {
-            label = document.createElement('span');
-            label.className = 'pixiv-lang-switcher__label';
-            label.textContent = (options.label || client.t('common:language.current', 'Language')) + ':';
-            wrapper.appendChild(label);
         }
 
         var select = document.createElement('select');
@@ -63,9 +53,6 @@
             }
             var newClient = await client.setLanguage(newLang);
             newClient.apply();
-            if (label) {
-                label.textContent = (options.label || newClient.t('common:language.current', 'Language')) + ':';
-            }
             select.value = newClient.lang;
             client = newClient;
             if (typeof options.onChange === 'function') {
@@ -82,9 +69,6 @@
             element: wrapper,
             refresh: function (nextClient) {
                 client = nextClient || client;
-                if (label) {
-                    label.textContent = (options.label || client.t('common:language.current', 'Language')) + ':';
-                }
                 select.value = client.lang;
             }
         };

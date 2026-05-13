@@ -58,7 +58,6 @@
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
             variant: 'green',
-            showLabel: false,
             onChange: async function (nextClient) {
                 pageI18n = nextClient;
                 applyStaticPageTranslations();

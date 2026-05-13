@@ -23,7 +23,6 @@ async function initPageI18n() {
     mountPoint: document.getElementById('headerActions'),
     i18n: pageI18n,
     variant: 'setup',
-    showLabel: false,
     onChange: function (nextClient) {
       pageI18n = nextClient;
       applyStaticPageTranslations();

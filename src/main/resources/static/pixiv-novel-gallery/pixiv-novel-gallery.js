@@ -1,5 +1,6 @@
 const PAGE_SIZE = 24;
 const HEART_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+const SIDEBAR_STATE_STORAGE_KEY = 'pixiv:gallery-sidebar-state';
 
 let pageI18n;
 const state = {
@@ -34,13 +35,14 @@ const state = {
 };
 
 async function init() {
+    restoreSidebarState();
+
     pageI18n = await PixivI18n.create({ namespaces: ['gallery', 'novel', 'common'] });
     pageI18n.apply();
     updateOrderToggleLabel();
     await PixivLangSwitcher.mount({
         mountPoint: document.getElementById('langSwitcherAnchor'),
         i18n: pageI18n,
-        showLabel: false,
         onChange: (next) => {
             pageI18n = next;
             pageI18n.apply();
@@ -262,7 +264,32 @@ function debounce(fn, ms) {
     return (...args) => { clearTimeout(lastTimer); lastTimer = setTimeout(() => fn(...args), ms); };
 }
 
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+function restoreSidebarState() {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+
+    let savedState = null;
+    try {
+        savedState = localStorage.getItem(SIDEBAR_STATE_STORAGE_KEY);
+    } catch (_) {
+    }
+
+    sidebar.classList.toggle('collapsed', savedState === 'closed');
+}
+
+function saveSidebarState(collapsed) {
+    try {
+        localStorage.setItem(SIDEBAR_STATE_STORAGE_KEY, collapsed ? 'closed' : 'open');
+    } catch (_) {
+    }
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    const collapsed = sidebar.classList.toggle('collapsed');
+    saveSidebarState(collapsed);
+}
 function openMobileSidebar() {
     document.getElementById('sidebar').classList.add('mobile-open');
     document.getElementById('mobileOverlay').classList.add('active');
@@ -505,6 +532,7 @@ function renderCollections() {
         return `<div class="collection-item ${selected}" data-id="${c.id}">
             <div class="collection-icon">${icon}</div>
             <span class="collection-label">${esc(c.name)}</span>
+            <span class="collection-count">${c.novelCount ?? 0}</span>
         </div>`;
     }).join('');
     list.querySelectorAll('.collection-item').forEach(row => {
@@ -813,9 +841,13 @@ function renderGrid(items) {
             <div class="card-title">${esc(item.title || '')}</div>
             <div class="card-author">${esc(item.authorName || pageI18n.t('novel:status.unknown-author', '未知作者'))}</div>
             <div class="badges">${badges.join('')}</div>
-            <div class="card-meta">${meta.map(m => `<span>${m}</span>`).join('')}</div>
-            <div class="work-collections" data-collections-for="${item.novelId}"></div>
-            <button class="thumb-heart" data-novel-id="${item.novelId}" title="${heartTitle}" type="button">${HEART_SVG}</button>
+            <div class="card-footer">
+                <div class="card-footer-info">
+                    <div class="card-meta">${meta.map(m => `<span>${m}</span>`).join('')}</div>
+                    <div class="work-collections" data-collections-for="${item.novelId}"></div>
+                </div>
+                <button class="thumb-heart" data-novel-id="${item.novelId}" title="${heartTitle}" type="button">${HEART_SVG}</button>
+            </div>
         </div>`;
     }).join('');
 
