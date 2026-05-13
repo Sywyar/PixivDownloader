@@ -13,10 +13,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
+import top.sywyar.pixivdownload.common.PixivCoverDownloader;
+import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
@@ -49,24 +54,34 @@ public class MangaSeriesService {
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
     private final AppMessages messages;
+    private final DownloadConfig downloadConfig;
+    private final PixivCoverDownloader coverDownloader;
 
     public MangaSeriesService(MangaSeriesMapper mangaSeriesMapper,
                               AuthorService authorService,
                               PixivDatabase pixivDatabase,
                               @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                               @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                              AppMessages messages) {
+                              AppMessages messages,
+                              DownloadConfig downloadConfig,
+                              PixivCoverDownloader coverDownloader) {
         this.mangaSeriesMapper = mangaSeriesMapper;
         this.authorService = authorService;
         this.pixivDatabase = pixivDatabase;
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
         this.messages = messages;
+        this.downloadConfig = downloadConfig;
+        this.coverDownloader = coverDownloader;
     }
 
     @PostConstruct
     public void init() {
         mangaSeriesMapper.createMangaSeriesTable();
+        // 幂等迁移：旧库补列；列已存在时 SQLite 会抛 SQLITE_ERROR，吞掉即可。
+        try { mangaSeriesMapper.addDescriptionColumn(); } catch (Exception ignored) {}
+        try { mangaSeriesMapper.addCoverExtColumn(); } catch (Exception ignored) {}
+        try { mangaSeriesMapper.addCoverFolderColumn(); } catch (Exception ignored) {}
         mangaSeriesMapper.migrateSeriesTimestampsToMillis();
     }
 
@@ -164,6 +179,77 @@ public class MangaSeriesService {
                 authorService.observe(authorId, null);
             }
         }
+    }
+
+    /**
+     * 拉取 Pixiv 漫画系列元数据（标题/简介/封面），落盘封面到
+     * {@code {rootFolder}/artwork-series-{seriesId}/cover.{ext}} 并写入 DB。
+     * 调用前必须保证 {@code seriesId > 0}。Best-effort：网络失败/封面缺失只清空对应字段。
+     * 返回刷新后的 {@link MangaSeries}；series 不存在时返回 {@code null}。
+     */
+    public MangaSeries refreshFromPixiv(long seriesId, String cookie) {
+        if (seriesId <= 0) return null;
+        try {
+            JsonNode root = fetchJson("https://www.pixiv.net/ajax/series/" + seriesId + "?p=1&lang=zh", cookie);
+            if (root == null || root.path("error").asBoolean(false)) {
+                log.warn(messages.getForLog("series.log.refresh.failed.response", seriesId, root));
+                return mangaSeriesMapper.findById(seriesId);
+            }
+            JsonNode body = root.path("body");
+            JsonNode seriesArr = body.path("illustSeries");
+            JsonNode meta = seriesArr.isArray() && !seriesArr.isEmpty() ? seriesArr.get(0) : null;
+            if (meta == null) return mangaSeriesMapper.findById(seriesId);
+
+            String title = meta.path("title").asText("").trim();
+            String caption = meta.path("caption").asText("");
+            Long authorId = parsePositiveLong(meta.path("userId").asText(null));
+            String coverUrl = extractCoverUrl(meta);
+
+            // 先持久化 title/author（observe 内部带并发安全的 upsert）
+            observe(seriesId, StringUtils.hasText(title) ? title : null, authorId);
+
+            String normalizedDescription = PixivDescriptionHtml.normalizeLinks(caption);
+            String coverExt = null;
+            String coverFolder = null;
+            if (coverUrl != null && !coverUrl.isBlank()) {
+                Path coverDir = resolveCoverDir(seriesId);
+                coverExt = coverDownloader.download(coverUrl, coverDir, "cover", cookie);
+                if (coverExt != null) {
+                    coverFolder = coverDir.toString();
+                }
+            }
+            mangaSeriesMapper.updateMetadata(seriesId, normalizedDescription, coverExt, coverFolder);
+            return mangaSeriesMapper.findById(seriesId);
+        } catch (Exception e) {
+            log.warn(messages.getForLog("series.log.refresh.failed.exception", seriesId), e);
+            return mangaSeriesMapper.findById(seriesId);
+        }
+    }
+
+    /**
+     * 漫画系列封面磁盘目录：{@code {rootFolder}/artwork-series-{seriesId}}。
+     * 始终返回绝对路径，方便落盘后存入 {@code manga_series.cover_folder}。
+     */
+    public Path resolveCoverDir(long seriesId) {
+        return Paths.get(downloadConfig.getRootFolder(), "artwork-series-" + seriesId)
+                .toAbsolutePath().normalize();
+    }
+
+    private static String extractCoverUrl(JsonNode meta) {
+        // illustSeries[0].cover.urls.{original|1200x1200|720x720|240mw}
+        JsonNode urls = meta.path("cover").path("urls");
+        if (urls.isObject()) {
+            for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
+                String value = urls.path(key).asText("");
+                if (!value.isBlank()) return value;
+            }
+        }
+        // 兜底：少见的扁平字段
+        for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
+            String value = meta.path(key).asText("");
+            if (!value.isBlank()) return value;
+        }
+        return null;
     }
 
     public void asyncLookupMissingSeries(long artworkId, String cookie) {

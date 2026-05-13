@@ -619,12 +619,53 @@
 
         .series-hero {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
+            grid-template-columns: auto minmax(0, 1fr) auto;
             gap: 18px;
             align-items: end;
             padding: 6px 0 22px;
             border-bottom: 1px solid var(--line);
             margin-bottom: 18px;
+        }
+
+        .series-hero-cover {
+            width: 140px;
+            aspect-ratio: 3 / 4;
+            border-radius: var(--card-radius);
+            overflow: hidden;
+            background: var(--control-muted-bg);
+            box-shadow: 0 4px 16px var(--card-shadow);
+            flex-shrink: 0;
+        }
+
+        .series-hero-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .series-hero-main {
+            min-width: 0;
+        }
+
+        .series-description {
+            margin: 0 0 18px;
+            padding: 14px 16px;
+            border-left: 3px solid var(--brand);
+            background: var(--control-muted-bg);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .series-description a {
+            color: var(--brand);
+            text-decoration: underline;
+            text-underline-offset: 2px;
+            word-break: break-all;
         }
 
         .series-kicker {
@@ -1039,6 +1080,12 @@
             .series-hero {
                 grid-template-columns: 1fr;
                 align-items: start;
+            }
+
+            .series-hero-cover {
+                width: 100%;
+                max-width: 200px;
+                margin: 0 auto;
             }
 
             .series-actions {

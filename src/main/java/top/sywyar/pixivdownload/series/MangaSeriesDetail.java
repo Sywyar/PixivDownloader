@@ -6,5 +6,8 @@ public record MangaSeriesDetail(
         Long authorId,
         String authorName,
         long artworkCount,
-        Long updatedTime
+        Long updatedTime,
+        String description,
+        String coverExt,
+        String coverFolder
 ) {}

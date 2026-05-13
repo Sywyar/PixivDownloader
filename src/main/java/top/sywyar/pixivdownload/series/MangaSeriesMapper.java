@@ -12,8 +12,23 @@ public interface MangaSeriesMapper {
             + "series_id INTEGER PRIMARY KEY,"
             + "title TEXT NOT NULL,"
             + "author_id INTEGER,"
-            + "updated_time INTEGER NOT NULL)")
+            + "updated_time INTEGER NOT NULL,"
+            + "description TEXT DEFAULT NULL,"
+            + "cover_ext TEXT DEFAULT NULL,"
+            + "cover_folder TEXT DEFAULT NULL)")
     void createMangaSeriesTable();
+
+    /** 幂等迁移：旧库 manga_series 表补 description 列；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE manga_series ADD COLUMN description TEXT DEFAULT NULL")
+    void addDescriptionColumn();
+
+    /** 幂等迁移：旧库 manga_series 表补 cover_ext 列；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE manga_series ADD COLUMN cover_ext TEXT DEFAULT NULL")
+    void addCoverExtColumn();
+
+    /** 幂等迁移：旧库 manga_series 表补 cover_folder 列（落盘封面的绝对目录）；列已存在抛异常吞掉 */
+    @Update("ALTER TABLE manga_series ADD COLUMN cover_folder TEXT DEFAULT NULL")
+    void addCoverFolderColumn();
 
     @Update("UPDATE manga_series SET updated_time = updated_time * 1000"
             + " WHERE updated_time > 0 AND updated_time < 1000000000000")
@@ -33,15 +48,26 @@ public interface MangaSeriesMapper {
                    @Param("authorId") Long authorId,
                    @Param("updatedTime") long updatedTime);
 
-    @Select("SELECT series_id, title, author_id, updated_time FROM manga_series WHERE series_id = #{id}")
+    @Update("UPDATE manga_series SET description = #{description},"
+            + " cover_ext = #{coverExt}, cover_folder = #{coverFolder}"
+            + " WHERE series_id = #{id}")
+    int updateMetadata(@Param("id") long id,
+                       @Param("description") String description,
+                       @Param("coverExt") String coverExt,
+                       @Param("coverFolder") String coverFolder);
+
+    @Select("SELECT series_id, title, author_id, updated_time, description, cover_ext, cover_folder"
+            + " FROM manga_series WHERE series_id = #{id}")
     MangaSeries findById(long id);
 
-    @Select("SELECT series_id, title, author_id, updated_time FROM manga_series ORDER BY LOWER(title), series_id")
+    @Select("SELECT series_id, title, author_id, updated_time, description, cover_ext, cover_folder"
+            + " FROM manga_series ORDER BY LOWER(title), series_id")
     List<MangaSeries> findAll();
 
     @Select({
             "<script>",
-            "SELECT series_id, title, author_id, updated_time FROM manga_series",
+            "SELECT series_id, title, author_id, updated_time, description, cover_ext, cover_folder",
+            "FROM manga_series",
             "WHERE series_id IN",
             "<foreach item='id' collection='ids' open='(' separator=',' close=')'>",
             "#{id}",
@@ -87,11 +113,15 @@ public interface MangaSeriesMapper {
             + " ms.author_id AS authorId,"
             + " au.name AS authorName,"
             + " COUNT(*) AS artworkCount,"
-            + " ms.updated_time AS updatedTime"
+            + " ms.updated_time AS updatedTime,"
+            + " ms.description AS description,"
+            + " ms.cover_ext AS coverExt,"
+            + " ms.cover_folder AS coverFolder"
             + " FROM artworks a"
             + " LEFT JOIN manga_series ms ON ms.series_id = a.series_id"
             + " LEFT JOIN authors au ON au.author_id = ms.author_id"
             + " WHERE a.series_id = #{seriesId} AND a.series_id > 0"
-            + " GROUP BY a.series_id, ms.title, ms.author_id, au.name, ms.updated_time")
+            + " GROUP BY a.series_id, ms.title, ms.author_id, au.name,"
+            + " ms.updated_time, ms.description, ms.cover_ext, ms.cover_folder")
     MangaSeriesDetail findSeriesDetailById(@Param("seriesId") long seriesId);
 }

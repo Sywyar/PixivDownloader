@@ -14,7 +14,34 @@
         search: '',
         items: [],
         collections: [],
+        autoRefreshTried: false,
+        refreshing: false,
     };
+
+    function readStoredCookie() {
+        try {
+            const raw = localStorage.getItem('pixiv_cookie');
+            if (!raw) return '';
+            const fmt = localStorage.getItem('pixiv_cookie_fmt') || 'header';
+            if (fmt === 'json') {
+                const obj = JSON.parse(raw);
+                return Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('; ');
+            }
+            if (fmt === 'netscape') {
+                return raw.split('\n')
+                    .filter(l => l.trim() && !l.trim().startsWith('#'))
+                    .map(l => {
+                        const p = l.split('\t');
+                        return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null;
+                    })
+                    .filter(Boolean)
+                    .join('; ');
+            }
+            return raw.trim();
+        } catch (_) {
+            return '';
+        }
+    }
 
     let pageI18n = null;
     let searchTimer = null;
@@ -258,6 +285,20 @@
         renderLoading();
         if (isNovelMode()) {
             state.detail = buildNovelDetail();
+            // 同步拉取小说系列封面/简介（标题/作者由章节列表回填）。
+            try {
+                const series = await api(`/api/gallery/novel/series/${state.seriesId}`);
+                if (series) {
+                    state.detail = Object.assign({}, state.detail, {
+                        title: series.title || state.detail.title,
+                        authorId: series.authorId != null ? series.authorId : state.detail.authorId,
+                        description: series.description,
+                        coverExt: series.coverExt,
+                    });
+                }
+            } catch (_) {
+                // 404 表示尚未观测过该系列：保留章节回填出的字段即可。
+            }
             renderSeriesHeader();
             renderMeta();
             await loadArtworks();
@@ -350,14 +391,17 @@
     function buildNovelDetail() {
         const first = state.items.find(item => Number(item.seriesId) === Number(state.seriesId)) || state.items[0] || {};
         const updatedTime = state.items.reduce((max, item) => Math.max(max, Number(item.time || 0)), 0);
+        const previous = state.detail || {};
         return {
             seriesId: state.seriesId,
-            title: state.initialSeriesTitle || (state.detail && state.detail.title)
+            title: previous.title || state.initialSeriesTitle
                 || modeText('series.default', 'Series #{id}', 'Series #{id}', {id: state.seriesId}),
-            authorId: first.authorId || null,
-            authorName: first.authorName || '',
+            authorId: previous.authorId != null ? previous.authorId : (first.authorId || null),
+            authorName: previous.authorName || first.authorName || '',
             novelCount: state.totalElements || state.items.length || 0,
-            updatedTime: updatedTime || null,
+            updatedTime: updatedTime || previous.updatedTime || null,
+            description: previous.description,
+            coverExt: previous.coverExt,
         };
     }
 
@@ -383,6 +427,9 @@
                 : '';
             authorEl.style.display = 'none';
             galleryBtn.href = isNovelMode() ? '/pixiv-novel-gallery.html' : '/pixiv-gallery.html';
+            renderCover();
+            renderDescription();
+            renderRefreshButton();
             return;
         }
 
@@ -417,6 +464,131 @@
             authorEl.style.display = 'inline-flex';
         } else {
             authorEl.style.display = 'none';
+        }
+
+        renderCover();
+        renderDescription();
+        renderRefreshButton();
+        maybeAutoRefresh();
+    }
+
+    function renderCover() {
+        const wrap = document.getElementById('seriesCover');
+        const img = document.getElementById('seriesCoverImg');
+        if (!wrap || !img) return;
+        const detail = state.detail;
+        if (!detail || !detail.coverExt) {
+            wrap.style.display = 'none';
+            return;
+        }
+        const url = isNovelMode()
+            ? `/api/gallery/novel/series/${detail.seriesId}/cover`
+            : `/api/series/${detail.seriesId}/cover`;
+        img.alt = detail.title || '';
+        img.src = url + '?v=' + encodeURIComponent(detail.coverExt);
+        wrap.style.display = 'block';
+    }
+
+    function renderDescription() {
+        const el = document.getElementById('seriesDescription');
+        if (!el) return;
+        const text = state.detail ? state.detail.description : null;
+        if (!text || !String(text).trim()) {
+            el.style.display = 'none';
+            el.innerHTML = '';
+            return;
+        }
+        // Pixiv 简介经过后端 PixivDescriptionHtml.normalizeLinks 仅保留 <br>/<a>，可直接 innerHTML。
+        el.innerHTML = text;
+        el.querySelectorAll('a').forEach(a => {
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+        });
+        el.style.display = 'block';
+    }
+
+    function renderRefreshButton() {
+        const btn = document.getElementById('refreshMetaBtn');
+        if (!btn) return;
+        // 仅在已知 seriesId 时展示；guest 模式下后端会 403，由 maybeAutoRefresh 静默处理。
+        btn.style.display = state.seriesId ? 'inline-flex' : 'none';
+        btn.disabled = state.refreshing;
+        const label = document.getElementById('refreshMetaLabel');
+        if (label) {
+            label.textContent = state.refreshing
+                ? t('button.refresh-meta-loading', 'Refreshing...')
+                : t('button.refresh-meta', 'Refresh from Pixiv');
+        }
+    }
+
+    function maybeAutoRefresh() {
+        if (state.autoRefreshTried || state.refreshing) return;
+        const detail = state.detail;
+        if (!detail || !state.seriesId) return;
+        // 仅在本地既无封面也无简介时尝试一次自动刷新，避免反复打扰 Pixiv。
+        const hasCover = !!detail.coverExt;
+        const hasDescription = detail.description && String(detail.description).trim();
+        if (hasCover || hasDescription) {
+            state.autoRefreshTried = true;
+            return;
+        }
+        const cookie = readStoredCookie();
+        if (!cookie) {
+            state.autoRefreshTried = true;
+            return;
+        }
+        state.autoRefreshTried = true;
+        refreshSeriesMeta({silent: true});
+    }
+
+    async function refreshSeriesMeta(opts) {
+        if (!state.seriesId || state.refreshing) return;
+        const silent = opts && opts.silent;
+        const url = isNovelMode()
+            ? `/api/gallery/novel/series/${state.seriesId}/refresh`
+            : `/api/series/${state.seriesId}/refresh`;
+        const headers = {Accept: 'application/json'};
+        const cookie = readStoredCookie();
+        if (cookie) headers['X-Pixiv-Cookie'] = cookie;
+        state.refreshing = true;
+        renderRefreshButton();
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers,
+            });
+            if (!res.ok) {
+                if (!silent) {
+                    document.getElementById('seriesStatus').textContent = t(
+                        'status.refresh-failed',
+                        'Refresh failed: HTTP {status}',
+                        {status: res.status}
+                    );
+                }
+                return;
+            }
+            const updated = await res.json();
+            if (!updated) return;
+            // 合并到 detail，保留章节数、作者名等 detail 独有字段
+            state.detail = Object.assign({}, state.detail || {}, {
+                description: updated.description,
+                coverExt: updated.coverExt,
+                title: updated.title || (state.detail && state.detail.title),
+                authorId: updated.authorId != null ? updated.authorId : (state.detail && state.detail.authorId),
+            });
+            renderSeriesHeader();
+        } catch (e) {
+            if (!silent) {
+                document.getElementById('seriesStatus').textContent = t(
+                    'status.refresh-failed',
+                    'Refresh failed: {message}',
+                    {message: e.message}
+                );
+            }
+        } finally {
+            state.refreshing = false;
+            renderRefreshButton();
         }
     }
 
@@ -769,6 +941,10 @@
     document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
     document.getElementById('mobileMenuBtn').addEventListener('click', openMobileSidebar);
     document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
+    const refreshMetaBtn = document.getElementById('refreshMetaBtn');
+    if (refreshMetaBtn) {
+        refreshMetaBtn.addEventListener('click', () => refreshSeriesMeta({silent: false}));
+    }
     document.getElementById('searchInput').addEventListener('input', e => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {

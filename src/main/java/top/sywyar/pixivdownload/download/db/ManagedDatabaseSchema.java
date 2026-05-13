@@ -116,7 +116,10 @@ public final class ManagedDatabaseSchema {
                         column("series_id", "INTEGER", false, null, 1),
                         column("title", "TEXT", true, null, 0),
                         column("author_id", "INTEGER", false, null, 0),
-                        column("updated_time", "INTEGER", true, null, 0)
+                        column("updated_time", "INTEGER", true, null, 0),
+                        column("description", "TEXT", false, null, 0),
+                        column("cover_ext", "TEXT", false, null, 0),
+                        column("cover_folder", "TEXT", false, null, 0)
                 ),
                 List.of()
         ));
@@ -258,7 +261,10 @@ public final class ManagedDatabaseSchema {
                         column("series_id", "INTEGER", false, null, 1),
                         column("title", "TEXT", true, null, 0),
                         column("author_id", "INTEGER", false, null, 0),
-                        column("updated_time", "INTEGER", true, null, 0)
+                        column("updated_time", "INTEGER", true, null, 0),
+                        column("description", "TEXT", false, null, 0),
+                        column("cover_ext", "TEXT", false, null, 0),
+                        column("cover_folder", "TEXT", false, null, 0)
                 ),
                 List.of()
         ));

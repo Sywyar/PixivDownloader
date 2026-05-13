@@ -168,7 +168,11 @@
 
         <div class="series-wrapper">
             <section class="series-hero">
-                <div>
+                <div class="series-hero-cover" id="seriesCover" style="display:none">
+                    <img id="seriesCoverImg" alt=""
+                         onerror="document.getElementById('seriesCover').style.display='none'">
+                </div>
+                <div class="series-hero-main">
                     <div class="series-kicker" data-i18n="page.kicker"></div>
                     <h1 class="series-title" id="seriesTitle"></h1>
                     <a class="series-author" id="seriesAuthor" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
@@ -186,6 +190,14 @@
                         </svg>
                         <span data-i18n="button.back-to-artwork"></span>
                     </a>
+                    <button class="btn" id="refreshMetaBtn" type="button" style="display:none">
+                        <svg viewBox="0 0 24 24">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <polyline points="1 20 1 14 7 14"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                        <span id="refreshMetaLabel" data-i18n="button.refresh-meta"></span>
+                    </button>
                     <a class="btn btn-primary" id="openGalleryFilterBtn" href="/pixiv-gallery.html">
                         <svg viewBox="0 0 24 24">
                             <rect x="3" y="3" width="7" height="7"/>
@@ -199,6 +211,7 @@
             </section>
 
             <div class="meta-strip" id="metaStrip"></div>
+            <div class="series-description" id="seriesDescription" style="display:none"></div>
             <div class="gallery-status" id="seriesStatus" data-i18n="status.loading"></div>
             <section class="chapter-grid" id="chapterGrid"></section>
             <nav class="pagination" id="pagination"></nav>

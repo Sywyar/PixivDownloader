@@ -64,8 +64,23 @@ public interface NovelMapper {
             + "series_id INTEGER PRIMARY KEY,"
             + "title TEXT NOT NULL,"
             + "author_id INTEGER,"
-            + "updated_time INTEGER NOT NULL)")
+            + "updated_time INTEGER NOT NULL,"
+            + "description TEXT DEFAULT NULL,"
+            + "cover_ext TEXT DEFAULT NULL,"
+            + "cover_folder TEXT DEFAULT NULL)")
     void createNovelSeriesTable();
+
+    /** 幂等迁移：旧库 novel_series 表补 description 列；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE novel_series ADD COLUMN description TEXT DEFAULT NULL")
+    void addNovelSeriesDescriptionColumn();
+
+    /** 幂等迁移：旧库 novel_series 表补 cover_ext 列；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE novel_series ADD COLUMN cover_ext TEXT DEFAULT NULL")
+    void addNovelSeriesCoverExtColumn();
+
+    /** 幂等迁移：旧库 novel_series 表补 cover_folder 列（落盘封面的绝对目录）；列已存在抛异常吞掉 */
+    @Update("ALTER TABLE novel_series ADD COLUMN cover_folder TEXT DEFAULT NULL")
+    void addNovelSeriesCoverFolderColumn();
 
     @Update("CREATE TABLE IF NOT EXISTS novel_tags ("
             + "novel_id INTEGER NOT NULL,"
@@ -211,17 +226,31 @@ public interface NovelMapper {
                      @Param("authorId") Long authorId,
                      @Param("updatedTime") long updatedTime);
 
+    @Update("UPDATE novel_series SET description = #{description},"
+            + " cover_ext = #{coverExt}, cover_folder = #{coverFolder}"
+            + " WHERE series_id = #{id}")
+    int updateNovelSeriesMetadata(@Param("id") long id,
+                                  @Param("description") String description,
+                                  @Param("coverExt") String coverExt,
+                                  @Param("coverFolder") String coverFolder);
+
     @Select("SELECT series_id AS seriesId, title, author_id AS authorId,"
-            + " updated_time AS updatedTime FROM novel_series WHERE series_id = #{id}")
+            + " updated_time AS updatedTime, description, cover_ext AS coverExt,"
+            + " cover_folder AS coverFolder"
+            + " FROM novel_series WHERE series_id = #{id}")
     NovelSeries findSeriesById(@Param("id") long id);
 
     @Select("SELECT series_id AS seriesId, title, author_id AS authorId,"
-            + " updated_time AS updatedTime FROM novel_series ORDER BY LOWER(title), series_id")
+            + " updated_time AS updatedTime, description, cover_ext AS coverExt,"
+            + " cover_folder AS coverFolder"
+            + " FROM novel_series ORDER BY LOWER(title), series_id")
     List<NovelSeries> findAllSeries();
 
     @Select({
             "<script>",
-            "SELECT series_id AS seriesId, title, author_id AS authorId, updated_time AS updatedTime",
+            "SELECT series_id AS seriesId, title, author_id AS authorId,",
+            " updated_time AS updatedTime, description, cover_ext AS coverExt,",
+            " cover_folder AS coverFolder",
             "FROM novel_series",
             "WHERE series_id IN",
             "<foreach item='id' collection='ids' open='(' separator=',' close=')'>",

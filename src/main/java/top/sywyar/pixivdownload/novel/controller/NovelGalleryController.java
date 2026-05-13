@@ -10,11 +10,16 @@ import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
+import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.novel.db.NovelSeries;
+import top.sywyar.pixivdownload.novel.db.NovelSeriesSummary;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
@@ -22,8 +27,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 @RestController
@@ -33,7 +40,9 @@ public class NovelGalleryController {
 
     private final NovelGalleryService novelGalleryService;
     private final NovelMergeService novelMergeService;
+    private final NovelSeriesService novelSeriesService;
     private final NovelDatabase novelDatabase;
+    private final NovelGalleryRepository novelGalleryRepository;
     private final PixivDatabase pixivDatabase;
     private final GuestAccessGuard guestAccessGuard;
     private final AppMessages messages;
@@ -247,6 +256,70 @@ public class NovelGalleryController {
             case "gif" -> "image/gif";
             default -> "application/octet-stream";
         };
+    }
+
+    @GetMapping("/novel/series/{seriesId}")
+    public ResponseEntity<NovelSeries> getSeries(@PathVariable long seriesId,
+                                                 HttpServletRequest httpRequest) {
+        Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
+        if (filter != null && !filter.contains(seriesId)) {
+            return ResponseEntity.notFound().build();
+        }
+        NovelSeries series = novelDatabase.getSeries(seriesId);
+        if (series == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(series);
+    }
+
+    @GetMapping("/novel/series/{seriesId}/cover")
+    public ResponseEntity<byte[]> getSeriesCover(@PathVariable long seriesId,
+                                                 HttpServletRequest httpRequest) throws IOException {
+        Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
+        if (filter != null && !filter.contains(seriesId)) {
+            return ResponseEntity.notFound().build();
+        }
+        NovelSeries series = novelDatabase.getSeries(seriesId);
+        if (series == null || series.coverExt() == null || series.coverExt().isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+        // cover_folder 写入时已 toAbsolutePath().normalize()；缺省回退到当前 rootFolder 下的标准目录。
+        Path folder = (series.coverFolder() != null && !series.coverFolder().isBlank())
+                ? Path.of(series.coverFolder())
+                : novelSeriesService.resolveCoverDir(seriesId);
+        Path file = folder.resolve("cover." + series.coverExt());
+        if (!Files.isRegularFile(file)) {
+            return ResponseEntity.notFound().build();
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(mimeFor(series.coverExt())));
+        headers.setCacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic());
+        return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
+    }
+
+    /**
+     * 从 Pixiv AJAX 拉取小说系列封面/简介并入库；要求 admin/solo 登录态。
+     */
+    @PostMapping("/novel/series/{seriesId}/refresh")
+    public ResponseEntity<NovelSeries> refreshSeries(
+            @PathVariable long seriesId,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
+        NovelSeries refreshed = novelSeriesService.refreshFromPixiv(seriesId, cookie);
+        if (refreshed == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(refreshed);
+    }
+
+    private Set<Long> resolveGuestNovelSeriesFilter(HttpServletRequest httpRequest) {
+        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
+        if (session == null) return null;
+        Set<Long> ids = new HashSet<>();
+        for (NovelSeriesSummary summary : novelGalleryRepository
+                .findVisibleNovelSeriesCounts(GuestRestriction.forNovel(session))) {
+            ids.add(summary.seriesId());
+        }
+        return ids;
     }
 
     @PostMapping("/novel/series/{seriesId}/merge")

@@ -40,6 +40,10 @@ public class NovelDatabase {
         // 幂等迁移：旧库 novels 表补 cover_ext 列；列已存在抛异常吞掉
         try { novelMapper.addCoverExtColumn(); } catch (Exception ignored) {}
         try { novelMapper.addReadingTimeSecondsColumn(); } catch (Exception ignored) {}
+        // 幂等迁移：novel_series 表补 description/cover_ext/cover_folder 列；列已存在抛异常吞掉
+        try { novelMapper.addNovelSeriesDescriptionColumn(); } catch (Exception ignored) {}
+        try { novelMapper.addNovelSeriesCoverExtColumn(); } catch (Exception ignored) {}
+        try { novelMapper.addNovelSeriesCoverFolderColumn(); } catch (Exception ignored) {}
         novelMapper.migrateNovelTimestampsToMillis();
         novelMapper.migrateNovelCollectionTimestampsToMillis();
         novelMapper.migrateNovelSeriesTimestampsToMillis();
@@ -198,6 +202,11 @@ public class NovelDatabase {
     public List<NovelSeries> getSeriesByIds(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) return Collections.emptyList();
         return novelMapper.findSeriesByIds(ids);
+    }
+
+    public void updateSeriesMetadata(long seriesId, String description, String coverExt, String coverFolder) {
+        if (seriesId <= 0) return;
+        novelMapper.updateNovelSeriesMetadata(seriesId, description, coverExt, coverFolder);
     }
 
     public void observeSeries(long seriesId, String title, Long authorId) {

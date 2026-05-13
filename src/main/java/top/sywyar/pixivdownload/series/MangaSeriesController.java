@@ -2,9 +2,14 @@ package top.sywyar.pixivdownload.series;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -13,8 +18,13 @@ import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/api/series")
@@ -63,10 +73,63 @@ public class MangaSeriesController {
                     detail.authorId(),
                     detail.authorName(),
                     visibleCount,
-                    detail.updatedTime()
+                    detail.updatedTime(),
+                    detail.description(),
+                    detail.coverExt(),
+                    detail.coverFolder()
             );
         }
         return ResponseEntity.ok(detail);
+    }
+
+    @GetMapping("/{seriesId}/cover")
+    public ResponseEntity<byte[]> getSeriesCover(@PathVariable long seriesId,
+                                                 HttpServletRequest httpRequest) throws IOException {
+        Set<Long> filter = resolveGuestFilter(httpRequest);
+        if (filter != null && !filter.contains(seriesId)) {
+            return ResponseEntity.notFound().build();
+        }
+        MangaSeries series = mangaSeriesService.getSeries(seriesId);
+        if (series == null || series.coverExt() == null || series.coverExt().isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+        // cover_folder 写入时已 toAbsolutePath().normalize()；缺省回退到当前 rootFolder 下的标准目录。
+        Path folder = (series.coverFolder() != null && !series.coverFolder().isBlank())
+                ? Path.of(series.coverFolder())
+                : mangaSeriesService.resolveCoverDir(seriesId);
+        Path file = folder.resolve("cover." + series.coverExt());
+        if (!Files.isRegularFile(file)) {
+            return ResponseEntity.notFound().build();
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(mimeFor(series.coverExt())));
+        headers.setCacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic());
+        return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
+    }
+
+    /**
+     * 从 Pixiv AJAX 拉取系列封面/简介并入库；要求 admin/solo 登录态（访客邀请会话仅放行 GET）。
+     * 浏览器需带上 {@code X-Pixiv-Cookie} 头供后端访问 Pixiv。
+     */
+    @PostMapping("/{seriesId}/refresh")
+    public ResponseEntity<MangaSeries> refreshSeries(
+            @PathVariable long seriesId,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
+        MangaSeries refreshed = mangaSeriesService.refreshFromPixiv(seriesId, cookie);
+        if (refreshed == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(refreshed);
+    }
+
+    private static String mimeFor(String ext) {
+        return switch (ext.toLowerCase(Locale.ROOT)) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "webp" -> "image/webp";
+            case "gif" -> "image/gif";
+            default -> "application/octet-stream";
+        };
     }
 
     private Set<Long> resolveGuestFilter(HttpServletRequest httpRequest) {
