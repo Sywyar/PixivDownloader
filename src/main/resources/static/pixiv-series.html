@@ -7,12 +7,13 @@
     <script src="/js/pixiv-i18n.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/css/admin-visibility.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/pixiv-series/pixiv-series.css">
 </head>
 <body>
 <div class="app-shell">
-    <aside class="sidebar collapsed" id="sidebar">
+    <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="sidebar-logo">
                 <svg viewBox="0 0 24 24">
@@ -28,10 +29,66 @@
         </div>
 
         <div class="section-header">
+            <span class="section-title" data-i18n="gallery:section.view"></span>
+        </div>
+        <nav class="sidebar-nav">
+            <a class="nav-item" id="navViewAll" href="/pixiv-gallery.html">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <rect x="3" y="3" width="7" height="7" rx="1"/>
+                        <rect x="14" y="3" width="7" height="7" rx="1"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1"/>
+                        <rect x="14" y="14" width="7" height="7" rx="1"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="gallery:nav.all"></span>
+            </a>
+            <a class="nav-item" id="navViewAuthors" href="/pixiv-gallery.html?view=authors">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="gallery:nav.authors"></span>
+            </a>
+            <a class="nav-item active" id="navViewSeries" href="/pixiv-gallery.html?view=series">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="gallery:nav.series"></span>
+            </a>
+        </nav>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="section-header">
+            <span class="section-title" data-i18n="gallery:section.collections"></span>
+            <a class="section-add" id="btnCreateCollection" href="/pixiv-gallery.html?createCollection=1"
+               data-i18n-title="gallery:collection.new" data-i18n-aria-label="gallery:collection.new">
+                <svg viewBox="0 0 24 24">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+            </a>
+        </div>
+        <div class="sidebar-nav" id="collectionList"></div>
+
+        <div class="sidebar-divider"></div>
+
+        <div class="section-header">
             <span class="section-title" data-i18n="section.navigation"></span>
         </div>
         <nav class="sidebar-nav">
-            <a class="nav-item" href="/pixiv-gallery.html">
+            <a class="nav-item" id="navGalleryHome" href="/pixiv-gallery.html">
                 <div class="nav-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                          stroke-linejoin="round">
@@ -40,18 +97,8 @@
                         <polyline points="21 15 16 10 5 21"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="nav.gallery"></span>
+                <span class="nav-label" data-i18n="gallery:nav.gallery"></span>
             </a>
-            <div class="nav-item current" aria-current="page" data-i18n-title="nav.current">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="nav.series-directory"></span>
-            </div>
             <a class="nav-item" href="/pixiv-batch.html" target="_blank" rel="noopener">
                 <div class="nav-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -73,6 +120,16 @@
                     </svg>
                 </div>
                 <span class="nav-label" data-i18n="nav.monitor"></span>
+            </a>
+            <a class="nav-item admin-only" id="navInviteManage" href="/pixiv-invite-manage.html" target="_blank" rel="noopener">
+                <div class="nav-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                         stroke-linejoin="round">
+                        <path d="M9 11l3 3L22 4"/>
+                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                    </svg>
+                </div>
+                <span class="nav-label" data-i18n="gallery:nav.invite-manage"></span>
             </a>
         </nav>
 

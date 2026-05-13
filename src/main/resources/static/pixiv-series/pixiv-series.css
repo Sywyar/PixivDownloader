@@ -27,6 +27,9 @@
             --badge-ai-bg: rgba(139, 92, 246, 0.85);
             --overlay-bg: rgba(0, 0, 0, 0.3);
             --current-bg: rgba(0, 150, 250, 0.08);
+            --active-bg: #f0f4ff;
+            --collection-icon-bg: #fff0f6;
+            --collection-icon-color: #e84393;
         }
 
         html[data-theme="dark"] {
@@ -48,6 +51,9 @@
             --focus-ring: rgba(75, 179, 255, 0.34);
             --card-shadow: rgba(0, 0, 0, 0.34);
             --current-bg: rgba(75, 179, 255, 0.12);
+            --active-bg: rgba(75, 179, 255, 0.12);
+            --collection-icon-bg: rgba(232, 67, 147, 0.14);
+            --collection-icon-color: #ff7ab8;
         }
 
         * {
@@ -234,6 +240,16 @@
             background: var(--hover-bg);
         }
 
+        .nav-item.active {
+            background: var(--active-bg);
+        }
+
+        .nav-item.active .nav-icon,
+        .nav-item.active .nav-label {
+            color: var(--brand);
+            font-weight: 500;
+        }
+
         .nav-item.current {
             cursor: default;
             pointer-events: none;
@@ -269,6 +285,121 @@
         }
 
         .sidebar.collapsed .nav-label {
+            display: none;
+        }
+
+        .section-add {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: none;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .section-add:hover {
+            background: var(--hover-bg);
+            color: var(--brand);
+        }
+
+        .section-add svg {
+            width: 14px;
+            height: 14px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .sidebar.collapsed .section-add {
+            display: none;
+        }
+
+        .collection-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 12px;
+            height: 44px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .sidebar.collapsed .collection-item {
+            justify-content: center;
+            padding: 0;
+        }
+
+        .collection-item:hover {
+            background: var(--hover-bg);
+        }
+
+        .collection-icon {
+            width: 28px;
+            height: 28px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            background: var(--collection-icon-bg);
+            color: var(--collection-icon-color);
+            overflow: hidden;
+        }
+
+        .collection-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .collection-icon svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .collection-label {
+            flex: 1;
+            min-width: 0;
+            font-size: 14px;
+            color: var(--text-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .collection-item:hover .collection-label {
+            color: var(--brand);
+        }
+
+        .sidebar.collapsed .collection-label {
+            display: none;
+        }
+
+        .collection-count {
+            font-size: 12px;
+            color: var(--muted-2);
+            flex-shrink: 0;
+        }
+
+        .sidebar.collapsed .collection-count {
+            display: none;
+        }
+
+        .collection-empty {
+            padding: 8px 16px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .sidebar.collapsed .collection-empty {
             display: none;
         }
 

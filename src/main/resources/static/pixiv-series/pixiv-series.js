@@ -1,3 +1,6 @@
+    const HEART_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+    const SIDEBAR_STATE_STORAGE_KEY = 'pixiv:gallery-sidebar-state';
+
     const state = {
         type: 'artwork',
         seriesId: null,
@@ -10,6 +13,7 @@
         totalElements: 0,
         search: '',
         items: [],
+        collections: [],
     };
 
     let pageI18n = null;
@@ -69,6 +73,13 @@
         return t(modeKey(key), isNovelMode() ? novelFallback : artworkFallback, vars);
     }
 
+    function pageText(key, fallback, vars) {
+        if (pageI18n) {
+            return pageI18n.t(key, fallback, vars);
+        }
+        return interpolate(fallback != null ? fallback : key, vars);
+    }
+
     function applyStaticPageTranslations() {
         document.title = state.detail && state.detail.title
             ? modeText('page.title-with-name', '{title} - Manga Series', '{title} - Novel Series', {title: state.detail.title})
@@ -89,6 +100,28 @@
             const el = document.querySelector(selector);
             if (el) el.textContent = text;
         };
+        const setHref = (selector, href) => {
+            const el = document.querySelector(selector);
+            if (el) el.href = href;
+        };
+        const galleryHref = isNovelMode() ? '/pixiv-novel-gallery.html' : '/pixiv-gallery.html';
+        setText('#navViewAll .nav-label', isNovelMode()
+            ? pageText('novel:nav.all', 'All novels')
+            : pageText('gallery:nav.all', 'All Artworks'));
+        setText('#navViewAuthors .nav-label', isNovelMode()
+            ? pageText('novel:nav.by-author', 'By author')
+            : pageText('gallery:nav.authors', 'Browse by Author'));
+        setText('#navViewSeries .nav-label', isNovelMode()
+            ? pageText('novel:nav.by-series', 'By series')
+            : pageText('gallery:nav.series', 'Browse by Manga Series'));
+        setText('#navGalleryHome .nav-label', isNovelMode()
+            ? pageText('novel:gallery.type.novel', 'Novels')
+            : pageText('gallery:nav.gallery', 'Gallery'));
+        setHref('#navViewAll', galleryHref);
+        setHref('#navViewAuthors', `${galleryHref}?view=authors`);
+        setHref('#navViewSeries', `${galleryHref}?view=series`);
+        setHref('#navGalleryHome', galleryHref);
+        setHref('#btnCreateCollection', `${galleryHref}?createCollection=1`);
         setText('.series-kicker', modeText('page.kicker', 'Manga Series Directory', 'Novel Series Directory'));
         setText('.nav-item.current .nav-label', modeText('nav.series-directory', 'Manga Series Directory', 'Novel Series Directory'));
         setText('#backToArtworkBtn span', modeText('button.back-to-artwork', 'Back to Current Artwork', 'Back to Current Novel'));
@@ -97,10 +130,11 @@
         if (searchInput) {
             searchInput.placeholder = modeText('search.placeholder', 'Search this series...', 'Search this novel series...');
         }
+        renderCollections();
     }
 
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: ['series', 'common']});
+        pageI18n = await PixivI18n.create({namespaces: ['series', 'gallery', 'novel', 'common']});
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
@@ -155,6 +189,60 @@
         if (Number.isFinite(order) && order > 0) {
             state.page = Math.floor((order - 1) / state.size);
         }
+    }
+
+    async function setupAdminMode() {
+        try {
+            const res = await fetch('/api/admin/invites/access-check', {credentials: 'same-origin'});
+            if (res.ok) document.body.classList.add('admin-mode');
+        } catch (_) {
+        }
+    }
+
+    async function loadCollections() {
+        try {
+            const resp = await api('/api/collections');
+            state.collections = resp.collections || [];
+            renderCollections();
+        } catch (e) {
+            console.warn('load collections failed', e);
+        }
+    }
+
+    function renderCollections() {
+        const list = document.getElementById('collectionList');
+        if (!list) return;
+        if (!state.collections.length) {
+            list.innerHTML = '<div class="collection-empty">' +
+                escapeHtml(pageText('gallery:status.no-collections', 'No collections')) +
+                '</div>';
+            return;
+        }
+        list.innerHTML = state.collections.map(collection => {
+            const count = isNovelMode()
+                ? (collection.novelCount ?? 0)
+                : (collection.artworkCount ?? 0);
+            return `
+                <a class="collection-item" href="${escapeHtml(buildCollectionHref(collection.id))}">
+                    <div class="collection-icon">${iconHtml(collection)}</div>
+                    <span class="collection-label">${escapeHtml(collection.name)}</span>
+                    <span class="collection-count">${escapeHtml(count)}</span>
+                </a>
+            `;
+        }).join('');
+    }
+
+    function iconHtml(collection) {
+        if (collection.iconExt) {
+            return `<img src="/api/collections/${collection.id}/icon?v=${encodeURIComponent(collection.createdTime || '')}" alt="">`;
+        }
+        return HEART_SVG;
+    }
+
+    function buildCollectionHref(collectionId) {
+        const params = new URLSearchParams();
+        params.set('collectionIds', String(collectionId));
+        return (isNovelMode() ? '/pixiv-novel-gallery.html' : '/pixiv-gallery.html') + '?' + params.toString();
     }
 
     async function loadSeries() {
@@ -643,8 +731,29 @@
         }[m]));
     }
 
+    function restoreSidebarState() {
+        const sidebar = document.getElementById('sidebar');
+        if (!sidebar) return;
+        let savedState = null;
+        try {
+            savedState = localStorage.getItem(SIDEBAR_STATE_STORAGE_KEY);
+        } catch (_) {
+        }
+        sidebar.classList.toggle('collapsed', savedState === 'closed');
+    }
+
+    function saveSidebarState(collapsed) {
+        try {
+            localStorage.setItem(SIDEBAR_STATE_STORAGE_KEY, collapsed ? 'closed' : 'open');
+        } catch (_) {
+        }
+    }
+
     function toggleSidebar() {
-        document.getElementById('sidebar').classList.toggle('collapsed');
+        const sidebar = document.getElementById('sidebar');
+        if (!sidebar) return;
+        const collapsed = sidebar.classList.toggle('collapsed');
+        saveSidebarState(collapsed);
     }
 
     function openMobileSidebar() {
@@ -671,6 +780,9 @@
 
     (async function init() {
         readParams();
+        restoreSidebarState();
+        setupAdminMode();
         await initPageI18n();
+        loadCollections();
         await loadSeries();
     })();

@@ -2,6 +2,18 @@ const PAGE_SIZE = 24;
 const HEART_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
 const SIDEBAR_STATE_STORAGE_KEY = 'pixiv:gallery-sidebar-state';
 
+function parsePositiveIdList(raw) {
+    return [...new Set(String(raw || '')
+        .split(',')
+        .map(value => Number(value))
+        .filter(value => Number.isInteger(value) && value > 0))];
+}
+
+function readViewParam(params) {
+    const view = params.get('view');
+    return ['all', 'authors', 'series'].includes(view) ? view : null;
+}
+
 let pageI18n;
 const state = {
     view: 'all',                // 'all' | 'authors' | 'series'
@@ -64,25 +76,46 @@ async function init() {
 
 function applyInitialUrlState() {
     const params = new URLSearchParams(location.search);
-    const ids = [];
-    const addId = value => {
-        const id = Number(value);
-        if (Number.isInteger(id) && id > 0 && !ids.includes(id)) ids.push(id);
-    };
-    addId(params.get('seriesId'));
-    (params.get('seriesIds') || '').split(',').forEach(addId);
-    if (!ids.length) return;
+    let changed = false;
 
-    state.selectedSeries.clear();
-    ids.forEach(id => state.selectedSeries.set(id, 'must'));
-    if (ids.length === 1 && !state.series.some(s => Number(s.seriesId) === ids[0])) {
-        const title = params.get('seriesTitle') || `#${ids[0]}`;
-        state.series = [{ seriesId: ids[0], title, authorId: null, authorName: '', novelCount: 0 }, ...state.series];
+    const ids = parsePositiveIdList(
+        [params.get('seriesId'), params.get('seriesIds')]
+            .filter(Boolean)
+            .join(',')
+    );
+    if (ids.length) {
+        state.selectedSeries.clear();
+        ids.forEach(id => state.selectedSeries.set(id, 'must'));
+        if (ids.length === 1 && !state.series.some(s => Number(s.seriesId) === ids[0])) {
+            const title = params.get('seriesTitle') || `#${ids[0]}`;
+            state.series = [{ seriesId: ids[0], title, authorId: null, authorName: '', novelCount: 0 }, ...state.series];
+        }
+        renderSeriesChips();
+        changed = true;
     }
-    state.view = 'all';
-    state.page = 0;
-    renderSeriesChips();
-    updateFilterBadge();
+
+    const collectionIds = parsePositiveIdList(params.get('collectionIds'));
+    if (collectionIds.length) {
+        state.selectedCollections.clear();
+        collectionIds.forEach(id => state.selectedCollections.add(id));
+        renderCollections();
+        renderCollectionFilterChips();
+        changed = true;
+    }
+
+    const requestedView = readViewParam(params);
+    if (requestedView) {
+        state.view = requestedView;
+        state.page = 0;
+        state.authorsView.page = 0;
+        state.seriesView.page = 0;
+    }
+
+    if (params.get('createCollection') === '1') {
+        openCollectionFormModal(null);
+    }
+
+    if (changed) updateFilterBadge();
 }
 
 function updateOrderToggleLabel() {

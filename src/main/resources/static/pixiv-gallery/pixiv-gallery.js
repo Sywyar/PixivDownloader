@@ -89,7 +89,10 @@
         'filterAuthorName',
         'filterSeriesId',
         'filterSeriesTitle',
+        'collectionIds',
         'openFilter',
+        'view',
+        'createCollection',
     ];
     const SIDEBAR_STATE_STORAGE_KEY = 'pixiv:gallery-sidebar-state';
 
@@ -476,6 +479,18 @@
         history.replaceState(history.state, '', nextUrl);
     }
 
+    function parsePositiveIdList(raw) {
+        return [...new Set(String(raw || '')
+            .split(',')
+            .map(value => Number(value))
+            .filter(value => Number.isInteger(value) && value > 0))];
+    }
+
+    function readViewParam(params) {
+        const view = params.get('view');
+        return ['all', 'authors', 'series'].includes(view) ? view : null;
+    }
+
     function syncTagFilterBar() {
         const bar = document.getElementById('tagFilterBar');
         const labelEl = bar.querySelector('.label');
@@ -567,9 +582,10 @@
     async function applyNavigationFiltersFromQuery() {
         const params = new URLSearchParams(location.search);
         const hasNavigationFilter = GALLERY_FILTER_QUERY_KEYS.some(key => params.has(key));
-        if (!hasNavigationFilter) return;
+        if (!hasNavigationFilter) return null;
 
         let changed = false;
+        const requestedView = readViewParam(params);
 
         const tag = await resolveIncomingTagOption(params);
         if (tag && tag.tagId != null) {
@@ -599,6 +615,12 @@
             changed = true;
         }
 
+        const collectionIds = parsePositiveIdList(params.get('collectionIds'));
+        if (collectionIds.length) {
+            state.collectionIds = new Set(collectionIds);
+            changed = true;
+        }
+
         if (params.get('openFilter') === '1' || changed) {
             setFilterPanelOpen(true);
         }
@@ -608,6 +630,8 @@
             syncTagFilterBar();
             syncAuthorFilterBar();
             syncSeriesFilterBar();
+            renderCollections();
+            renderCollectionFilterChips();
             renderTagChips();
             renderSeriesFilterChips();
             renderAuthorChips();
@@ -615,6 +639,7 @@
         }
 
         clearNavigationFilterQuery();
+        return requestedView;
     }
 
     // ---------- Sidebar ----------
@@ -2278,12 +2303,22 @@
         // 仅当 URL 携带过滤参数时才需要等 tag 选项就绪后解析过滤；常规进入直接放行
         const params = new URLSearchParams(location.search);
         const hasNavigationFilter = GALLERY_FILTER_QUERY_KEYS.some(key => params.has(key));
+        const shouldCreateCollection = params.get('createCollection') === '1';
+        let initialView = readViewParam(params);
         if (hasNavigationFilter) {
             await tagsPromise;
-            await applyNavigationFiltersFromQuery();
+            initialView = await applyNavigationFiltersFromQuery() || initialView;
         }
 
-        loadGallery();
+        if (shouldCreateCollection) {
+            openCollectionFormModal(null);
+        }
+
+        if (initialView && initialView !== 'all') {
+            switchView(initialView);
+        } else {
+            loadGallery();
+        }
     })();
 
     // ---------- 邀请访客 ----------
