@@ -75,6 +75,7 @@ public class NovelDownloadService {
     private final DownloadConfig downloadConfig;
     private final PixivDatabase pixivDatabase;
     private final NovelDatabase novelDatabase;
+    private final NovelSeriesService novelSeriesService;
     private final AuthorService authorService;
     private final CollectionService collectionService;
     private final PixivBookmarkService pixivBookmarkService;
@@ -88,6 +89,7 @@ public class NovelDownloadService {
     public NovelDownloadService(DownloadConfig downloadConfig,
                                 PixivDatabase pixivDatabase,
                                 NovelDatabase novelDatabase,
+                                NovelSeriesService novelSeriesService,
                                 AuthorService authorService,
                                 CollectionService collectionService,
                                 PixivBookmarkService pixivBookmarkService,
@@ -98,6 +100,7 @@ public class NovelDownloadService {
         this.downloadConfig = downloadConfig;
         this.pixivDatabase = pixivDatabase;
         this.novelDatabase = novelDatabase;
+        this.novelSeriesService = novelSeriesService;
         this.authorService = authorService;
         this.collectionService = collectionService;
         this.pixivBookmarkService = pixivBookmarkService;
@@ -196,7 +199,19 @@ public class NovelDownloadService {
                 authorService.observe(other.getAuthorId(), other.getAuthorName());
             }
             if (other.getSeriesId() != null && other.getSeriesId() > 0) {
-                novelDatabase.observeSeries(other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId());
+                // 前端/脚本若一并送来了系列简介/封面/tags，由 NovelSeriesService.observeWithMetadata 落库；
+                // 否则退回到原来仅 upsert 标题/作者的 observeSeries()。
+                boolean hasRichMeta = (other.getSeriesDescription() != null && !other.getSeriesDescription().isBlank())
+                        || (other.getSeriesCoverUrl() != null && !other.getSeriesCoverUrl().isBlank())
+                        || (other.getSeriesTags() != null && !other.getSeriesTags().isEmpty());
+                if (hasRichMeta) {
+                    novelSeriesService.observeWithMetadata(
+                            other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId(),
+                            other.getSeriesDescription(), other.getSeriesCoverUrl(),
+                            other.getSeriesTags(), request.getCookie());
+                } else {
+                    novelDatabase.observeSeries(other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId());
+                }
             }
 
             // Quota tracking (multi-mode guests)

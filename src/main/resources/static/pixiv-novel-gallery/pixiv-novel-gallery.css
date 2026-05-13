@@ -692,61 +692,106 @@
             background: var(--control-bg);
         }
 
-        /* Series view */
+        /* Series view — same row+horizontal-strip layout as the manga gallery's
+           Browse by Manga Series view (复用 .author-row 系列样式). */
         .series-view { display: none; flex-direction: column; gap: 0; }
         .series-view.active { display: flex; }
-        .series-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-            gap: 14px;
-        }
-        .series-card {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            padding: 14px 16px;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            background: var(--surface);
-            cursor: pointer;
-            transition: transform .15s, box-shadow .15s, border-color .15s;
-        }
-        .series-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(0, 0, 0, .08);
-            border-color: var(--brand);
-        }
-        .series-card-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text);
-            line-height: 1.35;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
+        .series-grid { display: flex; flex-direction: column; gap: 0; }
+        .series-row-cover {
+            width: 100%;
+            max-width: 180px;
+            aspect-ratio: 3 / 4;
+            border-radius: 8px;
             overflow: hidden;
-            word-break: break-word;
-        }
-        .series-card-meta {
+            background: var(--control-muted-bg);
+            margin-bottom: 8px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            font-size: 12px;
+            justify-content: center;
             color: var(--muted);
+            font-size: 11px;
+            text-align: center;
+            padding: 6px;
+            line-height: 1.35;
         }
-        .series-card-author {
+        .series-row-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        /* 系列章节横向分页布局：
+           - 卡片样式不变（沿用 .author-work-card 默认：140 缩略图 + 下方两行标题）。
+           - strip = 固定视口（overflow:hidden），不允许鼠标横滑 / 触屏拖动，仅靠左右箭头切页。
+           - 内部 .series-works-pager 用 CSS Grid 列优先排卡：
+               * 排数 = JS 按 strip 高度选 1 或 2（够 1 排就 1 排、够 2 排就 2 排）
+               * 列数 = JS 按 strip 宽度算（一页 N 列 = floor(可用宽 / 列步幅)），不写死
+               * grid-auto-flow: column → 第 1 列从上到下 = #1, #2；第 2 列 = #3, #4 …… 整体列优先连续
+           - translateX 按整页（N 列）切换，保证可见列里章节连续。 */
+        .series-row .author-works-strip {
+            display: block;
+            overflow: hidden;
+            position: relative;
+            padding: 4px 40px;
+            /* 让 strip 跟 .author-row-works (flex 子项被 stretch 拉满整行高) 一起占满，
+               否则 strip 只跟内部 pager 走 —— 一排模式下 ~188px，永远过不了 270px 阈值。 */
+            height: 100%;
+            box-sizing: border-box;
+            overscroll-behavior: contain;
+            scrollbar-width: none;
+        }
+        /* 1 排模式：允许鼠标横滑 / 触屏拖动；列宽仍由 JS 算好，scrollBy 步幅 = 整页。
+           CSS 仅控制是否打开 native scroll —— 2 排时仍是固定视口，靠 translateX 分页。 */
+        .series-row .author-works-strip.is-scrollable {
+            overflow-x: auto;
+            overflow-y: hidden;
+            scroll-behavior: smooth;
+        }
+        .series-row .author-works-strip::-webkit-scrollbar { display: none; }
+        /* pager 现在是"页容器"：横向 flex 排列若干 .series-works-page，每页内部是一张行优先 grid。
+           translateX 按整页平移；行内 column-gap 与每页之间的间距共用 actualGap，保持视觉节奏。 */
+        .series-row .series-works-pager {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            transition: transform .3s ease;
+            will-change: transform;
+        }
+        .series-row .series-works-page {
+            display: grid;
+            grid-auto-flow: row;
+            row-gap: 12px;
+            flex: 0 0 auto;
+        }
+        .series-row .author-works-empty,
+        .series-row .author-works-loading {
+            padding: 20px 24px;
+        }
+        .series-row-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 4px;
+            max-height: 56px;
+            overflow: hidden;
+        }
+        .series-row-tag {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: var(--control-muted-bg);
+            color: var(--text-secondary);
+            border: 1px solid var(--line);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            margin-right: 8px;
+            max-width: 140px;
         }
-        .series-card-count {
+        .series-row-tag-more {
             font-size: 11px;
-            background: var(--control-muted-bg);
-            color: var(--text);
-            padding: 2px 8px;
-            border-radius: 10px;
-            white-space: nowrap;
+            color: var(--muted);
+            padding: 2px 4px;
         }
 
         /* Modal & toast */

@@ -578,7 +578,17 @@ public class DownloadService {
     private void recordSeriesInfo(Long artworkId, DownloadRequest.Other other, String cookie) {
         try {
             if (other != null && other.getSeriesId() != null && other.getSeriesId() > 0) {
-                mangaSeriesService.observe(other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId());
+                // 前端/脚本若一并送来了系列简介或封面 URL，按 observeWithMetadata 流程顺带补齐；
+                // 否则退回到原来仅 upsert 标题/作者的 observe()。
+                boolean hasRichMeta = (other.getSeriesDescription() != null && !other.getSeriesDescription().isBlank())
+                        || (other.getSeriesCoverUrl() != null && !other.getSeriesCoverUrl().isBlank());
+                if (hasRichMeta) {
+                    mangaSeriesService.observeWithMetadata(
+                            other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId(),
+                            other.getSeriesDescription(), other.getSeriesCoverUrl(), cookie);
+                } else {
+                    mangaSeriesService.observe(other.getSeriesId(), other.getSeriesTitle(), other.getAuthorId());
+                }
                 return;
             }
             // Pixiv 系列几乎只挂在漫画 (illustType == 1) 上。当前端已经知道作品类型时，

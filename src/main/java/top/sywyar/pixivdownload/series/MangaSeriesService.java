@@ -182,6 +182,50 @@ public class MangaSeriesService {
     }
 
     /**
+     * 下载流程内的"系列元数据持久化"：调用方（DownloadService）从前端/脚本接收 hint，
+     * 由本方法负责按需补齐 {@code manga_series} 的 description / cover。语义：
+     * <ul>
+     *   <li>{@code title} / {@code authorId} 走 {@link #observe(long, String, Long)} 的并发安全 upsert</li>
+     *   <li>{@code description} 为非空时 normalize 后覆盖；为 null 保留库内现值</li>
+     *   <li>{@code coverUrl} 仅在库内尚无 {@code cover_ext} 时才尝试下载，避免每章下载都重复打 pximg</li>
+     * </ul>
+     * 全程 best-effort：异常吞掉、不阻塞下载主路径。
+     */
+    public void observeWithMetadata(long seriesId, String title, Long authorId,
+                                    String description, String coverUrl, String cookie) {
+        if (seriesId <= 0) return;
+        try {
+            observe(seriesId, title, authorId);
+            MangaSeries existing = mangaSeriesMapper.findById(seriesId);
+            if (existing == null) return;
+
+            String desiredDescription = description != null && !description.isBlank()
+                    ? PixivDescriptionHtml.normalizeLinks(description)
+                    : existing.description();
+            String coverExt = existing.coverExt();
+            String coverFolder = existing.coverFolder();
+            if ((coverExt == null || coverExt.isBlank())
+                    && coverUrl != null && !coverUrl.isBlank()) {
+                Path coverDir = resolveCoverDir(seriesId);
+                String downloadedExt = coverDownloader.download(coverUrl, coverDir, "cover", cookie);
+                if (downloadedExt != null) {
+                    coverExt = downloadedExt;
+                    coverFolder = coverDir.toString();
+                }
+            }
+            // 只在数据真有变化时才写库，避免空 UPDATE 风暴。
+            boolean descChanged = !java.util.Objects.equals(desiredDescription, existing.description());
+            boolean coverChanged = !java.util.Objects.equals(coverExt, existing.coverExt())
+                    || !java.util.Objects.equals(coverFolder, existing.coverFolder());
+            if (descChanged || coverChanged) {
+                mangaSeriesMapper.updateMetadata(seriesId, desiredDescription, coverExt, coverFolder);
+            }
+        } catch (Exception e) {
+            log.warn(messages.getForLog("series.log.refresh.failed.exception", seriesId), e);
+        }
+    }
+
+    /**
      * 拉取 Pixiv 漫画系列元数据（标题/简介/封面），落盘封面到
      * {@code {rootFolder}/artwork-series-{seriesId}/cover.{ext}} 并写入 DB。
      * 调用前必须保证 {@code seriesId > 0}。Best-effort：网络失败/封面缺失只清空对应字段。

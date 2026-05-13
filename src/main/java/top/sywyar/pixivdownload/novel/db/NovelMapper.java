@@ -91,6 +91,15 @@ public interface NovelMapper {
     @Update("CREATE INDEX IF NOT EXISTS idx_novel_tags_tag_id ON novel_tags(tag_id)")
     void createNovelTagsTagIndex();
 
+    @Update("CREATE TABLE IF NOT EXISTS novel_series_tags ("
+            + "series_id INTEGER NOT NULL,"
+            + "tag_id INTEGER NOT NULL,"
+            + "PRIMARY KEY (series_id, tag_id))")
+    void createNovelSeriesTagsTable();
+
+    @Update("CREATE INDEX IF NOT EXISTS idx_novel_series_tags_tag_id ON novel_series_tags(tag_id)")
+    void createNovelSeriesTagsTagIndex();
+
     @Update("CREATE TABLE IF NOT EXISTS novel_collections ("
             + "collection_id INTEGER NOT NULL,"
             + "novel_id INTEGER NOT NULL,"
@@ -276,6 +285,32 @@ public interface NovelMapper {
 
     @Select("SELECT 1 FROM novel_tags WHERE novel_id = #{novelId} LIMIT 1")
     Integer existsTagsForNovel(@Param("novelId") long novelId);
+
+    // ── Novel series tags ───────────────────────────────────────────────────────
+
+    @Insert("INSERT OR IGNORE INTO novel_series_tags(series_id, tag_id) VALUES(#{seriesId}, #{tagId})")
+    void insertNovelSeriesTag(@Param("seriesId") long seriesId, @Param("tagId") long tagId);
+
+    @Delete("DELETE FROM novel_series_tags WHERE series_id = #{seriesId}")
+    void deleteNovelSeriesTags(@Param("seriesId") long seriesId);
+
+    @Select("SELECT t.tag_id AS tagId, t.name AS name, t.translated_name AS translatedName"
+            + " FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id"
+            + " WHERE nst.series_id = #{seriesId}"
+            + " ORDER BY t.tag_id")
+    List<TagDto> findTagsByNovelSeriesId(@Param("seriesId") long seriesId);
+
+    @Select({
+            "<script>",
+            "SELECT nst.series_id AS seriesId, t.tag_id AS tagId, t.name AS name,",
+            " t.translated_name AS translatedName",
+            "FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id",
+            "WHERE nst.series_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "ORDER BY nst.series_id, t.tag_id",
+            "</script>"
+    })
+    List<java.util.Map<String, Object>> findTagsByNovelSeriesIds(@Param("ids") Collection<Long> seriesIds);
 
     // ── Collections ─────────────────────────────────────────────────────────────
 

@@ -280,6 +280,17 @@ public final class ManagedDatabaseSchema {
                 )
         ));
 
+        tables.put("novel_series_tags", new TableSpec(
+                "novel_series_tags",
+                List.of(
+                        column("series_id", "INTEGER", true, null, 1),
+                        column("tag_id", "INTEGER", true, null, 2)
+                ),
+                List.of(
+                        explicitIndex("idx_novel_series_tags_tag_id", false, "tag_id")
+                )
+        ));
+
         tables.put("novel_collections", new TableSpec(
                 "novel_collections",
                 List.of(

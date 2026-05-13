@@ -13,12 +13,14 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -52,6 +54,50 @@ public class NovelSeriesService {
         this.messages = messages;
     }
 
+    /**
+     * 下载流程内的"系列元数据持久化"：与
+     * {@link top.sywyar.pixivdownload.series.MangaSeriesService#observeWithMetadata} 对称，
+     * 额外允许传入 series tags（非空则整体替换 {@code novel_series_tags}）。
+     */
+    public void observeWithMetadata(long seriesId, String title, Long authorId,
+                                    String description, String coverUrl,
+                                    List<TagDto> tags, String cookie) {
+        if (seriesId <= 0) return;
+        try {
+            novelDatabase.observeSeries(seriesId, StringUtils.hasText(title) ? title : null, authorId);
+            NovelSeries existing = novelDatabase.getSeries(seriesId);
+            if (existing == null) return;
+
+            String desiredDescription = description != null && !description.isBlank()
+                    ? PixivDescriptionHtml.normalizeLinks(description)
+                    : existing.description();
+            String coverExt = existing.coverExt();
+            String coverFolder = existing.coverFolder();
+            if ((coverExt == null || coverExt.isBlank())
+                    && coverUrl != null && !coverUrl.isBlank()) {
+                Path coverDir = resolveCoverDir(seriesId);
+                String downloadedExt = coverDownloader.download(coverUrl, coverDir, "cover", cookie);
+                if (downloadedExt != null) {
+                    coverExt = downloadedExt;
+                    coverFolder = coverDir.toString();
+                }
+            }
+            boolean descChanged = !java.util.Objects.equals(desiredDescription, existing.description());
+            boolean coverChanged = !java.util.Objects.equals(coverExt, existing.coverExt())
+                    || !java.util.Objects.equals(coverFolder, existing.coverFolder());
+            if (descChanged || coverChanged) {
+                novelDatabase.updateSeriesMetadata(seriesId, desiredDescription, coverExt, coverFolder);
+            }
+
+            if (tags != null && !tags.isEmpty()) {
+                novelDatabase.clearNovelSeriesTags(seriesId);
+                novelDatabase.saveNovelSeriesTags(seriesId, tags);
+            }
+        } catch (Exception e) {
+            log.warn(messages.getForLog("novel.series.log.refresh.failed.exception", seriesId), e);
+        }
+    }
+
     public NovelSeries refreshFromPixiv(long seriesId, String cookie) {
         if (seriesId <= 0) return null;
         try {
@@ -80,6 +126,14 @@ public class NovelSeriesService {
                 }
             }
             novelDatabase.updateSeriesMetadata(seriesId, normalizedDescription, coverExt, coverFolder);
+
+            // 系列 tags：Pixiv 同时把 tags 挂在 body.tags 顶层（数组或带 translation 的对象），
+            // 完整刷新时整体替换以保留删除语义；空数组也按"清空"处理。
+            List<TagDto> tags = extractTags(body);
+            novelDatabase.clearNovelSeriesTags(seriesId);
+            if (!tags.isEmpty()) {
+                novelDatabase.saveNovelSeriesTags(seriesId, tags);
+            }
             return novelDatabase.getSeries(seriesId);
         } catch (Exception e) {
             log.warn(messages.getForLog("novel.series.log.refresh.failed.exception", seriesId), e);
@@ -94,6 +148,36 @@ public class NovelSeriesService {
     public Path resolveCoverDir(long seriesId) {
         return Paths.get(downloadConfig.getRootFolder(), "novel-series-" + seriesId)
                 .toAbsolutePath().normalize();
+    }
+
+    /**
+     * 从 {@code /ajax/novel/series/{id}} 的 body 中抽取系列标签。
+     * Pixiv 同时支持两种结构：
+     * <ul>
+     *   <li>{@code body.tags} 字符串数组（小说系列旧 schema）</li>
+     *   <li>{@code body.tags.tags[]} 含 {@code tag} / {@code translation.en} 的对象（与插画系列一致）</li>
+     * </ul>
+     */
+    private static List<TagDto> extractTags(JsonNode body) {
+        List<TagDto> out = new ArrayList<>();
+        JsonNode tagsArr = body.path("tags").path("tags");
+        if (!tagsArr.isArray() || tagsArr.isEmpty()) {
+            tagsArr = body.path("tags");
+        }
+        if (tagsArr.isArray()) {
+            for (JsonNode t : tagsArr) {
+                String name = t.isTextual() ? t.asText("") : t.path("tag").asText(t.path("name").asText(""));
+                if (name == null || name.isBlank()) continue;
+                String translated = null;
+                JsonNode translation = t.path("translation");
+                if (translation.isObject()) {
+                    String en = translation.path("en").asText("");
+                    if (!en.isEmpty()) translated = en;
+                }
+                out.add(new TagDto(name, translated));
+            }
+        }
+        return out;
     }
 
     private static String extractCoverUrl(JsonNode body) {

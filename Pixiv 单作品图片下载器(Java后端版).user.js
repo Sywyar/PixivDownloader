@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.0.5
+// @version      2.0.6
 // @description  通过Java后端服务下载 Pixiv 单个作品图片
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -495,6 +495,31 @@
             }));
     }
 
+    // 单次脚本生命周期的系列元数据缓存：相同 seriesId 在同一页面里只查后端代理一次。
+    const seriesEnrichmentCache = new Map();
+    function fetchSeriesEnrichment(seriesId) {
+        const sid = Number(seriesId);
+        if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
+        if (seriesEnrichmentCache.has(sid)) return seriesEnrichmentCache.get(sid);
+        const p = new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `${serverBase}/api/pixiv/series/${sid}?page=1`,
+                headers: {'X-Pixiv-Cookie': document.cookie || ''},
+                onload: (res) => {
+                    try {
+                        const data = JSON.parse(res.responseText);
+                        const meta = data && data.series ? data.series : null;
+                        resolve(meta ? {caption: meta.caption || '', coverUrl: meta.coverUrl || ''} : null);
+                    } catch (_) { resolve(null); }
+                },
+                onerror: () => resolve(null)
+            });
+        });
+        seriesEnrichmentCache.set(sid, p);
+        return p;
+    }
+
     // 获取作品元数据
     async function getArtworkMeta(artworkId) {
         return new Promise((resolve, reject) => {
@@ -700,7 +725,19 @@
 
             let imageUrls;
             const bookmark = GM_getValue(KEY_BOOKMARK_AFTER_DL, false);
-            let other = { bookmark, authorId, authorName, xRestrict, isAi, description, tags };
+            // 系列导航：仅在 Pixiv 标注该作品属于某个漫画系列时附带。
+            // 系列简介/封面通过后端代理缓存查询，失败时退回到 observe() 的轻量 upsert。
+            const nav = meta && meta.seriesNavData;
+            const seriesId = nav && Number(nav.seriesId) > 0 ? Number(nav.seriesId) : null;
+            const seriesEnrich = seriesId ? await fetchSeriesEnrichment(seriesId) : null;
+            const seriesFields = seriesId ? {
+                seriesId,
+                seriesOrder: Number(nav.order || 0),
+                seriesTitle: nav.title || '',
+                seriesDescription: seriesEnrich && seriesEnrich.caption ? seriesEnrich.caption : null,
+                seriesCoverUrl: seriesEnrich && seriesEnrich.coverUrl ? seriesEnrich.coverUrl : null
+            } : {};
+            let other = { bookmark, authorId, authorName, xRestrict, isAi, description, tags, ...seriesFields };
 
             if (meta && meta.illustType === 2) {
                 // 动图作品：获取ugoira元数据，下载ZIP并在后端合成WebP
@@ -717,7 +754,8 @@
                     xRestrict,
                     isAi,
                     description,
-                    tags
+                    tags,
+                    ...seriesFields
                 };
             } else if (meta && meta.pageCount === 1 && meta.urls && meta.urls.original) {
                 // 单页插画：meta 已携带 original URL，无需再调用 /pages

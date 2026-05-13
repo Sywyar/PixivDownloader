@@ -53,6 +53,10 @@ public class DownloadRequest {
         private Long seriesId;
         private Long seriesOrder;
         private String seriesTitle;
+        /** 系列简介（{@code /ajax/series/{id}} → {@code body.illustSeries[0].caption}）。下载时一并落库，best-effort。 */
+        private String seriesDescription;
+        /** 系列封面 URL（pximg），下载时若本地尚无封面则尝试 SSRF-safe 拉取后落盘。 */
+        private String seriesCoverUrl;
         /** Pixiv illustType: 0=illust, 1=manga, 2=ugoira。用于决定是否值得异步回填系列信息。 */
         private Integer illustType;
     }

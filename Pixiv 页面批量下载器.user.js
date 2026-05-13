@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 页面批量下载器
 // @namespace    http://tampermonkey.net/
-// @version      1.0.7
+// @version      1.0.8
 // @description  抓取当前 Pixiv 页面（搜索页、关注动态、排行榜、主页等）上的所有作品
 // @author       Sywyar
 // @match        https://www.pixiv.net/*
@@ -910,20 +910,53 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, authorId, authorName, xRestrict, isAi, ugoiraData, delayMs, bookmark, description, tags) {
+        _seriesMetaPromises: new Map(),
+        getSeriesEnrichment(seriesId) {
+            const sid = Number(seriesId);
+            if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
+            if (this._seriesMetaPromises.has(sid)) return this._seriesMetaPromises.get(sid);
+            const p = new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${serverBase}/api/pixiv/series/${sid}?page=1`,
+                    headers: { 'X-Pixiv-Cookie': document.cookie || '' },
+                    onload: (res) => {
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            const meta = data && data.series ? data.series : null;
+                            resolve(meta ? { caption: meta.caption || '', coverUrl: meta.coverUrl || '' } : null);
+                        } catch (_) { resolve(null); }
+                    },
+                    onerror: () => resolve(null)
+                });
+            });
+            this._seriesMetaPromises.set(sid, p);
+            return p;
+        },
+        async sendDownloadRequest(artworkId, imageUrls, title, authorId, authorName, xRestrict, isAi, ugoiraData, delayMs, bookmark, description, tags, seriesInfo) {
+            const parsedAuthorId = Number.parseInt(String(authorId ?? ''), 10);
+            const other = {
+                userDownload: false,
+                authorId: Number.isFinite(parsedAuthorId) ? parsedAuthorId : null,
+                authorName: authorName || null,
+                xRestrict: Number(xRestrict) || 0,
+                isAi: !!isAi,
+                delayMs: delayMs || 0,
+                bookmark: !!bookmark,
+                description: description || null,
+                tags: Array.isArray(tags) && tags.length ? tags : null
+            };
+            if (seriesInfo && seriesInfo.seriesId) {
+                other.seriesId = Number(seriesInfo.seriesId);
+                other.seriesOrder = Number(seriesInfo.seriesOrder ?? 0);
+                other.seriesTitle = seriesInfo.seriesTitle || null;
+                const enrich = await this.getSeriesEnrichment(seriesInfo.seriesId);
+                if (enrich) {
+                    if (enrich.caption) other.seriesDescription = enrich.caption;
+                    if (enrich.coverUrl) other.seriesCoverUrl = enrich.coverUrl;
+                }
+            }
             return new Promise((resolve, reject) => {
-                const parsedAuthorId = Number.parseInt(String(authorId ?? ''), 10);
-                const other = {
-                    userDownload: false,
-                    authorId: Number.isFinite(parsedAuthorId) ? parsedAuthorId : null,
-                    authorName: authorName || null,
-                    xRestrict: Number(xRestrict) || 0,
-                    isAi: !!isAi,
-                    delayMs: delayMs || 0,
-                    bookmark: !!bookmark,
-                    description: description || null,
-                    tags: Array.isArray(tags) && tags.length ? tags : null
-                };
                 if (ugoiraData) {
                     other.isUgoira = true;
                     other.ugoiraZipUrl = ugoiraData.zipUrl;
@@ -1473,6 +1506,13 @@
                         name: String(t.tag),
                         translatedName: (t.translation && t.translation.en) ? String(t.translation.en) : null
                     }));
+                // 系列导航：仅在 Pixiv 标注作品属于漫画系列时附带，封面/简介由 Api.getSeriesEnrichment 缓存查询。
+                const nav = meta && meta.seriesNavData;
+                const seriesInfo = (nav && Number(nav.seriesId) > 0) ? {
+                    seriesId: Number(nav.seriesId),
+                    seriesOrder: Number(nav.order || 0),
+                    seriesTitle: nav.title || ''
+                } : null;
 
                 if (this.globalSettings.r18Only && xRestrict < 1) {
                     item.status = 'skipped';
@@ -1505,7 +1545,7 @@
                 this.saveToStorage(); this.ui.renderQueue(this.queue);
                 this.ui.setStatus(`下载中：${item.title}`, 'info');
 
-                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, xRestrict, isAi, ugoiraData, this.getImageDelayMs(), this.globalSettings.bookmark, description, tags);
+                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, xRestrict, isAi, ugoiraData, this.getImageDelayMs(), this.globalSettings.bookmark, description, tags, seriesInfo);
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';

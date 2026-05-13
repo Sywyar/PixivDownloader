@@ -19,8 +19,17 @@ public record NovelSeriesResponse(
             String language,
             boolean isOriginal,
             int totalCharacterCount,
-            int totalWordCount
-    ) {}
+            int totalWordCount,
+            String caption,
+            String coverUrl,
+            List<TagDto> tags
+    ) {
+        public NovelSeriesMeta(long seriesId, String title, Long authorId, String authorName, int total,
+                               String language, boolean isOriginal, int totalCharacterCount, int totalWordCount) {
+            this(seriesId, title, authorId, authorName, total,
+                    language, isOriginal, totalCharacterCount, totalWordCount, null, null, List.of());
+        }
+    }
 
     public record NovelSeriesItem(
             String id,

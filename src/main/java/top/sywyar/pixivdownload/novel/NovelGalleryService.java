@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -291,7 +292,7 @@ public class NovelGalleryService {
                 ? List.of()
                 : novelDatabase.findSeriesWithNovels(s, normalizedSort, safeSize, safePage * safeSize);
         int totalPages = (int) Math.ceil((double) total / safeSize);
-        return new PagedSeries(rows, total, safePage, safeSize, totalPages);
+        return new PagedSeries(decorateSeriesRows(rows), total, safePage, safeSize, totalPages);
     }
 
     public PagedSeries getPagedSeriesWithNovels(int page, int size, String search, String sort,
@@ -330,7 +331,32 @@ public class NovelGalleryService {
                         || (item.authorName() != null && item.authorName().toLowerCase(Locale.ROOT).contains(term)))
                 .sorted(seriesSummaryComparator(sort))
                 .toList();
-        return pageSeries(rows, safePage, safeSize);
+        return pageSeries(decorateSeriesRows(rows), safePage, safeSize);
+    }
+
+    /**
+     * 给系列列表行附加封面扩展名与系列标签，供前端在按系列查看的横板卡片上直接渲染。
+     * 单页规模有限（≤200），按 seriesId 批量补齐，避免 N+1 查询。
+     */
+    private List<NovelSeriesSummary> decorateSeriesRows(List<NovelSeriesSummary> rows) {
+        if (rows == null || rows.isEmpty()) return rows == null ? List.of() : rows;
+        Set<Long> ids = new LinkedHashSet<>();
+        for (NovelSeriesSummary item : rows) ids.add(item.seriesId());
+        Map<Long, NovelSeries> seriesById = new LinkedHashMap<>();
+        for (NovelSeries series : novelDatabase.getSeriesByIds(ids)) {
+            seriesById.put(series.seriesId(), series);
+        }
+        Map<Long, List<TagDto>> tagsBySeries = novelDatabase.getNovelSeriesTagsBatch(ids);
+        List<NovelSeriesSummary> out = new ArrayList<>(rows.size());
+        for (NovelSeriesSummary item : rows) {
+            NovelSeries series = seriesById.get(item.seriesId());
+            String coverExt = series == null ? null : series.coverExt();
+            List<TagDto> tags = tagsBySeries.getOrDefault(item.seriesId(), List.of());
+            out.add(new NovelSeriesSummary(
+                    item.seriesId(), item.title(), item.authorId(),
+                    item.authorName(), item.novelCount(), coverExt, tags));
+        }
+        return out;
     }
 
     public List<NovelTagOption> listTags(String search, int limit) {

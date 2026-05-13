@@ -1108,6 +1108,36 @@
         return ensureUniqueBaseNames(names);
     }
 
+    /**
+     * 单批次内的系列元数据缓存：同一 seriesId 在一批下载中只查一次 Pixiv 系列 AJAX，
+     * 节省 N 个章节下载时的 N-1 次重复请求。kind: 'illust' | 'novel'。
+     * 返回 { caption, coverUrl, tags } —— 调用方只取需要的字段。
+     */
+    const seriesMetaPromiseCache = new Map();
+    function fetchSeriesEnrichmentCached(seriesId, kind) {
+        const sid = Number(seriesId);
+        if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
+        const key = (kind === 'novel' ? 'novel:' : 'illust:') + sid;
+        if (seriesMetaPromiseCache.has(key)) return seriesMetaPromiseCache.get(key);
+        const path = kind === 'novel'
+            ? `/api/pixiv/novel/series/${sid}?page=1`
+            : `/api/pixiv/series/${sid}?page=1`;
+        const promise = fetch(BASE + path, {
+            credentials: 'same-origin',
+            headers: pixivHeader()
+        }).then(r => r.ok ? r.json() : null).then(data => {
+            const meta = data && data.series ? data.series : null;
+            if (!meta) return null;
+            return {
+                caption: meta.caption || '',
+                coverUrl: meta.coverUrl || '',
+                tags: Array.isArray(meta.tags) ? meta.tags : []
+            };
+        }).catch(() => null);
+        seriesMetaPromiseCache.set(key, promise);
+        return promise;
+    }
+
     async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType) {
         const delayMs = getImageDelayMs();
         const collectionId = await resolveBatchCollectionIdForDownload();
@@ -1142,6 +1172,15 @@
             other.seriesId = Number(seriesInfo.seriesId);
             other.seriesOrder = Number(seriesInfo.seriesOrder ?? 0);
             other.seriesTitle = seriesInfo.seriesTitle || null;
+            // 系列简介/封面只在本地数据库尚无时由后端落盘，前端这里仅负责把 Pixiv 的 hint 透传过去。
+            // 缓存一批查一次，失败/空值不阻塞下载。
+            const enrich = seriesInfo.seriesDescription || seriesInfo.seriesCoverUrl
+                ? {caption: seriesInfo.seriesDescription, coverUrl: seriesInfo.seriesCoverUrl}
+                : await fetchSeriesEnrichmentCached(seriesInfo.seriesId, 'illust');
+            if (enrich) {
+                if (enrich.caption) other.seriesDescription = enrich.caption;
+                if (enrich.coverUrl) other.seriesCoverUrl = enrich.coverUrl;
+            }
         }
         if (illustType != null && Number.isFinite(Number(illustType))) {
             other.illustType = Number(illustType);
@@ -1813,6 +1852,10 @@
                 seriesOrder: meta.seriesOrder,
                 seriesTitle: meta.seriesTitle
             } : null);
+            // 系列简介/封面/tags：一批共享一次查询，best-effort；失败则不附加。
+            const seriesEnrichment = seriesInfo
+                ? await fetchSeriesEnrichmentCached(seriesInfo.seriesId, 'novel')
+                : null;
             const collectionId = await resolveBatchCollectionIdForDownload();
             const body = {
                 novelId: Number(novelId),
@@ -1835,6 +1878,10 @@
                     seriesId: seriesInfo ? seriesInfo.seriesId : null,
                     seriesOrder: seriesInfo ? seriesInfo.seriesOrder : null,
                     seriesTitle: seriesInfo ? seriesInfo.seriesTitle : null,
+                    seriesDescription: seriesEnrichment && seriesEnrichment.caption ? seriesEnrichment.caption : null,
+                    seriesCoverUrl: seriesEnrichment && seriesEnrichment.coverUrl ? seriesEnrichment.coverUrl : null,
+                    seriesTags: seriesEnrichment && seriesEnrichment.tags && seriesEnrichment.tags.length
+                            ? seriesEnrichment.tags : null,
                     fileNameTemplate: state.settings.fileNameTemplate,
                     bookmark: !!state.settings.bookmark,
                     collectionId,

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 批量导入单作品下载器
 // @namespace    http://tampermonkey.net/
-// @version      2.0.11
+// @version      2.0.12
 // @description  粘贴单作品链接列表批量下载，格式为 url | title，兼容 One-Tab，N-Tab 等标签页管理插件导出格式，支持严格的下载状态校验。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -706,20 +706,66 @@
                 });
             });
         },
-        sendDownloadRequest(artworkId, imageUrls, title, authorId, authorName, xRestrict, isAi, ugoiraData, delayMs, bookmark, description, tags) {
+        /**
+         * 系列元数据缓存：同一 seriesId 在一次脚本生命周期里只查一次后端代理。
+         * kind: 'illust' | 'novel'；返回 { caption, coverUrl, tags } 或 null。
+         */
+        _seriesMetaPromises: new Map(),
+        getSeriesEnrichment(seriesId, kind) {
+            const sid = Number(seriesId);
+            if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
+            const key = (kind === 'novel' ? 'novel:' : 'illust:') + sid;
+            if (this._seriesMetaPromises.has(key)) return this._seriesMetaPromises.get(key);
+            const url = kind === 'novel'
+                ? `${serverBase}/api/pixiv/novel/series/${sid}?page=1`
+                : `${serverBase}/api/pixiv/series/${sid}?page=1`;
+            const promise = new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url,
+                    headers: {'X-Pixiv-Cookie': document.cookie || ''},
+                    onload: (res) => {
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            const meta = data && data.series ? data.series : null;
+                            resolve(meta ? {
+                                caption: meta.caption || '',
+                                coverUrl: meta.coverUrl || '',
+                                tags: Array.isArray(meta.tags) ? meta.tags : []
+                            } : null);
+                        } catch (_) { resolve(null); }
+                    },
+                    onerror: () => resolve(null)
+                });
+            });
+            this._seriesMetaPromises.set(key, promise);
+            return promise;
+        },
+        async sendDownloadRequest(artworkId, imageUrls, title, authorId, authorName, xRestrict, isAi, ugoiraData, delayMs, bookmark, description, tags, seriesInfo) {
+            const parsedAuthorId = Number.parseInt(String(authorId ?? ''), 10);
+            const other = {
+                userDownload: false,
+                authorId: Number.isFinite(parsedAuthorId) ? parsedAuthorId : null,
+                authorName: authorName || null,
+                xRestrict: Number(xRestrict) || 0,
+                isAi: !!isAi,
+                delayMs: delayMs || 0,
+                bookmark: !!bookmark,
+                description: description || null,
+                tags: Array.isArray(tags) && tags.length ? tags : null
+            };
+            if (seriesInfo && seriesInfo.seriesId) {
+                other.seriesId = Number(seriesInfo.seriesId);
+                other.seriesOrder = Number(seriesInfo.seriesOrder ?? 0);
+                other.seriesTitle = seriesInfo.seriesTitle || null;
+                // 系列简介/封面缓存查一次；失败时不附加，后端会退回到仅 upsert 标题/作者的 observe()。
+                const enrich = await this.getSeriesEnrichment(seriesInfo.seriesId, 'illust');
+                if (enrich) {
+                    if (enrich.caption) other.seriesDescription = enrich.caption;
+                    if (enrich.coverUrl) other.seriesCoverUrl = enrich.coverUrl;
+                }
+            }
             return new Promise((resolve, reject) => {
-                const parsedAuthorId = Number.parseInt(String(authorId ?? ''), 10);
-                const other = {
-                    userDownload: false,
-                    authorId: Number.isFinite(parsedAuthorId) ? parsedAuthorId : null,
-                    authorName: authorName || null,
-                    xRestrict: Number(xRestrict) || 0,
-                    isAi: !!isAi,
-                    delayMs: delayMs || 0,
-                    bookmark: !!bookmark,
-                    description: description || null,
-                    tags: Array.isArray(tags) && tags.length ? tags : null
-                };
                 if (ugoiraData) {
                     other.isUgoira = true;
                     other.ugoiraZipUrl = ugoiraData.zipUrl;
@@ -1267,13 +1313,17 @@
                     method: 'GET',
                     url: `${base}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`,
                     headers: {'X-Pixiv-Cookie': cookie},
-                    onload: (res) => {
+                    onload: async (res) => {
                         if (res.status < 200 || res.status >= 300) { resolve(false); return; }
                         let meta;
                         try { meta = JSON.parse(res.responseText); } catch { resolve(false); return; }
                         const seriesInfo = forcedSeries || (meta.seriesId ? {
                             seriesId: meta.seriesId, seriesOrder: meta.seriesOrder, seriesTitle: meta.seriesTitle
                         } : null);
+                        // 一批共享一次系列查询；失败时不附加，后端退回到 observeSeries 的轻量 upsert。
+                        const seriesEnrichment = seriesInfo
+                            ? await Api.getSeriesEnrichment(seriesInfo.seriesId, 'novel')
+                            : null;
                         const body = {
                             novelId: Number(novelId),
                             title: meta.title,
@@ -1294,6 +1344,10 @@
                                 seriesId: seriesInfo ? seriesInfo.seriesId : null,
                                 seriesOrder: seriesInfo ? seriesInfo.seriesOrder : null,
                                 seriesTitle: seriesInfo ? seriesInfo.seriesTitle : null,
+                                seriesDescription: seriesEnrichment && seriesEnrichment.caption ? seriesEnrichment.caption : null,
+                                seriesCoverUrl: seriesEnrichment && seriesEnrichment.coverUrl ? seriesEnrichment.coverUrl : null,
+                                seriesTags: seriesEnrichment && seriesEnrichment.tags && seriesEnrichment.tags.length
+                                        ? seriesEnrichment.tags : null,
                                 format: 'txt',
                                 uploadTimestamp: meta.uploadTimestamp,
                                 coverUrl: meta.coverUrl
@@ -1518,6 +1572,13 @@
                         name: String(t.tag),
                         translatedName: (t.translation && t.translation.en) ? String(t.translation.en) : null
                     }));
+                // 系列导航：仅在 Pixiv 标注是漫画系列时携带 ID（与 DownloadService.recordSeriesInfo 的 illustType 优化对齐）
+                const nav = meta && meta.seriesNavData;
+                const seriesInfo = (nav && Number(nav.seriesId) > 0) ? {
+                    seriesId: Number(nav.seriesId),
+                    seriesOrder: Number(nav.order || 0),
+                    seriesTitle: nav.title || ''
+                } : null;
 
                 if (this.r18Only && xRestrict < 1) {
                     item.status = 'skipped';
@@ -1561,7 +1622,7 @@
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
-                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, xRestrict, isAi, ugoiraData, this.getImageDelayMs(), this.bookmark, description, tags);
+                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, xRestrict, isAi, ugoiraData, this.getImageDelayMs(), this.bookmark, description, tags, seriesInfo);
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';

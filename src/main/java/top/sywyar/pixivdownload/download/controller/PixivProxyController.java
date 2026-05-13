@@ -538,12 +538,16 @@ public class PixivProxyController {
         Long authorId = null;
         String authorName = "";
         int total = 0;
+        String caption = "";
+        String coverUrl = "";
         if (seriesArr.isArray() && !seriesArr.isEmpty()) {
             JsonNode s = seriesArr.get(0);
             sid = parsePositiveOrDefault(s.path("id").asText(null), parsedId);
             title = s.path("title").asText("");
             authorId = parsePositiveLong(s.path("userId").asText(null));
             total = s.path("total").asInt(0);
+            caption = s.path("caption").asText("");
+            coverUrl = extractSeriesCoverUrl(s);
         }
         // Author name from users object
         JsonNode usersArr = b.path("users");
@@ -599,11 +603,30 @@ public class PixivProxyController {
         }
         boolean isLastPage = items.size() < 12 || (total > 0 && safePage * 12 >= total);
         return ResponseEntity.ok(new SeriesResponse(
-                new SeriesResponse.SeriesMeta(sid, title, authorId, authorName, total),
+                new SeriesResponse.SeriesMeta(sid, title, authorId, authorName, total, caption, coverUrl),
                 items,
                 safePage,
                 isLastPage
         ));
+    }
+
+    /**
+     * 从 {@code /ajax/series/{id}} 的 {@code illustSeries[0]} 中抽取封面 URL；优先取最高分辨率。
+     * 失败返回空串（与该字段在 DTO 中的"未知"语义一致）。
+     */
+    private static String extractSeriesCoverUrl(JsonNode meta) {
+        JsonNode urls = meta.path("cover").path("urls");
+        if (urls.isObject()) {
+            for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
+                String value = urls.path(key).asText("");
+                if (!value.isBlank()) return value;
+            }
+        }
+        for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
+            String value = meta.path(key).asText("");
+            if (!value.isBlank()) return value;
+        }
+        return "";
     }
 
     private static long parsePositiveOrDefault(String value, long fallback) {
@@ -755,6 +778,9 @@ public class PixivProxyController {
         boolean isOriginal = mb.path("isOriginal").asBoolean(false);
         int totalCharCount = mb.path("publishedTotalCharacterCount").asInt(0);
         int totalWordCount = mb.path("publishedTotalWordCount").asInt(0);
+        String caption = mb.path("caption").asText("");
+        String coverUrl = extractSeriesCoverUrl(mb);
+        List<TagDto> seriesTags = extractTags(mb);
 
         // 2) Series content (paginated 30/page)
         int safePage = Math.max(1, page);
@@ -799,7 +825,8 @@ public class PixivProxyController {
         boolean isLastPage = items.size() < limit || (total > 0 && safePage * limit >= total);
         return ResponseEntity.ok(new NovelSeriesResponse(
                 new NovelSeriesResponse.NovelSeriesMeta(sid, title, authorId, authorName, total,
-                        language, isOriginal, totalCharCount, totalWordCount),
+                        language, isOriginal, totalCharCount, totalWordCount,
+                        caption, coverUrl, seriesTags),
                 items,
                 safePage,
                 isLastPage

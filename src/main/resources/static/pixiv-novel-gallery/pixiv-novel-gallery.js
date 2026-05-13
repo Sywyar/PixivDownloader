@@ -1062,31 +1062,279 @@ async function reloadSeriesView() {
 function renderSeriesView(seriesList) {
     const grid = document.getElementById('seriesGrid');
     if (!seriesList.length) {
-        grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:batch.gallery.series-empty', '暂无系列'))}</div>`;
+        grid.innerHTML = `<div class="empty">${esc(pageI18n.t('novel:batch.gallery.series-empty', '暂无系列'))}</div>`;
         return;
     }
     const unknownAuthor = pageI18n.t('novel:status.unknown-author', '未知');
     const fallbackSeriesTitle = pageI18n.t('novel:series.unknown-title', '未命名系列');
+    const viewAllLabel = esc(pageI18n.t('novel:series.view-all', '查看全部'));
+    const loadingLabel = esc(pageI18n.t('novel:status.loading', '加载中...'));
+    const prevLabel = esc(pageI18n.t('novel:author-view.prev-group', '上一组'));
+    const nextLabel = esc(pageI18n.t('novel:author-view.next-group', '下一组'));
+    const maxTags = 6;
     grid.innerHTML = seriesList.map(s => {
         const title = s.title || fallbackSeriesTitle;
         const author = s.authorName || (s.authorId != null ? '#' + s.authorId : unknownAuthor);
-        const countText = pageI18n.t('novel:batch.gallery.series-by-novels', '{count} 部', { count: s.novelCount });
+        const countText = esc(pageI18n.t('novel:series.count', '{count} 部 · #{seriesId}', { count: s.novelCount, seriesId: s.seriesId }));
+        const authorLine = author
+            ? `<div class="author-row-count">${esc(pageI18n.t('novel:series.author-prefix', '作者：{name}', { name: author }))}</div>`
+            : '';
+        const cover = s.coverExt
+            ? `<div class="series-row-cover"><img src="/api/gallery/novel/series/${s.seriesId}/cover" alt="${esc(title)}" loading="lazy" onerror="this.parentElement.replaceWith(Object.assign(document.createElement('div'),{className:'series-row-cover',textContent:this.alt}))"></div>`
+            : '';
+        const tags = Array.isArray(s.tags) ? s.tags : [];
+        const tagsHtml = tags.length
+            ? `<div class="series-row-tags">${tags.slice(0, maxTags).map(tg => {
+                  const label = tg.translatedName ? `${tg.name} · ${tg.translatedName}` : tg.name;
+                  return `<span class="series-row-tag" title="${esc(label)}">${esc(tg.name || '')}</span>`;
+              }).join('')}${tags.length > maxTags ? `<span class="series-row-tag-more">${esc(pageI18n.t('novel:series.tag-more', '+{count}', { count: tags.length - maxTags }))}</span>` : ''}</div>`
+            : '';
         return `
-        <div class="series-card" data-series-id="${s.seriesId}" data-series-title="${esc(s.title || '')}" title="${esc(title)}">
-            <div class="series-card-title">${esc(title)}</div>
-            <div class="series-card-meta">
-                <span class="series-card-author">${esc(author)}</span>
-                <span class="series-card-count">${esc(countText)}</span>
+        <div class="author-row series-row" data-series-id="${s.seriesId}" data-series-title="${esc(s.title || '')}">
+            <div class="author-row-info">
+                ${cover}
+                <div class="author-row-name" data-filter-series="${s.seriesId}" title="${esc(title)}">${esc(title)}</div>
+                <div class="author-row-count">${countText}</div>
+                ${authorLine}
+                ${tagsHtml}
+                <div class="author-row-actions">
+                    <button class="author-row-btn" data-open-series-directory="${s.seriesId}" type="button">${viewAllLabel}</button>
+                </div>
+            </div>
+            <div class="author-row-works">
+                <button class="author-works-arrow left" data-arrow="left" type="button" title="${prevLabel}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <div class="author-works-strip" data-strip-for="${s.seriesId}">
+                    <div class="author-works-loading">${loadingLabel}</div>
+                </div>
+                <button class="author-works-arrow right" data-arrow="right" type="button" title="${nextLabel}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
             </div>
         </div>`;
     }).join('');
-    grid.querySelectorAll('.series-card').forEach(card => {
-        card.addEventListener('click', () => {
-            const sid = Number(card.dataset.seriesId);
-            const stitle = card.dataset.seriesTitle || '';
+
+    grid.querySelectorAll('[data-filter-series]').forEach(el => {
+        el.addEventListener('click', e => {
+            e.stopPropagation();
+            const sid = Number(el.dataset.filterSeries);
+            const row = el.closest('.series-row');
+            const stitle = row ? row.dataset.seriesTitle : '';
+            applySeriesFilterFromCard(sid, stitle);
+        });
+    });
+
+    grid.querySelectorAll('[data-open-series-directory]').forEach(el => {
+        el.addEventListener('click', e => {
+            e.stopPropagation();
+            const sid = Number(el.dataset.openSeriesDirectory);
+            const row = el.closest('.series-row');
+            const stitle = row ? row.dataset.seriesTitle : '';
             window.location.href = buildSeriesDirectoryHref(sid, stitle);
         });
     });
+
+    grid.querySelectorAll('.series-row').forEach(row => {
+        const seriesId = Number(row.dataset.seriesId);
+        const strip = row.querySelector('.author-works-strip');
+        const leftBtn = row.querySelector('[data-arrow="left"]');
+        const rightBtn = row.querySelector('[data-arrow="right"]');
+
+        // 初始两个箭头都禁用，等 loadSeriesNovels 渲染完成后由 renderSeriesPagedStrip 接管。
+        leftBtn.disabled = true;
+        rightBtn.disabled = true;
+        loadSeriesNovels(seriesId, strip, leftBtn, rightBtn);
+    });
+}
+
+async function loadSeriesNovels(seriesId, strip, leftBtn, rightBtn) {
+    try {
+        const params = new URLSearchParams({
+            page: '0',
+            size: String(AUTHOR_WORKS_PER_ROW),
+            sort: 'series',
+            order: 'asc',
+            seriesIds: String(seriesId)
+        });
+        const r = await fetch(`/api/gallery/novels?${params.toString()}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        const items = data.content || [];
+        if (!items.length) {
+            strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel:status.empty', '暂无小说'))}</div>`;
+            if (leftBtn) leftBtn.disabled = true;
+            if (rightBtn) rightBtn.disabled = true;
+            return;
+        }
+        renderSeriesPagedStrip(strip, items, leftBtn, rightBtn);
+    } catch (e) {
+        strip.innerHTML = `<div class="author-works-empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
+        if (leftBtn) leftBtn.disabled = true;
+        if (rightBtn) rightBtn.disabled = true;
+    }
+}
+
+/** 系列横排尺寸常量，需与 .series-row .series-works-pager / .author-work-card 默认尺寸保持一致。 */
+const SERIES_CARD_WIDTH_PX = 140;
+const SERIES_COLUMN_GAP_PX = 10;
+const SERIES_ROW_GAP_PX = 12;
+/** 卡高 = 140 缩略图 + ~36 标题（两行）+ 上下间距，给一个保守的 180px。 */
+const SERIES_CARD_HEIGHT_PX = 180;
+/** 左右各 40px 留给 .author-works-arrow 浮层。 */
+const SERIES_STRIP_PADDING_X_PX = 80;
+
+function renderSeriesItemCard(item) {
+    const title = item.title || pageI18n.t('novel:status.unknown-novel', '小说 {id}', { id: item.novelId });
+    const order = item.seriesOrder != null
+        ? `<div class="author-work-pages">#${esc(item.seriesOrder)}</div>`
+        : '';
+    const cover = item.coverExt
+        ? `<img src="/api/gallery/novel/${item.novelId}/cover" alt="${esc(title)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'author-work-thumb-placeholder',textContent:this.alt}))">`
+        : `<div class="author-work-thumb-placeholder">${esc(title)}</div>`;
+    return `
+        <div class="author-work-card" data-id="${item.novelId}">
+            <div class="author-work-thumb">
+                ${cover}
+                ${order}
+            </div>
+            <div class="author-work-title">${esc(title)}</div>
+        </div>`;
+}
+
+/**
+ * 系列章节"分页式"横排：卡片沿用 .author-work-card 默认样式（140 缩略图 + 标题）。
+ *
+ * 排数 / 列数按 strip 当前尺寸算：
+ *   rowsPerPage = strip.clientHeight ≥ 270 时 = 2，否则 = 1
+ *   colsPerPage = floor((可用宽 + 最小列间距) / (卡宽 + 最小列间距))   ≥ 1
+ *
+ * 余量塞进 column-gap：colsPerPage × cardW + (colsPerPage-1) × gap 正好等于 innerW，
+ * 翻页步幅 = innerW + 一段 gap（页与页之间留同样的视觉间距）。
+ *
+ * 填充顺序：**行优先 (grid-auto-flow: row)**，从上往下、从左往右：
+ *   rowsPerPage = 2 时 row-1 = #1 #2 #3 … #cols；row-2 = #cols+1 …… #2cols。
+ *   rowsPerPage = 1 时 row-1 = #1 #2 #3 ……
+ * 末页不满时，留空自然出现在右下角 —— 第二行最后一格最先空。
+ *
+ * 模式切换：
+ *   - rowsPerPage = 1：strip 加 .is-scrollable，开 overflow-x: auto，鼠标/触屏可横滑；箭头 scrollBy。
+ *   - rowsPerPage = 2：strip overflow: hidden，translateX 整页平移，鼠标/触屏不响应。
+ */
+function renderSeriesPagedStrip(strip, items, leftBtn, rightBtn) {
+    let pageIndex = 0;
+    let lastLayoutKey = '';
+    let scrollListenerCleanup = null;
+
+    const layout = () => {
+        const stripH = strip.clientHeight;
+        const stripW = strip.clientWidth;
+        if (stripH <= 0 || stripW <= 0) return;
+
+        const rowsPerPage = stripH >= (SERIES_CARD_HEIGHT_PX + 90) ? 2 : 1;
+        const innerW = Math.max(SERIES_CARD_WIDTH_PX, stripW - SERIES_STRIP_PADDING_X_PX);
+        const minCardStride = SERIES_CARD_WIDTH_PX + SERIES_COLUMN_GAP_PX;
+        const colsPerPage = Math.max(
+            1,
+            Math.floor((innerW + SERIES_COLUMN_GAP_PX) / minCardStride)
+        );
+        const actualGap = colsPerPage > 1
+            ? (innerW - colsPerPage * SERIES_CARD_WIDTH_PX) / (colsPerPage - 1)
+            : SERIES_COLUMN_GAP_PX;
+
+        const itemsPerPage = rowsPerPage * colsPerPage;
+        const totalPages = Math.max(1, Math.ceil(items.length / itemsPerPage));
+        // 一页步幅 = 这一页的整宽 + 页间留一段 gap，保持节奏一致。
+        const pageContentWidthPx = colsPerPage * SERIES_CARD_WIDTH_PX + (colsPerPage - 1) * actualGap;
+        const pageStridePx = pageContentWidthPx + actualGap;
+
+        const key = `${rowsPerPage}|${colsPerPage}|${items.length}|${stripW}`;
+        if (key === lastLayoutKey) return;
+        lastLayoutKey = key;
+        if (pageIndex >= totalPages) pageIndex = totalPages - 1;
+
+        if (scrollListenerCleanup) {
+            scrollListenerCleanup();
+            scrollListenerCleanup = null;
+        }
+
+        const colsTemplate = `repeat(${colsPerPage}, ${SERIES_CARD_WIDTH_PX}px)`;
+
+        // 切片成"每页 itemsPerPage 张"，每页按"实际需要几排"决定 grid-template-rows：
+        //   effectiveRows = ceil(本页卡数 / colsPerPage)，上限 = rowsPerPage（高度允许的最大值）。
+        //   行优先填 (grid-auto-flow: row 默认)：r1 填满之后才会动 r2，
+        //   所以 ≤ colsPerPage 张的页（包括末页和"少作品系列"的唯一一页）就只渲染一排，r2 不存在。
+        //   末页留空依然出现在右下角，与本规则自洽。
+        const pagesHtml = [];
+        for (let p = 0; p < totalPages; p++) {
+            const slice = items.slice(p * itemsPerPage, (p + 1) * itemsPerPage);
+            const effectiveRows = Math.min(
+                rowsPerPage,
+                Math.max(1, Math.ceil(slice.length / colsPerPage))
+            );
+            const rowsTemplate = Array(effectiveRows)
+                .fill(`${SERIES_CARD_HEIGHT_PX}px`)
+                .join(' ');
+            const cards = slice.map(renderSeriesItemCard).join('');
+            pagesHtml.push(`<div class="series-works-page"
+                style="grid-template-rows:${rowsTemplate};grid-template-columns:${colsTemplate};column-gap:${actualGap}px;">
+                ${cards}</div>`);
+        }
+        strip.innerHTML = `<div class="series-works-pager" style="column-gap:${actualGap}px;">${pagesHtml.join('')}</div>`;
+        const pager = strip.querySelector('.series-works-pager');
+
+        const isScrollable = rowsPerPage === 1;
+        strip.classList.toggle('is-scrollable', isScrollable);
+
+        if (isScrollable) {
+            // 1 排：原生横滑 + 箭头 scrollBy 整页。
+            pager.style.transform = 'none';
+            strip.scrollLeft = 0;
+
+            const apply = () => {
+                const atStart = strip.scrollLeft <= 0;
+                const atEnd = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 1;
+                if (leftBtn) leftBtn.disabled = atStart;
+                if (rightBtn) rightBtn.disabled = atEnd;
+            };
+            if (leftBtn) leftBtn.onclick = () => {
+                strip.scrollBy({ left: -pageStridePx, behavior: 'smooth' });
+            };
+            if (rightBtn) rightBtn.onclick = () => {
+                strip.scrollBy({ left: pageStridePx, behavior: 'smooth' });
+            };
+            const onScroll = () => apply();
+            strip.addEventListener('scroll', onScroll, { passive: true });
+            scrollListenerCleanup = () => strip.removeEventListener('scroll', onScroll);
+            apply();
+        } else {
+            pageIndex = Math.min(pageIndex, totalPages - 1);
+            const apply = () => {
+                pager.style.transform = `translateX(-${pageIndex * pageStridePx}px)`;
+                if (leftBtn) leftBtn.disabled = pageIndex === 0;
+                if (rightBtn) rightBtn.disabled = pageIndex >= totalPages - 1;
+            };
+            if (leftBtn) leftBtn.onclick = () => {
+                if (pageIndex > 0) { pageIndex--; apply(); }
+            };
+            if (rightBtn) rightBtn.onclick = () => {
+                if (pageIndex < totalPages - 1) { pageIndex++; apply(); }
+            };
+            apply();
+        }
+
+        pager.querySelectorAll('.author-work-card').forEach(card => {
+            card.addEventListener('click', () => {
+                window.location.href = `/pixiv-novel.html?id=${card.dataset.id}`;
+            });
+        });
+    };
+
+    layout();
+    if (window.ResizeObserver) {
+        const ro = new ResizeObserver(() => layout());
+        ro.observe(strip);
+    }
 }
 
 function buildSeriesDirectoryHref(seriesId, seriesTitle) {

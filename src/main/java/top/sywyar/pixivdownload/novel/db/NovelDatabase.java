@@ -34,6 +34,8 @@ public class NovelDatabase {
         novelMapper.createNovelSeriesTable();
         novelMapper.createNovelTagsTable();
         novelMapper.createNovelTagsTagIndex();
+        novelMapper.createNovelSeriesTagsTable();
+        novelMapper.createNovelSeriesTagsTagIndex();
         novelMapper.createNovelCollectionsTable();
         novelMapper.createNovelCollectionsNovelIndex();
         novelMapper.createNovelImagesTable();
@@ -187,6 +189,48 @@ public class NovelDatabase {
 
     public void clearNovelTags(long novelId) {
         novelMapper.deleteNovelTags(novelId);
+    }
+
+    public List<TagDto> getNovelSeriesTags(long seriesId) {
+        if (seriesId <= 0) return Collections.emptyList();
+        return novelMapper.findTagsByNovelSeriesId(seriesId);
+    }
+
+    public java.util.Map<Long, List<TagDto>> getNovelSeriesTagsBatch(Collection<Long> seriesIds) {
+        if (seriesIds == null || seriesIds.isEmpty()) return Collections.emptyMap();
+        List<java.util.Map<String, Object>> rows = novelMapper.findTagsByNovelSeriesIds(seriesIds);
+        java.util.Map<Long, List<TagDto>> out = new java.util.LinkedHashMap<>();
+        for (java.util.Map<String, Object> row : rows) {
+            Long sid = ((Number) row.get("seriesId")).longValue();
+            Number tagIdNum = (Number) row.get("tagId");
+            TagDto tag = new TagDto(
+                    (String) row.get("name"),
+                    (String) row.get("translatedName"));
+            tag.setTagId(tagIdNum == null ? null : tagIdNum.longValue());
+            out.computeIfAbsent(sid, k -> new java.util.ArrayList<>()).add(tag);
+        }
+        return out;
+    }
+
+    /**
+     * Reuse the shared {@code tags} pool so series tags and novel tags share the same name → tag_id mapping.
+     */
+    public void saveNovelSeriesTags(long seriesId, List<TagDto> tags) {
+        if (seriesId <= 0 || tags == null || tags.isEmpty()) return;
+        for (TagDto t : tags) {
+            if (t == null) continue;
+            String name = t.getName();
+            if (name == null || name.isBlank()) continue;
+            Long tagId = pixivDatabase.upsertTagAndGetId(name, t.getTranslatedName());
+            if (tagId != null) {
+                novelMapper.insertNovelSeriesTag(seriesId, tagId);
+            }
+        }
+    }
+
+    public void clearNovelSeriesTags(long seriesId) {
+        if (seriesId <= 0) return;
+        novelMapper.deleteNovelSeriesTags(seriesId);
     }
 
     // ── Series ─────────────────────────────────────────────────────────────────

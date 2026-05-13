@@ -13,8 +13,14 @@ public record SeriesResponse(
             String title,
             Long authorId,
             String authorName,
-            int total
-    ) {}
+            int total,
+            String caption,
+            String coverUrl
+    ) {
+        public SeriesMeta(long seriesId, String title, Long authorId, String authorName, int total) {
+            this(seriesId, title, authorId, authorName, total, null, null);
+        }
+    }
 
     public record SeriesItem(
             String id,
