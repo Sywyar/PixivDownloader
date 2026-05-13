@@ -8,7 +8,8 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
         "pixivdownload.state-dir=target/test-runtime/state",
-        "pixivdownload.data-dir=target/test-runtime/data"
+        "pixivdownload.data-dir=target/test-runtime/data",
+        "setup.browser.auto-open=false"
 })
 class PixivDownloadApplicationTests {
 
