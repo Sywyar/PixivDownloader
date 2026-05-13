@@ -45,24 +45,54 @@
         });
         wrapper.appendChild(select);
 
-        async function applyChange(newLang) {
+        var applyingLanguageChange = false;
+        var unsubscribeLanguageChange = null;
+
+        async function applyChange(newLang, notifyOthers) {
+            var normalizedLang = global.PixivI18n && typeof global.PixivI18n.normalizeLang === 'function'
+                ? global.PixivI18n.normalizeLang(newLang)
+                : newLang;
+            if (applyingLanguageChange) {
+                return;
+            }
+            if (normalizedLang === client.lang) {
+                select.value = client.lang;
+                return;
+            }
+            applyingLanguageChange = true;
             try {
-                document.cookie = cookieString(newLang);
+                document.cookie = cookieString(normalizedLang);
             } catch (e) {
                 // Ignore cookie failures.
             }
-            var newClient = await client.setLanguage(newLang);
-            newClient.apply();
-            select.value = newClient.lang;
-            client = newClient;
-            if (typeof options.onChange === 'function') {
-                options.onChange(newClient);
+            try {
+                var newClient = await client.setLanguage(normalizedLang);
+                newClient.apply();
+                select.value = newClient.lang;
+                client = newClient;
+                if (notifyOthers !== false && global.PixivI18n && typeof global.PixivI18n.notifyLanguageChange === 'function') {
+                    global.PixivI18n.notifyLanguageChange(newClient.lang);
+                }
+                if (typeof options.onChange === 'function') {
+                    options.onChange(newClient);
+                }
+            } finally {
+                applyingLanguageChange = false;
             }
         }
 
         select.addEventListener('change', function () {
-            applyChange(select.value);
+            applyChange(select.value, true);
         });
+
+        if (global.PixivI18n && typeof global.PixivI18n.onLanguageChange === 'function') {
+            unsubscribeLanguageChange = global.PixivI18n.onLanguageChange(function (payload) {
+                if (!payload || !payload.lang) {
+                    return;
+                }
+                applyChange(payload.lang, false);
+            });
+        }
 
         mountPoint.appendChild(wrapper);
         return {
@@ -70,6 +100,15 @@
             refresh: function (nextClient) {
                 client = nextClient || client;
                 select.value = client.lang;
+            },
+            destroy: function () {
+                if (typeof unsubscribeLanguageChange === 'function') {
+                    unsubscribeLanguageChange();
+                    unsubscribeLanguageChange = null;
+                }
+                if (wrapper.parentNode) {
+                    wrapper.parentNode.removeChild(wrapper);
+                }
             }
         };
     }

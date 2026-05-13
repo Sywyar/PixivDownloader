@@ -3,6 +3,13 @@
 
     var STORAGE_KEY = 'pixiv.lang';
     var DEFAULT_NAMESPACE = 'common';
+    var LANGUAGE_CHANNEL_NAME = 'pixiv.language';
+    var LANGUAGE_CHANGE_TYPE = 'language-change';
+    var INSTANCE_ID = String(Date.now()) + '-' + String(Math.random()).slice(2);
+    var languageChannel = null;
+    var languageChannelInitialized = false;
+    var storageListenerInitialized = false;
+    var languageChangeListeners = [];
 
     function buildFallbackMeta(preferredLang) {
         var lang = normalizeLang(preferredLang);
@@ -39,6 +46,91 @@
         } catch (e) {
             // Ignore storage failures.
         }
+    }
+
+    function emitLanguageChange(payload) {
+        languageChangeListeners.slice().forEach(function (listener) {
+            try {
+                listener(payload);
+            } catch (e) {
+                // Keep one page callback from blocking the rest.
+            }
+        });
+    }
+
+    function ensureLanguageChannel() {
+        if (languageChannelInitialized) {
+            return languageChannel;
+        }
+        languageChannelInitialized = true;
+        if (!global.BroadcastChannel) {
+            return null;
+        }
+        try {
+            languageChannel = new global.BroadcastChannel(LANGUAGE_CHANNEL_NAME);
+            languageChannel.onmessage = function (event) {
+                var payload = event && event.data ? event.data : {};
+                if (payload.type !== LANGUAGE_CHANGE_TYPE || payload.source === INSTANCE_ID || !payload.lang) {
+                    return;
+                }
+                emitLanguageChange({
+                    type: LANGUAGE_CHANGE_TYPE,
+                    lang: normalizeLang(payload.lang),
+                    source: payload.source || 'broadcast'
+                });
+            };
+        } catch (e) {
+            languageChannel = null;
+        }
+        return languageChannel;
+    }
+
+    function ensureStorageListener() {
+        if (storageListenerInitialized || !global.addEventListener) {
+            return;
+        }
+        storageListenerInitialized = true;
+        global.addEventListener('storage', function (event) {
+            if (!event || event.key !== STORAGE_KEY || !event.newValue) {
+                return;
+            }
+            emitLanguageChange({
+                type: LANGUAGE_CHANGE_TYPE,
+                lang: normalizeLang(event.newValue),
+                source: 'storage'
+            });
+        });
+    }
+
+    function notifyLanguageChange(lang) {
+        var normalizedLang = normalizeLang(lang);
+        var payload = {
+            type: LANGUAGE_CHANGE_TYPE,
+            lang: normalizedLang,
+            source: INSTANCE_ID
+        };
+        var channel = ensureLanguageChannel();
+        if (channel) {
+            try {
+                channel.postMessage(payload);
+            } catch (e) {
+                // The storage event remains as a fallback.
+            }
+        }
+    }
+
+    function onLanguageChange(listener) {
+        if (typeof listener !== 'function') {
+            return function () {};
+        }
+        ensureLanguageChannel();
+        ensureStorageListener();
+        languageChangeListeners.push(listener);
+        return function () {
+            languageChangeListeners = languageChangeListeners.filter(function (item) {
+                return item !== listener;
+            });
+        };
     }
 
     async function fetchJson(url) {
@@ -210,6 +302,8 @@
 
     global.PixivI18n = {
         create: create,
+        notifyLanguageChange: notifyLanguageChange,
+        onLanguageChange: onLanguageChange,
         normalizeLang: normalizeLang,
         storageKey: STORAGE_KEY
     };
