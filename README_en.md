@@ -2,7 +2,17 @@
 
 [中文](./README.md) | English
 
-Local Pixiv batch image downloader, consisting of a **Spring Boot backend** + **desktop GUI** + **Tampermonkey userscripts**.
+> [!NOTE]
+> In this document, "works" includes manga, ugoira, and novels.
+
+### Local batch downloader for Pixiv works, supporting novels, manga, and other work types
+
+- Batch download works from work links
+- Batch download works by user ID
+- Batch download works through the built-in search proxy
+- Batch download an entire series by entering a series link or a work link from that series
+- Use Tampermonkey userscripts to scrape manga from Pixiv pages (as of v1.8.0, temporarily limited to manga-related works)
+- Powerful work viewer page (this document calls it the gallery, but it also supports novels)
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
@@ -19,70 +29,27 @@ Local Pixiv batch image downloader, consisting of a **Spring Boot backend** + **
 
 ## 1. Overview
 
-PixivDownload is a local Pixiv batch image downloader that supports multiple download workflows and convenient management features.
+PixivDownload is a local batch downloader for Pixiv works that supports multiple download workflows and convenient management features.
 
 ### Features
 
-- `pixiv-batch.html` [one-stop download page](#4-web-batch-download), supporting bulk import single works, user batch download, and search batch download; with the page scraping userscript, you usually do not need other scripts
-- Page batch download — scrape all artworks from Pixiv pages such as search results, following feed, rankings, and more
-- `monitor.html` [one-stop management page](#5-download-monitor), with multi-dimensional filtering/sorting and download history filtering by author
-- The `pixiv-gallery.html` gallery page supports multiple viewing formats, various filters, and a **favorites list**. It can be used in conjunction with `pixiv-artwork.html` to view artwork.
-- Single artwork download — one-click download on artwork pages
-- User homepage batch download — download all works from a specified user
-- Bulk import single works — paste single-work link lists in `url | title` format; compatible with export formats from OneTab, N-Tab, and similar tab manager extensions
-- Keyword search download — search Pixiv artworks from the web UI and add them to the queue
-- Animated image auto-conversion to WebP — automatically merge Ugoira frames into delayed WebP
-- Novels and novel series — single novel and full-series downloads with TXT/HTML/EPUB output and an optional series consolidated file; the `pixiv-novel.html` reader page exposes prev/index/next navigation
-- Download history management — records downloaded artworks and author metadata, supports resume, and detects author renames automatically
-- Custom file naming — 11 template variables including `{artwork_title}` `{author_name}` `{timestamp}` `{R18}` `{ai}`, freely compose download file names
-- GUI tools page — integrates image classification, database directory validation, and database backfill; tools that require exclusive SQLite access automatically stop and restore the backend
-- Multi-user mode rate limiting — provides quota and rate limiting for shared deployments
+- One-stop download web page
+- Page batch download userscript — scrape works from Pixiv pages such as search results, following feed, rankings, and more
+- One-stop management/monitoring page with multi-dimensional filtering/sorting, author search, filtering, and download history sorting
+- Powerful work viewer page
+- Animated image auto-conversion to WebP
+- Download history management
+- Custom file naming
+- Quota and rate limiting for multi-user scenarios
+- Multiple languages / dark mode
 
 ### Screenshots
 
 > [!NOTE]
 > Some screenshot devices have HDR enabled, so the color effect may differ.
 
-<details>
-<summary><strong>Expand to view screenshots</strong></summary>
-
-#### Screenshots used in the pixiv-gallery.html gallery
-
-![](./image/9.png)
-
-#### Screenshots of the artwork details page in pixiv-artwork.html
-
-![](./image/10.png)
-
-#### Screenshot of monitor.html
-
-![](./image/1.png)
-
-#### Screenshot of the pixiv-batch.html userscript installation page
-
-![](./image/2.png)
-
-#### Screenshot of the pixiv-batch.html bulk import single works page (the userscript offers the same capability, but the web page is more convenient)
-
-![](./image/3.png)
-
-#### Screenshot of the pixiv-batch.html User page parsing and queueing flow (the userscript offers the same capability, but the web page is more convenient)
-
-![](./image/4.png)
-
-#### Screenshot of the pixiv-batch.html Search page parsing and queueing flow
-
-![](./image/5.png)
-
-#### Screenshot of `Pixiv 页面批量下载器.user.js`, which supports scraping across Pixiv pages
-
-![](./image/6.png)
-
-#### Screenshot of single-artwork downloading (Java backend mode and Local download mode provide the same result)
-
-![](./image/7.png)
-
-</details>
+### [Light Mode Screenshots](./en-US/md/light-screenshot.md)
+### [Dark Mode Screenshots](./en-US/md/dark-screenshot.md)
 
 ## 2. Installation
 
@@ -90,17 +57,12 @@ PixivDownload is a local Pixiv batch image downloader that supports multiple dow
 
 Download the latest version from [Releases](../../releases):
 
-| Type                                          | Description                                                                                                                                 |
-|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
-| `PixivDownload-vX.X.X.jar`                    | Universal JAR, requires Java 17+                                                                                                            |
-| `PixivDownload-*-win-x64-online-portable.zip` | Windows online portable build with the smallest size; if FFmpeg is already installed on the system, this version is usually enough          |
-| `PixivDownload-*-win-x64-portable.zip`        | Windows offline portable build with bundled slim JRE and FFmpeg, suitable for offline use or systems without FFmpeg                         |
-| `PixivDownload-*-win-x64-setup.exe`           | Windows installer; one setup supports multiple languages, does not bundle FFmpeg, and can optionally download FFmpeg after app installation |
-
-> Windows installers now use a single Inno Setup `setup.exe`:
-> - the installer supports multiple UI languages
-> - FFmpeg is not bundled; setup can optionally download and install it after PixivDownload is installed
-> - running setup again on an installed system opens maintenance actions for repair, change, and uninstall
+| Type                                          | Description                                                                                                                         |
+|-----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `PixivDownload-vX.X.X.jar`                    | Universal JAR, requires Java 17+                                                                                                    |
+| `PixivDownload-*-win-x64-online-portable.zip` | Windows online portable build with the smallest size; FFmpeg is not bundled                                                         |
+| `PixivDownload-*-win-x64-portable.zip`        | Windows offline portable build with bundled FFmpeg, suitable for systems without FFmpeg or offline environments                     |
+| `PixivDownload-*-win-x64-setup.exe`           | Windows installer; supports repair, change, and uninstall in maintenance mode, and can optionally download FFmpeg after installation |
 
 ### 2. Install Userscripts (Optional)
 
