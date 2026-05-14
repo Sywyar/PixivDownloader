@@ -1830,22 +1830,69 @@
         const parts = [];
         parts.push(`<button class="page-btn" data-page="${state.page - 1}" ${state.page === 0 ? 'disabled' : ''}>${escapeHtml(t('pagination.prev', 'Previous'))}</button>`);
         for (const p of pages) {
-            if (p === '...') parts.push('<span class="page-ellipsis">…</span>');
+            if (p === '...') parts.push(buildPageJumpInput(state.totalPages));
             else parts.push(`<button class="page-btn ${p === state.page ? 'active' : ''}" data-page="${p}">${p + 1}</button>`);
         }
         parts.push(`<button class="page-btn" data-page="${state.page + 1}" ${state.page >= state.totalPages - 1 ? 'disabled' : ''}>${escapeHtml(t('pagination.next', 'Next'))}</button>`);
         pag.innerHTML = parts.join('');
+        bindPaginationControls(pag, state.totalPages, p => {
+            state.page = p;
+            loadGallery();
+        });
+    }
+
+    function buildPageJumpInput(totalPages) {
+        const label = escapeHtml(t('pagination.jump', 'Jump to page'));
+        return `<input class="page-jump-input" type="number" min="1" max="${totalPages}" step="1" inputmode="numeric" placeholder="..." aria-label="${label}" title="${label}">`;
+    }
+
+    function bindPaginationControls(pag, totalPages, onPageChange) {
+        const goToPage = p => {
+            if (!Number.isInteger(p) || p < 0 || p >= totalPages) return;
+            onPageChange(p);
+            scrollGalleryToTop();
+        };
         pag.querySelectorAll('.page-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 if (btn.disabled) return;
                 const p = Number(btn.dataset.page);
-                if (p < 0 || p >= state.totalPages) return;
-                state.page = p;
-                loadGallery();
-                document.querySelector('.gallery-wrapper').scrollTop = 0;
-                window.scrollTo({top: 0, behavior: 'smooth'});
+                goToPage(p);
             });
         });
+        pag.querySelectorAll('.page-jump-input').forEach(input => {
+            let committed = false;
+            const commit = () => {
+                if (committed) return;
+                committed = commitPageJump(input, totalPages, goToPage);
+            };
+            input.addEventListener('keydown', event => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commit();
+                    input.blur();
+                }
+            });
+            input.addEventListener('blur', commit);
+        });
+    }
+
+    function commitPageJump(input, totalPages, goToPage) {
+        const raw = input.value.trim();
+        if (!raw) return false;
+        const pageNumber = Number(raw);
+        if (!Number.isInteger(pageNumber)) {
+            input.value = '';
+            return false;
+        }
+        const target = Math.min(Math.max(pageNumber, 1), totalPages) - 1;
+        goToPage(target);
+        return true;
+    }
+
+    function scrollGalleryToTop() {
+        const wrapper = document.querySelector('.gallery-wrapper');
+        if (wrapper) wrapper.scrollTop = 0;
+        window.scrollTo({top: 0, behavior: 'smooth'});
     }
 
     function buildPageWindow(current, total) {
@@ -2163,21 +2210,14 @@
         const cur = state.authors.page;
         parts.push(`<button class="page-btn" data-page="${cur - 1}" ${cur === 0 ? 'disabled' : ''}>${escapeHtml(t('pagination.prev', 'Previous'))}</button>`);
         for (const p of pages) {
-            if (p === '...') parts.push('<span class="page-ellipsis">…</span>');
+            if (p === '...') parts.push(buildPageJumpInput(totalPages));
             else parts.push(`<button class="page-btn ${p === cur ? 'active' : ''}" data-page="${p}">${p + 1}</button>`);
         }
         parts.push(`<button class="page-btn" data-page="${cur + 1}" ${cur >= totalPages - 1 ? 'disabled' : ''}>${escapeHtml(t('pagination.next', 'Next'))}</button>`);
         pag.innerHTML = parts.join('');
-        pag.querySelectorAll('.page-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (btn.disabled) return;
-                const p = Number(btn.dataset.page);
-                if (p < 0 || p >= totalPages) return;
-                state.authors.page = p;
-                loadAuthorsView();
-                document.querySelector('.gallery-wrapper').scrollTop = 0;
-                window.scrollTo({top: 0, behavior: 'smooth'});
-            });
+        bindPaginationControls(pag, totalPages, p => {
+            state.authors.page = p;
+            loadAuthorsView();
         });
     }
 
@@ -2320,21 +2360,14 @@
         const cur = state.series.page;
         parts.push(`<button class="page-btn" data-page="${cur - 1}" ${cur === 0 ? 'disabled' : ''}>${escapeHtml(t('pagination.prev', 'Previous'))}</button>`);
         for (const p of pages) {
-            if (p === '...') parts.push('<span class="page-ellipsis">...</span>');
+            if (p === '...') parts.push(buildPageJumpInput(totalPages));
             else parts.push(`<button class="page-btn ${p === cur ? 'active' : ''}" data-page="${p}">${p + 1}</button>`);
         }
         parts.push(`<button class="page-btn" data-page="${cur + 1}" ${cur >= totalPages - 1 ? 'disabled' : ''}>${escapeHtml(t('pagination.next', 'Next'))}</button>`);
         pag.innerHTML = parts.join('');
-        pag.querySelectorAll('.page-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                if (btn.disabled) return;
-                const p = Number(btn.dataset.page);
-                if (p < 0 || p >= totalPages) return;
-                state.series.page = p;
-                loadSeriesView();
-                document.querySelector('.gallery-wrapper').scrollTop = 0;
-                window.scrollTo({top: 0, behavior: 'smooth'});
-            });
+        bindPaginationControls(pag, totalPages, p => {
+            state.series.page = p;
+            loadSeriesView();
         });
     }
 

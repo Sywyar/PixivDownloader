@@ -554,6 +554,24 @@
         }
         .pagination button.active { background: var(--brand); color: #fff; border-color: var(--brand); }
         .pagination button[disabled] { opacity: .4; cursor: not-allowed; }
+        .pagination .page-jump-input {
+            width: 54px; height: 32px;
+            padding: 0 8px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            text-align: center;
+        }
+        .pagination .page-jump-input:focus {
+            outline: none;
+            border-color: var(--brand);
+            box-shadow: 0 0 0 2px rgba(0, 150, 250, 0.16);
+        }
+        .pagination .page-jump-input::-webkit-outer-spin-button,
+        .pagination .page-jump-input::-webkit-inner-spin-button { margin: 0; }
 
         /* Authors view */
         .author-view { display: none; flex-direction: column; gap: 0; }

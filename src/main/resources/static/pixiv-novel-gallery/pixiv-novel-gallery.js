@@ -1535,19 +1535,72 @@ async function loadAuthorWorks(authorId, strip) {
 function renderPagination(elementId, totalPages, page, onClick) {
     const wrap = document.getElementById(elementId);
     if (totalPages <= 1) { wrap.innerHTML = ''; return; }
-    const max = Math.min(totalPages, 9);
-    const start = Math.max(0, Math.min(page - 4, totalPages - max));
+    const pages = buildPageWindow(page, totalPages);
     const buttons = [];
     buttons.push(`<button data-pg="${page - 1}" ${page === 0 ? 'disabled' : ''}>‹</button>`);
-    for (let i = start; i < start + max; i++) {
-        buttons.push(`<button class="${i === page ? 'active' : ''}" data-pg="${i}">${i + 1}</button>`);
+    for (const p of pages) {
+        if (p === '...') {
+            buttons.push(buildPageJumpInput(totalPages));
+        } else {
+            buttons.push(`<button class="${p === page ? 'active' : ''}" data-pg="${p}">${p + 1}</button>`);
+        }
     }
     buttons.push(`<button data-pg="${page + 1}" ${page >= totalPages - 1 ? 'disabled' : ''}>›</button>`);
     wrap.innerHTML = buttons.join('');
     wrap.querySelectorAll('button[data-pg]').forEach(btn => {
         if (btn.disabled) return;
-        btn.addEventListener('click', () => onClick(Number(btn.dataset.pg)));
+        btn.addEventListener('click', () => {
+            const target = Number(btn.dataset.pg);
+            if (!Number.isInteger(target) || target < 0 || target >= totalPages) return;
+            onClick(target);
+        });
     });
+    wrap.querySelectorAll('.page-jump-input').forEach(input => {
+        let committed = false;
+        const commit = () => {
+            if (committed) return;
+            committed = commitPageJump(input, totalPages, onClick);
+        };
+        input.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                commit();
+                input.blur();
+            }
+        });
+        input.addEventListener('blur', commit);
+    });
+}
+
+function buildPageWindow(current, total) {
+    const windowPages = new Set([0, total - 1, current, current - 1, current + 1]);
+    const pages = [...windowPages].filter(n => n >= 0 && n < total).sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i < pages.length; i++) {
+        if (i > 0 && pages[i] - pages[i - 1] > 1) out.push('...');
+        out.push(pages[i]);
+    }
+    return out;
+}
+
+function buildPageJumpInput(totalPages) {
+    const label = pageI18n
+        ? pageI18n.t('gallery:pagination.jump', 'Jump to page')
+        : 'Jump to page';
+    return `<input class="page-jump-input" type="number" min="1" max="${totalPages}" step="1" inputmode="numeric" placeholder="..." aria-label="${esc(label)}" title="${esc(label)}">`;
+}
+
+function commitPageJump(input, totalPages, onClick) {
+    const raw = input.value.trim();
+    if (!raw) return false;
+    const pageNumber = Number(raw);
+    if (!Number.isInteger(pageNumber)) {
+        input.value = '';
+        return false;
+    }
+    const target = Math.min(Math.max(pageNumber, 1), totalPages) - 1;
+    onClick(target);
+    return true;
 }
 
 function esc(s) {
