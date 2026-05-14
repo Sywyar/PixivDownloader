@@ -1,8 +1,20 @@
 const PAGE_SIZE = 24;
 const HEART_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
 const SIDEBAR_STATE_STORAGE_KEY = 'pixiv:gallery-sidebar-state';
+const NOVEL_GALLERY_STATE_STORAGE_KEY = 'pixiv:novel-gallery-state-v1';
+const GALLERY_CROSS_TRANSFER_KEY = 'pixiv:gallery-cross-transfer-v1';
+const GALLERY_CROSS_TRANSFER_TTL_MS = 60_000;
 const GALLERY_VIEW_VALUES = ['all', 'authors', 'series'];
 const FILTER_SELECTION_RANK = { must: 0, not: 1, or: 2 };
+const NOVEL_SORT_VALUES = new Set(['date', 'novelId', 'wordCount', 'series']);
+const NOVEL_R18_VALUES = new Set(['any', 'r18plus', 'r18', 'r18g', 'no']);
+const NOVEL_AI_VALUES = new Set(['any', 'yes', 'no']);
+const FILTER_MODE_VALUES = new Set(['must', 'not', 'or']);
+const NOVEL_URL_FILTER_KEYS = [
+    'tagId', 'tagIds', 'filterTagId', 'tagName', 'tagTranslatedName', 'filterTag', 'filterTagTranslated',
+    'seriesId', 'seriesIds', 'seriesTitle',
+    'collectionIds', 'createCollection', 'openFilter'
+];
 
 function parsePositiveIdList(raw) {
     return [...new Set(String(raw || '')
@@ -87,6 +99,263 @@ const state = {
     pendingIconClear: false
 };
 
+// ---------- Persistence ----------
+function storageGet(key) {
+    try { return localStorage.getItem(key); } catch (_) { return null; }
+}
+function storageSet(key, value) {
+    try { localStorage.setItem(key, value); } catch (_) { /* ignore quota */ }
+}
+function storageRemove(key) {
+    try { localStorage.removeItem(key); } catch (_) { /* ignore */ }
+}
+
+function toIdArray(value) {
+    if (!Array.isArray(value)) return [];
+    return value.map(Number).filter(n => Number.isFinite(n) && n > 0);
+}
+
+function selectionMapToEntries(map) {
+    return Array.from(map.entries()).map(([id, mode]) => [Number(id), mode]);
+}
+
+function partitionSelectionMap(map) {
+    const must = [], not = [], or = [];
+    map.forEach((mode, id) => {
+        const numId = Number(id);
+        if (!Number.isFinite(numId) || numId <= 0) return;
+        if (mode === 'must') must.push(numId);
+        else if (mode === 'not') not.push(numId);
+        else if (mode === 'or') or.push(numId);
+    });
+    return { must, not, or };
+}
+
+function serializeNovelGalleryState() {
+    return {
+        view: state.view,
+        page: state.page,
+        sort: state.sort,
+        order: state.order,
+        r18: state.r18,
+        ai: state.ai,
+        search: state.search,
+        tagSearch: state.tagSearch,
+        seriesSearch: state.seriesSearch,
+        authorSearch: state.authorSearch,
+        tagMode: state.tagMode,
+        seriesMode: state.seriesMode,
+        authorMode: state.authorMode,
+        selectedCollections: [...state.selectedCollections],
+        selectedTags: selectionMapToEntries(state.selectedTags),
+        selectedSeries: selectionMapToEntries(state.selectedSeries),
+        selectedAuthors: selectionMapToEntries(state.selectedAuthors),
+        exclusiveAuthorId: state.exclusiveAuthorId,
+        exclusiveAuthorName: state.exclusiveAuthorName,
+        tagNames: [...state.tagNames],
+        tagTranslatedNames: [...state.tagTranslatedNames],
+        authorNames: [...state.authorNames],
+        authorsViewPage: state.authorsView.page,
+        seriesViewPage: state.seriesView.page,
+    };
+}
+
+let persistNovelTimer = null;
+function persistNovelGalleryState() {
+    clearTimeout(persistNovelTimer);
+    persistNovelTimer = setTimeout(() => {
+        try {
+            storageSet(NOVEL_GALLERY_STATE_STORAGE_KEY, JSON.stringify(serializeNovelGalleryState()));
+        } catch (_) { /* ignore */ }
+    }, 80);
+}
+
+function rememberNameEntries(entries, target) {
+    if (!Array.isArray(entries)) return;
+    entries.forEach(entry => {
+        if (!Array.isArray(entry) || entry.length < 2) return;
+        const id = Number(entry[0]);
+        const name = entry[1];
+        if (Number.isFinite(id) && typeof name === 'string' && name) target.set(id, name);
+    });
+}
+
+function applySelectionEntries(entries, target, allowOr = true) {
+    target.clear();
+    if (!Array.isArray(entries)) return;
+    entries.forEach(entry => {
+        if (!Array.isArray(entry) || entry.length < 2) return;
+        const id = Number(entry[0]);
+        const mode = entry[1];
+        if (!Number.isFinite(id) || id <= 0) return;
+        if (mode !== 'must' && mode !== 'not' && (!allowOr || mode !== 'or')) return;
+        target.set(id, mode);
+    });
+}
+
+function applyPersistedNovelGalleryState(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    if (typeof payload.view === 'string' && GALLERY_VIEW_VALUES.includes(payload.view)) state.view = payload.view;
+    if (Number.isInteger(payload.page) && payload.page >= 0) state.page = payload.page;
+    if (typeof payload.sort === 'string' && NOVEL_SORT_VALUES.has(payload.sort)) state.sort = payload.sort;
+    if (payload.order === 'asc' || payload.order === 'desc') state.order = payload.order;
+    if (typeof payload.r18 === 'string' && NOVEL_R18_VALUES.has(payload.r18)) state.r18 = payload.r18;
+    if (typeof payload.ai === 'string' && NOVEL_AI_VALUES.has(payload.ai)) state.ai = payload.ai;
+    if (typeof payload.search === 'string') state.search = payload.search;
+    if (typeof payload.tagSearch === 'string') state.tagSearch = payload.tagSearch;
+    if (typeof payload.seriesSearch === 'string') state.seriesSearch = payload.seriesSearch;
+    if (typeof payload.authorSearch === 'string') state.authorSearch = payload.authorSearch;
+    if (typeof payload.tagMode === 'string' && FILTER_MODE_VALUES.has(payload.tagMode)) state.tagMode = payload.tagMode;
+    if (typeof payload.seriesMode === 'string' && FILTER_MODE_VALUES.has(payload.seriesMode)) state.seriesMode = payload.seriesMode;
+    if (typeof payload.authorMode === 'string' && FILTER_MODE_VALUES.has(payload.authorMode)) state.authorMode = payload.authorMode;
+    state.selectedCollections = new Set(toIdArray(payload.selectedCollections));
+    applySelectionEntries(payload.selectedTags, state.selectedTags, true);
+    applySelectionEntries(payload.selectedSeries, state.selectedSeries, false);
+    applySelectionEntries(payload.selectedAuthors, state.selectedAuthors, true);
+    if (Number.isInteger(payload.exclusiveAuthorId) && payload.exclusiveAuthorId > 0) {
+        state.exclusiveAuthorId = payload.exclusiveAuthorId;
+        state.exclusiveAuthorName = typeof payload.exclusiveAuthorName === 'string' ? payload.exclusiveAuthorName : '';
+    } else {
+        state.exclusiveAuthorId = null;
+        state.exclusiveAuthorName = '';
+    }
+    rememberNameEntries(payload.tagNames, state.tagNames);
+    rememberNameEntries(payload.tagTranslatedNames, state.tagTranslatedNames);
+    rememberNameEntries(payload.authorNames, state.authorNames);
+    if (Number.isInteger(payload.authorsViewPage) && payload.authorsViewPage >= 0) state.authorsView.page = payload.authorsViewPage;
+    if (Number.isInteger(payload.seriesViewPage) && payload.seriesViewPage >= 0) state.seriesView.page = payload.seriesViewPage;
+}
+
+function restoreNovelGalleryState() {
+    const raw = storageGet(NOVEL_GALLERY_STATE_STORAGE_KEY);
+    if (!raw) return false;
+    try {
+        applyPersistedNovelGalleryState(JSON.parse(raw));
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function writeNovelGalleryCrossTransfer() {
+    const tagBuckets = partitionSelectionMap(state.selectedTags);
+    const authorBuckets = partitionSelectionMap(state.selectedAuthors);
+    if (state.exclusiveAuthorId != null && Number.isFinite(Number(state.exclusiveAuthorId))) {
+        const exId = Number(state.exclusiveAuthorId);
+        if (!authorBuckets.must.includes(exId)) authorBuckets.must.push(exId);
+    }
+    const payload = {
+        from: 'novel',
+        timestamp: Date.now(),
+        view: state.view,
+        search: state.search,
+        r18: state.r18,
+        ai: state.ai,
+        sort: state.sort,
+        order: state.order,
+        collectionIds: [...state.selectedCollections],
+        tagMode: state.tagMode,
+        tagIds: tagBuckets,
+        authorMode: state.authorMode,
+        authorIds: authorBuckets,
+        tagNames: [...state.tagNames],
+        tagTranslatedNames: [...state.tagTranslatedNames],
+        authorNames: [...state.authorNames],
+    };
+    try {
+        storageSet(GALLERY_CROSS_TRANSFER_KEY, JSON.stringify(payload));
+    } catch (_) { /* ignore */ }
+}
+
+function consumeNovelGalleryCrossTransfer() {
+    const raw = storageGet(GALLERY_CROSS_TRANSFER_KEY);
+    if (!raw) return null;
+    storageRemove(GALLERY_CROSS_TRANSFER_KEY);
+    try {
+        const payload = JSON.parse(raw);
+        if (!payload || typeof payload !== 'object') return null;
+        // novel page only accepts payloads originating from the illust gallery
+        if (payload.from === 'novel') return null;
+        if (typeof payload.timestamp !== 'number' || Date.now() - payload.timestamp > GALLERY_CROSS_TRANSFER_TTL_MS) return null;
+        return payload;
+    } catch (_) { return null; }
+}
+
+function applyCrossTransferToNovelGallery(transfer) {
+    if (!transfer) return;
+    if (typeof transfer.search === 'string') state.search = transfer.search;
+    if (typeof transfer.r18 === 'string' && NOVEL_R18_VALUES.has(transfer.r18)) state.r18 = transfer.r18;
+    if (typeof transfer.ai === 'string' && NOVEL_AI_VALUES.has(transfer.ai)) state.ai = transfer.ai;
+    if (typeof transfer.sort === 'string' && NOVEL_SORT_VALUES.has(transfer.sort)) state.sort = transfer.sort;
+    if (transfer.order === 'asc' || transfer.order === 'desc') state.order = transfer.order;
+    if (typeof transfer.view === 'string' && GALLERY_VIEW_VALUES.includes(transfer.view)) state.view = transfer.view;
+    state.selectedCollections = new Set(toIdArray(transfer.collectionIds));
+    const tagIds = transfer.tagIds || {};
+    state.selectedTags.clear();
+    toIdArray(tagIds.must).forEach(id => state.selectedTags.set(id, 'must'));
+    toIdArray(tagIds.not).forEach(id => state.selectedTags.set(id, 'not'));
+    toIdArray(tagIds.or).forEach(id => state.selectedTags.set(id, 'or'));
+    if (typeof transfer.tagMode === 'string' && FILTER_MODE_VALUES.has(transfer.tagMode)) state.tagMode = transfer.tagMode;
+    const authorIds = transfer.authorIds || {};
+    state.selectedAuthors.clear();
+    toIdArray(authorIds.must).forEach(id => state.selectedAuthors.set(id, 'must'));
+    toIdArray(authorIds.not).forEach(id => state.selectedAuthors.set(id, 'not'));
+    toIdArray(authorIds.or).forEach(id => state.selectedAuthors.set(id, 'or'));
+    if (typeof transfer.authorMode === 'string' && FILTER_MODE_VALUES.has(transfer.authorMode)) state.authorMode = transfer.authorMode;
+    rememberNameEntries(transfer.tagNames, state.tagNames);
+    rememberNameEntries(transfer.tagTranslatedNames, state.tagTranslatedNames);
+    rememberNameEntries(transfer.authorNames, state.authorNames);
+    // Different ID spaces for series; clear cross-page-incompatible state.
+    state.selectedSeries.clear();
+    state.exclusiveAuthorId = null;
+    state.exclusiveAuthorName = '';
+    state.page = 0;
+    state.authorsView.page = 0;
+    state.seriesView.page = 0;
+}
+
+function applyNovelGalleryStateToUi() {
+    document.querySelectorAll('.chip[data-sort]').forEach(chip => {
+        chip.classList.toggle('active', chip.dataset.sort === state.sort);
+    });
+    const orderBtn = document.getElementById('orderToggle');
+    if (orderBtn) {
+        orderBtn.dataset.order = state.order;
+        updateOrderToggleLabel();
+    }
+    document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === state.r18));
+    document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === state.ai));
+    document.querySelectorAll('#tagModeButtons .filter-mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filterMode === state.tagMode);
+    });
+    document.querySelectorAll('#authorModeButtons .filter-mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filterMode === state.authorMode);
+    });
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) searchInput.value = state.search || '';
+    const tagSearchInput = document.getElementById('tagSearchInput');
+    if (tagSearchInput) tagSearchInput.value = state.tagSearch || '';
+    const seriesSearchInput = document.getElementById('seriesSearchInput');
+    if (seriesSearchInput) seriesSearchInput.value = state.seriesSearch || '';
+    const authorSearchInput = document.getElementById('authorSearchInput');
+    if (authorSearchInput) authorSearchInput.value = state.authorSearch || '';
+    renderCollections();
+    renderCollectionFilterChips();
+    renderTagChips();
+    renderSeriesChips();
+    renderAuthorChips();
+    updateAuthorFilterBar();
+    updateFilterBadge();
+}
+
+function setupNovelCrossPageHandoff() {
+    document.querySelectorAll('.gallery-type-switch a[href]').forEach(link => {
+        link.addEventListener('click', () => {
+            writeNovelGalleryCrossTransfer();
+        });
+    });
+}
+
 function rememberTagOption(tag) {
     if (!tag || tag.tagId == null) return;
     const id = Number(tag.tagId);
@@ -144,11 +413,25 @@ async function init() {
     PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') });
     setupEventHandlers();
     setupAdminMode();
+
+    // 在拉取列表数据前恢复持久化的状态（搜索文字会影响 loadTags / loadAuthors / loadSeries 请求）
+    const params = new URLSearchParams(location.search);
+    const hasUrlFilters = NOVEL_URL_FILTER_KEYS.some(key => params.has(key));
+    if (!hasUrlFilters) {
+        restoreNovelGalleryState();
+        applyCrossTransferToNovelGallery(consumeNovelGalleryCrossTransfer());
+    }
+
     await loadCollections();
     await loadTags();
     await loadSeries();
     await loadAuthors();
+    // URL 中的导航筛选参数优先级最高（含 view 切换）
     applyInitialUrlState();
+    applyNovelGalleryStateToUi();
+    setActiveViewNav();
+    syncViewParamInUrl();
+    setupNovelCrossPageHandoff();
     reloadCurrentView();
 }
 
@@ -209,7 +492,7 @@ function applyInitialUrlState() {
     }
 
     const requestedView = readViewParam(params);
-    if (requestedView) {
+    if (requestedView && requestedView !== state.view) {
         state.view = requestedView;
         state.page = 0;
         state.authorsView.page = 0;
@@ -1005,6 +1288,7 @@ function reloadCurrentView() {
 
 // ---------- Novels list ----------
 async function reloadNovels() {
+    persistNovelGalleryState();
     const params = new URLSearchParams({
         page: String(state.page), size: String(PAGE_SIZE),
         sort: state.sort, order: state.order, r18: state.r18, ai: state.ai
@@ -1150,6 +1434,7 @@ async function loadMembershipsForNovels(novelIds) {
 const AUTHOR_WORKS_PER_ROW = 30;
 
 async function reloadAuthorsView() {
+    persistNovelGalleryState();
     const grid = document.getElementById('authorGrid');
     grid.innerHTML = `<div class="author-works-loading">${esc(pageI18n.t('novel:status.loading', '加载中...'))}</div>`;
     try {
@@ -1246,6 +1531,7 @@ function updateArrowState(strip, leftBtn, rightBtn) {
 
 // ---------- Series view ----------
 async function reloadSeriesView() {
+    persistNovelGalleryState();
     const grid = document.getElementById('seriesGrid');
     grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.loading', '加载中...'))}</div>`;
     try {
