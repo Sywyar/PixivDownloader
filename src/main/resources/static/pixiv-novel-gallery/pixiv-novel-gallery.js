@@ -2,6 +2,7 @@ const PAGE_SIZE = 24;
 const HEART_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
 const SIDEBAR_STATE_STORAGE_KEY = 'pixiv:gallery-sidebar-state';
 const GALLERY_VIEW_VALUES = ['all', 'authors', 'series'];
+const FILTER_SELECTION_RANK = { must: 0, not: 1, or: 2 };
 
 function parsePositiveIdList(raw) {
     return [...new Set(String(raw || '')
@@ -63,6 +64,8 @@ const state = {
     collections: [],
     selectedCollections: new Set(),
     tags: [],
+    tagNames: new Map(),
+    tagTranslatedNames: new Map(),
     selectedTags: new Map(),    // tagId -> 'must'|'not'|'or'
     tagMode: 'must',
     tagSearch: '',
@@ -71,6 +74,7 @@ const state = {
     seriesMode: 'must',
     seriesSearch: '',
     authors: [],
+    authorNames: new Map(),
     selectedAuthors: new Map(), // authorId -> 'must'|'not'|'or'
     authorMode: 'must',
     authorSearch: '',
@@ -82,6 +86,43 @@ const state = {
     pendingIconFile: null,
     pendingIconClear: false
 };
+
+function rememberTagOption(tag) {
+    if (!tag || tag.tagId == null) return;
+    const id = Number(tag.tagId);
+    if (!Number.isFinite(id)) return;
+    if (tag.name) state.tagNames.set(id, tag.name);
+    if (tag.translatedName) state.tagTranslatedNames.set(id, tag.translatedName);
+}
+
+function rememberAuthorOption(author) {
+    if (!author || author.authorId == null) return;
+    const id = Number(author.authorId);
+    if (!Number.isFinite(id)) return;
+    if (author.name) state.authorNames.set(id, author.name);
+}
+
+function getSelectionRank(selectedMap, id) {
+    const mode = selectedMap.get(Number(id));
+    return mode ? (FILTER_SELECTION_RANK[mode] ?? 3) : 3;
+}
+
+function getSelectionIndex(selectedMap, id) {
+    const normalizedId = Number(id);
+    let index = 0;
+    for (const key of selectedMap.keys()) {
+        if (Number(key) === normalizedId) return index;
+        index++;
+    }
+    return Number.MAX_SAFE_INTEGER;
+}
+
+function compareFilterSelectionOrder(selectedMap, leftId, rightId) {
+    const rankDiff = getSelectionRank(selectedMap, leftId) - getSelectionRank(selectedMap, rightId);
+    if (rankDiff !== 0) return rankDiff;
+    if (!selectedMap.has(Number(leftId)) && !selectedMap.has(Number(rightId))) return 0;
+    return getSelectionIndex(selectedMap, leftId) - getSelectionIndex(selectedMap, rightId);
+}
 
 async function init() {
     restoreSidebarState();
@@ -726,21 +767,39 @@ async function loadTags() {
         if (!r.ok) return;
         const data = await r.json();
         state.tags = data.tags || [];
+        state.tags.forEach(rememberTagOption);
         renderTagChips();
     } catch (e) { console.warn('load tags failed', e); }
 }
 
 function renderTagChips() {
     const box = document.getElementById('filterTagChips');
-    if (!state.tags.length) {
+    let filtered = state.tags.slice();
+    filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedTags, a.tagId, b.tagId));
+
+    const loadedIds = new Set(filtered.map(t => Number(t.tagId)));
+    const missing = [...state.selectedTags.keys()].filter(id => !loadedIds.has(Number(id)));
+    if (missing.length) {
+        const stubs = missing.map(id => ({
+            tagId: id,
+            name: state.tagNames.get(id) || `#${id}`,
+            translatedName: state.tagTranslatedNames.get(id) || '',
+            novelCount: 0
+        }));
+        filtered = stubs.concat(filtered);
+        filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedTags, a.tagId, b.tagId));
+    }
+
+    if (!filtered.length) {
         box.innerHTML = `<span class="chip-empty">${esc(pageI18n.t('filter.tags.empty', '暂无可用标签'))}</span>`;
         return;
     }
-    box.innerHTML = state.tags.map(t => {
-        const mode = state.selectedTags.get(t.tagId);
+    box.innerHTML = filtered.map(t => {
+        const tagId = Number(t.tagId);
+        const mode = state.selectedTags.get(tagId);
         const cls = mode ? `filter-selected mode-${mode}` : '';
         const trans = t.translatedName ? `<span class="tag-trans">${esc(t.translatedName)}</span>` : '';
-        return `<button class="chip ${cls}" data-tag-id="${t.tagId}">${esc(t.name)}${trans}<span class="chip-count">${t.novelCount}</span></button>`;
+        return `<button class="chip ${cls}" data-tag-id="${tagId}">${esc(t.name || ('#' + tagId))}${trans}<span class="chip-count">${t.novelCount}</span></button>`;
     }).join('');
     box.querySelectorAll('.chip[data-tag-id]').forEach(chip => {
         chip.addEventListener('click', () => toggleTagSelection(Number(chip.dataset.tagId)));
@@ -768,6 +827,7 @@ function setTagFilterExclusive(tagId, name, translatedName) {
             novelCount: 0
         }, ...state.tags];
     }
+    rememberTagOption({ tagId, name: name || `#${tagId}`, translatedName: translatedName || '' });
     state.selectedTags.clear();
     state.selectedTags.set(tagId, 'must');
     state.tagMode = 'must';
@@ -836,20 +896,37 @@ async function loadAuthors() {
         if (!r.ok) return;
         const data = await r.json();
         state.authors = data.content || [];
+        state.authors.forEach(rememberAuthorOption);
         renderAuthorChips();
     } catch (e) { console.warn('load authors failed', e); }
 }
 
 function renderAuthorChips() {
     const box = document.getElementById('filterAuthorChips');
-    if (!state.authors.length) {
+    let filtered = state.authors.slice();
+    filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedAuthors, a.authorId, b.authorId));
+
+    const loadedIds = new Set(filtered.map(a => Number(a.authorId)));
+    const missing = [...state.selectedAuthors.keys()].filter(id => !loadedIds.has(Number(id)));
+    if (missing.length) {
+        const stubs = missing.map(id => ({
+            authorId: id,
+            name: state.authorNames.get(id) || `#${id}`,
+            novelCount: 0
+        }));
+        filtered = stubs.concat(filtered);
+        filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedAuthors, a.authorId, b.authorId));
+    }
+
+    if (!filtered.length) {
         box.innerHTML = `<span class="chip-empty">${esc(pageI18n.t('filter.authors.empty', '暂无作者'))}</span>`;
         return;
     }
-    box.innerHTML = state.authors.map(a => {
-        const mode = state.selectedAuthors.get(a.authorId);
+    box.innerHTML = filtered.map(a => {
+        const authorId = Number(a.authorId);
+        const mode = state.selectedAuthors.get(authorId);
         const cls = mode ? `filter-selected mode-${mode}` : '';
-        return `<button class="chip ${cls}" data-author-id="${a.authorId}">${esc(a.name)}<span class="chip-count">${a.novelCount}</span></button>`;
+        return `<button class="chip ${cls}" data-author-id="${authorId}">${esc(a.name || ('#' + authorId))}<span class="chip-count">${a.novelCount}</span></button>`;
     }).join('');
     box.querySelectorAll('.chip[data-author-id]').forEach(chip => {
         chip.addEventListener('click', () => toggleAuthorSelection(Number(chip.dataset.authorId)));
