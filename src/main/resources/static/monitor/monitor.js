@@ -47,6 +47,10 @@
                 updateChart(allArtworksCache || []);
             }
         });
+        PixivTheme.mount({
+            mountPoint: document.getElementById('langSwitcherAnchor'),
+            variant: 'green'
+        });
         applyStaticPageTranslations();
     }
 
@@ -225,6 +229,12 @@
             if (!document.getElementById('imageModal').classList.contains('show')) return;
             if (e.key === 'ArrowLeft')  navigateFullImg(-1);
             if (e.key === 'ArrowRight') navigateFullImg(1);
+        });
+
+        window.addEventListener('pixiv-theme-change', () => {
+            if (allArtworksCache !== null) {
+                updateChart(allArtworksCache);
+            }
         });
 
         // i18n 在后台加载，加载完成后再补丁式应用翻译并重渲染已到达的动态内容
@@ -570,8 +580,18 @@
     }
 
     // ===================== 图表 =====================
+    function cssVar(name, fallback) {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return value || fallback;
+    }
+
     function updateChart(artworks) {
         const ctx = document.getElementById('downloadStatsChart').getContext('2d');
+        const chartFill = cssVar('--chart-fill', 'rgba(0, 229, 255, 0.15)');
+        const chartLine = cssVar('--chart-line', 'rgba(0, 229, 255, 0.8)');
+        const chartHover = cssVar('--chart-hover', 'rgba(0, 229, 255, 0.3)');
+        const chartGrid = cssVar('--chart-grid', 'rgba(0, 229, 255, 0.06)');
+        const chartText = cssVar('--chart-text', '#475569');
 
         const monthly = {};
         artworks.forEach(a => {
@@ -592,10 +612,10 @@
                 datasets: [{
                     label: t('panel.monthly-images', 'Monthly Images'),
                     data,
-                    backgroundColor: 'rgba(0, 229, 255, 0.15)',
-                    borderColor:     'rgba(0, 229, 255, 0.8)',
+                    backgroundColor: chartFill,
+                    borderColor:     chartLine,
                     borderWidth: 1,
-                    hoverBackgroundColor: 'rgba(0, 229, 255, 0.3)',
+                    hoverBackgroundColor: chartHover,
                 }]
             },
             options: {
@@ -604,18 +624,18 @@
                 scales: {
                     y: {
                         beginAtZero: true,
-                        grid: { color: 'rgba(0,229,255,0.06)' },
-                        ticks: { color: '#475569', font: { family: 'JetBrains Mono', size: 10 } },
-                        border: { color: 'rgba(0,229,255,0.1)' }
+                        grid: { color: chartGrid },
+                        ticks: { color: chartText, font: { family: 'JetBrains Mono', size: 10 } },
+                        border: { color: chartGrid }
                     },
                     x: {
-                        grid: { color: 'rgba(0,229,255,0.06)' },
-                        ticks: { color: '#475569', font: { family: 'JetBrains Mono', size: 10 } },
-                        border: { color: 'rgba(0,229,255,0.1)' }
+                        grid: { color: chartGrid },
+                        ticks: { color: chartText, font: { family: 'JetBrains Mono', size: 10 } },
+                        border: { color: chartGrid }
                     }
                 },
                 plugins: {
-                    legend: { labels: { color: '#475569', font: { family: 'JetBrains Mono', size: 10 } } }
+                    legend: { labels: { color: chartText, font: { family: 'JetBrains Mono', size: 10 } } }
                 }
             }
         });

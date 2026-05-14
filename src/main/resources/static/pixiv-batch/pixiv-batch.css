@@ -649,6 +649,49 @@
             cursor: not-allowed;
         }
 
+        /* ---- Userscripts ---- */
+        .userscript-card {
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 10px 14px;
+            background: var(--surface-muted);
+            color: var(--text);
+        }
+
+        .userscript-card-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        .userscript-card-title {
+            font-size: 13px;
+        }
+
+        .userscript-card-version {
+            font-size: 11px;
+            color: var(--muted-2);
+        }
+
+        .userscript-card-desc {
+            font-size: 12px;
+            color: var(--heading);
+            margin-bottom: 8px;
+        }
+
+        .userscript-card-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .userscript-card-btn {
+            padding: 3px 12px;
+            font-size: 12px;
+            text-decoration: none;
+        }
+
         /* ── App Navigation ── */
         .app-nav {
             background: #28a745; /* 沿用 header 的绿色 */

@@ -4311,18 +4311,18 @@
             }
             data.scripts.forEach(s => {
                 const item = document.createElement('div');
-                item.style.cssText = 'border:1px solid #e0e0e0;border-radius:6px;padding:10px 14px;background:#fafafa;';
+                item.className = 'userscript-card';
                 item.innerHTML =
-                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
-                        '<strong style="font-size:13px;">' + escHtml(s.displayName) + '</strong>' +
-                        '<span style="font-size:11px;color:#999;">v' + escHtml(s.version) + '</span>' +
+                    '<div class="userscript-card-head">' +
+                        '<strong class="userscript-card-title">' + escHtml(s.displayName) + '</strong>' +
+                        '<span class="userscript-card-version">v' + escHtml(s.version) + '</span>' +
                     '</div>' +
-                    '<div style="font-size:12px;color:#555;margin-bottom:8px;">' + escHtml(s.description) + '</div>' +
-                    '<div style="display:flex;gap:8px;">' +
-                        '<button class="btn btn-green" style="padding:3px 12px;font-size:12px;" onclick="installScript(\'' + escHtml(s.id) + '\')">' +
+                    '<div class="userscript-card-desc">' + escHtml(s.description) + '</div>' +
+                    '<div class="userscript-card-actions">' +
+                        '<button class="btn btn-green userscript-card-btn" onclick="installScript(\'' + escHtml(s.id) + '\')">' +
                             escHtml(bt('userscripts.install', '⬇ 安装')) +
                         '</button>' +
-                        '<a class="btn" style="padding:3px 12px;font-size:12px;text-decoration:none;" ' +
+                        '<a class="btn btn-blue userscript-card-btn userscript-card-source" ' +
                             'href="/api/scripts/' + encodeURIComponent(s.id) + '?raw=true" target="_blank">' +
                             escHtml(bt('userscripts.view-source', '📄 查看源码')) +
                         '</a>' +
