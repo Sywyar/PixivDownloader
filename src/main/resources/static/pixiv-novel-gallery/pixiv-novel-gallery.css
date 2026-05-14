@@ -777,7 +777,9 @@
             overflow: hidden;
         }
         .series-row-tag {
+            font-family: inherit;
             font-size: 11px;
+            line-height: 1.3;
             padding: 2px 8px;
             border-radius: 999px;
             background: var(--control-muted-bg);
@@ -787,6 +789,13 @@
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 140px;
+        }
+        button.series-row-tag {
+            cursor: pointer;
+        }
+        button.series-row-tag:hover {
+            border-color: var(--brand);
+            color: var(--brand);
         }
         .series-row-tag-more {
             font-size: 11px;

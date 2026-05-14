@@ -203,7 +203,6 @@
         if (authorName) params.set('filterAuthorName', authorName);
         if (seriesId != null) params.set('filterSeriesId', String(seriesId));
         if (seriesTitle) params.set('filterSeriesTitle', seriesTitle);
-        params.set('openFilter', '1');
         return `/pixiv-gallery.html?${params.toString()}`;
     }
 

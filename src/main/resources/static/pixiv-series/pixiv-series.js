@@ -296,6 +296,7 @@
                         authorId: series.authorId != null ? series.authorId : state.detail.authorId,
                         description: series.description,
                         coverExt: series.coverExt,
+                        tags: Array.isArray(series.tags) ? series.tags : state.detail.tags,
                     });
                 }
             } catch (_) {
@@ -404,6 +405,7 @@
             updatedTime: updatedTime || previous.updatedTime || null,
             description: previous.description,
             coverExt: previous.coverExt,
+            tags: Array.isArray(previous.tags) ? previous.tags : [],
         };
     }
 
@@ -413,6 +415,11 @@
         document.getElementById('chapterGrid').innerHTML = '';
         document.getElementById('pagination').innerHTML = '';
         document.getElementById('metaStrip').innerHTML = '';
+        const tagsEl = document.getElementById('seriesTags');
+        if (tagsEl) {
+            tagsEl.innerHTML = '';
+            tagsEl.style.display = 'none';
+        }
     }
 
     function renderSeriesHeader() {
@@ -431,6 +438,7 @@
             galleryBtn.href = (isNovelMode() ? '/pixiv-novel-gallery.html' : '/pixiv-gallery.html') + '?view=all';
             renderCover();
             renderDescription();
+            renderSeriesTags();
             renderRefreshButton();
             return;
         }
@@ -470,6 +478,7 @@
 
         renderCover();
         renderDescription();
+        renderSeriesTags();
         renderRefreshButton();
         maybeAutoRefresh();
     }
@@ -507,6 +516,31 @@
             a.rel = 'noopener noreferrer';
         });
         el.style.display = 'block';
+    }
+
+    function renderSeriesTags() {
+        const el = document.getElementById('seriesTags');
+        if (!el) return;
+        const detail = state.detail;
+        const tags = isNovelMode() && detail && Array.isArray(detail.tags)
+            ? detail.tags.filter(tag => {
+                const tagId = Number(tag && tag.tagId);
+                return Number.isFinite(tagId) && tagId > 0;
+            })
+            : [];
+        if (!tags.length) {
+            el.style.display = 'none';
+            el.innerHTML = '';
+            return;
+        }
+        el.innerHTML = tags.map(tag => {
+            const label = tag.name || pageText('gallery:tag.default', 'Tag #{id}', {id: tag.tagId});
+            const translated = tag.translatedName
+                ? `<span class="series-tag-translated">${escapeHtml(tag.translatedName)}</span>`
+                : '';
+            return `<a class="series-tag" href="${escapeHtml(buildNovelGalleryTagFilterHref(tag))}">${escapeHtml(label)}${translated}</a>`;
+        }).join('');
+        el.style.display = 'flex';
     }
 
     function renderRefreshButton() {
@@ -576,6 +610,7 @@
             state.detail = Object.assign({}, state.detail || {}, {
                 description: updated.description,
                 coverExt: updated.coverExt,
+                tags: Array.isArray(updated.tags) ? updated.tags : (state.detail && state.detail.tags),
                 title: updated.title || (state.detail && state.detail.title),
                 authorId: updated.authorId != null ? updated.authorId : (state.detail && state.detail.authorId),
             });
@@ -874,6 +909,15 @@
         if (seriesId != null) params.set('seriesId', String(seriesId));
         if (seriesTitle) params.set('seriesTitle', seriesTitle);
         return '/pixiv-novel-gallery.html' + (params.toString() ? '?' + params.toString() : '');
+    }
+
+    function buildNovelGalleryTagFilterHref(tag) {
+        const params = new URLSearchParams();
+        params.set('view', 'all');
+        params.set('tagIds', String(tag.tagId));
+        if (tag.name) params.set('tagName', tag.name);
+        if (tag.translatedName) params.set('tagTranslatedName', tag.translatedName);
+        return '/pixiv-novel-gallery.html?' + params.toString();
     }
 
     function buildPixivSeriesHref(authorId, seriesId) {

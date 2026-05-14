@@ -184,6 +184,14 @@
             border: 1px solid var(--line);
             cursor: default;
         }
+        .tag-link {
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .tag-link:hover {
+            color: var(--brand);
+            border-color: var(--brand);
+        }
         .tag .translated { color: var(--muted); margin-left: 4px; }
 
         .series-nav {

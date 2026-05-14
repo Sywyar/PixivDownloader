@@ -10,6 +10,10 @@ function parsePositiveIdList(raw) {
         .filter(value => Number.isInteger(value) && value > 0))];
 }
 
+function normalizeFilterText(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
 function readViewParam(params) {
     const view = params.get('view');
     return GALLERY_VIEW_VALUES.includes(view) ? view : null;
@@ -127,6 +131,33 @@ function applyInitialUrlState() {
         changed = true;
     }
 
+    let tagIds = parsePositiveIdList(
+        [params.get('tagId'), params.get('tagIds'), params.get('filterTagId')]
+            .filter(Boolean)
+            .join(',')
+    );
+    const tagName = params.get('tagName') || params.get('filterTag') || '';
+    const translatedName = params.get('tagTranslatedName') || params.get('filterTagTranslated') || '';
+    if (!tagIds.length) {
+        const normalizedTagName = normalizeFilterText(tagName);
+        const normalizedTranslatedName = normalizeFilterText(translatedName);
+        const loaded = state.tags.find(t =>
+            (normalizedTagName && normalizeFilterText(t.name) === normalizedTagName)
+            || (normalizedTranslatedName && normalizeFilterText(t.translatedName) === normalizedTranslatedName));
+        if (loaded && Number(loaded.tagId) > 0) {
+            tagIds = [Number(loaded.tagId)];
+        }
+    }
+    if (tagIds.length) {
+        state.selectedTags.clear();
+        tagIds.forEach(id => state.selectedTags.set(id, 'must'));
+        if (tagIds.length === 1 && !state.tags.some(t => Number(t.tagId) === tagIds[0])) {
+            state.tags = [{ tagId: tagIds[0], name: tagName || `#${tagIds[0]}`, translatedName, novelCount: 0 }, ...state.tags];
+        }
+        renderTagChips();
+        changed = true;
+    }
+
     const collectionIds = parsePositiveIdList(params.get('collectionIds'));
     if (collectionIds.length) {
         state.selectedCollections.clear();
@@ -148,7 +179,13 @@ function applyInitialUrlState() {
         openCollectionFormModal(null);
     }
 
+    setFilterPanelOpen(params.get('openFilter') === '1');
     if (changed) updateFilterBadge();
+}
+
+function setFilterPanelOpen(open) {
+    document.getElementById('filterPanel').classList.toggle('open', open);
+    document.getElementById('filterToggle').classList.toggle('active', open);
 }
 
 function updateOrderToggleLabel() {
@@ -167,8 +204,8 @@ function setupEventHandlers() {
     }, 250));
     // Filter toggle
     document.getElementById('filterToggle').addEventListener('click', () => {
-        document.getElementById('filterPanel').classList.toggle('open');
-        document.getElementById('filterToggle').classList.toggle('active');
+        const panel = document.getElementById('filterPanel');
+        setFilterPanelOpen(!panel.classList.contains('open'));
     });
     // Sort chips
     document.querySelectorAll('.chip[data-sort]').forEach(chip => {
@@ -642,10 +679,40 @@ function toggleCollectionFilter(id) {
 
 function switchCollectionFilter(id) {
     const exclusive = state.selectedCollections.size === 1 && state.selectedCollections.has(id);
+    const alreadyOnlyCollection = exclusive
+        && state.view === 'all'
+        && state.r18 === 'any'
+        && state.ai === 'any'
+        && state.selectedTags.size === 0
+        && state.selectedSeries.size === 0
+        && state.selectedAuthors.size === 0
+        && state.exclusiveAuthorId == null;
+    if (alreadyOnlyCollection) return;
+    resetFiltersForSidebarCollection(id);
+}
+
+function resetFiltersForSidebarCollection(id) {
+    state.r18 = 'any';
+    state.ai = 'any';
+    document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
+    document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
     state.selectedCollections.clear();
-    if (!exclusive) state.selectedCollections.add(id);
+    state.selectedCollections.add(id);
+    state.selectedTags.clear();
+    state.selectedSeries.clear();
+    state.selectedAuthors.clear();
+    state.exclusiveAuthorId = null;
+    state.exclusiveAuthorName = '';
+    state.view = 'all';
     state.page = 0;
+    state.authorsView.page = 0;
+    state.seriesView.page = 0;
+    syncViewParamInUrl();
     renderCollections(); renderCollectionFilterChips();
+    renderTagChips();
+    renderSeriesChips();
+    renderAuthorChips();
+    updateAuthorFilterBar();
     updateFilterBadge();
     reloadCurrentView();
 }
@@ -688,6 +755,35 @@ function toggleTagSelection(tagId) {
     renderTagChips();
     updateFilterBadge();
     reloadCurrentView();
+}
+
+function setTagFilterExclusive(tagId, name, translatedName) {
+    tagId = Number(tagId);
+    if (!Number.isFinite(tagId) || tagId <= 0) return;
+    if (!state.tags.some(t => Number(t.tagId) === tagId)) {
+        state.tags = [{
+            tagId,
+            name: name || `#${tagId}`,
+            translatedName: translatedName || '',
+            novelCount: 0
+        }, ...state.tags];
+    }
+    state.selectedTags.clear();
+    state.selectedTags.set(tagId, 'must');
+    state.tagMode = 'must';
+    document.querySelectorAll('#tagModeButtons .filter-mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filterMode === 'must');
+    });
+    state.page = 0;
+    renderTagChips();
+    updateFilterBadge();
+    setFilterPanelOpen(false);
+    if (state.view !== 'all') {
+        switchView('all');
+    } else {
+        syncViewParamInUrl();
+        reloadCurrentView();
+    }
 }
 
 // ---------- Series ----------
@@ -1123,7 +1219,13 @@ function renderSeriesView(seriesList) {
         const tagsHtml = tags.length
             ? `<div class="series-row-tags">${tags.slice(0, maxTags).map(tg => {
                   const label = tg.translatedName ? `${tg.name} · ${tg.translatedName}` : tg.name;
-                  return `<span class="series-row-tag" title="${esc(label)}">${esc(tg.name || '')}</span>`;
+                  const tagId = Number(tg.tagId);
+                  const name = tg.name || (Number.isFinite(tagId) && tagId > 0 ? `#${tagId}` : '');
+                  const tagLabel = tg.translatedName ? `${name} / ${tg.translatedName}` : name;
+                  if (Number.isFinite(tagId) && tagId > 0) {
+                      return `<button class="series-row-tag" type="button" data-filter-series-tag-id="${tagId}" data-tag-name="${esc(name)}" data-tag-translated-name="${esc(tg.translatedName || '')}" title="${esc(tagLabel || label || name)}">${esc(name)}</button>`;
+                  }
+                  return `<span class="series-row-tag" title="${esc(tagLabel || label || name)}">${esc(name)}</span>`;
               }).join('')}${tags.length > maxTags ? `<span class="series-row-tag-more">${esc(pageI18n.t('novel:series.tag-more', '+{count}', { count: tags.length - maxTags }))}</span>` : ''}</div>`
             : '';
         return `
@@ -1159,6 +1261,18 @@ function renderSeriesView(seriesList) {
             const row = el.closest('.series-row');
             const stitle = row ? row.dataset.seriesTitle : '';
             window.location.href = buildSeriesDirectoryHref(sid, stitle);
+        });
+    });
+
+    grid.querySelectorAll('[data-filter-series-tag-id]').forEach(el => {
+        el.addEventListener('click', e => {
+            e.preventDefault();
+            e.stopPropagation();
+            setTagFilterExclusive(
+                el.dataset.filterSeriesTagId,
+                el.dataset.tagName || '',
+                el.dataset.tagTranslatedName || ''
+            );
         });
     });
 

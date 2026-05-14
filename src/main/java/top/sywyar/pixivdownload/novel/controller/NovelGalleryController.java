@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.novel.NovelDownloadService;
@@ -259,8 +260,8 @@ public class NovelGalleryController {
     }
 
     @GetMapping("/novel/series/{seriesId}")
-    public ResponseEntity<NovelSeries> getSeries(@PathVariable long seriesId,
-                                                 HttpServletRequest httpRequest) {
+    public ResponseEntity<NovelSeriesDetailResponse> getSeries(@PathVariable long seriesId,
+                                                               HttpServletRequest httpRequest) {
         Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
         if (filter != null && !filter.contains(seriesId)) {
             return ResponseEntity.notFound().build();
@@ -269,7 +270,7 @@ public class NovelGalleryController {
         if (series == null) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(series);
+        return ResponseEntity.ok(toDetailResponse(series));
     }
 
     @GetMapping("/novel/series/{seriesId}/cover")
@@ -301,14 +302,14 @@ public class NovelGalleryController {
      * 从 Pixiv AJAX 拉取小说系列封面/简介并入库；要求 admin/solo 登录态。
      */
     @PostMapping("/novel/series/{seriesId}/refresh")
-    public ResponseEntity<NovelSeries> refreshSeries(
+    public ResponseEntity<NovelSeriesDetailResponse> refreshSeries(
             @PathVariable long seriesId,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
         NovelSeries refreshed = novelSeriesService.refreshFromPixiv(seriesId, cookie);
         if (refreshed == null) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(refreshed);
+        return ResponseEntity.ok(toDetailResponse(refreshed));
     }
 
     private Set<Long> resolveGuestNovelSeriesFilter(HttpServletRequest httpRequest) {
@@ -340,4 +341,20 @@ public class NovelGalleryController {
 
     public record MergeResponse(boolean success, String message,
                                 String mergedPath, int chapterCount, String format) {}
+
+    public record NovelSeriesDetailResponse(long seriesId, String title, Long authorId, long updatedTime,
+                                            String description, String coverExt, String coverFolder,
+                                            List<TagDto> tags) {}
+
+    private NovelSeriesDetailResponse toDetailResponse(NovelSeries series) {
+        return new NovelSeriesDetailResponse(
+                series.seriesId(),
+                series.title(),
+                series.authorId(),
+                series.updatedTime(),
+                series.description(),
+                series.coverExt(),
+                series.coverFolder(),
+                novelDatabase.getNovelSeriesTags(series.seriesId()));
+    }
 }

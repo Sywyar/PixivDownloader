@@ -653,7 +653,7 @@
             changed = true;
         }
 
-        if (params.get('openFilter') === '1' || changed) {
+        if (params.get('openFilter') === '1') {
             setFilterPanelOpen(true);
         }
 
@@ -791,12 +791,47 @@
     }
 
     function switchCollectionFilter(id) {
-        const alreadyExclusive = state.collectionIds.size === 1 && state.collectionIds.has(id);
-        if (alreadyExclusive && state.view === 'all') return;
+        const alreadyExclusiveCollection = state.collectionIds.size === 1 && state.collectionIds.has(id);
+        const alreadyOnlyCollection = alreadyExclusiveCollection
+            && state.view === 'all'
+            && state.r18 === 'any'
+            && state.ai === 'any'
+            && state.formats.size === 0
+            && getFilterCount('tag') === 0
+            && getFilterCount('author') === 0
+            && !state.seriesFilter.id;
+        if (alreadyOnlyCollection) return;
+        resetFiltersForSidebarCollection(id);
+    }
+
+    function resetFiltersForSidebarCollection(id) {
+        state.r18 = 'any';
+        state.ai = 'any';
+        state.formats.clear();
         state.collectionIds.clear();
         state.collectionIds.add(id);
+        clearFilterSelections('tag');
+        clearFilterSelections('author');
+        state.seriesFilter = {id: null, title: ''};
+        clearFilterSearch('tag');
+        clearFilterSearch('series');
+        clearFilterSearch('author');
+        state.tagFilters.mode = 'must';
+        state.authorFilters.mode = 'must';
+        state.authorNames.clear();
+        document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
+        document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
+        document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.remove('active'));
         state.page = 0;
+        renderFilterModeButtons('tag');
+        renderFilterModeButtons('author');
+        syncTagFilterBar();
+        syncAuthorFilterBar();
+        syncSeriesFilterBar();
         renderCollections();
+        renderTagChips();
+        renderSeriesFilterChips();
+        renderAuthorChips();
         updateFilterBadge();
         refreshGalleryForCurrentState();
     }
@@ -1591,7 +1626,6 @@
         params.set('view', 'all');
         if (seriesId != null) params.set('filterSeriesId', String(seriesId));
         if (seriesTitle) params.set('filterSeriesTitle', seriesTitle);
-        params.set('openFilter', '1');
         return `/pixiv-gallery.html?${params.toString()}`;
     }
 

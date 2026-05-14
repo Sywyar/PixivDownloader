@@ -170,9 +170,28 @@ function renderTags(tags) {
         document.getElementById('novel-tags').innerHTML = `<span class="tag">${escapeHtml(pageI18n.t('status.no-tags'))}</span>`;
         return;
     }
-    document.getElementById('novel-tags').innerHTML = tags.map(t =>
-        `<span class="tag">${escapeHtml(t.name || '')}${t.translatedName ? `<span class="translated">${escapeHtml(t.translatedName)}</span>` : ''}</span>`
-    ).join('');
+    document.getElementById('novel-tags').innerHTML = tags.map(t => {
+        const name = t.name || '';
+        const translated = t.translatedName
+            ? `<span class="translated">${escapeHtml(t.translatedName)}</span>`
+            : '';
+        const tagId = Number(t.tagId);
+        const canFilter = (Number.isFinite(tagId) && tagId > 0) || name;
+        if (!canFilter) {
+            return `<span class="tag">${escapeHtml(name)}${translated}</span>`;
+        }
+        return `<a class="tag tag-link" href="${escapeHtml(buildNovelGalleryTagFilterHref(t))}">${escapeHtml(name || ('#' + tagId))}${translated}</a>`;
+    }).join('');
+}
+
+function buildNovelGalleryTagFilterHref(tag) {
+    const params = new URLSearchParams();
+    params.set('view', 'all');
+    const tagId = Number(tag.tagId);
+    if (Number.isFinite(tagId) && tagId > 0) params.set('tagIds', String(tagId));
+    if (tag.name) params.set('tagName', tag.name);
+    if (tag.translatedName) params.set('tagTranslatedName', tag.translatedName);
+    return `/pixiv-novel-gallery.html?${params.toString()}`;
 }
 
 function renderContent(raw, resolver) {

@@ -668,6 +668,44 @@
             word-break: break-all;
         }
 
+        .series-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: -6px 0 20px;
+        }
+
+        .series-tag {
+            display: inline-flex;
+            align-items: center;
+            min-height: 30px;
+            max-width: 220px;
+            padding: 5px 11px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: var(--surface);
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.35;
+            text-decoration: none;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .series-tag:hover {
+            border-color: var(--brand);
+            color: var(--brand);
+            background: var(--control-muted-bg);
+        }
+
+        .series-tag-translated {
+            margin-left: 5px;
+            color: var(--muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         .series-kicker {
             font-size: 12px;
             font-weight: 600;
