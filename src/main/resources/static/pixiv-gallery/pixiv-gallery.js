@@ -1,5 +1,5 @@
     const state = {
-        view: 'all', // 'all' | 'authors'
+        view: 'all', // 'all' | 'authors' | 'series'
         page: 0,
         size: 24,
         sort: 'date',
@@ -81,6 +81,7 @@
         not: {label: '不能有', className: 'mode-not'},
         or: {label: '或者有', className: 'mode-or'},
     };
+    const GALLERY_VIEW_VALUES = ['all', 'authors', 'series'];
     const GALLERY_FILTER_QUERY_KEYS = [
         'filterTagId',
         'filterTag',
@@ -91,7 +92,6 @@
         'filterSeriesTitle',
         'collectionIds',
         'openFilter',
-        'view',
         'createCollection',
     ];
     const SIDEBAR_STATE_STORAGE_KEY = 'pixiv:gallery-sidebar-state';
@@ -488,7 +488,39 @@
 
     function readViewParam(params) {
         const view = params.get('view');
-        return ['all', 'authors', 'series'].includes(view) ? view : null;
+        return GALLERY_VIEW_VALUES.includes(view) ? view : null;
+    }
+
+    function normalizeView(view) {
+        return GALLERY_VIEW_VALUES.includes(view) ? view : 'all';
+    }
+
+    function buildGalleryPageHref(path, view = state.view) {
+        const params = new URLSearchParams();
+        params.set('view', normalizeView(view));
+        return `${path}?${params.toString()}`;
+    }
+
+    function syncViewParamInUrl() {
+        const url = new URL(location.href);
+        url.searchParams.set('view', normalizeView(state.view));
+        const nextUrl = url.pathname + (url.search ? url.search : '') + url.hash;
+        const currentUrl = location.pathname + location.search + location.hash;
+        if (nextUrl !== currentUrl) {
+            history.replaceState(history.state, '', nextUrl);
+        }
+    }
+
+    function syncViewNavigationHrefs() {
+        document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+            if (el.tagName === 'A') {
+                el.setAttribute('href', buildGalleryPageHref('/pixiv-gallery.html', el.dataset.view));
+            }
+        });
+        const novelGalleryLink = document.querySelector('.gallery-type-switch a[href^="/pixiv-novel-gallery.html"]');
+        if (novelGalleryLink) {
+            novelGalleryLink.setAttribute('href', buildGalleryPageHref('/pixiv-novel-gallery.html', state.view));
+        }
     }
 
     function syncTagFilterBar() {
@@ -1556,6 +1588,7 @@
 
     function buildGalleryFilterHref({seriesId, seriesTitle} = {}) {
         const params = new URLSearchParams();
+        params.set('view', 'all');
         if (seriesId != null) params.set('filterSeriesId', String(seriesId));
         if (seriesTitle) params.set('filterSeriesTitle', seriesTitle);
         params.set('openFilter', '1');
@@ -1901,8 +1934,11 @@
     });
 
     function switchView(view) {
+        view = normalizeView(view);
         const prev = state.view;
         state.view = view;
+        syncViewParamInUrl();
+        syncViewNavigationHrefs();
         document.querySelectorAll('.nav-item[data-view]').forEach(el => {
             el.classList.toggle('active', el.dataset.view === view);
         });
@@ -2151,7 +2187,7 @@
             return `
             <div class="author-row series-row" data-series-id="${s.seriesId}">
                 <div class="author-row-info">
-                    <div class="author-row-name" data-filter-series="${s.seriesId}" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+                    <div class="author-row-name" data-open-series-directory="${s.seriesId}" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
                     <div class="author-row-count">${escapeHtml(t('series.count', '{count} artworks · #{seriesId}', {count: s.artworkCount, seriesId: s.seriesId}))}</div>
                     ${author}
                     <div class="author-row-actions">
@@ -2171,16 +2207,6 @@
                 </div>
             </div>`;
         }).join('');
-
-        container.querySelectorAll('[data-filter-series]').forEach(el => {
-            el.addEventListener('click', e => {
-                e.stopPropagation();
-                const id = Number(el.dataset.filterSeries);
-                const series = state.series.content.find(s => s.seriesId === id);
-                const title = series ? series.title : state.seriesNames.get(id);
-                window.location.assign(buildGalleryFilterHref({seriesId: id, seriesTitle: title}));
-            });
-        });
 
         container.querySelectorAll('[data-open-series-directory]').forEach(el => {
             el.addEventListener('click', e => {
@@ -2314,6 +2340,7 @@
             openCollectionFormModal(null);
         }
 
+        syncViewNavigationHrefs();
         if (initialView && initialView !== 'all') {
             switchView(initialView);
         } else {

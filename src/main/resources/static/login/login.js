@@ -65,7 +65,7 @@ async function doInviteRedeem() {
       btn.disabled = false;
       return;
     }
-    window.location.href = data.redirect || '/pixiv-gallery.html';
+    window.location.href = data.redirect || '/pixiv-gallery.html?view=all';
   } catch (e) {
     showInviteError('网络错误：' + e.message);
     btn.disabled = false;

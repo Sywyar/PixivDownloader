@@ -195,6 +195,7 @@
 
     function buildGalleryFilterHref({tagId, tagName, tagTranslatedName, authorId, authorName, seriesId, seriesTitle} = {}) {
         const params = new URLSearchParams();
+        params.set('view', 'all');
         if (tagId != null) params.set('filterTagId', String(tagId));
         if (tagName) params.set('filterTag', tagName);
         if (tagTranslatedName) params.set('filterTagTranslated', tagTranslatedName);

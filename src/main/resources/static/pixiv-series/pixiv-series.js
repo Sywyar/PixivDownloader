@@ -132,6 +132,7 @@
             if (el) el.href = href;
         };
         const galleryHref = isNovelMode() ? '/pixiv-novel-gallery.html' : '/pixiv-gallery.html';
+        const galleryAllHref = `${galleryHref}?view=all`;
         setText('#navViewAll .nav-label', isNovelMode()
             ? pageText('novel:nav.all', 'All novels')
             : pageText('gallery:nav.all', 'All Artworks'));
@@ -144,11 +145,11 @@
         setText('#navGalleryHome .nav-label', isNovelMode()
             ? pageText('novel:gallery.type.novel', 'Novels')
             : pageText('gallery:nav.gallery', 'Gallery'));
-        setHref('#navViewAll', galleryHref);
+        setHref('#navViewAll', galleryAllHref);
         setHref('#navViewAuthors', `${galleryHref}?view=authors`);
         setHref('#navViewSeries', `${galleryHref}?view=series`);
-        setHref('#navGalleryHome', galleryHref);
-        setHref('#btnCreateCollection', `${galleryHref}?createCollection=1`);
+        setHref('#navGalleryHome', galleryAllHref);
+        setHref('#btnCreateCollection', `${galleryAllHref}&createCollection=1`);
         setText('.series-kicker', modeText('page.kicker', 'Manga Series Directory', 'Novel Series Directory'));
         setText('.nav-item.current .nav-label', modeText('nav.series-directory', 'Manga Series Directory', 'Novel Series Directory'));
         setText('#backToArtworkBtn span', modeText('button.back-to-artwork', 'Back to Current Artwork', 'Back to Current Novel'));
@@ -268,6 +269,7 @@
 
     function buildCollectionHref(collectionId) {
         const params = new URLSearchParams();
+        params.set('view', 'all');
         params.set('collectionIds', String(collectionId));
         return (isNovelMode() ? '/pixiv-novel-gallery.html' : '/pixiv-gallery.html') + '?' + params.toString();
     }
@@ -426,7 +428,7 @@
                 ? modeText('series.default', 'Series #{id}', 'Series #{id}', {id: state.seriesId})
                 : '';
             authorEl.style.display = 'none';
-            galleryBtn.href = isNovelMode() ? '/pixiv-novel-gallery.html' : '/pixiv-gallery.html';
+            galleryBtn.href = (isNovelMode() ? '/pixiv-novel-gallery.html' : '/pixiv-gallery.html') + '?view=all';
             renderCover();
             renderDescription();
             renderRefreshButton();
@@ -858,6 +860,7 @@
 
     function buildGalleryFilterHref({seriesId, seriesTitle, authorId, authorName} = {}) {
         const params = new URLSearchParams();
+        params.set('view', 'all');
         if (seriesId != null) params.set('filterSeriesId', String(seriesId));
         if (seriesTitle) params.set('filterSeriesTitle', seriesTitle);
         if (authorId != null) params.set('filterAuthorId', String(authorId));
@@ -867,6 +870,7 @@
 
     function buildNovelGalleryFilterHref({seriesId, seriesTitle} = {}) {
         const params = new URLSearchParams();
+        params.set('view', 'all');
         if (seriesId != null) params.set('seriesId', String(seriesId));
         if (seriesTitle) params.set('seriesTitle', seriesTitle);
         return '/pixiv-novel-gallery.html' + (params.toString() ? '?' + params.toString() : '');

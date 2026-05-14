@@ -1,6 +1,7 @@
 const PAGE_SIZE = 24;
 const HEART_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
 const SIDEBAR_STATE_STORAGE_KEY = 'pixiv:gallery-sidebar-state';
+const GALLERY_VIEW_VALUES = ['all', 'authors', 'series'];
 
 function parsePositiveIdList(raw) {
     return [...new Set(String(raw || '')
@@ -11,7 +12,39 @@ function parsePositiveIdList(raw) {
 
 function readViewParam(params) {
     const view = params.get('view');
-    return ['all', 'authors', 'series'].includes(view) ? view : null;
+    return GALLERY_VIEW_VALUES.includes(view) ? view : null;
+}
+
+function normalizeView(view) {
+    return GALLERY_VIEW_VALUES.includes(view) ? view : 'all';
+}
+
+function buildGalleryPageHref(path, view = state.view) {
+    const params = new URLSearchParams();
+    params.set('view', normalizeView(view));
+    return `${path}?${params.toString()}`;
+}
+
+function syncViewParamInUrl() {
+    const url = new URL(location.href);
+    url.searchParams.set('view', normalizeView(state.view));
+    const nextUrl = url.pathname + (url.search ? url.search : '') + url.hash;
+    const currentUrl = location.pathname + location.search + location.hash;
+    if (nextUrl !== currentUrl) {
+        history.replaceState(history.state, '', nextUrl);
+    }
+}
+
+function syncViewNavigationHrefs() {
+    document.querySelectorAll('.nav-item[data-view]').forEach(el => {
+        if (el.tagName === 'A') {
+            el.setAttribute('href', buildGalleryPageHref('/pixiv-novel-gallery.html', el.dataset.view));
+        }
+    });
+    const artworkGalleryLink = document.querySelector('.gallery-type-switch a[href^="/pixiv-gallery.html"]');
+    if (artworkGalleryLink) {
+        artworkGalleryLink.setAttribute('href', buildGalleryPageHref('/pixiv-gallery.html', state.view));
+    }
 }
 
 let pageI18n;
@@ -742,6 +775,7 @@ function setAuthorFilterExclusive(authorId, name) {
     state.exclusiveAuthorName = name || ('#' + authorId);
     state.selectedAuthors.clear();
     state.view = 'all';
+    syncViewParamInUrl();
     setActiveViewNav();
     state.page = 0;
     updateAuthorFilterBar();
@@ -762,7 +796,9 @@ function updateAuthorFilterBar() {
 
 // ---------- View switching ----------
 function switchView(v) {
+    v = normalizeView(v);
     state.view = v;
+    syncViewParamInUrl();
     setActiveViewNav();
     state.page = 0;
     state.authorsView.page = 0;
@@ -771,6 +807,7 @@ function switchView(v) {
 }
 
 function setActiveViewNav() {
+    syncViewNavigationHrefs();
     document.querySelectorAll('.nav-item[data-view]').forEach(el => {
         el.classList.toggle('active', el.dataset.view === state.view);
     });
@@ -1093,7 +1130,7 @@ function renderSeriesView(seriesList) {
         <div class="author-row series-row" data-series-id="${s.seriesId}" data-series-title="${esc(s.title || '')}">
             <div class="author-row-info">
                 ${cover}
-                <div class="author-row-name" data-filter-series="${s.seriesId}" title="${esc(title)}">${esc(title)}</div>
+                <div class="author-row-name" data-open-series-directory="${s.seriesId}" title="${esc(title)}">${esc(title)}</div>
                 <div class="author-row-count">${countText}</div>
                 ${authorLine}
                 ${tagsHtml}
@@ -1114,16 +1151,6 @@ function renderSeriesView(seriesList) {
             </div>
         </div>`;
     }).join('');
-
-    grid.querySelectorAll('[data-filter-series]').forEach(el => {
-        el.addEventListener('click', e => {
-            e.stopPropagation();
-            const sid = Number(el.dataset.filterSeries);
-            const row = el.closest('.series-row');
-            const stitle = row ? row.dataset.seriesTitle : '';
-            applySeriesFilterFromCard(sid, stitle);
-        });
-    });
 
     grid.querySelectorAll('[data-open-series-directory]').forEach(el => {
         el.addEventListener('click', e => {
@@ -1344,20 +1371,6 @@ function buildSeriesDirectoryHref(seriesId, seriesTitle) {
     });
     if (seriesTitle) params.set('seriesTitle', seriesTitle);
     return `/pixiv-series.html?${params.toString()}`;
-}
-
-function applySeriesFilterFromCard(seriesId, seriesTitle) {
-    state.selectedSeries.clear();
-    state.selectedSeries.set(seriesId, 'must');
-    if (!state.series.some(s => s.seriesId === seriesId)) {
-        state.series = [{ seriesId, title: seriesTitle, authorId: null, authorName: '', novelCount: 0 }, ...state.series];
-    }
-    renderSeriesChips();
-    state.view = 'all';
-    state.page = 0;
-    setActiveViewNav();
-    updateFilterBadge();
-    reloadCurrentView();
 }
 
 async function loadAuthorWorks(authorId, strip) {
