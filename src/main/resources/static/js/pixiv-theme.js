@@ -4,6 +4,12 @@
     var STORAGE_KEY = 'pixiv_theme';
     var DARK = 'dark';
     var LIGHT = 'light';
+    var THEME_CHANNEL_NAME = 'pixiv.theme';
+    var THEME_CHANGE_TYPE = 'theme-change';
+    var INSTANCE_ID = String(Date.now()) + '-' + String(Math.random()).slice(2);
+    var themeChannel = null;
+    var themeChannelInitialized = false;
+    var storageListenerInitialized = false;
     var buttons = [];
 
     var MOON_ICON = '' +
@@ -62,7 +68,72 @@
         button.dataset.theme = theme;
     }
 
-    function apply(theme, persist) {
+    function notifyThemeChange(theme) {
+        var payload = {
+            type: THEME_CHANGE_TYPE,
+            theme: normalize(theme),
+            source: INSTANCE_ID
+        };
+        var channel = ensureThemeChannel();
+        if (channel) {
+            try {
+                channel.postMessage(payload);
+            } catch (e) {
+                // The storage event remains as a fallback.
+            }
+        }
+    }
+
+    function applyExternalTheme(theme) {
+        apply(theme, false, false);
+    }
+
+    function ensureThemeChannel() {
+        if (themeChannelInitialized) {
+            return themeChannel;
+        }
+        themeChannelInitialized = true;
+        if (!global.BroadcastChannel) {
+            return null;
+        }
+        try {
+            themeChannel = new global.BroadcastChannel(THEME_CHANNEL_NAME);
+            themeChannel.onmessage = function (event) {
+                var payload = event && event.data ? event.data : {};
+                if (payload.type !== THEME_CHANGE_TYPE || payload.source === INSTANCE_ID || !payload.theme) {
+                    return;
+                }
+                applyExternalTheme(payload.theme);
+            };
+        } catch (e) {
+            themeChannel = null;
+        }
+        return themeChannel;
+    }
+
+    function ensureStorageListener() {
+        if (storageListenerInitialized || !global.addEventListener) {
+            return;
+        }
+        storageListenerInitialized = true;
+        global.addEventListener('storage', function (event) {
+            if (!event || event.key !== STORAGE_KEY || !event.newValue) {
+                return;
+            }
+            applyExternalTheme(event.newValue);
+        });
+    }
+
+    function dispatchThemeChange(theme) {
+        try {
+            global.dispatchEvent(new CustomEvent('pixiv-theme-change', {detail: {theme: theme}}));
+        } catch (e) {
+            // CustomEvent can be unavailable in older embedded browsers.
+        }
+    }
+
+    function apply(theme, persist, notifyOthers) {
+        var previousTheme = currentTheme();
         theme = setDocumentTheme(theme);
         if (persist !== false) {
             try {
@@ -72,16 +143,17 @@
             }
         }
         buttons.forEach(syncButton);
-        try {
-            global.dispatchEvent(new CustomEvent('pixiv-theme-change', {detail: {theme: theme}}));
-        } catch (e) {
-            // CustomEvent can be unavailable in older embedded browsers.
+        if (theme !== previousTheme) {
+            dispatchThemeChange(theme);
+        }
+        if (persist !== false && notifyOthers !== false) {
+            notifyThemeChange(theme);
         }
         return theme;
     }
 
     function toggle() {
-        return apply(currentTheme() === DARK ? LIGHT : DARK, true);
+        return apply(currentTheme() === DARK ? LIGHT : DARK, true, true);
     }
 
     function mount(options) {
@@ -101,16 +173,28 @@
             element: button,
             refresh: function () {
                 syncButton(button);
+            },
+            destroy: function () {
+                button.removeEventListener('click', toggle);
+                buttons = buttons.filter(function (item) {
+                    return item !== button;
+                });
+                if (button.parentNode) {
+                    button.parentNode.removeChild(button);
+                }
             }
         };
     }
 
-    apply(storedTheme(), false);
+    ensureThemeChannel();
+    ensureStorageListener();
+    apply(storedTheme(), false, false);
 
     global.PixivTheme = {
         apply: apply,
         current: currentTheme,
         mount: mount,
+        notifyThemeChange: notifyThemeChange,
         toggle: toggle
     };
 })(window);
