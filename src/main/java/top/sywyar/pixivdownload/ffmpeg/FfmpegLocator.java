@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
-import java.net.URISyntaxException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -165,21 +165,21 @@ public final class FfmpegLocator {
     }
 
     private static Optional<Path> packagedApplicationRoot() {
-        try {
-            Path location = Path.of(FfmpegLocator.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            if (Files.isRegularFile(location)) {
-                Path parent = location.getParent();
-                if (parent != null && parent.getFileName() != null
-                        && "app".equalsIgnoreCase(parent.getFileName().toString())) {
-                    Path appRoot = parent.getParent();
-                    if (appRoot != null && Files.isDirectory(appRoot)) {
-                        return Optional.of(appRoot);
-                    }
-                }
-                return Optional.ofNullable(parent).filter(Files::isDirectory);
-            }
-        } catch (URISyntaxException | NullPointerException ignored) {
+        Optional<Path> location = codeSourceFile();
+        if (location.isEmpty()) {
             return Optional.empty();
+        }
+        Path file = location.get();
+        if (Files.isRegularFile(file)) {
+            Path parent = file.getParent();
+            if (parent != null && parent.getFileName() != null
+                    && "app".equalsIgnoreCase(parent.getFileName().toString())) {
+                Path appRoot = parent.getParent();
+                if (appRoot != null && Files.isDirectory(appRoot)) {
+                    return Optional.of(appRoot);
+                }
+            }
+            return Optional.ofNullable(parent).filter(Files::isDirectory);
         }
         return Optional.empty();
     }
@@ -189,15 +189,48 @@ public final class FfmpegLocator {
         if (packagedRoot.isPresent()) {
             return packagedRoot;
         }
+        return codeSourceFile().filter(Files::isDirectory);
+    }
+
+    /**
+     * 解析当前类对应的磁盘文件/目录。
+     *
+     * <p>jpackage 启动的 Spring Boot fat-jar 经 {@code JarLauncher} 加载时，
+     * code source 的 location 是 {@code jar:} / {@code nested:} 形式的嵌套 URL
+     * （类位于 jar 内的嵌套 jar 中）。直接 {@code Path.of(uri)} 会被路由进
+     * {@code jdk.zipfs} 并抛出未受检的 {@link java.nio.file.FileSystemNotFoundException}。
+     * 这里剥掉 {@code jar:}/{@code nested:} 包裹与内部 entry，得到外层归档/目录的
+     * 真实路径；任何异常都吞掉返回空，FFmpeg 缺失只应降级而非中断启动。
+     */
+    private static Optional<Path> codeSourceFile() {
         try {
-            Path location = Path.of(FfmpegLocator.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-            if (Files.isDirectory(location)) {
-                return Optional.of(location);
+            var codeSource = FfmpegLocator.class.getProtectionDomain().getCodeSource();
+            if (codeSource == null || codeSource.getLocation() == null) {
+                return Optional.empty();
             }
-        } catch (URISyntaxException | NullPointerException ignored) {
+            String location = codeSource.getLocation().toString();
+            if (location.startsWith("jar:")) {
+                location = location.substring(4);
+            }
+            if (location.startsWith("nested:")) {
+                location = location.substring(7);
+            }
+            // 经典 jar 形式用 "!/" 分隔内部 entry，Spring Boot nested 形式用 "/!"，
+            // 截到第一个 '!' 再去掉可能残留的尾部 '/' 即可同时覆盖两者。
+            int entrySeparator = location.indexOf('!');
+            if (entrySeparator >= 0) {
+                location = location.substring(0, entrySeparator);
+            }
+            while (location.endsWith("/") && !location.endsWith(":/")) {
+                location = location.substring(0, location.length() - 1);
+            }
+            Path path = location.startsWith("file:")
+                    ? Path.of(new URI(location))
+                    : Path.of(location);
+            return Optional.of(path);
+        } catch (Exception ignored) {
             return Optional.empty();
         }
-        return Optional.empty();
     }
 
     private static Optional<Path> workingDirectory() {

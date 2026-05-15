@@ -29,7 +29,7 @@ $FfmpegUnpackDir = Join-Path $FfmpegDir "unpack"
 $AppName = "PixivDownload"
 $AppVendor = "sywyar"
 $MainClass = "org.springframework.boot.loader.launch.JarLauncher"
-$JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.management,jdk.unsupported,jdk.zipfs"
+$JreModules = "java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs"
 $FfmpegZipUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"
 $FfmpegExe = Join-Path $FfmpegDir "ffmpeg.exe"
 $FfprobeExe = Join-Path $FfmpegDir "ffprobe.exe"
@@ -237,6 +237,8 @@ try {
         "--runtime-image", $RuntimeDir,
         "--icon", "src/main/resources/static/favicon.ico",
         "--java-options", "-Dfile.encoding=UTF-8",
+        "--java-options", "-Dstdout.encoding=UTF-8",
+        "--java-options", "-Dstderr.encoding=UTF-8",
         "--dest", $OnlineAppImageRoot
     )
 

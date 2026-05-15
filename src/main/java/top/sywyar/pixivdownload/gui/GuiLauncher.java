@@ -93,6 +93,13 @@ public class GuiLauncher {
                 AppVersion.getDisplayVersionOrDefault(logMessage("app.version.unknown"))));
         log.info(logMessage("gui.launcher.log.starting", Arrays.toString(args)));
 
+        // ── 安装全局未捕获异常处理器 ────────────────────────────────────────────
+        //    jpackage 窗口化 exe 没有控制台，stderr 不可见。若不在此兜底，
+        //    EDT / 后台线程上的异常会被静默吞掉：进程几秒后无痕退出，
+        //    日志只停在上面两行。安装后任何线程（含 AWT-EventQueue）的
+        //    未捕获异常都会落进文件日志，必要时弹窗，便于排查。
+        installGlobalExceptionHandler();
+
         boolean startupLaunch = AutoStartManager.isStartupLaunch(args);
 
         SingleInstanceManager singleInstanceManager;
@@ -167,15 +174,66 @@ public class GuiLauncher {
 
         // ── 3. 初始化 Swing + FlatLaf，展示主窗口 ────────────────────────────────
         SwingUtilities.invokeLater(() -> {
-            FlatLafSetup.apply();
-            MainFrame frame = new MainFrame(port, root, configPath);
-            singleInstanceManager.setActivationHandler(() -> SwingUtilities.invokeLater(frame::showWindow));
-            boolean trayInstalled = SystemTrayManager.install(frame, root);
-            if (!startupLaunch || !trayInstalled) {
-                frame.showWindow();
+            try {
+                FlatLafSetup.apply();
+                MainFrame frame = new MainFrame(port, root, configPath);
+                singleInstanceManager.setActivationHandler(() -> SwingUtilities.invokeLater(frame::showWindow));
+                boolean trayInstalled = SystemTrayManager.install(frame, root);
+                if (!startupLaunch || !trayInstalled) {
+                    frame.showWindow();
+                }
+                maybeScheduleStartupBackfillFlow(frame, configPath, root);
+            } catch (Throwable t) {
+                // 没有这层兜底，异常只会打到不可见的 stderr，EDT 随即收摊、
+                // JVM 静默退出，日志永远停在启动那两行。务必先落盘再退出。
+                handleFatalGuiBootstrapFailure(t);
             }
-            maybeScheduleStartupBackfillFlow(frame, configPath, root);
         });
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // 全局异常兜底（防止进程无痕消失）
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 安装进程级未捕获异常处理器。EDT（{@code AWT-EventQueue-*}）与任何后台线程
+     * 抛出的未捕获异常都会被写入文件日志；致命的引导期失败还会弹窗并以非零码退出，
+     * 避免「进程出现几秒就消失、日志只有两行」这种无法排查的情况。
+     */
+    private static void installGlobalExceptionHandler() {
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            try {
+                log.error(logMessage("gui.launcher.log.uncaught-exception",
+                        thread.getName(), safeMessage(error)), error);
+            } catch (Throwable loggingFailure) {
+                System.err.println("[GuiLauncher] uncaught exception on "
+                        + thread.getName() + ": " + error);
+                error.printStackTrace();
+            }
+        });
+    }
+
+    /**
+     * GUI 引导期（FlatLaf / 主窗口 / 托盘）致命失败时的统一处理：
+     * 先保证异常落盘，再尽力弹窗告知用户，最后以非零码显式退出，
+     * 使行为可预测、可诊断，而不是静默消失。
+     */
+    private static void handleFatalGuiBootstrapFailure(Throwable t) {
+        logStartupFailure(t);
+        try {
+            JOptionPane.showMessageDialog(
+                    null,
+                    message("gui.launcher.dialog.startup-error.with-log.message",
+                            safeMessage(t), Path.of(LOG_LATEST).toAbsolutePath()),
+                    message("gui.launcher.dialog.startup-error.title"),
+                    JOptionPane.ERROR_MESSAGE);
+        } catch (Throwable dialogFailure) {
+            log.error(logMessage("gui.launcher.log.startup.failed.generic",
+                    safeMessage(dialogFailure)), dialogFailure);
+        }
+        // System.exit（而非 halt）：让单实例 shutdown hook 释放锁，
+        // 否则下次启动会误判为「已在运行」。
+        System.exit(1);
     }
 
     // ────────────────────────────────────────────────────────────────────────

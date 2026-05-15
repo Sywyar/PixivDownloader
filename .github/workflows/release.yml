@@ -16,7 +16,7 @@ env:
   APP_NAME: PixivDownload
   APP_VENDOR: sywyar
   MAIN_CLASS: org.springframework.boot.loader.launch.JarLauncher
-  JRE_MODULES: java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.management,jdk.unsupported,jdk.zipfs
+  JRE_MODULES: java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs
 
 jobs:
   build-jar:
@@ -147,6 +147,8 @@ jobs:
             --runtime-image build/runtime \
             --icon src/main/resources/static/favicon.ico \
             --java-options "-Dfile.encoding=UTF-8" \
+            --java-options "-Dstdout.encoding=UTF-8" \
+            --java-options "-Dstderr.encoding=UTF-8" \
             --dest build/app-image-online
 
       - name: Patch launcher to request administrator rights
