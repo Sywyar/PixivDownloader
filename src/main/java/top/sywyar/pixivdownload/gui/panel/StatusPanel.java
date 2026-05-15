@@ -86,8 +86,15 @@ public class StatusPanel extends JPanel {
     private final JLabel updateBannerLabel = new JLabel();
     private final JButton updateBannerInstallButton = new JButton();
     private final JButton updateBannerDismissButton = new JButton();
+    private final JProgressBar updateProgressBar = new JProgressBar(0, 100);
+    private final JLabel updateProgressLabel = new JLabel();
+    private JPanel updateProgressPanel;
     private volatile String pendingInstallerUrl;
     private volatile long pendingInstallerSize;
+    private volatile String savedBannerVersionText;
+    private volatile Timer downloadProgressTimer;
+    private LocaleOption currentAppliedLanguageOption;
+    private final java.awt.event.ActionListener languageActionListener = e -> applyLanguageSelection();
 
     public StatusPanel(int serverPort, String rootFolder, Path configPath, Runnable onLocaleChanged) {
         this.serverPort = serverPort;
@@ -270,6 +277,21 @@ public class StatusPanel extends JPanel {
                 BorderFactory.createEmptyBorder(8, 12, 8, 12)));
         updateBannerLabel.setFont(updateBannerLabel.getFont().deriveFont(Font.BOLD));
 
+        updateProgressLabel.setFont(updateProgressLabel.getFont().deriveFont(11f));
+        updateProgressLabel.setForeground(Color.GRAY);
+        updateProgressPanel = new JPanel(new BorderLayout(8, 0));
+        updateProgressPanel.setOpaque(false);
+        updateProgressPanel.add(updateProgressBar, BorderLayout.CENTER);
+        updateProgressPanel.add(updateProgressLabel, BorderLayout.EAST);
+        updateProgressPanel.setVisible(false);
+
+        JPanel left = new JPanel();
+        left.setOpaque(false);
+        left.setLayout(new BoxLayout(left, BoxLayout.Y_AXIS));
+        left.add(updateBannerLabel);
+        left.add(Box.createVerticalStrut(4));
+        left.add(updateProgressPanel);
+
         updateBannerInstallButton.setText(message("gui.update.banner.install"));
         updateBannerInstallButton.addActionListener(e -> triggerUpdateInstall());
 
@@ -281,7 +303,7 @@ public class StatusPanel extends JPanel {
         actions.add(updateBannerInstallButton);
         actions.add(updateBannerDismissButton);
 
-        updateBanner.add(updateBannerLabel, BorderLayout.CENTER);
+        updateBanner.add(left, BorderLayout.CENTER);
         updateBanner.add(actions, BorderLayout.EAST);
         updateBanner.setVisible(false);
         return updateBanner;
@@ -311,7 +333,7 @@ public class StatusPanel extends JPanel {
         }
         selectInitialLanguageOption(options);
         languageCombo.setToolTipText(message("gui.status.language.tooltip"));
-        languageCombo.addActionListener(e -> applyLanguageSelection());
+        languageCombo.addActionListener(languageActionListener);
 
         row.add(label);
         row.add(languageCombo);
@@ -326,21 +348,25 @@ public class StatusPanel extends JPanel {
         String persisted = readPersistedLanguageTag();
         if (persisted == null || persisted.isBlank()) {
             languageCombo.setSelectedItem(options[0]);
+            currentAppliedLanguageOption = options[0];
             return;
         }
         Locale parsed = AppLocale.parse(persisted);
         if (parsed == null) {
             languageCombo.setSelectedItem(options[0]);
+            currentAppliedLanguageOption = options[0];
             return;
         }
         Locale normalized = AppLocale.normalize(parsed);
         for (LocaleOption option : options) {
             if (option.locale() != null && option.locale().equals(normalized)) {
                 languageCombo.setSelectedItem(option);
+                currentAppliedLanguageOption = option;
                 return;
             }
         }
         languageCombo.setSelectedItem(options[0]);
+        currentAppliedLanguageOption = options[0];
     }
 
     private String readPersistedLanguageTag() {
@@ -356,6 +382,18 @@ public class StatusPanel extends JPanel {
     }
 
     private void applyLanguageSelection() {
+        if (updateInstalling) {
+            languageCombo.removeActionListener(languageActionListener);
+            if (currentAppliedLanguageOption != null) {
+                languageCombo.setSelectedItem(currentAppliedLanguageOption);
+            }
+            languageCombo.addActionListener(languageActionListener);
+            JOptionPane.showMessageDialog(this,
+                    message("gui.update.dialog.language-blocked.message"),
+                    message("gui.dialog.please-wait.title"), JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
         LocaleOption option = (LocaleOption) languageCombo.getSelectedItem();
         if (option == null) {
             return;
@@ -379,6 +417,8 @@ public class StatusPanel extends JPanel {
                     message("gui.status.language.persist-failed.message"),
                     message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
         }
+
+        currentAppliedLanguageOption = option;
 
         if (onLocaleChanged != null) {
             // 回调将销毁本 Panel 并重建标签页，因此异步触发，避免在控件回调链中改变父容器
@@ -813,6 +853,7 @@ public class StatusPanel extends JPanel {
         if (pollTimer != null) {
             pollTimer.stop();
         }
+        stopDownloadProgressTimer();
         BackendLifecycleManager.removeListener(backendListener);
     }
 
@@ -937,40 +978,119 @@ public class StatusPanel extends JPanel {
             return;
         }
         updateInstalling = true;
+        savedBannerVersionText = updateBannerLabel.getText();
+        updateBannerLabel.setText(message("gui.update.banner.downloading"));
         updateBannerInstallButton.setEnabled(false);
+        updateBannerDismissButton.setEnabled(false);
+        updateProgressBar.setIndeterminate(true);
+        updateProgressBar.setValue(0);
+        updateProgressLabel.setText("");
+        updateProgressPanel.setVisible(true);
+        updateBanner.revalidate();
+        updateBanner.repaint();
+
+        downloadProgressTimer = new Timer(500, e -> pollDownloadProgress());
+        downloadProgressTimer.setInitialDelay(800);
+        downloadProgressTimer.start();
 
         SwingWorker<JsonNode, Void> worker = new SwingWorker<>() {
             @Override
-            protected JsonNode doInBackground() {
-                return callUpdateEndpoint("POST", "/api/gui/update/download", null);
+            protected JsonNode doInBackground() throws InterruptedException {
+                // 发起下载（立即返回 202）；超时只需覆盖握手时间
+                JsonNode startResp = callUpdateEndpoint("POST", "/api/gui/update/download", null, 10_000);
+                // 409 = 已有下载进行中，startResp 含 error 字段
+                if (startResp != null && startResp.hasNonNull("error")) {
+                    return startResp;
+                }
+
+                // 轮询直到 done 或 failed，间隔 1 秒，无硬超时
+                while (!Thread.currentThread().isInterrupted()) {
+                    Thread.sleep(1000);
+                    JsonNode progress = callUpdateEndpoint("GET", "/api/gui/update/download/progress", null, 5_000);
+                    if (progress == null) continue;
+                    if (progress.path("done").asBoolean(false) || progress.path("failed").asBoolean(false)) {
+                        return progress;
+                    }
+                }
+                return null;
             }
 
             @Override
             protected void done() {
+                stopDownloadProgressTimer();
+                updateProgressPanel.setVisible(false);
                 JsonNode result;
                 try {
                     result = get();
                 } catch (Exception e) {
-                    updateInstalling = false;
-                    updateBannerInstallButton.setEnabled(true);
+                    restoreBannerAfterInstallFailure();
                     JOptionPane.showMessageDialog(StatusPanel.this,
                             message("gui.update.dialog.download-failed.message", safeText(e)),
                             message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-                if (result == null || result.hasNonNull("error") || !result.has("installerPath")) {
-                    updateInstalling = false;
-                    updateBannerInstallButton.setEnabled(true);
-                    String err = result == null ? "" : result.path("error").asText("");
+                if (result == null || result.path("failed").asBoolean(false) || result.hasNonNull("error")) {
+                    restoreBannerAfterInstallFailure();
+                    String err = result == null ? "" : result.path("error").asText(result.path("failed").asText(""));
                     JOptionPane.showMessageDialog(StatusPanel.this,
                             message("gui.update.dialog.download-failed.message", err),
                             message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-                launchInstaller(result.path("installerPath").asText(""));
+                String installerPath = result.path("installerPath").asText("");
+                if (installerPath.isBlank()) {
+                    restoreBannerAfterInstallFailure();
+                    JOptionPane.showMessageDialog(StatusPanel.this,
+                            message("gui.update.dialog.download-failed.message", "installer path missing"),
+                            message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                launchInstaller(installerPath);
             }
         };
         worker.execute();
+    }
+
+    private void stopDownloadProgressTimer() {
+        Timer t = downloadProgressTimer;
+        if (t != null) {
+            t.stop();
+            downloadProgressTimer = null;
+        }
+    }
+
+    private void restoreBannerAfterInstallFailure() {
+        updateInstalling = false;
+        updateBannerInstallButton.setEnabled(true);
+        updateBannerDismissButton.setEnabled(true);
+        if (savedBannerVersionText != null) {
+            updateBannerLabel.setText(savedBannerVersionText);
+        }
+    }
+
+    private void pollDownloadProgress() {
+        Thread t = new Thread(() -> {
+            JsonNode node = callUpdateEndpoint("GET", "/api/gui/update/download/progress", null);
+            SwingUtilities.invokeLater(() -> applyDownloadProgress(node));
+        }, "gui-update-progress");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    private void applyDownloadProgress(JsonNode node) {
+        if (node == null) return;
+        long received = node.path("received").asLong(0);
+        long total = node.path("total").asLong(0);
+        if (total > 0) {
+            int pct = (int) Math.min(100L, received * 100L / total);
+            updateProgressBar.setIndeterminate(false);
+            updateProgressBar.setValue(pct);
+            updateProgressLabel.setText(message("gui.update.banner.progress.label",
+                    formatSize(received), formatSize(total), pct));
+        } else if (received > 0) {
+            updateProgressBar.setIndeterminate(false);
+            updateProgressLabel.setText(formatSize(received));
+        }
     }
 
     private String extractFromBanner() {
@@ -1005,6 +1125,14 @@ public class StatusPanel extends JPanel {
      * 返回 JSON 节点；HTTP 失败或异常时返回 null。
      */
     private JsonNode callUpdateEndpoint(String method, String path, String formBody) {
+        return callUpdateEndpoint(method, path, formBody, 60_000);
+    }
+
+    /**
+     * 同上，允许自定义读超时（毫秒）。下载安装包等长耗时操作应传入较大值。
+     */
+    private JsonNode callUpdateEndpoint(String method, String path, String formBody, int readTimeoutMs) {
+        // 优先尝试当前已知可用的 scheme，避免将 TLS 握手字节发送到 HTTP 端口
         String[] schemes = "https".equals(currentScheme)
                 ? new String[]{"https", "http"}
                 : new String[]{"http", "https"};
@@ -1018,7 +1146,7 @@ public class StatusPanel extends JPanel {
                     https.setHostnameVerifier((h, s) -> true);
                 }
                 conn.setConnectTimeout(5000);
-                conn.setReadTimeout(60000);
+                conn.setReadTimeout(readTimeoutMs);
                 conn.setRequestMethod(method);
                 if (formBody != null) {
                     conn.setDoOutput(true);

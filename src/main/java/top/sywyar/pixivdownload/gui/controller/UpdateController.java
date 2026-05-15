@@ -12,7 +12,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.update.UpdateCheckResult;
-import top.sywyar.pixivdownload.update.UpdateDownloadResult;
 import top.sywyar.pixivdownload.update.UpdateService;
 
 import java.io.IOException;
@@ -56,7 +55,8 @@ public class UpdateController {
     }
 
     /**
-     * 下载已检查到的安装包到运行目录。需要 {@link UpdateCheckResult#isUpdateAvailable()} 为 true。
+     * 启动安装包后台下载，立即返回 202。GUI 通过 {@code /download/progress} 轮询进度直到完成。
+     * 若已有下载正在进行，返回 409。
      */
     @PostMapping("/download")
     public ResponseEntity<?> download(HttpServletRequest req) {
@@ -64,15 +64,23 @@ public class UpdateController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         try {
-            UpdateDownloadResult result = updateService.downloadInstaller();
-            return ResponseEntity.ok(result);
+            updateService.startDownloadAsync();
+            return ResponseEntity.accepted().build();
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
-        } catch (IOException e) {
-            log.warn("Update installer download failed", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", e.getMessage()));
         }
+    }
+
+    /**
+     * 返回当前安装包下载进度。无活跃下载时返回 204。GUI 在下载期间轮询此端点更新进度条。
+     */
+    @GetMapping("/download/progress")
+    public ResponseEntity<?> downloadProgress(HttpServletRequest req) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        UpdateService.DownloadProgress progress = updateService.getDownloadProgress();
+        return progress == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(progress);
     }
 
     /**

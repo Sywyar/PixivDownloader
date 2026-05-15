@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -83,8 +84,16 @@ public class UpdateService {
     private final RestTemplate downloadRestTemplate;
     private final AppMessages messages;
 
+    /**
+     * 下载安装包时的实时进度；null 表示当前没有进行中的下载。
+     * done=true 时 installerPath 携带落盘后的绝对路径，供 GUI 直接传给安装步骤。
+     */
+    public record DownloadProgress(long received, long total, boolean done, boolean failed, String error, String installerPath) {}
+
     private volatile UpdateCheckResult lastResult;
     private volatile Instant lastSuccessfulCheckAt;
+    private volatile DownloadProgress currentDownloadProgress;
+    private volatile boolean downloadInProgress;
 
     public UpdateService(UpdateConfig updateConfig,
                          @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
@@ -191,6 +200,45 @@ public class UpdateService {
         return lastResult;
     }
 
+    public DownloadProgress getDownloadProgress() {
+        return currentDownloadProgress;
+    }
+
+    /**
+     * 在后台线程异步启动安装包下载，立即返回。
+     * 进度通过 {@link #currentDownloadProgress} 暴露；GUI 轮询 {@code /api/gui/update/download/progress}。
+     *
+     * @throws IllegalStateException 若已有下载正在进行，或无可用的更新资产
+     */
+    public synchronized void startDownloadAsync() {
+        if (downloadInProgress) {
+            throw new IllegalStateException("Download already in progress");
+        }
+        UpdateCheckResult check = lastResult;
+        if (check == null || !check.isUpdateAvailable() || check.getAssetUrl() == null) {
+            throw new IllegalStateException(forLog("update.error.asset.missing-url"));
+        }
+        downloadInProgress = true;
+        long declaredSize = check.getAssetSizeBytes();
+        currentDownloadProgress = new DownloadProgress(0, declaredSize, false, false, null, null);
+
+        Thread worker = new Thread(() -> {
+            try {
+                downloadInstaller();
+            } catch (Exception e) {
+                DownloadProgress cur = currentDownloadProgress;
+                if (cur == null || (!cur.done() && !cur.failed())) {
+                    currentDownloadProgress = new DownloadProgress(
+                            cur != null ? cur.received() : 0, declaredSize, false, true, e.getMessage(), null);
+                }
+            } finally {
+                downloadInProgress = false;
+            }
+        }, "update-download");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
     /**
      * 启动时静默自动检查。在最小间隔内不会重复联网；不会抛出异常。
      * Spring 就绪后异步触发，避免阻塞启动流程。
@@ -280,6 +328,7 @@ public class UpdateService {
     /**
      * 下载已检查到的 installer。调用前应先调用 {@link #checkForUpdate(boolean)} 并确认
      * {@code updateAvailable} 为 true。
+     * <p>下载过程中实时更新 {@link #currentDownloadProgress}，供 GUI 轮询展示进度。
      */
     public UpdateDownloadResult downloadInstaller() throws IOException {
         UpdateCheckResult check = lastResult;
@@ -291,9 +340,10 @@ public class UpdateService {
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             throw new IllegalStateException(forLog("update.error.asset.url-not-allowed", url));
         }
-        if (check.getAssetSizeBytes() > MAX_INSTALLER_BYTES) {
+        long declaredSize = check.getAssetSizeBytes();
+        if (declaredSize > MAX_INSTALLER_BYTES) {
             throw new IllegalStateException(forLog("update.error.asset.size-too-large",
-                    check.getAssetSizeBytes(), MAX_INSTALLER_BYTES));
+                    declaredSize, MAX_INSTALLER_BYTES));
         }
 
         Files.createDirectories(INSTALLER_CACHE_DIR);
@@ -301,45 +351,61 @@ public class UpdateService {
         Path tmp = INSTALLER_CACHE_DIR.resolve(target.getFileName() + ".part");
 
         log.info(forLog("update.log.download.starting", url));
+        currentDownloadProgress = new DownloadProgress(0, declaredSize, false, false, null, null);
 
-        ResponseEntity<byte[]> response;
+        HttpHeaders requestHeaders = new HttpHeaders();
+        requestHeaders.set(HttpHeaders.USER_AGENT, "PixivDownload-Updater");
+
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.set(HttpHeaders.USER_AGENT, "PixivDownload-Updater");
-            response = downloadRestTemplate.exchange(
-                    URI.create(url),
-                    org.springframework.http.HttpMethod.GET,
-                    new org.springframework.http.HttpEntity<>(headers),
-                    byte[].class);
+            downloadRestTemplate.execute(URI.create(url), HttpMethod.GET,
+                    req -> req.getHeaders().putAll(requestHeaders),
+                    response -> {
+                        long contentLength = response.getHeaders().getContentLength();
+                        long total = contentLength > 0 ? contentLength : declaredSize;
+                        try (InputStream in = response.getBody();
+                             OutputStream out = Files.newOutputStream(tmp)) {
+                            byte[] buf = new byte[65536];
+                            long received = 0;
+                            int read;
+                            while ((read = in.read(buf)) != -1) {
+                                if (received + read > MAX_INSTALLER_BYTES) {
+                                    throw new IOException(forLog("update.error.asset.size-too-large",
+                                            received + read, MAX_INSTALLER_BYTES));
+                                }
+                                out.write(buf, 0, read);
+                                received += read;
+                                currentDownloadProgress = new DownloadProgress(received, total, false, false, null, null);
+                            }
+                        }
+                        return null;
+                    });
         } catch (RestClientException e) {
-            throw new IOException(forLog("update.log.download.failed", e.getMessage()), e);
+            Files.deleteIfExists(tmp);
+            Throwable cause = e.getCause();
+            String errMsg = cause != null ? cause.getMessage() : e.getMessage();
+            currentDownloadProgress = new DownloadProgress(
+                    currentDownloadProgress != null ? currentDownloadProgress.received() : 0,
+                    declaredSize, false, true, errMsg, null);
+            throw new IOException(forLog("update.log.download.failed", errMsg), e);
         }
-
-        if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
-            throw new IOException(forLog("update.log.download.failed",
-                    "HTTP " + response.getStatusCode().value()));
-        }
-
-        byte[] body = response.getBody();
-        if (body.length > MAX_INSTALLER_BYTES) {
-            throw new IOException(forLog("update.error.asset.size-too-large", body.length, MAX_INSTALLER_BYTES));
-        }
-
-        Files.write(tmp, body);
 
         String expected = check.getAssetSha256();
+        long finalSize = Files.size(tmp);
         String actual = sha256(tmp);
         if (expected != null && !expected.isBlank() && !expected.equalsIgnoreCase(actual)) {
             Files.deleteIfExists(tmp);
-            throw new IOException(forLog("update.log.download.checksum-mismatch", expected, actual));
+            String msg = forLog("update.log.download.checksum-mismatch", expected, actual);
+            currentDownloadProgress = new DownloadProgress(finalSize, declaredSize, false, true, msg, null);
+            throw new IOException(msg);
         }
 
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
-        log.info(forLog("update.log.download.completed", target.toAbsolutePath(), body.length));
+        currentDownloadProgress = new DownloadProgress(finalSize, finalSize, true, false, null, target.toAbsolutePath().toString());
+        log.info(forLog("update.log.download.completed", target.toAbsolutePath(), finalSize));
 
         return UpdateDownloadResult.builder()
                 .installerPath(target.toAbsolutePath().toString())
-                .sizeBytes(body.length)
+                .sizeBytes(finalSize)
                 .sha256(actual)
                 .version(check.getLatestVersion())
                 .build();
