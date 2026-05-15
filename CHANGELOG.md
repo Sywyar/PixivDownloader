@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [v1.8.1] - 2026-05-15
+
+### Features
+- Windows GUI 新增在线更新能力：启动后可静默检查新版本，状态页可手动检查；发现新版时显示更新横幅，并可下载、校验安装包后启动安装程序
+- GUI 配置页新增“在线更新”配置组，支持配置更新清单 URL、启用/关闭更新检查以及启动后自动检查
+- GUI 配置页支持部分配置保存后热重载，代理、多用户配额与限流、下载扁平目录、登录限流、维护开关、HTTPS 域名和在线更新配置无需重启即可应用；界面会标注“热重载”或“需重启”
+- 监控页接入浅色/暗色主题切换，统计图会随主题刷新；主题切换会同步到其他已打开页面
+
+### Changed
+- GUI 状态页默认窗口尺寸增大，状态页支持滚动，并将页面跳转与功能操作分组展示，减少 FFmpeg 状态、更新横幅和操作按钮在小窗口中被截断的问题
+- 批量下载页的油猴脚本安装卡片适配浅色/暗色主题，安装与源码按钮显示更一致
+
+### Security
+- setup 初始化、GUI 状态/重启/配置热重载/更新、迁移和维护等本地管理端点新增 Origin 校验，防止外部网页借浏览器访问 `localhost` 发起副作用请求
+
+### Build
+- 发布产物新增在线更新清单，供 GUI 在线更新功能识别最新版本和安装包校验信息
+
+### Removed
+- Release 不再发布 Windows 便携 zip 包；Windows 用户请使用安装包，仍可按 README 开发指南在本地构建便携版
+
+### Documentation
+- README.md 与 README_en.md 重整项目简介、安装说明和截图入口，并拆分浅色/暗色模式截图文档
+
 ## [v1.8.0] - 2026-05-14
 
 ### Features
