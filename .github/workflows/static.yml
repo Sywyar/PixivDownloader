@@ -34,12 +34,26 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
-      - name: Set intro.html as index
-        run: cp src/main/resources/static/intro.html src/main/resources/static/index.html
+      - name: Prepare Pages artifact
+        shell: bash
+        run: |
+          rm -rf build/pages
+          mkdir -p build/pages
+          cp -R src/main/resources/static/. build/pages/
+          cp src/main/resources/static/intro.html build/pages/index.html
+
+          # GitHub Pages project sites are served from /<repo>/, so root-relative
+          # local asset paths like /intro/intro.css would miss the repository prefix.
+          sed -i -E 's#(src|href)="/(js|vendor|intro)/#\1="\2/#g' build/pages/index.html build/pages/intro.html
+
+          test -f build/pages/intro/intro.css
+          test -f build/pages/intro/intro.js
+          test -f build/pages/js/pixiv-i18n.js
+          test -f build/pages/js/pixiv-lang-switcher.js
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'src/main/resources/static'
+          path: 'build/pages'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
