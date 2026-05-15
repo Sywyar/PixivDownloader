@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.AutoStartManager;
+import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.*;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -569,6 +570,10 @@ public class ConfigPanel extends JPanel {
                 conn.setConnectTimeout(2000);
                 conn.setReadTimeout(5000);
                 conn.setRequestMethod("POST");
+                String guiToken = GuiTokenHolder.get();
+                if (guiToken != null) {
+                    conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
+                }
                 int status = conn.getResponseCode();
                 if (status >= 200 && status < 300) {
                     return true;

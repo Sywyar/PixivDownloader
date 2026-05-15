@@ -19,6 +19,8 @@ import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.gui.GuiTokenHolder;
+import top.sywyar.pixivdownload.gui.GuiTokenService;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
@@ -147,6 +149,7 @@ public class AuthFilter extends OncePerRequestFilter {
     private final AppMessages messages;
     private final ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider;
     private final GuestInviteService guestInviteService;
+    private final GuiTokenService guiTokenService;
 
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res,
@@ -155,6 +158,17 @@ public class AuthFilter extends OncePerRequestFilter {
         String method = req.getMethod();
 
         if ("OPTIONS".equalsIgnoreCase(method)) {
+            chain.doFilter(req, res);
+            return;
+        }
+
+        // GUI 路径：必须同时满足本地请求 + 有效的 GUI 令牌，通过后跳过所有后续过滤逻辑。
+        // 置于维护检查之前，确保 GUI 在维护窗口内仍可操控后端。
+        if (path.startsWith("/api/gui/")) {
+            if (!isValidGuiRequest(req)) {
+                sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
+                return;
+            }
             chain.doFilter(req, res);
             return;
         }
@@ -348,8 +362,18 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private boolean isAlwaysPublicApi(String path) {
         return path.startsWith("/api/auth/")
-                || path.startsWith("/api/i18n/")
-                || path.startsWith("/api/gui/");
+                || path.startsWith("/api/i18n/");
+    }
+
+    private boolean isValidGuiRequest(HttpServletRequest req) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
+            return false;
+        }
+        String token = guiTokenService.getToken();
+        if (token == null) {
+            return false;
+        }
+        return token.equals(req.getHeader(GuiTokenHolder.HEADER_NAME));
     }
 
     private boolean isDefaultPublicPath(String path) {
@@ -364,7 +388,6 @@ public class AuthFilter extends OncePerRequestFilter {
                 || path.startsWith("/api/setup/")
                 || path.startsWith("/api/auth/")
                 || path.startsWith("/api/i18n/")
-                || path.startsWith("/api/gui/")
                 || path.startsWith("/api/scripts/")
                 || path.equals("/invite");
     }

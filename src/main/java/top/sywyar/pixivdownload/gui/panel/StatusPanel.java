@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.AppLocale;
@@ -497,6 +498,10 @@ public class StatusPanel extends JPanel {
                     conn.setConnectTimeout(2000);
                     conn.setReadTimeout(2000);
                     conn.setRequestMethod("GET");
+                    String guiToken = GuiTokenHolder.get();
+                    if (guiToken != null) {
+                        conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
+                    }
 
                     if (conn.getResponseCode() == 200) {
                         success = true;
@@ -1148,6 +1153,10 @@ public class StatusPanel extends JPanel {
                 conn.setConnectTimeout(5000);
                 conn.setReadTimeout(readTimeoutMs);
                 conn.setRequestMethod(method);
+                String guiToken = GuiTokenHolder.get();
+                if (guiToken != null) {
+                    conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
+                }
                 if (formBody != null) {
                     conn.setDoOutput(true);
                     conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
