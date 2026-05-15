@@ -64,7 +64,7 @@ public class MainFrame extends JFrame {
         statusPanel = new StatusPanel(serverPort, rootFolder, configPath, this::reloadLocale);
         toolsPanel = new ToolsPanel(configPath);
         tabs.addTab(GuiMessages.get("gui.tab.status"), statusPanel);
-        tabs.addTab(GuiMessages.get("gui.tab.config"), new ConfigPanel(configPath));
+        tabs.addTab(GuiMessages.get("gui.tab.config"), new ConfigPanel(configPath, serverPort));
         tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
         tabs.addTab(GuiMessages.get("gui.tab.about"), new AboutPanel());
         return tabs;

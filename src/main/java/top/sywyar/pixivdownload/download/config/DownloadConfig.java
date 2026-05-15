@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConfigurationProperties(prefix = "download")
 public class DownloadConfig {
-    private String rootFolder = "pixiv-download";
+    private volatile String rootFolder = "pixiv-download";
 
     public String getRootFolder() {
         return rootFolder == null ? "pixiv-download" : rootFolder.replaceAll("[/\\\\]+$", "");
@@ -19,6 +19,6 @@ public class DownloadConfig {
      * false（默认）→ {rootFolder}/{username}/{artworkId}/
      * true          → {rootFolder}/{artworkId}/（与批量导入单作品相同）
      */
-    private boolean userFlatFolder = false;
+    private volatile boolean userFlatFolder = false;
 
 }

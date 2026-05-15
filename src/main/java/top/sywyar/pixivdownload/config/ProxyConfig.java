@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "proxy")
 public class ProxyConfig {
-    private boolean enabled = true;
-    private String host = "127.0.0.1";
-    private int port = 7890;
+    private volatile boolean enabled = true;
+    private volatile String host = "127.0.0.1";
+    private volatile int port = 7890;
 }

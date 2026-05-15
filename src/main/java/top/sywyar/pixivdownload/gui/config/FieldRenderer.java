@@ -149,15 +149,17 @@ public final class FieldRenderer {
         gbc.weightx = 1;
         panel.add(control, gbc);
 
-        // 需重启标记
-        if (spec.requiresRestart()) {
-            JLabel restart = new JLabel(message("gui.label.restart-required"));
-            restart.setFont(restart.getFont().deriveFont(Font.PLAIN, 11f));
-            restart.setForeground(new Color(180, 100, 0));
-            gbc.gridx = 2;
-            gbc.weightx = 0;
-            panel.add(restart, gbc);
-        }
+        // 生效方式标记
+        JLabel effect = new JLabel(message(spec.requiresRestart()
+                ? "gui.label.restart-required"
+                : "gui.label.hot-reload"));
+        effect.setFont(effect.getFont().deriveFont(Font.PLAIN, 11f));
+        effect.setForeground(spec.requiresRestart()
+                ? new Color(180, 100, 0)
+                : new Color(0, 128, 96));
+        gbc.gridx = 2;
+        gbc.weightx = 0;
+        panel.add(effect, gbc);
 
         // 帮助文字
         if (!spec.helpText().isBlank()) {

@@ -6,7 +6,10 @@ import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
+import org.apache.hc.client5.http.impl.routing.DefaultRoutePlanner;
+import org.apache.hc.core5.http.HttpException;
 import org.apache.hc.core5.http.HttpHost;
+import org.apache.hc.core5.http.protocol.HttpContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
@@ -51,17 +54,42 @@ public class RestTemplateConfig {
                 .setConnectionRequestTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .build();
 
-        var clientBuilder = HttpClients.custom()
+        HttpClient httpClient = HttpClients.custom()
                 .setConnectionManager(connectionManager)
-                .setDefaultRequestConfig(requestConfig);
-
-        if (proxyConfig.isEnabled()) {
-            clientBuilder.setProxy(new HttpHost("http", proxyConfig.getHost(), proxyConfig.getPort()));
-        }
-
-        HttpClient httpClient = clientBuilder.build();
+                .setDefaultRequestConfig(requestConfig)
+                .setRoutePlanner(new DynamicProxyRoutePlanner(proxyConfig))
+                .build();
 
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
         return new RestTemplate(factory);
+    }
+
+    /**
+     * 路由规划器：每次确定路由时实时读取 {@link ProxyConfig}，从而支持热重载。
+     *
+     * <p>注意：连接池中已经建立的 keep-alive 连接仍会沿用旧代理，直到自然过期或被回收；
+     * 新建立的连接会立即应用新配置。
+     */
+    private static final class DynamicProxyRoutePlanner extends DefaultRoutePlanner {
+
+        private final ProxyConfig proxyConfig;
+
+        DynamicProxyRoutePlanner(ProxyConfig proxyConfig) {
+            super(null); // null → DefaultSchemePortResolver
+            this.proxyConfig = proxyConfig;
+        }
+
+        @Override
+        protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
+            if (!proxyConfig.isEnabled()) {
+                return null;
+            }
+            String host = proxyConfig.getHost();
+            int port = proxyConfig.getPort();
+            if (host == null || host.isBlank() || port <= 0) {
+                return null;
+            }
+            return new HttpHost("http", host, port);
+        }
     }
 }

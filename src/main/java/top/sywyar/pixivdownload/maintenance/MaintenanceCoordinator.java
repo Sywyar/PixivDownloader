@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.maintenance;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -15,20 +14,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 维护期间 {@link #isPaused()} 返回 {@code true}，由 {@code AuthFilter} 拦截非本地管理员请求并返回 503。
  *
  * <p>可通过 POST {@code /api/admin/maintenance/run}（仅本地管理员）手动触发，便于排错。
+ *
+ * <p>{@code maintenance.enabled} 在运行时被读取（支持热重载）：调度触发与手动触发都会先检查该开关。
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "maintenance.enabled", havingValue = "true", matchIfMissing = true)
 public class MaintenanceCoordinator {
 
     private final List<MaintenanceTask> tasks;
+    private final MaintenanceProperties properties;
     private final AtomicBoolean paused = new AtomicBoolean(false);
     private volatile Long lastStartedAt;
     private volatile Long lastFinishedAt;
     private volatile String lastTriggeredBy;
 
-    public MaintenanceCoordinator(List<MaintenanceTask> tasks) {
+    public MaintenanceCoordinator(List<MaintenanceTask> tasks, MaintenanceProperties properties) {
         this.tasks = tasks == null ? List.of() : List.copyOf(tasks);
+        this.properties = properties;
+    }
+
+    public boolean isEnabled() {
+        return properties.isEnabled();
     }
 
     public boolean isPaused() {
@@ -49,13 +55,18 @@ public class MaintenanceCoordinator {
 
     @Scheduled(cron = "0 0 10 ? * MON")
     public void runScheduled() {
+        if (!properties.isEnabled()) {
+            log.debug("Skipping scheduled maintenance: maintenance.enabled=false");
+            return;
+        }
         runMaintenance("schedule");
     }
 
     /**
-     * 手动触发；若已在运行返回 {@code false}。
+     * 手动触发；若禁用或已在运行返回 {@code false}。
      */
     public synchronized boolean runManually() {
+        if (!properties.isEnabled()) return false;
         if (paused.get()) return false;
         runMaintenance("manual");
         return true;

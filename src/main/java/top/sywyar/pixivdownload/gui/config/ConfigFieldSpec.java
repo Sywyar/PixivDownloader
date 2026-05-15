@@ -81,6 +81,11 @@ public record ConfigFieldSpec(
             return this;
         }
 
+        public Builder hotReloadable() {
+            this.requiresRestart = false;
+            return this;
+        }
+
         public ConfigFieldSpec build() {
             return new ConfigFieldSpec(key, label, type, group, helpText, defaultValue,
                     validator, enumValues, enabledWhen, visibleWhen, requiresRestart);

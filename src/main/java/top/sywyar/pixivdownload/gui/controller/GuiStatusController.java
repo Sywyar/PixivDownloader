@@ -9,15 +9,18 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.common.NetworkUtils;
+import top.sywyar.pixivdownload.config.RuntimeConfigReloadService;
 import top.sywyar.pixivdownload.config.SslConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.setup.SetupService;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.List;
 
 /**
  * GUI 专用 REST 接口。
@@ -35,6 +38,7 @@ public class GuiStatusController {
     private final SetupService setupService;
     private final Environment environment;
     private final SslConfig sslConfig;
+    private final RuntimeConfigReloadService runtimeConfigReloadService;
     private final AppMessages messages;
 
     private static final DateTimeFormatter FORMATTER =
@@ -112,6 +116,26 @@ public class GuiStatusController {
         restartThread.start();
 
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/config/reload")
+    public ResponseEntity<GuiConfigReloadResponse> reloadConfig(HttpServletRequest req) {
+        if (!NetworkUtils.isLocalRequest(req)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        try {
+            RuntimeConfigReloadService.ReloadResult result = runtimeConfigReloadService.reloadHotConfig();
+            return ResponseEntity.ok(new GuiConfigReloadResponse(true, result.appliedKeys(), "ok"));
+        } catch (IOException e) {
+            log.warn(logMessage("gui.config.log.hot-reload-failed", e.getMessage()));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new GuiConfigReloadResponse(false, List.of(), e.getMessage()));
+        } catch (RuntimeException e) {
+            log.warn(logMessage("gui.config.log.hot-reload-failed", e.getMessage()), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new GuiConfigReloadResponse(false, List.of(), e.getMessage()));
+        }
     }
 
     // ── 私有工具 ──────────────────────────────────────────────────────────────────

@@ -73,18 +73,21 @@ public final class ConfigFieldRegistry {
                 ConfigFieldSpec.builder("download.user-flat-folder", message("gui.config.field.download.user-flat-folder.label"), BOOL, groupDownload)
                         .defaultValue("false")
                         .help(message("gui.config.field.download.user-flat-folder.help"))
+                        .hotReloadable()
                         .build(),
 
                 // ── 代理 ───────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("proxy.enabled", message("gui.config.field.proxy.enabled.label"), BOOL, groupProxy)
                         .defaultValue("true")
                         .help(message("gui.config.field.proxy.enabled.help"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("proxy.host", message("gui.config.field.proxy.host.label"), STRING, groupProxy)
                         .defaultValue("127.0.0.1")
                         .help(message("gui.config.field.proxy.host.help"))
                         .enabledWhen(snap -> snap.isTrue("proxy.enabled"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("proxy.port", message("gui.config.field.proxy.port.label"), PORT, groupProxy)
@@ -99,36 +102,42 @@ public final class ConfigFieldRegistry {
                                 return message("gui.config.validation.valid-port");
                             }
                         })
+                        .hotReloadable()
                         .build(),
 
                 // ── 多人模式 ────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("multi-mode.quota.enabled", message("gui.config.field.multi-mode.quota.enabled.label"), BOOL, groupMultiMode)
                         .defaultValue("true")
                         .help(message("gui.config.field.multi-mode.quota.enabled.help"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.quota.max-artworks", message("gui.config.field.multi-mode.quota.max-artworks.label"), INT, groupMultiMode)
                         .defaultValue("50")
                         .help(message("gui.config.field.multi-mode.quota.max-artworks.help"))
                         .enabledWhen(snap -> snap.isTrue("multi-mode.quota.enabled"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.quota.reset-period-hours", message("gui.config.field.multi-mode.quota.reset-period-hours.label"), INT, groupMultiMode)
                         .defaultValue("24")
                         .help(message("gui.config.field.multi-mode.quota.reset-period-hours.help"))
                         .enabledWhen(snap -> snap.isTrue("multi-mode.quota.enabled"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.quota.archive-expire-minutes", message("gui.config.field.multi-mode.quota.archive-expire-minutes.label"), INT, groupMultiMode)
                         .defaultValue("60")
                         .help(message("gui.config.field.multi-mode.quota.archive-expire-minutes.help"))
                         .enabledWhen(snap -> snap.isTrue("multi-mode.quota.enabled"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.quota.limit-image", message("gui.config.field.multi-mode.quota.limit-image.label"), INT, groupMultiMode)
                         .defaultValue("0")
                         .help(message("gui.config.field.multi-mode.quota.limit-image.help"))
                         .enabledWhen(snap -> snap.isTrue("multi-mode.quota.enabled"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.quota.max-proxy-requests", message("gui.config.field.multi-mode.quota.max-proxy-requests.label"), INT, groupMultiMode)
@@ -142,23 +151,27 @@ public final class ConfigFieldRegistry {
                                 return message("gui.config.validation.valid-int");
                             }
                         })
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.post-download-mode", message("gui.config.field.multi-mode.post-download-mode.label"), ENUM, groupMultiMode)
                         .defaultValue("pack-and-delete")
                         .enumValues("pack-and-delete", "never-delete", "timed-delete")
                         .help(message("gui.config.field.multi-mode.post-download-mode.help"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.delete-after-hours", message("gui.config.field.multi-mode.delete-after-hours.label"), INT, groupMultiMode)
                         .defaultValue("72")
                         .help(message("gui.config.field.multi-mode.delete-after-hours.help"))
                         .enabledWhen(snap -> snap.equals("multi-mode.post-download-mode", "timed-delete"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.request-limit-minute", message("gui.config.field.multi-mode.request-limit-minute.label"), INT, groupMultiMode)
                         .defaultValue("300")
                         .help(message("gui.config.field.multi-mode.request-limit-minute.help"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.static-resource-request-limit-minute", message("gui.config.field.multi-mode.static-resource-request-limit-minute.label"), INT, groupMultiMode)
@@ -172,6 +185,7 @@ public final class ConfigFieldRegistry {
                                 return message("gui.config.validation.valid-int");
                             }
                         })
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.limit-page", message("gui.config.field.multi-mode.limit-page.label"), INT, groupMultiMode)
@@ -185,24 +199,28 @@ public final class ConfigFieldRegistry {
                                 return message("gui.config.validation.valid-int");
                             }
                         })
+                        .hotReloadable()
                         .build(),
 
                 // ── 安全 ───────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("setup.login-rate-limit-minute", message("gui.config.field.setup.login-rate-limit-minute.label"), INT, groupSecurity)
                         .defaultValue("10")
                         .help(message("gui.config.field.setup.login-rate-limit-minute.help"))
+                        .hotReloadable()
                         .build(),
 
                 // ── 维护 ───────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("maintenance.enabled", message("gui.config.field.maintenance.enabled.label"), BOOL, groupMaintenance)
                         .defaultValue("true")
                         .help(message("gui.config.field.maintenance.enabled.help"))
+                        .hotReloadable()
                         .build(),
 
                 // ── HTTPS ──────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("ssl.domain", message("gui.config.field.ssl.domain.label"), STRING, groupHttps)
                         .defaultValue("localhost")
                         .help(message("gui.config.field.ssl.domain.help"))
+                        .hotReloadable()
                         .build(),
 
                 ConfigFieldSpec.builder("server.ssl.enabled", message("gui.config.field.server.ssl.enabled.label"), BOOL, groupHttps)

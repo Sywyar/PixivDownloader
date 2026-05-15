@@ -11,11 +11,19 @@ import top.sywyar.pixivdownload.i18n.MessageBundles;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.awt.*;
 import java.awt.Desktop;
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.cert.X509Certificate;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -30,8 +38,10 @@ public class ConfigPanel extends JPanel {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String DEFAULT_ROOT_FOLDER = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
     private static final String SOLO_MODE = "solo";
+    private static final SSLContext TRUST_ALL_SSL = buildTrustAllSslContext();
 
     private final Path configPath;
+    private final int serverPort;
     private final ConfigFileEditor editor;
     private final String currentMode;
 
@@ -50,8 +60,9 @@ public class ConfigPanel extends JPanel {
     private boolean autoStartSupported;
     private boolean updatingAutoStartCheckBox;
 
-    public ConfigPanel(Path configPath) {
+    public ConfigPanel(Path configPath, int serverPort) {
         this.configPath = configPath;
+        this.serverPort = serverPort;
         this.editor = new ConfigFileEditor(configPath);
         this.currentMode = resolveCurrentMode();
         this.allFields = ConfigFieldRegistry.allFields();
@@ -325,6 +336,17 @@ public class ConfigPanel extends JPanel {
             return;
         }
 
+        Map<String, String> before;
+        try {
+            before = editor.readAll(allFields.stream().map(ConfigFieldSpec::key).toList());
+        } catch (IOException e) {
+            log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
+            JOptionPane.showMessageDialog(this,
+                    message("gui.config.dialog.read-failed.message", e.getMessage()),
+                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
         // 收集所有值：隐藏字段写入空值，Spring Boot 对空值不加载对应证书
         Map<String, String> values = new LinkedHashMap<>();
         for (ConfigFieldSpec spec : allFields) {
@@ -333,16 +355,88 @@ public class ConfigPanel extends JPanel {
             values.put(spec.key(), rf.panel().isVisible() ? rf.getValue().get() : "");
         }
 
+        Set<String> changedKeys = changedKeys(before, values);
+        boolean hasHotReloadChanges = hasChangedField(changedKeys, false);
+        boolean hasRestartRequiredChanges = hasChangedField(changedKeys, true);
+
         try {
             editor.writeAll(values);
-            showNotice(message("gui.config.notice.saved"));
             log.info(logMessage("gui.config.log.saved", configPath));
+            if (hasHotReloadChanges) {
+                showNotice(message("gui.config.notice.hot-reloading"));
+                reloadHotConfigAsync(hasRestartRequiredChanges);
+            } else {
+                showNotice(message(hasRestartRequiredChanges
+                        ? "gui.config.notice.saved"
+                        : "gui.config.notice.saved-no-change"));
+            }
         } catch (IOException e) {
             log.error(logMessage("gui.config.log.save-failed", e.getMessage()));
             JOptionPane.showMessageDialog(this,
                     message("gui.config.dialog.save-failed.message", e.getMessage()),
                     message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    private Set<String> changedKeys(Map<String, String> before, Map<String, String> after) {
+        Set<String> changed = new LinkedHashSet<>();
+        for (ConfigFieldSpec spec : allFields) {
+            if (!after.containsKey(spec.key())) {
+                continue;
+            }
+            String oldValue = before.containsKey(spec.key()) ? before.get(spec.key()) : spec.defaultValue();
+            String newValue = after.get(spec.key());
+            if (!Objects.equals(normalizeValue(oldValue), normalizeValue(newValue))) {
+                changed.add(spec.key());
+            }
+        }
+        return changed;
+    }
+
+    private boolean hasChangedField(Set<String> changedKeys, boolean requiresRestart) {
+        for (ConfigFieldSpec spec : allFields) {
+            if (spec.requiresRestart() == requiresRestart && changedKeys.contains(spec.key())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normalizeValue(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private void reloadHotConfigAsync(boolean hasRestartRequiredChanges) {
+        SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
+            @Override
+            protected Boolean doInBackground() {
+                return postHotReload();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    if (Boolean.TRUE.equals(get())) {
+                        showNotice(message(hasRestartRequiredChanges
+                                ? "gui.config.notice.saved-mixed"
+                                : "gui.config.notice.saved-hot"));
+                    } else {
+                        showNotice(message(hasRestartRequiredChanges
+                                ? "gui.config.notice.saved-hot-failed-mixed"
+                                : "gui.config.notice.saved-hot-failed"));
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    showNotice(message("gui.config.notice.saved-hot-failed"));
+                } catch (ExecutionException e) {
+                    log.warn(logMessage("gui.config.log.hot-reload-failed", safeMessage(e.getCause())));
+                    showNotice(message(hasRestartRequiredChanges
+                            ? "gui.config.notice.saved-hot-failed-mixed"
+                            : "gui.config.notice.saved-hot-failed"));
+                }
+            }
+        };
+        worker.execute();
     }
 
     private void resetToDefaults() {
@@ -461,6 +555,35 @@ public class ConfigPanel extends JPanel {
                 message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
     }
 
+    private boolean postHotReload() {
+        String[] schemes = {"http", "https"};
+        for (String scheme : schemes) {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/config/reload").toURL();
+                conn = (HttpURLConnection) url.openConnection();
+                if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
+                    https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
+                    https.setHostnameVerifier((host, session) -> true);
+                }
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(5000);
+                conn.setRequestMethod("POST");
+                int status = conn.getResponseCode();
+                if (status >= 200 && status < 300) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+                // Try the other scheme; the backend may currently be HTTP or HTTPS.
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+        return false;
+    }
+
     private void showNotice(String msg) {
         noticeBar.setText("  " + msg);
         noticeBar.setVisible(true);
@@ -471,7 +594,27 @@ public class ConfigPanel extends JPanel {
     }
 
     private static String safeMessage(Throwable t) {
+        if (t == null) {
+            return "unknown";
+        }
         return t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+    }
+
+    private static SSLContext buildTrustAllSslContext() {
+        try {
+            TrustManager[] trustAll = new TrustManager[]{
+                    new X509TrustManager() {
+                        public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                        public void checkClientTrusted(X509Certificate[] certs, String authType) {}
+                        public void checkServerTrusted(X509Certificate[] certs, String authType) {}
+                    }
+            };
+            SSLContext context = SSLContext.getInstance("TLS");
+            context.init(null, trustAll, new java.security.SecureRandom());
+            return context;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static String message(String code, Object... args) {

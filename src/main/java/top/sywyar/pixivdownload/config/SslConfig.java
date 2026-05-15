@@ -21,23 +21,23 @@ public class SslConfig {
      * 必须将此值修改为对应的域名（如 {@code example.com}）。
      * 该值是代码中构造对外 URL 的唯一来源，禁止在代码中硬编码域名或协议。
      */
-    private String domain = "localhost";
+    private volatile String domain = "localhost";
 
     /**
      * 证书类型，对应配置文件中的 {@code ssl.type}。
      * {@code pem}：PEM 证书（{@code server.ssl.certificate} + {@code server.ssl.certificate-private-key}）；
      * {@code jks}：JKS/PKCS12 证书库（{@code server.ssl.key-store} + 相关属性）。
      */
-    private String type = "pem";
+    private volatile String type = "pem";
 
     /**
      * 是否在 {@link #httpRedirectPort} 监听 HTTP 请求并将其 301 重定向到 HTTPS 端口。
      * 仅在对应证书已配置时生效。
      */
-    private boolean httpRedirect = false;
+    private volatile boolean httpRedirect = false;
 
     /**
      * HTTP 重定向监听端口，默认 80。
      */
-    private int httpRedirectPort = 80;
+    private volatile int httpRedirectPort = 80;
 }

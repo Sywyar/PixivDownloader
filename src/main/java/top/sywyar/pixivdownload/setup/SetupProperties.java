@@ -10,5 +10,5 @@ import org.springframework.context.annotation.Configuration;
 public class SetupProperties {
 
     /** 每个 IP 每分钟最多允许的登录尝试次数（0 = 不限制） */
-    private int loginRateLimitMinute = 10;
+    private volatile int loginRateLimitMinute = 10;
 }
