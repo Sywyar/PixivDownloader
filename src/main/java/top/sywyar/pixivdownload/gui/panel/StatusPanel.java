@@ -223,7 +223,8 @@ public class StatusPanel extends JPanel {
     }
 
     private JComponent buildActionButtons() {
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        JPanel buttons = new JPanel();
+        buttons.setLayout(new BoxLayout(buttons, BoxLayout.Y_AXIS));
         buttons.setOpaque(false);
 
         JButton openBatch = webButton("gui.action.open-batch", BATCH_PAGE);
@@ -239,13 +240,26 @@ public class StatusPanel extends JPanel {
         JButton checkUpdate = new JButton(message("gui.update.action.check"));
         checkUpdate.addActionListener(e -> triggerUpdateCheck(true));
 
-        buttons.add(openBatch);
-        buttons.add(openMonitor);
-        buttons.add(openGallery);
-        buttons.add(openFolder);
-        buttons.add(restart);
-        buttons.add(checkUpdate);
+        buttons.add(actionGroup(message("gui.action.group.navigation"), openBatch, openMonitor, openGallery));
+        buttons.add(Box.createVerticalStrut(8));
+        buttons.add(actionGroup(message("gui.action.group.functions"), openFolder, restart, checkUpdate));
         return buttons;
+    }
+
+    private JComponent actionGroup(String title, JButton... buttons) {
+        JPanel group = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        group.setOpaque(false);
+        group.setAlignmentX(Component.LEFT_ALIGNMENT);
+        TitledBorder border = BorderFactory.createTitledBorder(title);
+        border.setTitleJustification(TitledBorder.LEFT);
+        group.setBorder(BorderFactory.createCompoundBorder(
+                border,
+                BorderFactory.createEmptyBorder(2, 8, 6, 8)
+        ));
+        for (JButton button : buttons) {
+            group.add(button);
+        }
+        return group;
     }
 
     private JComponent buildUpdateBanner() {

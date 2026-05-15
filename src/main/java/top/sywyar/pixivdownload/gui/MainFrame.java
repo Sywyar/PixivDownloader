@@ -14,11 +14,14 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * GUI 主窗口（800x600，可调整大小）。
+ * GUI 主窗口（960x720，可调整大小）。
  * 包含四个标签页：状态、配置、工具、关于。
  * 关闭窗口时缩回系统托盘，不退出进程。
  */
 public class MainFrame extends JFrame {
+
+    private static final Dimension DEFAULT_SIZE = new Dimension(960, 720);
+    private static final Dimension MINIMUM_SIZE = new Dimension(760, 560);
 
     private final int serverPort;
     private final String rootFolder;
@@ -33,8 +36,8 @@ public class MainFrame extends JFrame {
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
         this.configPath = configPath;
-        setSize(800, 600);
-        setMinimumSize(new Dimension(640, 480));
+        setSize(DEFAULT_SIZE);
+        setMinimumSize(MINIMUM_SIZE);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
@@ -63,11 +66,19 @@ public class MainFrame extends JFrame {
         tabs = new JTabbedPane();
         statusPanel = new StatusPanel(serverPort, rootFolder, configPath, this::reloadLocale);
         toolsPanel = new ToolsPanel(configPath);
-        tabs.addTab(GuiMessages.get("gui.tab.status"), statusPanel);
+        tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
         tabs.addTab(GuiMessages.get("gui.tab.config"), new ConfigPanel(configPath, serverPort));
         tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
         tabs.addTab(GuiMessages.get("gui.tab.about"), new AboutPanel());
         return tabs;
+    }
+
+    private JScrollPane scrollableStatusPanel(StatusPanel panel) {
+        JScrollPane scroll = new JScrollPane(panel);
+        scroll.setBorder(null);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        scroll.getHorizontalScrollBar().setUnitIncrement(16);
+        return scroll;
     }
 
     /**
