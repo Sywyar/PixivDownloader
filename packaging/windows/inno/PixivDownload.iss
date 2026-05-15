@@ -110,14 +110,14 @@ en.MaintenanceLegacyMsiRemoveFailed=Could not remove the previous MSI installati
 zhcn.MaintenanceLegacyMsiRemoveFailed=未能移除旧 MSI 安装。
 
 [Tasks]
-Name: "downloadffmpeg"; Description: "{cm:TaskDownloadFfmpeg}"; GroupDescription: "{cm:OptionalTasksGroup}"; Flags: unchecked
+Name: "downloadffmpeg"; Description: "{cm:TaskDownloadFfmpeg}"; GroupDescription: "{cm:OptionalTasksGroup}"; Flags: unchecked; Check: ShouldShowFfmpegTask
 
 [Files]
 Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallApplicationFiles
 
 [Registry]
-Root: HKLM64; Subkey: "Software\sywyar\PixivDownload"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"; Flags: uninsdeletekeyifempty; Check: ShouldInstallApplicationFiles
-Root: HKLM64; Subkey: "Software\sywyar\PixivDownload"; ValueType: dword; ValueName: "installed"; ValueData: "1"; Flags: uninsdeletevalue; Check: ShouldInstallApplicationFiles
+Root: HKLM64; Subkey: "Software\sywyar\PixivDownload"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"; Flags: uninsdeletevalue uninsdeletekeyifempty; Check: ShouldInstallApplicationFiles
+Root: HKLM64; Subkey: "Software\sywyar\PixivDownload"; ValueType: dword; ValueName: "installed"; ValueData: "1"; Flags: uninsdeletevalue uninsdeletekeyifempty; Check: ShouldInstallApplicationFiles
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\{#AppExeName}"; Check: ShouldInstallApplicationFiles
@@ -182,6 +182,7 @@ var
   ExistingInstallDir: String;
   ExistingUninstallCommand: String;
   LegacyMsiProductCode: String;
+  ShowMaintenancePage: Boolean;
   MaintenanceMode: String;
   MaintenanceClosingAfterUninstall: Boolean;
 
@@ -289,36 +290,46 @@ end;
 
 procedure ResolveExistingInstallation;
 var
-  InstallLocation: String;
+  InnoInstallDir: String;
+  FallbackLocation: String;
+  InstalledVersion: String;
 begin
   if ExistingInstallationResolved then
     exit;
 
   ExistingInstallationResolved := True;
   ExistingInstallationFound := False;
+  ShowMaintenancePage := False;
   ExistingInstallDir := '';
   ExistingUninstallCommand := '';
   LegacyMsiProductCode := '';
 
-  QueryMachineStringValue(InnoUninstallRegistryKey, 'InstallLocation', ExistingInstallDir);
+  InnoInstallDir := '';
+  QueryMachineStringValue(InnoUninstallRegistryKey, 'InstallLocation', InnoInstallDir);
   QueryMachineStringValue(InnoUninstallRegistryKey, 'UninstallString', ExistingUninstallCommand);
 
-  if not IsUsableInstallDir(ExistingInstallDir) then
-  begin
-    InstallLocation := '';
-    if QueryMachineStringValue(AppRegistryKey, 'InstallLocation', InstallLocation) and IsUsableInstallDir(InstallLocation) then
-      ExistingInstallDir := Unquote(InstallLocation)
-    else
-      ExistingInstallDir := '';
-  end
-  else
-    ExistingInstallDir := Unquote(ExistingInstallDir);
+  if IsUsableInstallDir(InnoInstallDir) then
+    ExistingInstallDir := Unquote(InnoInstallDir);
 
   FindLegacyMsiProductCode(LegacyMsiProductCode);
+
   ExistingInstallationFound :=
-    (ExistingInstallDir <> '') or
     (ExistingUninstallCommand <> '') or
     (LegacyMsiProductCode <> '');
+
+  if ExistingInstallationFound and (ExistingInstallDir = '') then
+  begin
+    FallbackLocation := '';
+    if QueryMachineStringValue(AppRegistryKey, 'InstallLocation', FallbackLocation) and IsUsableInstallDir(FallbackLocation) then
+      ExistingInstallDir := Unquote(FallbackLocation);
+  end;
+
+  if ExistingUninstallCommand <> '' then
+  begin
+    InstalledVersion := '';
+    if QueryMachineStringValue(InnoUninstallRegistryKey, 'DisplayVersion', InstalledVersion) then
+      ShowMaintenancePage := CompareText(Trim(InstalledVersion), '{#AppVersion}') = 0;
+  end;
 end;
 
 function GetDefaultInstallDir(Param: String): String;
@@ -520,7 +531,7 @@ begin
   if ExistingInstallDir <> '' then
     WizardForm.DirEdit.Text := ExistingInstallDir;
 
-  if ExistingInstallationFound then
+  if ShowMaintenancePage then
   begin
     MaintenancePage := CreateCustomPage(
       wpWelcome,
@@ -584,7 +595,7 @@ end;
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
   Result := False;
-  if ExistingInstallationFound then
+  if ShowMaintenancePage then
   begin
     if (MaintenanceMode = MaintenanceRepairMode) and
        ((PageID = wpSelectDir) or (PageID = wpSelectProgramGroup) or (PageID = wpSelectTasks)) then
@@ -598,7 +609,7 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if ExistingInstallationFound then
+  if ShowMaintenancePage then
   begin
     if CurPageID = MaintenancePage.ID then
     begin
@@ -641,12 +652,23 @@ begin
   Result := not IsTaskOnlyMaintenanceChange;
 end;
 
+function ShouldShowFfmpegTask: Boolean;
+begin
+  ResolveExistingInstallation;
+  Result :=
+    (not ExistingInstallationFound) or
+    (MaintenanceMode = MaintenanceChangeMode);
+end;
+
 procedure CurPageChanged(CurPageID: Integer);
+var
+  FfmpegRequested: Boolean;
 begin
   if CurPageID = wpInstalling then
   begin
-    SetFfmpegControlsVisible(WizardIsTaskSelected('downloadffmpeg'));
-    if WizardIsTaskSelected('downloadffmpeg') then
+    FfmpegRequested := WizardIsTaskSelected('downloadffmpeg') and ShouldShowFfmpegTask;
+    SetFfmpegControlsVisible(FfmpegRequested);
+    if FfmpegRequested then
       SetFfmpegProgress(CustomMessage('FfmpegWaiting'), '', 0);
   end
   else if CurPageID = wpFinished then
@@ -1100,7 +1122,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ErrorMessage: String;
 begin
-  if (CurStep = ssPostInstall) and WizardIsTaskSelected('downloadffmpeg') then
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('downloadffmpeg') and ShouldShowFfmpegTask then
   begin
     try
       DownloadAndInstallFfmpeg;
