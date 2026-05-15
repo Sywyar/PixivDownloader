@@ -816,18 +816,45 @@ public class StatusPanel extends JPanel {
         BackendLifecycleManager.removeListener(backendListener);
     }
 
+    /**
+     * 启动后轮询 /api/gui/update/last，直到拿到非 204 的结果或超时。
+     * 必要的重试：后端的 ApplicationReadyEvent 异步检查 + 网络往返通常 &gt; 5s；
+     * 仅做一次单点查询会落在 204 → 横幅永远不出现。
+     * 预算 60s（24 次 × 2.5s + 初始 3s 延迟），覆盖大多数代理慢启动场景。
+     */
     private void scheduleInitialUpdateLookup() {
-        Timer initial = new Timer(5000, e -> queryLastUpdateResult());
-        initial.setRepeats(false);
-        initial.start();
+        final int maxAttempts = 24;
+        final int[] attempts = {0};
+        Timer poll = new Timer(2500, null);
+        poll.setInitialDelay(3000);
+        poll.addActionListener(e -> {
+            attempts[0]++;
+            boolean lastAttempt = attempts[0] >= maxAttempts;
+            queryLastUpdateResult(success -> {
+                if (success || lastAttempt) {
+                    poll.stop();
+                }
+            });
+        });
+        poll.start();
     }
 
-    private void queryLastUpdateResult() {
+    /**
+     * 异步查询缓存的检查结果。
+     * @param onComplete 在 EDT 上回调：参数 true 表示拿到有效结果（横幅已根据结果刷新），
+     *                   false 表示这次仍未拿到（连接失败或 204）。
+     */
+    private void queryLastUpdateResult(java.util.function.Consumer<Boolean> onComplete) {
         Thread worker = new Thread(() -> {
             JsonNode node = callUpdateEndpoint("GET", "/api/gui/update/last", null);
-            if (node != null) {
-                SwingUtilities.invokeLater(() -> applyUpdateResult(node));
-            }
+            SwingUtilities.invokeLater(() -> {
+                if (node != null) {
+                    applyUpdateResult(node);
+                    onComplete.accept(true);
+                } else {
+                    onComplete.accept(false);
+                }
+            });
         }, "gui-update-last");
         worker.setDaemon(true);
         worker.start();
