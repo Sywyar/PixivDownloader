@@ -44,6 +44,7 @@ public class AuthFilter extends OncePerRequestFilter {
             "/monitor.html",
             "/pixiv-gallery.html",
             "/pixiv-artwork.html",
+            "/pixiv-showcase.html",
             "/pixiv-novel.html",
             "/pixiv-novel-gallery.html",
             "/pixiv-series.html",
@@ -69,6 +70,7 @@ public class AuthFilter extends OncePerRequestFilter {
             "/monitor/",
             "/pixiv-gallery/",
             "/pixiv-artwork/",
+            "/pixiv-showcase/",
             "/pixiv-novel/",
             "/pixiv-novel-gallery/",
             "/pixiv-series/",
@@ -104,6 +106,7 @@ public class AuthFilter extends OncePerRequestFilter {
     private static final Set<String> GUEST_ALLOWED_EXACT = Set.of(
             "/pixiv-gallery.html",
             "/pixiv-artwork.html",
+            "/pixiv-showcase.html",
             "/pixiv-novel.html",
             "/pixiv-novel-gallery.html",
             "/pixiv-series.html",
@@ -128,6 +131,7 @@ public class AuthFilter extends OncePerRequestFilter {
             "/api/pixiv/novel/",
             "/pixiv-gallery/",
             "/pixiv-artwork/",
+            "/pixiv-showcase/",
             "/pixiv-novel/",
             "/pixiv-novel-gallery/",
             "/pixiv-series/"

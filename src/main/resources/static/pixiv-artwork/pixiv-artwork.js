@@ -35,6 +35,7 @@
         document.getElementById('viewerLoading').textContent = wt('status.loading', 'Loading...');
         document.getElementById('mainImage').setAttribute('data-loading-text', wt('status.loading', 'Loading...'));
         document.getElementById('pixivArtworkLinkLabel').textContent = wt('button.pixiv-artwork', 'Open Original on Pixiv');
+        document.getElementById('showcaseLinkLabel').textContent = wt('button.showcase', '作品赏析(娱乐性功能)');
         document.getElementById('detailTagsTitle').textContent = wt('panel.tags', 'Tags');
         document.getElementById('relatedPanelTitle').textContent = wt('panel.related', 'Related Artworks');
         document.getElementById('seriesPanelTitle').textContent = wt('panel.series', 'This Series');
@@ -220,6 +221,10 @@
         return `https://www.pixiv.net/artworks/${artworkId}`;
     }
 
+    function buildShowcaseHref(artworkId) {
+        return `/pixiv-showcase.html?id=${artworkId}`;
+    }
+
     function buildPixivAuthorHref(authorId) {
         return `https://www.pixiv.net/users/${authorId}`;
     }
@@ -278,8 +283,6 @@
         renderAuthor();
         loadSeriesSections();
         loadRelated();
-        loadCollections();
-        loadMembership();
     }
 
     function renderViewer() {
@@ -370,6 +373,9 @@
         const pixivArtworkLink = document.getElementById('pixivArtworkLink');
         pixivArtworkLink.href = buildPixivArtworkHref(artwork.artworkId);
         pixivArtworkLink.style.display = 'inline-flex';
+        const showcaseLink = document.getElementById('showcaseLink');
+        showcaseLink.href = buildShowcaseHref(artwork.artworkId);
+        showcaseLink.style.display = 'inline-flex';
 
         const stats = [];
         stats.push(`<span class="artwork-stat">${escapeHtml(wt('stats.id', 'ID: {id}', {id: artwork.artworkId}))}</span>`);
@@ -735,14 +741,17 @@
 
     function updateHeart() {
         const btn = document.getElementById('heartBtn');
+        const label = document.getElementById('heartLabel');
+        if (!btn || !label) return;
         const liked = state.collectionMembership.size > 0;
         btn.classList.toggle('liked', liked);
-        document.getElementById('heartLabel').textContent = liked
+        label.textContent = liked
             ? wt('button.favorite-active', 'Favorited ({count})', {count: state.collectionMembership.size})
             : wt('button.favorite', 'Favorite');
     }
 
-    document.getElementById('heartBtn').addEventListener('click', openAddToCollectionModal);
+    const heartBtn = document.getElementById('heartBtn');
+    if (heartBtn) heartBtn.addEventListener('click', openAddToCollectionModal);
 
     function iconHtml(collection) {
         if (collection.iconExt) {

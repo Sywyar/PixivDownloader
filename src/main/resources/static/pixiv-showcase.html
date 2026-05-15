@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="page.title">作品观赏 - Pixiv Gallery</title>
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/pixiv-showcase/pixiv-showcase.css">
+</head>
+<body>
+<div class="top-bar" id="topBar">
+    <div class="top-bar-logo">
+        <div class="top-bar-logo-icon">
+            <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <span class="top-bar-logo-text">Pixiv Gallery</span>
+    </div>
+    <div class="top-bar-actions" id="topBarActions">
+        <a class="top-bar-btn" id="detailPageLink" href="/pixiv-artwork.html">
+            <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            <span id="detailPageLinkLabel" data-i18n="button.detail">详细页</span>
+        </a>
+        <span class="top-bar-controls" id="topBarControls"></span>
+    </div>
+</div>
+
+<nav class="side-nav" id="sideNav">
+    <div class="side-nav-dot active" data-index="0" data-label="封面" data-i18n-label="nav.cover" title="封面" data-i18n-title="nav.cover"></div>
+    <div class="side-nav-dot" data-index="1" data-label="作品" data-i18n-label="nav.artwork" title="作品" data-i18n-title="nav.artwork"></div>
+    <div class="side-nav-dot" data-index="2" data-label="详情" data-i18n-label="nav.details" title="详情" data-i18n-title="nav.details"></div>
+    <div class="side-nav-dot" data-index="3" data-label="画师" data-i18n-label="nav.artist" title="画师" data-i18n-title="nav.artist"></div>
+    <div class="side-nav-dot" data-index="4" data-label="相关" data-i18n-label="nav.related" title="相关" data-i18n-title="nav.related"></div>
+    <div class="side-nav-dot" data-index="5" data-label="多页" data-i18n-label="nav.pages" title="多页" data-i18n-title="nav.pages"></div>
+</nav>
+
+<div class="page-counter" id="pageCounter">
+    <span class="current">01</span>
+    <span class="separator">/</span>
+    <span>06</span>
+</div>
+
+<div class="scroll-hint" id="scrollHint">
+    <span class="scroll-hint-text" data-i18n="scroll.hint">向下滑动</span>
+    <svg class="scroll-hint-arrow" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+</div>
+
+<div class="scroll-container" id="scrollContainer">
+    <section class="section section-hero" id="section0">
+        <div class="section-inner">
+            <div class="hero-bg" id="heroBg"></div>
+            <div class="hero-content" id="heroContent">
+                <div class="hero-artwork" id="heroArtwork">
+                    <img id="heroArtworkImg" alt="">
+                    <div class="hero-artwork-badge" id="heroBadges"></div>
+                </div>
+                    <div class="hero-info">
+                        <div class="hero-label">
+                            <span class="hero-label-dot"></span>
+                            <span data-i18n="hero.label">精选作品</span>
+                        </div>
+                    <h1 class="hero-title" id="heroTitle" data-i18n="status.loading">加载中...</h1>
+                    <div class="hero-author" id="heroAuthor">
+                        <div class="hero-author-avatar" id="heroAuthorAvatar">?</div>
+                        <div>
+                            <div class="hero-author-name" id="heroAuthorName"></div>
+                            <div class="hero-author-id" id="heroAuthorId"></div>
+                        </div>
+                    </div>
+                    <div class="hero-desc" id="heroDesc"></div>
+                    <div class="hero-tags" id="heroTags"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section section-artwork" id="section1">
+        <div class="section-inner">
+            <div class="artwork-display">
+                <div class="artwork-display-bg" id="artworkBg"></div>
+                <div class="artwork-frame" id="artworkFrame">
+                    <img id="artworkImg" alt="">
+                    <div class="artwork-overlay">
+                        <div class="artwork-overlay-title" id="artworkOverlayTitle"></div>
+                        <div class="artwork-overlay-author" id="artworkOverlayAuthor"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section section-details" id="section2">
+        <div class="section-inner">
+            <div class="details-layout">
+                <div class="details-visual">
+                    <div class="details-visual-bg" id="detailsBg"></div>
+                    <div class="details-thumb" id="detailsThumb">
+                        <img id="detailsThumbImg" alt="">
+                    </div>
+                </div>
+                <div class="details-info">
+                    <div class="details-section-label" data-i18n="details.label">作品详情</div>
+                    <h2 class="details-title" id="detailsTitle"></h2>
+                    <div class="details-stats" id="detailsStats"></div>
+                    <div class="details-desc" id="detailsDesc"></div>
+                    <div class="details-tags-label" data-i18n="label.tags">标签</div>
+                    <div class="details-tags" id="detailsTags"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section section-artist" id="section3">
+        <div class="section-inner">
+            <div class="artist-layout">
+                <div class="artist-profile">
+                    <div class="artist-avatar" id="artistAvatar">?</div>
+                    <div class="artist-name" id="artistName"></div>
+                    <div class="artist-id" id="artistId"></div>
+                    <div class="artist-stats-row">
+                        <div class="artist-stat">
+                            <div class="artist-stat-value" id="artistWorkCount">-</div>
+                            <div class="artist-stat-label" data-i18n="artist.stats.works">作品</div>
+                        </div>
+                        <div class="artist-stat">
+                            <div class="artist-stat-value" id="artistIdStat">-</div>
+                            <div class="artist-stat-label">ID</div>
+                        </div>
+                    </div>
+                    <button class="artist-action-btn" id="artistViewAll" type="button">
+                        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                        <span data-i18n="button.view-all-artworks">查看全部作品</span>
+                    </button>
+                </div>
+                <div class="artist-works">
+                    <div class="artist-works-label" data-i18n="artist.more">该画师的其他作品</div>
+                    <div class="artist-works-grid" id="artistWorksGrid"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section section-related" id="section4">
+        <div class="section-inner">
+            <div class="related-layout">
+                <div class="related-header">
+                    <h2 class="related-title"><span data-i18n="panel.related-prefix">相关</span><span class="related-title-accent" data-i18n="panel.related-accent">作品</span></h2>
+                    <div class="related-nav">
+                        <button class="related-nav-btn" id="relatedPrev" type="button" aria-label="上一组" data-i18n-aria-label="button.prev-group">
+                            <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        <button class="related-nav-btn" id="relatedNext" type="button" aria-label="下一组" data-i18n-aria-label="button.next-group">
+                            <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="related-grid" id="relatedGrid"></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section section-pages" id="section5">
+        <div class="section-inner">
+            <div class="pages-bg" id="pagesBg"></div>
+            <div class="pages-content">
+                <div class="pages-label" data-i18n="pages.label">多页浏览</div>
+                <h2 class="pages-title" id="pagesTitle" data-i18n="pages.default-title">全部页面</h2>
+                <div class="pages-subtitle" id="pagesSubtitle"></div>
+                <div class="pages-strip" id="pagesStrip"></div>
+                <div class="pages-actions">
+                    <button class="pages-btn pages-btn-primary" id="pagesViewAll" type="button">
+                        <svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                        <span data-i18n="button.view-original">查看原图</span>
+                    </button>
+                    <a class="pages-btn pages-btn-secondary" id="pagesBackDetail" href="/pixiv-artwork.html">
+                        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                        <span id="pagesBackDetailLabel" data-i18n="button.back-detail">返回详细页</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div class="lightbox" id="lightbox">
+    <button class="lightbox-close" id="lightboxClose" type="button" aria-label="关闭预览" data-i18n-aria-label="aria.close-lightbox">×</button>
+    <button class="lightbox-nav prev" id="lightboxPrev" type="button" aria-label="上一张" data-i18n-aria-label="aria.prev-image">‹</button>
+    <img id="lightboxImage" alt="">
+    <button class="lightbox-nav next" id="lightboxNext" type="button" aria-label="下一张" data-i18n-aria-label="aria.next-image">›</button>
+    <div class="lightbox-info" id="lightboxInfo"></div>
+</div>
+
+<div class="modal-backdrop" id="modalAddToCollection">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title" data-i18n="panel.add-to-collection">添加到收藏夹</span>
+            <button class="modal-close" id="modalCloseBtn" type="button" aria-label="关闭" data-i18n-aria-label="aria.close">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-quick-create">
+                <input class="form-input modal-quick-create-input" id="quickCreateName" placeholder="快速新建收藏夹" data-i18n-placeholder="placeholder.quick-create" maxlength="40">
+                <button class="btn" id="quickCreateBtn" type="button" data-i18n="button.create">新建</button>
+            </div>
+            <div class="collection-list" id="addToCollectionList"></div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" id="addToCollectionDoneBtn" type="button" data-i18n="button.done">完成</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+<script src="/pixiv-showcase/pixiv-showcase.js"></script>
+</body>
+</html>

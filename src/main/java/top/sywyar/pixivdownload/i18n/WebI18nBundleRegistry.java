@@ -19,6 +19,7 @@ public class WebI18nBundleRegistry {
         namespaces.put("batch", "i18n.web.batch");
         namespaces.put("gallery", "i18n.web.gallery");
         namespaces.put("artwork", "i18n.web.artwork");
+        namespaces.put("showcase", "i18n.web.showcase");
         namespaces.put("series", "i18n.web.series");
         namespaces.put("novel", "i18n.web.novel");
         namespaces.put("monitor", "i18n.web.monitor");

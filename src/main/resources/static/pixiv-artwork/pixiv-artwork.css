@@ -338,6 +338,10 @@
             text-decoration: none;
         }
 
+        .showcase-link-btn {
+            text-decoration: none;
+        }
+
         .meta-info {
             margin-left: auto;
             font-size: 13px;
