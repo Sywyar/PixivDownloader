@@ -47,7 +47,7 @@ public class SetupController {
     @PostMapping("/api/setup/init")
     public SetupInitResponse init(@Valid @RequestBody SetupInitRequest request,
                                   HttpServletRequest httpRequest) throws IOException {
-        if (!NetworkUtils.isLocalRequest(httpRequest)) {
+        if (!NetworkUtils.isTrustedLocalRequest(httpRequest)) {
             throw new LocalizedException(
                     HttpStatus.FORBIDDEN,
                     "auth.local-only",

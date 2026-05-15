@@ -58,7 +58,7 @@ public class GuiStatusController {
      */
     @GetMapping("/status")
     public ResponseEntity<GuiStatusResponse> status(HttpServletRequest req) {
-        if (!NetworkUtils.isLocalRequest(req)) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
@@ -84,7 +84,7 @@ public class GuiStatusController {
      */
     @PostMapping("/restart")
     public ResponseEntity<Void> restart(HttpServletRequest req) {
-        if (!NetworkUtils.isLocalRequest(req)) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 
@@ -120,7 +120,7 @@ public class GuiStatusController {
 
     @PostMapping("/config/reload")
     public ResponseEntity<GuiConfigReloadResponse> reloadConfig(HttpServletRequest req) {
-        if (!NetworkUtils.isLocalRequest(req)) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
 

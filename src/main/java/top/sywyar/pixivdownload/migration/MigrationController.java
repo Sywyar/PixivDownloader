@@ -47,7 +47,7 @@ public class MigrationController {
     }
 
     private static void ensureLocal(HttpServletRequest request) {
-        if (!NetworkUtils.isLocalRequest(request)) {
+        if (!NetworkUtils.isTrustedLocalRequest(request)) {
             throw new LocalizedException(
                     HttpStatus.FORBIDDEN,
                     "migration.error.local-only",

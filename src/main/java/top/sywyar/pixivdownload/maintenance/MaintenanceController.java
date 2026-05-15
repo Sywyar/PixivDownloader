@@ -51,7 +51,7 @@ public class MaintenanceController {
     }
 
     private void requireLocal(HttpServletRequest request) {
-        if (!NetworkUtils.isLocalRequest(request)) {
+        if (!NetworkUtils.isTrustedLocalRequest(request)) {
             throw new LocalizedException(HttpStatus.FORBIDDEN,
                     "auth.local-only", "Forbidden: local access only");
         }
