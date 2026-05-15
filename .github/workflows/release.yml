@@ -149,38 +149,6 @@ jobs:
             -Path "build/app-image-online/PixivDownload/PixivDownload.exe" `
             -Level "requireAdministrator"
 
-      - name: Download FFmpeg payload
-        shell: bash
-        run: |
-          mkdir -p build/ffmpeg/unpack
-          curl -fsSL "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip" -o build/ffmpeg/ffmpeg.zip
-          unzip -q build/ffmpeg/ffmpeg.zip -d build/ffmpeg/unpack
-          cp build/ffmpeg/unpack/ffmpeg-*-win64-lgpl/bin/ffmpeg.exe build/ffmpeg/ffmpeg.exe
-          cp build/ffmpeg/unpack/ffmpeg-*-win64-lgpl/bin/ffprobe.exe build/ffmpeg/ffprobe.exe
-          cat > build/ffmpeg/ffmpeg-LGPL.txt << 'LGPL_EOF'
-          FFmpeg is licensed under the LGPL v2.1.
-          Source code: https://ffmpeg.org
-          Build: BtbN FFmpeg Builds (https://github.com/BtbN/FFmpeg-Builds)
-          LGPL License: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
-          LGPL_EOF
-
-      - name: Assemble offline app-image
-        shell: bash
-        run: |
-          mkdir -p build/app-image-full
-          cp -R build/app-image-online/PixivDownload build/app-image-full/
-          mkdir -p build/app-image-full/PixivDownload/tools/ffmpeg/licenses
-          cp build/ffmpeg/ffmpeg.exe build/app-image-full/PixivDownload/tools/ffmpeg/
-          cp build/ffmpeg/ffprobe.exe build/app-image-full/PixivDownload/tools/ffmpeg/
-          cp build/ffmpeg/ffmpeg-LGPL.txt build/app-image-full/PixivDownload/tools/ffmpeg/licenses/
-
-      - name: Package portable zip files
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force build/out | Out-Null
-          Compress-Archive -Path build/app-image-online/PixivDownload -DestinationPath "build/out/PixivDownload-${{ steps.vars.outputs.version }}-win-x64-online-portable.zip"
-          Compress-Archive -Path build/app-image-full/PixivDownload -DestinationPath "build/out/PixivDownload-${{ steps.vars.outputs.version }}-win-x64-portable.zip"
-
       - name: Build Windows setup
         shell: pwsh
         run: |
@@ -208,6 +176,8 @@ jobs:
             throw "Missing required command: iscc.exe"
           }
 
+          New-Item -ItemType Directory -Force "build/out" | Out-Null
+
           $version = '${{ steps.vars.outputs.version }}'
           $installerVersion = [regex]::Match($version, '\d+(?:\.\d+){0,2}').Value
           if ([string]::IsNullOrWhiteSpace($installerVersion)) {
@@ -234,9 +204,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: |
-            build/out/*-setup.exe
-            build/out/*-portable.zip
+          path: build/out/*-setup.exe
 
   release:
     needs: [build-jar, build-windows-installer]
@@ -293,7 +261,13 @@ jobs:
             exit 1
           fi
 
-          cp CHANGELOG_EXCERPT.md RELEASE_BODY.md
+          cat > RELEASE_BODY.md <<'EOF'
+          > [!NOTE]
+          > 自 v1.8.0 版本更新中，我大量优化了网页的布局和功能统一性，希望可以让使用变得更方便和直观，如果有任何优化建议和问题欢迎提出issue
+          > 自 v1.8.1 版本更新后，不再提供zip便携安装包，如果有需要，可以根据README中的开发指南进行本地打包
+
+          EOF
+          cat CHANGELOG_EXCERPT.md >> RELEASE_BODY.md
 
           cat >> RELEASE_BODY.md <<'EOF'
 
@@ -304,11 +278,7 @@ jobs:
 
           FFmpeg 不再内置到安装包中；勾选该选项后，安装器会在主程序安装完成后联网下载 FFmpeg，并显示独立下载/解压进度。未勾选或下载失败时，普通图片下载不受影响，后续也可以在 GUI 的“状态”页点击“下载 FFmpeg”重试。
 
-          ### Windows 在线便携版
-          下载 `PixivDownload-*-win-x64-online-portable.zip`，解压后运行 `PixivDownload/PixivDownload.exe`。便携版内置精简 JRE，但不内置 FFmpeg。
-
-          ### Windows 完整便携版
-          下载 `PixivDownload-*-win-x64-portable.zip`，解压后运行 `PixivDownload/PixivDownload.exe`。该版本内置精简 JRE、FFmpeg 和 ffprobe，适合未安装 FFmpeg 或需要离线使用的环境。
+          Release 不再提供 Windows 便携 zip 包。
 
           ### JAR 包（跨平台）
 
@@ -385,7 +355,6 @@ jobs:
           files: |
             artifacts/PixivDownload-${{ github.ref_name }}.jar
             artifacts/*-setup.exe
-            artifacts/*-portable.zip
             artifacts/userscripts/*.user.js
             artifacts/update.json
           body_path: RELEASE_BODY.md
