@@ -190,11 +190,8 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         if (path.equals("/redirect")) {
-            String canvasParam = req.getParameter("canvas");
-            boolean canvasSupported = "true".equalsIgnoreCase(canvasParam);
             if (setupService.isIntroMode()) {
-                String target = canvasSupported ? "/intro-canary.html" : "/intro.html";
-                res.sendRedirect(target);
+                res.sendRedirect("/intro.html");
             } else if ("multi".equals(setupService.getMode())) {
                 res.sendRedirect("/pixiv-batch.html");
             } else {
