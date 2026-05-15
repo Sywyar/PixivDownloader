@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
+import top.sywyar.pixivdownload.gui.GuiTokenService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.Optional;
@@ -48,6 +49,8 @@ class AuthFilterTest {
     private ObjectProvider<MaintenanceCoordinator> maintenanceProvider;
     @Mock
     private GuestInviteService guestInviteService;
+    @Mock
+    private GuiTokenService guiTokenService;
 
     private AuthFilter authFilter;
     private MockHttpServletRequest request;
@@ -56,7 +59,7 @@ class AuthFilterTest {
     @BeforeEach
     void setUp() {
         authFilter = new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
-                localeResolver, appMessages, maintenanceProvider, guestInviteService);
+                localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenService);
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
         lenient().when(staticResourceRateLimitService.isAllowed(any())).thenReturn(true);
@@ -913,15 +916,36 @@ class AuthFilterTest {
                 "/api/gui/restart",
                 "/api/gui/anything"
         })
-        @DisplayName("/api/gui/** 应直接放行（GUI 内部调用，solo 模式下无 session token）")
+        @DisplayName("/api/gui/** 在本地请求 + 有效 GUI 令牌时应直接放行")
         void shouldPassThroughGuiApiPaths(String path) throws Exception {
+            when(guiTokenService.getToken()).thenReturn("gui-token");
+
             request.setMethod("GET");
             request.setRequestURI(path);
+            request.addHeader("X-GUI-Token", "gui-token");
 
             authFilter.doFilterInternal(request, response, filterChain);
 
             verify(filterChain).doFilter(request, response);
             verifyNoInteractions(setupService, rateLimitService);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/api/gui/status",
+                "/api/gui/restart"
+        })
+        @DisplayName("/api/gui/** 缺少有效 GUI 令牌时应返回 403")
+        void shouldRejectGuiApiPathsWithoutToken(String path) throws Exception {
+            when(guiTokenService.getToken()).thenReturn("gui-token");
+
+            request.setMethod("GET");
+            request.setRequestURI(path);
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verifyNoInteractions(filterChain);
         }
     }
 
@@ -932,27 +956,12 @@ class AuthFilterTest {
     class RedirectPathTests {
 
         @Test
-        @DisplayName("intro 模式下 canvas=true 应重定向到 intro-canary.html")
-        void shouldRedirectToIntroCanaryWhenCanvasSupportedInIntroMode() throws Exception {
+        @DisplayName("intro 模式下应重定向到 intro.html")
+        void shouldRedirectToIntroInIntroMode() throws Exception {
             when(setupService.isIntroMode()).thenReturn(true);
 
             request.setMethod("GET");
             request.setRequestURI("/redirect");
-            request.addParameter("canvas", "true");
-
-            authFilter.doFilterInternal(request, response, filterChain);
-
-            assertThat(response.getRedirectedUrl()).isEqualTo("/intro-canary.html");
-        }
-
-        @Test
-        @DisplayName("intro 模式下 canvas=false 应重定向到 intro.html")
-        void shouldRedirectToIntroWhenCanvasNotSupportedInIntroMode() throws Exception {
-            when(setupService.isIntroMode()).thenReturn(true);
-
-            request.setMethod("GET");
-            request.setRequestURI("/redirect");
-            request.addParameter("canvas", "false");
 
             authFilter.doFilterInternal(request, response, filterChain);
 
@@ -1011,11 +1020,10 @@ class AuthFilterTest {
 
             request.setMethod("GET");
             request.setRequestURI("/redirect");
-            request.addParameter("canvas", "true");
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getRedirectedUrl()).isEqualTo("/intro-canary.html");
+            assertThat(response.getRedirectedUrl()).isEqualTo("/intro.html");
             verifyNoInteractions(filterChain);
         }
     }
