@@ -3,6 +3,7 @@
 let pageI18n = null;
 let activeLoginError = null;
 let activeInviteError = null;
+let themeToggleMounted = false;
 
 function interpolate(template, vars) {
   if (!vars) return String(template);
@@ -83,6 +84,16 @@ async function initPageI18n() {
   } catch (_) {
     // Keep the inline Chinese fallback if i18n cannot be loaded.
   }
+}
+
+function mountThemeToggle() {
+  const headerActions = document.getElementById('headerActions');
+  if (!headerActions || !window.PixivTheme || themeToggleMounted) return;
+  PixivTheme.mount({
+    mountPoint: headerActions,
+    variant: 'login'
+  });
+  themeToggleMounted = true;
 }
 
 function getRedirect() {
@@ -206,6 +217,7 @@ async function redirectIfLoggedIn() {
 
 async function initLoginPage() {
   await initPageI18n();
+  mountThemeToggle();
   // 若 URL 带 inviteError，直接展开邀请码面板并提示
   if (new URLSearchParams(window.location.search).has('inviteError')) {
     showInvitePanel();

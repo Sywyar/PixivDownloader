@@ -1,6 +1,8 @@
 const params = new URLSearchParams(location.search);
 const novelId = params.get('id');
 let pageI18n;
+let rerenderPayload = null;
+let cachedSeriesNav = null;
 
 const HEART_DEFAULT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
 
@@ -12,6 +14,16 @@ const collectionState = {
 async function loadAll() {
     pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common'] });
     pageI18n.apply();
+    await PixivLangSwitcher.mount({
+        mountPoint: document.getElementById('langSwitcherAnchor'),
+        i18n: pageI18n,
+        onChange: (next) => {
+            pageI18n = next;
+            pageI18n.apply();
+            rerenderDynamic();
+        }
+    });
+    PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') });
     if (!novelId) {
         document.getElementById('loading').textContent = pageI18n.t('status.missing-id');
         return;
@@ -49,7 +61,29 @@ function showCover() {
     wrap.style.display = 'block';
 }
 
+function rerenderDynamic() {
+    if (!rerenderPayload) return;
+    const d = rerenderPayload.data;
+    if (rerenderPayload.kind === 'remote') {
+        renderBadges({ xRestrict: d.xRestrict, isAi: d.isAi, isOriginal: d.isOriginal });
+        renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.language, uploadTimestamp: d.uploadTimestamp });
+        renderDescription(d.description);
+        renderTags(d.tags || []);
+    } else {
+        renderBadges({ xRestrict: d.xRestrict, isAi: d.isAi, isOriginal: d.isOriginal });
+        renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.xLanguage, uploadTimestamp: d.time });
+        renderDescription(d.description);
+        renderTags(d.tags || []);
+    }
+    if (cachedSeriesNav) {
+        renderSeriesNavSet(cachedSeriesNav, { wrap: 'series-nav', prev: 'series-prev', index: 'series-index', next: 'series-next' });
+        renderSeriesNavSet(cachedSeriesNav, { wrap: 'series-nav-bottom', prev: 'series-prev-bottom', index: 'series-index-bottom', next: 'series-next-bottom' });
+    }
+    updateHeart();
+}
+
 function renderRemote(meta) {
+    rerenderPayload = { kind: 'remote', data: meta };
     if (meta.coverUrl) showCover();
     document.getElementById('novel-title').textContent = meta.title || '';
     document.getElementById('novel-author').innerHTML = meta.authorId
@@ -69,6 +103,7 @@ function renderRemote(meta) {
 }
 
 async function renderLocal(view) {
+    rerenderPayload = { kind: 'local', data: view };
     if (view.coverExt) showCover();
     document.getElementById('novel-title').textContent = view.title || '';
     document.getElementById('novel-author').innerHTML = view.authorId
@@ -235,6 +270,7 @@ async function loadSeriesNav() {
         if (!r.ok) return;
         const nav = await r.json();
         if (!nav.seriesId) return;
+        cachedSeriesNav = nav;
         renderSeriesNavSet(nav, {
             wrap: 'series-nav',
             prev: 'series-prev',
