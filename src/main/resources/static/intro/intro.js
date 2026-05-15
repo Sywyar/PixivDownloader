@@ -1,20 +1,4 @@
 (() => {
-  // ---------- canary detection ----------
-  const canarySupported =
-    typeof CanvasRenderingContext2D !== 'undefined' &&
-    typeof CanvasRenderingContext2D.prototype.drawElementImage === 'function';
-  if (canarySupported) {
-    const banner = document.getElementById('canaryBanner');
-    banner.classList.add('show');
-    document.body.classList.add('banner-on');
-    function closeBanner() {
-      banner.classList.remove('show');
-      document.body.classList.remove('banner-on');
-    }
-    banner.querySelector('.close').addEventListener('click', closeBanner);
-    banner.querySelector('.banner-timer').addEventListener('animationend', closeBanner);
-  }
-
   // ---------- deck controller ----------
   const deck = document.getElementById('deck');
   const slides = [...document.querySelectorAll('.slide')];
@@ -106,4 +90,61 @@
   document.addEventListener('pointerout', (e) => {
     if (tipTarget && !tipTarget.contains(e.relatedTarget)) hideTip();
   });
+
+  // ---------- i18n ----------
+  let pageI18n = null;
+
+  function applyDynamicTranslations() {
+    if (!pageI18n) return;
+    // data-tip tooltips: read data-i18n-tip key, translate, write back to data-tip
+    document.querySelectorAll('[data-i18n-tip]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-tip');
+      if (!key) return;
+      const fallback = el.getAttribute('data-tip') || '';
+      el.setAttribute('data-tip', pageI18n.t(key, fallback));
+    });
+    // gallery search box value
+    document.querySelectorAll('[data-i18n-value]').forEach((el) => {
+      const key = el.getAttribute('data-i18n-value');
+      if (!key) return;
+      el.value = pageI18n.t(key, el.value);
+    });
+  }
+
+  function applyPageTranslations() {
+    if (!pageI18n) return;
+    pageI18n.apply(document.body);
+    document.title = pageI18n.t('page.title', document.title);
+    applyDynamicTranslations();
+    // refresh dot labels (S1/S2... unless slide.dataset.label is set)
+    dots.forEach((d, idx) => {
+      const slide = slides[idx];
+      if (slide && slide.dataset.label) d.setAttribute('data-label', slide.dataset.label);
+    });
+  }
+
+  async function initI18n() {
+    if (typeof PixivI18n === 'undefined') return;
+    try {
+      pageI18n = await PixivI18n.create({ namespaces: ['intro', 'common'] });
+      const anchor = document.getElementById('langSwitcherAnchor');
+      if (anchor && typeof PixivLangSwitcher !== 'undefined') {
+        await PixivLangSwitcher.mount({
+          mountPoint: anchor,
+          i18n: pageI18n,
+          variant: 'intro',
+          onChange: (nextClient) => {
+            pageI18n = nextClient;
+            applyPageTranslations();
+          }
+        });
+      }
+      applyPageTranslations();
+    } catch (e) {
+      // i18n initialization failed; page falls back to inline Chinese text
+      console && console.warn && console.warn('intro i18n init failed:', e);
+    }
+  }
+
+  initI18n();
 })();

@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>PixivDownload — 一键归档你的 Pixiv 收藏</title>
-<meta name="description" content="Spring Boot + 油猴脚本驱动的本地 Pixiv 批量下载器。批量、动图、分类、历史数据库，全都交给它。" />
+<title data-i18n="page.title">PixivDownload — 一键归档你的 Pixiv 收藏</title>
+<meta name="description" content="本地 Pixiv 批量下载工具：漫画 / 插画 / 动图 / 小说 全格式支持，附带画廊检索、收藏夹、系列下载和多人配额。Spring Boot + 油猴脚本。" />
+<script src="/js/pixiv-i18n.js"></script>
+<script src="/js/pixiv-lang-switcher.js"></script>
 <link rel="stylesheet" href="/vendor/fonts/fonts.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,24 +22,19 @@
   <div class="blob b3"></div>
 </div>
 
-<!-- canary banner -->
-<div class="canary-banner" id="canaryBanner">
-  <span>🎉 你的浏览器支持 html-in-canvas 增强渲染</span>
-  <a href="intro-canary.html">查看 Canary 增强版 →</a>
-  <button class="close" aria-label="关闭">×</button>
-  <span class="banner-timer" aria-hidden="true"></span>
-</div>
-
 <!-- top nav -->
 <nav class="top">
   <div class="logo"><span class="mark">P</span> PixivDownload</div>
   <ul>
-    <li><a data-goto="0">首页</a></li>
-    <li><a data-goto="2">Monitor</a></li>
-    <li><a data-goto="3">Batch</a></li>
-    <li><a data-goto="4">特性</a></li>
+    <li><a data-goto="0" data-i18n="nav.home">首页</a></li>
+    <li><a data-goto="2" data-i18n="nav.monitor">Monitor</a></li>
+    <li><a data-goto="3" data-i18n="nav.batch">Batch</a></li>
+    <li><a data-goto="4" data-i18n="nav.gallery">Gallery</a></li>
+    <li><a data-goto="5" data-i18n="nav.artwork">Artwork</a></li>
+    <li><a data-goto="6" data-i18n="nav.features">特性</a></li>
   </ul>
-  <a class="cta" href="https://github.com/Sywyar/PixivDownload" target="_blank" rel="noopener">GitHub →</a>
+  <span class="nav-lang" id="langSwitcherAnchor"></span>
+  <a class="cta" href="https://github.com/Sywyar/PixivDownload" target="_blank" rel="noopener" data-i18n="nav.github">GitHub →</a>
 </nav>
 
 <!-- dot nav -->
@@ -49,23 +46,23 @@
   <!-- ====== SLIDE 1: HERO ====== -->
   <section class="slide s-hero" data-label="HERO">
     <div class="hero-thumbs" aria-hidden="true">
-      <div class="hero-thumb t1"><div class="cap">illust · 98234172</div></div>
-      <div class="hero-thumb t2"><div class="cap">illust · 76483921</div></div>
-      <div class="hero-thumb t3"><div class="cap">illust · 11928374</div></div>
-      <div class="hero-thumb t4"><div class="cap">ugoira · 83749201</div></div>
+      <div class="hero-thumb t1"><div class="cap" data-i18n="hero.thumb.illust">illust · 98234172</div></div>
+      <div class="hero-thumb t2"><div class="cap" data-i18n="hero.thumb.manga">manga · 76483921</div></div>
+      <div class="hero-thumb t3"><div class="cap" data-i18n="hero.thumb.novel">novel · 11928374</div></div>
+      <div class="hero-thumb t4"><div class="cap" data-i18n="hero.thumb.ugoira">ugoira · 83749201</div></div>
     </div>
     <div class="slide-inner" style="text-align:center">
-      <span class="eyebrow fx"><span class="pulse"></span>Spring Boot · Tampermonkey · 开源</span>
-      <h1 class="fx d1" style="margin-top:24px">一键归档<br/>你的 <em>Pixiv 收藏</em>。</h1>
-      <p class="lead fx d2" style="margin:20px auto 0">
-        批量下载、动图转码、智能分类、历史库——一个本地跑的 Spring Boot 后端 + 油猴脚本，帮你把收藏真正收下来。
+      <span class="eyebrow fx"><span class="pulse"></span><span data-i18n="hero.eyebrow">漫画 · 插画 · 动图 · 小说 · 暗色模式 · 多语言</span></span>
+      <h1 class="fx d1" style="margin-top:24px" data-i18n-html="hero.title">本地归档<br/>你的 <em>Pixiv 作品</em>。</h1>
+      <p class="lead fx d2" style="margin:20px auto 0" data-i18n="hero.lead">
+        Spring Boot 后端 + 油猴脚本 + 本地画廊。批量、系列、动图转码、画廊检索、收藏夹归档、多人配额——一整套管线，跑在你自己的机器上。
       </p>
       <div class="cta-row fx d3">
         <a class="btn primary" data-goto="2">
-          看它长什么样
+          <span data-i18n="btn.see-it">看它长什么样</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
         </a>
-        <a class="btn ghost" href="https://github.com/Sywyar/PixivDownload" target="_blank" rel="noopener">阅读文档</a>
+        <a class="btn ghost" href="https://github.com/Sywyar/PixivDownload" target="_blank" rel="noopener" data-i18n="btn.read-docs">阅读文档</a>
       </div>
     </div>
   </section>
@@ -73,42 +70,42 @@
   <!-- ====== SLIDE 2: PAIN POINTS ====== -->
   <section class="slide s-pain" data-label="PAIN">
     <div class="slide-inner">
-      <span class="eyebrow fx">Why · 为什么</span>
-      <h2 class="fx d1" style="margin-top:16px">
+      <span class="eyebrow fx" data-i18n="pain.eyebrow">Why · 为什么</span>
+      <h2 class="fx d1" style="margin-top:16px" data-i18n-html="pain.title">
         收藏一时爽，<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent-3),var(--accent-2));-webkit-background-clip:text;color:transparent">整理火葬场。</em>
       </h2>
-      <p class="fx d2" style="margin-top:14px">几千张收藏、翻页加载、动图下载、R18 过滤、分类归档——你真的想手动做吗？</p>
+      <p class="fx d2" style="margin-top:14px" data-i18n="pain.lead">几千件作品横跨漫画/动图/小说、翻页加载、R-18 过滤、画廊检索、收藏夹归档——你真的想手动做吗？</p>
 
       <div class="compare">
         <div class="compare-col fx d2">
-          <span class="tag">浏览器右键</span>
-          <h3>慢 · 易断 · 无记忆</h3>
+          <span class="tag" data-i18n="pain.col1.tag">浏览器右键</span>
+          <h3 data-i18n="pain.col1.title">慢 · 易断 · 无记忆</h3>
           <ul>
-            <li>一次只能存一张</li>
-            <li>动图只能存 ZIP，无法播放</li>
-            <li>重复下载没有提示</li>
-            <li>无分类、无历史</li>
+            <li data-i18n="pain.col1.li1">一次只能存一张</li>
+            <li data-i18n="pain.col1.li2">动图只能存 ZIP，无法播放</li>
+            <li data-i18n="pain.col1.li3">小说？没有原生入口</li>
+            <li data-i18n="pain.col1.li4">无分类、无历史</li>
           </ul>
         </div>
         <div class="compare-col fx d3">
-          <span class="tag">常见油猴脚本</span>
-          <h3>只管下，不管后</h3>
+          <span class="tag" data-i18n="pain.col2.tag">纯前端脚本</span>
+          <h3 data-i18n="pain.col2.title">简单直接，专注下载</h3>
           <ul>
-            <li>本地浏览器下载不稳定</li>
-            <li>没有配额 / 多人控制</li>
-            <li>动图需额外工具转码</li>
-            <li>历史和分类都要手动</li>
+            <li data-i18n="pain.col2.li1">多走浏览器原生下载</li>
+            <li data-i18n="pain.col2.li2">通常不附带画廊与历史检索</li>
+            <li data-i18n="pain.col2.li3">动图大多需要二次处理</li>
+            <li data-i18n="pain.col2.li4">偏单机使用，没有多人配额</li>
           </ul>
         </div>
         <div class="compare-col win fx d4">
-          <span class="tag">PixivDownload</span>
-          <h3>批量 · 动图 · 分类 · 历史</h3>
+          <span class="tag" data-i18n="pain.col3.tag">PixivDownload</span>
+          <h3 data-i18n="pain.col3.title">批量 · 画廊 · 系列 · 历史</h3>
           <ul>
-            <li>Spring Boot 后端代理下载，稳</li>
-            <li>Ugoira 自动转 WebP，可播放</li>
-            <li>SQLite 历史库，永不重复</li>
-            <li>ImageClassifier 可视化分类</li>
-            <li>多人模式 + 配额 + 打包归档</li>
+            <li data-i18n="pain.col3.li1">插画 / 漫画 / 动图 / 小说 全格式</li>
+            <li data-i18n="pain.col3.li2">Ugoira 自动转 WebP，可播放</li>
+            <li data-i18n="pain.col3.li3">本地画廊 + 作品详情 + 灯箱</li>
+            <li data-i18n="pain.col3.li4">系列下载、收藏夹归档、邀请码访客</li>
+            <li data-i18n="pain.col3.li5">多人模式 + 配额 + 打包归档</li>
           </ul>
         </div>
       </div>
@@ -120,10 +117,10 @@
     <div class="slide-inner">
       <div class="head">
         <div>
-          <span class="eyebrow fx">Monitor · 实时监控</span>
-          <h2 class="fx d1" style="margin-top:12px">看得见的<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#00e5ff,#a78bfa);-webkit-background-clip:text;color:transparent">下载流水线。</em></h2>
+          <span class="eyebrow fx" data-i18n="monitor.eyebrow">Monitor · 实时监控</span>
+          <h2 class="fx d1" style="margin-top:12px" data-i18n-html="monitor.title">看得见的<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#00e5ff,#a78bfa);-webkit-background-clip:text;color:transparent">下载流水线。</em></h2>
         </div>
-        <p class="fx d2">赛博风控制台，实时进度、历史查询、一键分类归档。鼠标悬浮任意元素可查看功能说明。</p>
+        <p class="fx d2" data-i18n="monitor.lead">赛博风控制台，实时进度、历史检索、按作者 / Tag / AI 多维筛选。鼠标悬浮任意元素可查看功能说明。</p>
       </div>
 
       <div class="mock-window fx d3">
@@ -134,43 +131,43 @@
         <div class="mock-monitor">
           <div class="mm-header">
             <div>
-              <div class="mm-title">PIXIV <span class="slash">//</span> DOWNLOAD MONITOR</div>
-              <div class="mm-sub">&gt;&gt; REALTIME MONITORING / STATUS &amp; HISTORY</div>
+              <div class="mm-title" data-i18n-html="monitor.console.title">PIXIV <span class="slash">//</span> DOWNLOAD MONITOR</div>
+              <div class="mm-sub" data-i18n-html="monitor.console.sub">&gt;&gt; REALTIME MONITORING / HISTORY / AUTHOR FILTER</div>
             </div>
-            <div class="mm-live"><span class="led"></span> LIVE · 14:23:07</div>
+            <div class="mm-live"><span class="led"></span> <span data-i18n="monitor.console.live">LIVE · 14:23:07</span></div>
           </div>
 
           <div class="mm-stats">
-            <div class="mm-stat" data-tip="累计已下载的作品数量，包括单图和多图作品"><div class="k">TOTAL ARTWORKS</div><div class="v">1,247</div></div>
-            <div class="mm-stat" data-tip="所有已下载的图片总数，动图按帧数计 1"><div class="k">TOTAL IMAGES</div><div class="v">8,392</div></div>
-            <div class="mm-stat" data-tip="已通过 ImageClassifier 分类归档到子目录的作品数"><div class="k">MOVED</div><div class="v">312</div></div>
-            <div class="mm-stat" data-tip="当前正在下载中的作品数，点击可查看进度"><div class="k">ACTIVE</div><div class="v">2</div></div>
+            <div class="mm-stat" data-i18n-tip="monitor.tip.artworks" data-tip="累计已下载的作品数量"><div class="k" data-i18n="monitor.stat.artworks">TOTAL ARTWORKS</div><div class="v">1,247</div></div>
+            <div class="mm-stat" data-i18n-tip="monitor.tip.images" data-tip="所有已下载的图片总数"><div class="k" data-i18n="monitor.stat.images">TOTAL IMAGES</div><div class="v">8,392</div></div>
+            <div class="mm-stat" data-i18n-tip="monitor.tip.moved" data-tip="已分类归档的作品数"><div class="k" data-i18n="monitor.stat.moved">MOVED</div><div class="v">312</div></div>
+            <div class="mm-stat" data-i18n-tip="monitor.tip.active" data-tip="当前正在下载中的作品数"><div class="k" data-i18n="monitor.stat.active">ACTIVE</div><div class="v">2</div></div>
           </div>
 
           <div class="mm-body">
-            <div class="mm-panel" data-tip="历史下载记录，由 SQLite 持久化，支持按 ID、标题、日期、状态排序">
-              <div class="mm-panel-label">■ DOWNLOAD HISTORY</div>
+            <div class="mm-panel" data-i18n-tip="monitor.tip.history" data-tip="历史下载记录">
+              <div class="mm-panel-label" data-i18n="monitor.panel.history">■ DOWNLOAD HISTORY</div>
               <table class="mm-table">
-                <thead><tr><th>ID</th><th>TITLE</th><th>CNT</th><th>FMT</th><th>DATE</th><th>STATUS</th></tr></thead>
+                <thead><tr><th data-i18n="monitor.col.id">ID</th><th data-i18n="monitor.col.title">TITLE</th><th data-i18n="monitor.col.cnt">CNT</th><th data-i18n="monitor.col.fmt">FMT</th><th data-i18n="monitor.col.date">DATE</th><th data-i18n="monitor.col.status">STATUS</th></tr></thead>
                 <tbody>
-                  <tr data-tip="作品 127384921：4 张图，已下载并归档"><td>127384921</td><td>初音ミク雨の日</td><td>4</td><td><span class="badge jpg">JPG</span></td><td>03-15</td><td><span class="badge moved">MOVED</span></td></tr>
-                  <tr data-tip="Ugoira 动图，已自动转为 WebP 格式"><td>118292847</td><td>桜の舞う季節 (ugoira)</td><td>1</td><td><span class="badge webp">WEBP</span></td><td>03-14</td><td><span class="badge completed">COMPLETED</span></td></tr>
-                  <tr data-tip="R18 作品，已按配置策略标记保留"><td>124738291</td><td>夜の東京</td><td>1</td><td><span class="badge jpg">JPG</span></td><td>03-13</td><td><span class="badge r18">R18</span></td></tr>
-                  <tr data-tip="多图作品，6 张图已全部下载完成"><td>112938475</td><td>Winter Portrait Series</td><td>6</td><td><span class="badge png">PNG</span></td><td>03-12</td><td><span class="badge completed">COMPLETED</span></td></tr>
-                  <tr data-tip="已被手动分类到 '风景' 子目录"><td>098273645</td><td>東京タワーの夜</td><td>3</td><td><span class="badge jpg">JPG</span></td><td>03-10</td><td><span class="badge moved">MOVED</span></td></tr>
+                  <tr data-i18n-tip="monitor.tip.row1" data-tip="row 1"><td>127384921</td><td>初音ミク雨の日</td><td>4</td><td><span class="badge jpg">JPG</span></td><td>03-15</td><td><span class="badge moved">MOVED</span></td></tr>
+                  <tr data-i18n-tip="monitor.tip.row2" data-tip="row 2"><td>118292847</td><td>桜の舞う季節 (ugoira)</td><td>1</td><td><span class="badge webp">WEBP</span></td><td>03-14</td><td><span class="badge completed">COMPLETED</span></td></tr>
+                  <tr data-i18n-tip="monitor.tip.row3" data-tip="row 3"><td>124738291</td><td>夜の東京 - 第三章</td><td>1</td><td><span class="badge epub">EPUB</span></td><td>03-13</td><td><span class="badge novel">NOVEL</span></td></tr>
+                  <tr data-i18n-tip="monitor.tip.row4" data-tip="row 4"><td>112938475</td><td>Winter Portrait Series</td><td>6</td><td><span class="badge png">PNG</span></td><td>03-12</td><td><span class="badge completed">COMPLETED</span></td></tr>
+                  <tr data-i18n-tip="monitor.tip.row5" data-tip="row 5"><td>098273645</td><td>東京タワーの夜</td><td>3</td><td><span class="badge jpg">JPG</span></td><td>03-10</td><td><span class="badge r18">R18</span></td></tr>
                 </tbody>
               </table>
             </div>
-            <div class="mm-panel" data-tip="当前正在下载的队列，进度实时推送（SSE / 轮询 fallback）">
-              <div class="mm-panel-label">■ ACTIVE DOWNLOADS [2]</div>
-              <div class="mm-active-item mm-a-1" data-tip="作品 131294857：10 张图中已完成 7 张，预计 15 秒">
+            <div class="mm-panel" data-i18n-tip="monitor.tip.queue" data-tip="当前正在下载的队列">
+              <div class="mm-panel-label" data-i18n="monitor.panel.active">■ ACTIVE DOWNLOADS [2]</div>
+              <div class="mm-active-item mm-a-1" data-i18n-tip="monitor.tip.item1" data-tip="item 1">
                 <div class="mm-active-title">131294857 · 春の散歩道</div>
-                <div class="mm-active-meta"><span>7/10 图</span><span>67%</span></div>
+                <div class="mm-active-meta"><span data-i18n="monitor.active.pages">7/10 图</span><span>67%</span></div>
                 <div class="mm-progress"><div class="mm-progress-fill"></div></div>
               </div>
-              <div class="mm-active-item mm-a-2" data-tip="Ugoira 动图正在后端通过 ffmpeg 合成为 WebP">
+              <div class="mm-active-item mm-a-2" data-i18n-tip="monitor.tip.item2" data-tip="item 2">
                 <div class="mm-active-title">128384712 · Ugoira · Dance</div>
-                <div class="mm-active-meta"><span>转码中</span><span>34%</span></div>
+                <div class="mm-active-meta"><span data-i18n="monitor.active.encoding">转码中</span><span>34%</span></div>
                 <div class="mm-progress"><div class="mm-progress-fill"></div></div>
               </div>
             </div>
@@ -185,10 +182,10 @@
     <div class="slide-inner">
       <div class="head">
         <div>
-          <span class="eyebrow fx">Batch · 批量搜索</span>
-          <h2 class="fx d1" style="margin-top:12px">一次搜索，<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#28a745,#22d3ee);-webkit-background-clip:text;color:transparent">整页收藏。</em></h2>
+          <span class="eyebrow fx" data-i18n="batch.eyebrow">Batch · 一站式批量</span>
+          <h2 class="fx d1" style="margin-top:12px" data-i18n-html="batch.title">四种入口，<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#28a745,#22d3ee);-webkit-background-clip:text;color:transparent">同一个队列。</em></h2>
         </div>
-        <p class="fx d2">批量导入单作品 · User 主页 · 关键词 Search，三合一批量入口。悬浮任意缩略图可查看功能说明。</p>
+        <p class="fx d2" data-i18n="batch.lead">批量导入单作品 · User 主页 · 关键词 Search · 系列下载，全部支持插画 / 漫画 / 动图 / 小说切换。悬浮任意元素可查看说明。</p>
       </div>
 
       <div class="mock-window fx d3">
@@ -198,39 +195,55 @@
         </div>
         <div class="mock-batch">
           <div class="mb-nav">
-            <div class="brand"><span class="mk">P</span> Pixiv 批量下载器</div>
+            <div class="brand"><span class="mk">P</span> <span data-i18n="batch.brand">Pixiv 下载助手</span></div>
+            <a data-i18n="batch.nav.monitor" data-i18n-tip="batch.tip.monitor" data-tip="monitor">📊 MONITOR</a>
+            <a class="on" data-i18n="batch.nav.batch" data-i18n-tip="batch.tip.batch" data-tip="batch">🧩 BATCH</a>
+            <a data-i18n="batch.nav.gallery" data-i18n-tip="batch.tip.gallery" data-tip="gallery">🖼 GALLERY</a>
             <span class="sp"></span>
-            <a>Monitor</a>
-            <a class="on">Batch</a>
+            <span class="mb-lang" data-i18n="batch.lang" data-i18n-tip="batch.tip.lang" data-tip="i18n">🌐 中文 ▾</span>
           </div>
           <div class="mb-body">
             <div class="mb-card">
               <div class="mb-tabs">
-                <div class="mb-tab" data-tip="批量导入单作品：粘贴单作品链接列表，批量下载">批量导入单作品</div>
-                <div class="mb-tab" data-tip="User 主页批量：输入画师 ID，一键下载该画师全部作品">User</div>
-                <div class="mb-tab on" data-tip="Search 搜索批量：按关键词 + 排序抓取 Pixiv 公开搜索结果">Search</div>
+                <div class="mb-tab" data-i18n="batch.tab.import" data-i18n-tip="batch.tip.tab.import" data-tip="import">🎨 批量导入</div>
+                <div class="mb-tab" data-i18n="batch.tab.user" data-i18n-tip="batch.tip.tab.user" data-tip="user">👤 User</div>
+                <div class="mb-tab on" data-i18n="batch.tab.search" data-i18n-tip="batch.tip.tab.search" data-tip="search">🔍 Search</div>
+                <div class="mb-tab" data-i18n="batch.tab.series" data-i18n-tip="batch.tip.tab.series" data-tip="series">📚 系列</div>
+              </div>
+              <div class="mb-kind" data-i18n-tip="batch.tip.kind" data-tip="kind">
+                <span class="on" data-i18n="batch.kind.illust">插画 + 漫画 + 动图</span>
+                <span data-i18n="batch.kind.novel">小说</span>
               </div>
               <div class="mb-search">
-                <input value="初音ミク" placeholder="输入关键词…" readonly data-tip="支持 Pixiv 原生高级搜索语法：如 '初音ミク 500users入り'">
-                <button data-tip="调用后端 /api/pixiv/search 代理 Pixiv AJAX，每页 60 条">搜索</button>
+                <input value="初音ミク" data-i18n-placeholder="batch.search.placeholder" placeholder="输入关键词…" readonly data-i18n-tip="batch.tip.search" data-tip="search">
+                <button class="primary" data-i18n="batch.btn.search" data-i18n-tip="batch.tip.btn-search" data-tip="search btn">🔍 搜索</button>
+                <button class="ok" data-i18n="batch.btn.add-all" data-i18n-tip="batch.tip.btn-add-all" data-tip="add">➕ 全部加入</button>
+              </div>
+              <div class="mb-chips">
+                <span class="mb-chip" data-i18n="batch.chip.content" data-i18n-tip="batch.tip.chip.content" data-tip="content">内容 · 全年龄</span>
+                <span class="mb-chip" data-i18n="batch.chip.sort" data-i18n-tip="batch.tip.chip.sort" data-tip="sort">排序 · 最新</span>
+                <span class="mb-chip" data-i18n="batch.chip.ai" data-i18n-tip="batch.tip.chip.ai" data-tip="ai">AI · 排除</span>
+                <span class="mb-chip" data-i18n="batch.chip.pages" data-i18n-tip="batch.tip.chip.pages" data-tip="pages">页数 · ≥ 2</span>
+                <span class="mb-chip" data-i18n="batch.chip.bookmarks" data-i18n-tip="batch.tip.chip.bookmarks" data-tip="bookmarks">收藏 · ≥ 500</span>
               </div>
               <div class="mb-grid">
-                <div class="mb-thumb g1" data-tip="点击后加入下载队列，后端异步拉取"><div class="meta"><span>127384921</span><span class="cnt">4P</span></div></div>
-                <div class="mb-thumb g2" data-tip="Ugoira 动图，自动转 WebP 保存"><div class="meta"><span>118292847</span><span class="cnt">Ugo</span></div></div>
-                <div class="mb-thumb g3" data-tip="R18 作品，按配置策略自动跳过或标记"><div class="meta"><span>124738291</span><span class="cnt">1P</span></div></div>
-                <div class="mb-thumb g4" data-tip="多图作品，6 张图逐一下载，带进度"><div class="meta"><span>112938475</span><span class="cnt">6P</span></div></div>
-                <div class="mb-thumb g5" data-tip="高赞作品，下载后可一键收藏到 Pixiv 账号"><div class="meta"><span>098273645</span><span class="cnt">3P</span></div></div>
-                <div class="mb-thumb g6" data-tip="后端检测到历史库已存在，悬浮提示并跳过"><div class="meta"><span>133847592</span><span class="cnt">2P</span></div></div>
+                <div class="mb-thumb g1" data-i18n-tip="batch.tip.thumb1" data-tip="thumb"><div class="badges"><span class="bb p">4P</span></div><div class="meta"><span>127384921</span></div></div>
+                <div class="mb-thumb g2" data-i18n-tip="batch.tip.thumb2" data-tip="thumb"><div class="badges"><span class="bb webp">UGO</span></div><div class="meta"><span>118292847</span></div></div>
+                <div class="mb-thumb g3" data-i18n-tip="batch.tip.thumb3" data-tip="thumb"><div class="badges"><span class="bb r">R-18</span></div><div class="meta"><span>124738291</span></div></div>
+                <div class="mb-thumb g4" data-i18n-tip="batch.tip.thumb4" data-tip="thumb"><div class="badges"><span class="bb p">6P</span></div><div class="meta"><span>112938475</span></div></div>
+                <div class="mb-thumb g5" data-i18n-tip="batch.tip.thumb5" data-tip="thumb"><div class="badges"><span class="bb ai">AI</span><span class="bb p">3P</span></div><div class="meta"><span>098273645</span></div></div>
+                <div class="mb-thumb g6" data-i18n-tip="batch.tip.thumb6" data-tip="thumb"><div class="badges"><span class="bb done">已下</span></div><div class="meta"><span>133847592</span></div></div>
               </div>
               <div class="mb-settings">
-                <label data-tip="开启后下载动图并通过 ffmpeg 合成 WebP"><input type="checkbox" checked> 下载动图</label>
-                <label data-tip="下载完成后自动调 Pixiv API 加入你的收藏"><input type="checkbox"> 自动收藏</label>
-                <label data-tip="R18 作品仍然下载但标记到单独目录"><input type="checkbox" checked> 允许 R18</label>
-                <label data-tip="已存在于历史库的作品自动跳过，节省流量"><input type="checkbox" checked> 跳过重复</label>
+                <label data-i18n-tip="batch.tip.set.ugoira" data-tip="ugoira"><input type="checkbox" checked> <span data-i18n="batch.settings.ugoira">下载动图</span></label>
+                <label data-i18n-tip="batch.tip.set.bookmark" data-tip="bookmark"><input type="checkbox"> <span data-i18n="batch.settings.bookmark">自动收藏</span></label>
+                <label data-i18n-tip="batch.tip.set.r18" data-tip="r18"><input type="checkbox" checked> <span data-i18n="batch.settings.r18">允许 R-18</span></label>
+                <label data-i18n-tip="batch.tip.set.skip" data-tip="skip"><input type="checkbox" checked> <span data-i18n="batch.settings.skip">跳过重复</span></label>
+                <label data-i18n="batch.settings.collection" data-i18n-tip="batch.tip.set.collection" data-tip="collection">📁 收藏夹 · 默认</label>
               </div>
               <div class="mb-action">
-                <button class="big" data-tip="将全部选中作品加入后端下载队列，Monitor 页可实时查看进度">▶ 开始批量下载（6 件）</button>
-                <span class="mb-status">就绪</span>
+                <button class="big" data-i18n="batch.action.start" data-i18n-tip="batch.tip.action" data-tip="action">▶ 开始批量下载（6 件）</button>
+                <span class="mb-status" data-i18n="batch.action.ready">就绪</span>
               </div>
             </div>
           </div>
@@ -239,79 +252,278 @@
     </div>
   </section>
 
-  <!-- ====== SLIDE 5: FEATURES ====== -->
-  <section class="slide" data-label="FEAT">
+  <!-- ====== SLIDE 5: GALLERY MOCK ====== -->
+  <section class="slide s-mock" data-label="GALLERY">
     <div class="slide-inner">
-      <span class="eyebrow fx">Features · 特性</span>
-      <h2 class="fx d1" style="margin-top:16px;max-width:15ch">不止下载，是一整套<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent),var(--accent-3));-webkit-background-clip:text;color:transparent"> 收藏管线。</em></h2>
+      <div class="head">
+        <div>
+          <span class="eyebrow fx" data-i18n="gallery.eyebrow">Gallery · 本地画廊</span>
+          <h2 class="fx d1" style="margin-top:12px" data-i18n-html="gallery.title">下载完，<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#0096fa,#8570ff);-webkit-background-clip:text;color:transparent">还要看得见。</em></h2>
+        </div>
+        <p class="fx d2" data-i18n="gallery.lead">侧栏检索 + 多维筛选 + 自定义收藏夹。三种 Tag / 作者筛选模式：必须有 · 不能有 · 或者有，正向并集再与排除取交。</p>
+      </div>
 
-      <div class="feat-grid">
-        <div class="feat fx d2">
-          <div class="ico">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2M15 15a4 4 0 0 1 4 4v2"/></svg>
-          </div>
-          <h3>多人模式 + 配额</h3>
-          <p>solo 单人鉴权 / multi 多人共享两套模式。多人模式下每个 UUID 独立配额，超额自动打包归档成 ZIP 供用户下载。</p>
+      <div class="mock-window fx d3">
+        <div class="mock-titlebar">
+          <span class="td r"></span><span class="td y"></span><span class="td g"></span>
+          <span class="mock-url">http://localhost:6999/pixiv-gallery.html?view=all</span>
         </div>
-        <div class="feat fx d3">
-          <div class="ico">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 12l3 3 5-6"/></svg>
+        <div class="mock-gallery">
+          <aside class="mg-side">
+            <div class="mg-brand" data-i18n-tip="gallery.tip.brand" data-tip="brand">
+              <span class="mk">◆</span> <span data-i18n="gallery.brand">Pixiv Gallery</span>
+            </div>
+            <div class="mg-section-h" data-i18n="gallery.section.view">视图</div>
+            <a class="mg-nav on" data-i18n-tip="gallery.tip.view.all" data-tip="view all"><span class="ic">▦</span><span data-i18n="gallery.view.all">全部图片</span></a>
+            <a class="mg-nav" data-i18n-tip="gallery.tip.view.authors" data-tip="authors"><span class="ic">◴</span><span data-i18n="gallery.view.authors">按作者查看</span></a>
+            <a class="mg-nav" data-i18n-tip="gallery.tip.view.series" data-tip="series"><span class="ic">≡</span><span data-i18n="gallery.view.series">按系列漫画查看</span></a>
+            <div class="mg-section-h"><span data-i18n="gallery.section.collections">收藏夹</span> <span class="plus" data-i18n-tip="gallery.tip.section.coll-new" data-tip="new">+</span></div>
+            <a class="mg-coll" data-i18n-tip="gallery.tip.coll.c1" data-tip="coll1"><span class="ic ic-c1">♥</span><span data-i18n="gallery.coll.c1">壁纸候选</span> <span class="cnt">42</span></a>
+            <a class="mg-coll" data-i18n-tip="gallery.tip.coll.c2" data-tip="coll2"><span class="ic ic-c2">★</span><span data-i18n="gallery.coll.c2">初音专辑</span> <span class="cnt">87</span></a>
+            <a class="mg-coll" data-i18n-tip="gallery.tip.coll.c3" data-tip="coll3"><span class="ic ic-c3">✦</span><span data-i18n="gallery.coll.c3">NSFW</span> <span class="cnt">23</span></a>
+            <div class="mg-section-h" data-i18n="gallery.section.nav">导航</div>
+            <a class="mg-nav" data-i18n-tip="gallery.tip.nav.download" data-tip="download"><span class="ic">↓</span><span data-i18n="gallery.nav.download">下载</span></a>
+            <a class="mg-nav" data-i18n-tip="gallery.tip.nav.monitor" data-tip="monitor"><span class="ic">▢</span><span data-i18n="gallery.nav.monitor">监控</span></a>
+          </aside>
+
+          <div class="mg-main">
+            <div class="mg-top">
+              <label class="mg-search" data-i18n-tip="gallery.tip.search" data-tip="search">
+                <span class="ic">⌕</span><input data-i18n-value="gallery.search.value" value="初音" readonly>
+              </label>
+              <button class="mg-filter-btn" data-i18n-tip="gallery.tip.filter" data-tip="filter">
+                <span data-i18n="gallery.filter.btn">▽ 筛选</span> <span class="badge-n">3</span>
+              </button>
+              <div class="mg-type-switch" data-i18n-tip="gallery.tip.type" data-tip="type">
+                <span class="on" data-i18n="gallery.type.illust">漫画</span><span data-i18n="gallery.type.novel">小说</span>
+              </div>
+              <span class="mg-lang" data-i18n="gallery.lang" data-i18n-tip="gallery.tip.lang" data-tip="lang">🌐 中文 · ☾</span>
+            </div>
+
+            <div class="mg-fchips">
+              <span class="mg-fchip on" data-i18n="gallery.chip.sort" data-i18n-tip="gallery.tip.chip.sort" data-tip="sort">排序 · 时间 ↓</span>
+              <span class="mg-fchip" data-i18n="gallery.chip.r18" data-i18n-tip="gallery.tip.chip.r18" data-tip="r18">R-18 · 排除</span>
+              <span class="mg-fchip" data-i18n="gallery.chip.ai" data-i18n-tip="gallery.tip.chip.ai" data-tip="ai">AI · 全部</span>
+              <span class="mg-fchip must" data-i18n="gallery.chip.tag-must" data-i18n-tip="gallery.tip.chip.tag-must" data-tip="must">Tag 必须 · 初音ミク</span>
+              <span class="mg-fchip not" data-i18n="gallery.chip.tag-not" data-i18n-tip="gallery.tip.chip.tag-not" data-tip="not">Tag 不能 · R-18G</span>
+            </div>
+
+            <div class="mg-grid">
+              <div class="mg-card c1" data-i18n-tip="gallery.tip.card1" data-tip="card">
+                <div class="mg-card-img"><span class="mg-bd p">4P</span></div>
+                <div class="mg-card-meta"><b data-i18n="gallery.card1.title">初音ミク雨の日</b><span data-i18n="gallery.card1.author">あさひかげ</span></div>
+              </div>
+              <div class="mg-card c2" data-i18n-tip="gallery.tip.card2" data-tip="card">
+                <div class="mg-card-img"><span class="mg-bd ugo">UGO</span></div>
+                <div class="mg-card-meta"><b data-i18n="gallery.card2.title">桜の舞う季節</b><span data-i18n="gallery.card2.author">桜雪</span></div>
+              </div>
+              <div class="mg-card c3" data-i18n-tip="gallery.tip.card3" data-tip="card">
+                <div class="mg-card-img"><span class="mg-bd p">6P</span></div>
+                <div class="mg-card-meta"><b data-i18n="gallery.card3.title">Winter Portrait Series</b><span data-i18n="gallery.card3.author">kuroi</span></div>
+              </div>
+              <div class="mg-card c4" data-i18n-tip="gallery.tip.card4" data-tip="card">
+                <div class="mg-card-img"><span class="mg-bd ai">AI</span><span class="mg-bd p">3P</span></div>
+                <div class="mg-card-meta"><b data-i18n="gallery.card4.title">東京タワーの夜</b><span data-i18n="gallery.card4.author">nightwalker</span></div>
+              </div>
+              <div class="mg-card c5" data-i18n-tip="gallery.tip.card5" data-tip="card">
+                <div class="mg-card-img"><span class="mg-bd p">2P</span></div>
+                <div class="mg-card-meta"><b data-i18n="gallery.card5.title">春の散歩道</b><span data-i18n="gallery.card5.author">haru</span></div>
+              </div>
+              <div class="mg-card c6" data-i18n-tip="gallery.tip.card6" data-tip="card">
+                <div class="mg-card-img"><span class="mg-bd r">R-18</span></div>
+                <div class="mg-card-meta"><b data-i18n="gallery.card6.title">深夜の街角</b><span data-i18n="gallery.card6.author">shiroi</span></div>
+              </div>
+              <div class="mg-card c7" data-i18n-tip="gallery.tip.card7" data-tip="card">
+                <div class="mg-card-img"><span class="mg-bd ser">SERIES</span></div>
+                <div class="mg-card-meta"><b data-i18n="gallery.card7.title">夢の終わり (系列)</b><span data-i18n="gallery.card7.author">yuki</span></div>
+              </div>
+              <div class="mg-card c8" data-i18n-tip="gallery.tip.card8" data-tip="card">
+                <div class="mg-card-img"><span class="mg-bd nov">NOVEL</span></div>
+                <div class="mg-card-meta"><b data-i18n="gallery.card8.title">夜の東京 - 第三章</b><span data-i18n="gallery.card8.author">tokyo-writer</span></div>
+              </div>
+            </div>
           </div>
-          <h3>Ugoira 动图自动转码</h3>
-          <p>后端下载 ZIP 帧包，ffmpeg 按每帧延时合成 WebP。不再是一堆解不开的 ZIP，而是能直接在相册里播的动图。</p>
-        </div>
-        <div class="feat fx d4">
-          <div class="ico">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-          </div>
-          <h3>ImageClassifier 可视化分类</h3>
-          <p>Swing 桌面端 + 远程 API 双模式。看图点选目标文件夹，后端代为移动文件 + 更新 SQLite 记录。批量归档效率拉满。</p>
-        </div>
-        <div class="feat fx d5">
-          <div class="ico">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0"/></svg>
-          </div>
-          <h3>SQLite 历史数据库</h3>
-          <p>WAL 模式的本地库记录每一件作品：ID、标题、文件夹、格式、R18、归档状态。重复下载自动跳过，查询与统计秒级响应。</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ====== SLIDE 6: CTA ====== -->
+  <!-- ====== SLIDE 6: ARTWORK DETAIL MOCK ====== -->
+  <section class="slide s-mock" data-label="ARTWORK">
+    <div class="slide-inner">
+      <div class="head">
+        <div>
+          <span class="eyebrow fx" data-i18n="artwork.eyebrow">Artwork · 作品详情</span>
+          <h2 class="fx d1" style="margin-top:12px" data-i18n-html="artwork.title">本地播放器，<br/><em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,#f472b6,#8570ff);-webkit-background-clip:text;color:transparent">不是下载完就完了。</em></h2>
+        </div>
+        <p class="fx d2" data-i18n="artwork.lead">作品详情页 · 灯箱预览 · 标签跳转 · 相关作品 · 同作者其他作品 · 漫画系列上一章 / 下一章导航。</p>
+      </div>
+
+      <div class="mock-window fx d3">
+        <div class="mock-titlebar">
+          <span class="td r"></span><span class="td y"></span><span class="td g"></span>
+          <span class="mock-url">http://localhost:6999/pixiv-artwork.html?id=127384921</span>
+        </div>
+        <div class="mock-artwork">
+          <div class="ma-top">
+            <span class="ma-back" data-i18n="artwork.btn.back" data-i18n-tip="artwork.tip.back" data-tip="back">← 返回</span>
+            <span class="ma-back" data-i18n="artwork.btn.gallery" data-i18n-tip="artwork.tip.gallery" data-tip="gallery">🖼 画廊</span>
+            <span class="ma-title" data-i18n="artwork.title-bar">初音ミク雨の日 · 127384921</span>
+            <span class="ma-spacer"></span>
+            <span class="ma-lang" data-i18n="artwork.lang" data-i18n-tip="artwork.tip.lang" data-tip="lang">🌐 ☾</span>
+          </div>
+          <div class="ma-body">
+            <div class="ma-main">
+              <div class="ma-viewer" data-i18n-tip="artwork.tip.viewer" data-tip="viewer">
+                <div class="ma-viewer-img"></div>
+                <div class="ma-viewer-strip">
+                  <div class="ma-thumb on"></div>
+                  <div class="ma-thumb"></div>
+                  <div class="ma-thumb"></div>
+                  <div class="ma-thumb"></div>
+                </div>
+                <div class="ma-viewer-actions">
+                  <button class="ma-act" data-i18n="artwork.btn.expand" data-i18n-tip="artwork.tip.expand" data-tip="expand">展开全部 (4)</button>
+                  <button class="ma-heart" data-i18n-tip="artwork.tip.heart" data-tip="heart"><span class="hi">♥</span><span data-i18n="artwork.btn.heart">收藏</span></button>
+                  <a class="ma-ext" data-i18n="artwork.btn.ext" data-i18n-tip="artwork.tip.ext" data-tip="ext">Pixiv 原作品链接 ↗</a>
+                  <span class="ma-meta" data-i18n="artwork.meta">1280×1920 · 03-15 · 4P</span>
+                </div>
+                <div class="ma-series" data-i18n-tip="artwork.tip.series" data-tip="series">
+                  <span data-i18n="artwork.series.prev">‹ 上一章</span><span data-i18n="artwork.series.index">📚 系列目录</span><span data-i18n="artwork.series.next">下一章 ›</span>
+                </div>
+              </div>
+              <div class="ma-detail">
+                <h3 data-i18n="artwork.detail.title" data-i18n-tip="artwork.tip.title" data-tip="title">初音ミク雨の日</h3>
+                <div class="ma-stats" data-i18n="artwork.detail.stats" data-i18n-tip="artwork.tip.stats" data-tip="stats">ID 127384921 · 4P · 2025-03-15 · JPG · 1280×1920</div>
+                <div class="ma-tags-h" data-i18n="artwork.detail.tags">标签</div>
+                <div class="ma-tags">
+                  <span class="ma-tag" data-i18n-tip="artwork.tip.tag" data-tip="tag">#初音ミク</span>
+                  <span class="ma-tag" data-i18n-tip="artwork.tip.tag" data-tip="tag">#VOCALOID</span>
+                  <span class="ma-tag" data-i18n-tip="artwork.tip.tag" data-tip="tag">#rain</span>
+                  <span class="ma-tag" data-i18n-tip="artwork.tip.tag" data-tip="tag">#オリジナル</span>
+                  <span class="ma-tag" data-i18n-tip="artwork.tip.tag" data-tip="tag">#1000users入り</span>
+                </div>
+              </div>
+            </div>
+            <div class="ma-side">
+              <div class="ma-author" data-i18n-tip="artwork.tip.author" data-tip="author">
+                <div class="ma-ava">a</div>
+                <div class="ma-au-info">
+                  <b data-i18n="artwork.author.name">あさひかげ</b>
+                  <span data-i18n="artwork.author.meta">ID 18374826 · 共 23 件</span>
+                </div>
+              </div>
+              <div class="ma-strip-h" data-i18n="artwork.side.author">该画师的其他作品</div>
+              <div class="ma-strip" data-i18n-tip="artwork.tip.strip" data-tip="strip">
+                <span class="ma-strip-arr">‹</span>
+                <div class="ma-mini m1"></div>
+                <div class="ma-mini m2"></div>
+                <div class="ma-mini m3"></div>
+                <div class="ma-mini m4"></div>
+                <span class="ma-strip-arr">›</span>
+              </div>
+              <div class="ma-strip-h" data-i18n="artwork.side.related">相关作品</div>
+              <div class="ma-rel-grid">
+                <div class="ma-mini r1" data-i18n-tip="artwork.tip.related" data-tip="rel"></div>
+                <div class="ma-mini r2"></div>
+                <div class="ma-mini r3"></div>
+                <div class="ma-mini r4"></div>
+                <div class="ma-mini r5"></div>
+                <div class="ma-mini r6"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== SLIDE 7: FEATURES ====== -->
+  <section class="slide" data-label="FEAT">
+    <div class="slide-inner">
+      <span class="eyebrow fx" data-i18n="features.eyebrow">Features · 特性</span>
+      <h2 class="fx d1" style="margin-top:16px;max-width:15ch" data-i18n-html="features.title">不止下载，是一整套<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent),var(--accent-3));-webkit-background-clip:text;color:transparent"> 收藏管线。</em></h2>
+
+      <div class="feat-grid">
+        <div class="feat fx d2">
+          <div class="ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          </div>
+          <h3 data-i18n="features.f1.title">漫画 · 动图 · 小说 全格式</h3>
+          <p data-i18n="features.f1.body">插画 / 漫画 / 动图（Ugoira → WebP）/ 小说（TXT / HTML / EPUB + 封面 + 合订）四条独立管线，共享同一个 SQLite 历史库。</p>
+        </div>
+        <div class="feat fx d3">
+          <div class="ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          </div>
+          <h3 data-i18n="features.f2.title">本地画廊 + 作品详情</h3>
+          <p data-i18n="features.f2.body">侧栏检索 / 标签 - 作者三模式筛选 / 灯箱预览 / 系列上下章 / 相关作品 / 同作者其他作品。下完即可在本地浏览。</p>
+        </div>
+        <div class="feat fx d4">
+          <div class="ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          </div>
+          <h3 data-i18n="features.f3.title">收藏夹归档 + 自定义模板</h3>
+          <p data-i18n-html="features.f3.body">支持自定义图标 / 独立下载目录的收藏夹；文件名模板：<code>{artwork_id}_p{page}</code>、<code>{author_name}</code>、<code>{R18+}</code> 等占位符自由组合。</p>
+        </div>
+        <div class="feat fx d5">
+          <div class="ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2M15 15a4 4 0 0 1 4 4v2"/></svg>
+          </div>
+          <h3 data-i18n="features.f4.title">多人模式 · 配额 · 邀请码</h3>
+          <p data-i18n="features.f4.body">solo / multi 两套模式。多人模式下每个 UUID 独立配额，超额打包归档为 ZIP；可签发限定 Tag / 作者 / 分级的邀请码，访客只能看你允许的作品。</p>
+        </div>
+        <div class="feat fx d6">
+          <div class="ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10M12 2a15.3 15.3 0 0 0-4 10 15.3 15.3 0 0 0 4 10"/></svg>
+          </div>
+          <h3 data-i18n="features.f5.title">暗色模式 + 多语言</h3>
+          <p data-i18n="features.f5.body">所有面向用户的新页面走 i18n bundle（中文 / English），主题切换持久化。CSS 变量驱动，深色模式与亮色模式视觉对齐。</p>
+        </div>
+        <div class="feat fx d6">
+          <div class="ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0"/></svg>
+          </div>
+          <h3 data-i18n="features.f6.title">SQLite WAL + GUI 工具</h3>
+          <p data-i18n="features.f6.body">本地库记录每件作品的 ID / 标题 / 文件夹 / 格式 / R-18 / AI / 标签。Swing GUI 自带状态面板、配置编辑、图片分类、目录有效性检查、数据回填工具。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====== SLIDE 8: CTA ====== -->
   <section class="slide s-cta" data-label="START">
     <div class="slide-inner">
-      <span class="eyebrow fx">Get Started · 开始使用</span>
-      <h2 class="fx d1" style="margin:16px auto 0;max-width:15ch">三步，把它<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent-2),var(--accent-3));-webkit-background-clip:text;color:transparent">跑起来。</em></h2>
-      <p class="lead fx d2" style="margin:18px auto 0">前后分钟级部署，Java 17 + 代理 127.0.0.1:7890 即可。</p>
+      <span class="eyebrow fx" data-i18n="cta.eyebrow">Get Started · 开始使用</span>
+      <h2 class="fx d1" style="margin:16px auto 0;max-width:15ch" data-i18n-html="cta.title">三步，把它<em style="font-family:'Instrument Serif',serif;font-style:italic;background:linear-gradient(120deg,var(--accent-2),var(--accent-3));-webkit-background-clip:text;color:transparent">跑起来。</em></h2>
+      <p class="lead fx d2" style="margin:18px auto 0" data-i18n="cta.lead">Windows installer 一键安装；其余平台 Java 17 + HTTP 代理即可。</p>
 
       <div class="steps">
         <div class="step fx d2">
           <div class="n">01</div>
-          <h3>下载 JAR 并启动</h3>
-          <p>从 Releases 下载 <code>PixivDownload.jar</code>，终端运行 <code>java -jar</code>。首次启动会生成 <code>config/config.yaml</code>。</p>
+          <h3 data-i18n="cta.step1.title">下载并启动</h3>
+          <p data-i18n-html="cta.step1.body">Windows 直接装 <code>*-win-x64-setup.exe</code>（含 GUI 管家）；其他平台从 Releases 下载 <code>PixivDownload.jar</code> 后 <code>java -jar</code>。</p>
         </div>
         <div class="step fx d3">
           <div class="n">02</div>
-          <h3>安装油猴脚本</h3>
-          <p>Tampermonkey 导入本仓库提供的 <code>*.user.js</code>。单作品下载、批量导入单作品、User、Search、Page 批量五款任选。</p>
+          <h3 data-i18n="cta.step2.title">首次配置 setup</h3>
+          <p data-i18n-html="cta.step2.body">浏览器自动打开 <code>/setup.html</code>，选择 <code>solo</code> / <code>multi</code> 模式，设置用户名密码，配置好就能开搜。</p>
         </div>
         <div class="step fx d4">
           <div class="n">03</div>
-          <h3>访问 setup 完成配置</h3>
-          <p>浏览器打开 <code>/setup.html</code> 选择 solo / multi 模式，填入 Pixiv Cookie，之后就可以开始收藏之旅了。</p>
+          <h3 data-i18n="cta.step3.title">直接用 pixiv-batch</h3>
+          <p data-i18n-html="cta.step3.body">访问 <code>/pixiv-batch.html</code>，四个 tab 任选；想要原页面下载按钮可在 <code>🧩 油猴脚本</code> 卡片一键安装。</p>
         </div>
       </div>
 
       <div class="cta-row fx d5" style="display:flex;gap:11px;justify-content:center;flex-wrap:wrap">
-        <a class="btn primary" href="https://github.com/Sywyar/PixivDownload/releases" target="_blank" rel="noopener">下载 Release</a>
-        <a class="btn ghost" href="https://github.com/Sywyar/PixivDownload" target="_blank" rel="noopener">GitHub 仓库</a>
-        <a class="btn ghost" href="intro-canary.html">Canary 增强版 →</a>
+        <a class="btn primary" href="https://github.com/Sywyar/pixivdownload/releases" target="_blank" rel="noopener" data-i18n="btn.download-release">下载 Release</a>
+        <a class="btn ghost" href="https://github.com/Sywyar/PixivDownload" target="_blank" rel="noopener" data-i18n="btn.github-repo">GitHub 仓库</a>
       </div>
 
       <div class="foot fx d6">
-        <div>PixivDownload · Spring Boot 3.5.7 · Java 17 · SQLite</div>
-        <div>made with ♥ by Sywyar</div>
+        <div data-i18n="foot.line1">PixivDownload · Spring Boot 3.5.7 · Java 17 · SQLite WAL</div>
+        <div data-i18n="foot.line2">made with ♥ by Sywyar</div>
       </div>
     </div>
   </section>

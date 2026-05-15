@@ -1,48 +1,54 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pixiv 批量下载器 — 登录</title>
 <script src="/js/pixiv-i18n.js"></script>
+<script src="/js/pixiv-lang-switcher.js"></script>
 <link rel="stylesheet" href="/login/login.css">
 </head>
 <body>
 
-<header>Pixiv 批量下载器</header>
+<header>
+  <span class="header-title" data-i18n="header.title">Pixiv 批量下载器</span>
+  <span class="header-actions" id="headerActions"></span>
+</header>
 
 <div class="center">
   <div class="card" id="loginCard">
-    <div class="card-title">管理员登录</div>
+    <div class="card-title" data-i18n="admin.title">管理员登录</div>
     <div class="field">
-      <label>用户名</label>
-      <input type="text" id="username" placeholder="用户名" autocomplete="username">
+      <label data-i18n="field.username">用户名</label>
+      <input type="text" id="username" placeholder="用户名" autocomplete="username"
+             data-i18n-placeholder="field.username.placeholder">
     </div>
     <div class="field">
-      <label>密码</label>
-      <input type="password" id="password" placeholder="密码" autocomplete="current-password">
+      <label data-i18n="field.password">密码</label>
+      <input type="password" id="password" placeholder="密码" autocomplete="current-password"
+             data-i18n-placeholder="field.password.placeholder">
     </div>
     <div class="remember-row">
       <input type="checkbox" id="remember">
-      <label for="remember">保持登录状态（30 天）</label>
+      <label for="remember" data-i18n="remember">保持登录状态（30 天）</label>
     </div>
     <div id="error-msg"></div>
-    <button class="btn btn-green" id="login-btn" onclick="doLogin()">登录</button>
+    <button class="btn btn-green" id="login-btn" onclick="doLogin()" data-i18n="button.login">登录</button>
     <div class="invite-link-row">
-      <a id="useInviteCode" data-i18n="invite:login.use-invite-code">使用邀请码</a>
+      <a id="useInviteCode" data-i18n="invite.use-code">使用邀请码</a>
     </div>
   </div>
 
   <div class="card hidden" id="inviteCard">
-    <div class="card-title" data-i18n="invite:login.invite.title">使用邀请码</div>
+    <div class="card-title" data-i18n="invite.title">使用邀请码</div>
     <div class="field">
-      <label data-i18n="invite:result.code">邀请码</label>
-      <input type="text" id="inviteCodeInput" data-i18n-placeholder="invite:login.invite.placeholder" placeholder="邀请码" autocomplete="off">
+      <label data-i18n="invite.code">邀请码</label>
+      <input type="text" id="inviteCodeInput" data-i18n-placeholder="invite.placeholder" placeholder="邀请码" autocomplete="off">
     </div>
     <div id="invite-error"></div>
-    <button class="btn btn-green" id="invite-btn" onclick="doInviteRedeem()" data-i18n="invite:login.invite.submit">进入</button>
+    <button class="btn btn-green" id="invite-btn" onclick="doInviteRedeem()" data-i18n="invite.submit">进入</button>
     <div class="invite-link-row">
-      <a id="backToLogin" data-i18n="invite:login.invite.back">返回管理员登录</a>
+      <a id="backToLogin" data-i18n="invite.back">返回管理员登录</a>
     </div>
   </div>
 </div>

@@ -80,7 +80,24 @@ public class AuthFilter extends OncePerRequestFilter {
             "/index/",
             "/intro/",
             "/intro-canary/",
-            "/login/"
+            "/login/",
+            "/vendor/fonts/"
+    );
+
+    private static final Set<String> PUBLIC_STATIC_EXACT_PATHS = Set.of(
+            "/favicon.ico",
+            "/js/pixiv-i18n.js",
+            "/js/pixiv-lang-switcher.js",
+            "/js/pixiv-theme.js"
+    );
+
+    private static final Set<String> GUEST_ALLOWED_STATIC_EXACT = Set.of(
+            "/css/admin-visibility.css",
+            "/js/invite-modals.js",
+            "/js/pixiv-i18n.js",
+            "/js/pixiv-lang-switcher.js",
+            "/js/pixiv-novel-render.js",
+            "/js/pixiv-theme.js"
     );
 
     /** 访客邀请会话被允许访问的精确路径。 */
@@ -218,21 +235,22 @@ public class AuthFilter extends OncePerRequestFilter {
             req.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession);
         }
 
+        if (guestSession != null && isAllowedForGuestInvite(path, method)) {
+            if (isApi(path)) {
+                String key = rateLimitService.resolveLimitKey(req);
+                if (!rateLimitService.isAllowed(key)) {
+                    sendJsonError(req, res, 429, "auth.too-many-requests", "Too Many Requests");
+                    return;
+                }
+            }
+            guestInviteService.recordHit(guestSession.id());
+            chain.doFilter(req, res);
+            return;
+        }
+
         if (isMonitorProtected(path)) {
             String token = SessionUtils.extractToken(req);
             boolean adminValid = setupService.isValidSession(token);
-            if (!adminValid && guestSession != null && isAllowedForGuestInvite(path, method)) {
-                if (isApi(path)) {
-                    String key = rateLimitService.resolveLimitKey(req);
-                    if (!rateLimitService.isAllowed(key)) {
-                        sendJsonError(req, res, 429, "auth.too-many-requests", "Too Many Requests");
-                        return;
-                    }
-                }
-                guestInviteService.recordHit(guestSession.id());
-                chain.doFilter(req, res);
-                return;
-            }
             if (!adminValid) {
                 if (guestSession != null) {
                     // guest 携带 cookie 但越界：禁止访问
@@ -315,24 +333,52 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isPublic(String path) {
+        if (isAlwaysPublicApi(path) || path.equals("/invite")) {
+            return true;
+        }
+        if (setupService.isSetupComplete() && "solo".equals(setupService.getMode())) {
+            return isSoloPublicPath(path);
+        }
+        return isDefaultPublicPath(path);
+    }
+
+    private boolean isAlwaysPublicApi(String path) {
+        return path.startsWith("/api/auth/")
+                || path.startsWith("/api/i18n/")
+                || path.startsWith("/api/gui/");
+    }
+
+    private boolean isDefaultPublicPath(String path) {
         return path.equals("/")
                 || path.equals("/index")
                 || path.equals("/login.html")
                 || path.equals("/index.html")
                 || path.equals("/intro.html")
                 || path.equals("/intro-canary.html")
-                || path.equals("/favicon.ico")
-                || path.startsWith("/css/")
-                || path.equals("/js/pixiv-i18n.js")
-                || path.equals("/js/pixiv-lang-switcher.js")
-                || path.equals("/js/pixiv-theme.js")
+                || PUBLIC_STATIC_EXACT_PATHS.contains(path)
                 || isPublicPageStaticResource(path)
                 || path.startsWith("/api/setup/")
                 || path.startsWith("/api/auth/")
                 || path.startsWith("/api/i18n/")
                 || path.startsWith("/api/gui/")
                 || path.startsWith("/api/scripts/")
-                || path.startsWith("/vendor/");
+                || path.equals("/invite");
+    }
+
+    private boolean isSoloPublicPath(String path) {
+        return isIntroLoginPublicPageOrResource(path)
+                || path.equals("/invite");
+    }
+
+    private boolean isIntroLoginPublicPageOrResource(String path) {
+        return path.equals("/")
+                || path.equals("/index")
+                || path.equals("/index.html")
+                || path.equals("/login.html")
+                || path.equals("/intro.html")
+                || path.equals("/intro-canary.html")
+                || PUBLIC_STATIC_EXACT_PATHS.contains(path)
+                || isPublicPageStaticResource(path);
     }
 
     private boolean isSetupOnlyStaticResource(String path) {
@@ -374,10 +420,44 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean shouldApplyStaticResourceRateLimit(HttpServletRequest req, String path) {
-        return isStaticResource(path)
-                && setupService.isSetupComplete()
-                && "multi".equals(setupService.getMode())
-                && !setupService.isAdminLoggedIn(req);
+        if (!isStaticResource(path) && !path.equals("/invite")) {
+            return false;
+        }
+        if (!setupService.isSetupComplete() || setupService.isAdminLoggedIn(req)) {
+            return false;
+        }
+        String mode = setupService.getMode();
+        if ("multi".equals(mode)) {
+            return isStaticResource(path);
+        }
+        if ("solo".equals(mode)) {
+            return isSoloRateLimitedPublicResource(path);
+        }
+        return false;
+    }
+
+    private boolean isSoloRateLimitedPublicResource(String path) {
+        return isIntroLoginPublicPageOrResource(path)
+                || path.equals("/invite")
+                || isGuestPublicPageOrStaticResource(path);
+    }
+
+    private boolean isGuestPublicPageOrStaticResource(String path) {
+        if (GUEST_ALLOWED_STATIC_EXACT.contains(path)) {
+            return true;
+        }
+        if (!isStaticResource(path)) {
+            return false;
+        }
+        if (GUEST_ALLOWED_EXACT.contains(path)) {
+            return true;
+        }
+        for (String prefix : GUEST_ALLOWED_PREFIX) {
+            if (path.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void sendJsonError(HttpServletRequest req, HttpServletResponse res,
@@ -430,6 +510,7 @@ public class AuthFilter extends OncePerRequestFilter {
         if (!"GET".equalsIgnoreCase(method) && !"HEAD".equalsIgnoreCase(method)) {
             return false;
         }
+        if (GUEST_ALLOWED_STATIC_EXACT.contains(path)) return true;
         if (GUEST_ALLOWED_EXACT.contains(path)) return true;
         for (String prefix : GUEST_ALLOWED_PREFIX) {
             if (path.startsWith(prefix)) return true;

@@ -117,20 +117,67 @@ class AuthFilterTest {
             verify(rateLimitService, never()).isAllowed(any());
         }
 
-        @Test
-        @DisplayName("solo 模式不应启用静态资源 IP 限流")
-        void shouldSkipStaticResourceRateLimitInSoloMode() throws Exception {
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/login.html",
+                "/login/login.js",
+                "/intro.html",
+                "/intro/intro.css",
+                "/vendor/fonts/fonts.css",
+                "/invite"
+        })
+        @DisplayName("solo 模式未登录公开资源也应启用静态资源 IP 限流")
+        void shouldCheckStaticResourceRateLimitForSoloPublicResources(String path) throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("solo");
 
             request.setMethod("GET");
-            request.setRequestURI("/vendor/fonts/fonts.css");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(staticResourceRateLimitService).isAllowed("192.168.1.100");
+        }
+
+        @Test
+        @DisplayName("solo 模式访客页面静态资源也应启用 IP 限流")
+        void shouldCheckStaticResourceRateLimitForSoloGuestStaticResource() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI("/pixiv-gallery/pixiv-gallery.js");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(staticResourceRateLimitService).isAllowed("192.168.1.100");
+            verify(filterChain).doFilter(request, response);
+            verify(guestInviteService).recordHit(1L);
+        }
+
+        @Test
+        @DisplayName("solo 模式非公开静态资源不应消耗公开资源 IP 限流")
+        void shouldSkipStaticResourceRateLimitForSoloProtectedStaticResource() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isValidSession(any())).thenReturn(false);
+
+            request.setMethod("GET");
+            request.setRequestURI("/vendor/fontawesome/css/all.min.css");
             request.setRemoteAddr("192.168.1.100");
 
             authFilter.doFilterInternal(request, response, filterChain);
 
             verify(staticResourceRateLimitService, never()).isAllowed(any());
-            verify(filterChain).doFilter(request, response);
+            assertThat(response.getRedirectedUrl()).startsWith("/login.html?redirect=");
         }
 
         @Test
@@ -142,6 +189,25 @@ class AuthFilterTest {
 
             request.setMethod("GET");
             request.setRequestURI("/vendor/fonts/fonts.css");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie("pixiv_session", "valid-token"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(staticResourceRateLimitService, never()).isAllowed(any());
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("solo 模式已登录管理员不应启用静态资源 IP 限流")
+        void shouldSkipStaticResourceRateLimitForAdminInSoloMode() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isAdminLoggedIn(any())).thenReturn(true);
+            when(setupService.isValidSession("valid-token")).thenReturn(true);
+
+            request.setMethod("GET");
+            request.setRequestURI("/vendor/fontawesome/css/all.min.css");
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie("pixiv_session", "valid-token"));
 
@@ -212,7 +278,6 @@ class AuthFilterTest {
                 "/intro-canary.html",
                 "/favicon.ico",
                 "/js/pixiv-i18n.js",
-                "/css/admin-visibility.css",
                 "/index/index.js",
                 "/intro/intro.css",
                 "/intro-canary/intro-canary.js",
@@ -230,6 +295,28 @@ class AuthFilterTest {
             authFilter.doFilterInternal(request, response, filterChain);
 
             verify(filterChain).doFilter(request, response);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/css/admin-visibility.css",
+                "/vendor/fontawesome/css/all.min.css",
+                "/vendor/chartjs/chart.umd.js"
+        })
+        @DisplayName("solo 模式下非 intro/login/访客相关静态资源不应无条件公开")
+        void shouldNotExposeSoloSharedStaticResourcesWithoutLogin(String path) throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isValidSession(any())).thenReturn(false);
+
+            request.setMethod("GET");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getRedirectedUrl()).startsWith("/login.html?redirect=");
+            verify(filterChain, never()).doFilter(request, response);
         }
 
         @Test
@@ -446,6 +533,30 @@ class AuthFilterTest {
 
             request.setMethod("GET");
             request.setRequestURI("/pixiv-gallery/pixiv-gallery.js");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+            verify(guestInviteService).recordHit(1L);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/css/admin-visibility.css",
+                "/js/pixiv-novel-render.js"
+        })
+        @DisplayName("访客邀请会话应能加载画廊/小说页共享静态依赖")
+        void shouldAllowGuestInviteToLoadSharedStaticResource(String path) throws Exception {
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI(path);
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
 
