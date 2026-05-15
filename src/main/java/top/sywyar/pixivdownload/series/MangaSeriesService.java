@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.download.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.util.TimestampUtils;
@@ -56,6 +57,7 @@ public class MangaSeriesService {
     private final AppMessages messages;
     private final DownloadConfig downloadConfig;
     private final PixivCoverDownloader coverDownloader;
+    private final PathPrefixCodec pathPrefixCodec;
 
     public MangaSeriesService(MangaSeriesMapper mangaSeriesMapper,
                               AuthorService authorService,
@@ -64,7 +66,8 @@ public class MangaSeriesService {
                               @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                               AppMessages messages,
                               DownloadConfig downloadConfig,
-                              PixivCoverDownloader coverDownloader) {
+                              PixivCoverDownloader coverDownloader,
+                              PathPrefixCodec pathPrefixCodec) {
         this.mangaSeriesMapper = mangaSeriesMapper;
         this.authorService = authorService;
         this.pixivDatabase = pixivDatabase;
@@ -73,6 +76,24 @@ public class MangaSeriesService {
         this.messages = messages;
         this.downloadConfig = downloadConfig;
         this.coverDownloader = coverDownloader;
+        this.pathPrefixCodec = pathPrefixCodec;
+    }
+
+    private MangaSeries resolveSeries(MangaSeries series) {
+        if (series == null) return null;
+        String resolved = pathPrefixCodec.resolve(series.coverFolder());
+        if (java.util.Objects.equals(resolved, series.coverFolder())) return series;
+        return new MangaSeries(series.seriesId(), series.title(), series.authorId(),
+                series.updatedTime(), series.description(), series.coverExt(), resolved);
+    }
+
+    private MangaSeriesDetail resolveDetail(MangaSeriesDetail detail) {
+        if (detail == null) return null;
+        String resolved = pathPrefixCodec.resolve(detail.coverFolder());
+        if (java.util.Objects.equals(resolved, detail.coverFolder())) return detail;
+        return new MangaSeriesDetail(detail.seriesId(), detail.title(), detail.authorId(),
+                detail.authorName(), detail.artworkCount(), detail.updatedTime(),
+                detail.description(), detail.coverExt(), resolved);
     }
 
     @PostConstruct
@@ -86,12 +107,12 @@ public class MangaSeriesService {
     }
 
     public List<MangaSeries> getAllSeries() {
-        return mangaSeriesMapper.findAll();
+        return mangaSeriesMapper.findAll().stream().map(this::resolveSeries).toList();
     }
 
     public List<MangaSeries> getSeriesByIds(Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) return Collections.emptyList();
-        return mangaSeriesMapper.findByIds(ids);
+        return mangaSeriesMapper.findByIds(ids).stream().map(this::resolveSeries).toList();
     }
 
     public List<MangaSeries> getAllSeries(Set<Long> filterIds) {
@@ -99,6 +120,7 @@ public class MangaSeriesService {
         if (filterIds.isEmpty()) return Collections.emptyList();
         return mangaSeriesMapper.findAll().stream()
                 .filter(s -> filterIds.contains(s.seriesId()))
+                .map(this::resolveSeries)
                 .toList();
     }
 
@@ -140,12 +162,12 @@ public class MangaSeriesService {
                               int page, int size, int totalPages) {}
 
     public MangaSeries getSeries(long seriesId) {
-        return mangaSeriesMapper.findById(seriesId);
+        return resolveSeries(mangaSeriesMapper.findById(seriesId));
     }
 
     public MangaSeriesDetail getSeriesDetail(long seriesId) {
         if (seriesId <= 0) return null;
-        return mangaSeriesMapper.findSeriesDetailById(seriesId);
+        return resolveDetail(mangaSeriesMapper.findSeriesDetailById(seriesId));
     }
 
     public void observe(long seriesId, String title, Long authorId) {
@@ -165,7 +187,7 @@ public class MangaSeriesService {
             return;
         }
 
-        MangaSeries existing = mangaSeriesMapper.findById(seriesId);
+        MangaSeries existing = resolveSeries(mangaSeriesMapper.findById(seriesId));
         if (existing == null) return; // 极端竞态：被并发删除，放弃 update
 
         // 仅在 title 或 author 真正发生变化时才写库；空 hint 保留原值。
@@ -196,7 +218,7 @@ public class MangaSeriesService {
         if (seriesId <= 0) return;
         try {
             observe(seriesId, title, authorId);
-            MangaSeries existing = mangaSeriesMapper.findById(seriesId);
+            MangaSeries existing = resolveSeries(mangaSeriesMapper.findById(seriesId));
             if (existing == null) return;
 
             String desiredDescription = description != null && !description.isBlank()
@@ -218,7 +240,8 @@ public class MangaSeriesService {
             boolean coverChanged = !java.util.Objects.equals(coverExt, existing.coverExt())
                     || !java.util.Objects.equals(coverFolder, existing.coverFolder());
             if (descChanged || coverChanged) {
-                mangaSeriesMapper.updateMetadata(seriesId, desiredDescription, coverExt, coverFolder);
+                mangaSeriesMapper.updateMetadata(seriesId, desiredDescription, coverExt,
+                        pathPrefixCodec.encode(PathPrefixCodec.stripTrailingSeparators(coverFolder)));
             }
         } catch (Exception e) {
             log.warn(messages.getForLog("series.log.refresh.failed.exception", seriesId), e);
@@ -237,12 +260,12 @@ public class MangaSeriesService {
             JsonNode root = fetchJson("https://www.pixiv.net/ajax/series/" + seriesId + "?p=1&lang=zh", cookie);
             if (root == null || root.path("error").asBoolean(false)) {
                 log.warn(messages.getForLog("series.log.refresh.failed.response", seriesId, root));
-                return mangaSeriesMapper.findById(seriesId);
+                return resolveSeries(mangaSeriesMapper.findById(seriesId));
             }
             JsonNode body = root.path("body");
             JsonNode seriesArr = body.path("illustSeries");
             JsonNode meta = seriesArr.isArray() && !seriesArr.isEmpty() ? seriesArr.get(0) : null;
-            if (meta == null) return mangaSeriesMapper.findById(seriesId);
+            if (meta == null) return resolveSeries(mangaSeriesMapper.findById(seriesId));
 
             String title = meta.path("title").asText("").trim();
             String caption = meta.path("caption").asText("");
@@ -262,11 +285,12 @@ public class MangaSeriesService {
                     coverFolder = coverDir.toString();
                 }
             }
-            mangaSeriesMapper.updateMetadata(seriesId, normalizedDescription, coverExt, coverFolder);
-            return mangaSeriesMapper.findById(seriesId);
+            mangaSeriesMapper.updateMetadata(seriesId, normalizedDescription, coverExt,
+                    pathPrefixCodec.encode(PathPrefixCodec.stripTrailingSeparators(coverFolder)));
+            return resolveSeries(mangaSeriesMapper.findById(seriesId));
         } catch (Exception e) {
             log.warn(messages.getForLog("series.log.refresh.failed.exception", seriesId), e);
-            return mangaSeriesMapper.findById(seriesId);
+            return resolveSeries(mangaSeriesMapper.findById(seriesId));
         }
     }
 

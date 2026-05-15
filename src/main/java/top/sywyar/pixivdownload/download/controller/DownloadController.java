@@ -269,7 +269,12 @@ public class DownloadController {
             @PathVariable Long artworkId,
             @Valid @RequestBody MoveArtworkRequest request) {
         String movePath = request.getMovePath().replaceAll("[/\\\\]+$", "");
-        downloadService.moveArtWork(artworkId, movePath, request.getMoveTime());
+        String presetRoot = request.getClassifierTargetFolder();
+        if (presetRoot != null) {
+            presetRoot = presetRoot.replaceAll("[/\\\\]+$", "");
+            if (presetRoot.isEmpty()) presetRoot = null;
+        }
+        downloadService.moveArtWork(artworkId, movePath, request.getMoveTime(), presetRoot);
         return ResponseEntity.ok(DownloadResponse.builder()
                 .success(true)
                 .message(messages.get("download.move.record-attempted"))

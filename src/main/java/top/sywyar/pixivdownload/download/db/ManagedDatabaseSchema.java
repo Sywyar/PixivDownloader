@@ -18,6 +18,17 @@ public final class ManagedDatabaseSchema {
     private static DatabaseSchema createSpec() {
         LinkedHashMap<String, TableSpec> tables = new LinkedHashMap<>();
 
+        tables.put("path_prefixes", new TableSpec(
+                "path_prefixes",
+                List.of(
+                        column("id", "INTEGER", false, null, 1),
+                        column("path", "TEXT", true, null, 0)
+                ),
+                List.of(
+                        uniqueConstraint("path")
+                )
+        ));
+
         tables.put("artworks", new TableSpec(
                 "artworks",
                 List.of(

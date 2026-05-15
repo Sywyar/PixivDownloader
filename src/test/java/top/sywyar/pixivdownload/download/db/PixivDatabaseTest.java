@@ -29,12 +29,17 @@ class PixivDatabaseTest {
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
         config.addMapper(PixivMapper.class);
+        config.addMapper(PathPrefixMapper.class);
 
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true); // auto-commit
         PixivMapper mapper = sqlSession.getMapper(PixivMapper.class);
+        PathPrefixMapper pathPrefixMapper = sqlSession.getMapper(PathPrefixMapper.class);
 
-        pixivDatabase = new PixivDatabase(mapper, TestI18nBeans.appMessages());
+        PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper);
+        codec.init();
+
+        pixivDatabase = new PixivDatabase(mapper, TestI18nBeans.appMessages(), codec);
         pixivDatabase.init();
     }
 
@@ -308,6 +313,44 @@ class PixivDatabaseTest {
 
             ArtworkRecord record = pixivDatabase.getArtwork(12345L);
             assertThat(record.moveFolder()).isEqualTo("/new/path");
+        }
+
+        @Test
+        @DisplayName("传入 classifierTargetFolder 应把它注册为前缀，子目录共用 {N}/<seq>")
+        void shouldRegisterClassifierTargetFolderAsPrefix() {
+            pixivDatabase.insertArtwork(701001L, "a", "/orig/a", 1, "jpg", 1700000400L, 0);
+            pixivDatabase.insertArtwork(701002L, "b", "/orig/b", 1, "jpg", 1700000401L, 0);
+
+            String preset = "/cls/preset-root";
+            // 多图先落到编号子目录，应被编码到同一个 preset 前缀下
+            pixivDatabase.updateArtworkMove(701001L, preset + "/0", 1700000500L, preset);
+            // 后续单图直接落到 preset 根，应复用同一行
+            pixivDatabase.updateArtworkMove(701002L, preset, 1700000501L, preset);
+
+            assertThat(pixivDatabase.getArtwork(701001L).moveFolder()).isEqualTo(preset + "/0");
+            assertThat(pixivDatabase.getArtwork(701002L).moveFolder()).isEqualTo(preset);
+            assertThat(pixivDatabase.getArtworkByMoveFolder(preset).artworkId()).isEqualTo(701002L);
+            assertThat(pixivDatabase.getArtworkByMoveFolder(preset + "/0").artworkId()).isEqualTo(701001L);
+        }
+
+        @Test
+        @DisplayName("移动到未注册路径时应自动注册前缀，下次同前缀子目录直接编码")
+        void shouldAutoRegisterUnknownMoveTargetAsPrefix() {
+            pixivDatabase.insertArtwork(700001L, "a", "/orig/a", 1, "jpg", 1700000200L, 0);
+            pixivDatabase.insertArtwork(700002L, "b", "/orig/b", 1, "jpg", 1700000201L, 0);
+
+            String firstTarget = "/dyn/added-after-startup";
+            pixivDatabase.updateArtworkMove(700001L, firstTarget, 1700000300L);
+            // 第二个作品移动到该前缀下的子目录，应被编码为 {N}/0 而不是绝对路径
+            String secondTarget = firstTarget + "/0";
+            pixivDatabase.updateArtworkMove(700002L, secondTarget, 1700000301L);
+
+            ArtworkRecord first = pixivDatabase.getArtwork(700001L);
+            ArtworkRecord second = pixivDatabase.getArtwork(700002L);
+            assertThat(first.moveFolder()).isEqualTo(firstTarget);
+            assertThat(second.moveFolder()).isEqualTo(secondTarget);
+            assertThat(pixivDatabase.getArtworkByMoveFolder(firstTarget).artworkId()).isEqualTo(700001L);
+            assertThat(pixivDatabase.getArtworkByMoveFolder(secondTarget).artworkId()).isEqualTo(700002L);
         }
     }
 

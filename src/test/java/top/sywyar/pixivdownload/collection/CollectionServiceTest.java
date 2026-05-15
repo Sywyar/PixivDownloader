@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.download.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -41,18 +42,23 @@ class CollectionServiceTest {
     private DownloadConfig downloadConfig;
     @Mock
     private NovelDatabase novelDatabase;
+    @Mock
+    private PathPrefixCodec pathPrefixCodec;
 
     private CollectionService collectionService;
 
     @BeforeEach
     void setUp() {
         lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        lenient().when(pathPrefixCodec.encode(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(pathPrefixCodec.resolve(any())).thenAnswer(inv -> inv.getArgument(0));
         collectionService = new CollectionService(
                 collectionMapper,
                 iconService,
                 TestI18nBeans.appMessages(),
                 downloadConfig,
-                novelDatabase
+                novelDatabase,
+                pathPrefixCodec
         );
     }
 

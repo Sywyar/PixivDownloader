@@ -411,7 +411,20 @@ class DownloadControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
-        verify(downloadService).moveArtWork(12345L, "/new/path", 1700000000L);
+        verify(downloadService).moveArtWork(12345L, "/new/path", 1700000000L, null);
+    }
+
+    @Test
+    @DisplayName("POST /api/downloaded/move/{artworkId} 应透传 classifierTargetFolder")
+    void shouldForwardClassifierTargetFolder() throws Exception {
+        mockMvc.perform(post("/api/downloaded/move/12345")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"movePath\":\"/dst/0/\",\"moveTime\":1700000000,"
+                                + "\"classifierTargetFolder\":\"/dst/\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        verify(downloadService).moveArtWork(12345L, "/dst/0", 1700000000L, "/dst");
     }
 
     // ========== GET /api/downloaded/history ==========

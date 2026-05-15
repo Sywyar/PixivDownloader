@@ -608,12 +608,18 @@ public class DownloadService {
 
     @Async
     public void moveArtWork(Long artworkId, String movePath, Long moveTime) {
+        moveArtWork(artworkId, movePath, moveTime, null);
+    }
+
+    @Async
+    public void moveArtWork(Long artworkId, String movePath, Long moveTime, String classifierTargetFolder) {
         try {
             ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
             if (existing == null) {
                 return;
             }
-            pixivDatabase.updateArtworkMove(artworkId, movePath, TimestampUtils.toMillis(moveTime));
+            pixivDatabase.updateArtworkMove(artworkId, movePath,
+                    TimestampUtils.toMillis(moveTime), classifierTargetFolder);
             if (!existing.moved()) {
                 pixivDatabase.incrementMoved();
             }

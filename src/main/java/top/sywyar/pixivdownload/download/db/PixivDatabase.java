@@ -18,6 +18,7 @@ public class PixivDatabase {
 
     private final PixivMapper pixivMapper;
     private final AppMessages messages;
+    private final PathPrefixCodec pathPrefixCodec;
 
     /**
      * 进程内已分配但可能尚未持久化的最大时间戳。
@@ -86,7 +87,7 @@ public class PixivDatabase {
                               String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
                               String description, long fileName, Long fileAuthorNameId,
                               Long seriesId, Long seriesOrder) {
-        pixivMapper.insertOrIgnore(artworkId, title, stripTrailingSlash(folder),
+        pixivMapper.insertOrIgnore(artworkId, title, encodePath(folder),
                 count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId,
                 seriesId, seriesOrder);
     }
@@ -164,12 +165,78 @@ public class PixivDatabase {
         return path == null ? null : path.replaceAll("[/\\\\]+$", "");
     }
 
+    private String encodePath(String absolutePath) {
+        return pathPrefixCodec.encode(stripTrailingSlash(absolutePath));
+    }
+
+    private ArtworkRecord resolveRecord(ArtworkRecord record) {
+        if (record == null) return null;
+        String resolvedFolder = pathPrefixCodec.resolve(record.folder());
+        String resolvedMove = pathPrefixCodec.resolve(record.moveFolder());
+        if (java.util.Objects.equals(resolvedFolder, record.folder())
+                && java.util.Objects.equals(resolvedMove, record.moveFolder())) {
+            return record;
+        }
+        return new ArtworkRecord(
+                record.artworkId(),
+                record.title(),
+                resolvedFolder,
+                record.count(),
+                record.extensions(),
+                record.time(),
+                record.moved(),
+                resolvedMove,
+                record.moveTime(),
+                record.xRestrict(),
+                record.isAi(),
+                record.authorId(),
+                record.description(),
+                record.fileName(),
+                record.fileAuthorNameId(),
+                record.seriesId(),
+                record.seriesOrder()
+        );
+    }
+
     public ArtworkRecord getArtworkByMoveFolder(String moveFolder) {
-        return pixivMapper.findByNormalizedMoveFolder(moveFolder.replaceAll("[/\\\\]+$", ""));
+        if (moveFolder == null) return null;
+        String stripped = stripTrailingSlash(moveFolder);
+        ArtworkRecord direct = pixivMapper.findByNormalizedMoveFolder(stripped);
+        if (direct == null) {
+            String encoded = pathPrefixCodec.encode(stripped);
+            if (!java.util.Objects.equals(encoded, stripped)) {
+                direct = pixivMapper.findByNormalizedMoveFolder(encoded);
+            }
+        }
+        return resolveRecord(direct);
     }
 
     public void updateArtworkMove(long artworkId, String movePath, long moveTime) {
-        pixivMapper.updateMove(artworkId, stripTrailingSlash(movePath), moveTime);
+        updateArtworkMove(artworkId, movePath, moveTime, null);
+    }
+
+    /**
+     * @param classifierTargetFolder 调用方（如分类工具）已知的"内置目标根目录"。
+     *        非空时会被预先注册到 {@code path_prefixes}，确保 movePath 落在该根目录下时
+     *        编码出 {@code {N}/<rest>}，避免每个编号子目录各自占一行。
+     *        为空时回退到 {@link PathPrefixCodec#encodeOrRegister} —— 没匹配就把
+     *        movePath 本身注册成新前缀。
+     */
+    public void updateArtworkMove(long artworkId, String movePath, long moveTime,
+                                  String classifierTargetFolder) {
+        String stripped = stripTrailingSlash(movePath);
+        String encoded;
+        if (stripped == null) {
+            encoded = null;
+        } else {
+            String presetRoot = stripTrailingSlash(classifierTargetFolder);
+            if (presetRoot != null && !presetRoot.isEmpty()
+                    && !pathPrefixCodec.looksEncoded(presetRoot)) {
+                pathPrefixCodec.getOrCreatePrefixId(presetRoot);
+            }
+            encoded = pathPrefixCodec.encodeOrRegister(stripped);
+        }
+        pixivMapper.updateMove(artworkId, encoded, moveTime);
     }
 
     public void deleteArtwork(long artworkId) {
@@ -181,7 +248,7 @@ public class PixivDatabase {
     }
 
     public ArtworkRecord getArtwork(long artworkId) {
-        return pixivMapper.findById(artworkId);
+        return resolveRecord(pixivMapper.findById(artworkId));
     }
 
     public List<Long> getAllArtworkIds() {
@@ -197,7 +264,9 @@ public class PixivDatabase {
     }
 
     public List<ArtworkRecord> getArtworksOlderThan(long beforeTimeMillis) {
-        return pixivMapper.findByTimeBefore(beforeTimeMillis);
+        return pixivMapper.findByTimeBefore(beforeTimeMillis).stream()
+                .map(this::resolveRecord)
+                .toList();
     }
 
     public long countArtworks() {

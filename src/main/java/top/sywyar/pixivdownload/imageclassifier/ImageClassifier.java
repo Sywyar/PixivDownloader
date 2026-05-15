@@ -1334,7 +1334,10 @@ public class ImageClassifier extends JFrame {
             // Phase 3：记录及跳转
             // ==========================================
             if (serverRunning) {
-                try { sendMoveArtWorkInfo(artworkId, moveReportPath); }
+                try {
+                    sendMoveArtWorkInfo(artworkId, moveReportPath,
+                            stripTrailingSlash(targetFolder.getAbsolutePath()));
+                }
                 catch (Exception e) { log.error(logMessage("gui.image-classifier.log.record-move-failed"), e); }
             }
 
@@ -1383,7 +1386,7 @@ public class ImageClassifier extends JFrame {
         }).start();
     }
 
-    private void sendMoveArtWorkInfo(Long artWork, String movePath) {
+    private void sendMoveArtWorkInfo(Long artWork, String movePath, String classifierTargetFolder) {
         String serverUrl = config.getProperty("server.url", "http://localhost:6999");
         String url       = serverUrl + "/api/downloaded/move/" + artWork;
 
@@ -1393,6 +1396,11 @@ public class ImageClassifier extends JFrame {
         Map<String, Object> body = new HashMap<>();
         body.put("movePath", movePath);
         body.put("moveTime", System.currentTimeMillis());
+        if (classifierTargetFolder != null && !classifierTargetFolder.isBlank()) {
+            // 让服务端把"分类工具内置目录"注册成 path_prefixes 行，
+            // 后续同根的编号子目录就都能编码成 {N}/<seq>。
+            body.put("classifierTargetFolder", classifierTargetFolder);
+        }
 
         try {
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);

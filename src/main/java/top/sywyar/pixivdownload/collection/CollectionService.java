@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.download.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -37,6 +38,7 @@ public class CollectionService {
     private final AppMessages messages;
     private final DownloadConfig downloadConfig;
     private final NovelDatabase novelDatabase;
+    private final PathPrefixCodec pathPrefixCodec;
 
     @PostConstruct
     public void init() {
@@ -49,11 +51,20 @@ public class CollectionService {
     }
 
     public List<Collection> listAll() {
-        return collectionMapper.findAll();
+        return collectionMapper.findAll().stream().map(this::resolve).toList();
     }
 
     public Collection get(long id) {
-        return collectionMapper.findById(id);
+        return resolve(collectionMapper.findById(id));
+    }
+
+    private Collection resolve(Collection collection) {
+        if (collection == null) return null;
+        String resolved = pathPrefixCodec.resolve(collection.downloadRoot());
+        if (java.util.Objects.equals(resolved, collection.downloadRoot())) return collection;
+        return new Collection(collection.id(), collection.name(), collection.iconExt(),
+                resolved, collection.sortOrder(), collection.createdTime(),
+                collection.artworkCount(), collection.novelCount());
     }
 
     public boolean exists(long id) {
@@ -73,7 +84,7 @@ public class CollectionService {
         CollectionInsert insert = new CollectionInsert();
         insert.setName(clean);
         insert.setIconExt(null);
-        insert.setDownloadRoot(cleanDownloadRoot);
+        insert.setDownloadRoot(pathPrefixCodec.encode(cleanDownloadRoot));
         insert.setSortOrder(0);
         insert.setCreatedTime(TimestampUtils.nowMillis());
         collectionMapper.insert(insert);
@@ -86,7 +97,7 @@ public class CollectionService {
             );
         }
         log.info(message("collection.log.created", newId, clean));
-        return collectionMapper.findById(newId);
+        return resolve(collectionMapper.findById(newId));
     }
 
     public Collection rename(long id, String name) {
@@ -96,20 +107,20 @@ public class CollectionService {
             throw LocalizedException.badRequest("collection.name.duplicate", "同名收藏夹已存在");
         }
         collectionMapper.updateName(id, clean);
-        return collectionMapper.findById(id);
+        return resolve(collectionMapper.findById(id));
     }
 
     public Collection updateDownloadRoot(long id, String downloadRoot) {
         Collection collection = requireCollection(id);
         String cleanDownloadRoot = validateDownloadRoot(downloadRoot, collection.name(), collection.id());
-        collectionMapper.updateDownloadRoot(id, cleanDownloadRoot);
-        return collectionMapper.findById(id);
+        collectionMapper.updateDownloadRoot(id, pathPrefixCodec.encode(cleanDownloadRoot));
+        return resolve(collectionMapper.findById(id));
     }
 
     public Collection updateSortOrder(long id, int sortOrder) {
         requireExists(id);
         collectionMapper.updateSortOrder(id, sortOrder);
-        return collectionMapper.findById(id);
+        return resolve(collectionMapper.findById(id));
     }
 
     public void delete(long id) {
@@ -133,14 +144,14 @@ public class CollectionService {
                     e.getMessage()
             );
         }
-        return collectionMapper.findById(id);
+        return resolve(collectionMapper.findById(id));
     }
 
     public Collection clearIcon(long id) {
         requireExists(id);
         iconService.deleteAll(id);
         collectionMapper.updateIconExt(id, null);
-        return collectionMapper.findById(id);
+        return resolve(collectionMapper.findById(id));
     }
 
     public boolean addArtwork(long collectionId, long artworkId) {
@@ -210,7 +221,7 @@ public class CollectionService {
     }
 
     public Path resolveDownloadRoot(long collectionId, Path defaultRoot) {
-        Collection collection = collectionMapper.findById(collectionId);
+        Collection collection = resolve(collectionMapper.findById(collectionId));
         if (collection == null || !StringUtils.hasText(collection.downloadRoot())) {
             return defaultRoot;
         }

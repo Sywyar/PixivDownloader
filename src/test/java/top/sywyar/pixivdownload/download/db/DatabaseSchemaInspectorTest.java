@@ -334,13 +334,17 @@ class DatabaseSchemaInspectorTest {
             org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
             config.setMapUnderscoreToCamelCase(true);
             config.addMapper(PixivMapper.class);
+            config.addMapper(PathPrefixMapper.class);
             org.apache.ibatis.session.SqlSessionFactory factory =
                     new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
 
             try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
                 PixivMapper mapper = session.getMapper(PixivMapper.class);
+                PathPrefixMapper pathPrefixMapper = session.getMapper(PathPrefixMapper.class);
+                PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper);
+                codec.init();
                 PixivDatabase database = new PixivDatabase(
-                        mapper, top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages());
+                        mapper, top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), codec);
                 database.init();
 
                 // 仅比对 PixivDatabase.init() 实际建的 6 张表；authors / collections / artwork_collections
