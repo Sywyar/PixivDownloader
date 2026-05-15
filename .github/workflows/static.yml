@@ -50,6 +50,49 @@ jobs:
           test -f build/pages/intro/intro.js
           test -f build/pages/js/pixiv-i18n.js
           test -f build/pages/js/pixiv-lang-switcher.js
+      - name: Build static i18n bundles
+        shell: bash
+        run: |
+          # The Pages site has no Spring backend, so /api/i18n/* is unreachable.
+          # pixiv-i18n.js falls back to i18n-static/{namespace}.{lang}.json.
+          mkdir -p build/pages/i18n-static
+          python3 - <<'PY'
+          import json, pathlib
+
+          SRC = pathlib.Path("src/main/resources/i18n/web")
+          OUT = pathlib.Path("build/pages/i18n-static")
+          # namespace -> (zh properties file, en properties file)
+          NAMESPACES = {
+              "intro": ("intro.properties", "intro_en.properties"),
+              "common": ("common.properties", "common_en.properties"),
+          }
+          # canonical tag -> list of file names to also emit (short aliases)
+          LANG_ALIASES = {"zh-CN": ["zh"], "en-US": ["en"]}
+
+          def load_props(path):
+              messages = {}
+              for raw in path.read_text(encoding="utf-8").splitlines():
+                  line = raw.strip()
+                  if not line or line[0] in ("#", "!"):
+                      continue
+                  if "=" not in line:
+                      continue
+                  key, _, value = raw.partition("=")
+                  messages[key.strip()] = value.strip()
+              return messages
+
+          for ns, (zh_file, en_file) in NAMESPACES.items():
+              for tag, src_name in (("zh-CN", zh_file), ("en-US", en_file)):
+                  messages = load_props(SRC / src_name)
+                  payload = json.dumps({"messages": messages}, ensure_ascii=False)
+                  for name in [tag] + LANG_ALIASES.get(tag, []):
+                      (OUT / f"{ns}.{name}.json").write_text(payload, encoding="utf-8")
+                  print(f"wrote {ns} {tag}: {len(messages)} keys")
+          PY
+
+          test -s build/pages/i18n-static/intro.en-US.json
+          test -s build/pages/i18n-static/intro.zh-CN.json
+          test -s build/pages/i18n-static/common.en-US.json
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

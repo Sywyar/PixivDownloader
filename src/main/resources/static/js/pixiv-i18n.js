@@ -3,6 +3,10 @@
 
     var STORAGE_KEY = 'pixiv.lang';
     var DEFAULT_NAMESPACE = 'common';
+    // Static fallback bundles, used when the backend i18n API is unreachable
+    // (e.g. the GitHub Pages demo site has no Spring backend). Relative path so
+    // it resolves correctly under a project-site /<repo>/ prefix.
+    var STATIC_BUNDLE_BASE = 'i18n-static/';
     var LANGUAGE_CHANNEL_NAME = 'pixiv.language';
     var LANGUAGE_CHANGE_TYPE = 'language-change';
     var INSTANCE_ID = String(Date.now()) + '-' + String(Math.random()).slice(2);
@@ -156,6 +160,19 @@
         }
     }
 
+    async function fetchMessagesBundle(namespace, lang) {
+        try {
+            return await fetchJson(
+                '/api/i18n/messages/' + encodeURIComponent(namespace) + '?lang=' + encodeURIComponent(lang)
+            );
+        } catch (e) {
+            // Backend unavailable (static hosting): fall back to a prebuilt bundle.
+            var staticUrl = STATIC_BUNDLE_BASE +
+                encodeURIComponent(namespace) + '.' + encodeURIComponent(lang) + '.json';
+            return await fetchJsonOrDefault(staticUrl, { messages: {} });
+        }
+    }
+
     function resolveKey(namespaces, key) {
         if (!key) {
             return { namespace: namespaces[0], key: '' };
@@ -285,10 +302,7 @@
 
         for (var i = 0; i < namespaces.length; i += 1) {
             var namespace = namespaces[i];
-            var bundle = await fetchJsonOrDefault(
-                '/api/i18n/messages/' + encodeURIComponent(namespace) + '?lang=' + encodeURIComponent(meta.currentLang),
-                { messages: {} }
-            );
+            var bundle = await fetchMessagesBundle(namespace, meta.currentLang);
             bundleMap[namespace] = bundle.messages || {};
         }
 
