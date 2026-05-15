@@ -1,11 +1,16 @@
 package top.sywyar.pixivdownload.update;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
@@ -65,6 +70,14 @@ public class UpdateService {
     private static final long MAX_INSTALLER_BYTES = 500L * 1024L * 1024L;
     /** 静默检查的最小间隔：24 小时。 */
     private static final long AUTO_CHECK_MIN_INTERVAL_MS = 24L * 3600L * 1000L;
+
+    /**
+     * 用于解析 manifest 文本。GitHub release 资产以 {@code application/octet-stream} 返回，
+     * Spring 默认的 Jackson HttpMessageConverter 不接受该 content-type，所以手动把响应体
+     * 拿成 {@link String} 后再反序列化。
+     */
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private final UpdateConfig updateConfig;
     private final RestTemplate downloadRestTemplate;
@@ -127,12 +140,12 @@ public class UpdateService {
 
         log.info(forLog("update.log.check.starting", manifestUrl));
         try {
-            UpdateManifest manifest = downloadRestTemplate.getForObject(URI.create(manifestUrl), UpdateManifest.class);
+            UpdateManifest manifest = fetchManifest(manifestUrl);
             if (manifest == null || manifest.getLatestVersion() == null) {
                 throw new IllegalStateException(forLog("update.error.manifest.invalid", "empty"));
             }
             return handleManifest(currentVersion, manifest);
-        } catch (RestClientException | IllegalStateException e) {
+        } catch (RestClientException | IOException | IllegalStateException e) {
             log.warn(forLog("update.log.check.failed", e.getMessage()));
             UpdateCheckResult failed = UpdateCheckResult.builder()
                     .enabled(true)
@@ -145,6 +158,33 @@ public class UpdateService {
             lastResult = failed;
             return failed;
         }
+    }
+
+    /**
+     * 拉取 manifest 文本并手动用 Jackson 解析，避免 GitHub release 资产以
+     * {@code application/octet-stream} 返回时被默认 MessageConverter 拒绝。
+     */
+    private UpdateManifest fetchManifest(String manifestUrl) throws IOException {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(java.util.List.of(MediaType.APPLICATION_JSON, MediaType.ALL));
+        headers.set(HttpHeaders.USER_AGENT, "PixivDownload-Updater");
+
+        ResponseEntity<String> response = downloadRestTemplate.exchange(
+                URI.create(manifestUrl),
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                String.class);
+
+        if (response.getStatusCode() != HttpStatus.OK) {
+            throw new IOException(forLog("update.error.manifest.invalid",
+                    "HTTP " + response.getStatusCode().value()));
+        }
+
+        String body = response.getBody();
+        if (body == null || body.isBlank()) {
+            throw new IOException(forLog("update.error.manifest.invalid", "empty body"));
+        }
+        return MAPPER.readValue(body, UpdateManifest.class);
     }
 
     public UpdateCheckResult lastResult() {
@@ -414,7 +454,7 @@ public class UpdateService {
                     break;
                 }
             }
-            if (digits.length() == 0) {
+            if (digits.isEmpty()) {
                 return -1;
             }
             return Integer.parseInt(digits.toString());
