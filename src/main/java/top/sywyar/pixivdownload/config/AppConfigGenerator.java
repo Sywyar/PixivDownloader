@@ -219,6 +219,14 @@ public class AppConfigGenerator {
 
         appendSection(config, locale, "config.template.section.language");
         appendSetting(config, locale, "app.language:", "config.template.app.language.comment");
+        appendBlankLine(config);
+
+        appendSection(config, locale, "config.template.section.update");
+        appendSetting(config, locale, "update.enabled: true", "config.template.update.enabled.comment");
+        appendSetting(config, locale,
+                "update.manifest-url: " + top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_MANIFEST_URL,
+                "config.template.update.manifest-url.comment");
+        appendSetting(config, locale, "update.auto-check: true", "config.template.update.auto-check.comment");
 
         return config.toString();
     }

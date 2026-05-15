@@ -286,12 +286,14 @@ jobs:
             found {
               print
             }
-          ' CHANGELOG.md > RELEASE_BODY.md
+          ' CHANGELOG.md > CHANGELOG_EXCERPT.md
 
-          if [ ! -s RELEASE_BODY.md ]; then
+          if [ ! -s CHANGELOG_EXCERPT.md ]; then
             echo "No changelog entry found for ${GITHUB_REF_NAME}" >&2
             exit 1
           fi
+
+          cp CHANGELOG_EXCERPT.md RELEASE_BODY.md
 
           cat >> RELEASE_BODY.md <<'EOF'
 
@@ -330,6 +332,53 @@ jobs:
           ## 详细说明请查看 README
           EOF
 
+      - name: Generate update manifest
+        shell: bash
+        env:
+          GH_REF_NAME: ${{ github.ref_name }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          INSTALLER=$(ls artifacts/*-win-x64-setup.exe 2>/dev/null | head -n1 || true)
+          if [ -z "$INSTALLER" ]; then
+            echo "No installer artifact found for update manifest" >&2
+            exit 1
+          fi
+
+          FILENAME=$(basename "$INSTALLER")
+          SHA256=$(sha256sum "$INSTALLER" | awk '{print $1}')
+          SIZE=$(stat -c%s "$INSTALLER")
+          LATEST_VERSION="${GH_REF_NAME#v}"
+          RELEASE_DATE=$(date -u +%Y-%m-%d)
+          ASSET_URL="https://github.com/${GH_REPOSITORY}/releases/download/${GH_REF_NAME}/${FILENAME}"
+          NOTES_URL="https://github.com/${GH_REPOSITORY}/releases/tag/${GH_REF_NAME}"
+
+          jq -n \
+            --arg latestVersion "$LATEST_VERSION" \
+            --arg releaseDate "$RELEASE_DATE" \
+            --rawfile releaseNotes CHANGELOG_EXCERPT.md \
+            --arg releaseNotesUrl "$NOTES_URL" \
+            --arg assetUrl "$ASSET_URL" \
+            --arg assetSha256 "$SHA256" \
+            --argjson assetSize "$SIZE" \
+            '{
+              latestVersion: $latestVersion,
+              releaseDate: $releaseDate,
+              releaseNotes: $releaseNotes,
+              releaseNotesUrl: $releaseNotesUrl,
+              assets: {
+                "win-x64-installer": {
+                  url: $assetUrl,
+                  sha256: $assetSha256,
+                  sizeBytes: $assetSize
+                }
+              }
+            }' > artifacts/update.json
+
+          echo "Generated update.json:"
+          cat artifacts/update.json
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
@@ -338,4 +387,5 @@ jobs:
             artifacts/*-setup.exe
             artifacts/*-portable.zip
             artifacts/userscripts/*.user.js
+            artifacts/update.json
           body_path: RELEASE_BODY.md

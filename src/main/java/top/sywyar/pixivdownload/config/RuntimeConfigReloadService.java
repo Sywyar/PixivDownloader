@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.SetupProperties;
+import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -34,6 +35,7 @@ public class RuntimeConfigReloadService {
     private final SslConfig sslConfig;
     private final MaintenanceProperties maintenanceProperties;
     private final ProxyConfig proxyConfig;
+    private final UpdateConfig updateConfig;
 
     public synchronized ReloadResult reloadHotConfig() throws IOException {
         Binder binder = loadBinder();
@@ -43,6 +45,7 @@ public class RuntimeConfigReloadService {
         SslConfig nextSsl = bind(binder, "ssl", SslConfig::new, SslConfig.class);
         MaintenanceProperties nextMaintenance = bind(binder, "maintenance", MaintenanceProperties::new, MaintenanceProperties.class);
         ProxyConfig nextProxy = bind(binder, "proxy", ProxyConfig::new, ProxyConfig.class);
+        UpdateConfig nextUpdate = bind(binder, "update", UpdateConfig::new, UpdateConfig.class);
 
         List<String> applied = new ArrayList<>();
         applyDownloadConfig(nextDownload, applied);
@@ -51,6 +54,7 @@ public class RuntimeConfigReloadService {
         applySslConfig(nextSsl, applied);
         applyMaintenanceConfig(nextMaintenance, applied);
         applyProxyConfig(nextProxy, applied);
+        applyUpdateConfig(nextUpdate, applied);
 
         if (!applied.isEmpty()) {
             log.info("Hot reloaded config keys: {}", applied);
@@ -187,6 +191,24 @@ public class RuntimeConfigReloadService {
                 proxyConfig.getPort(),
                 next.getPort(),
                 () -> proxyConfig.setPort(next.getPort()));
+    }
+
+    private void applyUpdateConfig(UpdateConfig next, List<String> applied) {
+        applyIfChanged(applied,
+                "update.enabled",
+                updateConfig.isEnabled(),
+                next.isEnabled(),
+                () -> updateConfig.setEnabled(next.isEnabled()));
+        applyIfChanged(applied,
+                "update.manifest-url",
+                updateConfig.getManifestUrl(),
+                next.getManifestUrl(),
+                () -> updateConfig.setManifestUrl(next.getManifestUrl()));
+        applyIfChanged(applied,
+                "update.auto-check",
+                updateConfig.isAutoCheck(),
+                next.isAutoCheck(),
+                () -> updateConfig.setAutoCheck(next.isAutoCheck()));
     }
 
     private static MultiModeConfig.Quota ensureQuota(MultiModeConfig config) {

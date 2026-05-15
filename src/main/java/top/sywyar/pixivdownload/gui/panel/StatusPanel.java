@@ -77,8 +77,17 @@ public class StatusPanel extends JPanel {
     private volatile String serverDomain = "localhost";
     private volatile String serverScheme = "http";
     private volatile boolean ffmpegInstalling;
+    private volatile boolean updateChecking;
+    private volatile boolean updateInstalling;
     private Timer pollTimer;
     private final BackendLifecycleManager.Listener backendListener = this::applyBackendSnapshot;
+
+    private final JPanel updateBanner = new JPanel(new BorderLayout(8, 0));
+    private final JLabel updateBannerLabel = new JLabel();
+    private final JButton updateBannerInstallButton = new JButton();
+    private final JButton updateBannerDismissButton = new JButton();
+    private volatile String pendingInstallerUrl;
+    private volatile long pendingInstallerSize;
 
     public StatusPanel(int serverPort, String rootFolder, Path configPath, Runnable onLocaleChanged) {
         this.serverPort = serverPort;
@@ -89,6 +98,7 @@ public class StatusPanel extends JPanel {
         BackendLifecycleManager.addListener(backendListener);
         startPolling();
         refreshFfmpegState();
+        scheduleInitialUpdateLookup();
     }
 
     private void buildUi() {
@@ -112,6 +122,10 @@ public class StatusPanel extends JPanel {
         contentConstraints.fill = GridBagConstraints.HORIZONTAL;
 
         content.add(badgeRow, contentConstraints);
+
+        contentConstraints.gridy++;
+        contentConstraints.insets = new Insets(10, 0, 0, 0);
+        content.add(buildUpdateBanner(), contentConstraints);
 
         contentConstraints.gridy++;
         contentConstraints.insets = new Insets(10, 0, 0, 0);
@@ -222,12 +236,41 @@ public class StatusPanel extends JPanel {
         JButton restart = new JButton(message("gui.action.restart-service"));
         restart.addActionListener(e -> restartService());
 
+        JButton checkUpdate = new JButton(message("gui.update.action.check"));
+        checkUpdate.addActionListener(e -> triggerUpdateCheck(true));
+
         buttons.add(openBatch);
         buttons.add(openMonitor);
         buttons.add(openGallery);
         buttons.add(openFolder);
         buttons.add(restart);
+        buttons.add(checkUpdate);
         return buttons;
+    }
+
+    private JComponent buildUpdateBanner() {
+        updateBanner.setOpaque(true);
+        updateBanner.setBackground(new Color(255, 247, 220));
+        updateBanner.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(220, 190, 120)),
+                BorderFactory.createEmptyBorder(8, 12, 8, 12)));
+        updateBannerLabel.setFont(updateBannerLabel.getFont().deriveFont(Font.BOLD));
+
+        updateBannerInstallButton.setText(message("gui.update.banner.install"));
+        updateBannerInstallButton.addActionListener(e -> triggerUpdateInstall());
+
+        updateBannerDismissButton.setText(message("gui.update.banner.dismiss"));
+        updateBannerDismissButton.addActionListener(e -> updateBanner.setVisible(false));
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        actions.setOpaque(false);
+        actions.add(updateBannerInstallButton);
+        actions.add(updateBannerDismissButton);
+
+        updateBanner.add(updateBannerLabel, BorderLayout.CENTER);
+        updateBanner.add(actions, BorderLayout.EAST);
+        updateBanner.setVisible(false);
+        return updateBanner;
     }
 
     private JButton webButton(String messageCode, String path) {
@@ -757,6 +800,228 @@ public class StatusPanel extends JPanel {
             pollTimer.stop();
         }
         BackendLifecycleManager.removeListener(backendListener);
+    }
+
+    private void scheduleInitialUpdateLookup() {
+        Timer initial = new Timer(5000, e -> queryLastUpdateResult());
+        initial.setRepeats(false);
+        initial.start();
+    }
+
+    private void queryLastUpdateResult() {
+        Thread worker = new Thread(() -> {
+            JsonNode node = callUpdateEndpoint("GET", "/api/gui/update/last", null);
+            if (node != null) {
+                SwingUtilities.invokeLater(() -> applyUpdateResult(node));
+            }
+        }, "gui-update-last");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void triggerUpdateCheck(boolean force) {
+        if (updateChecking) {
+            return;
+        }
+        updateChecking = true;
+        Thread worker = new Thread(() -> {
+            JsonNode node = callUpdateEndpoint("GET", "/api/gui/update/check?force=" + force, null);
+            SwingUtilities.invokeLater(() -> {
+                updateChecking = false;
+                if (node == null) {
+                    JOptionPane.showMessageDialog(StatusPanel.this,
+                            message("gui.update.dialog.check-failed.message"),
+                            message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+                applyUpdateResult(node);
+                showCheckCompletionDialog(node);
+            });
+        }, "gui-update-check");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void showCheckCompletionDialog(JsonNode node) {
+        boolean enabled = node.path("enabled").asBoolean(false);
+        if (!enabled) {
+            JOptionPane.showMessageDialog(this,
+                    message("gui.update.dialog.disabled.message"),
+                    message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (!node.path("checkSucceeded").asBoolean(false)) {
+            String error = node.path("error").asText("");
+            JOptionPane.showMessageDialog(this,
+                    message("gui.update.dialog.check-failed.detail", error),
+                    message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (!node.path("updateAvailable").asBoolean(false)) {
+            JOptionPane.showMessageDialog(this,
+                    message("gui.update.dialog.up-to-date.message",
+                            node.path("currentVersion").asText("")),
+                    message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    private void applyUpdateResult(JsonNode node) {
+        boolean available = node.path("updateAvailable").asBoolean(false);
+        if (!available) {
+            updateBanner.setVisible(false);
+            pendingInstallerUrl = null;
+            pendingInstallerSize = 0L;
+            return;
+        }
+        String latest = node.path("latestVersion").asText("");
+        String current = node.path("currentVersion").asText("");
+        pendingInstallerUrl = node.path("assetUrl").asText(null);
+        pendingInstallerSize = node.path("assetSizeBytes").asLong(0L);
+
+        updateBannerLabel.setText(message("gui.update.banner.text", current, latest));
+        updateBanner.setVisible(true);
+        updateBanner.revalidate();
+        updateBanner.repaint();
+    }
+
+    private void triggerUpdateInstall() {
+        if (updateInstalling) {
+            return;
+        }
+        String latest = extractFromBanner();
+        int confirm = JOptionPane.showConfirmDialog(this,
+                message("gui.update.dialog.install.confirm.message", latest, formatSize(pendingInstallerSize)),
+                message("gui.update.dialog.install.title"), JOptionPane.YES_NO_OPTION);
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+        updateInstalling = true;
+        updateBannerInstallButton.setEnabled(false);
+
+        SwingWorker<JsonNode, Void> worker = new SwingWorker<>() {
+            @Override
+            protected JsonNode doInBackground() {
+                return callUpdateEndpoint("POST", "/api/gui/update/download", null);
+            }
+
+            @Override
+            protected void done() {
+                JsonNode result;
+                try {
+                    result = get();
+                } catch (Exception e) {
+                    updateInstalling = false;
+                    updateBannerInstallButton.setEnabled(true);
+                    JOptionPane.showMessageDialog(StatusPanel.this,
+                            message("gui.update.dialog.download-failed.message", safeText(e)),
+                            message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                if (result == null || result.hasNonNull("error") || !result.has("installerPath")) {
+                    updateInstalling = false;
+                    updateBannerInstallButton.setEnabled(true);
+                    String err = result == null ? "" : result.path("error").asText("");
+                    JOptionPane.showMessageDialog(StatusPanel.this,
+                            message("gui.update.dialog.download-failed.message", err),
+                            message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                launchInstaller(result.path("installerPath").asText(""));
+            }
+        };
+        worker.execute();
+    }
+
+    private String extractFromBanner() {
+        return updateBannerLabel.getText();
+    }
+
+    private void launchInstaller(String installerPath) {
+        Thread worker = new Thread(() -> {
+            String body = "installerPath=" + java.net.URLEncoder.encode(installerPath, java.nio.charset.StandardCharsets.UTF_8);
+            JsonNode node = callUpdateEndpoint("POST", "/api/gui/update/install", body);
+            SwingUtilities.invokeLater(() -> {
+                if (node == null || node.hasNonNull("error")) {
+                    updateInstalling = false;
+                    updateBannerInstallButton.setEnabled(true);
+                    String err = node == null ? "" : node.path("error").asText("");
+                    JOptionPane.showMessageDialog(StatusPanel.this,
+                            message("gui.update.dialog.install-failed.message", err),
+                            message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                JOptionPane.showMessageDialog(StatusPanel.this,
+                        message("gui.update.dialog.installer-launched.message"),
+                        message("gui.update.dialog.install.title"), JOptionPane.INFORMATION_MESSAGE);
+            });
+        }, "gui-update-install");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /**
+     * 调用 /api/gui/update/** 端点，参照 {@link #fetchStatus()} 的 scheme 探测策略。
+     * 返回 JSON 节点；HTTP 失败或异常时返回 null。
+     */
+    private JsonNode callUpdateEndpoint(String method, String path, String formBody) {
+        String[] schemes = "https".equals(currentScheme)
+                ? new String[]{"https", "http"}
+                : new String[]{"http", "https"};
+        for (String scheme : schemes) {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URI(scheme + "://localhost:" + serverPort + path).toURL();
+                conn = (HttpURLConnection) url.openConnection();
+                if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
+                    https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
+                    https.setHostnameVerifier((h, s) -> true);
+                }
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(60000);
+                conn.setRequestMethod(method);
+                if (formBody != null) {
+                    conn.setDoOutput(true);
+                    conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+                    try (var os = conn.getOutputStream()) {
+                        os.write(formBody.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                }
+                int code = conn.getResponseCode();
+                if (code == 204) {
+                    return null;
+                }
+                try (InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream()) {
+                    if (is == null) {
+                        return null;
+                    }
+                    return MAPPER.readTree(is);
+                }
+            } catch (Exception e) {
+                log.debug(logMessage("gui.status.log.update.call-failed", path, e.getMessage()));
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String formatSize(long bytes) {
+        if (bytes <= 0) {
+            return "?";
+        }
+        double mb = bytes / (1024.0 * 1024.0);
+        return String.format(Locale.ROOT, "%.1f MB", mb);
+    }
+
+    private static String safeText(Throwable t) {
+        if (t == null) {
+            return "";
+        }
+        Throwable cause = t.getCause() == null ? t : t.getCause();
+        String msg = cause.getMessage();
+        return msg == null ? cause.getClass().getSimpleName() : msg;
     }
 
     private static SSLContext buildTrustAllSslContext() {

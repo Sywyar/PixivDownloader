@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.util.List;
 
@@ -34,7 +35,8 @@ public final class ConfigFieldRegistry {
                 message("gui.config.group.multi-mode"),
                 message("gui.config.group.security"),
                 message("gui.config.group.maintenance"),
-                message("gui.config.group.https")
+                message("gui.config.group.https"),
+                message("gui.config.group.update")
         );
     }
 
@@ -47,6 +49,7 @@ public final class ConfigFieldRegistry {
         String groupSecurity = message("gui.config.group.security");
         String groupMaintenance = message("gui.config.group.maintenance");
         String groupHttps = message("gui.config.group.https");
+        String groupUpdate = message("gui.config.group.update");
 
         return List.of(
 
@@ -283,6 +286,27 @@ public final class ConfigFieldRegistry {
                         .defaultValue("80")
                         .help(message("gui.config.field.ssl.http-redirect-port.help"))
                         .enabledWhen(snap -> snap.isTrue("server.ssl.enabled") && snap.isTrue("ssl.http-redirect"))
+                        .build(),
+
+                // ── 在线更新 ────────────────────────────────────────────────────────
+                ConfigFieldSpec.builder("update.enabled", message("gui.config.field.update.enabled.label"), BOOL, groupUpdate)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.update.enabled.help"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("update.manifest-url", message("gui.config.field.update.manifest-url.label"), STRING, groupUpdate)
+                        .defaultValue(UpdateConfig.DEFAULT_MANIFEST_URL)
+                        .help(message("gui.config.field.update.manifest-url.help"))
+                        .enabledWhen(snap -> snap.isTrue("update.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("update.auto-check", message("gui.config.field.update.auto-check.label"), BOOL, groupUpdate)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.update.auto-check.help"))
+                        .enabledWhen(snap -> snap.isTrue("update.enabled"))
+                        .hotReloadable()
                         .build()
         );
     }
