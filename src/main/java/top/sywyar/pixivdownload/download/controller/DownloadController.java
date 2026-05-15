@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.gallery.GalleryQuery;
 import top.sywyar.pixivdownload.gallery.GalleryRepository;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.SetupService;
@@ -53,6 +54,7 @@ public class DownloadController {
     private final GuestAccessGuard guestAccessGuard;
     private final GalleryRepository galleryRepository;
     private final AppMessages messages;
+    private final NovelDownloadService novelDownloadService;
 
     @PostMapping("/download/pixiv")
     public ResponseEntity<?> downloadPixivImages(
@@ -197,7 +199,7 @@ public class DownloadController {
     }
 
     //取消下载
-    @PostMapping("/cancel/{artworkId}")
+    @PostMapping({"/cancel/{artworkId}", "/download/cancel/{artworkId}"})
     public ResponseEntity<DownloadResponse> cancelDownload(@PathVariable Long artworkId,
                                                            HttpServletRequest httpRequest) {
         if (setupService.hasAdminScope(httpRequest)) {
@@ -208,6 +210,25 @@ public class DownloadController {
         return ResponseEntity.ok(DownloadResponse.builder()
                 .success(true)
                 .message(messages.get("download.cancelled"))
+                .build());
+    }
+
+    @PostMapping("/download/queue/clear")
+    public ResponseEntity<DownloadResponse> clearDownloadQueue(HttpServletRequest httpRequest) {
+        int cleared;
+        // 多人模式下的访客只能强制清除自己（owner）的下载；solo 模式或多人模式下已登录的管理员清除全部，
+        // 与 cancelDownload 的归属语义保持一致。
+        if ("multi".equals(setupService.getMode()) && !setupService.isAdminLoggedIn(httpRequest)) {
+            String ownerUuid = extractUserUuid(httpRequest);
+            cleared = downloadService.forceClearDownloadsForOwner(ownerUuid);
+            cleared += novelDownloadService.forceClearDownloadsForOwner(ownerUuid);
+        } else {
+            cleared = downloadService.forceClearDownloads();
+            cleared += novelDownloadService.forceClearDownloads();
+        }
+        return ResponseEntity.ok(DownloadResponse.builder()
+                .success(true)
+                .message(messages.get("download.queue-cleared", String.valueOf(cleared)))
                 .build());
     }
 

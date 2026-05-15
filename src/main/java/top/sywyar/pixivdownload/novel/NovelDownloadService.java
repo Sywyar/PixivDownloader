@@ -25,19 +25,22 @@ import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Service
@@ -124,6 +127,7 @@ public class NovelDownloadService {
         try {
             String rawContent = request.getContent() == null ? "" : request.getContent();
             status.setStage("preparing");
+            ensureNotCancelled(status);
 
             // Resolve folder
             validateUserDownloadFolder(other);
@@ -143,6 +147,7 @@ public class NovelDownloadService {
             status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
+            ensureNotCancelled(status);
 
             // Resolve filename template
             long timestamp = other.getFileNameTimestamp() != null
@@ -162,7 +167,8 @@ public class NovelDownloadService {
             // Best-effort 内嵌图片下载（与正文同目录、embed_{id}.{ext}）；
             // 写入 HTML/EPUB 之前完成，使写入时即可解析为本地图片链接。
             Map<String, String> embeddedExts = downloadEmbeddedImages(
-                    novelId, rawContent, other.getEmbeddedImages(), downloadPath, request.getCookie());
+                    novelId, rawContent, other.getEmbeddedImages(), downloadPath, request.getCookie(), status);
+            ensureNotCancelled(status);
 
             // Write file
             status.setStage("writing");
@@ -177,7 +183,9 @@ public class NovelDownloadService {
             }
 
             // Best-effort 封面下载（与正文同目录、_thumb.{ext}）
-            String coverExt = downloadCover(other.getCoverUrl(), downloadPath, baseName, request.getCookie());
+            ensureNotCancelled(status);
+            String coverExt = downloadCover(other.getCoverUrl(), downloadPath, baseName, request.getCookie(), status);
+            ensureNotCancelled(status);
 
             // Persist DB
             String description = PixivDescriptionHtml.normalizeLinks(other.getDescription());
@@ -243,6 +251,13 @@ public class NovelDownloadService {
             status.setCompleted(true);
             status.setEndTime(java.time.LocalDateTime.now());
             log.info("novel download completed: id={}, format={}, path={}", novelId, ext, downloadPath);
+        } catch (CancellationException e) {
+            status.setCancelled(true);
+            status.setCompleted(true);
+            status.setFailed(false);
+            status.setStage("cancelled");
+            status.setEndTime(java.time.LocalDateTime.now());
+            status.setErrorMessage(messages.get("download.cancelled"));
         } catch (Exception e) {
             log.error("novel download failed: id={}", novelId, e);
             status.setCompleted(true);
@@ -264,6 +279,32 @@ public class NovelDownloadService {
             return findAnyStatus(novelId);
         }
         return statusMap.get(statusKey(novelId, ownerUuid));
+    }
+
+    public int forceClearDownloads() {
+        return forceClearDownloads(status -> true);
+    }
+
+    public int forceClearDownloadsForOwner(String ownerUuid) {
+        return forceClearDownloads(status -> java.util.Objects.equals(status.getOwnerUuid(), ownerUuid));
+    }
+
+    private int forceClearDownloads(java.util.function.Predicate<NovelDownloadStatus> matcher) {
+        AtomicInteger cleared = new AtomicInteger();
+        statusMap.forEach(10, (key, status) -> {
+            if (status != null && matcher.test(status)) {
+                status.setCancelled(true);
+                status.setCompleted(true);
+                status.setFailed(false);
+                status.setStage("cancelled");
+                status.setEndTime(java.time.LocalDateTime.now());
+                status.setErrorMessage(messages.get("download.cancelled"));
+                if (statusMap.remove(key, status)) {
+                    cleared.incrementAndGet();
+                }
+            }
+        });
+        return cleared.get();
     }
 
     public static void validateUserDownloadFolder(NovelDownloadRequest.Other other) {
@@ -324,10 +365,12 @@ public class NovelDownloadService {
      * 下载小说封面到 {@code {downloadPath}/{baseName}_thumb.{ext}}。
      * Best-effort：URL 缺失、host 非 .pximg.net、网络失败一律返回 null，调用方据此把 cover_ext 置 NULL。
      */
-    private String downloadCover(String coverUrl, Path downloadPath, String baseName, String cookie) {
+    private String downloadCover(String coverUrl, Path downloadPath, String baseName, String cookie,
+                                 NovelDownloadStatus status) {
         if (coverUrl == null || coverUrl.isBlank()) return null;
         for (String candidateUrl : NovelCoverUrlResolver.downloadCandidates(coverUrl)) {
-            String ext = downloadCoverCandidate(candidateUrl, downloadPath, baseName, cookie);
+            ensureNotCancelled(status);
+            String ext = downloadCoverCandidate(candidateUrl, downloadPath, baseName, cookie, status);
             if (ext != null) {
                 return ext;
             }
@@ -335,7 +378,8 @@ public class NovelDownloadService {
         return null;
     }
 
-    private String downloadCoverCandidate(String coverUrl, Path downloadPath, String baseName, String cookie) {
+    private String downloadCoverCandidate(String coverUrl, Path downloadPath, String baseName, String cookie,
+                                          NovelDownloadStatus status) {
         URI uri;
         try {
             uri = URI.create(coverUrl);
@@ -363,7 +407,7 @@ public class NovelDownloadService {
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             return Boolean.FALSE;
                         }
-                        Files.copy(response.getBody(), target, StandardCopyOption.REPLACE_EXISTING);
+                        copyResponseBody(response.getBody(), target, status);
                         return Boolean.TRUE;
                     });
             if (Boolean.TRUE.equals(ok)) {
@@ -434,6 +478,24 @@ public class NovelDownloadService {
         };
     }
 
+    private void ensureNotCancelled(NovelDownloadStatus status) {
+        if (status != null && status.isCancelled()) {
+            throw new CancellationException(messages.get("download.cancelled"));
+        }
+    }
+
+    private void copyResponseBody(InputStream inputStream, Path target, NovelDownloadStatus status) throws IOException {
+        try (InputStream in = inputStream;
+             OutputStream out = Files.newOutputStream(target)) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                ensureNotCancelled(status);
+                out.write(buffer, 0, read);
+            }
+        }
+    }
+
     /**
      * 扫描 raw 中出现的 {@code [uploadedimage:id]}，逐张下载至 {@code {downloadPath}/embed_{id}.{ext}}，
      * 持久化映射到 {@code novel_images} 表。
@@ -443,7 +505,8 @@ public class NovelDownloadService {
      */
     private Map<String, String> downloadEmbeddedImages(long novelId, String rawContent,
                                                        Map<String, String> urlMap,
-                                                       Path downloadPath, String cookie) {
+                                                       Path downloadPath, String cookie,
+                                                       NovelDownloadStatus status) {
         Set<String> ids = NovelMarkupParser.findUploadedImageIds(rawContent);
         if (ids.isEmpty() || urlMap == null || urlMap.isEmpty()) {
             // 没有占位符或者前端没传 URL（可能为公开 API 限制等），直接跳过
@@ -454,13 +517,14 @@ public class NovelDownloadService {
         Map<String, String> success = new LinkedHashMap<>();
         int budget = MAX_EMBEDDED_IMAGES_PER_NOVEL;
         for (String id : ids) {
+            ensureNotCancelled(status);
             if (budget-- <= 0) {
                 log.warn("novel embedded image budget exhausted: novelId={}", novelId);
                 break;
             }
             String url = urlMap.get(id);
             if (url == null || url.isBlank()) continue;
-            String ext = downloadOneEmbeddedImage(novelId, id, url, downloadPath, cookie);
+            String ext = downloadOneEmbeddedImage(novelId, id, url, downloadPath, cookie, status);
             if (ext != null) success.put(id, ext);
         }
         if (!success.isEmpty()) {
@@ -470,7 +534,8 @@ public class NovelDownloadService {
     }
 
     private String downloadOneEmbeddedImage(long novelId, String imageId, String url,
-                                            Path downloadPath, String cookie) {
+                                            Path downloadPath, String cookie,
+                                            NovelDownloadStatus status) {
         URI uri;
         try {
             uri = URI.create(url);
@@ -498,7 +563,7 @@ public class NovelDownloadService {
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             return Boolean.FALSE;
                         }
-                        Files.copy(response.getBody(), target, StandardCopyOption.REPLACE_EXISTING);
+                        copyResponseBody(response.getBody(), target, status);
                         return Boolean.TRUE;
                     });
             if (Boolean.TRUE.equals(ok)) {

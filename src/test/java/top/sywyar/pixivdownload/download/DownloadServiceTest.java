@@ -135,6 +135,27 @@ class DownloadServiceTest {
             assertThat(ownerA.isCancelled()).isTrue();
             assertThat(ownerB.isCancelled()).isFalse();
         }
+
+        @Test
+        @SuppressWarnings("unchecked")
+        @DisplayName("force clear removes only matching owner statuses")
+        void shouldForceClearOnlyMatchingOwnerStatuses() {
+            ConcurrentHashMap<String, DownloadStatus> statuses =
+                    (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
+                            .getField(downloadService, "downloadStatusMap");
+            DownloadStatus ownerA = new DownloadStatus(123L, "owner-a-title", 1, "owner-a");
+            DownloadStatus ownerB = new DownloadStatus(123L, "owner-b-title", 1, "owner-b");
+            statuses.put("owner-a:123", ownerA);
+            statuses.put("owner-b:123", ownerB);
+
+            int cleared = downloadService.forceClearDownloadsForOwner("owner-a");
+
+            assertThat(cleared).isEqualTo(1);
+            assertThat(ownerA.isCancelled()).isTrue();
+            assertThat(ownerA.isCompleted()).isTrue();
+            assertThat(statuses).containsOnlyKeys("owner-b:123");
+            assertThat(ownerB.isCancelled()).isFalse();
+        }
     }
 
     // ========== validatePixivUrl (SSRF 防护) ==========
@@ -416,7 +437,7 @@ class DownloadServiceTest {
         void setupDownloadPath() {
             lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
             lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any()))
+            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
                     .thenReturn(1);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
         }
@@ -480,7 +501,7 @@ class DownloadServiceTest {
             lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
             // 走用户独立目录分支：isUserDownload=true 且 isUserFlatFolder=false
             lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any()))
+            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
                     .thenReturn(1);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
         }
@@ -566,7 +587,7 @@ class DownloadServiceTest {
         void setupDownloadPath() {
             lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
             lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any()))
+            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
                     .thenReturn(1);
             lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
         }
@@ -592,6 +613,7 @@ class DownloadServiceTest {
                     eq(expectedPath),
                     eq("https://www.pixiv.net/"),
                     isNull(),
+                    any(),
                     any()
             );
             verify(pixivDatabase).insertArtwork(12345L, "test", expectedPath.toAbsolutePath().toString(),

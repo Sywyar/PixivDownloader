@@ -40,8 +40,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 @Slf4j
@@ -145,7 +147,7 @@ public class DownloadService {
                     eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                 };
                 successCount.set(ugoiraService.processUgoira(
-                        artworkId, other, downloadPath, referer, cookie, progressListener));
+                        artworkId, other, downloadPath, referer, cookie, progressListener, status::isCancelled));
 
                 status.setDownloadedCount(successCount.get());
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
@@ -154,9 +156,7 @@ public class DownloadService {
                 // === 普通图片下载 ===
                 for (String url : imageUrls) validatePixivUrl(url);
                 for (int i = 0; i < imageUrls.size(); i++) {
-                    if (status.isCancelled()) {
-                        break;
-                    }
+                    ensureNotCancelled(status);
 
                     String imageUrl = imageUrls.get(i);
 
@@ -175,19 +175,24 @@ public class DownloadService {
                             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                         };
                         if (downloadImage(imageUrl, filePath, referer, cookie,
-                                imageNumber, imageUrls.size(), imageProgressListener)) {
+                                imageNumber, imageUrls.size(), imageProgressListener, status::isCancelled)) {
                             successCount.incrementAndGet();
                             status.setDownloadedCount(successCount.get());
                             log.info(logMessage("download.log.progress",
                                     id(artworkId), text(successCount.get()), text(imageUrls.size())));
                             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                         }
-                        if (other.getDelayMs() > 0) Thread.sleep(other.getDelayMs());
+                        if (other.getDelayMs() > 0) sleepCancellable(other.getDelayMs(), status::isCancelled);
                     } catch (Exception e) {
+                        if (e instanceof CancellationException) {
+                            throw e;
+                        }
                         log.error(logMessage("download.log.image.failed", imageUrl, e.getMessage()));
                     }
                 }
             }
+
+            ensureNotCancelled(status);
 
             // 多人模式：记录已下载的文件夹（用于配额超出时打包）
             if (userUuid != null && userQuotaService != null) {
@@ -235,11 +240,20 @@ public class DownloadService {
             // 发送最终完成状态更新
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
 
+        } catch (CancellationException e) {
+            status.setCancelled(true);
+            status.setCompleted(true);
+            status.setFailed(false);
+            status.setEndTime(java.time.LocalDateTime.now());
+            status.setErrorMessage(messages.get("download.cancelled"));
+            eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
         } catch (Exception e) {
             log.error(logMessage("download.log.failed"), e);
             status.setCompleted(true);
             status.setFailed(true);
             status.setErrorMessage(resolveStatusErrorMessage(e));
+            status.setEndTime(java.time.LocalDateTime.now());
+            eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
         } finally {
             // 下载完成后，保留状态5分钟供查询，然后清理
             taskScheduler.schedule(
@@ -285,11 +299,13 @@ public class DownloadService {
 
     private boolean downloadImage(String imageUrl, Path filePath, String referer, String cookie,
                                   int imageNumber, int totalImages,
-                                  Consumer<ImageDownloadProgress> progressListener) {
+                                  Consumer<ImageDownloadProgress> progressListener,
+                                  BooleanSupplier cancellationRequested) {
         int maxRetries = 3;
         int retryCount = 0;
 
         while (retryCount < maxRetries) {
+            ensureNotCancelled(cancellationRequested);
             try {
                 Boolean success = downloadRestTemplate.execute(imageUrl, HttpMethod.GET,
                         request -> {
@@ -323,6 +339,7 @@ public class DownloadService {
                                 byte[] buffer = new byte[4096];
                                 int bytesRead;
                                 while ((bytesRead = inputStream.read(buffer)) != -1) {
+                                    ensureNotCancelled(cancellationRequested);
                                     outputStream.write(buffer, 0, bytesRead);
                                     downloadedBytes[0] += bytesRead;
                                     Integer progress = totalBytes > 0
@@ -366,17 +383,14 @@ public class DownloadService {
                     return true;
                 }
                 retryCount++;
+            } catch (CancellationException e) {
+                throw e;
             } catch (Exception e) {
                 retryCount++;
                 log.error(logMessage("download.log.retry", imageUrl, e.getMessage(), retryCount, maxRetries));
 
                 if (retryCount < maxRetries) {
-                    try {
-                        Thread.sleep(2000L * retryCount);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return false;
-                    }
+                    sleepCancellable(2000L * retryCount, cancellationRequested);
                 } else {
                     log.error(logMessage("download.log.retry.exhausted", imageUrl));
                     publishImageProgress(progressListener, ImageDownloadProgress.builder()
@@ -399,6 +413,35 @@ public class DownloadService {
     private void publishImageProgress(Consumer<ImageDownloadProgress> progressListener, ImageDownloadProgress progress) {
         if (progressListener != null) {
             progressListener.accept(progress);
+        }
+    }
+
+    private void ensureNotCancelled(DownloadStatus status) {
+        if (status != null && status.isCancelled()) {
+            throw new CancellationException(messages.get("download.cancelled"));
+        }
+    }
+
+    private void ensureNotCancelled(BooleanSupplier cancellationRequested) {
+        if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
+            throw new CancellationException(messages.get("download.cancelled"));
+        }
+    }
+
+    private void sleepCancellable(long millis, BooleanSupplier cancellationRequested) {
+        long deadline = System.currentTimeMillis() + Math.max(0L, millis);
+        while (true) {
+            ensureNotCancelled(cancellationRequested);
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) {
+                return;
+            }
+            try {
+                Thread.sleep(Math.min(remaining, 200L));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new CancellationException(messages.get("download.cancelled"));
+            }
         }
     }
 
@@ -469,6 +512,32 @@ public class DownloadService {
         if (status != null) {
             status.setCancelled(true);
         }
+    }
+
+    public int forceClearDownloads() {
+        return forceClearDownloads(status -> true);
+    }
+
+    public int forceClearDownloadsForOwner(@Nullable String ownerUuid) {
+        return forceClearDownloads(status -> Objects.equals(status.getOwnerUuid(), ownerUuid));
+    }
+
+    private int forceClearDownloads(java.util.function.Predicate<DownloadStatus> matcher) {
+        AtomicInteger cleared = new AtomicInteger();
+        downloadStatusMap.forEach(10, (key, status) -> {
+            if (status != null && matcher.test(status)) {
+                status.setCancelled(true);
+                status.setCompleted(true);
+                status.setFailed(false);
+                status.setEndTime(java.time.LocalDateTime.now());
+                status.setErrorMessage(messages.get("download.cancelled"));
+                if (downloadStatusMap.remove(key, status)) {
+                    cleared.incrementAndGet();
+                }
+                eventPublisher.publishEvent(new DownloadProgressEvent(this, status.getArtworkId(), status, status.getOwnerUuid()));
+            }
+        });
+        return cleared.get();
     }
 
     private boolean canAccessStatus(DownloadStatus status, String ownerUuid, boolean admin) {

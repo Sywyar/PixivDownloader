@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 批量导入单作品下载器
 // @namespace    http://tampermonkey.net/
-// @version      2.0.12
+// @version      2.0.13
 // @description  粘贴单作品链接列表批量下载，格式为 url | title，兼容 One-Tab，N-Tab 等标签页管理插件导出格式，支持严格的下载状态校验。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -34,6 +34,10 @@
         get CANCEL_URL() {
             return serverBase + '/api/download/cancel';
         },   // POST /{artworkId}
+        get CLEAR_QUEUE_URL() {
+            return serverBase + '/api/download/queue/clear';
+        },   // POST 强制清除后端队列
+
         get SSE_BASE() {
             return serverBase + '/api/sse/download';
         },        // /{artworkId}
@@ -414,7 +418,7 @@
             'import.alert.no-failed': 'There are no failed artworks right now.',
             'import.alert.queue-empty-export': 'Queue is empty. Nothing to export.',
             'import.alert.no-undownloaded': 'There are no undownloaded artworks.',
-            'import.confirm.clear': 'Force clear the queue?',
+            'import.confirm.clear': 'Force clear the queue? This force-stops and deletes all related download tasks (including the artwork currently downloading, no matter how much has been downloaded). Terminated downloads will not be recorded and cannot be undone.',
             'import.confirm.clear-running': 'Downloads are still running. Force stop and clear the queue? Cancel keeps the queue.',
             'import.status.cleared-persisted': 'Queue was force-cleared and persisted data was removed',
             'import.status.parsed': 'Parsed {count} artworks',
@@ -501,7 +505,7 @@
             'import.alert.no-failed': '当前没有失败的作品！',
             'import.alert.queue-empty-export': '队列为空，无内容可导出',
             'import.alert.no-undownloaded': '没有未下载的作品',
-            'import.confirm.clear': '确认强制清除队列？',
+            'import.confirm.clear': '确认强制清除队列？此操作会强制停止并删除所有相关下载任务（包括正在下载中的作品，无论已下载多少），被终止的下载不会被记录，且无法恢复。',
             'import.confirm.clear-running': '当前有正在下载的作品，是否强制停止并清除？（取消将保留队列）',
             'import.status.cleared-persisted': '已强制清除队列并删除持久化数据',
             'import.status.parsed': '解析完成：找到 {count} 个作品',
@@ -887,6 +891,20 @@
                     onerror: () => {
                         resolve(null);
                     }
+                });
+            });
+        },
+        clearQueue() {
+            // 强制清除后端队列并终止所有正在进行的下载（多人模式下后端仅终止当前 owner 的任务）
+            const headers = {};
+            if (userUUID) headers['X-User-UUID'] = userUUID;
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: CONFIG.CLEAR_QUEUE_URL,
+                    headers,
+                    onload: () => resolve(true),
+                    onerror: () => resolve(false)
                 });
             });
         },
@@ -1839,10 +1857,7 @@
             this.isPaused = false;
             this.ui.updateButtonsState(this.isRunning, this.isPaused);
             this.sse.closeAll();
-            this.queue.forEach(q => {
-                if (q.status === 'downloading' || q.status === 'pending') Api.cancelDownload(q.id).catch(() => {
-                });
-            });
+            Api.clearQueue().catch(() => {});
             this.queue = [];
             this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
             try {
@@ -2315,7 +2330,7 @@
         }
 
         async handleClear() {
-            if (confirm(t('import.confirm.clear', '确认强制清除队列？'))) await this.manager.stopAndClear(true);
+            if (confirm(t('import.confirm.clear', '确认强制清除队列？此操作会强制停止并删除所有相关下载任务（包括正在下载中的作品，无论已下载多少），被终止的下载不会被记录，且无法恢复。'))) await this.manager.stopAndClear(true);
         }
 
         renderQueue(queue) {

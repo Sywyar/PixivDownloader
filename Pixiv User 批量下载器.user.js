@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv User 批量下载器
 // @namespace    http://tampermonkey.net/
-// @version      2.0.10
+// @version      2.0.11
 // @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Java 后端。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -28,6 +28,7 @@
         get BACKEND_URL() { return serverBase + '/api/download/pixiv'; },
         get STATUS_URL() { return serverBase + '/api/download/status'; },
         get CANCEL_URL() { return serverBase + '/api/download/cancel'; },
+        get CLEAR_QUEUE_URL() { return serverBase + '/api/download/queue/clear'; },
         get SSE_BASE() { return serverBase + '/api/sse/download'; },
         get SSE_CLOSE_BASE() { return serverBase + '/api/sse/close/aggregated'; },
         get CHECK_DOWNLOADED_URL() { return serverBase + '/api/downloaded'; },
@@ -373,7 +374,7 @@
             'user.alert.no-failed': 'There are no failed artworks right now.',
             'user.alert.no-undownloaded': 'There are no undownloaded artworks.',
             'user.alert.queue-empty-export': 'Queue is empty. Nothing to export.',
-            'user.confirm.clear': 'Force clear the queue?',
+            'user.confirm.clear': 'Force clear the queue? This force-stops and deletes all related download tasks (including the artwork currently downloading, no matter how much has been downloaded). Terminated downloads will not be recorded and cannot be undone.',
             'user.status.started': 'Batch download started ({concurrent} concurrent, {interval}ms interval)',
             'user.status.finished': 'Batch download finished',
             'user.status.finished-packing': 'Batch download finished. Preparing archive...',
@@ -458,7 +459,7 @@
             'user.alert.no-failed': '当前没有失败的作品！',
             'user.alert.no-undownloaded': '没有未下载的作品',
             'user.alert.queue-empty-export': '队列为空，无内容可导出',
-            'user.confirm.clear': '确认强制清除队列？',
+            'user.confirm.clear': '确认强制清除队列？此操作会强制停止并删除所有相关下载任务（包括正在下载中的作品，无论已下载多少），被终止的下载不会被记录，且无法恢复。',
             'user.status.started': '开始下载 (并发:{concurrent}, 间隔:{interval}ms)',
             'user.status.finished': '批量下载结束',
             'user.status.finished-packing': '批量下载结束，正在打包文件...',
@@ -1087,6 +1088,20 @@
                 GM_xmlhttpRequest({
                     method: 'POST',
                     url: `${CONFIG.CANCEL_URL}/${artworkId}`,
+                    onload: () => resolve(true),
+                    onerror: () => resolve(false)
+                });
+            });
+        },
+        clearQueue() {
+            // 强制清除后端队列并终止所有正在进行的下载（多人模式下后端仅终止当前 owner 的任务）
+            const headers = {};
+            if (userUUID) headers['X-User-UUID'] = userUUID;
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: CONFIG.CLEAR_QUEUE_URL,
+                    headers,
                     onload: () => resolve(true),
                     onerror: () => resolve(false)
                 });
@@ -1992,6 +2007,7 @@
             this.isRunning = false;
             this.isPaused = false;
             this.sse.closeAll();
+            Api.clearQueue().catch(() => {});
             this.queue = [];
             this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
             this.deleteStorage();
@@ -2592,7 +2608,7 @@
         }
 
         handleClear() {
-            if (confirm(t('user.confirm.clear', '确认强制清除队列？'))) this.manager.stopAndClear(false);
+            if (confirm(t('user.confirm.clear', '确认强制清除队列？此操作会强制停止并删除所有相关下载任务（包括正在下载中的作品，无论已下载多少），被终止的下载不会被记录，且无法恢复。'))) this.manager.stopAndClear(false);
         }
 
         handleExport() {

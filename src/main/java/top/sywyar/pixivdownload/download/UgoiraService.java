@@ -15,6 +15,8 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -48,6 +50,13 @@ public class UgoiraService {
     public int processUgoira(Long artworkId, DownloadRequest.Other other,
                              Path downloadPath, String referer, String cookie,
                              Consumer<UgoiraProgress> progressListener) {
+        return processUgoira(artworkId, other, downloadPath, referer, cookie, progressListener, () -> false);
+    }
+
+    public int processUgoira(Long artworkId, DownloadRequest.Other other,
+                             Path downloadPath, String referer, String cookie,
+                             Consumer<UgoiraProgress> progressListener,
+                             BooleanSupplier cancellationRequested) {
         DownloadService.validatePixivUrl(other.getUgoiraZipUrl());
         String outputBaseName = resolveOutputBaseName(artworkId, other);
 
@@ -57,6 +66,7 @@ public class UgoiraService {
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
+                ensureNotCancelled(cancellationRequested);
                 log.info(message("ugoira.log.zip.download.started", id(artworkId), text(attempt), text(maxAttempts)));
                 publishProgress(progressListener, UgoiraProgress.builder()
                         .phase(UgoiraProgress.PHASE_ZIP)
@@ -66,10 +76,12 @@ public class UgoiraService {
                         .zipDownloadedBytes(0L)
                         .zipProgress(0)
                         .build());
-                if (!downloadZip(other.getUgoiraZipUrl(), zipPath, referer, cookie, attempt, maxAttempts, progressListener)) {
+                if (!downloadZip(other.getUgoiraZipUrl(), zipPath, referer, cookie, attempt, maxAttempts,
+                        progressListener, cancellationRequested)) {
                     log.error(message("ugoira.log.zip.download.failed", id(artworkId), text(attempt), text(maxAttempts)));
                     continue;
                 }
+                ensureNotCancelled(cancellationRequested);
 
                 Files.createDirectories(tempDir);
                 int expectedFrames = other.getUgoiraDelays() == null ? 0 : other.getUgoiraDelays().size();
@@ -83,11 +95,13 @@ public class UgoiraService {
                         .totalFrames(expectedFrames > 0 ? expectedFrames : null)
                         .build());
                 TreeMap<String, Path> frameFiles = extractFrames(
-                        artworkId, zipPath, tempDir, progressListener, expectedFrames, attempt, maxAttempts);
+                        artworkId, zipPath, tempDir, progressListener, expectedFrames, attempt, maxAttempts,
+                        cancellationRequested);
                 if (frameFiles.isEmpty()) {
                     log.error(message("ugoira.log.zip.empty", id(artworkId)));
                     continue;
                 }
+                ensureNotCancelled(cancellationRequested);
 
                 List<Map.Entry<String, Path>> orderedFrames = new ArrayList<>(frameFiles.entrySet());
                 List<Integer> delays = resolveDelays(other.getUgoiraDelays(), orderedFrames.size());
@@ -98,10 +112,12 @@ public class UgoiraService {
                         StandardCopyOption.REPLACE_EXISTING);
 
                 if (runFfmpeg(artworkId, orderedFrames, delays, tempDir, downloadPath,
-                        outputBaseName, attempt, maxAttempts, progressListener)) {
+                        outputBaseName, attempt, maxAttempts, progressListener, cancellationRequested)) {
                     return 1;
                 }
 
+            } catch (CancellationException e) {
+                throw e;
             } catch (java.util.zip.ZipException e) {
                 log.warn(message("ugoira.log.zip.invalid",
                         id(artworkId), text(attempt), text(maxAttempts), e.getMessage()));
@@ -113,12 +129,7 @@ public class UgoiraService {
             }
 
             if (attempt < maxAttempts) {
-                try {
-                    Thread.sleep(2000L * attempt);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+                sleepCancellable(2000L * attempt, cancellationRequested);
             }
         }
         publishProgress(progressListener, UgoiraProgress.builder()
@@ -129,8 +140,9 @@ public class UgoiraService {
     }
 
     private TreeMap<String, Path> extractFrames(Long artworkId, Path zipPath, Path tempDir,
-                                                Consumer<UgoiraProgress> progressListener,
-                                                int expectedFrames, int attempt, int maxAttempts) throws IOException {
+                                                 Consumer<UgoiraProgress> progressListener,
+                                                 int expectedFrames, int attempt, int maxAttempts,
+                                                 BooleanSupplier cancellationRequested) throws IOException {
         TreeMap<String, Path> frameFiles = new TreeMap<>();
         Path normalizedTempDir = tempDir.normalize();
         int[] lastProgress = {-1};
@@ -139,6 +151,7 @@ public class UgoiraService {
                 new FileInputStream(zipPath.toFile()), StandardCharsets.UTF_8)) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
+                ensureNotCancelled(cancellationRequested);
                 if (!entry.isDirectory()) {
                     // Zip Slip 防护：确保解压路径不逃出 tempDir
                     Path framePath = normalizedTempDir.resolve(entry.getName()).normalize();
@@ -150,7 +163,10 @@ public class UgoiraService {
                     try (FileOutputStream fos = new FileOutputStream(framePath.toFile())) {
                         byte[] buf = new byte[8192];
                         int len;
-                        while ((len = zis.read(buf)) != -1) fos.write(buf, 0, len);
+                        while ((len = zis.read(buf)) != -1) {
+                            ensureNotCancelled(cancellationRequested);
+                            fos.write(buf, 0, len);
+                        }
                     }
                     frameFiles.put(entry.getName(), framePath);
                     Integer progress = expectedFrames > 0
@@ -216,7 +232,8 @@ public class UgoiraService {
     private boolean runFfmpeg(Long artworkId, List<Map.Entry<String, Path>> orderedFrames,
                               List<Integer> delays, Path tempDir, Path downloadPath,
                               String outputBaseName, int attempt, int maxAttempts,
-                              Consumer<UgoiraProgress> progressListener) throws Exception {
+                              Consumer<UgoiraProgress> progressListener,
+                              BooleanSupplier cancellationRequested) throws Exception {
         Path listFile = tempDir.resolve("frames.txt");
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < orderedFrames.size(); i++) {
@@ -264,31 +281,38 @@ public class UgoiraService {
         Process process = pb.start();
         int[] lastProgress = {-1};
         long[] lastAt = {0L};
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                Long outTimeMs = parseFfmpegOutTimeMs(line);
-                if (outTimeMs == null) {
-                    continue;
-                }
-                int progress = Math.min(99, Math.max(0,
-                        (int) Math.round(outTimeMs * 100.0 / durationMs)));
-                if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
-                    publishProgress(progressListener, UgoiraProgress.builder()
-                            .phase(UgoiraProgress.PHASE_FFMPEG)
-                            .status(UgoiraProgress.STATUS_RUNNING)
-                            .attempt(attempt)
-                            .maxAttempts(maxAttempts)
-                            .zipProgress(100)
-                            .extractedFrames(orderedFrames.size())
-                            .totalFrames(orderedFrames.size())
-                            .ffmpegOutTimeMs(Math.min(outTimeMs, durationMs))
-                            .ffmpegDurationMs(durationMs)
-                            .ffmpegProgress(progress)
-                            .build());
+        try {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    ensureNotCancelled(cancellationRequested, process);
+                    Long outTimeMs = parseFfmpegOutTimeMs(line);
+                    if (outTimeMs == null) {
+                        continue;
+                    }
+                    int progress = Math.min(99, Math.max(0,
+                            (int) Math.round(outTimeMs * 100.0 / durationMs)));
+                    if (shouldEmitStepProgress(progress, lastProgress, lastAt)) {
+                        publishProgress(progressListener, UgoiraProgress.builder()
+                                .phase(UgoiraProgress.PHASE_FFMPEG)
+                                .status(UgoiraProgress.STATUS_RUNNING)
+                                .attempt(attempt)
+                                .maxAttempts(maxAttempts)
+                                .zipProgress(100)
+                                .extractedFrames(orderedFrames.size())
+                                .totalFrames(orderedFrames.size())
+                                .ffmpegOutTimeMs(Math.min(outTimeMs, durationMs))
+                                .ffmpegDurationMs(durationMs)
+                                .ffmpegProgress(progress)
+                                .build());
+                    }
                 }
             }
+            ensureNotCancelled(cancellationRequested, process);
+        } catch (CancellationException e) {
+            process.destroyForcibly();
+            throw e;
         }
         int exitCode = process.waitFor();
 
@@ -323,10 +347,12 @@ public class UgoiraService {
     }
 
     private boolean downloadZip(String url, Path path, String referer, String cookie,
-                                int outerAttempt, int outerMaxAttempts,
-                                Consumer<UgoiraProgress> progressListener) {
+                                 int outerAttempt, int outerMaxAttempts,
+                                 Consumer<UgoiraProgress> progressListener,
+                                 BooleanSupplier cancellationRequested) {
         int maxRetries = 3;
         for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            ensureNotCancelled(cancellationRequested);
             try {
                 Boolean success = downloadRestTemplate.execute(url, HttpMethod.GET,
                         request -> {
@@ -352,6 +378,7 @@ public class UgoiraService {
                                 byte[] buf = new byte[8192];
                                 int len;
                                 while ((len = in.read(buf)) != -1) {
+                                    ensureNotCancelled(cancellationRequested);
                                     out.write(buf, 0, len);
                                     downloadedBytes[0] += len;
                                     Integer progress = totalBytes > 0
@@ -382,15 +409,12 @@ public class UgoiraService {
                             return true;
                         });
                 if (Boolean.TRUE.equals(success)) return true;
+            } catch (CancellationException e) {
+                throw e;
             } catch (Exception e) {
                 log.error(message("ugoira.log.zip.retry", url, e.getMessage(), attempt, maxRetries));
                 if (attempt < maxRetries) {
-                    try {
-                        Thread.sleep(2000L * attempt);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return false;
-                    }
+                    sleepCancellable(2000L * attempt, cancellationRequested);
                 }
             }
         }
@@ -400,6 +424,38 @@ public class UgoiraService {
     private void publishProgress(Consumer<UgoiraProgress> progressListener, UgoiraProgress progress) {
         if (progressListener != null) {
             progressListener.accept(progress);
+        }
+    }
+
+    private void ensureNotCancelled(BooleanSupplier cancellationRequested) {
+        if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
+            throw new CancellationException("download cancelled");
+        }
+    }
+
+    private void ensureNotCancelled(BooleanSupplier cancellationRequested, Process process) {
+        if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
+            if (process != null) {
+                process.destroyForcibly();
+            }
+            throw new CancellationException("download cancelled");
+        }
+    }
+
+    private void sleepCancellable(long millis, BooleanSupplier cancellationRequested) {
+        long deadline = System.currentTimeMillis() + Math.max(0L, millis);
+        while (true) {
+            ensureNotCancelled(cancellationRequested);
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) {
+                return;
+            }
+            try {
+                Thread.sleep(Math.min(remaining, 200L));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new CancellationException("download cancelled");
+            }
         }
     }
 

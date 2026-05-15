@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.ImageResponse;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
+import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.SetupService;
@@ -56,6 +57,8 @@ class DownloadControllerTest {
     private top.sywyar.pixivdownload.setup.guest.GuestAccessGuard guestAccessGuard;
     @Mock
     private top.sywyar.pixivdownload.gallery.GalleryRepository galleryRepository;
+    @Mock
+    private NovelDownloadService novelDownloadService;
 
     private MultiModeConfig multiModeConfig;
 
@@ -64,7 +67,7 @@ class DownloadControllerTest {
         multiModeConfig = new MultiModeConfig();
         DownloadController controller = new DownloadController(
                 downloadService, setupService, userQuotaService, multiModeConfig, pixivDatabase, authorService,
-                guestAccessGuard, galleryRepository, APP_MESSAGES);
+                guestAccessGuard, galleryRepository, APP_MESSAGES, novelDownloadService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -146,6 +149,44 @@ class DownloadControllerTest {
                 .andExpect(jsonPath("$.message").value("下载任务已取消"));
 
         verify(downloadService).cancelDownload(12345L);
+    }
+
+    @Test
+    @DisplayName("POST /api/download/queue/clear 在多人模式下只清除当前 owner")
+    void shouldClearOnlyCurrentOwnerDownloadsInMultiMode() throws Exception {
+        String ownerUuid = "11111111-1111-1111-1111-111111111111";
+        when(setupService.getMode()).thenReturn("multi");
+        when(setupService.isAdminLoggedIn(any())).thenReturn(false);
+        when(downloadService.forceClearDownloadsForOwner(ownerUuid)).thenReturn(2);
+        when(novelDownloadService.forceClearDownloadsForOwner(ownerUuid)).thenReturn(1);
+
+        mockMvc.perform(post("/api/download/queue/clear")
+                        .header("X-User-UUID", ownerUuid)
+                        .locale(Locale.SIMPLIFIED_CHINESE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        verify(downloadService).forceClearDownloadsForOwner(ownerUuid);
+        verify(novelDownloadService).forceClearDownloadsForOwner(ownerUuid);
+        verify(downloadService, never()).forceClearDownloads();
+        verify(novelDownloadService, never()).forceClearDownloads();
+    }
+
+    @Test
+    @DisplayName("POST /api/download/queue/clear 在 solo 模式下清除全部后端状态")
+    void shouldClearAllDownloadsInSoloMode() throws Exception {
+        when(setupService.getMode()).thenReturn("solo");
+        when(downloadService.forceClearDownloads()).thenReturn(2);
+        when(novelDownloadService.forceClearDownloads()).thenReturn(1);
+
+        mockMvc.perform(post("/api/download/queue/clear").locale(Locale.SIMPLIFIED_CHINESE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        verify(downloadService).forceClearDownloads();
+        verify(novelDownloadService).forceClearDownloads();
+        verify(downloadService, never()).forceClearDownloadsForOwner(any());
+        verify(novelDownloadService, never()).forceClearDownloadsForOwner(any());
     }
 
     // ========== POST /api/download/pixiv ==========

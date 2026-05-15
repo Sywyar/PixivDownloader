@@ -119,6 +119,7 @@ public class NovelDownloadController {
     }
 
     private static String statusMessageCode(NovelDownloadStatus s) {
+        if (s.isCancelled()) return "download.status.cancelled";
         if (s.isFailed()) return "download.status.failed";
         if (s.isCompleted()) return "download.status.completed";
         return "download.status.in-progress";

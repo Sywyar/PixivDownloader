@@ -16,6 +16,7 @@ public class NovelDownloadStatus {
     private String downloadPath;
     private boolean completed;
     private boolean failed;
+    private boolean cancelled;
     private String errorMessage;
     private DownloadActionResult bookmarkResult;
     private DownloadActionResult collectionResult;
