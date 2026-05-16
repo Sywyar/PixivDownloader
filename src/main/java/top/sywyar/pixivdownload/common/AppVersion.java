@@ -19,12 +19,13 @@ public class AppVersion {
 
     /**
      * 返回展示给用户的应用版本。
-     * 优先使用 jpackage 注入的发布版本，其次读取 Maven 编译时写入的版本文件。
+     * 优先读取 Maven 编译时写入的版本文件（保留 {@code -rc1} 等完整预发布后缀），
+     * jpackage 注入的版本会被安装包约束强制截断为纯数字，仅作为兜底。
      */
     public static String getDisplayVersionOrNull() {
         String version = firstNonBlank(
-                System.getProperty(JPACKAGE_APP_VERSION),
                 readVersionFromProperties(APP_VERSION_PROPERTIES, APP_VERSION_KEY),
+                System.getProperty(JPACKAGE_APP_VERSION),
                 AppVersion.class.getPackage().getImplementationVersion(),
                 readVersionFromProperties(MAVEN_POM_PROPERTIES, "version")
         );
@@ -58,7 +59,7 @@ public class AppVersion {
         return null;
     }
 
-    private static String normalize(String version) {
+    static String normalize(String version) {
         if (version == null || version.isBlank()) {
             return null;
         }

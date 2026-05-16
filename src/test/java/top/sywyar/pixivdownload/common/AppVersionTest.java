@@ -20,11 +20,15 @@ class AppVersionTest {
     }
 
     @Test
-    @DisplayName("should prefer jpackage release version")
-    void shouldPreferJpackageReleaseVersion() {
+    @DisplayName("should prefer Maven filtered resource over truncated jpackage version")
+    void shouldPreferMavenFilteredResourceOverJpackage() throws Exception {
+        // jpackage 的 --app-version 只接受纯数字，预发布后缀（如 -rc1）会被打包脚本截断；
+        // Maven 编译时写入的 app-version.properties 才保留完整发布版本，应当胜出。
         System.setProperty("jpackage.app-version", "1.2.3");
 
-        assertThat(AppVersion.getDisplayVersionOrNull()).isEqualTo("1.2.3");
+        assertThat(AppVersion.getDisplayVersionOrNull())
+                .isEqualTo(mavenFilteredVersion())
+                .isNotEqualTo("1.2.3");
     }
 
     @Test
@@ -32,12 +36,7 @@ class AppVersionTest {
     void shouldReadVersionFromMavenFilteredResource() throws Exception {
         System.clearProperty("jpackage.app-version");
 
-        Properties properties = new Properties();
-        try (InputStream stream = AppVersionTest.class.getResourceAsStream("/app-version.properties")) {
-            properties.load(stream);
-        }
-
-        assertThat(properties.getProperty("app.version"))
+        assertThat(mavenFilteredVersion())
                 .isEqualTo(AppVersion.getDisplayVersionOrNull())
                 .doesNotContain("@");
     }
@@ -45,9 +44,18 @@ class AppVersionTest {
     @Test
     @DisplayName("should normalize leading v prefix")
     void shouldNormalizeLeadingVPrefix() {
-        System.setProperty("jpackage.app-version", "v2.0.1");
+        assertThat(AppVersion.normalize("v2.0.1")).isEqualTo("2.0.1");
+        assertThat(AppVersion.normalize("V2.0.1")).isEqualTo("2.0.1");
+        assertThat(AppVersion.normalize("1.8.3-rc1")).isEqualTo("1.8.3-rc1");
+        assertThat(AppVersion.normalize("version-x")).isEqualTo("version-x");
+    }
 
-        assertThat(AppVersion.getDisplayVersionOrNull()).isEqualTo("2.0.1");
+    private static String mavenFilteredVersion() throws Exception {
+        Properties properties = new Properties();
+        try (InputStream stream = AppVersionTest.class.getResourceAsStream("/app-version.properties")) {
+            properties.load(stream);
+        }
+        return AppVersion.normalize(properties.getProperty("app.version"));
     }
 
     private static void restoreProperty(String key, String value) {
