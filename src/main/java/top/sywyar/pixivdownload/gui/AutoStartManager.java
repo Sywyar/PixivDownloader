@@ -20,19 +20,17 @@ public final class AutoStartManager {
     private static final String APP_EXE_NAME = "PixivDownload.exe";
     private static final String SHORTCUT_NAME = "PixivDownload.lnk";
     private static final String STARTUP_FOLDER = "Microsoft\\Windows\\Start Menu\\Programs\\Startup";
-    // 用 `& { ... }` 包裹脚本块以便 powershell.exe -Command 后续位置参数能通过 $args 传入。
-    // 直接 -Command "<string>" arg1 arg2 时，arg1/arg2 会被拼接到命令文本里，$args 仍为空。
+    // 参数通过环境变量传入，而不是命令行位置参数：powershell.exe -Command 会把后续位置
+    // 参数按空格重新拼回命令文本，导致含空格的路径（如 "...\Start Menu\..."）被截断。
+    // 环境变量值不受命令行解析/分词影响，可安全携带空格。
     private static final String CREATE_SHORTCUT_SCRIPT = """
-            & {
-              param($shortcutPath, $targetPath, $arguments, $workingDirectory)
-              $shell = New-Object -ComObject WScript.Shell
-              $shortcut = $shell.CreateShortcut($shortcutPath)
-              $shortcut.TargetPath = $targetPath
-              $shortcut.Arguments = $arguments
-              $shortcut.WorkingDirectory = $workingDirectory
-              $shortcut.IconLocation = $targetPath
-              $shortcut.Save()
-            }
+            $shell = New-Object -ComObject WScript.Shell
+            $shortcut = $shell.CreateShortcut($env:PD_SHORTCUT_PATH)
+            $shortcut.TargetPath = $env:PD_TARGET_PATH
+            $shortcut.Arguments = $env:PD_ARGUMENTS
+            $shortcut.WorkingDirectory = $env:PD_WORKING_DIR
+            $shortcut.IconLocation = $env:PD_TARGET_PATH
+            $shortcut.Save()
             """;
 
     private AutoStartManager() {
@@ -151,19 +149,20 @@ public final class AutoStartManager {
                 ? executable.toAbsolutePath().getParent().toString()
                 : executable.getParent().toString();
 
-        Process process = new ProcessBuilder(List.of(
+        ProcessBuilder builder = new ProcessBuilder(List.of(
                 powershellExecutable(),
                 "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                CREATE_SHORTCUT_SCRIPT,
-                shortcut.toString(),
-                executable.toString(),
-                STARTUP_ARG,
-                workingDirectory
-        )).redirectErrorStream(true).start();
+                CREATE_SHORTCUT_SCRIPT
+        )).redirectErrorStream(true);
+        builder.environment().put("PD_SHORTCUT_PATH", shortcut.toString());
+        builder.environment().put("PD_TARGET_PATH", executable.toString());
+        builder.environment().put("PD_ARGUMENTS", STARTUP_ARG);
+        builder.environment().put("PD_WORKING_DIR", workingDirectory);
+        Process process = builder.start();
 
         byte[] outputBytes = process.getInputStream().readAllBytes();
         int exitCode = process.waitFor();
