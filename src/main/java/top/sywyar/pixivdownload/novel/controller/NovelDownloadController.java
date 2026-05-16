@@ -100,7 +100,7 @@ public class NovelDownloadController {
         if (status == null) {
             return ResponseEntity.ok(new NovelDownloadStatusResponse(
                     false, messages.get("download.status.not-found"),
-                    novelId, null, null, null, false, false, null, null, null));
+                    novelId, null, null, null, false, false, null, 0, 0, 0L, 0L, null, null));
         }
         return ResponseEntity.ok(new NovelDownloadStatusResponse(
                 true,
@@ -113,6 +113,10 @@ public class NovelDownloadController {
                 status.isCompleted(),
                 status.isFailed(),
                 status.getDownloadPath(),
+                status.getEmbeddedTotal(),
+                status.getEmbeddedDone(),
+                status.getCoverTotalBytes(),
+                status.getCoverDownloadedBytes(),
                 status.getBookmarkResult(),
                 status.getCollectionResult()
         ));
@@ -143,6 +147,10 @@ public class NovelDownloadController {
             boolean completed,
             boolean failed,
             String downloadPath,
+            int embeddedTotal,
+            int embeddedDone,
+            long coverTotalBytes,
+            long coverDownloadedBytes,
             top.sywyar.pixivdownload.download.DownloadActionResult bookmarkResult,
             top.sywyar.pixivdownload.download.DownloadActionResult collectionResult
     ) {}

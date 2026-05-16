@@ -30,6 +30,98 @@
         return bt('queue.stage.' + stage, stage);
     }
 
+    /**
+     * 流式抓取 JSON：边读边通过 onProgress(已接收, 总字节) 上报进度，
+     * 用于小说正文（meta）下载的流式进度条。返回一个与 Response 兼容的轻量对象
+     * （含 ok / status / json()）。非 2xx 或浏览器不支持流时回退为原始 Response。
+     */
+    async function fetchJsonWithProgress(url, opts, onProgress) {
+        const res = await fetch(url, opts);
+        if (!res.ok || !res.body || typeof res.body.getReader !== 'function') {
+            return res;
+        }
+        const totalHeader = res.headers.get('Content-Length');
+        const total = totalHeader ? Number(totalHeader) : 0;
+        const reader = res.body.getReader();
+        const chunks = [];
+        let received = 0;
+        for (; ;) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            received += value.length;
+            if (onProgress) onProgress(received, total);
+        }
+        let len = 0;
+        chunks.forEach(c => len += c.length);
+        const buf = new Uint8Array(len);
+        let off = 0;
+        chunks.forEach(c => {
+            buf.set(c, off);
+            off += c.length;
+        });
+        const text = new TextDecoder('utf-8').decode(buf);
+        return {
+            ok: res.ok,
+            status: res.status,
+            json: () => Promise.resolve(JSON.parse(text))
+        };
+    }
+
+    /**
+     * 把后端小说下载状态写入队列项，提供比单一“阶段：X”更细的展示：
+     * 下载内嵌图片时附带 (已完成/总数) 计数；下载封面时附带流式字节进度。
+     * 维护 item.novelEmbedded / item.novelCover 供进度条渲染。
+     */
+    function applyNovelStage(item, status) {
+        const stage = status.stage;
+        const eTotal = Number(status.embeddedTotal || 0);
+        const eDone = Number(status.embeddedDone || 0);
+        const cTotal = Number(status.coverTotalBytes || 0);
+        const cDone = Number(status.coverDownloadedBytes || 0);
+        item.novelEmbedded = (stage === 'downloading-images' && eTotal > 0)
+            ? {done: eDone, total: eTotal} : null;
+        item.novelCover = (stage === 'downloading-cover')
+            ? {done: cDone, total: cTotal} : null;
+        if (stage === 'downloading-images' && eTotal > 0) {
+            item.lastMessage = bt('queue.message.novel-images',
+                '阶段：下载内嵌图片（{done}/{total}）', {done: eDone, total: eTotal});
+        } else {
+            item.lastMessage = bt('queue.message.stage', '阶段：{stage}',
+                {stage: novelStageLabel(stage)});
+        }
+    }
+
+    function novelByteProgressHtml(p, labelKey, labelDefault, color) {
+        if (!p || !(p.done > 0 || p.total > 0)) return '';
+        const valueText = p.total > 0
+            ? `${formatBytes(p.done || 0)} / ${formatBytes(p.total)}`
+            : formatBytes(p.done || 0);
+        return miniProgressHtml(
+            bt(labelKey, labelDefault),
+            valueText,
+            p.total > 0 ? Math.round((p.done || 0) / p.total * 100) : null,
+            color
+        );
+    }
+
+    function formatNovelProgressHtml(q) {
+        if (q.kind !== 'novel' || q.status !== 'downloading') return '';
+        const parts = [];
+        parts.push(novelByteProgressHtml(q.novelText, 'queue.novel-text.label', '小说正文', '#6366f1'));
+        const e = q.novelEmbedded;
+        if (e && e.total > 0) {
+            parts.push(miniProgressHtml(
+                bt('queue.novel-images.label', '内嵌图片'),
+                bt('queue.novel-images.count', '{done}/{total} 张', {done: e.done || 0, total: e.total}),
+                Math.round((e.done || 0) / e.total * 100),
+                '#0d9488'
+            ));
+        }
+        parts.push(novelByteProgressHtml(q.novelCover, 'queue.novel-cover.label', '封面', '#0ea5e9'));
+        return parts.filter(Boolean).join('');
+    }
+
     function summaryJoin(parts) {
         return parts.filter(Boolean).join(summarySeparator());
     }
@@ -1828,9 +1920,25 @@
                 }
             }
 
-            const metaRes = await fetch(`${BASE}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`, {headers});
-            if (!metaRes.ok) throw new Error('meta HTTP ' + metaRes.status);
+            let _lastTextRender = 0;
+            const metaRes = await fetchJsonWithProgress(
+                `${BASE}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`,
+                {headers},
+                (done, total) => {
+                    item.novelText = {done, total};
+                    const now = Date.now();
+                    if (now - _lastTextRender > 120) {
+                        _lastTextRender = now;
+                        renderQueue();
+                    }
+                });
+            if (!metaRes.ok) {
+                const errData = await metaRes.json().catch(() => ({}));
+                throw new Error(errData.error || ('meta HTTP ' + metaRes.status));
+            }
             const meta = await metaRes.json();
+            item.novelText = null;
+            renderQueue();
 
             if (state.settings.R18Only && Number(meta.xRestrict || 0) < 1) {
                 item.status = 'skipped';
@@ -1957,7 +2065,7 @@
                     return;
                 }
                 if (status.stage) {
-                    item.lastMessage = bt('queue.message.stage', '阶段：{stage}', {stage: novelStageLabel(status.stage)});
+                    applyNovelStage(item, status);
                     renderQueue();
                 }
             }
@@ -2332,7 +2440,8 @@
          <div class="prog-bg"><div class="prog-fill" style="width:${pct(q)}%;background:${statusColor(q.status)}"></div></div>
          </div>` : '';
             const detailProg = formatImageDownloadProgressHtml(q.imageProgress, q.status)
-                + formatUgoiraProgressHtml(q.ugoiraProgress, q.status);
+                + formatUgoiraProgressHtml(q.ugoiraProgress, q.status)
+                + formatNovelProgressHtml(q);
             const desc = q.lastMessage || queueStatusText(q.status);
             const descHtml = renderQueueMessageHtml(q, desc);
             const sourceTone = q.source === 'user'

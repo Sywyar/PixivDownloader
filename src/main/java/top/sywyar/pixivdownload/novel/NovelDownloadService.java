@@ -41,6 +41,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongConsumer;
 
 @Slf4j
 @Service
@@ -184,10 +185,14 @@ public class NovelDownloadService {
 
             // Best-effort 封面下载（与正文同目录、_thumb.{ext}）
             ensureNotCancelled(status);
+            if (other.getCoverUrl() != null && !other.getCoverUrl().isBlank()) {
+                status.setStage("downloading-cover");
+            }
             String coverExt = downloadCover(other.getCoverUrl(), downloadPath, baseName, request.getCookie(), status);
             ensureNotCancelled(status);
 
             // Persist DB
+            status.setStage("saving");
             String description = PixivDescriptionHtml.normalizeLinks(other.getDescription());
             long uniqueTime = novelDatabase.getUniqueTime(
                     other.getUploadTimestamp() != null ? TimestampUtils.toMillis(other.getUploadTimestamp()) : timestamp);
@@ -229,11 +234,13 @@ public class NovelDownloadService {
 
             // Best-effort bookmark
             if (other.isBookmark()) {
+                status.setStage("bookmarking");
                 status.setBookmarkResult(pixivBookmarkService.bookmarkNovel(novelId, request.getCookie()));
             }
 
             // Best-effort collection
             if (other.getCollectionId() != null) {
+                status.setStage("collecting");
                 try {
                     boolean added = collectionService.addNovel(other.getCollectionId(), novelId);
                     status.setCollectionResult(added
@@ -407,7 +414,13 @@ public class NovelDownloadService {
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             return Boolean.FALSE;
                         }
-                        copyResponseBody(response.getBody(), target, status);
+                        if (status != null) {
+                            long len = response.getHeaders().getContentLength();
+                            status.setCoverTotalBytes(len > 0 ? len : 0);
+                            status.setCoverDownloadedBytes(0);
+                        }
+                        copyResponseBody(response.getBody(), target, status,
+                                status == null ? null : status::setCoverDownloadedBytes);
                         return Boolean.TRUE;
                     });
             if (Boolean.TRUE.equals(ok)) {
@@ -485,13 +498,27 @@ public class NovelDownloadService {
     }
 
     private void copyResponseBody(InputStream inputStream, Path target, NovelDownloadStatus status) throws IOException {
+        copyResponseBody(inputStream, target, status, null);
+    }
+
+    /**
+     * 拷贝响应体到目标文件；{@code onTotalBytesCopied} 在每个数据块写入后收到累计字节数，
+     * 供封面下载的流式进度条使用。
+     */
+    private void copyResponseBody(InputStream inputStream, Path target, NovelDownloadStatus status,
+                                  LongConsumer onTotalBytesCopied) throws IOException {
         try (InputStream in = inputStream;
              OutputStream out = Files.newOutputStream(target)) {
             byte[] buffer = new byte[8192];
             int read;
+            long total = 0;
             while ((read = in.read(buffer)) != -1) {
                 ensureNotCancelled(status);
                 out.write(buffer, 0, read);
+                total += read;
+                if (onTotalBytesCopied != null) {
+                    onTotalBytesCopied.accept(total);
+                }
             }
         }
     }
@@ -514,6 +541,18 @@ public class NovelDownloadService {
         }
         // 清掉历史记录，避免遗留旧 ext
         novelDatabase.clearNovelImages(novelId);
+        // 实际会尝试下载的张数（有 URL 的占位符，受预算上限约束），用于进度展示
+        int plannedTotal = 0;
+        for (String id : ids) {
+            String url = urlMap.get(id);
+            if (url != null && !url.isBlank()) plannedTotal++;
+        }
+        plannedTotal = Math.min(plannedTotal, MAX_EMBEDDED_IMAGES_PER_NOVEL);
+        if (status != null) {
+            status.setStage("downloading-images");
+            status.setEmbeddedTotal(plannedTotal);
+            status.setEmbeddedDone(0);
+        }
         Map<String, String> success = new LinkedHashMap<>();
         int budget = MAX_EMBEDDED_IMAGES_PER_NOVEL;
         for (String id : ids) {
@@ -526,6 +565,7 @@ public class NovelDownloadService {
             if (url == null || url.isBlank()) continue;
             String ext = downloadOneEmbeddedImage(novelId, id, url, downloadPath, cookie, status);
             if (ext != null) success.put(id, ext);
+            if (status != null) status.setEmbeddedDone(status.getEmbeddedDone() + 1);
         }
         if (!success.isEmpty()) {
             log.info("novel embedded images downloaded: novelId={}, count={}/{}", novelId, success.size(), ids.size());

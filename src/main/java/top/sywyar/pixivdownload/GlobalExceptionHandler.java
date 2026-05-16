@@ -10,6 +10,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -89,6 +90,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.internalServerError().body(new ErrorResponse(message));
     }
 
+    /**
+     * 转发给 Pixiv 的上游请求返回非 2xx（如 Cookie 失效时的 401、作品不存在的 404）。
+     * 这是预期内的运营状况而非未处理 bug，因此 WARN 记录、向调用方返回 502 + 可读提示，
+     * 不再落到 {@link #handleGeneric} 的 ERROR「未处理的异常」+ 500。
+     */
+    @ExceptionHandler(RestClientResponseException.class)
+    public ResponseEntity<ErrorResponse> handleUpstream(RestClientResponseException e, Locale locale) {
+        int status = e.getStatusCode().value();
+        boolean authIssue = status == 401 || status == 403;
+        String message = authIssue
+                ? messages.getOrDefault(locale, "error.pixiv.upstream.unauthorized",
+                        "Pixiv 拒绝了请求：登录 Cookie 可能已失效或无权访问该内容，请重新获取并保存 Cookie 后重试。")
+                : messages.getOrDefault(locale, "error.pixiv.upstream.failed",
+                        "请求 Pixiv 失败（HTTP {0}），请稍后重试。", status);
+        log.warn(logMessage("error.log.pixiv.upstream", status, bodySnippet(e.getResponseBodyAsString())));
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(new ErrorResponse(message));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception e, Locale locale) {
         String message = e.getMessage();
@@ -133,6 +152,15 @@ public class GlobalExceptionHandler {
 
     private String fallbackLogDetail(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    /** 上游响应体可能很长，日志里截断到 300 字符即可定位问题。 */
+    private String bodySnippet(String body) {
+        if (body == null || body.isBlank()) {
+            return "<empty>";
+        }
+        String trimmed = body.strip();
+        return trimmed.length() <= 300 ? trimmed : trimmed.substring(0, 300) + "…";
     }
 
     private boolean isClientDisconnect(IOException e) {
