@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
@@ -414,6 +415,7 @@ public class StatusPanel extends JPanel {
         GuiMessages.clearLocaleOverride();
 
         if (!persisted && configPath != null) {
+            log.warn(logMessage("gui.status.log.language.persist-failed-warn", configPath));
             JOptionPane.showMessageDialog(this,
                     message("gui.status.language.persist-failed.message"),
                     message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
@@ -727,9 +729,10 @@ public class StatusPanel extends JPanel {
         if (detail == null || detail.isBlank()) {
             detail = error == null ? message("gui.ffmpeg.error.unknown") : error.getClass().getSimpleName();
         }
-        JOptionPane.showMessageDialog(this,
-                message("gui.ffmpeg.dialog.install-failed.message", detail),
-                message("gui.ffmpeg.dialog.install-failed.title"), JOptionPane.ERROR_MESSAGE);
+        log.error(logMessage("gui.status.log.ffmpeg.install-failed", detail), error);
+        GuiErrorDialog.show(this,
+                message("gui.ffmpeg.dialog.install-failed.title"),
+                message("gui.ffmpeg.dialog.install-failed.message", detail));
     }
 
     private FfmpegInstaller.ProxySettings loadProxySettings() {
@@ -764,8 +767,9 @@ public class StatusPanel extends JPanel {
         try {
             Desktop.getDesktop().browse(new URI(getWebUrl(path)));
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, message("gui.error.open-browser", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            log.warn(logMessage("gui.status.log.open-browser-failed", path, e.getMessage()), e);
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                    message("gui.error.open-browser", e.getMessage()));
         }
     }
 
@@ -779,8 +783,10 @@ public class StatusPanel extends JPanel {
         try {
             Desktop.getDesktop().open(folder);
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, message("gui.error.open-folder", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            log.warn(logMessage("gui.status.log.open-download-folder-failed",
+                    folder.getAbsolutePath(), e.getMessage()), e);
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                    message("gui.error.open-folder", e.getMessage()));
         }
     }
 
@@ -801,8 +807,9 @@ public class StatusPanel extends JPanel {
             Files.createDirectories(dir);
             Desktop.getDesktop().open(dir.toFile());
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, message("gui.ffmpeg.dialog.open-dir-failed.message", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            log.warn(logMessage("gui.status.log.open-ffmpeg-dir-failed", e.getMessage()), e);
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                    message("gui.ffmpeg.dialog.open-dir-failed.message", e.getMessage()));
         }
     }
 
@@ -916,6 +923,7 @@ public class StatusPanel extends JPanel {
             SwingUtilities.invokeLater(() -> {
                 updateChecking = false;
                 if (node == null) {
+                    log.warn(logMessage("gui.status.log.update.check-failed-no-connection", force));
                     JOptionPane.showMessageDialog(StatusPanel.this,
                             message("gui.update.dialog.check-failed.message"),
                             message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
@@ -939,6 +947,8 @@ public class StatusPanel extends JPanel {
         }
         if (!node.path("checkSucceeded").asBoolean(false)) {
             String error = node.path("error").asText("");
+            log.warn(logMessage("gui.status.log.update.check-failed",
+                    error.isBlank() ? logMessage("gui.log.no-detail") : error));
             JOptionPane.showMessageDialog(this,
                     message("gui.update.dialog.check-failed.detail", error),
                     message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
@@ -1029,25 +1039,30 @@ public class StatusPanel extends JPanel {
                     result = get();
                 } catch (Exception e) {
                     restoreBannerAfterInstallFailure();
-                    JOptionPane.showMessageDialog(StatusPanel.this,
-                            message("gui.update.dialog.download-failed.message", safeText(e)),
-                            message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                    log.error(logMessage("gui.status.log.update.download-failed", safeText(e)), e);
+                    GuiErrorDialog.show(StatusPanel.this,
+                            message("gui.dialog.error.title"),
+                            message("gui.update.dialog.download-failed.message", safeText(e)));
                     return;
                 }
                 if (result == null || result.path("failed").asBoolean(false) || result.hasNonNull("error")) {
                     restoreBannerAfterInstallFailure();
                     String err = result == null ? "" : result.path("error").asText(result.path("failed").asText(""));
-                    JOptionPane.showMessageDialog(StatusPanel.this,
-                            message("gui.update.dialog.download-failed.message", err),
-                            message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                    log.error(logMessage("gui.status.log.update.download-failed",
+                            err.isBlank() ? logMessage("gui.log.no-detail") : err));
+                    GuiErrorDialog.show(StatusPanel.this,
+                            message("gui.dialog.error.title"),
+                            message("gui.update.dialog.download-failed.message",
+                                    err.isBlank() ? message("gui.dialog.error.no-detail") : err));
                     return;
                 }
                 String installerPath = result.path("installerPath").asText("");
                 if (installerPath.isBlank()) {
                     restoreBannerAfterInstallFailure();
-                    JOptionPane.showMessageDialog(StatusPanel.this,
-                            message("gui.update.dialog.download-failed.message", "installer path missing"),
-                            message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                    log.error(logMessage("gui.status.log.update.download-failed-no-installer"));
+                    GuiErrorDialog.show(StatusPanel.this,
+                            message("gui.dialog.error.title"),
+                            message("gui.update.dialog.download-failed.message", "installer path missing"));
                     return;
                 }
                 launchInstaller(installerPath);
@@ -1111,9 +1126,12 @@ public class StatusPanel extends JPanel {
                     updateInstalling = false;
                     updateBannerInstallButton.setEnabled(true);
                     String err = node == null ? "" : node.path("error").asText("");
-                    JOptionPane.showMessageDialog(StatusPanel.this,
-                            message("gui.update.dialog.install-failed.message", err),
-                            message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                    log.error(logMessage("gui.status.log.update.install-failed",
+                            err.isBlank() ? logMessage("gui.log.no-detail") : err));
+                    GuiErrorDialog.show(StatusPanel.this,
+                            message("gui.dialog.error.title"),
+                            message("gui.update.dialog.install-failed.message",
+                                    err.isBlank() ? message("gui.dialog.error.no-detail") : err));
                     return;
                 }
                 JOptionPane.showMessageDialog(StatusPanel.this,

@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.ToolHtmlLogSession;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
@@ -362,9 +363,9 @@ public class ToolsPanel extends JPanel {
                 setBackfillStatus(message("gui.tools.folder-checker.status.open-failed"));
                 log.error(logMessage("gui.tools.log.folder-checker.open-failed"), e);
                 BackendLifecycleManager.startAsync();
-                JOptionPane.showMessageDialog(this,
-                        message("gui.tools.dialog.folder-checker-open-failed.message", e.getMessage()),
-                        message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                GuiErrorDialog.show(this,
+                        message("gui.dialog.error.title"),
+                        message("gui.tools.dialog.folder-checker-open-failed.message", e.getMessage()));
             }
         });
         if (!accepted) {
@@ -397,9 +398,10 @@ public class ToolsPanel extends JPanel {
         } catch (Exception e) {
             exclusiveToolName = null;
             refreshActionStates();
-            JOptionPane.showMessageDialog(this,
-                    message("gui.tools.dialog.backfill.invalid-params.message", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            log.warn(logMessage("gui.tools.log.backfill.invalid-params", e.getMessage()));
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.tools.dialog.backfill.invalid-params.message", e.getMessage()));
             return;
         }
 
@@ -461,6 +463,8 @@ public class ToolsPanel extends JPanel {
     }
 
     private void handleBackfillPreparationFailure(String statusText, String dialogPrefix, Throwable failure) {
+        log.error(logMessage("gui.tools.log.backfill.prepare-failed",
+                failure == null ? logMessage("gui.log.no-detail") : failure.getMessage()), failure);
         closeBackfillLogSession();
         backfillRunning = false;
         exclusiveToolName = null;
@@ -468,9 +472,10 @@ public class ToolsPanel extends JPanel {
 
         Runnable afterRestart = () -> SwingUtilities.invokeLater(() -> {
             setBackfillStatus(statusText);
-            JOptionPane.showMessageDialog(this,
-                    dialogPrefix + failure.getMessage(),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    dialogPrefix + (failure.getMessage() == null
+                            ? message("gui.dialog.error.no-detail") : failure.getMessage()));
         });
         if (!BackendLifecycleManager.startAsync(afterRestart)) {
             afterRestart.run();
@@ -513,9 +518,11 @@ public class ToolsPanel extends JPanel {
     private void finishBackfill(ArtworksBackFill.Summary summary, Throwable failure) {
         if (failure != null) {
             setBackfillStatus(message("gui.tools.backfill.status.failed"));
-            JOptionPane.showMessageDialog(this,
-                    message("gui.tools.dialog.backfill.failed.message", failure.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.tools.dialog.backfill.failed.message",
+                            failure.getMessage() == null
+                                    ? message("gui.dialog.error.no-detail") : failure.getMessage()));
             return;
         }
 
@@ -578,9 +585,10 @@ public class ToolsPanel extends JPanel {
             }
             Desktop.getDesktop().browse(BACKFILL_LOG_PATH.toUri());
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                    message("gui.tools.dialog.backfill-log.open-failed", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            log.warn(logMessage("gui.tools.log.backfill.open-log-page-failed", e.getMessage()), e);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.tools.dialog.backfill-log.open-failed", e.getMessage()));
         }
     }
 
@@ -622,9 +630,10 @@ public class ToolsPanel extends JPanel {
         } catch (Exception e) {
             exclusiveToolName = null;
             refreshActionStates();
-            JOptionPane.showMessageDialog(this,
-                    message("gui.tools.dialog.migration.invalid-params.message", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            log.warn(logMessage("gui.tools.log.migration.invalid-params", e.getMessage()));
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.tools.dialog.migration.invalid-params.message", e.getMessage()));
             return;
         }
 
@@ -686,6 +695,8 @@ public class ToolsPanel extends JPanel {
     }
 
     private void handleMigrationPreparationFailure(String statusText, String dialogPrefix, Throwable failure) {
+        log.error(logMessage("gui.tools.log.migration.prepare-failed",
+                failure == null ? logMessage("gui.log.no-detail") : failure.getMessage()), failure);
         closeMigrationLogSession();
         migrationRunning = false;
         exclusiveToolName = null;
@@ -693,9 +704,10 @@ public class ToolsPanel extends JPanel {
 
         Runnable afterRestart = () -> SwingUtilities.invokeLater(() -> {
             setMigrationStatus(statusText);
-            JOptionPane.showMessageDialog(this,
-                    dialogPrefix + failure.getMessage(),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    dialogPrefix + (failure.getMessage() == null
+                            ? message("gui.dialog.error.no-detail") : failure.getMessage()));
         });
         if (!BackendLifecycleManager.startAsync(afterRestart)) {
             afterRestart.run();
@@ -738,9 +750,11 @@ public class ToolsPanel extends JPanel {
     private void finishMigration(JsonToSqliteMigration.Summary summary, Throwable failure) {
         if (failure != null) {
             setMigrationStatus(message("gui.tools.migration.status.failed"));
-            JOptionPane.showMessageDialog(this,
-                    message("gui.tools.dialog.migration.failed.message", failure.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.tools.dialog.migration.failed.message",
+                            failure.getMessage() == null
+                                    ? message("gui.dialog.error.no-detail") : failure.getMessage()));
             return;
         }
 
@@ -788,9 +802,10 @@ public class ToolsPanel extends JPanel {
             }
             Desktop.getDesktop().browse(MIGRATION_LOG_PATH.toUri());
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                    message("gui.tools.dialog.migration-log.open-failed", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            log.warn(logMessage("gui.tools.log.migration.open-log-page-failed", e.getMessage()), e);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.tools.dialog.migration-log.open-failed", e.getMessage()));
         }
     }
 

@@ -1,13 +1,17 @@
 package top.sywyar.pixivdownload.gui;
 
+import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
+
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+@Slf4j
 public final class AutoStartManager {
 
     public static final String STARTUP_ARG = "--pixivdownload-startup";
@@ -68,12 +72,22 @@ public final class AutoStartManager {
             throw new IOException("Windows Startup folder is not available");
         }
 
-        if (enabled) {
-            Path executable = currentApplicationExecutable()
-                    .orElseThrow(() -> new IOException("Current process is not PixivDownload.exe"));
-            createShortcut(shortcut.get(), executable);
-        } else {
-            Files.deleteIfExists(shortcut.get());
+        try {
+            if (enabled) {
+                Path executable = currentApplicationExecutable()
+                        .orElseThrow(() -> new IOException("Current process is not PixivDownload.exe"));
+                createShortcut(shortcut.get(), executable);
+                log.info(MessageBundles.get("gui.autostart.log.enabled", shortcut.get()));
+            } else {
+                boolean removed = Files.deleteIfExists(shortcut.get());
+                log.info(MessageBundles.get(removed
+                        ? "gui.autostart.log.disabled.removed"
+                        : "gui.autostart.log.disabled.absent", shortcut.get()));
+            }
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            log.error(MessageBundles.get("gui.autostart.log.set-failed",
+                    enabled, shortcut.get(), e.getMessage()), e);
+            throw e;
         }
     }
 
@@ -154,7 +168,9 @@ public final class AutoStartManager {
         byte[] outputBytes = process.getInputStream().readAllBytes();
         int exitCode = process.waitFor();
         if (exitCode != 0) {
-            String output = new String(outputBytes, StandardCharsets.UTF_8).trim();
+            // Windows PowerShell 在 stdout 被重定向时使用控制台 OEM 代码页（中文系统为 GBK），
+            // 不是 UTF-8；用 UTF-8 解码会把中文异常信息变成 U+FFFD（弹窗里显示为空心方框）。
+            String output = new String(outputBytes, consoleOutputCharset()).trim();
             throw new IOException(output.isBlank()
                     ? "PowerShell shortcut creation failed with exit code " + exitCode
                     : output);
@@ -162,6 +178,23 @@ public final class AutoStartManager {
         if (!Files.isRegularFile(shortcut)) {
             throw new IOException("Startup shortcut was not created");
         }
+    }
+
+    /**
+     * 解码外部控制台进程（如 powershell.exe）输出所用的字符集。
+     * JDK 17+ 通过 {@code native.encoding} 暴露宿主机原生字符集（中文 Windows 为 GBK/MS936），
+     * 解析失败时回退到 JVM 默认字符集。
+     */
+    private static Charset consoleOutputCharset() {
+        String nativeEncoding = System.getProperty("native.encoding");
+        if (nativeEncoding != null && !nativeEncoding.isBlank()) {
+            try {
+                return Charset.forName(nativeEncoding.trim());
+            } catch (RuntimeException ignored) {
+                // 回退到默认字符集
+            }
+        }
+        return Charset.defaultCharset();
     }
 
     private static String powershellExecutable() {

@@ -1,7 +1,10 @@
 package top.sywyar.pixivdownload.gui.panel;
 
+import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.common.AppVersion;
+import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.swing.*;
 import java.awt.*;
@@ -12,6 +15,7 @@ import java.net.URI;
 /**
  * "关于" 标签页：显示版本、GitHub 链接、免责声明及 AGPL-3.0 许可证全文。
  */
+@Slf4j
 public class AboutPanel extends JPanel {
 
     private static final String GITHUB_URL = "https://github.com/Sywyar/PixivDownload";
@@ -731,9 +735,11 @@ public class AboutPanel extends JPanel {
                 try {
                     Desktop.getDesktop().browse(new URI(GITHUB_URL));
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(AboutPanel.this,
-                            GuiMessages.get("gui.error.open-browser", ex.getMessage()),
-                            GuiMessages.get("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                    log.warn(MessageBundles.get("gui.about.log.open-github-failed",
+                            GITHUB_URL, ex.getMessage()), ex);
+                    GuiErrorDialog.show(AboutPanel.this,
+                            GuiMessages.get("gui.dialog.error.title"),
+                            GuiMessages.get("gui.error.open-browser", ex.getMessage()));
                 }
             }
         });

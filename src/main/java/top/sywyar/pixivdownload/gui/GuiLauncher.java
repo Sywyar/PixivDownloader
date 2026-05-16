@@ -221,12 +221,11 @@ public class GuiLauncher {
     private static void handleFatalGuiBootstrapFailure(Throwable t) {
         logStartupFailure(t);
         try {
-            JOptionPane.showMessageDialog(
+            GuiErrorDialog.show(
                     null,
-                    message("gui.launcher.dialog.startup-error.with-log.message",
-                            safeMessage(t), Path.of(LOG_LATEST).toAbsolutePath()),
                     message("gui.launcher.dialog.startup-error.title"),
-                    JOptionPane.ERROR_MESSAGE);
+                    message("gui.launcher.dialog.startup-error.with-log.message",
+                            safeMessage(t), Path.of(LOG_LATEST).toAbsolutePath()));
         } catch (Throwable dialogFailure) {
             log.error(logMessage("gui.launcher.log.startup.failed.generic",
                     safeMessage(dialogFailure)), dialogFailure);
@@ -446,12 +445,10 @@ public class GuiLauncher {
                                                   Throwable failure,
                                                   int checkedCount) {
         if (failure != null) {
-            JOptionPane.showMessageDialog(
+            GuiErrorDialog.show(
                     owner,
-                    message("gui.launcher.dialog.auto-backfill.failed.message", safeMessage(failure)),
                     message("gui.launcher.dialog.auto-backfill.title"),
-                    JOptionPane.ERROR_MESSAGE
-            );
+                    message("gui.launcher.dialog.auto-backfill.failed.message", safeMessage(failure)));
             return;
         }
 
@@ -517,12 +514,11 @@ public class GuiLauncher {
         String diag = diagnoseStartupError(error);
         String userMessage = diag != null ? diag : message("gui.launcher.dialog.startup-error.message", safeMessage(error));
         logStartupFailure(error);
-        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+        SwingUtilities.invokeLater(() -> GuiErrorDialog.show(
                 null,
-                message("gui.launcher.dialog.startup-error.with-log.message", userMessage, Path.of(LOG_LATEST).toAbsolutePath()),
                 message("gui.launcher.dialog.startup-error.title"),
-                JOptionPane.ERROR_MESSAGE
-        ));
+                message("gui.launcher.dialog.startup-error.with-log.message",
+                        userMessage, Path.of(LOG_LATEST).toAbsolutePath())));
     }
 
     private static void logStartupFailure(Throwable t) {
@@ -634,11 +630,10 @@ public class GuiLauncher {
         if (GraphicsEnvironment.isHeadless()) {
             return;
         }
-        JOptionPane.showMessageDialog(null,
-                message("gui.launcher.dialog.single-instance-init-failed.message",
-                        safeMessage(e), Path.of(LOG_LATEST).toAbsolutePath()),
+        GuiErrorDialog.show(null,
                 message("gui.launcher.dialog.startup-error.title"),
-                JOptionPane.ERROR_MESSAGE);
+                message("gui.launcher.dialog.single-instance-init-failed.message",
+                        safeMessage(e), Path.of(LOG_LATEST).toAbsolutePath()));
     }
 
     private static void registerSingleInstanceShutdown(SingleInstanceManager singleInstanceManager) {

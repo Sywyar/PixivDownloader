@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.AutoStartManager;
+import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.*;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
@@ -268,9 +269,9 @@ public class ConfigPanel extends JPanel {
             updateEnabledStates();
         } catch (IOException e) {
             log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
-            JOptionPane.showMessageDialog(this,
-                    message("gui.config.dialog.read-failed.message", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.config.dialog.read-failed.message", e.getMessage()));
         }
     }
 
@@ -331,9 +332,10 @@ public class ConfigPanel extends JPanel {
             }
         }
         if (!errors.isEmpty()) {
-            JOptionPane.showMessageDialog(this,
-                    message("gui.config.dialog.validation-failed.message", String.join("\n", errors)),
-                    message("gui.config.dialog.validation-failed.title"), JOptionPane.ERROR_MESSAGE);
+            log.warn(logMessage("gui.config.log.validation-failed", String.join("; ", errors)));
+            GuiErrorDialog.show(this,
+                    message("gui.config.dialog.validation-failed.title"),
+                    message("gui.config.dialog.validation-failed.message", String.join("\n", errors)));
             return;
         }
 
@@ -342,9 +344,9 @@ public class ConfigPanel extends JPanel {
             before = editor.readAll(allFields.stream().map(ConfigFieldSpec::key).toList());
         } catch (IOException e) {
             log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
-            JOptionPane.showMessageDialog(this,
-                    message("gui.config.dialog.read-failed.message", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.config.dialog.read-failed.message", e.getMessage()));
             return;
         }
 
@@ -373,9 +375,9 @@ public class ConfigPanel extends JPanel {
             }
         } catch (IOException e) {
             log.error(logMessage("gui.config.log.save-failed", e.getMessage()));
-            JOptionPane.showMessageDialog(this,
-                    message("gui.config.dialog.save-failed.message", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.config.dialog.save-failed.message", e.getMessage()));
         }
     }
 
@@ -459,9 +461,10 @@ public class ConfigPanel extends JPanel {
         try {
             Desktop.getDesktop().open(configPath.toFile());
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this,
-                    message("gui.error.open-file", e.getMessage()),
-                    message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+            log.warn(logMessage("gui.config.log.open-file-failed", configPath, e.getMessage()), e);
+            GuiErrorDialog.show(this,
+                    message("gui.dialog.error.title"),
+                    message("gui.error.open-file", e.getMessage()));
         }
     }
 
@@ -551,9 +554,11 @@ public class ConfigPanel extends JPanel {
         } finally {
             updatingAutoStartCheckBox = false;
         }
-        JOptionPane.showMessageDialog(ConfigPanel.this,
-                message("gui.config.autostart.dialog.apply-failed.message", safeMessage(cause)),
-                message("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+        log.error(logMessage("gui.config.log.autostart.apply-failed",
+                targetEnabled, safeMessage(cause)), cause);
+        GuiErrorDialog.show(ConfigPanel.this,
+                message("gui.dialog.error.title"),
+                message("gui.config.autostart.dialog.apply-failed.message", safeMessage(cause)));
     }
 
     private boolean postHotReload() {
