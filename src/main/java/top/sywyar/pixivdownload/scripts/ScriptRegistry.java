@@ -38,10 +38,11 @@ public class ScriptRegistry {
     private static final Map<String, String> FILENAME_TO_ID = Map.of(
             "Pixiv All-in-One.user.js", "all-in-one",
             "Pixiv 单作品图片下载器(Java后端版).user.js", "artwork-java",
-            "Pixiv 单作品图片下载器(Local download).user.js", "artwork-local",
-            "Pixiv User 批量下载器.user.js", "user-batch",
-            "Pixiv 页面批量下载器.user.js", "page-batch",
-            "Pixiv URL 批量导入单作品下载器.user.js", "import-batch"
+            "Pixiv 单作品图片下载器(Local Download).user.js", "artwork-local",
+            "Pixiv User 批量下载器(User Batch).user.js", "user-batch",
+            "Pixiv 页面批量下载器(Page Scrape).user.js", "page-batch",
+            "Pixiv URL 批量导入单作品下载器(URL Batch).user.js", "import-batch",
+            "Pixiv 体验增强工具箱(Toolbox).user.js", "experience-toolbox"
     );
 
     private final AppMessages messages;

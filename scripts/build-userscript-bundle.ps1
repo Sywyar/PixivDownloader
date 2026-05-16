@@ -31,6 +31,10 @@ $SourceDefinitions = @(
     @{
         Key = "single-java"
         FunctionName = "pixivBundleArtworkJava"
+    },
+    @{
+        Key = "experience"
+        FunctionName = "pixivBundleExperienceToolbox"
     }
 )
 
@@ -55,6 +59,11 @@ function Resolve-UserscriptSources {
         }
         if ($file.Name -match "^Pixiv URL ") {
             $resolved["import-batch"] = $file
+            continue
+        }
+        # "体验增强" — \u escapes keep the match independent of this script's source encoding.
+        if ($file.Name -match "\u4f53\u9a8c\u589e\u5f3a") {
+            $resolved["experience"] = $file
             continue
         }
     }
@@ -172,8 +181,8 @@ if (-not $grantValues.Contains("GM_registerMenuCommand")) {
 # document-end just fine.
 $runAt = "document-end"
 $metadataLines = [System.Collections.Generic.List[string]]::new()
-$bundleDescriptionZh = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("Ly8gQGRlc2NyaXB0aW9uICBQaXhpdiDlpJrlkIjkuIDkuIvovb3ohJrmnKzvvIzmlbTlkIjpobXpnaLmibnph4/kuIvovb3jgIFVc2VyIOaJuemHj+S4i+i9veOAgeaJuemHj+WvvOWFpeWNleS9nOWTgeWSjOWNleS9nOWTgeS4i+i9ve+8iEphdmHlkI7nq6/niYjvvInjgILlpoLlpJrlkIjkuIDohJrmnKzlvILluLjvvIzor7flhYjlsJ3or5Xlr7nlupTni6znq4vohJrmnKzvvIzlho3lsIbkuKTnp43ohJrmnKznmoTooajnjrDkuIDlubbpmYTkuIrlkI7mj5DkuqQgaXNzdWXjgII="))
-$bundleDescriptionEn = "// @description:en  Pixiv all-in-one downloader for page batch, user batch, bulk import single works, and single-artwork download (Java backend). If the bundle misbehaves, try the matching standalone script first; if only the bundle fails, open an issue with reproduction details."
+$bundleDescriptionZh = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("Ly8gQGRlc2NyaXB0aW9uICBQaXhpdiDlpJrlkIjkuIDohJrmnKzvvIzmlbTlkIjpobXpnaLmibnph4/kuIvovb3jgIFVc2VyIOaJuemHj+S4i+i9veOAgeaJuemHj+WvvOWFpeWNleS9nOWTgeOAgeWNleS9nOWTgeS4i+i9ve+8iEphdmHlkI7nq6/niYjvvInkuI7kvZPpqozlop7lvLrlt6XlhbfnrrHjgILlpoLlpJrlkIjkuIDohJrmnKzlvILluLjvvIzor7flhYjlsJ3or5Xlr7nlupTni6znq4vohJrmnKzvvIzlho3lsIbkuKTnp43ohJrmnKznmoTooajnjrDkuIDlubbpmYTkuIrlkI7mj5DkuqQgaXNzdWXjgII="))
+$bundleDescriptionEn = "// @description:en  Pixiv all-in-one toolkit bundling page batch, user batch, bulk import single works, single-artwork download (Java backend), and the experience-enhancement toolbox. If the bundle misbehaves, try the matching standalone script first; if only the bundle fails, open an issue with reproduction details."
 
 $null = $metadataLines.Add("// ==UserScript==")
 $null = $metadataLines.Add("// @name         Pixiv All-in-One Downloader")

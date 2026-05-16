@@ -1460,6 +1460,12 @@
             color: white !important;
         }
 
+        html[data-theme="dark"] #cookie-clear {
+            background: #dc3545 !important;
+            border-color: #dc3545 !important;
+            color: white !important;
+        }
+
         html[data-theme="dark"] .queue-item,
         html[data-theme="dark"] .search-extra-filters {
             background: var(--surface-muted);

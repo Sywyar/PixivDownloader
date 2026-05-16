@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 页面批量下载器
 // @namespace    http://tampermonkey.net/
-// @version      1.0.9
+// @version      1.0.10
 // @description  抓取当前 Pixiv 页面（搜索页、关注动态、排行榜、主页等）上的所有作品
 // @author       Sywyar
 // @match        https://www.pixiv.net/*
@@ -31,25 +31,150 @@
     const KEY_SERVER_URL = 'pixiv_server_base';
     let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
 
-    // 记忆面板展开/收缩状态（仅记录用户手动操作）
-    const KEY_PANEL_COLLAPSED = 'pixiv_page_batch_panel_collapsed';
+    /* ========== PixivPanelState: 跨脚本共享的面板展开/收起状态 ==========
+     * 所有 Pixiv 用户脚本共用同一个折叠状态：localStorage 权威 + BroadcastChannel +
+     * storage 事件 + 1s 轮询兜底（跨 sandbox 对齐），同一 sandbox 内经 window 共享单例。
+     * 默认展开（无存储值时 collapsed=false）。仅“用户手动收/展”写入；页面类型默认值与
+     * 跨面板自动收起不写入（沿用各脚本既有语义）。收起任一面板 → 全部收起；展开时各脚本
+     * 仍按自身页面类型 + pixiv_panel_active 互斥决定实际可见的那一个。
+     * ------------------------------------------------------------------------ */
+    const PixivPanelState = (() => {
+        const SHARED_KEY = '__PixivPanelState_v1__';
+        if (typeof window !== 'undefined' && window[SHARED_KEY]) return window[SHARED_KEY];
+        const LS_KEY = 'pixiv_panel_collapsed_shared';
+        const BC_NAME = '__pixiv_panel_collapsed_v1__';
+        let collapsed = null;
+        const listeners = new Set();
+        let bc = null;
+        const readLS = () => {
+            try {
+                return localStorage.getItem(LS_KEY) === '1';
+            } catch (e) {
+                return false;
+            }
+        };
+        const notify = () => listeners.forEach(fn => {
+            try {
+                fn(collapsed);
+            } catch (e) {
+                console.error('[PixivPanelState]', e);
+            }
+        });
+
+        function ensureInit() {
+            if (collapsed !== null) return;
+            collapsed = readLS();
+            try {
+                if (typeof BroadcastChannel !== 'undefined') {
+                    bc = new BroadcastChannel(BC_NAME);
+                    bc.addEventListener('message', ev => {
+                        if (ev && ev.data && ev.data.type === 'panel-collapsed') {
+                            const v = ev.data.value === true;
+                            if (v !== collapsed) {
+                                collapsed = v;
+                                notify();
+                            }
+                        }
+                    });
+                }
+            } catch (e) {
+            }
+            try {
+                window.addEventListener('storage', ev => {
+                    if (ev.key !== LS_KEY) return;
+                    const v = ev.newValue === '1';
+                    if (v !== collapsed) {
+                        collapsed = v;
+                        notify();
+                    }
+                });
+            } catch (e) {
+            }
+            try {
+                setInterval(() => {
+                    const v = readLS();
+                    if (v !== collapsed) {
+                        collapsed = v;
+                        notify();
+                    }
+                }, 1000);
+            } catch (e) {
+            }
+        }
+
+        function get() {
+            ensureInit();
+            return collapsed;
+        }
+
+        function set(v) {
+            ensureInit();
+            v = v === true;
+            if (v === collapsed) return;
+            collapsed = v;
+            try {
+                localStorage.setItem(LS_KEY, v ? '1' : '0');
+            } catch (e) {
+            }
+            if (bc) {
+                try {
+                    bc.postMessage({type: 'panel-collapsed', value: v});
+                } catch (e) {
+                }
+            }
+            notify();
+        }
+
+        function onChange(fn) {
+            ensureInit();
+            listeners.add(fn);
+            return () => listeners.delete(fn);
+        }
+
+        const api = {get, set, onChange};
+        try {
+            if (typeof window !== 'undefined') window[SHARED_KEY] = api;
+        } catch (e) {
+        }
+        return api;
+    })();
+
     function loadPanelCollapsed() {
-        try { return GM_getValue(KEY_PANEL_COLLAPSED, false) === true; } catch (e) { return false; }
+        return PixivPanelState.get();
     }
+
     function savePanelCollapsed(collapsed) {
-        try { GM_setValue(KEY_PANEL_COLLAPSED, collapsed === true); } catch (e) {}
+        PixivPanelState.set(collapsed);
     }
 
     const CONFIG = {
-        get BACKEND_URL() { return serverBase + '/api/download/pixiv'; },
-        get STATUS_URL() { return serverBase + '/api/download/status'; },
-        get CANCEL_URL() { return serverBase + '/api/download/cancel'; },
-        get CLEAR_QUEUE_URL() { return serverBase + '/api/download/queue/clear'; },
-        get SSE_BASE() { return serverBase + '/api/sse/download'; },
-        get SSE_CLOSE_BASE() { return serverBase + '/api/sse/close/aggregated'; },
-        get QUOTA_INIT_URL() { return serverBase + '/api/quota/init'; },
-        get ARCHIVE_STATUS_BASE() { return serverBase + '/api/archive/status'; },
-        get ARCHIVE_DOWNLOAD_BASE() { return serverBase + '/api/archive/download'; },
+        get BACKEND_URL() {
+            return serverBase + '/api/download/pixiv';
+        },
+        get STATUS_URL() {
+            return serverBase + '/api/download/status';
+        },
+        get CANCEL_URL() {
+            return serverBase + '/api/download/cancel';
+        },
+        get CLEAR_QUEUE_URL() {
+            return serverBase + '/api/download/queue/clear';
+        },
+        get SSE_BASE() {
+            return serverBase + '/api/sse/download';
+        },
+        get SSE_CLOSE_BASE() {
+            return serverBase + '/api/sse/close/aggregated';
+        },
+        get QUOTA_INIT_URL() {
+            return serverBase + '/api/quota/init';
+        },
+        get ARCHIVE_STATUS_BASE() {
+            return serverBase + '/api/archive/status';
+        },
+        get ARCHIVE_DOWNLOAD_BASE() {
+            return serverBase + '/api/archive/download';
+        },
         DEFAULT_INTERVAL: 2,
         DEFAULT_CONCURRENT: 1,
         STATUS_TIMEOUT_MS: 300000,
@@ -66,7 +191,7 @@
         KEY_BOOKMARK: 'pixiv_global_bookmark'
     };
 
-    let quotaInfo = { enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0 };
+    let quotaInfo = {enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0};
     let userUUID = GM_getValue(CONFIG.KEY_USER_UUID, null);
     const VERIFY_HISTORY_FILES_TOOLTIP = '通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载';
 
@@ -79,39 +204,63 @@
         const ownerId = Math.random().toString(36).slice(2) + Date.now().toString(36);
         const claimed = new Set();
         let bc = null;
-        try { if (typeof BroadcastChannel !== 'undefined') bc = new BroadcastChannel(CHAN_NAME); } catch (e) {}
+        try {
+            if (typeof BroadcastChannel !== 'undefined') bc = new BroadcastChannel(CHAN_NAME);
+        } catch (e) {
+        }
         if (bc) bc.addEventListener('message', ev => {
             if (ev && ev.data && ev.data.type === 'claim' && ev.data.id) claimed.add(ev.data.id);
         });
         const readState = () => {
-            try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {}; } catch (e) { return {}; }
+            try {
+                return JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {};
+            } catch (e) {
+                return {};
+            }
         };
         const writeState = s => {
-            try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch (e) {}
+            try {
+                localStorage.setItem(LS_KEY, JSON.stringify(s));
+            } catch (e) {
+            }
         };
         const isFresh = (entry, opts) => {
             if (!entry) return false;
             if (opts.persist) return true;
             return Date.now() - (entry.t || 0) < (opts.ttlMs || 60000);
         };
+
         function once(id, opts, fn) {
             opts = opts || {};
             if (claimed.has(id)) return false;
             const state = readState();
-            if (isFresh(state[id], opts)) { claimed.add(id); return false; }
+            if (isFresh(state[id], opts)) {
+                claimed.add(id);
+                return false;
+            }
             claimed.add(id);
-            state[id] = { t: Date.now(), owner: ownerId };
+            state[id] = {t: Date.now(), owner: ownerId};
             writeState(state);
-            if (bc) { try { bc.postMessage({ type: 'claim', id }); } catch (e) {} }
+            if (bc) {
+                try {
+                    bc.postMessage({type: 'claim', id});
+                } catch (e) {
+                }
+            }
             // 30ms jitter：让同帧启动的对端有机会覆盖 owner，最终只有一个 ownerId 留存并执行 fn
             setTimeout(() => {
                 const cur = readState()[id];
                 if (!cur || cur.owner !== ownerId) return;
-                try { fn(); } catch (e) { console.error('[PromptGuard]', e); }
+                try {
+                    fn();
+                } catch (e) {
+                    console.error('[PromptGuard]', e);
+                }
             }, 30);
             return true;
         }
-        return { once };
+
+        return {once};
     })();
 
     /* ========== PixivUserscriptI18n: shared userscript i18n runtime ==========
@@ -132,7 +281,7 @@
         const SUPPORTED = ['en-US', 'zh-CN'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = { 'en-US': {}, 'zh-CN': {} };
+        let DICT = {'en-US': {}, 'zh-CN': {}};
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -152,13 +301,15 @@
             try {
                 const stored = normalize(localStorage.getItem(LS_KEY));
                 if (stored) return stored;
-            } catch (e) {}
+            } catch (e) {
+            }
             try {
                 if (typeof GM_getValue === 'function') {
                     const stored = normalize(GM_getValue(GM_KEY, null));
                     if (stored) return stored;
                 }
-            } catch (e) {}
+            } catch (e) {
+            }
             return normalize(navigator.language) || DEFAULT_LANG;
         }
 
@@ -186,7 +337,8 @@
                         }
                     });
                 }
-            } catch (e) {}
+            } catch (e) {
+            }
             try {
                 window.addEventListener('storage', ev => {
                     if (ev.key !== LS_KEY) return;
@@ -195,7 +347,8 @@
                         applyLang(next, false);
                     }
                 });
-            } catch (e) {}
+            } catch (e) {
+            }
             // Cross-sandbox polling fallback: standalone userscripts each run
             // in a separate Tampermonkey sandbox; BroadcastChannel delivery
             // between sandboxes is unreliable and the storage event never
@@ -208,9 +361,11 @@
                         if (stored && stored !== currentLang) {
                             applyLang(stored, false);
                         }
-                    } catch (e) {}
+                    } catch (e) {
+                    }
                 }, 1000);
-            } catch (e) {}
+            } catch (e) {
+            }
         }
 
         function applyLang(lang, broadcast) {
@@ -219,14 +374,17 @@
             if (broadcast) {
                 try {
                     localStorage.setItem(LS_KEY, next);
-                } catch (e) {}
+                } catch (e) {
+                }
                 try {
                     if (typeof GM_setValue === 'function') GM_setValue(GM_KEY, next);
-                } catch (e) {}
+                } catch (e) {
+                }
                 if (bc) {
                     try {
-                        bc.postMessage({ type: 'lang-changed', lang: next });
-                    } catch (e) {}
+                        bc.postMessage({type: 'lang-changed', lang: next});
+                    } catch (e) {
+                    }
                 }
             }
             notify(next);
@@ -305,10 +463,12 @@
                                 incoming[lang] = data.messages;
                                 register(incoming);
                                 if (lang === currentLang) notify(currentLang);
-                            } catch (e) {}
+                            } catch (e) {
+                            }
                         }
                     });
-                } catch (e) {}
+                } catch (e) {
+                }
             });
         }
 
@@ -323,7 +483,8 @@
         };
         try {
             if (typeof window !== 'undefined') window[SHARED_KEY] = api;
-        } catch (e) {}
+        } catch (e) {
+        }
         return api;
     })();
 
@@ -416,7 +577,25 @@
             'page.status.need-login-refresh': 'Login required. Please log in and refresh the page',
             'page.overlay.remove': 'Queued. Click to remove',
             'page.overlay.add': 'Click to add to queue',
-            'page.menu.open': 'Open Pixiv Page Batch Downloader'
+            'page.menu.open': 'Open Pixiv Page Batch Downloader',
+            'page.msg.reset-on-refresh': 'Reset after refresh',
+            'page.msg.checking-history': 'Checking download history...',
+            'page.msg.skip-history-exists': 'Skipped — already in download history',
+            'page.msg.fetching-meta': 'Fetching artwork info...',
+            'page.msg.skip-non-r18': 'Skipped — not R18 content',
+            'page.msg.submitting': 'Submitting download...',
+            'page.msg.skip-downloaded-confirmed': 'Skipped — already downloaded (server-confirmed)',
+            'page.msg.downloading-wait': 'Downloading, waiting for completion...',
+            'page.msg.failed-detail': 'Failed — {message}',
+            'page.msg.backend-reported-failure': 'Backend reported failure',
+            'page.msg.failed-timeout': 'Failed — timed out waiting for completion status',
+            'page.msg.failed-status-query': 'Failed — status query error',
+            'page.msg.failed-need-login': 'Failed - login required',
+            'page.msg.failed-quota': 'Failed - quota reached',
+            'page.archive.packing-after-complete': 'Download complete, packaging',
+            'page.err.need-login': 'Login required',
+            'page.err.backend-failed': 'Backend request failed',
+            'page.err.no-image-url': 'No image URL'
         },
         'zh-CN': {
             'switcher.label': '语言',
@@ -506,7 +685,25 @@
             'page.status.need-login-refresh': '需要登录，请登录后刷新页面',
             'page.overlay.remove': '已加入队列，点击移出',
             'page.overlay.add': '点击加入队列',
-            'page.menu.open': '打开 Pixiv 页面批量下载器'
+            'page.menu.open': '打开 Pixiv 页面批量下载器',
+            'page.msg.reset-on-refresh': '刷新后重置',
+            'page.msg.checking-history': '正在检查历史记录...',
+            'page.msg.skip-history-exists': '跳过 — 历史记录中已存在',
+            'page.msg.fetching-meta': '正在获取作品信息...',
+            'page.msg.skip-non-r18': '跳过 — 非 R18 内容',
+            'page.msg.submitting': '正在提交下载...',
+            'page.msg.skip-downloaded-confirmed': '跳过 — 已下载（服务器确认）',
+            'page.msg.downloading-wait': '下载中，等待完成...',
+            'page.msg.failed-detail': '失败 — {message}',
+            'page.msg.backend-reported-failure': '后端报告失败',
+            'page.msg.failed-timeout': '失败 — 超时未收到完成状态',
+            'page.msg.failed-status-query': '失败 — 状态查询异常',
+            'page.msg.failed-need-login': '失败 - 需要登录',
+            'page.msg.failed-quota': '失败 - 达到限额',
+            'page.archive.packing-after-complete': '下载完成，正在打包',
+            'page.err.need-login': '需要登录',
+            'page.err.backend-failed': '后端返回失败',
+            'page.err.no-image-url': '无图片URL'
         }
     });
 
@@ -514,34 +711,60 @@
 
     const STATUS_TRANSLATORS = [
         [/^队列为空$/, () => t('common.queue.empty', '队列为空')],
-        [/^开始下载 \(并发:(\d+), 间隔:(\d+)ms\)$/, (_, concurrent, interval) => t('page.status.started', '开始下载 (并发:{concurrent}, 间隔:{interval}ms)', { concurrent: concurrent, interval: interval })],
+        [/^开始下载 \(并发:(\d+), 间隔:(\d+)ms\)$/, (_, concurrent, interval) => t('page.status.started', '开始下载 (并发:{concurrent}, 间隔:{interval}ms)', {
+            concurrent: concurrent,
+            interval: interval
+        })],
         [/^批量下载结束$/, () => t('page.status.finished', '批量下载结束')],
         [/^批量下载结束，正在打包文件\.\.\.$/, () => t('page.status.finished-packing', '批量下载结束，正在打包文件...')],
-        [/^获取信息：(.+)$/, (_, id) => t('page.status.fetching-meta', '获取信息：{id}', { id: id })],
-        [/^下载中：(.+)$/, (_, title) => t('page.status.downloading', '下载中：{title}', { title: title })],
-        [/^跳过：(.+)（已下载）$/, (_, title) => t('page.status.skipped-existing', '跳过：{title}（已下载）', { title: title })],
-        [/^失败：(.+) \(文件缺失\)$/, (_, title) => t('page.status.failed-missing', '失败：{title} (文件缺失)', { title: title })],
-        [/^完成：(.+)$/, (_, title) => t('page.status.completed', '完成：{title}', { title: title })],
-        [/^失败：(.+)$/, (_, title) => t('page.status.failed', '失败：{title}', { title: title })],
+        [/^获取信息：(.+)$/, (_, id) => t('page.status.fetching-meta', '获取信息：{id}', {id: id})],
+        [/^下载中：(.+)$/, (_, title) => t('page.status.downloading', '下载中：{title}', {title: title})],
+        [/^跳过：(.+)（已下载）$/, (_, title) => t('page.status.skipped-existing', '跳过：{title}（已下载）', {title: title})],
+        [/^失败：(.+) \(文件缺失\)$/, (_, title) => t('page.status.failed-missing', '失败：{title} (文件缺失)', {title: title})],
+        [/^完成：(.+)$/, (_, title) => t('page.status.completed', '完成：{title}', {title: title})],
+        [/^失败：(.+)$/, (_, title) => t('page.status.failed', '失败：{title}', {title: title})],
         [/^需要登录，已停止下载$/, () => t('page.status.need-login-stop', '需要登录，已停止下载')],
         [/^已达到下载限额$/, () => t('page.status.quota-exceeded', '已达到下载限额')],
-        [/^错误：(.+) - (.+)$/, (_, title, message) => t('page.status.error', '错误：{title} - {message}', { title: title, message: message })],
-        [/^正在暂停\.\.\. \(等待 (\d+) 个当前任务完成\)$/, (_, count) => t('page.status.pause-waiting', '正在暂停... (等待 {count} 个当前任务完成)', { count: count })],
+        [/^错误：(.+) - (.+)$/, (_, title, message) => t('page.status.error', '错误：{title} - {message}', {
+            title: title,
+            message: message
+        })],
+        [/^正在暂停\.\.\. \(等待 (\d+) 个当前任务完成\)$/, (_, count) => t('page.status.pause-waiting', '正在暂停... (等待 {count} 个当前任务完成)', {count: count})],
         [/^已暂停$/, () => t('page.status.paused', '已暂停')],
         [/^继续下载$/, () => t('page.status.resumed', '继续下载')],
         [/^已强制清除队列$/, () => t('page.status.cleared', '已强制清除队列')],
         [/^当前页面未找到任何作品链接$/, () => t('page.status.no-links', '当前页面未找到任何作品链接')],
-        [/^抓取完成：页面共 (\d+) 个作品，新增 (\d+) 个到队列$/, (_, total, added) => t('page.status.scraped', '抓取完成：页面共 {total} 个作品，新增 {added} 个到队列', { total: total, added: added })],
+        [/^抓取完成：页面共 (\d+) 个作品，新增 (\d+) 个到队列$/, (_, total, added) => t('page.status.scraped', '抓取完成：页面共 {total} 个作品，新增 {added} 个到队列', {
+            total: total,
+            added: added
+        })],
         [/^当前不在单作品页面$/, () => t('page.status.not-artwork-page', '当前不在单作品页面')],
-        [/^已将当前作品 (\d+) 加入队列$/, (_, id) => t('page.status.current-added', '已将当前作品 {id} 加入队列', { id: id })],
-        [/^作品 (\d+) 已在队列中$/, (_, id) => t('page.status.current-exists', '作品 {id} 已在队列中', { id: id })],
+        [/^已将当前作品 (\d+) 加入队列$/, (_, id) => t('page.status.current-added', '已将当前作品 {id} 加入队列', {id: id})],
+        [/^作品 (\d+) 已在队列中$/, (_, id) => t('page.status.current-exists', '作品 {id} 已在队列中', {id: id})],
         [/^正在获取相关作品\.\.\.$/, () => t('page.status.fetching-related', '正在获取相关作品...')],
         [/^未找到相关作品$/, () => t('page.status.no-related', '未找到相关作品')],
-        [/^相关作品：共 (\d+) 个，新增 (\d+) 个到队列$/, (_, total, added) => t('page.status.related-added', '相关作品：共 {total} 个，新增 {added} 个到队列', { total: total, added: added })],
-        [/^获取相关作品失败：(.+)$/, (_, message) => t('page.status.related-failed', '获取相关作品失败：{message}', { message: message })],
-        [/^已导出 (\d+) 个作品$/, (_, count) => t('page.status.exported', '已导出 {count} 个作品', { count: count })],
-        [/^已导出 (\d+) 个未下载作品$/, (_, count) => t('page.status.exported-undownloaded', '已导出 {count} 个未下载作品', { count: count })],
-        [/^需要登录，请登录后刷新页面$/, () => t('page.status.need-login-refresh', '需要登录，请登录后刷新页面')]
+        [/^相关作品：共 (\d+) 个，新增 (\d+) 个到队列$/, (_, total, added) => t('page.status.related-added', '相关作品：共 {total} 个，新增 {added} 个到队列', {
+            total: total,
+            added: added
+        })],
+        [/^获取相关作品失败：(.+)$/, (_, message) => t('page.status.related-failed', '获取相关作品失败：{message}', {message: message})],
+        [/^已导出 (\d+) 个作品$/, (_, count) => t('page.status.exported', '已导出 {count} 个作品', {count: count})],
+        [/^已导出 (\d+) 个未下载作品$/, (_, count) => t('page.status.exported-undownloaded', '已导出 {count} 个未下载作品', {count: count})],
+        [/^需要登录，请登录后刷新页面$/, () => t('page.status.need-login-refresh', '需要登录，请登录后刷新页面')],
+        [/^刷新后重置$/, () => t('page.msg.reset-on-refresh', '刷新后重置')],
+        [/^正在检查历史记录\.\.\.$/, () => t('page.msg.checking-history', '正在检查历史记录...')],
+        [/^跳过 — 历史记录中已存在$/, () => t('page.msg.skip-history-exists', '跳过 — 历史记录中已存在')],
+        [/^正在获取作品信息\.\.\.$/, () => t('page.msg.fetching-meta', '正在获取作品信息...')],
+        [/^跳过 — 非 R18 内容$/, () => t('page.msg.skip-non-r18', '跳过 — 非 R18 内容')],
+        [/^正在提交下载\.\.\.$/, () => t('page.msg.submitting', '正在提交下载...')],
+        [/^跳过 — 已下载（服务器确认）$/, () => t('page.msg.skip-downloaded-confirmed', '跳过 — 已下载（服务器确认）')],
+        [/^下载中，等待完成\.\.\.$/, () => t('page.msg.downloading-wait', '下载中，等待完成...')],
+        [/^失败 — 超时未收到完成状态$/, () => t('page.msg.failed-timeout', '失败 — 超时未收到完成状态')],
+        [/^失败 — 状态查询异常$/, () => t('page.msg.failed-status-query', '失败 — 状态查询异常')],
+        [/^失败 - 需要登录$/, () => t('page.msg.failed-need-login', '失败 - 需要登录')],
+        [/^失败 - 达到限额$/, () => t('page.msg.failed-quota', '失败 - 达到限额')],
+        [/^下载完成，正在打包$/, () => t('page.archive.packing-after-complete', '下载完成，正在打包')],
+        [/^失败 — (.+)$/, (_, message) => t('page.msg.failed-detail', '失败 — {message}', {message: message})]
     ];
 
     function translateStatusText(text) {
@@ -578,9 +801,9 @@
     function checkExternalServerNotice() {
         // 兼容旧的 GM_setValue 标记：历史用户已看过则继续跳过
         if (GM_getValue('pixiv_connect_notice_shown', false)) return;
-        PromptGuard.once('connect-notice', { persist: true }, () => {
+        PromptGuard.once('connect-notice', {persist: true}, () => {
             GM_setValue('pixiv_connect_notice_shown', true);
-            alert(t('common.dialog.connect-notice', null, { serverBase: serverBase }));
+            alert(t('common.dialog.connect-notice', null, {serverBase: serverBase}));
         });
     }
 
@@ -591,8 +814,10 @@
                 url: serverBase + '/api/download/status/0',
                 timeout: 5000,
                 onload: (res) => {
-                    if (res.status === 401) { handleUnauthorized(); resolve(false); }
-                    else resolve(true);
+                    if (res.status === 401) {
+                        handleUnauthorized();
+                        resolve(false);
+                    } else resolve(true);
                 },
                 onerror: () => resolve(true),
                 ontimeout: () => resolve(true)
@@ -602,7 +827,7 @@
 
     // 处理 solo 模式未登录（401）：跨脚本去重交给 PromptGuard
     function handleUnauthorized() {
-        PromptGuard.once('unauthorized', { ttlMs: 60000 }, () => {
+        PromptGuard.once('unauthorized', {ttlMs: 60000}, () => {
             alert(t('common.dialog.unauthorized', '后端服务需要登录验证，即将为您打开登录页面...'));
             window.open(serverBase + '/login.html', '_blank');
         });
@@ -633,7 +858,11 @@
 
     /* ========== 进度/后处理结果渲染辅助 ========== */
     function uiLang() {
-        try { return PixivUserscriptI18n.getLang(); } catch (e) { return 'zh-CN'; }
+        try {
+            return PixivUserscriptI18n.getLang();
+        } catch (e) {
+            return 'zh-CN';
+        }
     }
 
     function actionOutcomePart(action, labels) {
@@ -655,7 +884,7 @@
             : status === 'failed' || status === 'skipped'
                 ? 'error'
                 : 'warning';
-        return { text, tone };
+        return {text, tone};
     }
 
     function postDownloadOutcomeParts(data) {
@@ -690,7 +919,7 @@
 
     function buildPostDownloadMessageParts(base, baseTone, data) {
         const sep = uiLang() === 'en-US' ? '; ' : '；';
-        const parts = [{ text: base, tone: baseTone }].concat(postDownloadOutcomeParts(data));
+        const parts = [{text: base, tone: baseTone}].concat(postDownloadOutcomeParts(data));
         return parts.map((part, idx) => ({
             text: part.text + (idx < parts.length - 1 ? sep : ''),
             tone: part.tone
@@ -708,7 +937,7 @@
 
     function mergeUgoiraProgress(existing, incoming) {
         if (!incoming) return existing || null;
-        return { ...(existing || {}), ...incoming };
+        return {...(existing || {}), ...incoming};
     }
 
     function clampProgressValue(value) {
@@ -755,7 +984,10 @@
     function formatImageDownloadProgressHtml(progress, status) {
         if (!progress || ['completed', 'failed', 'skipped'].includes(status)) return '';
         const imageText = progress.imageNumber && progress.totalImages
-            ? t('common.image-download.index', '第 {current}/{total} 张', { current: progress.imageNumber, total: progress.totalImages })
+            ? t('common.image-download.index', '第 {current}/{total} 张', {
+                current: progress.imageNumber,
+                total: progress.totalImages
+            })
             : '';
         const bytesText = progress.totalBytes > 0
             ? `${formatBytes(progress.downloadedBytes || 0)} / ${formatBytes(progress.totalBytes)}`
@@ -857,13 +1089,15 @@
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/illust/${artworkId}`,
-                    headers: { Referer: 'https://www.pixiv.net/' },
+                    headers: {Referer: 'https://www.pixiv.net/'},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
                             if (data.error) reject(new Error(data.message || 'pixiv ajax error'));
                             else resolve(data.body);
-                        } catch (e) { reject(e); }
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -874,13 +1108,15 @@
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/illust/${artworkId}/pages`,
-                    headers: { Referer: 'https://www.pixiv.net/' },
+                    headers: {Referer: 'https://www.pixiv.net/'},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
                             if (data.error) reject(new Error(data.message || 'pixiv ajax error'));
                             else resolve((data.body || []).map(p => p.urls.original));
-                        } catch (e) { reject(e); }
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -891,13 +1127,15 @@
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/illust/${artworkId}/ugoira_meta`,
-                    headers: { Referer: 'https://www.pixiv.net/' },
+                    headers: {Referer: 'https://www.pixiv.net/'},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
                             if (data.error) reject(new Error(data.message || 'pixiv ajax error'));
                             else resolve(data.body);
-                        } catch (e) { reject(e); }
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -908,13 +1146,15 @@
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/illust/${artworkId}/recommend/init?limit=${limit}`,
-                    headers: { Referer: `https://www.pixiv.net/artworks/${artworkId}` },
+                    headers: {Referer: `https://www.pixiv.net/artworks/${artworkId}`},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
                             if (data.error) reject(new Error(data.message || 'pixiv ajax error'));
                             else resolve(data.body);
-                        } catch (e) { reject(e); }
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -929,13 +1169,15 @@
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: `${serverBase}/api/pixiv/series/${sid}?page=1`,
-                    headers: { 'X-Pixiv-Cookie': document.cookie || '' },
+                    headers: {'X-Pixiv-Cookie': document.cookie || ''},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
                             const meta = data && data.series ? data.series : null;
-                            resolve(meta ? { caption: meta.caption || '', coverUrl: meta.coverUrl || '' } : null);
-                        } catch (_) { resolve(null); }
+                            resolve(meta ? {caption: meta.caption || '', coverUrl: meta.coverUrl || ''} : null);
+                        } catch (_) {
+                            resolve(null);
+                        }
                     },
                     onerror: () => resolve(null)
                 });
@@ -972,22 +1214,36 @@
                     other.ugoiraZipUrl = ugoiraData.zipUrl;
                     other.ugoiraDelays = ugoiraData.delays;
                 }
-                const payload = { artworkId: parseInt(artworkId), imageUrls, title, referer: 'https://www.pixiv.net/', cookie: document.cookie, other };
-                const headers = { 'Content-Type': 'application/json' };
+                const payload = {
+                    artworkId: parseInt(artworkId),
+                    imageUrls,
+                    title,
+                    referer: 'https://www.pixiv.net/',
+                    cookie: document.cookie,
+                    other
+                };
+                const headers = {'Content-Type': 'application/json'};
                 if (userUUID) headers['X-User-UUID'] = userUUID;
                 GM_xmlhttpRequest({
                     method: 'POST', url: CONFIG.BACKEND_URL, headers, data: JSON.stringify(payload),
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
-                            if (res.status === 401) { handleUnauthorized(); reject(new Error('需要登录')); }
-                            else if (res.status === 429 && data.quotaExceeded) {
+                            if (res.status === 401) {
+                                handleUnauthorized();
+                                reject(new Error(t('page.err.need-login', '需要登录')));
+                            } else if (res.status === 429 && data.quotaExceeded) {
                                 const err = new Error('quota_exceeded');
                                 err.quotaData = data;
                                 reject(err);
-                            } else if (res.status === 200) { resolve(data); }
-                            else { reject(new Error(data.message || '后端返回失败')); }
-                        } catch (e) { reject(e); }
+                            } else if (res.status === 200) {
+                                resolve(data);
+                            } else {
+                                reject(new Error(data.message || t('page.err.backend-failed', '后端返回失败')));
+                            }
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -998,8 +1254,16 @@
                 GM_xmlhttpRequest({
                     method: 'GET', url: `${CONFIG.STATUS_URL}/${artworkId}`,
                     onload: (res) => {
-                        if (res.status === 401) { handleUnauthorized(); reject(new Error('需要登录')); return; }
-                        try { resolve(JSON.parse(res.responseText)); } catch (e) { reject(e); }
+                        if (res.status === 401) {
+                            handleUnauthorized();
+                            reject(new Error(t('page.err.need-login', '需要登录')));
+                            return;
+                        }
+                        try {
+                            resolve(JSON.parse(res.responseText));
+                        } catch (e) {
+                            reject(e);
+                        }
                     },
                     onerror: reject
                 });
@@ -1032,14 +1296,16 @@
                     onload: (res) => {
                         try {
                             resolve(res.status === 200 && !!JSON.parse(res.responseText).artworkId);
-                        } catch { resolve(false); }
+                        } catch {
+                            resolve(false);
+                        }
                     },
                     onerror: () => resolve(false), ontimeout: () => resolve(false)
                 });
             });
         },
         initQuota() {
-            const headers = { 'Content-Type': 'application/json' };
+            const headers = {'Content-Type': 'application/json'};
             if (userUUID) headers['X-User-UUID'] = userUUID;
             return new Promise((resolve) => {
                 GM_xmlhttpRequest({
@@ -1047,9 +1313,14 @@
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
-                            if (data.uuid) { userUUID = data.uuid; GM_setValue(CONFIG.KEY_USER_UUID, userUUID); }
+                            if (data.uuid) {
+                                userUUID = data.uuid;
+                                GM_setValue(CONFIG.KEY_USER_UUID, userUUID);
+                            }
                             resolve(data);
-                        } catch { resolve({}); }
+                        } catch {
+                            resolve({});
+                        }
                     },
                     onerror: () => resolve({}), ontimeout: () => resolve({})
                 });
@@ -1059,7 +1330,13 @@
             return new Promise((resolve) => {
                 GM_xmlhttpRequest({
                     method: 'GET', url: `${CONFIG.ARCHIVE_STATUS_BASE}/${token}`,
-                    onload: (res) => { try { resolve(JSON.parse(res.responseText)); } catch { resolve({}); } },
+                    onload: (res) => {
+                        try {
+                            resolve(JSON.parse(res.responseText));
+                        } catch {
+                            resolve({});
+                        }
+                    },
                     onerror: () => resolve({}), ontimeout: () => resolve({})
                 });
             });
@@ -1150,7 +1427,10 @@
                         this._cleanup();
                         this._scheduleReconnect();
                     },
-                    ontimeout: () => { this._cleanup(); this._scheduleReconnect(); }
+                    ontimeout: () => {
+                        this._cleanup();
+                        this._scheduleReconnect();
+                    }
                 });
             } catch (err) {
                 console.error('SSE open failed', err);
@@ -1213,7 +1493,8 @@
                 if (!aid) return;
                 const fns = this.listeners.get(aid);
                 if (fns) fns.forEach(fn => fn(parsed));
-            } catch (e) { /* 握手 / 心跳等非 download-status JSON 忽略 */ }
+            } catch (e) { /* 握手 / 心跳等非 download-status JSON 忽略 */
+            }
         }
 
         _scheduleReconnect() {
@@ -1237,12 +1518,18 @@
         }
 
         _cancelDeferredClose() {
-            if (this._closeTimer) { clearTimeout(this._closeTimer); this._closeTimer = null; }
+            if (this._closeTimer) {
+                clearTimeout(this._closeTimer);
+                this._closeTimer = null;
+            }
         }
 
         _closeNow() {
             this._cancelDeferredClose();
-            if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+            if (this._reconnectTimer) {
+                clearTimeout(this._reconnectTimer);
+                this._reconnectTimer = null;
+            }
             if (!this.connected && !this.connecting && !this.handle && !this.reader) {
                 this.connectionId = null;
                 this.closing = false;
@@ -1266,23 +1553,40 @@
                     url: `${CONFIG.SSE_CLOSE_BASE}/${encodeURIComponent(connectionId)}`,
                     headers,
                     timeout: 2000,
-                    onload: () => {},
-                    onerror: () => {},
-                    ontimeout: () => {}
+                    onload: () => {
+                    },
+                    onerror: () => {
+                    },
+                    ontimeout: () => {
+                    }
                 });
-            } catch (e) {}
+            } catch (e) {
+            }
         }
 
         _cleanup() {
             this.connected = false;
             this.connecting = false;
             this.connectionId = null;
-            if (this.reader) { try { this.reader.cancel(); } catch (e) {} this.reader = null; }
-            if (this.handle) { try { this.handle.abort(); } catch (e) {} this.handle = null; }
+            if (this.reader) {
+                try {
+                    this.reader.cancel();
+                } catch (e) {
+                }
+                this.reader = null;
+            }
+            if (this.handle) {
+                try {
+                    this.handle.abort();
+                } catch (e) {
+                }
+                this.handle = null;
+            }
             this._buffer = '';
             this.closing = false;
         }
     }
+
     // <<< SHARED:sse-manager.js
     /* ========== 下载管理器 ========== */
     class DownloadManager {
@@ -1294,7 +1598,7 @@
 
             this.stopRequested = false;
             this.activeWorkers = 0;
-            this.stats = { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
+            this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
             this.sse = new SSEManager();
             this._quotaExceededHandled = false;
             this.globalSettings = {
@@ -1317,14 +1621,21 @@
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed.queue)) {
                     this.queue = parsed.queue.map(q =>
-                        q.status === 'downloading' ? { ...q, status: 'idle', lastMessage: '刷新后重置', lastMessageParts: null } : q
+                        q.status === 'downloading' ? {
+                            ...q,
+                            status: 'idle',
+                            lastMessage: '刷新后重置',
+                            lastMessageParts: null
+                        } : q
                     );
                     this.isPaused = !!parsed.isPaused;
-                    this.stats = parsed.stats || { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
+                    this.stats = parsed.stats || {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
                     this.updateStats();
                     this.ui.updateOverlays();
                 }
-            } catch { this.queue = []; }
+            } catch {
+                this.queue = [];
+            }
         }
 
         saveToStorage() {
@@ -1333,10 +1644,16 @@
                     queue: this.queue, isPaused: this.isPaused, stats: this.stats,
                     savedAt: new Date().toISOString()
                 }));
-            } catch {}
+            } catch {
+            }
         }
 
-        deleteStorage() { try { GM_deleteValue(CONFIG.STORAGE_KEY); } catch {} }
+        deleteStorage() {
+            try {
+                GM_deleteValue(CONFIG.STORAGE_KEY);
+            } catch {
+            }
+        }
 
         setSkipHistory(val) {
             this.globalSettings.skipHistory = val;
@@ -1345,22 +1662,56 @@
                 this.ui.updateSkipHistoryVisibility(val);
             }
         }
-        setVerifyHistoryFiles(val) { this.globalSettings.verifyHistoryFiles = val; GM_setValue(CONFIG.KEY_VERIFY_HISTORY_FILES, val); }
-        setR18Only(val) { this.globalSettings.r18Only = val; GM_setValue(CONFIG.KEY_R18_ONLY, val); }
-        setBookmark(val) { this.globalSettings.bookmark = val; GM_setValue(CONFIG.KEY_BOOKMARK, val); }
-        setInterval(val) { this.globalSettings.interval = Math.max(0, parseFloat(val) || 0); GM_setValue(CONFIG.KEY_INTERVAL, this.globalSettings.interval); }
-        setIntervalUnit(unit) { this.globalSettings.intervalUnit = unit; GM_setValue(CONFIG.KEY_INTERVAL_UNIT, unit); }
-        setImageDelay(val) { this.globalSettings.imageDelay = Math.max(0, parseFloat(val) || 0); GM_setValue(CONFIG.KEY_IMAGE_DELAY, this.globalSettings.imageDelay); }
-        setImageDelayUnit(unit) { this.globalSettings.imageDelayUnit = unit; GM_setValue(CONFIG.KEY_IMAGE_DELAY_UNIT, unit); }
-        setConcurrent(val) { let n = parseInt(val) || CONFIG.DEFAULT_CONCURRENT; if (n < 1) n = 1; this.globalSettings.concurrent = n; GM_setValue(CONFIG.KEY_CONCURRENT, n); }
+
+        setVerifyHistoryFiles(val) {
+            this.globalSettings.verifyHistoryFiles = val;
+            GM_setValue(CONFIG.KEY_VERIFY_HISTORY_FILES, val);
+        }
+
+        setR18Only(val) {
+            this.globalSettings.r18Only = val;
+            GM_setValue(CONFIG.KEY_R18_ONLY, val);
+        }
+
+        setBookmark(val) {
+            this.globalSettings.bookmark = val;
+            GM_setValue(CONFIG.KEY_BOOKMARK, val);
+        }
+
+        setInterval(val) {
+            this.globalSettings.interval = Math.max(0, parseFloat(val) || 0);
+            GM_setValue(CONFIG.KEY_INTERVAL, this.globalSettings.interval);
+        }
+
+        setIntervalUnit(unit) {
+            this.globalSettings.intervalUnit = unit;
+            GM_setValue(CONFIG.KEY_INTERVAL_UNIT, unit);
+        }
+
+        setImageDelay(val) {
+            this.globalSettings.imageDelay = Math.max(0, parseFloat(val) || 0);
+            GM_setValue(CONFIG.KEY_IMAGE_DELAY, this.globalSettings.imageDelay);
+        }
+
+        setImageDelayUnit(unit) {
+            this.globalSettings.imageDelayUnit = unit;
+            GM_setValue(CONFIG.KEY_IMAGE_DELAY_UNIT, unit);
+        }
+
+        setConcurrent(val) {
+            let n = parseInt(val) || CONFIG.DEFAULT_CONCURRENT;
+            if (n < 1) n = 1;
+            this.globalSettings.concurrent = n;
+            GM_setValue(CONFIG.KEY_CONCURRENT, n);
+        }
 
         getIntervalMs() {
-            const { interval, intervalUnit } = this.globalSettings;
+            const {interval, intervalUnit} = this.globalSettings;
             return intervalUnit === 's' ? Math.round(interval * 1000) : Math.round(interval);
         }
 
         getImageDelayMs() {
-            const { imageDelay, imageDelayUnit } = this.globalSettings;
+            const {imageDelay, imageDelayUnit} = this.globalSettings;
             return imageDelayUnit === 's' ? Math.round(imageDelay * 1000) : Math.round(imageDelay);
         }
 
@@ -1393,8 +1744,14 @@
         }
 
         async start() {
-            if (this.queue.length === 0) { this.ui.setStatus('队列为空', 'error'); return; }
-            if (!await Api.checkBackend()) { alert(t('page.alert.backend-unavailable', '后端服务不可用，如果您使用是非localhost地址，请遵循README说明替换 脚本头部 @connect YOUR_SERVER_HOST 为您的服务器地址')); return; }
+            if (this.queue.length === 0) {
+                this.ui.setStatus('队列为空', 'error');
+                return;
+            }
+            if (!await Api.checkBackend()) {
+                alert(t('page.alert.backend-unavailable', '后端服务不可用，如果您使用是非localhost地址，请遵循README说明替换 脚本头部 @connect YOUR_SERVER_HOST 为您的服务器地址'));
+                return;
+            }
 
             const intervalMs = this.getIntervalMs();
             const maxConcurrent = this.globalSettings.concurrent;
@@ -1439,13 +1796,20 @@
         async _autoPackAfterQueue() {
             try {
                 const data = await new Promise((resolve) => {
-                    const headers = { 'Content-Type': 'application/json' };
+                    const headers = {'Content-Type': 'application/json'};
                     if (userUUID) headers['X-User-UUID'] = userUUID;
                     GM_xmlhttpRequest({
                         method: 'POST', url: serverBase + '/api/quota/pack', headers,
                         onload: (res) => {
-                            if (res.status === 204) { resolve(null); return; }
-                            try { resolve(JSON.parse(res.responseText)); } catch { resolve(null); }
+                            if (res.status === 204) {
+                                resolve(null);
+                                return;
+                            }
+                            try {
+                                resolve(JSON.parse(res.responseText));
+                            } catch {
+                                resolve(null);
+                            }
                         },
                         onerror: () => resolve(null), ontimeout: () => resolve(null)
                     });
@@ -1454,23 +1818,35 @@
                     this.ui.setStatus('批量下载结束，正在打包文件...', 'info');
                     this.ui.showQuotaExceeded(data, '下载完成，正在打包');
                 }
-            } catch {}
+            } catch {
+            }
         }
 
         async workerLoop(intervalMs) {
             this.activeWorkers++;
             try {
                 while (this.isRunning && !this.stopRequested) {
-                    if (this.isPaused) { await this._sleep(500); continue; }
+                    if (this.isPaused) {
+                        await this._sleep(500);
+                        continue;
+                    }
                     const next = this._getNextPending();
                     if (!next) {
                         if (this.queue.every(q => ['completed', 'failed', 'idle', 'paused', 'skipped'].includes(q.status))) break;
-                        await this._sleep(500); continue;
+                        await this._sleep(500);
+                        continue;
                     }
-                    try { await this._processSingle(next); } catch (e) { console.error(e); }
-                    finally { await this._sleep(intervalMs); }
+                    try {
+                        await this._processSingle(next);
+                    } catch (e) {
+                        console.error(e);
+                    } finally {
+                        await this._sleep(intervalMs);
+                    }
                 }
-            } finally { this.activeWorkers--; }
+            } finally {
+                this.activeWorkers--;
+            }
         }
 
         _getNextPending() {
@@ -1481,10 +1857,10 @@
             this.queue[idx].startTime = new Date().toISOString();
             this.saveToStorage();
             this.ui.renderQueue(this.queue);
-            return { idx, item: this.queue[idx] };
+            return {idx, item: this.queue[idx]};
         }
 
-        async _processSingle({ item }) {
+        async _processSingle({item}) {
             item.lastMessageParts = null;
             item.bookmarkResult = null;
             item.collectionResult = null;
@@ -1499,7 +1875,9 @@
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 历史记录中已存在';
                     item.endTime = new Date().toISOString();
-                    this.updateStats(); this.saveToStorage(); this.ui.renderQueue(this.queue);
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
                     return;
                 }
             }
@@ -1539,7 +1917,9 @@
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 非 R18 内容';
                     item.endTime = new Date().toISOString();
-                    this.updateStats(); this.saveToStorage(); this.ui.renderQueue(this.queue);
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
                     return;
                 }
 
@@ -1549,7 +1929,7 @@
                 if (meta && meta.illustType === 2) {
                     const ugoiraMeta = await Api.getUgoiraMeta(item.id);
                     const zipSrc = ugoiraMeta.originalSrc || ugoiraMeta.src;
-                    ugoiraData = { zipUrl: zipSrc, delays: ugoiraMeta.frames.map(f => f.delay) };
+                    ugoiraData = {zipUrl: zipSrc, delays: ugoiraMeta.frames.map(f => f.delay)};
                     urls = [zipSrc];
                     item.totalImages = 1;
                 } else if (meta && meta.pageCount === 1 && meta.urls && meta.urls.original) {
@@ -1558,12 +1938,13 @@
                     item.totalImages = 1;
                 } else {
                     urls = await Api.getArtworkPages(item.id);
-                    if (!urls || !urls.length) throw new Error('无图片URL');
+                    if (!urls || !urls.length) throw new Error(t('page.err.no-image-url', '无图片URL'));
                     item.totalImages = urls.length;
                 }
 
                 item.lastMessage = '正在提交下载...';
-                this.saveToStorage(); this.ui.renderQueue(this.queue);
+                this.saveToStorage();
+                this.ui.renderQueue(this.queue);
                 this.ui.setStatus(`下载中：${item.title}`, 'info');
 
                 const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, xRestrict, isAi, ugoiraData, this.getImageDelayMs(), this.globalSettings.bookmark, description, tags, seriesInfo);
@@ -1571,7 +1952,9 @@
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';
                     item.endTime = new Date().toISOString();
-                    this.updateStats(); this.saveToStorage(); this.ui.renderQueue(this.queue);
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
                     this.ui.setStatus(`跳过：${item.title}（已下载）`, 'info');
                     return;
                 }
@@ -1610,7 +1993,7 @@
                     item.ugoiraProgress = mergeUgoiraProgress(item.ugoiraProgress, final.ugoiraProgress);
                     item.imageProgress = final.imageProgress || item.imageProgress || null;
                     item.status = 'failed';
-                    item.lastMessage = `失败 — ${final.message || '后端报告失败'}`;
+                    item.lastMessage = `失败 — ${final.message || t('page.msg.backend-reported-failure', '后端报告失败')}`;
                     this.ui.setStatus(`失败：${item.title}`, 'error');
                 } else {
                     try {
@@ -1645,24 +2028,30 @@
 
             } catch (e) {
                 if (e.message === '需要登录') {
-                    item.status = 'failed'; item.lastMessage = '失败 - 需要登录';
+                    item.status = 'failed';
+                    item.lastMessage = '失败 - 需要登录';
                     this.queue.forEach(q => {
                         if (['pending', 'idle', 'paused'].includes(q.status)) {
-                            q.status = 'failed'; q.lastMessage = '失败 - 需要登录';
+                            q.status = 'failed';
+                            q.lastMessage = '失败 - 需要登录';
                         }
                     });
-                    this.stopRequested = true; this.isRunning = false;
+                    this.stopRequested = true;
+                    this.isRunning = false;
                     this.ui.setStatus('需要登录，已停止下载', 'error');
                 } else if (e.message === 'quota_exceeded') {
-                    item.status = 'failed'; item.lastMessage = '失败 - 达到限额';
+                    item.status = 'failed';
+                    item.lastMessage = '失败 - 达到限额';
                     if (!this._quotaExceededHandled) {
                         this._quotaExceededHandled = true;
                         this.queue.forEach(q => {
                             if (['pending', 'idle', 'paused'].includes(q.status)) {
-                                q.status = 'failed'; q.lastMessage = '失败 - 达到限额';
+                                q.status = 'failed';
+                                q.lastMessage = '失败 - 达到限额';
                             }
                         });
-                        this.stopRequested = true; this.isRunning = false;
+                        this.stopRequested = true;
+                        this.isRunning = false;
                         this.ui.setStatus('已达到下载限额', 'error');
                         if (e.quotaData) this.ui.showQuotaExceeded(e.quotaData);
                     }
@@ -1672,9 +2061,14 @@
                     this.ui.setStatus(`错误：${item.title} - ${item.lastMessage}`, 'error');
                 }
             } finally {
-                try { this.sse.close(item.id); } catch (e) {}
+                try {
+                    this.sse.close(item.id);
+                } catch (e) {
+                }
                 item.endTime = item.endTime || new Date().toISOString();
-                this.updateStats(); this.saveToStorage(); this.ui.renderQueue(this.queue);
+                this.updateStats();
+                this.saveToStorage();
+                this.ui.renderQueue(this.queue);
                 this.ui.setCurrent(null);
             }
         }
@@ -1694,11 +2088,15 @@
                 timer = setTimeout(() => finish(null), timeoutMs);
                 // 每5秒轮询一次，防止 SSE 事件丢失导致任务卡死
                 pollTimer = setInterval(async () => {
-                    if (resolved) { clearInterval(pollTimer); return; }
+                    if (resolved) {
+                        clearInterval(pollTimer);
+                        return;
+                    }
                     try {
                         const status = await Api.getDownloadStatus(String(artworkId));
                         if (status && (status.completed || status.failed)) finish(status);
-                    } catch {}
+                    } catch {
+                    }
                 }, 5000);
                 const handler = (data) => {
                     if (data && (data.completed || data.failed || data.cancelled)) {
@@ -1724,7 +2122,9 @@
         pause() {
             if (!this.isRunning) return;
             this.isPaused = true;
-            this.queue.forEach(q => { if (q.status === 'pending') q.status = 'paused'; });
+            this.queue.forEach(q => {
+                if (q.status === 'pending') q.status = 'paused';
+            });
             this.saveToStorage();
             const activeCount = this.queue.filter(q => q.status === 'downloading').length;
             this.ui.updateButtonsState(true, true);
@@ -1732,20 +2132,28 @@
         }
 
         resume() {
-            if (!this.isRunning) { this.start(); return; }
+            if (!this.isRunning) {
+                this.start();
+                return;
+            }
             this.isPaused = false;
-            this.queue.forEach(q => { if (q.status === 'paused') q.status = 'pending'; });
+            this.queue.forEach(q => {
+                if (q.status === 'paused') q.status = 'pending';
+            });
             this.saveToStorage();
             this.ui.updateButtonsState(true, false);
             this.ui.setStatus('继续下载', 'info');
         }
 
         stopAndClear() {
-            this.stopRequested = true; this.isRunning = false; this.isPaused = false;
+            this.stopRequested = true;
+            this.isRunning = false;
+            this.isPaused = false;
             this.sse.closeAll();
-            Api.clearQueue().catch(() => {});
+            Api.clearQueue().catch(() => {
+            });
             this.queue = [];
-            this.stats = { completed: 0, success: 0, failed: 0, active: 0, skipped: 0 };
+            this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
             this.deleteStorage();
             this.ui.renderQueue(this.queue);
             this.ui.updateButtonsState(false, false);
@@ -1773,7 +2181,9 @@
             return true;
         }
 
-        _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+        _sleep(ms) {
+            return new Promise(r => setTimeout(r, ms));
+        }
     }
 
     /* ========== UI ========== */
@@ -1806,7 +2216,7 @@
             const container = $el('div', {
                 id: 'pixiv-page-batch-ui',
                 style: {
-                    position: 'fixed', top: '120px', right: '20px', zIndex: 999998,
+                    position: 'fixed', top: '120px', right: '20px', zIndex: 10000,
                     background: 'white', border: '2px solid #17a2b8', borderRadius: '8px',
                     padding: '15px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
                     minWidth: '400px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -1816,16 +2226,31 @@
 
             // Title row
             const titleRow = $el('div', {
-                style: { display: 'flex', alignItems: 'center', marginBottom: '15px', borderBottom: '2px solid #eee', paddingBottom: '10px' }
+                style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    marginBottom: '15px',
+                    borderBottom: '2px solid #eee',
+                    paddingBottom: '10px'
+                }
             });
             const collapseBtn = $el('button', {
                 innerText: '◀', title: t('common.action.collapse', '收起'),
-                style: { background: 'none', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', padding: '2px 6px', color: '#666', flexShrink: '0' }
+                style: {
+                    background: 'none',
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    padding: '2px 6px',
+                    color: '#666',
+                    flexShrink: '0'
+                }
             });
             const titleEl = $el('div', {
                 id: 'page-batch-ui-title',
                 innerText: t('page.title', '📄 Pixiv 页面批量下载器'),
-                style: { fontWeight: 'bold', color: '#333', textAlign: 'center', fontSize: '16px', flex: '1' }
+                style: {fontWeight: 'bold', color: '#333', textAlign: 'center', fontSize: '16px', flex: '1'}
             });
             collapseBtn.addEventListener('click', () => this.manualToggleCollapse());
             titleRow.appendChild(collapseBtn);
@@ -1837,14 +2262,32 @@
             if (existingFab) existingFab.remove();
             const miniFab = $el('button', {
                 id: 'page-batch-mini-fab', innerText: '📄', title: t('page.fab.title', '页面批量下载器'),
-                style: { display: 'none', position: 'fixed', top: '160px', right: '20px', zIndex: '999999', background: '#17a2b8', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', lineHeight: '40px', textAlign: 'center', padding: '0' }
+                style: {
+                    display: 'none',
+                    position: 'fixed',
+                    top: '160px',
+                    right: '20px',
+                    zIndex: '10001',
+                    background: '#17a2b8',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '50%',
+                    width: '40px',
+                    height: '40px',
+                    cursor: 'pointer',
+                    fontSize: '18px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                    lineHeight: '40px',
+                    textAlign: 'center',
+                    padding: '0'
+                }
             });
             miniFab.addEventListener('click', () => this.manualToggleCollapse());
             document.body.appendChild(miniFab);
 
             const status = $el('div', {
                 innerText: t('common.status.ready', '准备就绪'),
-                style: { marginBottom: '10px', color: '#666', fontSize: '12px', textAlign: 'center' }
+                style: {marginBottom: '10px', color: '#666', fontSize: '12px', textAlign: 'center'}
             });
             const stats = $el('div', {
                 innerText: t('common.stats.summary', '队列: {pending} | 成功: {success} | 失败: {failed} | 进行中: {active} | 跳过: {skipped}', {
@@ -1854,10 +2297,16 @@
                     active: 0,
                     skipped: 0
                 }),
-                style: { marginBottom: '10px', color: '#007bff', fontSize: '12px', textAlign: 'center', fontWeight: 'bold' }
+                style: {
+                    marginBottom: '10px',
+                    color: '#007bff',
+                    fontSize: '12px',
+                    textAlign: 'center',
+                    fontWeight: 'bold'
+                }
             });
 
-            const settings = $el('div', { style: { marginBottom: '15px' } });
+            const settings = $el('div', {style: {marginBottom: '15px'}});
             settings.innerHTML = `
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">${t('page.setting.interval', '作品间隔:')}</label>
@@ -1898,23 +2347,87 @@
                 </div>
             `;
 
-            const buttonContainer = $el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '10px' } });
+            const buttonContainer = $el('div', {
+                style: {
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    marginBottom: '10px'
+                }
+            });
             const buttons = [
-                { id: 'pbd-scrape-btn', text: t('page.button.scrape', '📷 抓取当前页面作品'), bgColor: '#17a2b8', onClick: () => this.handleScrape() },
-                { id: 'pbd-scrape-current-btn', text: t('page.button.scrape-current', '🎯 抓取当前作品'), bgColor: '#17a2b8', onClick: () => this.handleScrapeCurrent(), singlePageOnly: true },
-                { id: 'pbd-scrape-related-btn', text: t('page.button.scrape-related', '🧩 抓取相关作品'), bgColor: '#17a2b8', onClick: () => this.handleScrapeRelated(), singlePageOnly: true },
-                { id: 'pbd-start-btn', text: t('page.button.start', '🚀 开始批量下载'), bgColor: '#28a745', onClick: () => this.handleStart() },
-                { id: 'pbd-retry-btn', text: t('page.button.retry', '🔁 重新下载失败的作品'), bgColor: '#17a2b8', onClick: () => this.handleRetry() },
-                { id: 'pbd-pause-btn', text: t('common.button.pause', '⏸️ 暂停下载'), bgColor: '#ffc107', onClick: () => this.handlePause(), disabled: true },
-                { id: 'pbd-export-btn', text: t('page.button.export', '📤 导出下载列表'), bgColor: '#007bff', onClick: () => this.handleExport() },
-                { id: 'pbd-export-failed-btn', text: t('page.button.export-failed', '📋 导出未下载列表'), bgColor: '#6610f2', onClick: () => this.handleExportFailed() },
-                { id: 'pbd-clear-btn', text: t('page.button.clear', '🗑️ 清除队列'), bgColor: '#6c757d', onClick: () => this.handleClear() }
+                {
+                    id: 'pbd-scrape-btn',
+                    text: t('page.button.scrape', '📷 抓取当前页面作品'),
+                    bgColor: '#17a2b8',
+                    onClick: () => this.handleScrape()
+                },
+                {
+                    id: 'pbd-scrape-current-btn',
+                    text: t('page.button.scrape-current', '🎯 抓取当前作品'),
+                    bgColor: '#17a2b8',
+                    onClick: () => this.handleScrapeCurrent(),
+                    singlePageOnly: true
+                },
+                {
+                    id: 'pbd-scrape-related-btn',
+                    text: t('page.button.scrape-related', '🧩 抓取相关作品'),
+                    bgColor: '#17a2b8',
+                    onClick: () => this.handleScrapeRelated(),
+                    singlePageOnly: true
+                },
+                {
+                    id: 'pbd-start-btn',
+                    text: t('page.button.start', '🚀 开始批量下载'),
+                    bgColor: '#28a745',
+                    onClick: () => this.handleStart()
+                },
+                {
+                    id: 'pbd-retry-btn',
+                    text: t('page.button.retry', '🔁 重新下载失败的作品'),
+                    bgColor: '#17a2b8',
+                    onClick: () => this.handleRetry()
+                },
+                {
+                    id: 'pbd-pause-btn',
+                    text: t('common.button.pause', '⏸️ 暂停下载'),
+                    bgColor: '#ffc107',
+                    onClick: () => this.handlePause(),
+                    disabled: true
+                },
+                {
+                    id: 'pbd-export-btn',
+                    text: t('page.button.export', '📤 导出下载列表'),
+                    bgColor: '#007bff',
+                    onClick: () => this.handleExport()
+                },
+                {
+                    id: 'pbd-export-failed-btn',
+                    text: t('page.button.export-failed', '📋 导出未下载列表'),
+                    bgColor: '#6610f2',
+                    onClick: () => this.handleExportFailed()
+                },
+                {
+                    id: 'pbd-clear-btn',
+                    text: t('page.button.clear', '🗑️ 清除队列'),
+                    bgColor: '#6c757d',
+                    onClick: () => this.handleClear()
+                }
             ];
             const singlePageButtons = [];
             buttons.forEach(cfg => {
                 const btn = $el('button', {
                     id: cfg.id, innerText: cfg.text,
-                    style: { width: '100%', background: cfg.bgColor, color: cfg.bgColor === '#ffc107' ? 'black' : 'white', border: 'none', padding: '10px', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }
+                    style: {
+                        width: '100%',
+                        background: cfg.bgColor,
+                        color: cfg.bgColor === '#ffc107' ? 'black' : 'white',
+                        border: 'none',
+                        padding: '10px',
+                        borderRadius: '5px',
+                        cursor: 'pointer',
+                        fontSize: '14px'
+                    }
                 });
                 btn.disabled = !!cfg.disabled;
                 btn.addEventListener('click', cfg.onClick);
@@ -1927,22 +2440,54 @@
             this._singlePageButtons = singlePageButtons;
 
             const currentDownload = $el('div', {
-                style: { marginBottom: '10px', padding: '8px', background: '#f8f9fa', borderRadius: '5px', borderLeft: '4px solid #17a2b8', fontSize: '11px' }
+                style: {
+                    marginBottom: '10px',
+                    padding: '8px',
+                    background: '#f8f9fa',
+                    borderRadius: '5px',
+                    borderLeft: '4px solid #17a2b8',
+                    fontSize: '11px'
+                }
             });
             currentDownload.innerHTML = `<strong>${t('common.current.label', '当前下载:')}</strong> ${t('common.current.none', '无')}`;
 
             const queueContainer = $el('div', {
-                style: { maxHeight: '250px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '5px', padding: '10px', marginBottom: '10px', background: '#f8f9fa', fontSize: '11px' }
+                style: {
+                    maxHeight: '250px',
+                    overflowY: 'auto',
+                    border: '1px solid #ddd',
+                    borderRadius: '5px',
+                    padding: '10px',
+                    marginBottom: '10px',
+                    background: '#f8f9fa',
+                    fontSize: '11px'
+                }
             });
 
             const quotaBar = $el('div', {
                 id: 'pixiv-page-quota-bar',
-                style: { display: 'none', marginBottom: '10px', padding: '6px 8px', background: '#f8f9fa', borderRadius: '5px', fontSize: '11px', color: '#555' }
+                style: {
+                    display: 'none',
+                    marginBottom: '10px',
+                    padding: '6px 8px',
+                    background: '#f8f9fa',
+                    borderRadius: '5px',
+                    fontSize: '11px',
+                    color: '#555'
+                }
             });
 
             const archiveCard = $el('div', {
                 id: 'pixiv-page-archive-card',
-                style: { display: 'none', marginBottom: '10px', padding: '10px', background: '#fff8e1', border: '2px solid #ffc107', borderRadius: '5px', fontSize: '12px' }
+                style: {
+                    display: 'none',
+                    marginBottom: '10px',
+                    padding: '10px',
+                    background: '#fff8e1',
+                    border: '2px solid #ffc107',
+                    borderRadius: '5px',
+                    fontSize: '12px'
+                }
             });
 
             container.appendChild(titleRow);
@@ -2064,7 +2609,7 @@
             } else {
                 if (this.root) this.root.style.display = 'block';
                 if (fab) fab.style.display = 'none';
-                document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'page' }));
+                document.dispatchEvent(new CustomEvent('pixiv_panel_active', {detail: 'page'}));
             }
         }
 
@@ -2149,10 +2694,14 @@
         updateSinglePageButtonsVisibility() {
             if (!this._singlePageButtons) return;
             const show = /\/artworks\/\d+/.test(location.pathname);
-            this._singlePageButtons.forEach(btn => { btn.style.display = show ? 'block' : 'none'; });
+            this._singlePageButtons.forEach(btn => {
+                btn.style.display = show ? 'block' : 'none';
+            });
         }
 
-        handleStart() { this.manager && this.manager.start(); }
+        handleStart() {
+            this.manager && this.manager.start();
+        }
 
         handlePause() {
             if (!this.manager) return;
@@ -2162,7 +2711,10 @@
         handleRetry() {
             if (!this.manager) return;
             const failed = this.manager.queue.filter(q => q.status === 'failed');
-            if (!failed.length) { alert(t('page.alert.no-failed', '当前没有失败的作品！')); return; }
+            if (!failed.length) {
+                alert(t('page.alert.no-failed', '当前没有失败的作品！'));
+                return;
+            }
             failed.forEach(q => {
                 q.status = 'pending';
                 q.lastMessage = '';
@@ -2184,7 +2736,10 @@
         }
 
         handleExport() {
-            if (!this.manager || !this.manager.queue.length) { alert(t('page.alert.queue-empty-export', '队列为空，无内容可导出')); return; }
+            if (!this.manager || !this.manager.queue.length) {
+                alert(t('page.alert.queue-empty-export', '队列为空，无内容可导出'));
+                return;
+            }
             const lines = this.manager.queue.map(item => `https://www.pixiv.net/artworks/${item.id} | ${item.title}`);
             this._downloadTxt(lines.join('\n'), 'pixiv_page_all_list.txt');
             this.setStatus(`已导出 ${lines.length} 个作品`, 'success');
@@ -2193,19 +2748,25 @@
         handleExportFailed() {
             if (!this.manager) return;
             const items = this.manager.queue.filter(q => q.status !== 'completed');
-            if (!items.length) { alert(t('page.alert.no-undownloaded', '没有未下载的作品')); return; }
+            if (!items.length) {
+                alert(t('page.alert.no-undownloaded', '没有未下载的作品'));
+                return;
+            }
             const lines = items.map(item => `https://www.pixiv.net/artworks/${item.id} | ${item.title}`);
             this._downloadTxt(lines.join('\n'), 'pixiv_page_undownloaded_list.txt');
             this.setStatus(`已导出 ${lines.length} 个未下载作品`, 'success');
         }
 
         _downloadTxt(content, filename) {
-            const blob = new Blob([content], { type: 'text/plain' });
+            const blob = new Blob([content], {type: 'text/plain'});
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url; a.download = filename;
-            document.body.appendChild(a); a.click();
-            document.body.removeChild(a); URL.revokeObjectURL(url);
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         renderQueue(queue) {
@@ -2217,7 +2778,13 @@
             }
             for (const q of queue) {
                 const item = $el('div', {
-                    style: { padding: '5px', marginBottom: '3px', background: 'white', fontSize: '10px', borderLeft: `3px solid ${this._colorByStatus(q.status)}` }
+                    style: {
+                        padding: '5px',
+                        marginBottom: '3px',
+                        background: 'white',
+                        fontSize: '10px',
+                        borderLeft: `3px solid ${this._colorByStatus(q.status)}`
+                    }
                 });
                 const desc = translateStatusText(q.lastMessage || this._statusText(q.status));
                 const descHtml = renderQueueDescHtml(q, desc, (s) => this._colorByStatus(s));
@@ -2233,19 +2800,31 @@
             }
             node.onclick = (e) => {
                 const btn = e.target.closest('[data-remove-id]');
-                if (btn) { e.stopPropagation(); this.manager.removeFromQueue(btn.dataset.removeId); }
+                if (btn) {
+                    e.stopPropagation();
+                    this.manager.removeFromQueue(btn.dataset.removeId);
+                }
             };
         }
 
         _progressHtml(q, isMain = false) {
             if (q.totalImages <= 0) return '';
             const pct = Math.min(Math.round(((q.downloadedCount || 0) / q.totalImages) * 100), 100);
-            return `<div style="margin-top:3px;"><div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:2px;"><span>${isMain ? t('common.progress.current', '已下载 {count} / {total}', { count: q.downloadedCount || 0, total: q.totalImages }) : t('common.progress.downloaded', '已下载: {count}/{total}', { count: q.downloadedCount || 0, total: q.totalImages })}</span><span>${pct}%</span></div><div style="width:100%;height:${isMain ? 6 : 4}px;background:#e0e0e0;border-radius:2px;overflow:hidden;"><div style="height:100%;background:${isMain ? '#17a2b8' : '#007bff'};width:${pct}%;transition:width 0.3s;"></div></div></div>`;
+            return `<div style="margin-top:3px;"><div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:2px;"><span>${isMain ? t('common.progress.current', '已下载 {count} / {total}', {
+                count: q.downloadedCount || 0,
+                total: q.totalImages
+            }) : t('common.progress.downloaded', '已下载: {count}/{total}', {
+                count: q.downloadedCount || 0,
+                total: q.totalImages
+            })}</span><span>${pct}%</span></div><div style="width:100%;height:${isMain ? 6 : 4}px;background:#e0e0e0;border-radius:2px;overflow:hidden;"><div style="height:100%;background:${isMain ? '#17a2b8' : '#007bff'};width:${pct}%;transition:width 0.3s;"></div></div></div>`;
         }
 
         setCurrent(item) {
             const c = this.elements.currentDownload;
-            if (!item) { c.innerHTML = `<strong>${t('common.current.label', '当前下载:')}</strong> ${t('common.current.none', '无')}`; return; }
+            if (!item) {
+                c.innerHTML = `<strong>${t('common.current.label', '当前下载:')}</strong> ${t('common.current.none', '无')}`;
+                return;
+            }
             const detailProgress = formatImageDownloadProgressHtml(item.imageProgress, item.status)
                 + formatUgoiraProgressHtml(item.ugoiraProgress, item.status);
             c.innerHTML = `<strong>${t('common.current.label', '当前下载:')}</strong> ${escapeHtml(item.title)} (ID: ${item.id})${this._progressHtml(item, true)}${detailProgress}`;
@@ -2253,7 +2832,12 @@
 
         setStatus(msg, type = 'info') {
             this.elements.status.innerText = translateStatusText(msg);
-            this.elements.status.style.color = { info: '#007bff', success: '#28a745', error: '#dc3545', warning: '#ffc107' }[type] || '#666';
+            this.elements.status.style.color = {
+                info: '#007bff',
+                success: '#28a745',
+                error: '#dc3545',
+                warning: '#ffc107'
+            }[type] || '#666';
         }
 
         updateStats(stats) {
@@ -2276,7 +2860,13 @@
         }
 
         _colorByStatus(status) {
-            return { completed: '#28a745', downloading: '#17a2b8', failed: '#dc3545', paused: '#6c757d', skipped: '#ffa500' }[status] || '#6c757d';
+            return {
+                completed: '#28a745',
+                downloading: '#17a2b8',
+                failed: '#dc3545',
+                paused: '#6c757d',
+                skipped: '#ffa500'
+            }[status] || '#6c757d';
         }
 
         _statusText(status) {
@@ -2298,28 +2888,36 @@
             if (!bar || !info || !info.enabled) return;
             const pct = Math.min(100, Math.round(info.artworksUsed / info.maxArtworks * 100));
             const color = pct >= 90 ? '#dc3545' : pct >= 70 ? '#ffc107' : '#28a745';
-            const resetTxt = info.resetSeconds > 0 ? t('common.quota.reset', ' | 重置剩余：{time}', { time: this._fmtSeconds(info.resetSeconds) }) : '';
+            const resetTxt = info.resetSeconds > 0 ? t('common.quota.reset', ' | 重置剩余：{time}', {time: this._fmtSeconds(info.resetSeconds)}) : '';
             bar.style.display = 'block';
-            bar.innerHTML = `<div style="display:flex;align-items:center;gap:6px;"><span style="white-space:nowrap;">${t('common.quota.summary', '配额：{used}/{max} 个作品', { used: info.artworksUsed, max: info.maxArtworks })}</span><div style="flex:1;height:5px;background:#e0e0e0;border-radius:3px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${color};border-radius:3px;"></div></div><span style="white-space:nowrap;color:#888;font-size:10px;">${pct}%${resetTxt}</span></div>`;
+            bar.innerHTML = `<div style="display:flex;align-items:center;gap:6px;"><span style="white-space:nowrap;">${t('common.quota.summary', '配额：{used}/{max} 个作品', {
+                used: info.artworksUsed,
+                max: info.maxArtworks
+            })}</span><div style="flex:1;height:5px;background:#e0e0e0;border-radius:3px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${color};border-radius:3px;"></div></div><span style="white-space:nowrap;color:#888;font-size:10px;">${pct}%${resetTxt}</span></div>`;
         }
 
         showQuotaExceeded(data, title = '已达到下载限额') {
-            clearInterval(this._archivePollTimer); clearInterval(this._archiveCountdownTimer);
+            clearInterval(this._archivePollTimer);
+            clearInterval(this._archiveCountdownTimer);
             const card = document.getElementById('pixiv-page-archive-card');
             if (!card) return;
             card.style.display = 'block';
-            card.innerHTML = `<div style="font-weight:bold;color:#856404;margin-bottom:6px;">${title === '已达到下载限额' ? t('common.archive.limit-title', '已达到下载限额') : title}</div><div id="pixiv-page-ac-status" style="font-size:11px;color:#666;">${t('common.archive.preparing', '正在打包已下载文件，请稍候...')}</div><div id="pixiv-page-ac-dl" style="display:none;margin-top:6px;"></div><div id="pixiv-page-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
+            card.innerHTML = `<div style="font-weight:bold;color:#856404;margin-bottom:6px;">${translateStatusText(title)}</div><div id="pixiv-page-ac-status" style="font-size:11px;color:#666;">${t('common.archive.preparing', '正在打包已下载文件，请稍候...')}</div><div id="pixiv-page-ac-dl" style="display:none;margin-top:6px;"></div><div id="pixiv-page-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
             this._pollArchive(data.archiveToken, data.archiveExpireSeconds || 3600);
         }
 
         restoreArchiveCard(token, expireSec, ready) {
-            clearInterval(this._archivePollTimer); clearInterval(this._archiveCountdownTimer);
+            clearInterval(this._archivePollTimer);
+            clearInterval(this._archiveCountdownTimer);
             const card = document.getElementById('pixiv-page-archive-card');
             if (!card) return;
             card.style.display = 'block';
             card.innerHTML = `<div style="font-weight:bold;color:#856404;margin-bottom:6px;">${t('common.archive.restore-title', '已有未下载的压缩包')}</div><div id="pixiv-page-ac-status" style="font-size:11px;color:#666;"></div><div id="pixiv-page-ac-dl" style="display:none;margin-top:6px;"></div><div id="pixiv-page-ac-expired" style="display:none;color:#dc3545;font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
             if (ready) this._activateArchiveDl(token, expireSec);
-            else { document.getElementById('pixiv-page-ac-status').textContent = t('common.archive.preparing', '正在打包已下载文件，请稍候...'); this._pollArchive(token, expireSec); }
+            else {
+                document.getElementById('pixiv-page-ac-status').textContent = t('common.archive.preparing', '正在打包已下载文件，请稍候...');
+                this._pollArchive(token, expireSec);
+            }
         }
 
         _pollArchive(token, expireSec) {
@@ -2336,7 +2934,9 @@
                         const ex = document.getElementById('pixiv-page-ac-expired');
                         if (ex) ex.style.display = 'block';
                         if (s) s.textContent = '';
-                    } else { if (s) s.textContent = t('common.archive.empty', '暂无可打包文件'); }
+                    } else {
+                        if (s) s.textContent = t('common.archive.empty', '暂无可打包文件');
+                    }
                 }
             }, 2000);
         }
@@ -2352,7 +2952,7 @@
                 dlEl.innerHTML = `<a href="${CONFIG.ARCHIVE_DOWNLOAD_BASE}/${token}" download="${filename}" style="display:inline-block;padding:5px 12px;background:#28a745;color:white;border-radius:4px;text-decoration:none;font-size:12px;font-weight:bold;">${t('common.archive.download-link', '下载压缩包')}</a><span id="pixiv-page-ac-countdown" style="font-size:10px;color:#888;margin-left:8px;"></span>`;
                 let remaining = Math.max(0, parseInt(expireSec));
                 const countdownEl = () => document.getElementById('pixiv-page-ac-countdown');
-                if (countdownEl()) countdownEl().textContent = t('common.archive.validity', '有效期：{time}', { time: this._fmtSeconds(remaining) });
+                if (countdownEl()) countdownEl().textContent = t('common.archive.validity', '有效期：{time}', {time: this._fmtSeconds(remaining)});
                 this._archiveCountdownTimer = setInterval(() => {
                     remaining--;
                     if (remaining <= 0) {
@@ -2360,7 +2960,9 @@
                         const ex = document.getElementById('pixiv-page-ac-expired');
                         if (dlEl) dlEl.style.display = 'none';
                         if (ex) ex.style.display = 'block';
-                    } else { if (countdownEl()) countdownEl().textContent = t('common.archive.validity', '有效期：{time}', { time: this._fmtSeconds(remaining) }); }
+                    } else {
+                        if (countdownEl()) countdownEl().textContent = t('common.archive.validity', '有效期：{time}', {time: this._fmtSeconds(remaining)});
+                    }
                 }, 1000);
             }
         }
@@ -2477,25 +3079,31 @@
 
     // SPA navigation — show/hide based on current URL
     let lastHref = location.href;
+
     function updateVisibility(isNavigation, isInitial) {
         if (!document.getElementById('pixiv-page-batch-ui')) ui.mount();
         if (isInitial) {
             // 首次加载优先沿用上次记忆的展开/收缩状态
             ui._collapsed = loadPanelCollapsed();
         } else if (isNavigation) {
-            // 站内导航时，根据页面类型决定默认展开/收起
-            const shouldExpand = shouldDefaultExpand();
-            if (shouldExpand && ui._collapsed) {
-                ui._collapsed = false;
-            } else if (!shouldExpand && !ui._collapsed) {
+            if (loadPanelCollapsed()) {
+                // 用户已手动收起：存储值优先级最高，跳转到任何页面（含默认展开的页面）都不自动展开
                 ui._collapsed = true;
+            } else {
+                // 未被手动收起时，站内导航按页面类型决定默认展开/收起
+                const shouldExpand = shouldDefaultExpand();
+                if (shouldExpand && ui._collapsed) {
+                    ui._collapsed = false;
+                } else if (!shouldExpand && !ui._collapsed) {
+                    ui._collapsed = true;
+                }
             }
         }
         if (!ui._collapsed) {
             if (ui.root) ui.root.style.display = 'block';
             const fab = document.getElementById('page-batch-mini-fab');
             if (fab) fab.style.display = 'none';
-            if (isNavigation) document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'page' }));
+            if (isNavigation) document.dispatchEvent(new CustomEvent('pixiv_panel_active', {detail: 'page'}));
         } else {
             if (ui.root) ui.root.style.display = 'none';
             const fab = document.getElementById('page-batch-mini-fab');
@@ -2508,12 +3116,18 @@
 
     updateVisibility(true, true);
 
+    // 跨脚本共享折叠状态：仅“收起”跨脚本传播（收一个=全收）；展开不在此级联，
+    // 由用户点击本面板 FAB 或站内导航按页面类型决定，避免点任意 FAB 误展开本面板
+    PixivPanelState.onChange(c => {
+        if (c && ui && !ui._collapsed) ui.toggleCollapse();
+    });
+
     // MutationObserver: re-apply overlays when Pixiv's SPA injects new thumbnail nodes
     let _overlayDebounce = null;
     new MutationObserver(() => {
         clearTimeout(_overlayDebounce);
         _overlayDebounce = setTimeout(() => ui.updateOverlays(), 250);
-    }).observe(document.body, { childList: true, subtree: true });
+    }).observe(document.body, {childList: true, subtree: true});
 
     setInterval(() => {
         if (location.href !== lastHref) {
@@ -2524,6 +3138,7 @@
 
     // Quota init
     let quotaResetTimer = null;
+
     function startQuotaResetCountdown() {
         clearInterval(quotaResetTimer);
         if (quotaInfo.resetSeconds <= 0) return;
@@ -2536,26 +3151,36 @@
 
     (async () => {
         const authed = await checkLoginStatus();
-        if (!authed) { ui.setStatus('需要登录，请登录后刷新页面', 'error'); return; }
+        if (!authed) {
+            ui.setStatus('需要登录，请登录后刷新页面', 'error');
+            return;
+        }
         Api.initQuota().then(data => {
             if (!data.enabled) return;
-            quotaInfo = { enabled: true, artworksUsed: data.artworksUsed || 0, maxArtworks: data.maxArtworks || 50, resetSeconds: data.resetSeconds || 0 };
+            quotaInfo = {
+                enabled: true,
+                artworksUsed: data.artworksUsed || 0,
+                maxArtworks: data.maxArtworks || 50,
+                resetSeconds: data.resetSeconds || 0
+            };
             ui.updateQuotaBar(quotaInfo);
             startQuotaResetCountdown();
             if (data.archive && data.archive.token) {
                 ui.restoreArchiveCard(data.archive.token, data.archive.expireSeconds || 3600, data.archive.status === 'ready');
             }
-        }).catch(() => {});
+        }).catch(() => {
+        });
     })();
 
     // Cross-script panel coordination
     document.addEventListener('pixiv_panel_active', e => {
-        if ((e.detail === 'single-import' || e.detail === 'user') && ui && !ui._collapsed) {
+        if (e.detail && e.detail !== 'page' && ui && !ui._collapsed) {
             ui.toggleCollapse();
         }
     });
 
     GM_registerMenuCommand(t('page.menu.open', '打开 Pixiv 页面批量下载器'), () => {
-        ui.show(); window.scrollTo(0, 0);
+        ui.show();
+        window.scrollTo(0, 0);
     });
 })();

@@ -38,6 +38,7 @@ management features.
 - One-stop download web page
 - Page batch download userscript — scrape works from Pixiv pages such as search results, following feed, rankings, and
   more
+- Experience-enhancement toolbox userscript
 - One-stop management/monitoring page with multi-dimensional filtering/sorting, author search, filtering, and download
   history sorting
 - Powerful work viewer page
@@ -79,7 +80,7 @@ script.
 **Method 2: Download manually from Releases or the GitHub code view**
 
 Download the scripts from [Releases](../../releases), then drag them into the Tampermonkey dashboard to install. Release
-assets only keep `Pixiv All-in-One.user.js` and `Pixiv 单作品图片下载器(Local download).user.js`; standalone scripts
+assets only keep `Pixiv All-in-One.user.js` and `Pixiv 单作品图片下载器(Local Download).user.js`; standalone scripts
 covered by All-in-One are no longer attached to Releases. If you need one of those standalone scripts, install it from
 the userscript card on `pixiv-batch.html`, or download the matching `.user.js` source file from the GitHub code view.
 
@@ -98,23 +99,24 @@ script's `@connect` declaration:**
 
 Scripts attached to Releases:
 
-| Script File                              | Recommended Use                                                                                                                  |
-|------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
-| `Pixiv All-in-One.user.js`               | Recommended. Combines page batch download, user batch download, URL bulk import, and single-artwork download (Java backend mode) |
-| `Pixiv 单作品图片下载器(Local download).user.js` | Single artwork page download (browser local download, no Java backend required)                                                  |
+| Script File                              | Recommended Use                                                                                                                                                      |
+|------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `Pixiv All-in-One.user.js`               | Recommended. Combines page batch download, user batch download, URL bulk import, single-artwork download (Java backend mode), and the experience-enhancement toolbox |
+| `Pixiv 单作品图片下载器(Local Download).user.js` | Single artwork page download (browser local download, no Java backend required)                                                                                      |
 
 > **When you need a standalone script covered by All-in-One**: start the app and install it from `pixiv-batch.html`, or
 > download the matching `.user.js` source file from the GitHub code view.
 
 Standalone script reference:
 
-| Script File                              | What It Does                                                                                    | Where to Get It                                  |
-|------------------------------------------|-------------------------------------------------------------------------------------------------|--------------------------------------------------|
-| `Pixiv 单作品图片下载器(Java后端版).user.js`        | Downloads from a single artwork page through the Java backend                                   | `pixiv-batch.html` / GitHub code view            |
-| `Pixiv 单作品图片下载器(Local download).user.js` | Downloads from a single artwork page in the browser, without the Java backend                   | Releases / `pixiv-batch.html` / GitHub code view |
-| `Pixiv User 批量下载器.user.js`               | Batch downloads artworks from a user homepage                                                   | `pixiv-batch.html` / GitHub code view            |
-| `Pixiv URL 批量导入单作品下载器.user.js`           | Imports single-work URLs in bulk, compatible with exports from OneTab, N-Tab, and similar tools | `pixiv-batch.html` / GitHub code view            |
-| `Pixiv 页面批量下载器.user.js`                  | Scrapes Pixiv pages from the DOM and supports broad Pixiv page capture                          | `pixiv-batch.html` / GitHub code view            |
+| Script File                               | What It Does                                                                                                                                                                          | Where to Get It                                  |
+|-------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------|
+| `Pixiv 单作品图片下载器(Java后端版).user.js`         | Downloads from a single artwork page through the Java backend                                                                                                                         | `pixiv-batch.html` / GitHub code view            |
+| `Pixiv 单作品图片下载器(Local Download).user.js`  | Downloads from a single artwork page in the browser, without the Java backend                                                                                                         | Releases / `pixiv-batch.html` / GitHub code view |
+| `Pixiv User 批量下载器(User Batch).user.js`    | Batch downloads artworks from a user homepage                                                                                                                                         | `pixiv-batch.html` / GitHub code view            |
+| `Pixiv URL 批量导入单作品下载器(URL Batch).user.js` | Imports single-work URLs in bulk, compatible with exports from OneTab, N-Tab, and similar tools                                                                                       | `pixiv-batch.html` / GitHub code view            |
+| `Pixiv 页面批量下载器(Page Scrape).user.js`      | Scrapes Pixiv pages from the DOM and supports broad Pixiv page capture                                                                                                                | `pixiv-batch.html` / GitHub code view            |
+| `Pixiv 体验增强工具箱(Toolbox).user.js`          | Modular experience-enhancement toolbox (per-feature toggles); first feature: borders on already-downloaded thumbnails, requires a local localhost server in solo mode while logged in | `pixiv-batch.html` / GitHub code view            |
 
 > **The web interface is recommended first**: `pixiv-batch.html` supports Bulk Import Single Works, User mode, and
 > Search mode without requiring any userscript for batch downloading.
@@ -153,7 +155,8 @@ and restart to initialize the app again.
 > **Rate limiting behind a reverse proxy / CDN in multi mode**
 >
 > In multi mode, both the guest API rate limit (`multi-mode.request-limit-minute`) and the static-resource per-IP rate
-> limit (`multi-mode.static-resource-request-limit-minute`) are keyed on the TCP source IP (`request.getRemoteAddr()`). If
+> limit (`multi-mode.static-resource-request-limit-minute`) are keyed on the TCP source IP (`request.getRemoteAddr()`).
+> If
 > the service is deployed behind nginx, Caddy, Cloudflare or another reverse proxy / CDN, every request appears to come
 > from the proxy node IP, which causes:
 > - All visitors share a single counter — when any one user exhausts the quota, every visitor is rejected together;

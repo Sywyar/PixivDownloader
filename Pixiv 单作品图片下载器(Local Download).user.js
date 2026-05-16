@@ -20,7 +20,7 @@
 // @run-at            document-start
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     /* ========== PixivUserscriptI18n：跨脚本一致的 i18n 运行时 ==========
@@ -40,7 +40,7 @@
         const SUPPORTED = ['en-US', 'zh-CN'];
         const DEFAULT_LANG = 'en-US';
 
-        let DICT = { 'en-US': {}, 'zh-CN': {} };
+        let DICT = {'en-US': {}, 'zh-CN': {}};
         let currentLang = null;
         const listeners = new Set();
         let bc = null;
@@ -61,12 +61,14 @@
                 const ls = localStorage.getItem(LS_KEY);
                 const norm = normalize(ls);
                 if (norm) return norm;
-            } catch (e) {}
+            } catch (e) {
+            }
             try {
                 const gm = (typeof GM_getValue === 'function') ? GM_getValue(GM_KEY, null) : null;
                 const norm = normalize(gm);
                 if (norm) return norm;
-            } catch (e) {}
+            } catch (e) {
+            }
             const navLang = normalize(navigator.language);
             if (navLang) return navLang;
             return DEFAULT_LANG;
@@ -85,37 +87,54 @@
                         }
                     });
                 }
-            } catch (e) {}
+            } catch (e) {
+            }
             try {
                 window.addEventListener('storage', ev => {
                     if (ev.key !== LS_KEY) return;
                     const next = normalize(ev.newValue);
                     if (next && next !== currentLang) applyLang(next, false);
                 });
-            } catch (e) {}
+            } catch (e) {
+            }
             // Cross-sandbox polling fallback (see other scripts for context).
             try {
                 setInterval(() => {
                     try {
                         const stored = normalize(localStorage.getItem(LS_KEY));
                         if (stored && stored !== currentLang) applyLang(stored, false);
-                    } catch (e) {}
+                    } catch (e) {
+                    }
                 }, 1000);
-            } catch (e) {}
+            } catch (e) {
+            }
         }
 
         function applyLang(lang, broadcast) {
             const next = normalize(lang) || DEFAULT_LANG;
             currentLang = next;
             if (broadcast) {
-                try { localStorage.setItem(LS_KEY, next); } catch (e) {}
-                try { if (typeof GM_setValue === 'function') GM_setValue(GM_KEY, next); } catch (e) {}
+                try {
+                    localStorage.setItem(LS_KEY, next);
+                } catch (e) {
+                }
+                try {
+                    if (typeof GM_setValue === 'function') GM_setValue(GM_KEY, next);
+                } catch (e) {
+                }
                 if (bc) {
-                    try { bc.postMessage({ type: 'lang-changed', lang: next }); } catch (e) {}
+                    try {
+                        bc.postMessage({type: 'lang-changed', lang: next});
+                    } catch (e) {
+                    }
                 }
             }
             listeners.forEach(fn => {
-                try { fn(next); } catch (e) { console.error('[PixivUserscriptI18n]', e); }
+                try {
+                    fn(next);
+                } catch (e) {
+                    console.error('[PixivUserscriptI18n]', e);
+                }
             });
         }
 
@@ -171,10 +190,11 @@
             return SUPPORTED.slice();
         }
 
-        const api = { register, t, onChange, setLang, getLang, listSupported };
+        const api = {register, t, onChange, setLang, getLang, listSupported};
         try {
             if (typeof window !== 'undefined') window[SHARED_KEY] = api;
-        } catch (e) {}
+        } catch (e) {
+        }
         return api;
     })();
 
@@ -318,7 +338,7 @@
                 headers: {
                     'Referer': 'https://www.pixiv.net/'
                 },
-                onload: function(response) {
+                onload: function (response) {
                     try {
                         const data = JSON.parse(response.responseText);
                         if (data.error) {
@@ -332,7 +352,7 @@
                         reject(e);
                     }
                 },
-                onerror: function(error) {
+                onerror: function (error) {
                     reject(error);
                 }
             });
@@ -345,14 +365,18 @@
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: `https://www.pixiv.net/ajax/illust/${artworkId}`,
-                headers: { 'Referer': 'https://www.pixiv.net/' },
-                onload: function(response) {
+                headers: {'Referer': 'https://www.pixiv.net/'},
+                onload: function (response) {
                     try {
                         const data = JSON.parse(response.responseText);
                         resolve(data.error ? 0 : (data.body.illustType || 0));
-                    } catch (e) { resolve(0); }
+                    } catch (e) {
+                        resolve(0);
+                    }
                 },
-                onerror: function() { resolve(0); }
+                onerror: function () {
+                    resolve(0);
+                }
             });
         });
     }
@@ -382,12 +406,12 @@
 
         try {
             // 显示下载开始提示
-            alert(t('local.alert.start-download', { id: artworkId }));
+            alert(t('local.alert.start-download', {id: artworkId}));
 
             // 检测动图
             const illustType = await getArtworkType(artworkId);
             if (illustType === 2) {
-                alert(t('local.alert.ugoira-unsupported', { id: artworkId }));
+                alert(t('local.alert.ugoira-unsupported', {id: artworkId}));
                 return;
             }
 
@@ -419,12 +443,12 @@
                             headers: {
                                 'Referer': 'https://www.pixiv.net/'
                             },
-                            onload: function() {
+                            onload: function () {
                                 console.log(`Download complete: ${filename}`);
                                 successCount++;
                                 resolve();
                             },
-                            onerror: function(error) {
+                            onerror: function (error) {
                                 console.error(`Download failed: ${filename}`, error);
                                 reject(error);
                             }
@@ -454,7 +478,7 @@
 
         } catch (error) {
             console.error('Download failed:', error);
-            alert(t('local.alert.download-failed', { message: error.message }));
+            alert(t('local.alert.download-failed', {message: error.message}));
         }
     }
 
@@ -468,7 +492,7 @@
             return;
         }
 
-        let historyText = t('local.history.header', { count: artworkIds.length });
+        let historyText = t('local.history.header', {count: artworkIds.length});
 
         artworkIds.sort((a, b) => new Date(downloadedList[b].timestamp) - new Date(downloadedList[a].timestamp));
 
@@ -571,7 +595,7 @@
         button.addEventListener('click', downloadImages);
 
         const artworkIdDiv = document.createElement('div');
-        artworkIdDiv.textContent = t('local.ui.label.artwork-id', { id: artworkId });
+        artworkIdDiv.textContent = t('local.ui.label.artwork-id', {id: artworkId});
         artworkIdDiv.style.cssText = `
             font-size: 12px;
             color: #666;
@@ -637,7 +661,10 @@
     function registerAllMenuCommands() {
         if (typeof GM_unregisterMenuCommand === 'function') {
             while (menuCommandIds.length) {
-                try { GM_unregisterMenuCommand(menuCommandIds.pop()); } catch (e) {}
+                try {
+                    GM_unregisterMenuCommand(menuCommandIds.pop());
+                } catch (e) {
+                }
             }
         } else {
             menuCommandIds.length = 0;
@@ -669,7 +696,7 @@
                     // 延迟一点时间确保新页面内容已加载
                     setTimeout(createDownloadUI, 500);
                 }
-            }).observe(document, { subtree: true, childList: true });
+            }).observe(document, {subtree: true, childList: true});
 
             // 额外监听：每2秒检查一次页面变化（备用方案）
             setInterval(() => {
@@ -690,7 +717,7 @@
     registerAllMenuCommands();
 
     // 添加快捷键支持 (Ctrl+Shift+D)
-    document.addEventListener('keydown', function(e) {
+    document.addEventListener('keydown', function (e) {
         if (e.ctrlKey && e.shiftKey && e.key === 'D') {
             e.preventDefault();
             downloadImages();

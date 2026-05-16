@@ -1,0 +1,1144 @@
+// ==UserScript==
+// @name         Pixiv 体验增强工具箱
+// @namespace    http://tampermonkey.net/
+// @version      1.0.0
+// @description  Pixiv 使用体验增强工具箱
+// @author       Sywyar
+// @match        https://www.pixiv.net/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_deleteValue
+// @grant        GM_registerMenuCommand
+// @connect      localhost
+// @connect      YOUR_SERVER_HOST
+// @run-at       document-end
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    /* ========== 配置 ========== */
+    const KEY_SERVER_URL = 'pixiv_server_base';
+    let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
+
+    /* ========== PixivPanelState: 跨脚本共享的面板展开/收起状态 ==========
+     * 所有 Pixiv 用户脚本共用同一个折叠状态：localStorage 权威 + BroadcastChannel +
+     * storage 事件 + 1s 轮询兜底（跨 sandbox 对齐），同一 sandbox 内经 window 共享单例。
+     * 默认展开（无存储值时 collapsed=false）。仅“用户手动收/展”写入；页面类型默认值与
+     * 跨面板自动收起不写入（沿用各脚本既有语义）。收起任一面板 → 全部收起；展开时各脚本
+     * 仍按自身页面类型 + pixiv_panel_active 互斥决定实际可见的那一个。
+     * ------------------------------------------------------------------------ */
+    const PixivPanelState = (() => {
+        const SHARED_KEY = '__PixivPanelState_v1__';
+        if (typeof window !== 'undefined' && window[SHARED_KEY]) return window[SHARED_KEY];
+        const LS_KEY = 'pixiv_panel_collapsed_shared';
+        const BC_NAME = '__pixiv_panel_collapsed_v1__';
+        let collapsed = null;
+        const listeners = new Set();
+        let bc = null;
+        const readLS = () => { try { return localStorage.getItem(LS_KEY) === '1'; } catch (e) { return false; } };
+        const notify = () => listeners.forEach(fn => { try { fn(collapsed); } catch (e) { console.error('[PixivPanelState]', e); } });
+        function ensureInit() {
+            if (collapsed !== null) return;
+            collapsed = readLS();
+            try {
+                if (typeof BroadcastChannel !== 'undefined') {
+                    bc = new BroadcastChannel(BC_NAME);
+                    bc.addEventListener('message', ev => {
+                        if (ev && ev.data && ev.data.type === 'panel-collapsed') {
+                            const v = ev.data.value === true;
+                            if (v !== collapsed) { collapsed = v; notify(); }
+                        }
+                    });
+                }
+            } catch (e) {}
+            try {
+                window.addEventListener('storage', ev => {
+                    if (ev.key !== LS_KEY) return;
+                    const v = ev.newValue === '1';
+                    if (v !== collapsed) { collapsed = v; notify(); }
+                });
+            } catch (e) {}
+            try {
+                setInterval(() => {
+                    const v = readLS();
+                    if (v !== collapsed) { collapsed = v; notify(); }
+                }, 1000);
+            } catch (e) {}
+        }
+        function get() { ensureInit(); return collapsed; }
+        function set(v) {
+            ensureInit();
+            v = v === true;
+            if (v === collapsed) return;
+            collapsed = v;
+            try { localStorage.setItem(LS_KEY, v ? '1' : '0'); } catch (e) {}
+            if (bc) { try { bc.postMessage({ type: 'panel-collapsed', value: v }); } catch (e) {} }
+            notify();
+        }
+        function onChange(fn) { ensureInit(); listeners.add(fn); return () => listeners.delete(fn); }
+        const api = { get, set, onChange };
+        try { if (typeof window !== 'undefined') window[SHARED_KEY] = api; } catch (e) {}
+        return api;
+    })();
+
+    function loadPanelCollapsed() { return PixivPanelState.get(); }
+    function savePanelCollapsed(collapsed) { PixivPanelState.set(collapsed); }
+
+    // 每个功能的开关 / 设置持久化 key 前缀（功能之间互不影响）
+    const featEnabledKey = id => 'pixiv_enhance_feat_' + id + '_enabled';
+    const featSettingsKey = id => 'pixiv_enhance_feat_' + id + '_settings';
+
+    /* ========== PromptGuard：跨脚本一次性弹窗协调 ========== */
+    // localStorage + BroadcastChannel 在同源页面下被所有用户脚本共享，借此让多个脚本
+    // （或 All-in-One bundle 的多个模块）相同的弹窗只触发一次。
+    const PromptGuard = (() => {
+        const LS_KEY = '__pixiv_prompt_state_v1__';
+        const CHAN_NAME = '__pixiv_prompt_channel_v1__';
+        const ownerId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        const claimed = new Set();
+        let bc = null;
+        try { if (typeof BroadcastChannel !== 'undefined') bc = new BroadcastChannel(CHAN_NAME); } catch (e) {}
+        if (bc) bc.addEventListener('message', ev => {
+            if (ev && ev.data && ev.data.type === 'claim' && ev.data.id) claimed.add(ev.data.id);
+        });
+        const readState = () => {
+            try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {}; } catch (e) { return {}; }
+        };
+        const writeState = s => {
+            try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch (e) {}
+        };
+        const isFresh = (entry, opts) => {
+            if (!entry) return false;
+            if (opts.persist) return true;
+            return Date.now() - (entry.t || 0) < (opts.ttlMs || 60000);
+        };
+        function once(id, opts, fn) {
+            opts = opts || {};
+            if (claimed.has(id)) return false;
+            const state = readState();
+            if (isFresh(state[id], opts)) { claimed.add(id); return false; }
+            claimed.add(id);
+            state[id] = { t: Date.now(), owner: ownerId };
+            writeState(state);
+            if (bc) { try { bc.postMessage({ type: 'claim', id }); } catch (e) {} }
+            // 30ms jitter：让同帧启动的对端有机会覆盖 owner，最终只有一个 ownerId 留存并执行 fn
+            setTimeout(() => {
+                const cur = readState()[id];
+                if (!cur || cur.owner !== ownerId) return;
+                try { fn(); } catch (e) { console.error('[PromptGuard]', e); }
+            }, 30);
+            return true;
+        }
+        return { once };
+    })();
+
+    /* ========== PixivUserscriptI18n: shared userscript i18n runtime ==========
+     * Same-origin Pixiv userscripts share localStorage + BroadcastChannel state
+     * so standalone installs, parallel installs, and bundle installs stay aligned.
+     * Within a single sandbox (e.g. the All-in-One bundle), all modules share the
+     * same instance via window.__PixivUserscriptI18n_v1__ so a single switch toggle
+     * updates every module without relying on BroadcastChannel delivery.
+     * ------------------------------------------------------------------------ */
+    const PixivUserscriptI18n = (() => {
+        const SHARED_KEY = '__PixivUserscriptI18n_v1__';
+        if (typeof window !== 'undefined' && window[SHARED_KEY]) {
+            return window[SHARED_KEY];
+        }
+        const LS_KEY = 'pixiv_userscript_lang';
+        const GM_KEY = 'pixiv_userscript_lang';
+        const BC_NAME = '__pixiv_userscript_lang_v1__';
+        const SUPPORTED = ['en-US', 'zh-CN'];
+        const DEFAULT_LANG = 'en-US';
+
+        let DICT = { 'en-US': {}, 'zh-CN': {} };
+        let currentLang = null;
+        const listeners = new Set();
+        let bc = null;
+
+        function normalize(lang) {
+            if (!lang) return null;
+            const tag = String(lang).trim().replace('_', '-');
+            if (SUPPORTED.indexOf(tag) >= 0) return tag;
+            const language = tag.split('-')[0].toLowerCase();
+            for (let i = 0; i < SUPPORTED.length; i += 1) {
+                if (SUPPORTED[i].toLowerCase().startsWith(language + '-')) return SUPPORTED[i];
+            }
+            return null;
+        }
+
+        function readInitialLang() {
+            try {
+                const stored = normalize(localStorage.getItem(LS_KEY));
+                if (stored) return stored;
+            } catch (e) {}
+            try {
+                if (typeof GM_getValue === 'function') {
+                    const stored = normalize(GM_getValue(GM_KEY, null));
+                    if (stored) return stored;
+                }
+            } catch (e) {}
+            return normalize(navigator.language) || DEFAULT_LANG;
+        }
+
+        function notify(next) {
+            listeners.forEach(fn => {
+                try {
+                    fn(next);
+                } catch (e) {
+                    console.error('[PixivUserscriptI18n]', e);
+                }
+            });
+        }
+
+        function ensureInit() {
+            if (currentLang) return;
+            currentLang = readInitialLang();
+            try {
+                if (typeof BroadcastChannel !== 'undefined') {
+                    bc = new BroadcastChannel(BC_NAME);
+                    bc.addEventListener('message', ev => {
+                        if (!ev || !ev.data || ev.data.type !== 'lang-changed') return;
+                        const next = normalize(ev.data.lang);
+                        if (next && next !== currentLang) {
+                            applyLang(next, false);
+                        }
+                    });
+                }
+            } catch (e) {}
+            try {
+                window.addEventListener('storage', ev => {
+                    if (ev.key !== LS_KEY) return;
+                    const next = normalize(ev.newValue);
+                    if (next && next !== currentLang) {
+                        applyLang(next, false);
+                    }
+                });
+            } catch (e) {}
+            // Cross-sandbox polling fallback: standalone userscripts each run
+            // in a separate Tampermonkey sandbox; BroadcastChannel delivery
+            // between sandboxes is unreliable and the storage event never
+            // fires within the same browsing context. Polling every ~1s
+            // picks up any change made by a sibling script.
+            try {
+                setInterval(() => {
+                    try {
+                        const stored = normalize(localStorage.getItem(LS_KEY));
+                        if (stored && stored !== currentLang) {
+                            applyLang(stored, false);
+                        }
+                    } catch (e) {}
+                }, 1000);
+            } catch (e) {}
+        }
+
+        function applyLang(lang, broadcast) {
+            const next = normalize(lang) || DEFAULT_LANG;
+            currentLang = next;
+            if (broadcast) {
+                try {
+                    localStorage.setItem(LS_KEY, next);
+                } catch (e) {}
+                try {
+                    if (typeof GM_setValue === 'function') GM_setValue(GM_KEY, next);
+                } catch (e) {}
+                if (bc) {
+                    try {
+                        bc.postMessage({ type: 'lang-changed', lang: next });
+                    } catch (e) {}
+                }
+            }
+            notify(next);
+        }
+
+        function interpolate(template, args) {
+            if (!args) return String(template);
+            if (Array.isArray(args)) {
+                return String(template).replace(/\{(\d+)\}/g, (match, index) => {
+                    const idx = parseInt(index, 10);
+                    return idx < args.length ? String(args[idx]) : match;
+                });
+            }
+            return String(template).replace(/\{([a-zA-Z0-9_.-]+)\}/g, (match, name) => {
+                return Object.prototype.hasOwnProperty.call(args, name) ? String(args[name]) : match;
+            });
+        }
+
+        function t(key, fallback, args) {
+            ensureInit();
+            const active = DICT[currentLang] || {};
+            let template = Object.prototype.hasOwnProperty.call(active, key) ? active[key] : null;
+            if (template == null) {
+                const defaults = DICT[DEFAULT_LANG] || {};
+                template = Object.prototype.hasOwnProperty.call(defaults, key) ? defaults[key] : null;
+            }
+            if (template == null) {
+                template = fallback != null ? fallback : key;
+            }
+            if (typeof template === 'function') {
+                return template(args || {});
+            }
+            return interpolate(template, args);
+        }
+
+        function register(dict) {
+            if (!dict || typeof dict !== 'object') return;
+            Object.keys(dict).forEach(lang => {
+                DICT[lang] = Object.assign({}, DICT[lang] || {}, dict[lang] || {});
+            });
+        }
+
+        function onChange(fn) {
+            listeners.add(fn);
+            return () => listeners.delete(fn);
+        }
+
+        function setLang(lang) {
+            ensureInit();
+            applyLang(lang, true);
+        }
+
+        function getLang() {
+            ensureInit();
+            return currentLang;
+        }
+
+        function listSupported() {
+            return SUPPORTED.slice();
+        }
+
+        function enrichFromBackend(serverBase) {
+            if (!serverBase || typeof GM_xmlhttpRequest !== 'function') return;
+            SUPPORTED.forEach(lang => {
+                try {
+                    GM_xmlhttpRequest({
+                        method: 'GET',
+                        url: serverBase.replace(/\/$/, '') + '/api/i18n/messages/userscript?lang=' + encodeURIComponent(lang),
+                        timeout: 3000,
+                        onload: res => {
+                            if (res.status !== 200) return;
+                            try {
+                                const data = JSON.parse(res.responseText);
+                                if (!data || !data.messages) return;
+                                const incoming = {};
+                                incoming[lang] = data.messages;
+                                register(incoming);
+                                if (lang === currentLang) notify(currentLang);
+                            } catch (e) {}
+                        }
+                    });
+                } catch (e) {}
+            });
+        }
+
+        const api = {
+            register,
+            t,
+            onChange,
+            setLang,
+            getLang,
+            listSupported,
+            enrichFromBackend
+        };
+        try {
+            if (typeof window !== 'undefined') window[SHARED_KEY] = api;
+        } catch (e) {}
+        return api;
+    })();
+
+    PixivUserscriptI18n.register({
+        'en-US': {
+            'switcher.label': 'Language',
+            'common.dialog.unauthorized': 'Backend requires login. Opening login page...',
+            'enhance.title': '🧰 Pixiv Experience Toolbox',
+            'enhance.fab.title': 'Pixiv Experience Toolbox',
+            'enhance.menu.open': 'Open Pixiv Experience Toolbox',
+            'enhance.action.collapse': 'Collapse',
+            'enhance.section.features': 'Features',
+            'enhance.setting.server': 'Server URL:',
+            'enhance.footer.hint': 'Each feature is independent — toggle them on demand. More features will be added over time.',
+            'enhance.multi-instance.warn': 'Pixiv Experience Toolbox is running more than once on this page — most likely both the standalone userscript and the All-in-One bundle are enabled. They use separate storage and would conflict (duplicate panels/borders, settings not shared), so this extra instance has been disabled. Please keep only one of them enabled in Tampermonkey.',
+            'enhance.feature.enable': 'Enable',
+            'enhance.gate.checking': 'Checking server status...',
+            'enhance.gate.not-local': 'Requires the server URL to point to localhost / 127.0.0.1.',
+            'enhance.gate.not-solo': 'Requires the server to run in solo mode.',
+            'enhance.gate.not-login': 'Requires being logged in to the server (solo mode).',
+            'enhance.gate.unreachable': 'Server unreachable. Check the server URL and that it is running.',
+            'enhance.gate.ready': 'Conditions met. You can enable this feature.',
+            'downloaded-border.name': 'Border on downloaded artworks',
+            'downloaded-border.desc': 'Scans artwork cards on the page and draws a border on the thumbnail of any artwork already downloaded by the server.',
+            'downloaded-border.setting.width': 'Border width (px):',
+            'downloaded-border.setting.color': 'Border color:',
+            'downloaded-border.setting.style': 'Border style:',
+            'downloaded-border.style.solid': 'Solid',
+            'downloaded-border.style.dashed': 'Dashed',
+            'downloaded-border.style.double': 'Double'
+        },
+        'zh-CN': {
+            'switcher.label': '语言',
+            'common.dialog.unauthorized': '后端服务需要登录验证，即将为您打开登录页面...',
+            'enhance.title': '🧰 Pixiv 体验增强工具箱',
+            'enhance.fab.title': 'Pixiv 体验增强工具箱',
+            'enhance.menu.open': '打开 Pixiv 体验增强工具箱',
+            'enhance.action.collapse': '收起',
+            'enhance.section.features': '功能列表',
+            'enhance.setting.server': '服务器地址:',
+            'enhance.footer.hint': '每个功能相互独立，可按需开关。后续会持续增加更多功能。',
+            'enhance.multi-instance.warn': '检测到「Pixiv 体验增强工具箱」在本页重复运行——很可能同时启用了独立脚本和 All-in-One 合并包。两者存储互相独立、会冲突（双面板/双边框、设置不互通），本重复实例已自动停用。请在 Tampermonkey 中只保留其中一个启用。',
+            'enhance.feature.enable': '启用',
+            'enhance.gate.checking': '正在检测服务器状态...',
+            'enhance.gate.not-local': '需要服务器地址指向 localhost / 127.0.0.1。',
+            'enhance.gate.not-solo': '需要服务器运行在 solo 模式。',
+            'enhance.gate.not-login': '需要已登录服务器（solo 模式）。',
+            'enhance.gate.unreachable': '无法连接服务器，请检查服务器地址以及服务是否已启动。',
+            'enhance.gate.ready': '条件已满足，可以开启此功能。',
+            'downloaded-border.name': '已下载作品加边框',
+            'downloaded-border.desc': '抓取页面上的作品卡片，对服务器已下载过的作品在缩略图上添加边框。',
+            'downloaded-border.setting.width': '边框宽度(px):',
+            'downloaded-border.setting.color': '边框颜色:',
+            'downloaded-border.setting.style': '边框样式:',
+            'downloaded-border.style.solid': '实线',
+            'downloaded-border.style.dashed': '虚线',
+            'downloaded-border.style.double': '双线'
+        }
+    });
+
+    const t = (key, fallback, args) => PixivUserscriptI18n.t(key, fallback, args);
+
+    /* ========== DOM 帮助函数 ========== */
+    function $el(tag, props = {}, children = []) {
+        const e = document.createElement(tag);
+        Object.entries(props).forEach(([k, v]) => {
+            if (k === 'style') {
+                if (typeof v === 'string') e.style.cssText = v;
+                else Object.assign(e.style, v);
+            } else if (k === 'html') e.innerHTML = v;
+            else e[k] = v;
+        });
+        (Array.isArray(children) ? children : [children]).forEach(c => {
+            if (typeof c === 'string') e.appendChild(document.createTextNode(c));
+            else if (c) e.appendChild(c);
+        });
+        return e;
+    }
+
+    /* ========== solo 模式未登录处理（跨脚本去重）========== */
+    function handleUnauthorized() {
+        PromptGuard.once('unauthorized', { ttlMs: 60000 }, () => {
+            alert(t('common.dialog.unauthorized', '后端服务需要登录验证，即将为您打开登录页面...'));
+            window.open(serverBase + '/login.html', '_blank');
+        });
+    }
+
+    function gmRequest(opts) {
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            const finish = (fn, arg) => { if (settled) return; settled = true; clearTimeout(guard); fn(arg); };
+            // 兜底超时：个别 Tampermonkey 版本对连接被拒/挂起不触发 onerror/ontimeout，
+            // 否则 Promise 永不 settle，会让状态卡在「检测中」。
+            const guard = setTimeout(() => finish(reject, new Error('timeout(guard)')), (opts.timeout || 8000) + 2000);
+            try {
+                GM_xmlhttpRequest(Object.assign({}, opts, {
+                    onload: res => finish(resolve, res),
+                    onerror: () => finish(reject, new Error('network error')),
+                    ontimeout: () => finish(reject, new Error('timeout'))
+                }));
+            } catch (e) {
+                finish(reject, e);
+            }
+        });
+    }
+
+    /* ========== 服务器状态（localhost + solo + 已登录）========== */
+    const ServerStatus = (() => {
+        const listeners = new Set();
+        let state = { phase: 'checking', local: false, mode: null, loggedIn: false };
+        let inFlight = null;
+
+        function isLocalHost(base) {
+            try {
+                const host = new URL(base).hostname.toLowerCase();
+                return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function notify() {
+            listeners.forEach(fn => { try { fn(state); } catch (e) { console.error('[ServerStatus]', e); } });
+        }
+
+        function setState(next) {
+            state = Object.assign({}, state, next);
+            notify();
+        }
+
+        async function refresh() {
+            const base = serverBase;
+            if (!isLocalHost(base)) {
+                setState({ phase: 'not-local', local: false, mode: null, loggedIn: false });
+                return;
+            }
+            if (inFlight) return inFlight;
+            setState({ phase: 'checking', local: true });
+            inFlight = (async () => {
+                try {
+                    const [statusRes, checkRes] = await Promise.all([
+                        gmRequest({ method: 'GET', url: base + '/api/setup/status', timeout: 6000 }),
+                        gmRequest({ method: 'GET', url: base + '/api/auth/check', timeout: 6000 })
+                    ]);
+                    let mode = null;
+                    let loggedIn = false;
+                    try { mode = (JSON.parse(statusRes.responseText) || {}).mode || null; } catch (e) {}
+                    try { loggedIn = (JSON.parse(checkRes.responseText) || {}).valid === true; } catch (e) {}
+                    let phase = 'ready';
+                    if (mode !== 'solo') phase = 'not-solo';
+                    else if (!loggedIn) phase = 'not-login';
+                    setState({ phase, local: true, mode, loggedIn });
+                } catch (e) {
+                    console.warn('[Pixiv体验增强] 服务器状态检测失败：', e);
+                    setState({ phase: 'unreachable', local: true, mode: null, loggedIn: false });
+                }
+            })();
+            try { await inFlight; } finally { inFlight = null; }
+        }
+
+        function get() { return state; }
+        function onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+
+        return { refresh, get, onChange };
+    })();
+
+    /* ========== 功能注册中心 ==========
+     * 每个功能是一个独立对象，互不依赖：
+     *   id            唯一标识
+     *   gate          'local-solo-login' 时由 ServerStatus 决定可用性，null 表示无门槛
+     *   nameKey/descKey  i18n key
+     *   settingDefs   子设置字段（开启后展示），声明式渲染
+     *   defaults      子设置默认值
+     *   start(api)    功能启动；api.getSetting(key) 读子设置
+     *   stop()        功能停止（必须可逆，清理所有副作用）
+     *   onSettings(api)  子设置变化时回调（可选）
+     * 新增功能 = push 一个对象，无需改动面板/门控逻辑。
+     */
+    const FeatureRegistry = (() => {
+        const features = [];
+
+        function register(def) {
+            const defaults = def.defaults || {};
+            let settings;
+            try {
+                const raw = GM_getValue(featSettingsKey(def.id), null);
+                settings = raw ? Object.assign({}, defaults, JSON.parse(raw)) : Object.assign({}, defaults);
+            } catch (e) {
+                settings = Object.assign({}, defaults);
+            }
+            const feature = {
+                def,
+                running: false,
+                enabled: GM_getValue(featEnabledKey(def.id), false) === true,
+                settings,
+                api: null
+            };
+            feature.api = {
+                getSetting: key => feature.settings[key],
+                get serverBase() { return serverBase; },
+                gmRequest,
+                handleUnauthorized
+            };
+            features.push(feature);
+            return feature;
+        }
+
+        function available(feature) {
+            if (feature.def.gate !== 'local-solo-login') return true;
+            return ServerStatus.get().phase === 'ready';
+        }
+
+        function evaluate() {
+            features.forEach(feature => {
+                const shouldRun = feature.enabled && available(feature);
+                if (shouldRun && !feature.running) {
+                    feature.running = true;
+                    try { feature.def.start(feature.api); } catch (e) { console.error('[' + feature.def.id + '] start', e); }
+                } else if (!shouldRun && feature.running) {
+                    feature.running = false;
+                    try { feature.def.stop(feature.api); } catch (e) { console.error('[' + feature.def.id + '] stop', e); }
+                }
+            });
+        }
+
+        function setEnabled(feature, on) {
+            feature.enabled = on === true;
+            GM_setValue(featEnabledKey(feature.def.id), feature.enabled);
+            evaluate();
+        }
+
+        function setSetting(feature, key, value) {
+            feature.settings[key] = value;
+            try {
+                GM_setValue(featSettingsKey(feature.def.id), JSON.stringify(feature.settings));
+            } catch (e) {
+                console.error('[Pixiv体验增强] 保存设置失败：', e);
+            }
+            if (feature.running && typeof feature.def.onSettings === 'function') {
+                try { feature.def.onSettings(feature.api); } catch (e) { console.error('[' + feature.def.id + '] onSettings', e); }
+            }
+        }
+
+        ServerStatus.onChange(() => evaluate());
+
+        return { register, list: () => features, available, evaluate, setEnabled, setSetting };
+    })();
+
+    /* ========== 功能：已下载作品加边框 ========== */
+    FeatureRegistry.register({
+        id: 'downloaded-border',
+        gate: 'local-solo-login',
+        nameKey: 'downloaded-border.name',
+        descKey: 'downloaded-border.desc',
+        defaults: { width: 3, color: '#00ff00', style: 'solid' },
+        settingDefs: [
+            { key: 'width', type: 'number', labelKey: 'downloaded-border.setting.width', min: 1, max: 12, step: 1 },
+            { key: 'color', type: 'color', labelKey: 'downloaded-border.setting.color' },
+            {
+                key: 'style', type: 'select', labelKey: 'downloaded-border.setting.style',
+                options: [
+                    { value: 'solid', labelKey: 'downloaded-border.style.solid' },
+                    { value: 'dashed', labelKey: 'downloaded-border.style.dashed' },
+                    { value: 'double', labelKey: 'downloaded-border.style.double' }
+                ]
+            }
+        ],
+
+        // 内部状态
+        _observer: null,
+        _scanTimer: null,
+        _urlTimer: null,
+        _safetyTimer: null,
+        _lastHref: '',
+        _cache: new Map(),     // artworkId -> true(已下载) / false(未下载)
+        _querying: new Set(),  // 正在查询的 id，避免重复请求
+        HOST_CLASS: 'pixiv-enh-host',
+        FRAME_CLASS: 'pixiv-enh-frame',
+
+        // 直接给每个 overlay 元素写 inline 样式：不依赖注入 <style>，绕开页面 CSP
+        // 对 style 元素的限制，也不会因功能 stop/start（每 60s 服务器复检会有一次
+        // checking 抖动）丢失或读到过期的样式表。样式始终来自 feature.settings 这一唯一来源。
+        _frameCss(api) {
+            const w = Math.max(1, parseInt(api.getSetting('width'), 10) || 3);
+            const color = api.getSetting('color') || '#00ff00';
+            const style = api.getSetting('style') || 'solid';
+            return 'position:absolute;inset:0;pointer-events:none;box-sizing:border-box;'
+                + 'border:' + w + 'px ' + style + ' ' + color + ';'
+                + 'border-radius:8px;z-index:2;';
+        },
+
+        // 设置变更时即时重绘所有已存在的边框
+        _restyleAll(api) {
+            const css = this._frameCss(api);
+            document.querySelectorAll('.' + this.FRAME_CLASS).forEach(el => { el.style.cssText = css; });
+        },
+
+        _collectAnchorsById() {
+            const byId = new Map();
+            document.querySelectorAll('a[href*="/artworks/"]').forEach(a => {
+                const m = (a.getAttribute('href') || '').match(/\/artworks\/(\d+)/);
+                if (!m) return;
+                const id = m[1];
+                if (!byId.has(id)) byId.set(id, []);
+                byId.get(id).push(a);
+            });
+            return byId;
+        },
+
+        // 同一作品可能有多个链接（缩略图链接 + 标题文本链接），取面积最大的那个
+        // 作为缩略图；纯文本标题链接又矮又窄，会被自然排除。
+        _pickThumb(anchors) {
+            let best = null;
+            let bestArea = 0;
+            anchors.forEach(a => {
+                const r = a.getBoundingClientRect();
+                const area = r.width * r.height;
+                if (area > bestArea) { bestArea = area; best = a; }
+            });
+            if (best && bestArea >= 1600) return best;
+            return anchors.find(a => a.querySelector('img')) || null;
+        },
+
+        _applyMarks(byId, api) {
+            const css = this._frameCss(api);
+            byId.forEach((anchors, id) => {
+                if (this._cache.get(id) !== true) return;
+                const host = this._pickThumb(anchors);
+                if (!host) return;
+                if (getComputedStyle(host).position === 'static') {
+                    host.style.position = 'relative';
+                    host.dataset.pixivEnhPos = '1';
+                }
+                host.classList.add(this.HOST_CLASS);
+                let frame = host.querySelector(':scope > .' + this.FRAME_CLASS);
+                if (!frame) {
+                    frame = document.createElement('div');
+                    frame.className = this.FRAME_CLASS;
+                    host.appendChild(frame);
+                }
+                // 每次都按当前设置重写，确保设置变更/卡片重建后样式始终最新
+                frame.style.cssText = css;
+            });
+        },
+
+        _scan(api) {
+            const byId = this._collectAnchorsById();
+            this._applyMarks(byId, api);
+
+            const unknown = [];
+            byId.forEach((_anchors, id) => {
+                if (!this._cache.has(id) && !this._querying.has(id)) unknown.push(id);
+            });
+            if (!unknown.length) return;
+
+            // 分块查询，避免一次请求过大
+            const CHUNK = 200;
+            for (let i = 0; i < unknown.length; i += CHUNK) {
+                const chunk = unknown.slice(i, i + CHUNK);
+                chunk.forEach(id => this._querying.add(id));
+                api.gmRequest({
+                    method: 'POST',
+                    url: api.serverBase + '/api/downloaded/batch',
+                    headers: { 'Content-Type': 'application/json' },
+                    data: JSON.stringify({ artworkIds: chunk.map(Number) }),
+                    timeout: 15000
+                }).then(res => {
+                    if (res.status === 401) { api.handleUnauthorized(); return; }
+                    if (res.status !== 200) {
+                        console.warn('[Pixiv体验增强] 批量查询返回非 200：', res.status);
+                        return;
+                    }
+                    let downloaded = new Set();
+                    try {
+                        const data = JSON.parse(res.responseText) || {};
+                        (data.artworks || []).forEach(a => {
+                            if (a && a.artworkId != null) downloaded.add(String(a.artworkId));
+                        });
+                    } catch (e) { return; }
+                    chunk.forEach(id => this._cache.set(id, downloaded.has(id)));
+                    this._applyMarks(this._collectAnchorsById(), api);
+                }).catch((err) => {
+                    // 失败的 id 解除占用，下次扫描可重试
+                    console.warn('[Pixiv体验增强] 批量查询失败：', err);
+                }).finally(() => {
+                    chunk.forEach(id => this._querying.delete(id));
+                });
+            }
+        },
+
+        _scheduleScan(api) {
+            clearTimeout(this._scanTimer);
+            this._scanTimer = setTimeout(() => this._scan(api), 400);
+        },
+
+        start(api) {
+            this._observer = new MutationObserver(() => this._scheduleScan(api));
+            this._observer.observe(document.body, { childList: true, subtree: true });
+
+            // Pixiv 是 SPA，URL 变化后需要重新扫描（已下载状态可继续复用缓存）
+            this._lastHref = location.href;
+            this._urlTimer = setInterval(() => {
+                if (location.href !== this._lastHref) {
+                    this._lastHref = location.href;
+                    this._scheduleScan(api);
+                }
+            }, 800);
+
+            // 兜底：Pixiv 用 React，滚动时会重建卡片节点导致我们加的 overlay 被丢弃；
+            // MutationObserver 通常能捕获，但定期复扫一次更稳（命中缓存，不产生额外请求）。
+            this._safetyTimer = setInterval(() => this._scheduleScan(api), 3000);
+
+            this._scan(api);
+        },
+
+        stop() {
+            if (this._observer) { this._observer.disconnect(); this._observer = null; }
+            clearTimeout(this._scanTimer);
+            clearInterval(this._urlTimer);
+            clearInterval(this._safetyTimer);
+            this._scanTimer = null;
+            this._urlTimer = null;
+            this._safetyTimer = null;
+            document.querySelectorAll('.' + this.FRAME_CLASS).forEach(el => el.remove());
+            document.querySelectorAll('.' + this.HOST_CLASS).forEach(el => {
+                el.classList.remove(this.HOST_CLASS);
+                if (el.dataset.pixivEnhPos) { el.style.position = ''; delete el.dataset.pixivEnhPos; }
+            });
+        },
+
+        onSettings(api) {
+            this._restyleAll(api);
+        }
+    });
+
+    /* ========== 语言切换器 ========== */
+    function buildLangSwitcher() {
+        const wrapper = document.createElement('span');
+        wrapper.style.cssText = 'display:inline-flex;align-items:center;gap:6px;flex-shrink:0;';
+        const select = document.createElement('select');
+        select.title = t('switcher.label', '语言');
+        select.style.cssText = 'padding:2px 4px;border:1px solid #ccc;border-radius:4px;background:#fff;color:#333;font-size:11px;';
+        PixivUserscriptI18n.listSupported().forEach(lang => {
+            const option = document.createElement('option');
+            option.value = lang;
+            option.textContent = lang === 'zh-CN' ? '简体中文' : 'English';
+            option.selected = lang === PixivUserscriptI18n.getLang();
+            select.appendChild(option);
+        });
+        select.addEventListener('change', () => PixivUserscriptI18n.setLang(select.value));
+        wrapper.appendChild(select);
+        return wrapper;
+    }
+
+    /* ========== 控制面板 ========== */
+    const PANEL_ID = 'pixiv-enhance-ui';
+    const FAB_ID = 'pixiv-enhance-fab';
+    const BRAND = '#6f42c1';
+
+    class Panel {
+        constructor() {
+            this.root = null;
+            this._collapsed = loadPanelCollapsed();
+        }
+
+        mount() {
+            if (document.getElementById(PANEL_ID)) return;
+            this._build();
+            this._applyCollapsed();
+            ServerStatus.onChange(() => this.refreshFeatureStates());
+            PixivUserscriptI18n.onChange(() => this.rerender());
+            // 跨脚本共享折叠状态：仅“收起”跨脚本传播（收一个=全收）；
+            // “展开”是针对被点击面板的显式操作，不在此处级联展开，否则点任意 FAB
+            // 都会让站内全页面适用的工具箱抢先展开。展开由各自导航/初始化按页面类型决定。
+            PixivPanelState.onChange(c => {
+                if (c && !this._collapsed) this.toggleCollapse();
+            });
+        }
+
+        _build() {
+            const container = $el('div', {
+                id: PANEL_ID,
+                style: {
+                    position: 'fixed', top: '120px', right: '20px', zIndex: 10000,
+                    background: 'white', border: '2px solid ' + BRAND, borderRadius: '8px',
+                    padding: '15px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                    minWidth: '360px', maxWidth: '420px',
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                    maxHeight: '80vh', overflowY: 'auto'
+                }
+            });
+
+            const titleRow = $el('div', {
+                style: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', borderBottom: '2px solid #eee', paddingBottom: '10px' }
+            });
+            const collapseBtn = $el('button', {
+                innerText: '◀', title: t('enhance.action.collapse', '收起'),
+                style: { background: 'none', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', padding: '2px 6px', color: '#666', flexShrink: '0' }
+            });
+            collapseBtn.addEventListener('click', () => this.manualToggleCollapse());
+            const titleEl = $el('div', {
+                innerText: t('enhance.title', '🧰 Pixiv 体验增强工具箱'),
+                style: { fontWeight: 'bold', color: '#333', textAlign: 'center', fontSize: '15px', flex: '1' }
+            });
+            titleRow.appendChild(collapseBtn);
+            titleRow.appendChild(titleEl);
+            titleRow.appendChild(buildLangSwitcher());
+
+            const sectionTitle = $el('div', {
+                innerText: t('enhance.section.features', '功能列表'),
+                style: { fontSize: '12px', fontWeight: 'bold', color: '#888', margin: '4px 0 8px' }
+            });
+
+            const featuresBox = $el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } });
+            this._featuresBox = featuresBox;
+
+            const serverRow = $el('div', {
+                style: { display: 'flex', alignItems: 'center', marginTop: '14px', borderTop: '1px solid #eee', paddingTop: '12px' }
+            });
+            const serverLabel = $el('label', {
+                innerText: t('enhance.setting.server', '服务器地址:'),
+                style: { fontSize: '12px', marginRight: '10px', whiteSpace: 'nowrap' }
+            });
+            const serverInput = $el('input', {
+                type: 'text', value: serverBase, placeholder: 'http://localhost:6999',
+                style: { flex: '1', padding: '4px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '12px' }
+            });
+            serverInput.addEventListener('change', () => {
+                serverBase = serverInput.value.trim().replace(/\/$/, '') || 'http://localhost:6999';
+                GM_setValue(KEY_SERVER_URL, serverBase);
+                PixivUserscriptI18n.enrichFromBackend(serverBase);
+                ServerStatus.refresh();
+            });
+            serverRow.appendChild(serverLabel);
+            serverRow.appendChild(serverInput);
+
+            const footer = $el('div', {
+                innerText: t('enhance.footer.hint', '每个功能相互独立，可按需开关。后续会持续增加更多功能。'),
+                style: { fontSize: '11px', color: '#999', marginTop: '10px', lineHeight: '1.5' }
+            });
+
+            container.appendChild(titleRow);
+            container.appendChild(sectionTitle);
+            container.appendChild(featuresBox);
+            container.appendChild(serverRow);
+            container.appendChild(footer);
+            document.body.appendChild(container);
+            this.root = container;
+
+            // Mini FAB
+            const oldFab = document.getElementById(FAB_ID);
+            if (oldFab) oldFab.remove();
+            const fab = $el('button', {
+                id: FAB_ID, innerText: '🧰', title: t('enhance.fab.title', 'Pixiv 体验增强工具箱'),
+                style: {
+                    display: 'none', position: 'fixed', top: '210px', right: '20px', zIndex: '999999',
+                    background: BRAND, color: 'white', border: 'none', borderRadius: '50%',
+                    width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.3)', lineHeight: '40px', textAlign: 'center', padding: '0'
+                }
+            });
+            fab.addEventListener('click', () => this.manualToggleCollapse());
+            document.body.appendChild(fab);
+            this._fab = fab;
+
+            this._renderFeatures();
+        }
+
+        _renderFeatures() {
+            const box = this._featuresBox;
+            box.innerHTML = '';
+            this._featureCards = [];
+            FeatureRegistry.list().forEach(feature => {
+                const card = $el('div', {
+                    style: { border: '1px solid #e6e6e6', borderRadius: '6px', padding: '10px', background: '#fafafa' }
+                });
+                card.setAttribute('data-feature', feature.def.id);
+
+                const header = $el('label', {
+                    style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: '#333' }
+                });
+                const toggle = $el('input', { type: 'checkbox' });
+                toggle.checked = feature.enabled;
+                toggle.addEventListener('change', () => {
+                    FeatureRegistry.setEnabled(feature, toggle.checked);
+                    this._renderFeatureBody(feature, card);
+                });
+                header.appendChild(toggle);
+                header.appendChild($el('span', { innerText: t(feature.def.nameKey, feature.def.id) }));
+
+                const desc = $el('div', {
+                    innerText: t(feature.def.descKey, ''),
+                    style: { fontSize: '11px', color: '#777', margin: '6px 0 0', lineHeight: '1.5' }
+                });
+
+                const gate = $el('div', {
+                    'data-role': 'gate',
+                    style: { fontSize: '11px', margin: '6px 0 0', lineHeight: '1.5' }
+                });
+
+                const sub = $el('div', {
+                    'data-role': 'sub',
+                    style: { marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #ddd', display: 'none', flexDirection: 'column', gap: '8px' }
+                });
+                feature.def.settingDefs && feature.def.settingDefs.forEach(sd => {
+                    sub.appendChild(this._buildSettingRow(feature, sd));
+                });
+
+                card._toggle = toggle;
+                card._gate = gate;
+                card._sub = sub;
+
+                card.appendChild(header);
+                card.appendChild(desc);
+                card.appendChild(gate);
+                card.appendChild(sub);
+                box.appendChild(card);
+
+                this._featureCards.push({ feature, card });
+                this._renderFeatureBody(feature, card);
+            });
+        }
+
+        _buildSettingRow(feature, sd) {
+            const row = $el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' } });
+            const label = $el('label', {
+                innerText: t(sd.labelKey, sd.key),
+                style: { width: '120px', flexShrink: '0' }
+            });
+            let input;
+            if (sd.type === 'select') {
+                input = $el('select', { style: { flex: '1', padding: '4px', border: '1px solid #ddd', borderRadius: '4px' } });
+                (sd.options || []).forEach(opt => {
+                    const o = document.createElement('option');
+                    o.value = opt.value;
+                    o.textContent = t(opt.labelKey, opt.value);
+                    o.selected = feature.settings[sd.key] === opt.value;
+                    input.appendChild(o);
+                });
+                input.addEventListener('change', () => FeatureRegistry.setSetting(feature, sd.key, input.value));
+            } else if (sd.type === 'color') {
+                input = $el('input', { type: 'color', value: feature.settings[sd.key] || '#6f42c1', style: { width: '48px', height: '28px', padding: '0', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' } });
+                const applyColor = () => FeatureRegistry.setSetting(feature, sd.key, input.value);
+                input.addEventListener('input', applyColor);  // 拖动取色时实时生效
+                input.addEventListener('change', applyColor);
+            } else {
+                input = $el('input', {
+                    type: 'number', value: feature.settings[sd.key],
+                    style: { width: '70px', padding: '4px', border: '1px solid #ddd', borderRadius: '4px' }
+                });
+                if (sd.min != null) input.min = sd.min;
+                if (sd.max != null) input.max = sd.max;
+                if (sd.step != null) input.step = sd.step;
+                const clamp = (v) => {
+                    if (sd.min != null) v = Math.max(sd.min, v);
+                    if (sd.max != null) v = Math.min(sd.max, v);
+                    return v;
+                };
+                // 输入/调节过程中实时生效（不回写输入框，避免打断输入）
+                const live = () => {
+                    const v = parseFloat(input.value);
+                    if (Number.isFinite(v)) FeatureRegistry.setSetting(feature, sd.key, clamp(v));
+                };
+                // 失焦/回车时归一并回写
+                const commit = () => {
+                    let v = parseFloat(input.value);
+                    if (!Number.isFinite(v)) v = sd.min != null ? sd.min : 0;
+                    v = clamp(v);
+                    input.value = v;
+                    FeatureRegistry.setSetting(feature, sd.key, v);
+                };
+                input.addEventListener('input', live);
+                input.addEventListener('change', commit);
+            }
+            row.appendChild(label);
+            row.appendChild(input);
+            return row;
+        }
+
+        _gateMessage(feature) {
+            if (feature.def.gate !== 'local-solo-login') return null;
+            const phase = ServerStatus.get().phase;
+            const map = {
+                'checking': { key: 'enhance.gate.checking', fb: '正在检测服务器状态...', color: '#888' },
+                'not-local': { key: 'enhance.gate.not-local', fb: '需要服务器地址指向 localhost / 127.0.0.1。', color: '#dc3545' },
+                'not-solo': { key: 'enhance.gate.not-solo', fb: '需要服务器运行在 solo 模式。', color: '#dc3545' },
+                'not-login': { key: 'enhance.gate.not-login', fb: '需要已登录服务器（solo 模式）。', color: '#dc3545' },
+                'unreachable': { key: 'enhance.gate.unreachable', fb: '无法连接服务器。', color: '#dc3545' },
+                'ready': { key: 'enhance.gate.ready', fb: '条件已满足，可以开启此功能。', color: '#28a745' }
+            };
+            return map[phase] || map['checking'];
+        }
+
+        _renderFeatureBody(feature, card) {
+            const ok = FeatureRegistry.available(feature);
+            const gateInfo = this._gateMessage(feature);
+            card._toggle.disabled = !ok;
+            card._toggle.checked = feature.enabled;
+            if (gateInfo) {
+                card._gate.style.display = 'block';
+                card._gate.style.color = gateInfo.color;
+                card._gate.innerText = t(gateInfo.key, gateInfo.fb);
+            } else {
+                card._gate.style.display = 'none';
+            }
+            card._sub.style.display = (feature.enabled && ok) ? 'flex' : 'none';
+        }
+
+        refreshFeatureStates() {
+            if (!this.root || !this._featureCards) return;
+            this._featureCards.forEach(({ feature, card }) => this._renderFeatureBody(feature, card));
+        }
+
+        rerender() {
+            if (!this.root) return;
+            this.root.remove();
+            if (this._fab) this._fab.remove();
+            this.root = null;
+            this._build();
+            this._applyCollapsed();
+        }
+
+        _applyCollapsed() {
+            if (this._collapsed) {
+                if (this.root) this.root.style.display = 'none';
+                if (this._fab) this._fab.style.display = 'block';
+            } else {
+                if (this.root) this.root.style.display = 'block';
+                if (this._fab) this._fab.style.display = 'none';
+            }
+        }
+
+        toggleCollapse() {
+            this._collapsed = !this._collapsed;
+            this._applyCollapsed();
+            if (!this._collapsed) {
+                document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'enhance' }));
+            }
+        }
+
+        manualToggleCollapse() {
+            this.toggleCollapse();
+            savePanelCollapsed(this._collapsed);
+        }
+
+        show() {
+            if (!document.getElementById(PANEL_ID)) this.mount();
+            this._collapsed = false;
+            savePanelCollapsed(false);
+            this._applyCollapsed();
+            document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'enhance' }));
+        }
+    }
+
+    /* ========== 重复实例检测 ==========
+     * 独立脚本与 All-in-One 合并包是两个不同的 Tampermonkey 脚本（GM 存储互不相通），
+     * 但共享同一页面 DOM。各 userscript 的顶层代码在 document-end 是依次同步执行的，
+     * 因此“读 DOM 标记 → 写标记”这一步对另一实例而言是原子的：先跑的占位成为唯一活动
+     * 实例，后跑的读到标记即判定为重复实例，自我停用并弹一次提示（PromptGuard 跨实例
+     * 去重，保证只弹一次）。
+     */
+    const DUP_ATTR = 'data-pixiv-enhance-running';
+    const isDuplicateInstance = document.documentElement.getAttribute(DUP_ATTR) === '1';
+    document.documentElement.setAttribute(DUP_ATTR, '1');
+
+    /* ========== 引导 ========== */
+    if (isDuplicateInstance) {
+        console.warn('[Pixiv体验增强] 检测到本页已有一个实例在运行，本实例已停用（请勿同时启用独立脚本与 All-in-One 合并包）。');
+        PromptGuard.once('enhance-multi-instance', { ttlMs: 3600000 }, () => {
+            alert(t('enhance.multi-instance.warn',
+                '检测到「Pixiv 体验增强工具箱」在本页重复运行，本重复实例已停用。请在 Tampermonkey 中只保留其中一个启用。'));
+        });
+    } else {
+        const panel = new Panel();
+
+        const init = () => {
+            if (!document.body) { setTimeout(init, 100); return; }
+            panel.mount();
+            PixivUserscriptI18n.enrichFromBackend(serverBase);
+            ServerStatus.refresh();
+            // 周期性复检服务器状态（登录态/模式可能在外部变化）
+            setInterval(() => ServerStatus.refresh(), 60000);
+        };
+
+        init();
+
+        // 跨脚本面板协调：其它下载器面板展开时收起本面板，避免左右堆叠遮挡
+        document.addEventListener('pixiv_panel_active', e => {
+            if (e.detail && e.detail !== 'enhance' && !panel._collapsed) {
+                panel.toggleCollapse();
+            }
+        });
+
+        GM_registerMenuCommand(t('enhance.menu.open', '打开 Pixiv 体验增强工具箱'), () => {
+            panel.show();
+        });
+    }
+})();

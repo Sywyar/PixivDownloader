@@ -4426,7 +4426,7 @@
         const list = document.getElementById('userscripts-list');
         list.textContent = bt('userscripts.loading', '加载中…');
         try {
-            const resp = await fetch('/api/scripts');
+            const resp = await fetch('/api/scripts?lang=' + encodeURIComponent(uiLang()));
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const data = await resp.json();
 

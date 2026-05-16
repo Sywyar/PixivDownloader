@@ -37,7 +37,7 @@
 <details>
 <summary><strong>剩余俩张使用预览截图在Pixiv站内，为浅色模式，小心晃眼</strong></summary>
 
-#### Pixiv 页面批量下载器.user.js 页面截图，支持Pixiv全站抓取
+#### Pixiv 页面批量下载器(Page Scrape).user.js 页面截图，支持Pixiv全站抓取
 
 ![](../../image/6.png)
 
