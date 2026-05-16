@@ -58,6 +58,12 @@
             gap: 8px;
             align-items: center;
         }
+        #langSwitcherAnchor {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         .btn {
             display: inline-flex;
             align-items: center;

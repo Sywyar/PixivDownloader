@@ -97,6 +97,7 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private static final Set<String> GUEST_ALLOWED_STATIC_EXACT = Set.of(
             "/css/admin-visibility.css",
+            "/css/lang-theme-switcher.css",
             "/js/invite-modals.js",
             "/js/pixiv-i18n.js",
             "/js/pixiv-lang-switcher.js",

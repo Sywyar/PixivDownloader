@@ -35,7 +35,7 @@
         document.getElementById('viewerLoading').textContent = wt('status.loading', 'Loading...');
         document.getElementById('mainImage').setAttribute('data-loading-text', wt('status.loading', 'Loading...'));
         document.getElementById('pixivArtworkLinkLabel').textContent = wt('button.pixiv-artwork', 'Open Original on Pixiv');
-        document.getElementById('showcaseLinkLabel').textContent = wt('button.showcase', '作品赏析(娱乐性功能)');
+        document.getElementById('showcaseLinkLabel').textContent = wt('button.showcase', '作品展示(娱乐性功能)');
         document.getElementById('detailTagsTitle').textContent = wt('panel.tags', 'Tags');
         document.getElementById('relatedPanelTitle').textContent = wt('panel.related', 'Related Artworks');
         document.getElementById('seriesPanelTitle').textContent = wt('panel.series', 'This Series');

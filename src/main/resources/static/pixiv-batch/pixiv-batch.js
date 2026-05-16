@@ -884,6 +884,20 @@
     }
 
     async function doLogout() {
+        // solo 模式下退出登录同时清除服务器保存的 Cookie；必须在 logout 使 session 失效前持久化
+        if (appMode === 'solo') {
+            if (_saveTimer) clearTimeout(_saveTimer);
+            delete serverState['pixiv_cookie'];
+            try {
+                await fetch(BASE + '/api/batch/state', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({state: serverState}),
+                    credentials: 'same-origin'
+                });
+            } catch {
+            }
+        }
         try {
             await fetch('/api/auth/logout', {method: 'POST', credentials: 'same-origin'});
         } catch {
@@ -4307,6 +4321,13 @@
                 inp.type = 'password';
             }
             syncCookieToggleLabel();
+        });
+
+        document.getElementById('cookie-clear').addEventListener('click', () => {
+            if (!uiConfirmKey('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
+            storeRemove('pixiv_cookie');
+            document.getElementById('cookie-input').value = '';
+            setStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'success');
         });
 
         // Settings change → auto-save

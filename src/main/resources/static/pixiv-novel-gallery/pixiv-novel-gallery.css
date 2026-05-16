@@ -222,26 +222,6 @@
         }
         .topbar-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
-        /* Lang/theme switcher style overrides */
-        .pixiv-lang-switcher--default { color: var(--text-secondary) !important; }
-        .pixiv-lang-switcher--default .pixiv-lang-switcher__select {
-            border-color: var(--line) !important;
-            background: var(--control-bg) !important;
-            color: var(--text-secondary) !important;
-        }
-        .pixiv-lang-switcher--default .pixiv-lang-switcher__select option {
-            background: var(--surface); color: var(--text);
-        }
-        .pixiv-theme-toggle {
-            width: 32px; height: 32px;
-            border: 1px solid var(--line); border-radius: 8px;
-            background: var(--control-bg); color: var(--text-secondary);
-            cursor: pointer;
-            display: inline-flex; align-items: center; justify-content: center;
-        }
-        .pixiv-theme-toggle:hover { border-color: var(--brand); color: var(--brand); background: var(--hover-bg); }
-        .pixiv-theme-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-
         .search-box {
             flex: 1; max-width: 480px;
             display: flex; align-items: center; gap: 10px;

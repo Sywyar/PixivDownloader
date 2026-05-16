@@ -1,0 +1,56 @@
+/*
+ * Shared styling for the language switcher (default variant) + theme toggle
+ * injected by /js/pixiv-lang-switcher.js and /js/pixiv-theme.js.
+ *
+ * Relies on the theme CSS custom properties (--text-secondary, --line,
+ * --control-bg, --surface, --text, --brand, --hover-bg) that each page
+ * defines in its own :root / html[data-theme="dark"] blocks.
+ *
+ * Pages using a bespoke variant (--setup / --green / --login / --cyberpunk)
+ * keep their own rules and must load their page CSS after this file.
+ */
+
+.pixiv-lang-switcher--default {
+    color: var(--text-secondary) !important;
+}
+
+.pixiv-lang-switcher--default .pixiv-lang-switcher__select {
+    border-color: var(--line) !important;
+    background: var(--control-bg) !important;
+    color: var(--text-secondary) !important;
+}
+
+.pixiv-lang-switcher--default .pixiv-lang-switcher__select option {
+    background: var(--surface);
+    color: var(--text);
+}
+
+.pixiv-theme-toggle {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--control-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.pixiv-theme-toggle:hover {
+    border-color: var(--brand);
+    color: var(--brand);
+    background: var(--hover-bg);
+}
+
+.pixiv-theme-toggle svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}

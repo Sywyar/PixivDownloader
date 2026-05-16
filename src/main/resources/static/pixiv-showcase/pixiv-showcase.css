@@ -183,51 +183,28 @@
             gap: 8px;
         }
 
-        .pixiv-lang-switcher--default {
-            color: var(--text-secondary) !important;
-        }
-
+        /* Pill/glass overrides on top of /css/lang-theme-switcher.css */
         .pixiv-lang-switcher--default .pixiv-lang-switcher__select {
-            border-color: var(--line) !important;
             border-radius: 999px !important;
             background: rgba(255, 255, 255, 0.06) !important;
-            color: var(--text-secondary) !important;
-        }
-
-        .pixiv-lang-switcher--default .pixiv-lang-switcher__select option {
-            background: var(--surface);
-            color: var(--text);
         }
 
         .pixiv-theme-toggle {
             width: 34px;
             height: 34px;
             border-radius: 999px;
-            border: 1px solid var(--line);
             background: rgba(255, 255, 255, 0.06);
-            color: var(--text-secondary);
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
             transition: all 0.2s;
             backdrop-filter: blur(8px);
         }
 
         .pixiv-theme-toggle:hover {
-            border-color: var(--brand);
-            color: var(--brand);
             background: rgba(0, 150, 250, 0.08);
         }
 
         .pixiv-theme-toggle svg {
             width: 15px;
             height: 15px;
-            fill: none;
-            stroke: currentColor;
-            stroke-width: 2;
-            stroke-linecap: round;
-            stroke-linejoin: round;
         }
 
         .top-bar-btn {
