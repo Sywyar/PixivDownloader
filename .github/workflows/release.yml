@@ -13,10 +13,6 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  APP_NAME: PixivDownload
-  APP_VENDOR: sywyar
-  MAIN_CLASS: org.springframework.boot.loader.launch.JarLauncher
-  JRE_MODULES: java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.sql.rowset,java.xml,jdk.charsets,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.httpserver,jdk.localedata,jdk.management,jdk.unsupported,jdk.zipfs
 
 jobs:
   build-jar:
@@ -116,98 +112,19 @@ jobs:
           name: jar
           path: artifacts/jar
 
-      - name: Stage JAR for jpackage
-        shell: bash
-        run: |
-          mkdir -p build/input
-          cp artifacts/jar/PixivDownload-*.jar "build/input/PixivDownload-${{ steps.vars.outputs.version }}.jar"
-
-      - name: Build trimmed runtime with jlink
-        shell: bash
-        run: |
-          jlink \
-            --add-modules "$JRE_MODULES" \
-            --strip-debug \
-            --no-man-pages \
-            --no-header-files \
-            --compress=2 \
-            --output build/runtime
-
-      - name: Build app-image
-        shell: bash
-        run: |
-          jpackage \
-            --type app-image \
-            --name "$APP_NAME" \
-            --app-version "${{ steps.vars.outputs.version }}" \
-            --vendor "$APP_VENDOR" \
-            --input build/input \
-            --main-jar "PixivDownload-${{ steps.vars.outputs.version }}.jar" \
-            --main-class "$MAIN_CLASS" \
-            --runtime-image build/runtime \
-            --icon src/main/resources/static/favicon.ico \
-            --java-options "-Dfile.encoding=UTF-8" \
-            --java-options "-Dstdout.encoding=UTF-8" \
-            --java-options "-Dstderr.encoding=UTF-8" \
-            --dest build/app-image-online
-
-      - name: Patch launcher to request administrator rights
+      - name: Package Windows setup
         shell: pwsh
         run: |
-          ./scripts/set-windows-exe-requested-execution-level.ps1 `
-            -Path "build/app-image-online/PixivDownload/PixivDownload.exe" `
-            -Level "requireAdministrator"
-
-      - name: Build Windows setup
-        shell: pwsh
-        run: |
-          function Get-InnoSetupCompiler {
-            $command = Get-Command "iscc.exe" -ErrorAction SilentlyContinue
-            if ($command) {
-              return $command.Source
-            }
-
-            $candidates = @()
-            $programFilesX86 = ${env:ProgramFiles(x86)}
-            if (-not [string]::IsNullOrWhiteSpace($programFilesX86)) {
-              $candidates += Join-Path $programFilesX86 "Inno Setup 6\ISCC.exe"
-            }
-            if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
-              $candidates += Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"
-            }
-
-            foreach ($candidate in $candidates) {
-              if (Test-Path $candidate) {
-                return $candidate
-              }
-            }
-
-            throw "Missing required command: iscc.exe"
-          }
-
-          New-Item -ItemType Directory -Force "build/out" | Out-Null
-
           $version = '${{ steps.vars.outputs.version }}'
-          $installerVersion = [regex]::Match($version, '\d+(?:\.\d+){0,2}').Value
-          if ([string]::IsNullOrWhiteSpace($installerVersion)) {
-            throw "Could not derive installer version from '$version'"
+          $jar = Get-ChildItem artifacts/jar/PixivDownload-*.jar -File | Select-Object -First 1
+          if (-not $jar) {
+            throw "Could not find downloaded JAR artifact under artifacts/jar"
           }
-
-          $iscc = Get-InnoSetupCompiler
-          $iscc = ./scripts/prepare-inno-admin-loader.ps1 `
-            -CompilerPath $iscc `
-            -OutputDirectory "build/inno-admin-loader"
-          $appImageDir = (Resolve-Path "build/app-image-online/PixivDownload").Path
-          $outputDir = (Resolve-Path "build/out").Path
-          & $iscc `
-            "/DAppVersion=$version" `
-            "/DInstallerVersion=$installerVersion" `
-            "/DAppImageDir=$appImageDir" `
-            "/DOutputDir=$outputDir" `
-            "packaging/windows/inno/PixivDownload.iss"
-          if ($LASTEXITCODE -ne 0) {
-            throw "ISCC failed with exit code $LASTEXITCODE"
-          }
+          ./scripts/package-local.ps1 `
+            -Version $version `
+            -PrebuiltJar $jar.FullName `
+            -SkipPortable `
+            -SkipOfflinePortable
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4

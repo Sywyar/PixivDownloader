@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Version = "0.0.1-local",
+    [string]$PrebuiltJar,
     [switch]$RunTests,
     [switch]$SkipPortable,
     [switch]$SkipOfflinePortable,
@@ -134,6 +135,31 @@ function Get-BuiltJar {
     return $jar
 }
 
+function Resolve-PrebuiltJar {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        Write-Warning "Prebuilt JAR not found: $Path"
+        return $null
+    }
+
+    $item = Get-Item -LiteralPath $Path
+    if ($item.Extension -ne ".jar") {
+        Write-Warning "Prebuilt JAR is not a .jar file: $Path"
+        return $null
+    }
+    if ($item.Length -le 0) {
+        Write-Warning "Prebuilt JAR is empty: $Path"
+        return $null
+    }
+
+    return $item.FullName
+}
+
 function Get-InstallerVersion {
     param([string]$VersionText)
 
@@ -190,7 +216,10 @@ Push-Location $ProjectRoot
 try {
     Write-Step "Checking local toolchain"
     $InstallerVersion = Get-InstallerVersion $Version
-    $mavenCmd = Get-MavenCommand
+    $mavenCmd = $null
+    if (-not $PrebuiltJar) {
+        $mavenCmd = Get-MavenCommand
+    }
     Assert-Command "jlink"
     Assert-Command "jpackage"
     if (-not $SkipInstaller) {
@@ -204,16 +233,29 @@ try {
     Ensure-Directory $InputDir
     Ensure-Directory $OutDir
 
-    Write-Step "Building application JAR"
-    if ($RunTests) {
-        Invoke-External $mavenCmd @("package", "-Dapp.release.version=$Version")
-    } else {
-        Invoke-External $mavenCmd @("package", "-DskipTests", "-Dapp.release.version=$Version")
-    }
-
-    $jar = Get-BuiltJar
     $stagedJar = Join-Path $InputDir "$AppName-$Version.jar"
-    Copy-Item $jar.FullName $stagedJar -Force
+    $resolvedPrebuiltJar = Resolve-PrebuiltJar $PrebuiltJar
+    if ($resolvedPrebuiltJar) {
+        Write-Step "Staging prebuilt application JAR"
+        Copy-Item $resolvedPrebuiltJar $stagedJar -Force
+    } else {
+        if ($PrebuiltJar) {
+            Write-Step "Prebuilt JAR invalid; falling back to Maven build"
+        } else {
+            Write-Step "Building application JAR"
+        }
+        if (-not $mavenCmd) {
+            $mavenCmd = Get-MavenCommand
+        }
+        if ($RunTests) {
+            Invoke-External $mavenCmd @("package", "-Dapp.release.version=$Version")
+        } else {
+            Invoke-External $mavenCmd @("package", "-DskipTests", "-Dapp.release.version=$Version")
+        }
+
+        $jar = Get-BuiltJar
+        Copy-Item $jar.FullName $stagedJar -Force
+    }
 
     Write-Step "Building trimmed runtime image"
     Invoke-External "jlink" @(

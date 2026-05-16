@@ -108,6 +108,10 @@ en.MaintenanceRemovingLegacyMsi=Removing the previous MSI installation...
 zhcn.MaintenanceRemovingLegacyMsi=正在移除旧 MSI 安装...
 en.MaintenanceLegacyMsiRemoveFailed=Could not remove the previous MSI installation.
 zhcn.MaintenanceLegacyMsiRemoveFailed=未能移除旧 MSI 安装。
+en.AppRunningError=PixivDownload is currently running. Please close it completely, then click Retry to continue.
+zhcn.AppRunningError=检测到 PixivDownload 正在运行。请完全关闭它后点击“重试”继续安装。
+en.AppRunningAbort=Setup cannot continue while PixivDownload is running. Installation was cancelled.
+zhcn.AppRunningAbort=PixivDownload 正在运行，安装无法继续，已取消安装。
 
 [Tasks]
 Name: "downloadffmpeg"; Description: "{cm:TaskDownloadFfmpeg}"; GroupDescription: "{cm:OptionalTasksGroup}"; Flags: unchecked; Check: ShouldShowFfmpegTask
@@ -141,8 +145,22 @@ type
     PtY: Longint;
   end;
 
+  PROCESSENTRY32 = record
+    dwSize: Longword;
+    cntUsage: Longword;
+    th32ProcessID: Longword;
+    th32DefaultHeapID: Longword;
+    th32ModuleID: Longword;
+    cntThreads: Longword;
+    th32ParentProcessID: Longword;
+    pcPriClassBase: Longint;
+    dwFlags: Longword;
+    szExeFile: array[0..259] of Char;
+  end;
+
 const
   PM_REMOVE = 1;
+  TH32CS_SNAPPROCESS = $00000002;
   FfmpegArchiveName = 'ffmpeg.zip';
   FfmpegLicenseName = 'ffmpeg-LGPL.txt';
   AppRegistryKey = 'Software\sywyar\PixivDownload';
@@ -166,6 +184,18 @@ external 'TranslateMessage@user32.dll stdcall';
 
 function DispatchMessage(var Msg: TMsg): Longint;
 external 'DispatchMessageW@user32.dll stdcall';
+
+function CreateToolhelp32Snapshot(dwFlags, th32ProcessID: Longword): Longword;
+external 'CreateToolhelp32Snapshot@kernel32.dll stdcall';
+
+function Process32First(hSnapshot: Longword; var lppe: PROCESSENTRY32): Boolean;
+external 'Process32FirstW@kernel32.dll stdcall';
+
+function Process32Next(hSnapshot: Longword; var lppe: PROCESSENTRY32): Boolean;
+external 'Process32NextW@kernel32.dll stdcall';
+
+function CloseHandle(hObject: Longword): Boolean;
+external 'CloseHandle@kernel32.dll stdcall';
 
 var
   MaintenancePage: TWizardPage;
@@ -1111,9 +1141,65 @@ begin
   end;
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+function GetProcessExeName(var Entry: PROCESSENTRY32): String;
+var
+  I: Integer;
 begin
   Result := '';
+  for I := 0 to 259 do
+  begin
+    if Entry.szExeFile[I] = #0 then
+      break;
+    Result := Result + Entry.szExeFile[I];
+  end;
+end;
+
+function IsApplicationRunning: Boolean;
+var
+  Snapshot: Longword;
+  Entry: PROCESSENTRY32;
+begin
+  Result := False;
+  Snapshot := CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if Snapshot = $FFFFFFFF then
+    exit;
+  try
+    Entry.dwSize := SizeOf(Entry);
+    if Process32First(Snapshot, Entry) then
+    begin
+      repeat
+        if CompareText(GetProcessExeName(Entry), '{#AppExeName}') = 0 then
+        begin
+          Result := True;
+          exit;
+        end;
+      until not Process32Next(Snapshot, Entry);
+    end;
+  finally
+    CloseHandle(Snapshot);
+  end;
+end;
+
+function EnsureApplicationClosed: String;
+begin
+  Result := '';
+  if not ShouldInstallApplicationFiles then
+    exit;
+  while IsApplicationRunning do
+  begin
+    if SuppressibleMsgBox(CustomMessage('AppRunningError'), mbError, MB_RETRYCANCEL, IDCANCEL) <> IDRETRY then
+    begin
+      Result := CustomMessage('AppRunningAbort');
+      exit;
+    end;
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := EnsureApplicationClosed;
+  if Result <> '' then
+    exit;
   if ShouldInstallApplicationFiles then
     Result := RemoveLegacyMsiSilently(NeedsRestart);
 end;
