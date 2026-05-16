@@ -24,6 +24,15 @@
     const KEY_SERVER_URL = 'pixiv_server_base';
     let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
 
+    // 记忆面板展开/收缩状态（仅记录用户手动操作）
+    const KEY_PANEL_COLLAPSED = 'pixiv_single_import_panel_collapsed';
+    function loadPanelCollapsed() {
+        try { return GM_getValue(KEY_PANEL_COLLAPSED, false) === true; } catch (e) { return false; }
+    }
+    function savePanelCollapsed(collapsed) {
+        try { GM_setValue(KEY_PANEL_COLLAPSED, collapsed === true); } catch (e) {}
+    }
+
     const CONFIG = {
         get BACKEND_URL() {
             return serverBase + '/api/download/pixiv';
@@ -1946,7 +1955,7 @@
                 textContent: t('import.title', '🎨 批量导入单作品下载器'),
                 style: {fontWeight: 'bold', color: '#333', textAlign: 'center', fontSize: '16px', flex: '1'}
             });
-            collapseBtn.addEventListener('click', () => this.toggleCollapse());
+            collapseBtn.addEventListener('click', () => this.manualToggleCollapse());
             titleRow.appendChild(collapseBtn);
             titleRow.appendChild(titleText);
             titleRow.appendChild(buildLangSwitcher());
@@ -1978,7 +1987,7 @@
                     padding: '0'
                 }
             });
-            miniFab.addEventListener('click', () => this.toggleCollapse());
+            miniFab.addEventListener('click', () => this.manualToggleCollapse());
             document.body.appendChild(miniFab);
 
             const status = $el('div', {
@@ -2435,6 +2444,12 @@
                 if (fab) fab.style.display = 'none';
                 document.dispatchEvent(new CustomEvent('pixiv_panel_active', {detail: 'single-import'}));
             }
+        }
+
+        // 用户手动收起/展开：在切换后持久化状态
+        manualToggleCollapse() {
+            this.toggleCollapse();
+            savePanelCollapsed(this._collapsed);
         }
 
         handleExportAll() {
@@ -2901,11 +2916,12 @@
 
     // 根据页面类型决定初始折叠状态：主页默认展开批量导入单作品面板，其他页面默认收起
     (function watchPages() {
+        let firstRun = true;
         function updateSingleImportVisibility() {
-            const shouldExpand = isHomePage(location.href);
-            if (shouldExpand && ui._collapsed) {
-                ui.toggleCollapse();
-            } else if (!shouldExpand && !ui._collapsed) {
+            // 首次加载优先沿用上次记忆的展开/收缩状态；之后的站内导航仍按页面类型决定
+            const targetCollapsed = firstRun ? loadPanelCollapsed() : !isHomePage(location.href);
+            firstRun = false;
+            if (targetCollapsed !== !!ui._collapsed) {
                 ui.toggleCollapse();
             }
         }

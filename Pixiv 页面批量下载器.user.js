@@ -31,6 +31,15 @@
     const KEY_SERVER_URL = 'pixiv_server_base';
     let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
 
+    // 记忆面板展开/收缩状态（仅记录用户手动操作）
+    const KEY_PANEL_COLLAPSED = 'pixiv_page_batch_panel_collapsed';
+    function loadPanelCollapsed() {
+        try { return GM_getValue(KEY_PANEL_COLLAPSED, false) === true; } catch (e) { return false; }
+    }
+    function savePanelCollapsed(collapsed) {
+        try { GM_setValue(KEY_PANEL_COLLAPSED, collapsed === true); } catch (e) {}
+    }
+
     const CONFIG = {
         get BACKEND_URL() { return serverBase + '/api/download/pixiv'; },
         get STATUS_URL() { return serverBase + '/api/download/status'; },
@@ -1818,7 +1827,7 @@
                 innerText: t('page.title', '📄 Pixiv 页面批量下载器'),
                 style: { fontWeight: 'bold', color: '#333', textAlign: 'center', fontSize: '16px', flex: '1' }
             });
-            collapseBtn.addEventListener('click', () => this.toggleCollapse());
+            collapseBtn.addEventListener('click', () => this.manualToggleCollapse());
             titleRow.appendChild(collapseBtn);
             titleRow.appendChild(titleEl);
             titleRow.appendChild(buildLangSwitcher());
@@ -1830,7 +1839,7 @@
                 id: 'page-batch-mini-fab', innerText: '📄', title: t('page.fab.title', '页面批量下载器'),
                 style: { display: 'none', position: 'fixed', top: '160px', right: '20px', zIndex: '999999', background: '#17a2b8', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', lineHeight: '40px', textAlign: 'center', padding: '0' }
             });
-            miniFab.addEventListener('click', () => this.toggleCollapse());
+            miniFab.addEventListener('click', () => this.manualToggleCollapse());
             document.body.appendChild(miniFab);
 
             const status = $el('div', {
@@ -2057,6 +2066,12 @@
                 if (fab) fab.style.display = 'none';
                 document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'page' }));
             }
+        }
+
+        // 用户手动收起/展开：在切换后持久化状态
+        manualToggleCollapse() {
+            this.toggleCollapse();
+            savePanelCollapsed(this._collapsed);
         }
 
         show() {
@@ -2462,10 +2477,13 @@
 
     // SPA navigation — show/hide based on current URL
     let lastHref = location.href;
-    function updateVisibility(isNavigation) {
+    function updateVisibility(isNavigation, isInitial) {
         if (!document.getElementById('pixiv-page-batch-ui')) ui.mount();
-        // 页面切换时，根据页面类型决定默认展开/收起
-        if (isNavigation) {
+        if (isInitial) {
+            // 首次加载优先沿用上次记忆的展开/收缩状态
+            ui._collapsed = loadPanelCollapsed();
+        } else if (isNavigation) {
+            // 站内导航时，根据页面类型决定默认展开/收起
             const shouldExpand = shouldDefaultExpand();
             if (shouldExpand && ui._collapsed) {
                 ui._collapsed = false;
@@ -2488,7 +2506,7 @@
         ui.updateSinglePageButtonsVisibility();
     }
 
-    updateVisibility(true);
+    updateVisibility(true, true);
 
     // MutationObserver: re-apply overlays when Pixiv's SPA injects new thumbnail nodes
     let _overlayDebounce = null;

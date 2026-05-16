@@ -24,6 +24,15 @@
     const KEY_SERVER_URL = 'pixiv_server_base';
     let serverBase = GM_getValue(KEY_SERVER_URL, 'http://localhost:6999').replace(/\/$/, '');
 
+    // 记忆面板展开/收缩状态（仅记录用户手动操作）
+    const KEY_PANEL_COLLAPSED = 'pixiv_user_batch_panel_collapsed';
+    function loadPanelCollapsed() {
+        try { return GM_getValue(KEY_PANEL_COLLAPSED, false) === true; } catch (e) { return false; }
+    }
+    function savePanelCollapsed(collapsed) {
+        try { GM_setValue(KEY_PANEL_COLLAPSED, collapsed === true); } catch (e) {}
+    }
+
     const CONFIG = {
         get BACKEND_URL() { return serverBase + '/api/download/pixiv'; },
         get STATUS_URL() { return serverBase + '/api/download/status'; },
@@ -2062,8 +2071,10 @@
             }
             this._collapsed = false;
             this._build();
-            document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'user' }));
             this.syncSettings();
+            // 恢复上次记忆的展开/收缩状态
+            this._collapsed = !loadPanelCollapsed();
+            this.toggleCollapse();
         }
 
         hide() {
@@ -2083,6 +2094,12 @@
                 if (fab) fab.style.display = 'none';
                 document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'user' }));
             }
+        }
+
+        // 用户手动收起/展开：在切换后持久化状态
+        manualToggleCollapse() {
+            this.toggleCollapse();
+            savePanelCollapsed(this._collapsed);
         }
 
         syncSettings() {
@@ -2132,7 +2149,7 @@
                 innerText: t('user.title', '🖼️ Pixiv User 批量下载器'),
                 style: { fontWeight: 'bold', color: '#333', textAlign: 'center', fontSize: '16px', flex: '1' }
             });
-            collapseBtn.addEventListener('click', () => this.toggleCollapse());
+            collapseBtn.addEventListener('click', () => this.manualToggleCollapse());
             titleRow.appendChild(collapseBtn);
             titleRow.appendChild(title);
             titleRow.appendChild(buildLangSwitcher());
@@ -2146,7 +2163,7 @@
                 title: t('user.fab.title', 'User批量下载器'),
                 style: { display: 'none', position: 'fixed', top: '110px', right: '20px', zIndex: '1000001', background: '#28a745', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px', boxShadow: '0 2px 8px rgba(0,0,0,0.3)', lineHeight: '40px', textAlign: 'center', padding: '0' }
             });
-            miniFab.addEventListener('click', () => this.toggleCollapse());
+            miniFab.addEventListener('click', () => this.manualToggleCollapse());
             document.body.appendChild(miniFab);
 
             const status = $el('div', {
