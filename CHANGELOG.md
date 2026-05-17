@@ -23,7 +23,8 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ### Changed
 - 所有油猴脚本面板（单作品 Java 后端版 / 单作品 Local / URL 批量导入 / User 批量 / 页面批量 / 体验增强工具箱）展开时与各自 Mini 悬浮球保持同一垂直高度，看起来从悬浮球处展开。
 - 根目录与网页端脚本列表中的独立油猴脚本统一采用功能后缀文件名（`User Batch`、`Page Scrape`、`URL Batch`、`Local Download`、`Toolbox`），All-in-One 也同步包含体验增强工具箱。
-- 根目录发布的油猴脚本新增 `@updateURL` 元数据，指向 GitHub raw 文件，脚本管理器可直接检查更新。
+- 根目录发布的油猴脚本与 All-in-One 新增 `@updateURL` 元数据，分别指向 GitHub raw 文件和最新 Release 附件，脚本管理器可直接检查更新。
+- 通过批量下载页安装油猴脚本时，`@updateURL` 会改为当前后端的 `/api/scripts/{id}.user.js` 安装地址，避免安装后仍检查 GitHub raw 源。
 - 「URL 批量导入单作品下载器」聚焦单作品：不再解析或下载小说系列链接，仅处理插画/漫画/动图/小说单作品
 - 小说下载队列状态细化为正文、内嵌图片、封面、保存、收藏、归档等阶段，并在批量下载页展示正文/封面字节进度和内嵌图片数量进度。
 - GUI 错误弹窗改为统一提示，并提供打开 HTML/TXT 日志按钮；详细错误进入日志，避免长错误或外部命令输出乱码挤进弹窗。

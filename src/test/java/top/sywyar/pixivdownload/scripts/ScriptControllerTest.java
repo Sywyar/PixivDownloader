@@ -36,6 +36,7 @@ class ScriptControllerTest {
                     // ==UserScript==
                     // @name         Test Script
                     // @version      1.0.0
+                    // @updateURL    https://raw.githubusercontent.com/example/test.user.js
                     // @description  Test
                     // @connect      i.pximg.net
                     // @connect      YOUR_SERVER_HOST
@@ -113,26 +114,38 @@ class ScriptControllerTest {
     }
 
     @Test
-    @DisplayName("非 localhost 请求：YOUR_SERVER_HOST 被替换为实际 host")
+    @DisplayName("非 localhost 请求：YOUR_SERVER_HOST 和 updateURL 被替换")
     void installScript_nonLocalhost_replacesHost() throws Exception {
         when(scriptRegistry.findById("test-script")).thenReturn(Optional.of(SAMPLE_RESOURCE));
 
         mockMvc.perform(get("/api/scripts/test-script/install")
-                        .with(req -> { req.setServerName("example.com"); return req; }))
+                        .with(req -> {
+                            req.setServerName("example.com");
+                            req.setServerPort(6999);
+                            return req;
+                        }))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("YOUR_SERVER_HOST"))))
+                .andExpect(content().string(containsString(
+                        "// @updateURL    http://example.com:6999/api/scripts/test-script.user.js")))
                 .andExpect(content().string(containsString("example.com")));
     }
 
     @Test
-    @DisplayName("localhost 请求：保留 YOUR_SERVER_HOST 占位符")
+    @DisplayName("localhost 请求：保留 YOUR_SERVER_HOST，使用本机 updateURL")
     void installScript_localhost_keepsPlaceholder() throws Exception {
         when(scriptRegistry.findById("test-script")).thenReturn(Optional.of(SAMPLE_RESOURCE));
 
         mockMvc.perform(get("/api/scripts/test-script/install")
-                        .with(req -> { req.setServerName("localhost"); return req; }))
+                        .with(req -> {
+                            req.setServerName("localhost");
+                            req.setServerPort(6999);
+                            return req;
+                        }))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("YOUR_SERVER_HOST")));
+                .andExpect(content().string(containsString("YOUR_SERVER_HOST")))
+                .andExpect(content().string(containsString(
+                        "// @updateURL    http://localhost:6999/api/scripts/test-script.user.js")));
     }
 
     @Test

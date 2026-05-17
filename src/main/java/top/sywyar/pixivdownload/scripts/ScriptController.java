@@ -9,6 +9,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.quota.RateLimitService;
@@ -17,6 +18,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.regex.Matcher;
 
 /**
  * 油猴脚本分发接口，无需认证（AuthFilter 已放行 /api/scripts/**）。
@@ -56,7 +58,8 @@ public class ScriptController {
      *   <li>默认：Content-Type: application/javascript，供 Tampermonkey 拦截安装。</li>
      *   <li>?raw=1：Content-Type: text/plain，供浏览器内预览。</li>
      * </ul>
-     * 非 localhost 请求时，将脚本中的 {@code YOUR_SERVER_HOST} 替换为实际 host。
+     * 非 localhost 请求时，将脚本中的 {@code YOUR_SERVER_HOST} 替换为实际 host；
+     * 同时将 {@code @updateURL} 指向当前后端的标准安装地址。
      */
     /**
      * 供 Tampermonkey 拦截安装：URL 以 .user.js 结尾是触发安装弹窗的必要条件。
@@ -99,7 +102,8 @@ public class ScriptController {
         }
 
         String host = request.getServerName();
-        content = applyHostReplacement(content, host);
+        String installUrl = buildInstallUrl(id, request);
+        content = applyInstallReplacements(content, host, installUrl);
 
         if (raw) {
             // 查看源码：text/plain + UTF-8，不加 Content-Disposition 让浏览器直接内联显示
@@ -150,25 +154,37 @@ public class ScriptController {
     }
 
     /**
-     * 将脚本中的 {@code YOUR_SERVER_HOST} 替换为实际 host。
+     * 将脚本中的 {@code @updateURL} 替换为后端安装地址，并在需要时替换 {@code YOUR_SERVER_HOST}。
      * 若请求来自 localhost / 127.0.0.1，保留占位符（用户自行在 Tampermonkey 中修改）。
      * 替换后在 {@code @version} 行追加 {@code +host-<host>} 子版本号。
      */
-    private String applyHostReplacement(String content, String host) {
+    private String applyInstallReplacements(String content, String host, String installUrl) {
+        String replaced = content.replaceAll(
+                "(//\\s*@updateURL\\s+)\\S+",
+                "$1" + Matcher.quoteReplacement(installUrl)
+        );
         if ("localhost".equals(host) || "127.0.0.1".equals(host)) {
-            return content;
+            return replaced;
         }
         // 替换 @connect YOUR_SERVER_HOST 行（允许任意数量的空白）
-        String replaced = content.replaceAll(
+        replaced = replaced.replaceAll(
                 "(//\\s*@connect\\s+)YOUR_SERVER_HOST",
-                "$1" + host
+                "$1" + Matcher.quoteReplacement(host)
         );
         // @version 行追加子版本号，让 Tampermonkey 识别为新版本
         replaced = replaced.replaceAll(
                 "(//\\s*@version\\s+(\\S+))",
-                "$1+host-" + host
+                "$1+host-" + Matcher.quoteReplacement(host)
         );
         return replaced;
+    }
+
+    private String buildInstallUrl(String id, HttpServletRequest request) {
+        return ServletUriComponentsBuilder.fromRequestUri(request)
+                .replacePath(request.getContextPath() + "/api/scripts/" + id + ".user.js")
+                .replaceQuery(null)
+                .build()
+                .toUriString();
     }
 
     private String message(String code, Object... args) {
