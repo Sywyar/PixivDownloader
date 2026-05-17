@@ -3,7 +3,7 @@
 [中文](./README.md) | English
 
 > [!NOTE]
-> In this document, "works" includes manga, ugoira, and novels.
+> In this document, "works" includes illustrations, manga, ugoira, and novels.
 
 ### Local batch downloader for Pixiv works, supporting novels, manga, and other work types
 
@@ -11,9 +11,9 @@
 - Batch download works by user ID
 - Batch download works through the built-in search proxy
 - Batch download an entire series by entering a series link or a work link from that series
-- Use Tampermonkey userscripts to scrape manga from Pixiv pages (as of v1.8.0, temporarily limited to manga-related
-  works)
-- Powerful work viewer page (this document calls it the gallery, but it also supports novels)
+- Use Tampermonkey userscripts to scrape illustrations, manga, ugoira, and novels from Pixiv pages, or download directly
+  from single-work pages
+- Powerful artwork and novel galleries
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
@@ -36,12 +36,12 @@ management features.
 ### Features
 
 - One-stop download web page
-- Page batch download userscript — scrape works from Pixiv pages such as search results, following feed, rankings, and
-  more
+- Page batch download userscript — scrape illustrations, manga, ugoira, and novels from Pixiv pages such as search
+  results, following feed, and rankings, with thumbnail checkboxes and borders for queue status
 - Experience-enhancement toolbox userscript
 - One-stop management/monitoring page with multi-dimensional filtering/sorting, author search, filtering, and download
   history sorting
-- Powerful work viewer page
+- Powerful artwork and novel galleries with search-scope selection, filtering, sorting, and collections
 - Animated image auto-conversion to WebP
 - Download history management
 - Custom file naming
@@ -75,7 +75,9 @@ Download the latest version from [Releases](../../releases):
 On `pixiv-batch.html`, expand the userscript card at the top of the page and click the "⬇ Install" button for the target
 script.
 > [!WARNING]
-> Due to Tampermonkey restrictions, scripts installed this way will stop working when the backend URL changes.
+> When installed from the web UI, future update checks use the current backend.
+> Due to Tampermonkey restrictions, scripts installed from an old backend URL still need to be reinstalled or edited
+> manually when the backend URL changes.
 
 **Method 2: Download manually from Releases or the GitHub code view**
 
@@ -111,12 +113,12 @@ Standalone script reference:
 
 | Script File                               | What It Does                                                                                                                                                                          | Where to Get It                                  |
 |-------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------|
-| `Pixiv 单作品图片下载器(Java后端版).user.js`         | Downloads from a single artwork page through the Java backend                                                                                                                         | `pixiv-batch.html` / GitHub code view            |
-| `Pixiv 单作品图片下载器(Local Download).user.js`  | Downloads from a single artwork page in the browser, without the Java backend                                                                                                         | Releases / `pixiv-batch.html` / GitHub code view |
-| `Pixiv User 批量下载器(User Batch).user.js`    | Batch downloads artworks from a user homepage                                                                                                                                         | `pixiv-batch.html` / GitHub code view            |
-| `Pixiv URL 批量导入单作品下载器(URL Batch).user.js` | Imports single-work URLs in bulk, compatible with exports from OneTab, N-Tab, and similar tools                                                                                       | `pixiv-batch.html` / GitHub code view            |
-| `Pixiv 页面批量下载器(Page Scrape).user.js`      | Scrapes Pixiv pages from the DOM and supports broad Pixiv page capture                                                                                                                | `pixiv-batch.html` / GitHub code view            |
-| `Pixiv 体验增强工具箱(Toolbox).user.js`          | Modular experience-enhancement toolbox (per-feature toggles); first feature: borders on already-downloaded thumbnails, requires a local localhost server in solo mode while logged in | `pixiv-batch.html` / GitHub code view            |
+| `Pixiv 单作品图片下载器(Java后端版).user.js`         | Downloads from a single-work page through the Java backend                                                                                                   | `pixiv-batch.html` / GitHub code view            |
+| `Pixiv 单作品图片下载器(Local Download).user.js`  | Downloads from a single-work page in the browser, without the Java backend                                                                                    | Releases / `pixiv-batch.html` / GitHub code view |
+| `Pixiv User 批量下载器(User Batch).user.js`    | Batch downloads from a user homepage                                                                                                                         | `pixiv-batch.html` / GitHub code view            |
+| `Pixiv URL 批量导入单作品下载器(URL Batch).user.js` | Imports single-work URLs in bulk, compatible with exports from OneTab, N-Tab, and similar tools                                                               | `pixiv-batch.html` / GitHub code view            |
+| `Pixiv 页面批量下载器(Page Scrape).user.js`      | Scrapes works from the current Pixiv page DOM                                                                                                                 | `pixiv-batch.html` / GitHub code view            |
+| `Pixiv 体验增强工具箱(Toolbox).user.js`          | Modular experience-enhancement toolbox (per-feature toggles); configurable borders on already-downloaded work/novel thumbnails                                | `pixiv-batch.html` / GitHub code view            |
 
 > **The web interface is recommended first**: `pixiv-batch.html` supports Bulk Import Single Works, User mode, and
 > Search mode without requiring any userscript for batch downloading.
@@ -196,6 +198,7 @@ Visit `pixiv-batch.html` (login is required first in Solo Mode):
 > One item per line, in `url | title` format<br>
 > Example: `https://www.pixiv.net/artworks/12345678 | Sample Title`<br>
 > `title` can be left empty; the real title is fetched automatically before download<br>
+> Supports `artworks/<id>` and `novel/show.php?id=<id>` single-work links; novels can be saved as TXT / HTML / EPUB<br>
 > Compatible with export formats from OneTab, N-Tab, and similar tab manager extensions; exported lists can also be
 > imported again directly
 
@@ -232,13 +235,15 @@ Open the `Tools` tab in the desktop GUI to use the following tools directly:
 
 Visit `intro.html` (publicly accessible, no login required) to view the project introduction.
 
-### 8. Downloaded Images Gallery
+### 8. Downloaded Works Gallery
 
 Visit `pixiv-gallery.html` to browse a gallery of locally downloaded artworks.
 
 The gallery page supports:
 
-- searching by artwork title / artist
+- search-scope selection in the top search box: all, title, artist name, artwork ID, artist ID, description, tag
+  (fuzzy), and tag (exact); ID and exact-tag searches use exact matching, and the selection is remembered and shared
+  with the novel gallery
 - sorting by date, artwork ID, image count, status, artist ID, and tag count, with ascending / descending toggle
 - combined filtering by R-18, AI, image format, and collections
 - tag and artist chips support three filter modes: must have, must not have, or may have; positive conditions are
@@ -249,6 +254,17 @@ The gallery page supports:
 - "Expand All" and lightbox preview for multi-page works
 - adding artworks to collections or removing them from collections; collections support create, rename, delete, quick
   create, and custom icons (PNG / JPG / WEBP, max 1 MB)
+
+### 9. Downloaded Novel Gallery
+
+Visit `pixiv-novel-gallery.html` to browse locally downloaded novels.
+
+The novel gallery supports:
+
+- search-scope selection for all, title, artist name, novel ID, artist ID, description, tag (fuzzy), and tag (exact)
+- sorting by download time, novel ID, word count, and series
+- combined filtering by R-18, AI, collections, tags, authors, and series
+- opening a single novel detail page to view content, tags, author, series navigation, and collection state
 
 ## 4. Development Guide
 
