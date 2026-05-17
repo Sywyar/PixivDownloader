@@ -55,6 +55,7 @@ public class NovelGalleryController {
             @RequestParam(required = false, defaultValue = "date") String sort,
             @RequestParam(required = false, defaultValue = "desc") String order,
             @RequestParam(required = false) String search,
+            @RequestParam(required = false, defaultValue = "all") String searchType,
             @RequestParam(required = false, defaultValue = "any") String r18,
             @RequestParam(required = false, defaultValue = "any") String ai,
             @RequestParam(required = false) String collectionIds,
@@ -81,7 +82,7 @@ public class NovelGalleryController {
         }
         return novelGalleryService.query(new NovelGalleryService.NovelGalleryQuery(
                 Math.max(0, page), Math.max(1, Math.min(size, 200)),
-                sort, order, search, r18, ai,
+                sort, order, search, NovelGalleryService.normalizeSearchType(searchType), r18, ai,
                 parseLongCsv(collectionIds),
                 parseLongCsv(tagIds), parseLongCsv(notTagIds), parseLongCsv(orTagIds),
                 mustAuthors, parseLongCsv(notAuthorIds), parseLongCsv(orAuthorIds),

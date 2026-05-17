@@ -5,6 +5,7 @@
         sort: 'date',
         order: 'desc',
         search: '',
+        searchType: 'all',
         r18: 'any',
         ai: 'any',
         formats: new Set(),
@@ -101,6 +102,7 @@
     const GALLERY_SORT_VALUES = new Set([
         'date', 'artworkId', 'imgs', 'status', 'authorId', 'tags', 'series'
     ]);
+    const GALLERY_SEARCH_TYPE_VALUES = new Set(['all', 'title', 'author', 'id', 'authorId', 'desc', 'tag', 'tagExact']);
     const GALLERY_R18_VALUES = new Set(['any', 'r18plus', 'r18', 'r18g', 'no']);
     const GALLERY_AI_VALUES = new Set(['any', 'yes', 'no']);
     const GALLERY_FORMAT_VALUES = new Set(['jpg', 'png', 'gif', 'webp']);
@@ -123,6 +125,7 @@
             sort: state.sort,
             order: state.order,
             search: state.search,
+            searchType: state.searchType,
             r18: state.r18,
             ai: state.ai,
             formats: [...state.formats],
@@ -186,6 +189,9 @@
         if (typeof payload.sort === 'string' && GALLERY_SORT_VALUES.has(payload.sort)) state.sort = payload.sort;
         if (payload.order === 'asc' || payload.order === 'desc') state.order = payload.order;
         if (typeof payload.search === 'string') state.search = payload.search;
+        if (typeof payload.searchType === 'string' && GALLERY_SEARCH_TYPE_VALUES.has(payload.searchType)) {
+            state.searchType = payload.searchType;
+        }
         if (typeof payload.r18 === 'string' && GALLERY_R18_VALUES.has(payload.r18)) state.r18 = payload.r18;
         if (typeof payload.ai === 'string' && GALLERY_AI_VALUES.has(payload.ai)) state.ai = payload.ai;
         if (Array.isArray(payload.formats)) {
@@ -262,6 +268,7 @@
             timestamp: Date.now(),
             view: state.view,
             search: state.search,
+            searchType: state.searchType,
             r18: state.r18,
             ai: state.ai,
             sort: state.sort,
@@ -304,6 +311,9 @@
     function applyCrossTransferToGallery(transfer) {
         if (!transfer) return;
         if (typeof transfer.search === 'string') state.search = transfer.search;
+        if (typeof transfer.searchType === 'string' && GALLERY_SEARCH_TYPE_VALUES.has(transfer.searchType)) {
+            state.searchType = transfer.searchType;
+        }
         if (typeof transfer.r18 === 'string' && GALLERY_R18_VALUES.has(transfer.r18)) state.r18 = transfer.r18;
         if (typeof transfer.ai === 'string' && GALLERY_AI_VALUES.has(transfer.ai)) state.ai = transfer.ai;
         if (typeof transfer.sort === 'string' && GALLERY_SORT_VALUES.has(transfer.sort)) state.sort = transfer.sort;
@@ -351,6 +361,9 @@
         document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.toggle('active', state.formats.has(c.dataset.format)));
         const searchInput = document.getElementById('searchInput');
         if (searchInput) searchInput.value = state.search || '';
+        const searchTypeSelect = document.getElementById('searchType');
+        if (searchTypeSelect) searchTypeSelect.value = state.searchType || 'all';
+        updateSearchPlaceholder();
         const tagSearchInput = document.getElementById('tagSearchInput');
         if (tagSearchInput) tagSearchInput.value = state.tagFilterText || '';
         const authorSearchInput = document.getElementById('authorSearchInput');
@@ -475,11 +488,37 @@
         return uiLang() === 'en-US' ? ', ' : '、';
     }
 
+    function searchPlaceholderFor(type) {
+        switch (type) {
+            case 'title': return t('search.placeholder.title', '按作品标题搜索...');
+            case 'author': return t('search.placeholder.author', '按作者名搜索...');
+            case 'id': return t('search.placeholder.id', '输入作品 ID（数字，精确匹配）...');
+            case 'authorId': return t('search.placeholder.author-id', '输入作者 ID（数字，精确匹配）...');
+            case 'desc': return t('search.placeholder.desc', '按作品简介搜索...');
+            case 'tag': return t('search.placeholder.tag', '按标签关键词搜索（模糊）...');
+            case 'tagExact': return t('search.placeholder.tag-exact', '输入完整标签名（精确匹配）...');
+            default: return t('search.placeholder', '搜索作品标题或画师...');
+        }
+    }
+
+    function updateSearchPlaceholder() {
+        const el = document.getElementById('searchInput');
+        if (el) el.placeholder = searchPlaceholderFor(state.searchType || 'all');
+    }
+
+    function setSearchEmptyState(empty) {
+        const box = document.querySelector('.search-box');
+        const btn = document.getElementById('filterToggle');
+        if (box) box.classList.toggle('search-no-result', !!empty);
+        if (btn) btn.classList.toggle('search-no-result', !!empty);
+    }
+
     function applyStaticPageTranslations() {
         document.title = t('page.title', 'Pixiv Gallery');
         if (pageI18n) {
             pageI18n.apply(document.body);
         }
+        updateSearchPlaceholder();
         updateOrderToggleLabel();
         syncCollectionFormTitle();
     }
@@ -1974,6 +2013,29 @@
         }, 350);
     });
 
+    const searchTypeEl = document.getElementById('searchType');
+    if (searchTypeEl) {
+        searchTypeEl.addEventListener('change', e => {
+            const v = e.target.value;
+            state.searchType = GALLERY_SEARCH_TYPE_VALUES.has(v) ? v : 'all';
+            updateSearchPlaceholder();
+            state.page = 0;
+            state.authors.page = 0;
+            state.series.page = 0;
+            if (state.search) {
+                if (state.view === 'authors') {
+                    loadAuthorsView();
+                } else if (state.view === 'series') {
+                    loadSeriesView();
+                } else {
+                    loadGallery();
+                }
+            } else {
+                persistGalleryState();
+            }
+        });
+    }
+
     // ---------- Gallery ----------
     async function loadGallery() {
         persistGalleryState();
@@ -1983,6 +2045,7 @@
         params.set('sort', state.sort);
         params.set('order', state.order);
         if (state.search) params.set('search', state.search);
+        if (state.search && state.searchType && state.searchType !== 'all') params.set('searchType', state.searchType);
         if (state.r18 !== 'any') params.set('r18', state.r18);
         if (state.ai !== 'any') params.set('ai', state.ai);
         if (state.formats.size) params.set('format', [...state.formats].join(','));
@@ -2002,6 +2065,7 @@
             state.totalElements = result.totalElements;
             renderGallery(result.content || []);
             renderPagination();
+            setSearchEmptyState(state.totalElements === 0);
             const from = state.totalElements === 0 ? 0 : state.page * state.size + 1;
             const to = Math.min(state.totalElements, (state.page + 1) * state.size);
             document.getElementById('galleryStatus').textContent = t('status.gallery-range', '{total} total, {from}-{to} shown', {
@@ -2013,6 +2077,7 @@
             document.getElementById('galleryStatus').textContent = t('status.load-failed', 'Load failed: {message}', {message: e.message});
             document.getElementById('galleryGrid').innerHTML = '';
             document.getElementById('pagination').innerHTML = '';
+            setSearchEmptyState(false);
         }
     }
 
@@ -2384,6 +2449,7 @@
     async function loadAuthorsView() {
         persistGalleryState();
         const container = document.getElementById('authorView');
+        setSearchEmptyState(false);
         container.innerHTML = '<div class="author-works-loading">' + escapeHtml(t('status.loading-authors', 'Loading authors...')) + '</div>';
         try {
             const params = new URLSearchParams();
@@ -2529,6 +2595,7 @@
     async function loadSeriesView() {
         persistGalleryState();
         const container = document.getElementById('authorView');
+        setSearchEmptyState(false);
         container.innerHTML = '<div class="author-works-loading">' + escapeHtml(t('status.loading-series', 'Loading series...')) + '</div>';
         try {
             const params = new URLSearchParams();

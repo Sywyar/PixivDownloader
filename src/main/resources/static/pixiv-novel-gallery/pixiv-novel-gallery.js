@@ -9,6 +9,7 @@ const FILTER_SELECTION_RANK = { must: 0, not: 1, or: 2 };
 const NOVEL_SORT_VALUES = new Set(['date', 'novelId', 'wordCount', 'series']);
 const NOVEL_R18_VALUES = new Set(['any', 'r18plus', 'r18', 'r18g', 'no']);
 const NOVEL_AI_VALUES = new Set(['any', 'yes', 'no']);
+const NOVEL_SEARCH_TYPE_VALUES = new Set(['all', 'title', 'author', 'id', 'authorId', 'desc', 'tag', 'tagExact']);
 const FILTER_MODE_VALUES = new Set(['must', 'not', 'or']);
 const NOVEL_URL_FILTER_KEYS = [
     'tagId', 'tagIds', 'filterTagId', 'tagName', 'tagTranslatedName', 'filterTag', 'filterTagTranslated',
@@ -73,6 +74,7 @@ const state = {
     r18: 'any',
     ai: 'any',
     search: '',
+    searchType: 'all',
     collections: [],
     selectedCollections: new Set(),
     tags: [],
@@ -140,6 +142,7 @@ function serializeNovelGalleryState() {
         r18: state.r18,
         ai: state.ai,
         search: state.search,
+        searchType: state.searchType,
         tagSearch: state.tagSearch,
         seriesSearch: state.seriesSearch,
         authorSearch: state.authorSearch,
@@ -202,6 +205,9 @@ function applyPersistedNovelGalleryState(payload) {
     if (typeof payload.r18 === 'string' && NOVEL_R18_VALUES.has(payload.r18)) state.r18 = payload.r18;
     if (typeof payload.ai === 'string' && NOVEL_AI_VALUES.has(payload.ai)) state.ai = payload.ai;
     if (typeof payload.search === 'string') state.search = payload.search;
+    if (typeof payload.searchType === 'string' && NOVEL_SEARCH_TYPE_VALUES.has(payload.searchType)) {
+        state.searchType = payload.searchType;
+    }
     if (typeof payload.tagSearch === 'string') state.tagSearch = payload.tagSearch;
     if (typeof payload.seriesSearch === 'string') state.seriesSearch = payload.seriesSearch;
     if (typeof payload.authorSearch === 'string') state.authorSearch = payload.authorSearch;
@@ -249,6 +255,7 @@ function writeNovelGalleryCrossTransfer() {
         timestamp: Date.now(),
         view: state.view,
         search: state.search,
+        searchType: state.searchType,
         r18: state.r18,
         ai: state.ai,
         sort: state.sort,
@@ -284,6 +291,9 @@ function consumeNovelGalleryCrossTransfer() {
 function applyCrossTransferToNovelGallery(transfer) {
     if (!transfer) return;
     if (typeof transfer.search === 'string') state.search = transfer.search;
+    if (typeof transfer.searchType === 'string' && NOVEL_SEARCH_TYPE_VALUES.has(transfer.searchType)) {
+        state.searchType = transfer.searchType;
+    }
     if (typeof transfer.r18 === 'string' && NOVEL_R18_VALUES.has(transfer.r18)) state.r18 = transfer.r18;
     if (typeof transfer.ai === 'string' && NOVEL_AI_VALUES.has(transfer.ai)) state.ai = transfer.ai;
     if (typeof transfer.sort === 'string' && NOVEL_SORT_VALUES.has(transfer.sort)) state.sort = transfer.sort;
@@ -314,6 +324,31 @@ function applyCrossTransferToNovelGallery(transfer) {
     state.seriesView.page = 0;
 }
 
+function searchPlaceholderFor(type) {
+    switch (type) {
+        case 'title': return pageI18n.t('gallery:search.placeholder.title', '按作品标题搜索...');
+        case 'author': return pageI18n.t('gallery:search.placeholder.author', '按作者名搜索...');
+        case 'id': return pageI18n.t('novel:search.placeholder.id', '输入小说 ID（数字，精确匹配）...');
+        case 'authorId': return pageI18n.t('gallery:search.placeholder.author-id', '输入作者 ID（数字，精确匹配）...');
+        case 'desc': return pageI18n.t('gallery:search.placeholder.desc', '按作品简介搜索...');
+        case 'tag': return pageI18n.t('gallery:search.placeholder.tag', '按标签关键词搜索（模糊）...');
+        case 'tagExact': return pageI18n.t('gallery:search.placeholder.tag-exact', '输入完整标签名（精确匹配）...');
+        default: return pageI18n.t('novel:search.placeholder', '按标题搜索...');
+    }
+}
+
+function updateSearchPlaceholder() {
+    const el = document.getElementById('searchInput');
+    if (el && pageI18n) el.placeholder = searchPlaceholderFor(state.searchType || 'all');
+}
+
+function setSearchEmptyState(empty) {
+    const box = document.querySelector('.search-box');
+    const btn = document.getElementById('filterToggle');
+    if (box) box.classList.toggle('search-no-result', !!empty);
+    if (btn) btn.classList.toggle('search-no-result', !!empty);
+}
+
 function applyNovelGalleryStateToUi() {
     document.querySelectorAll('.chip[data-sort]').forEach(chip => {
         chip.classList.toggle('active', chip.dataset.sort === state.sort);
@@ -333,6 +368,9 @@ function applyNovelGalleryStateToUi() {
     });
     const searchInput = document.getElementById('searchInput');
     if (searchInput) searchInput.value = state.search || '';
+    const searchTypeSelect = document.getElementById('searchType');
+    if (searchTypeSelect) searchTypeSelect.value = state.searchType || 'all';
+    updateSearchPlaceholder();
     const tagSearchInput = document.getElementById('tagSearchInput');
     if (tagSearchInput) tagSearchInput.value = state.tagSearch || '';
     const seriesSearchInput = document.getElementById('seriesSearchInput');
@@ -398,6 +436,7 @@ async function init() {
 
     pageI18n = await PixivI18n.create({ namespaces: ['gallery', 'novel', 'common'] });
     pageI18n.apply();
+    updateSearchPlaceholder();
     updateOrderToggleLabel();
     await PixivLangSwitcher.mount({
         mountPoint: document.getElementById('langSwitcherAnchor'),
@@ -405,6 +444,7 @@ async function init() {
         onChange: (next) => {
             pageI18n = next;
             pageI18n.apply();
+            updateSearchPlaceholder();
             updateOrderToggleLabel();
             syncCollectionFormTitle();
             reloadCurrentView();
@@ -526,6 +566,20 @@ function setupEventHandlers() {
         state.page = 0;
         reloadCurrentView();
     }, 250));
+    const searchTypeEl = document.getElementById('searchType');
+    if (searchTypeEl) {
+        searchTypeEl.addEventListener('change', () => {
+            const v = searchTypeEl.value;
+            state.searchType = NOVEL_SEARCH_TYPE_VALUES.has(v) ? v : 'all';
+            updateSearchPlaceholder();
+            state.page = 0;
+            if (state.search) {
+                reloadCurrentView();
+            } else {
+                persistNovelGalleryState();
+            }
+        });
+    }
     // Filter toggle
     document.getElementById('filterToggle').addEventListener('click', () => {
         const panel = document.getElementById('filterPanel');
@@ -1294,6 +1348,7 @@ async function reloadNovels() {
         sort: state.sort, order: state.order, r18: state.r18, ai: state.ai
     });
     if (state.search) params.set('search', state.search);
+    if (state.search && state.searchType && state.searchType !== 'all') params.set('searchType', state.searchType);
     if (state.selectedCollections.size) params.set('collectionIds', Array.from(state.selectedCollections).join(','));
 
     const must = [], not = [], or = [];
@@ -1320,9 +1375,11 @@ async function reloadNovels() {
         const data = await r.json();
         renderGrid(data.content || []);
         renderPagination('pagination', data.totalPages || 0, data.page || 0, p => { state.page = p; reloadNovels(); });
+        setSearchEmptyState((data.content || []).length === 0);
     } catch (e) {
         document.getElementById('grid').innerHTML = `<div class="empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
         document.getElementById('pagination').innerHTML = '';
+        setSearchEmptyState(false);
     }
 }
 
@@ -1435,6 +1492,7 @@ const AUTHOR_WORKS_PER_ROW = 30;
 
 async function reloadAuthorsView() {
     persistNovelGalleryState();
+    setSearchEmptyState(false);
     const grid = document.getElementById('authorGrid');
     grid.innerHTML = `<div class="author-works-loading">${esc(pageI18n.t('novel:status.loading', '加载中...'))}</div>`;
     try {
@@ -1532,6 +1590,7 @@ function updateArrowState(strip, leftBtn, rightBtn) {
 // ---------- Series view ----------
 async function reloadSeriesView() {
     persistNovelGalleryState();
+    setSearchEmptyState(false);
     const grid = document.getElementById('seriesGrid');
     grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.loading', '加载中...'))}</div>`;
     try {

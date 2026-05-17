@@ -28,6 +28,7 @@ public class GalleryController {
             @RequestParam(required = false, defaultValue = "date") String sort,
             @RequestParam(required = false, defaultValue = "desc") String order,
             @RequestParam(required = false) String search,
+            @RequestParam(required = false, defaultValue = "all") String searchType,
             @RequestParam(required = false, defaultValue = "any") String r18,
             @RequestParam(required = false, defaultValue = "any") String ai,
             @RequestParam(required = false) String format,
@@ -66,6 +67,7 @@ public class GalleryController {
                 parseLongList(orAuthorIds),
                 requiredSeriesIds,
                 parseLongList(notSeriesIds));
+        query.setSearchType(GalleryQuery.normalizeSearchType(searchType));
         query.setGuestRestriction(GuestRestriction.from(GuestAccessGuard.extractSession(httpRequest)));
         return galleryService.query(query);
     }

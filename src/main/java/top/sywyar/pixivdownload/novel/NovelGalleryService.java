@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -62,7 +63,11 @@ public class NovelGalleryService {
         }
         List<Long> allIds = novelDatabase.getAllNovelIdsSortedByTimeDesc();
         List<NovelView> filtered = new ArrayList<>();
-        String search = q.search() == null ? "" : q.search().toLowerCase(Locale.ROOT);
+        String searchType = normalizeSearchType(q.searchType());
+        String searchRaw = q.search() == null ? "" : q.search().trim();
+        String search = searchRaw.toLowerCase(Locale.ROOT);
+        Long searchId = parseLongOrNull(searchRaw);
+        Map<Long, String> authorNameCache = new HashMap<>();
         Set<Long> mustTags = nullSafe(q.tagIds());
         Set<Long> notTags = nullSafe(q.notTagIds());
         Set<Long> orTags = nullSafe(q.orTagIds());
@@ -77,7 +82,8 @@ public class NovelGalleryService {
             if (r == null) continue;
             if (!matchAgeFilter(r.xRestrict(), q.r18())) continue;
             if (!matchAiFilter(r.isAi(), q.ai())) continue;
-            if (!search.isEmpty() && !r.title().toLowerCase(Locale.ROOT).contains(search)) continue;
+            if (!searchRaw.isEmpty()
+                    && !matchNovelSearch(r, searchType, search, searchId, authorNameCache)) continue;
             if (!matchAuthorFilter(r.authorId(), mustAuthors, notAuthors, orAuthors)) continue;
             if (!matchSeriesFilter(r.seriesId(), mustSeries, notSeries)) continue;
             if (!matchTagFilter(r.novelId(), mustTags, notTags, orTags)) continue;
@@ -183,6 +189,60 @@ public class NovelGalleryService {
                 r.coverExt(),
                 novelDatabase.getNovelImageIds(r.novelId())
         );
+    }
+
+    private boolean matchNovelSearch(NovelRecord r, String searchType, String searchLower,
+                                     Long searchId, Map<Long, String> authorNameCache) {
+        return switch (searchType) {
+            case "title" -> r.title() != null && r.title().toLowerCase(Locale.ROOT).contains(searchLower);
+            case "author" -> resolveAuthorNameLower(r.authorId(), authorNameCache).contains(searchLower);
+            case "desc" -> r.description() != null
+                    && r.description().toLowerCase(Locale.ROOT).contains(searchLower);
+            case "id" -> searchId != null && searchId == r.novelId();
+            case "authorId" -> searchId != null && r.authorId() != null
+                    && searchId.equals(r.authorId());
+            case "tag" -> matchNovelTag(r.novelId(), searchLower, false);
+            case "tagExact" -> matchNovelTag(r.novelId(), searchLower, true);
+            default -> (r.title() != null && r.title().toLowerCase(Locale.ROOT).contains(searchLower))
+                    || resolveAuthorNameLower(r.authorId(), authorNameCache).contains(searchLower);
+        };
+    }
+
+    private boolean matchNovelTag(long novelId, String searchLower, boolean exact) {
+        for (TagDto tag : novelDatabase.getNovelTags(novelId)) {
+            String name = tag.getName() == null ? "" : tag.getName().toLowerCase(Locale.ROOT);
+            String translated = tag.getTranslatedName() == null
+                    ? "" : tag.getTranslatedName().toLowerCase(Locale.ROOT);
+            if (exact) {
+                if (name.equals(searchLower) || (!translated.isEmpty() && translated.equals(searchLower))) {
+                    return true;
+                }
+            } else if (name.contains(searchLower) || translated.contains(searchLower)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String resolveAuthorNameLower(Long authorId, Map<Long, String> cache) {
+        if (authorId == null || authorId <= 0) return "";
+        return cache.computeIfAbsent(authorId, id -> {
+            try {
+                String name = authorService.getAuthorNames(List.of(id)).get(id);
+                return name == null ? "" : name.toLowerCase(Locale.ROOT);
+            } catch (Exception ignored) {
+                return "";
+            }
+        });
+    }
+
+    private static Long parseLongOrNull(String s) {
+        if (s == null || s.isBlank()) return null;
+        try {
+            return Long.parseLong(s.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static boolean matchAgeFilter(Integer xRestrict, String filter) {
@@ -415,33 +475,43 @@ public class NovelGalleryService {
     public record PagedSeries(List<NovelSeriesSummary> content, long totalElements,
                               int page, int size, int totalPages) {}
 
+    /** 合法搜索范围，与插画画廊一致。 */
+    public static final Set<String> ALLOWED_SEARCH_TYPES = Set.of(
+            "all", "title", "author", "id", "authorId", "desc", "tag", "tagExact");
+
+    public static String normalizeSearchType(String value) {
+        if (value == null) return "all";
+        String trimmed = value.trim();
+        return ALLOWED_SEARCH_TYPES.contains(trimmed) ? trimmed : "all";
+    }
+
     public record NovelGalleryQuery(int page, int size, String sort, String order,
-                                    String search, String r18, String ai,
+                                    String search, String searchType, String r18, String ai,
                                     Set<Long> collectionIds,
                                     Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
                                     Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
                                     Set<Long> seriesIds, Set<Long> notSeriesIds,
                                     GuestInviteSession guestSession) {
         public NovelGalleryQuery(int page, int size, String sort, String order,
-                                 String search, String r18, String ai,
+                                 String search, String searchType, String r18, String ai,
                                  Set<Long> collectionIds,
                                  Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
                                  Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
                                  Set<Long> seriesIds, Set<Long> notSeriesIds) {
-            this(page, size, sort, order, search, r18, ai, collectionIds,
+            this(page, size, sort, order, search, searchType, r18, ai, collectionIds,
                     tagIds, notTagIds, orTagIds, authorIds, notAuthorIds, orAuthorIds,
                     seriesIds, notSeriesIds, null);
         }
 
         public NovelGalleryQuery(int page, int size, String sort, String order,
                                  String search, String r18, String ai) {
-            this(page, size, sort, order, search, r18, ai, null,
+            this(page, size, sort, order, search, "all", r18, ai, null,
                     null, null, null, null, null, null, null, null, null);
         }
         public NovelGalleryQuery(int page, int size, String sort, String order,
                                  String search, String r18, String ai,
                                  Set<Long> collectionIds) {
-            this(page, size, sort, order, search, r18, ai, collectionIds,
+            this(page, size, sort, order, search, "all", r18, ai, collectionIds,
                     null, null, null, null, null, null, null, null, null);
         }
     }

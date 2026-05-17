@@ -239,6 +239,50 @@
         }
         .search-box input::placeholder { color: var(--muted); }
 
+        .search-type-select {
+            height: 40px;
+            padding: 0 30px 0 14px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-family: inherit;
+            cursor: pointer;
+            outline: none;
+            flex-shrink: 0;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 14px;
+            transition: border-color 0.15s, color 0.15s;
+        }
+
+        .search-type-select:hover,
+        .search-type-select:focus {
+            border-color: var(--brand);
+            color: var(--brand);
+        }
+
+        .search-box.search-no-result {
+            border-color: var(--danger);
+            background: rgba(220, 38, 38, 0.06);
+        }
+
+        .search-box.search-no-result input,
+        .search-box.search-no-result input::placeholder,
+        .search-box.search-no-result svg {
+            color: var(--danger);
+        }
+
+        .filter-btn.search-no-result {
+            border-color: var(--danger);
+            color: var(--danger);
+            background: rgba(220, 38, 38, 0.06);
+        }
+
         .filter-btn {
             display: inline-flex; align-items: center; gap: 6px;
             height: 40px; padding: 0 14px;

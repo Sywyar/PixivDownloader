@@ -28,11 +28,21 @@ public class GalleryQuery {
     /** 合法 R18 筛选值：any=全部，r18plus=R-18 或 R-18G，r18=仅 R-18，r18g=仅 R-18G，no=排除 R-18/R-18G；兼容旧值 yes=r18。 */
     public static final Set<String> ALLOWED_R18 = Set.of("any", "yes", "no", "r18", "r18g", "r18plus");
 
+    /**
+     * 合法搜索范围：all=标题或作者名（默认，旧行为），title=仅标题，author=仅作者名，
+     * id=作品 ID（精确），authorId=作者 ID（精确），desc=简介（模糊）。
+     */
+    public static final Set<String> ALLOWED_SEARCH_TYPES = Set.of(
+            "all", "title", "author", "id", "authorId", "desc", "tag", "tagExact");
+
     private int page;
     private int size;
     private String sort;
     private String order;
     private String search;
+    /** 搜索范围，见 {@link #ALLOWED_SEARCH_TYPES}；默认 {@code all}。 */
+    @Builder.Default
+    private String searchType = "all";
     private String r18;
     private String ai;
     /** 图片格式白名单（已归一化小写），空表示不限。 */
@@ -120,6 +130,12 @@ public class GalleryQuery {
         if (value == null) return "any";
         String lower = value.trim().toLowerCase(Locale.ROOT);
         return ALLOWED_TRISTATE.contains(lower) ? lower : "any";
+    }
+
+    public static String normalizeSearchType(String value) {
+        if (value == null) return "all";
+        String trimmed = value.trim();
+        return ALLOWED_SEARCH_TYPES.contains(trimmed) ? trimmed : "all";
     }
 
     private static String normalizeR18(String value) {

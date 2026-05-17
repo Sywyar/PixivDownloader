@@ -32,8 +32,48 @@ public class GalleryRepository {
         MapSqlParameterSource params = new MapSqlParameterSource();
 
         if (q.getSearch() != null) {
-            where.append(" AND (a.title LIKE :search OR au.name LIKE :search)");
-            params.addValue("search", "%" + q.getSearch() + "%");
+            String type = q.getSearchType() == null ? "all" : q.getSearchType();
+            switch (type) {
+                case "title" -> {
+                    where.append(" AND a.title LIKE :search");
+                    params.addValue("search", "%" + q.getSearch() + "%");
+                }
+                case "author" -> {
+                    where.append(" AND au.name LIKE :search");
+                    params.addValue("search", "%" + q.getSearch() + "%");
+                }
+                case "desc" -> {
+                    where.append(" AND a.description LIKE :search");
+                    params.addValue("search", "%" + q.getSearch() + "%");
+                }
+                case "id" -> {
+                    Long id = parseLongOrNull(q.getSearch());
+                    where.append(id == null ? " AND 1=0" : " AND a.artwork_id = :searchId");
+                    if (id != null) params.addValue("searchId", id);
+                }
+                case "authorId" -> {
+                    Long id = parseLongOrNull(q.getSearch());
+                    where.append(id == null ? " AND 1=0" : " AND a.author_id = :searchId");
+                    if (id != null) params.addValue("searchId", id);
+                }
+                case "tag" -> {
+                    where.append(" AND a.artwork_id IN (SELECT at.artwork_id FROM artwork_tags at"
+                            + " JOIN tags t ON t.tag_id = at.tag_id"
+                            + " WHERE t.name LIKE :search OR COALESCE(t.translated_name, '') LIKE :search)");
+                    params.addValue("search", "%" + q.getSearch() + "%");
+                }
+                case "tagExact" -> {
+                    where.append(" AND a.artwork_id IN (SELECT at.artwork_id FROM artwork_tags at"
+                            + " JOIN tags t ON t.tag_id = at.tag_id"
+                            + " WHERE LOWER(t.name) = :searchExact"
+                            + " OR LOWER(COALESCE(t.translated_name, '')) = :searchExact)");
+                    params.addValue("searchExact", q.getSearch().toLowerCase(java.util.Locale.ROOT));
+                }
+                default -> {
+                    where.append(" AND (a.title LIKE :search OR au.name LIKE :search)");
+                    params.addValue("search", "%" + q.getSearch() + "%");
+                }
+            }
         }
 
         if ("r18g".equals(q.getR18())) {
@@ -256,6 +296,15 @@ public class GalleryRepository {
             }
         }
         return false;
+    }
+
+    private static Long parseLongOrNull(String s) {
+        if (s == null) return null;
+        try {
+            return Long.parseLong(s.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private void appendRequiredTagClause(List<String> clauses, MapSqlParameterSource params, List<Long> tagIds) {
