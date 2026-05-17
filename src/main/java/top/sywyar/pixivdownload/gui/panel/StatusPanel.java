@@ -41,6 +41,8 @@ import java.util.concurrent.ExecutionException;
 public class StatusPanel extends JPanel {
 
     private static final int POLL_INTERVAL_MS = 3000;
+    private static final int STARTUP_SLOW_THRESHOLD_SECONDS = 10;
+    private static final int STARTUP_ELAPSED_INTERVAL_MS = 1000;
     private static final String BATCH_PAGE = "/pixiv-batch.html";
     private static final String MONITOR_PAGE = "/monitor.html";
     private static final String GALLERY_PAGE = "/pixiv-gallery.html";
@@ -82,6 +84,8 @@ public class StatusPanel extends JPanel {
     private volatile boolean updateChecking;
     private volatile boolean updateInstalling;
     private Timer pollTimer;
+    private Timer startupElapsedTimer;
+    private long startupStartedAtMillis = -1L;
     private final BackendLifecycleManager.Listener backendListener = this::applyBackendSnapshot;
 
     private final JPanel updateBanner = new JPanel(new BorderLayout(8, 0));
@@ -476,6 +480,18 @@ public class StatusPanel extends JPanel {
         return label;
     }
 
+    private static String htmlLines(String text) {
+        return "<html>" + escapeHtml(text).replace("\n", "<br>") + "</html>";
+    }
+
+    private static String escapeHtml(String text) {
+        return text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
+    }
+
     private void startPolling() {
         pollTimer = new Timer(POLL_INTERVAL_MS, e -> fetchStatus());
         pollTimer.setInitialDelay(500);
@@ -526,6 +542,7 @@ public class StatusPanel extends JPanel {
     }
 
     private void updateLabels(JsonNode node) {
+        leaveStartingState();
         statusBadge.setText(message("gui.backend.state.running"));
         statusBadge.setForeground(new Color(0, 140, 0));
 
@@ -549,21 +566,21 @@ public class StatusPanel extends JPanel {
 
     private void applyBackendSnapshot(BackendLifecycleManager.Snapshot snapshot) {
         switch (snapshot.state()) {
-            case STARTING -> {
-                statusBadge.setText(message("gui.backend.state.starting"));
-                statusBadge.setForeground(new Color(180, 100, 0));
-            }
+            case STARTING -> enterStartingState();
             case STOPPING -> {
+                leaveStartingState();
                 statusBadge.setText(message("gui.backend.state.stopping"));
                 statusBadge.setForeground(new Color(180, 100, 0));
             }
             case STOPPED -> applyOfflineState(snapshot);
             case FAILED -> {
+                leaveStartingState();
                 statusBadge.setText(message("gui.backend.state.failed"));
                 statusBadge.setForeground(new Color(180, 60, 60));
                 clearStatusValues();
             }
             case RUNNING -> {
+                leaveStartingState();
                 statusBadge.setText(message("gui.status.state.connecting"));
                 statusBadge.setForeground(new Color(180, 100, 0));
             }
@@ -572,22 +589,65 @@ public class StatusPanel extends JPanel {
 
     private void applyOfflineState(BackendLifecycleManager.Snapshot snapshot) {
         if (snapshot.state() == BackendLifecycleManager.State.RUNNING) {
+            leaveStartingState();
             statusBadge.setText(message("gui.status.state.connection-failed"));
             statusBadge.setForeground(new Color(180, 60, 60));
         } else if (snapshot.state() == BackendLifecycleManager.State.STOPPED) {
+            leaveStartingState();
             statusBadge.setText(message("gui.backend.state.stopped"));
             statusBadge.setForeground(Color.GRAY);
         } else if (snapshot.state() == BackendLifecycleManager.State.STOPPING) {
+            leaveStartingState();
             statusBadge.setText(message("gui.backend.state.stopping"));
             statusBadge.setForeground(new Color(180, 100, 0));
         } else if (snapshot.state() == BackendLifecycleManager.State.STARTING) {
-            statusBadge.setText(message("gui.backend.state.starting"));
-            statusBadge.setForeground(new Color(180, 100, 0));
+            enterStartingState();
         } else {
+            leaveStartingState();
             statusBadge.setText(message("gui.backend.state.failed"));
             statusBadge.setForeground(new Color(180, 60, 60));
         }
         clearStatusValues();
+    }
+
+    private void enterStartingState() {
+        if (startupStartedAtMillis < 0L) {
+            startupStartedAtMillis = System.currentTimeMillis();
+        }
+        statusBadge.setForeground(new Color(180, 100, 0));
+        updateStartingBadge();
+        startStartupElapsedTimer();
+    }
+
+    private void leaveStartingState() {
+        startupStartedAtMillis = -1L;
+        stopStartupElapsedTimer();
+    }
+
+    private void startStartupElapsedTimer() {
+        if (startupElapsedTimer != null) {
+            return;
+        }
+        startupElapsedTimer = new Timer(STARTUP_ELAPSED_INTERVAL_MS, e -> updateStartingBadge());
+        startupElapsedTimer.setInitialDelay(STARTUP_ELAPSED_INTERVAL_MS);
+        startupElapsedTimer.start();
+    }
+
+    private void stopStartupElapsedTimer() {
+        if (startupElapsedTimer == null) {
+            return;
+        }
+        startupElapsedTimer.stop();
+        startupElapsedTimer = null;
+    }
+
+    private void updateStartingBadge() {
+        long elapsedSeconds = Math.max(0L, (System.currentTimeMillis() - startupStartedAtMillis) / 1000L);
+        if (elapsedSeconds >= STARTUP_SLOW_THRESHOLD_SECONDS) {
+            statusBadge.setText(htmlLines(message("gui.backend.state.starting.slow", elapsedSeconds)));
+        } else {
+            statusBadge.setText(message("gui.backend.state.starting"));
+        }
     }
 
     private void clearStatusValues() {
@@ -865,6 +925,7 @@ public class StatusPanel extends JPanel {
         if (pollTimer != null) {
             pollTimer.stop();
         }
+        stopStartupElapsedTimer();
         stopDownloadProgressTimer();
         BackendLifecycleManager.removeListener(backendListener);
     }
