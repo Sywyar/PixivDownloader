@@ -327,8 +327,12 @@ public class NovelGalleryController {
     @PostMapping("/novel/series/{seriesId}/merge")
     public ResponseEntity<MergeResponse> mergeSeries(
             @PathVariable long seriesId,
-            @RequestParam(defaultValue = "txt") String format) throws IOException {
-        NovelDownloadService.NovelFormat fmt = NovelDownloadService.NovelFormat.parse(format);
+            @RequestParam(required = false) String format) throws IOException {
+        // 合订本默认且推荐 EPUB（内嵌封面/插图、多级目录、系列元数据）；
+        // 显式传入 txt/html 时按指定格式合订。
+        NovelDownloadService.NovelFormat fmt = (format == null || format.isBlank())
+                ? NovelDownloadService.NovelFormat.EPUB
+                : NovelDownloadService.NovelFormat.parse(format);
         NovelMergeService.MergeResult result = novelMergeService.merge(seriesId, fmt);
         return ResponseEntity.ok(new MergeResponse(
                 result.success(), result.message(),

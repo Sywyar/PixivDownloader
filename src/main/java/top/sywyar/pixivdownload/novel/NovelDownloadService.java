@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.download.DownloadActionResult;
 import top.sywyar.pixivdownload.download.PixivBookmarkService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -171,6 +172,14 @@ public class NovelDownloadService {
                     novelId, rawContent, other.getEmbeddedImages(), downloadPath, request.getCookie(), status);
             ensureNotCancelled(status);
 
+            // Best-effort 封面下载（与正文同目录、_thumb.{ext}）。
+            // 必须早于写文件：EPUB 需要把封面字节内嵌进电子书。
+            if (other.getCoverUrl() != null && !other.getCoverUrl().isBlank()) {
+                status.setStage("downloading-cover");
+            }
+            String coverExt = downloadCover(other.getCoverUrl(), downloadPath, baseName, request.getCookie(), status);
+            ensureNotCancelled(status);
+
             // Write file
             status.setStage("writing");
             String ext = format.ext();
@@ -179,16 +188,9 @@ public class NovelDownloadService {
             switch (format) {
                 case TXT -> writeTxt(outputFile, rawContent);
                 case HTML -> writeHtml(outputFile, title, rawContent, other, resolver);
-                case EPUB -> writeEpub(outputFile, title, other.getAuthorName(),
-                        other.getLanguage(), rawContent);
+                case EPUB -> writeEpub(outputFile, novelId, title, other,
+                        rawContent, downloadPath, baseName, coverExt, embeddedExts);
             }
-
-            // Best-effort 封面下载（与正文同目录、_thumb.{ext}）
-            ensureNotCancelled(status);
-            if (other.getCoverUrl() != null && !other.getCoverUrl().isBlank()) {
-                status.setStage("downloading-cover");
-            }
-            String coverExt = downloadCover(other.getCoverUrl(), downloadPath, baseName, request.getCookie(), status);
             ensureNotCancelled(status);
 
             // Persist DB
@@ -631,13 +633,98 @@ public class NovelDownloadService {
         return IMAGE_EXT_WHITELIST.contains(candidate) ? candidate : "jpg";
     }
 
-    private void writeEpub(Path file, String title, String author, String language,
-                           String raw) throws IOException {
-        String body = NovelMarkupParser.render(raw, NovelMarkupParser.Format.XHTML, imageLabels());
-        byte[] epub = NovelEpubWriter.write(title, author, language,
-                List.of(new NovelEpubWriter.Chapter(title, body)),
-                epubLabels());
+    private void writeEpub(Path file, long novelId, String title, NovelDownloadRequest.Other other,
+                           String raw, Path downloadPath, String baseName, String coverExt,
+                           Map<String, String> embeddedExts) throws IOException {
+        // 内嵌图在 EPUB 内的相对路径：images/embed_{id}.{ext}（相对 OEBPS/chapter-n.xhtml）
+        NovelMarkupParser.ImageResolver resolver = embeddedExts == null || embeddedExts.isEmpty()
+                ? NovelMarkupParser.ImageResolver.NONE
+                : new NovelMarkupParser.ImageResolver() {
+            @Override public String uploadedImage(String id) {
+                String ext = embeddedExts.get(id);
+                return ext == null ? null : "images/embed_" + id + "." + ext;
+            }
+            @Override public String pixivImage(String id) { return null; }
+        };
+        // [chapter:] 拆成独立 spine 文件 + 单层目录
+        List<NovelMarkupParser.Segment> segments = NovelMarkupParser.splitChapters(raw);
+        List<NovelEpubWriter.Chapter> chapters = new java.util.ArrayList<>();
+        List<NovelEpubWriter.NavEntry> nav = new java.util.ArrayList<>();
+        for (int i = 0; i < segments.size(); i++) {
+            NovelMarkupParser.Segment seg = segments.get(i);
+            String segTitle = (seg.title() != null && !seg.title().isBlank()) ? seg.title() : title;
+            String body = NovelMarkupParser.render(
+                    seg.raw(), NovelMarkupParser.Format.XHTML, resolver, imageLabels());
+            chapters.add(new NovelEpubWriter.Chapter(segTitle, body));
+            nav.add(new NovelEpubWriter.NavEntry(segTitle, i));
+        }
+        byte[] epub = NovelEpubWriter.write(title, other.getAuthorName(), other.getLanguage(),
+                "urn:pixiv:novel:" + novelId, chapters, nav,
+                readEmbeddedImages(downloadPath, embeddedExts),
+                readCover(downloadPath, baseName, coverExt),
+                buildNovelMetadata(novelId, other), epubLabels());
         Files.write(file, epub);
+    }
+
+    /** 单本小说的 OPF 元数据：简介、上传日期、标签、Pixiv 源链接、所属系列。 */
+    private NovelEpubWriter.Metadata buildNovelMetadata(long novelId, NovelDownloadRequest.Other other) {
+        String isoDate = null;
+        if (other.getUploadTimestamp() != null) {
+            isoDate = Instant.ofEpochMilli(TimestampUtils.toMillis(other.getUploadTimestamp()))
+                    .toString().replaceAll("\\.\\d+Z$", "Z");
+        }
+        List<String> subjects = other.getTags() == null ? List.of()
+                : other.getTags().stream()
+                        .map(TagDto::getName)
+                        .filter(n -> n != null && !n.isBlank())
+                        .toList();
+        String source = "https://www.pixiv.net/novel/show.php?id=" + novelId;
+        String collectionTitle = null;
+        String collectionPosition = null;
+        if (other.getSeriesId() != null && other.getSeriesId() > 0) {
+            collectionTitle = (other.getSeriesTitle() != null && !other.getSeriesTitle().isBlank())
+                    ? other.getSeriesTitle() : ("series-" + other.getSeriesId());
+            if (other.getSeriesOrder() != null) {
+                collectionPosition = String.valueOf(other.getSeriesOrder());
+            }
+        }
+        return new NovelEpubWriter.Metadata(other.getDescription(), isoDate, subjects,
+                source, collectionTitle, collectionPosition);
+    }
+
+    /**
+     * 把已落盘的封面 {@code {baseName}_thumb.{ext}} 读回字节，供 {@link NovelEpubWriter} 内嵌进 EPUB。
+     * Best-effort：封面缺失 / 读失败一律返回 null（EPUB 不带封面页，与下载未拿到封面时一致）。
+     */
+    private NovelEpubWriter.Cover readCover(Path downloadPath, String baseName, String coverExt) {
+        if (coverExt == null || coverExt.isBlank()) return null;
+        Path cover = downloadPath.resolve(baseName + "_thumb." + coverExt);
+        try {
+            return new NovelEpubWriter.Cover(coverExt, Files.readAllBytes(cover));
+        } catch (IOException ex) {
+            log.warn("epub cover read failed, skipped: {} — {}", cover, ex.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 把已落盘的 {@code embed_{id}.{ext}} 读回字节，供 {@link NovelEpubWriter} 内嵌进 EPUB。
+     * Best-effort：单张读失败仅记日志并跳过（XHTML 端会回退到占位符）。
+     */
+    private List<NovelEpubWriter.ImageResource> readEmbeddedImages(Path downloadPath,
+                                                                   Map<String, String> embeddedExts) {
+        if (embeddedExts == null || embeddedExts.isEmpty()) return List.of();
+        List<NovelEpubWriter.ImageResource> images = new java.util.ArrayList<>();
+        for (Map.Entry<String, String> e : embeddedExts.entrySet()) {
+            Path img = downloadPath.resolve("embed_" + e.getKey() + "." + e.getValue());
+            try {
+                images.add(new NovelEpubWriter.ImageResource(
+                        e.getKey(), e.getValue(), Files.readAllBytes(img)));
+            } catch (IOException ex) {
+                log.warn("epub embed image read failed, skipped: {} — {}", img, ex.getMessage());
+            }
+        }
+        return images;
     }
 
     private NovelMarkupParser.ImageLabels imageLabels() {

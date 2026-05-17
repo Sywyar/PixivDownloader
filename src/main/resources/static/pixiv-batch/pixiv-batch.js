@@ -227,6 +227,7 @@
             fileNameTemplate: DEFAULT_FILE_NAME_TEMPLATE,
             novelFormat: 'txt',
             mergeNovelSeries: false,
+            mergeNovelFormat: 'epub',
             userKind: 'illust',     // 'illust' | 'novel' — User 模式作品类型
             searchKind: 'illust'    // 'illust' | 'novel' — Search 模式作品类型
         }
@@ -2110,9 +2111,10 @@
         if (remaining.length > 0) return;
         if (_novelMergeFiredSeries.has(seriesId)) return;
         _novelMergeFiredSeries.add(seriesId);
-        const fmt = (state.settings.novelFormat || 'txt').toLowerCase();
         try {
-            await fetch(`${BASE}/api/gallery/novel/series/${encodeURIComponent(seriesId)}/merge?format=${fmt}`, {
+            // 合订本格式独立于单章下载格式（novelFormat），默认推荐 EPUB
+            const mfmt = (state.settings.mergeNovelFormat || 'epub').toLowerCase();
+            await fetch(`${BASE}/api/gallery/novel/series/${encodeURIComponent(seriesId)}/merge?format=${encodeURIComponent(mfmt)}`, {
                 method: 'POST', credentials: 'same-origin'
             });
             setStatus(bt('status.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: seriesId}), 'success');
@@ -2618,6 +2620,9 @@
         if (fmtEl) fmtEl.value = (state.settings.novelFormat || 'txt');
         const mergeEl = document.getElementById('s-novel-merge');
         if (mergeEl) mergeEl.checked = !!state.settings.mergeNovelSeries;
+        const mergeFmtEl = document.getElementById('s-novel-merge-format');
+        if (mergeFmtEl) mergeFmtEl.value = (state.settings.mergeNovelFormat || 'epub');
+        updateMergeFormatVisibility();
         state.settings.userKind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
         state.settings.searchKind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';
         applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
@@ -2678,8 +2683,20 @@
         if (fmtEl) state.settings.novelFormat = (fmtEl.value || 'txt').toLowerCase();
         const mergeEl = document.getElementById('s-novel-merge');
         if (mergeEl) state.settings.mergeNovelSeries = !!mergeEl.checked;
+        const mergeFmtEl = document.getElementById('s-novel-merge-format');
+        if (mergeFmtEl) state.settings.mergeNovelFormat = (mergeFmtEl.value || 'epub').toLowerCase();
+        updateMergeFormatVisibility();
         toggleSkipHistoryOptions();
         saveSettings();
+    }
+
+    // 合订本格式选择仅在勾选「生成合订本」时可见
+    function updateMergeFormatVisibility() {
+        const on = !!(document.getElementById('s-novel-merge') || {}).checked;
+        ['s-novel-merge-format-row', 's-novel-merge-format-hint'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = on ? '' : 'none';
+        });
     }
 
     function toggleSkipHistoryOptions() {
@@ -4331,7 +4348,7 @@
         });
 
         // Settings change → auto-save
-        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-R18', 's-bookmark', 's-collection', 's-file-name-template', 's-novel-format', 's-novel-merge'].forEach(id => {
+        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-R18', 's-bookmark', 's-collection', 's-file-name-template', 's-novel-format', 's-novel-merge', 's-novel-merge-format'].forEach(id => {
             const el = document.getElementById(id);
             if (!el) return;
             el.addEventListener('change', syncSettings);

@@ -191,6 +191,8 @@
         KEY_USER_UUID: 'pixiv_user_uuid',
         KEY_BOOKMARK: 'pixiv_global_bookmark',
         KEY_NOVEL_FORMAT: 'pixiv_global_novel_format',
+        KEY_NOVEL_MERGE: 'pixiv_global_novel_merge',
+        KEY_NOVEL_MERGE_FORMAT: 'pixiv_global_novel_merge_format',
         KEY_PAGE_KIND: 'pixiv_page_batch_kind',
         KEY_QUEUE_FRAME: 'pixiv_page_batch_queue_frame',
         KEY_QUEUE_FRAME_WIDTH: 'pixiv_page_batch_queue_frame_width',
@@ -621,7 +623,13 @@
             'page.novel.format-txt': 'Plain text (TXT)',
             'page.novel.format-html': 'Web page (HTML)',
             'page.novel.format-epub': 'eBook (EPUB)',
+            'page.novel.merge-label': 'Consolidate series',
+            'page.novel.merge-format-epub': 'eBook (EPUB, recommended)',
+            'page.novel.merge-format-txt': 'Plain text (TXT)',
+            'page.novel.merge-format-html': 'Web page (HTML)',
+            'page.novel.merge-format-hint': 'EPUB recommended: embeds cover & inline images, builds a clickable Novel → Chapter multi-level table of contents, and carries title/author/synopsis so it shows on a reader bookshelf. TXT/HTML are plain-text / single-page fallbacks without images.',
             'page.novel.tag': 'Novel',
+            'page.msg.novel-series-merged': 'Series consolidated file generated (series {id})',
             'page.msg.novel-completed': 'Completed',
             'page.msg.novel-stage': 'Stage: {stage}',
             'page.msg.novel-stage-images': 'Stage: downloading inline images ({done}/{total})',
@@ -761,7 +769,13 @@
             'page.novel.format-txt': '纯文本（TXT）',
             'page.novel.format-html': '网页（HTML）',
             'page.novel.format-epub': '电子书（EPUB）',
+            'page.novel.merge-label': '系列生成合订本',
+            'page.novel.merge-format-epub': '电子书（EPUB，推荐）',
+            'page.novel.merge-format-txt': '纯文本（TXT）',
+            'page.novel.merge-format-html': '网页（HTML）',
+            'page.novel.merge-format-hint': '推荐 EPUB：内嵌封面与插图、按「小说 → 章节」生成可跳转的多级目录、带书名/作者/简介等信息可在阅读器书架显示；TXT/HTML 为无插图的纯文本 / 单页备选。',
             'page.novel.tag': '小说',
+            'page.msg.novel-series-merged': '小说系列合订本已生成（系列 {id}）',
             'page.msg.novel-completed': '完成',
             'page.msg.novel-stage': '阶段：{stage}',
             'page.msg.novel-stage-images': '阶段：下载内嵌图片（{done}/{total}）',
@@ -1821,6 +1835,8 @@
                 r18Only: GM_getValue(CONFIG.KEY_R18_ONLY, false),
                 bookmark: GM_getValue(CONFIG.KEY_BOOKMARK, false),
                 novelFormat: GM_getValue(CONFIG.KEY_NOVEL_FORMAT, 'txt'),
+                mergeNovelSeries: GM_getValue(CONFIG.KEY_NOVEL_MERGE, false),
+                mergeNovelFormat: GM_getValue(CONFIG.KEY_NOVEL_MERGE_FORMAT, 'epub'),
                 pageKind: GM_getValue(CONFIG.KEY_PAGE_KIND, 'illust') === 'novel' ? 'novel' : 'illust',
                 queueFrame: GM_getValue(CONFIG.KEY_QUEUE_FRAME, true) !== false,
                 queueFrameWidth: Math.min(12, Math.max(1, parseInt(GM_getValue(CONFIG.KEY_QUEUE_FRAME_WIDTH, 3), 10) || 3)),
@@ -1896,6 +1912,39 @@
         setNovelFormat(val) {
             this.globalSettings.novelFormat = val;
             GM_setValue(CONFIG.KEY_NOVEL_FORMAT, val);
+        }
+
+        setMergeNovelSeries(val) {
+            this.globalSettings.mergeNovelSeries = !!val;
+            GM_setValue(CONFIG.KEY_NOVEL_MERGE, !!val);
+        }
+
+        setMergeNovelFormat(val) {
+            this.globalSettings.mergeNovelFormat = (val || 'epub').toLowerCase();
+            GM_setValue(CONFIG.KEY_NOVEL_MERGE_FORMAT, this.globalSettings.mergeNovelFormat);
+        }
+
+        // 队列结束后，对已完成的小说按其所属系列各生成一次合订本
+        _mergeFinishedNovelSeries() {
+            if (!this.globalSettings.mergeNovelSeries) return;
+            const seriesIds = new Set();
+            for (const q of this.queue) {
+                if (q.kind === 'novel' && q.status === 'completed' && Number(q.seriesId) > 0) {
+                    seriesIds.add(Number(q.seriesId));
+                }
+            }
+            if (!seriesIds.size) return;
+            const fmt = (this.globalSettings.mergeNovelFormat || 'epub').toLowerCase();
+            for (const sid of seriesIds) {
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: `${serverBase}/api/gallery/novel/series/${encodeURIComponent(sid)}/merge?format=${encodeURIComponent(fmt)}`,
+                    headers: {'X-User-UUID': userUUID || ''},
+                    onload: () => this.ui && this.ui.setStatus(
+                        t('page.msg.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: sid}), 'success'),
+                    onerror: () => console.warn('[PageScrape] novel series merge failed', sid)
+                });
+            }
         }
 
         setPageKind(val) {
@@ -2048,6 +2097,7 @@
             this.saveToStorage();
             this.ui.setStatus('批量下载结束', 'info');
             this.ui.updateButtonsState(false, false);
+            this._mergeFinishedNovelSeries();
 
             const completed = this.queue.filter(q => q.status === 'completed').length;
             if (quotaInfo.enabled && completed > 0 && !this._quotaExceededHandled) {
@@ -2175,6 +2225,7 @@
                     seriesOrder: meta.seriesOrder,
                     seriesTitle: meta.seriesTitle
                 } : null;
+                if (seriesInfo && seriesInfo.seriesId) item.seriesId = Number(seriesInfo.seriesId);
                 const seriesEnrich = seriesInfo
                     ? await Api.getNovelSeriesEnrichment(seriesInfo.seriesId)
                     : null;
@@ -2844,6 +2895,16 @@
                             <option value="epub">${t('page.novel.format-epub', '电子书（EPUB）')}</option>
                         </select>
                     </div>
+                    <div style="display:flex;align-items:center;margin-top:8px;">
+                        <label style="font-size:12px;margin-right:10px;width:120px;cursor:pointer;">
+                            <input type="checkbox" id="pbd-novel-merge" style="vertical-align:middle;margin-right:4px;">${t('page.novel.merge-label', '系列生成合订本')}</label>
+                        <select id="pbd-novel-merge-format" style="flex:1;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+                            <option value="epub">${t('page.novel.merge-format-epub', '电子书（EPUB，推荐）')}</option>
+                            <option value="txt">${t('page.novel.merge-format-txt', '纯文本（TXT）')}</option>
+                            <option value="html">${t('page.novel.merge-format-html', '网页（HTML）')}</option>
+                        </select>
+                    </div>
+                    <div style="font-size:11px;color:#888;line-height:1.5;margin-top:6px;">${t('page.novel.merge-format-hint', '推荐 EPUB：内嵌封面与插图、按「小说 → 章节」生成可跳转的多级目录、带书名/作者/简介等信息可在阅读器书架显示；TXT/HTML 为无插图的纯文本 / 单页备选。')}</div>
                 </div>
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">${t('page.setting.server', '服务器地址:')}</label>
@@ -3029,6 +3090,8 @@
                 frameColor: container.querySelector('#pbd-frame-color'),
                 frameStyle: container.querySelector('#pbd-frame-style'),
                 novelFormat: container.querySelector('#pbd-novel-format'),
+                novelMerge: container.querySelector('#pbd-novel-merge'),
+                novelMergeFormat: container.querySelector('#pbd-novel-merge-format'),
                 kindSwitcher: container.querySelector('#pbd-kind-switcher'),
                 novelSettings: container.querySelector('#pbd-novel-settings'),
                 scrapeBtn: container.querySelector('#pbd-scrape-btn'),
@@ -3066,6 +3129,12 @@
             }
             if (this.elements.novelFormat) {
                 bindChange(this.elements.novelFormat, (e) => this.manager && this.manager.setNovelFormat(e.target.value));
+            }
+            if (this.elements.novelMerge) {
+                bindChange(this.elements.novelMerge, (e) => this.manager && this.manager.setMergeNovelSeries(e.target.checked));
+            }
+            if (this.elements.novelMergeFormat) {
+                bindChange(this.elements.novelMergeFormat, (e) => this.manager && this.manager.setMergeNovelFormat(e.target.value));
             }
             if (this.elements.kindSwitcher) {
                 this.elements.kindSwitcher.querySelectorAll('input[name="pbd-kind"]').forEach(radio => {
@@ -3153,6 +3222,12 @@
             this.elements.concurrent.value = s.concurrent;
             if (this.elements.novelFormat) {
                 this.elements.novelFormat.value = s.novelFormat || 'txt';
+            }
+            if (this.elements.novelMerge) {
+                this.elements.novelMerge.checked = !!s.mergeNovelSeries;
+            }
+            if (this.elements.novelMergeFormat) {
+                this.elements.novelMergeFormat.value = s.mergeNovelFormat || 'epub';
             }
             if (this.elements.kindSwitcher) {
                 const target = this.elements.kindSwitcher.querySelector(`input[value="${s.pageKind === 'novel' ? 'novel' : 'illust'}"]`);

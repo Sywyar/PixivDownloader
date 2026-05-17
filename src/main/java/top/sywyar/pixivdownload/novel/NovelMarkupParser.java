@@ -64,6 +64,42 @@ public final class NovelMarkupParser {
 
     private NovelMarkupParser() {}
 
+    /** 一个章节切片：{@code title} 来自 {@code [chapter:..]}（无章节标记时为 {@code null}），{@code raw} 为该段原始 markup（不含 chapter 行）。 */
+    public record Segment(String title, String raw) {}
+
+    /**
+     * 按行首 {@code [chapter:标题]} 把原始正文切成多个 {@link Segment}（用于 EPUB 按章拆分 spine + 多级目录）。
+     * 第一个 {@code [chapter:]} 之前的内容若非空白，作为一个 {@code title=null} 的前置切片；
+     * 没有任何章节标记时返回单个 {@code Segment(null, raw)}。
+     */
+    public static List<Segment> splitChapters(String raw) {
+        if (raw == null) raw = "";
+        String normalized = raw.replace("\r\n", "\n").replace('\r', '\n');
+        String[] lines = normalized.split("\n", -1);
+        List<Segment> segments = new ArrayList<>();
+        String currentTitle = null;
+        boolean started = false;
+        StringBuilder buf = new StringBuilder();
+        for (String line : lines) {
+            Matcher chapter = CHAPTER_LINE.matcher(line);
+            if (chapter.matches()) {
+                if (started || buf.toString().strip().length() > 0) {
+                    segments.add(new Segment(currentTitle, buf.toString()));
+                }
+                buf.setLength(0);
+                currentTitle = chapter.group(1).trim();
+                started = true;
+                continue;
+            }
+            if (buf.length() > 0) buf.append('\n');
+            buf.append(line);
+        }
+        if (started || buf.toString().strip().length() > 0 || segments.isEmpty()) {
+            segments.add(new Segment(currentTitle, buf.toString()));
+        }
+        return segments;
+    }
+
     /** 扫描原始正文中出现的 [uploadedimage:id] 占位符 ID 列表（按出现顺序去重）。 */
     public static Set<String> findUploadedImageIds(String raw) {
         if (raw == null || raw.isEmpty()) return Set.of();

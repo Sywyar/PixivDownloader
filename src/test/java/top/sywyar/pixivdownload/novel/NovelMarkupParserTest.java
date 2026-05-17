@@ -9,6 +9,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NovelMarkupParserTest {
 
     @Test
+    @DisplayName("splitChapters：按 [chapter:] 切片，保留前置无题段，无标记时整体一段")
+    void splitChapters() {
+        var segs = NovelMarkupParser.splitChapters(
+                "序章内容\n[chapter:第一章]\n正文一\n[chapter:第二章]\n正文二");
+        assertThat(segs).hasSize(3);
+        assertThat(segs.get(0).title()).isNull();
+        assertThat(segs.get(0).raw()).contains("序章内容");
+        assertThat(segs.get(1).title()).isEqualTo("第一章");
+        assertThat(segs.get(1).raw()).contains("正文一").doesNotContain("[chapter:");
+        assertThat(segs.get(2).title()).isEqualTo("第二章");
+
+        var none = NovelMarkupParser.splitChapters("没有任何章节标记");
+        assertThat(none).hasSize(1);
+        assertThat(none.get(0).title()).isNull();
+
+        var leadBlank = NovelMarkupParser.splitChapters("\n\n[chapter:开篇]\n内容");
+        assertThat(leadBlank).hasSize(1);
+        assertThat(leadBlank.get(0).title()).isEqualTo("开篇");
+    }
+
+    @Test
     @DisplayName("TXT 模式：剥离 Pixiv 标记，仅保留 ruby 基词与跳转 URL")
     void txtStripsMarkup() {
         String raw = "本文 [[rb:漢字 > かんじ]] 与 [[jumpuri:站点 > https://example.com]] 与 [jump:5]\n"

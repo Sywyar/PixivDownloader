@@ -328,6 +328,17 @@
                 <input type="checkbox" id="s-novel-merge">
                 <label for="s-novel-merge" style="cursor:pointer;" data-i18n="novel:batch.merge-label">系列下载完成后生成合订本</label>
             </div>
+            <div class="setting-item" id="s-novel-merge-format-row">
+                <label for="s-novel-merge-format" data-i18n="novel:batch.merge-format-label">合订本格式:</label>
+                <select id="s-novel-merge-format" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
+                    <option value="epub" data-i18n="novel:batch.merge-format-epub">电子书（EPUB，推荐）</option>
+                    <option value="txt" data-i18n="novel:batch.merge-format-txt">纯文本（TXT）</option>
+                    <option value="html" data-i18n="novel:batch.merge-format-html">网页（HTML）</option>
+                </select>
+            </div>
+            <div class="setting-item" id="s-novel-merge-format-hint"
+                 style="grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5;"
+                 data-i18n="novel:batch.merge-format-hint">推荐 EPUB：内嵌封面与插图、按「小说 → 章节」生成可跳转的多级目录、带书名/作者/简介等信息可在阅读器书架显示；TXT/HTML 为无插图的纯文本 / 单页备选。</div>
         </div>
     </div>
 
