@@ -185,6 +185,14 @@ public class NovelDatabase {
         return novelMapper.findAllIdsSortedByTimeDesc();
     }
 
+    /** Returns the subset of the given novel ids that have already been downloaded. */
+    public List<Long> getExistingNovelIds(java.util.Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) {
+            return List.of();
+        }
+        return novelMapper.findExistingNovelIds(novelIds);
+    }
+
     public void updateExtensions(long novelId, String extensions) {
         novelMapper.updateExtensions(novelId, extensions);
     }

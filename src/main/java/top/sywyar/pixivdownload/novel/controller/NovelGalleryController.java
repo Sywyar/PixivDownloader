@@ -334,6 +334,17 @@ public class NovelGalleryController {
                 result.mergedPath(), result.chapterCount(), fmt.ext()));
     }
 
+    @PostMapping("/novels/downloaded-batch")
+    public ResponseEntity<NovelDownloadedBatchResponse> downloadedBatch(
+            @RequestBody NovelDownloadedBatchRequest request) {
+        List<Long> ids = request == null || request.novelIds() == null ? List.of() : request.novelIds();
+        return ResponseEntity.ok(new NovelDownloadedBatchResponse(novelDatabase.getExistingNovelIds(ids)));
+    }
+
+    public record NovelDownloadedBatchRequest(List<Long> novelIds) {}
+
+    public record NovelDownloadedBatchResponse(List<Long> novelIds) {}
+
     public record NovelSeriesNavResponse(Long seriesId, String seriesTitle, Long currentOrder,
                                          NeighborView prev, NeighborView next) {}
 

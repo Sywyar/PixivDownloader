@@ -1,7 +1,8 @@
 // ==UserScript==
 // @name         Pixiv 页面批量下载器
 // @namespace    http://tampermonkey.net/
-// @version      1.0.10
+// @version      1.1.0
+// @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E9%A1%B5%E9%9D%A2%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E5%99%A8(Page%20Scrape).user.js
 // @description  抓取当前 Pixiv 页面（搜索页、关注动态、排行榜、主页等）上的所有作品
 // @author       Sywyar
 // @match        https://www.pixiv.net/*
@@ -188,7 +189,13 @@
         KEY_IMAGE_DELAY_UNIT: 'pixiv_global_image_delay_unit',
         KEY_CONCURRENT: 'pixiv_global_concurrent',
         KEY_USER_UUID: 'pixiv_user_uuid',
-        KEY_BOOKMARK: 'pixiv_global_bookmark'
+        KEY_BOOKMARK: 'pixiv_global_bookmark',
+        KEY_NOVEL_FORMAT: 'pixiv_global_novel_format',
+        KEY_PAGE_KIND: 'pixiv_page_batch_kind',
+        KEY_QUEUE_FRAME: 'pixiv_page_batch_queue_frame',
+        KEY_QUEUE_FRAME_WIDTH: 'pixiv_page_batch_queue_frame_width',
+        KEY_QUEUE_FRAME_COLOR: 'pixiv_page_batch_queue_frame_color',
+        KEY_QUEUE_FRAME_STYLE: 'pixiv_page_batch_queue_frame_style'
     };
 
     let quotaInfo = {enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0};
@@ -532,6 +539,14 @@
             'page.setting.skip-history': 'Skip download history',
             'page.setting.r18-only': 'R18 only',
             'page.setting.bookmark': 'Auto-bookmark after download',
+            'page.setting.queue-frame': 'Border on queued items',
+            'page.frame.settings-title': '🔲 Border settings',
+            'page.frame.width': 'Border width (px):',
+            'page.frame.color': 'Border color:',
+            'page.frame.style': 'Border style:',
+            'page.frame.style-solid': 'Solid',
+            'page.frame.style-dashed': 'Dashed',
+            'page.frame.style-double': 'Double',
             'page.setting.verify-history-files': 'Verify saved directory',
             'page.setting.server': 'Server URL:',
             'page.button.scrape': '📷 Scrape artworks on this page',
@@ -595,7 +610,31 @@
             'page.archive.packing-after-complete': 'Download complete, packaging',
             'page.err.need-login': 'Login required',
             'page.err.backend-failed': 'Backend request failed',
-            'page.err.no-image-url': 'No image URL'
+            'page.err.no-image-url': 'No image URL',
+            'page.kind.illust': 'Illust+Manga+Ugoira',
+            'page.kind.novel': 'Novels',
+            'page.button.scrape-novel': '📕 Scrape novels on this page',
+            'page.status.no-novel-links': 'No novel links were found on the current page',
+            'page.status.scraped-novel': 'Scraped {total} novels on this page, {added} added to queue',
+            'page.novel.settings-title': '📕 Novel Settings',
+            'page.novel.format-label': 'Novel format:',
+            'page.novel.format-txt': 'Plain text (TXT)',
+            'page.novel.format-html': 'Web page (HTML)',
+            'page.novel.format-epub': 'eBook (EPUB)',
+            'page.novel.tag': 'Novel',
+            'page.msg.novel-completed': 'Completed',
+            'page.msg.novel-stage': 'Stage: {stage}',
+            'page.msg.novel-stage-images': 'Stage: downloading inline images ({done}/{total})',
+            'page.novel.stage.pending': 'Queued',
+            'page.novel.stage.preparing': 'Preparing',
+            'page.novel.stage.downloading-images': 'Downloading inline images',
+            'page.novel.stage.writing': 'Generating file',
+            'page.novel.stage.downloading-cover': 'Downloading cover',
+            'page.novel.stage.saving': 'Saving',
+            'page.novel.stage.bookmarking': 'Bookmarking',
+            'page.novel.stage.collecting': 'Adding to collection',
+            'page.novel.stage.completed': 'Completed',
+            'page.novel.stage.cancelled': 'Cancelled'
         },
         'zh-CN': {
             'switcher.label': '语言',
@@ -640,6 +679,14 @@
             'page.setting.skip-history': '跳过历史下载',
             'page.setting.r18-only': '仅R18作品',
             'page.setting.bookmark': '下载后自动收藏',
+            'page.setting.queue-frame': '抓取项加边框',
+            'page.frame.settings-title': '🔲 边框设置',
+            'page.frame.width': '边框宽度(px):',
+            'page.frame.color': '边框颜色:',
+            'page.frame.style': '边框样式:',
+            'page.frame.style-solid': '实线',
+            'page.frame.style-dashed': '虚线',
+            'page.frame.style-double': '双线',
             'page.setting.verify-history-files': '实际目录检测',
             'page.setting.server': '服务器地址:',
             'page.button.scrape': '📷 抓取当前页面作品',
@@ -703,7 +750,31 @@
             'page.archive.packing-after-complete': '下载完成，正在打包',
             'page.err.need-login': '需要登录',
             'page.err.backend-failed': '后端返回失败',
-            'page.err.no-image-url': '无图片URL'
+            'page.err.no-image-url': '无图片URL',
+            'page.kind.illust': '插画+漫画+动图',
+            'page.kind.novel': '小说',
+            'page.button.scrape-novel': '📕 抓取当前页面小说',
+            'page.status.no-novel-links': '当前页面未找到小说链接',
+            'page.status.scraped-novel': '抓取完成：页面共 {total} 篇小说，新增 {added} 篇到队列',
+            'page.novel.settings-title': '📕 小说设置',
+            'page.novel.format-label': '小说格式:',
+            'page.novel.format-txt': '纯文本（TXT）',
+            'page.novel.format-html': '网页（HTML）',
+            'page.novel.format-epub': '电子书（EPUB）',
+            'page.novel.tag': '小说',
+            'page.msg.novel-completed': '完成',
+            'page.msg.novel-stage': '阶段：{stage}',
+            'page.msg.novel-stage-images': '阶段：下载内嵌图片（{done}/{total}）',
+            'page.novel.stage.pending': '排队中',
+            'page.novel.stage.preparing': '准备中',
+            'page.novel.stage.downloading-images': '下载内嵌图片',
+            'page.novel.stage.writing': '生成文件',
+            'page.novel.stage.downloading-cover': '下载封面',
+            'page.novel.stage.saving': '保存中',
+            'page.novel.stage.bookmarking': '收藏中',
+            'page.novel.stage.collecting': '加入收藏夹',
+            'page.novel.stage.completed': '已完成',
+            'page.novel.stage.cancelled': '已取消'
         }
     });
 
@@ -738,6 +809,11 @@
             total: total,
             added: added
         })],
+        [/^当前页面未找到小说链接$/, () => t('page.status.no-novel-links', '当前页面未找到小说链接')],
+        [/^抓取完成：页面共 (\d+) 篇小说，新增 (\d+) 篇到队列$/, (_, total, added) => t('page.status.scraped-novel', '抓取完成：页面共 {total} 篇小说，新增 {added} 篇到队列', {
+            total: total,
+            added: added
+        })],
         [/^当前不在单作品页面$/, () => t('page.status.not-artwork-page', '当前不在单作品页面')],
         [/^已将当前作品 (\d+) 加入队列$/, (_, id) => t('page.status.current-added', '已将当前作品 {id} 加入队列', {id: id})],
         [/^作品 (\d+) 已在队列中$/, (_, id) => t('page.status.current-exists', '作品 {id} 已在队列中', {id: id})],
@@ -766,6 +842,11 @@
         [/^下载完成，正在打包$/, () => t('page.archive.packing-after-complete', '下载完成，正在打包')],
         [/^失败 — (.+)$/, (_, message) => t('page.msg.failed-detail', '失败 — {message}', {message: message})]
     ];
+
+    function novelStageLabel(stage) {
+        if (!stage) return '';
+        return t('page.novel.stage.' + stage, stage);
+    }
 
     function translateStatusText(text) {
         const source = String(text ?? '');
@@ -1073,6 +1154,20 @@
         return ids;
     }
 
+    /* ========== 页面小说 ID 抓取 ========== */
+    function scrapePageNovelIds() {
+        const seen = new Set();
+        const ids = [];
+        document.querySelectorAll('a[href]').forEach(a => {
+            const m = a.href.match(/\/novel\/show\.php\?[^#]*\bid=(\d+)/);
+            if (m && !seen.has(m[1])) {
+                seen.add(m[1]);
+                ids.push(m[1]);
+            }
+        });
+        return ids;
+    }
+
     /* ========== API 封装 ========== */
     const Api = {
         checkBackend() {
@@ -1303,6 +1398,120 @@
                     onerror: () => resolve(false), ontimeout: () => resolve(false)
                 });
             });
+        },
+        getNovelMeta(novelId) {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${serverBase}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`,
+                    headers: {'X-Pixiv-Cookie': document.cookie || ''},
+                    onload: (res) => {
+                        if (res.status === 401) {
+                            handleUnauthorized();
+                            reject(new Error(t('page.err.need-login', '需要登录')));
+                            return;
+                        }
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            if (res.status < 200 || res.status >= 300) {
+                                reject(new Error(data.error || ('meta HTTP ' + res.status)));
+                            } else {
+                                resolve(data);
+                            }
+                        } catch (e) {
+                            reject(e);
+                        }
+                    },
+                    onerror: reject
+                });
+            });
+        },
+        checkNovelDownloaded(novelId) {
+            return new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${serverBase}/api/gallery/novel/${encodeURIComponent(novelId)}`,
+                    onload: (res) => resolve(res.status === 200),
+                    onerror: () => resolve(false), ontimeout: () => resolve(false)
+                });
+            });
+        },
+        sendNovelDownloadRequest(body) {
+            return new Promise((resolve, reject) => {
+                const headers = {'Content-Type': 'application/json'};
+                if (userUUID) headers['X-User-UUID'] = userUUID;
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: `${serverBase}/api/download/pixiv/novel`,
+                    headers,
+                    data: JSON.stringify(body),
+                    onload: (res) => {
+                        let data = {};
+                        try {
+                            data = JSON.parse(res.responseText);
+                        } catch (_) {
+                        }
+                        if (res.status === 401) {
+                            handleUnauthorized();
+                            reject(new Error(t('page.err.need-login', '需要登录')));
+                        } else if (res.status === 429 && data.quotaExceeded) {
+                            const err = new Error('quota_exceeded');
+                            err.quotaData = data;
+                            reject(err);
+                        } else if (res.status === 200) {
+                            resolve(data);
+                        } else {
+                            reject(new Error(data.message || t('page.err.backend-failed', '后端返回失败')));
+                        }
+                    },
+                    onerror: reject
+                });
+            });
+        },
+        getNovelStatus(novelId) {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${serverBase}/api/download/novel/status/${encodeURIComponent(novelId)}`,
+                    onload: (res) => {
+                        try {
+                            resolve(JSON.parse(res.responseText));
+                        } catch (e) {
+                            reject(e);
+                        }
+                    },
+                    onerror: reject
+                });
+            });
+        },
+        _novelSeriesMetaPromises: new Map(),
+        getNovelSeriesEnrichment(seriesId) {
+            const sid = Number(seriesId);
+            if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
+            if (this._novelSeriesMetaPromises.has(sid)) return this._novelSeriesMetaPromises.get(sid);
+            const p = new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${serverBase}/api/pixiv/novel/series/${sid}?page=1`,
+                    headers: {'X-Pixiv-Cookie': document.cookie || ''},
+                    onload: (res) => {
+                        try {
+                            const data = JSON.parse(res.responseText);
+                            const meta = data && data.series ? data.series : null;
+                            resolve(meta ? {
+                                caption: meta.caption || '',
+                                coverUrl: meta.coverUrl || '',
+                                tags: Array.isArray(meta.tags) ? meta.tags : []
+                            } : null);
+                        } catch (_) {
+                            resolve(null);
+                        }
+                    },
+                    onerror: () => resolve(null)
+                });
+            });
+            this._novelSeriesMetaPromises.set(sid, p);
+            return p;
         },
         initQuota() {
             const headers = {'Content-Type': 'application/json'};
@@ -1610,7 +1819,13 @@
                 skipHistory: GM_getValue(CONFIG.KEY_SKIP_HISTORY, false),
                 verifyHistoryFiles: GM_getValue(CONFIG.KEY_VERIFY_HISTORY_FILES, false),
                 r18Only: GM_getValue(CONFIG.KEY_R18_ONLY, false),
-                bookmark: GM_getValue(CONFIG.KEY_BOOKMARK, false)
+                bookmark: GM_getValue(CONFIG.KEY_BOOKMARK, false),
+                novelFormat: GM_getValue(CONFIG.KEY_NOVEL_FORMAT, 'txt'),
+                pageKind: GM_getValue(CONFIG.KEY_PAGE_KIND, 'illust') === 'novel' ? 'novel' : 'illust',
+                queueFrame: GM_getValue(CONFIG.KEY_QUEUE_FRAME, true) !== false,
+                queueFrameWidth: Math.min(12, Math.max(1, parseInt(GM_getValue(CONFIG.KEY_QUEUE_FRAME_WIDTH, 3), 10) || 3)),
+                queueFrameColor: GM_getValue(CONFIG.KEY_QUEUE_FRAME_COLOR, '#17a2b8') || '#17a2b8',
+                queueFrameStyle: GM_getValue(CONFIG.KEY_QUEUE_FRAME_STYLE, 'solid') || 'solid'
             };
         }
 
@@ -1678,6 +1893,45 @@
             GM_setValue(CONFIG.KEY_BOOKMARK, val);
         }
 
+        setNovelFormat(val) {
+            this.globalSettings.novelFormat = val;
+            GM_setValue(CONFIG.KEY_NOVEL_FORMAT, val);
+        }
+
+        setPageKind(val) {
+            this.globalSettings.pageKind = val === 'novel' ? 'novel' : 'illust';
+            GM_setValue(CONFIG.KEY_PAGE_KIND, this.globalSettings.pageKind);
+        }
+
+        setQueueFrame(val) {
+            this.globalSettings.queueFrame = val !== false;
+            GM_setValue(CONFIG.KEY_QUEUE_FRAME, this.globalSettings.queueFrame);
+            if (this.ui && this.ui.updateFrameSettingsVisibility) {
+                this.ui.updateFrameSettingsVisibility(this.globalSettings.queueFrame);
+            }
+            if (this.ui && this.ui.updateOverlays) this.ui.updateOverlays();
+        }
+
+        setQueueFrameWidth(val) {
+            let n = parseInt(val, 10);
+            if (!Number.isFinite(n)) n = 3;
+            this.globalSettings.queueFrameWidth = Math.min(12, Math.max(1, n));
+            GM_setValue(CONFIG.KEY_QUEUE_FRAME_WIDTH, this.globalSettings.queueFrameWidth);
+            if (this.ui && this.ui.updateOverlays) this.ui.updateOverlays();
+        }
+
+        setQueueFrameColor(val) {
+            this.globalSettings.queueFrameColor = val || '#17a2b8';
+            GM_setValue(CONFIG.KEY_QUEUE_FRAME_COLOR, this.globalSettings.queueFrameColor);
+            if (this.ui && this.ui.updateOverlays) this.ui.updateOverlays();
+        }
+
+        setQueueFrameStyle(val) {
+            this.globalSettings.queueFrameStyle = ['solid', 'dashed', 'double'].includes(val) ? val : 'solid';
+            GM_setValue(CONFIG.KEY_QUEUE_FRAME_STYLE, this.globalSettings.queueFrameStyle);
+            if (this.ui && this.ui.updateOverlays) this.ui.updateOverlays();
+        }
+
         setInterval(val) {
             this.globalSettings.interval = Math.max(0, parseFloat(val) || 0);
             GM_setValue(CONFIG.KEY_INTERVAL, this.globalSettings.interval);
@@ -1715,15 +1969,23 @@
             return imageDelayUnit === 's' ? Math.round(imageDelay * 1000) : Math.round(imageDelay);
         }
 
-        addItemsToQueue(idList) {
+        addItemsToQueue(idList, kind = 'illust') {
+            const isNovel = kind === 'novel';
             const existingIds = new Set(this.queue.map(q => q.id));
             let added = 0;
             const newItems = [];
-            for (const id of idList) {
-                if (!existingIds.has(String(id))) {
+            for (const rawId of idList) {
+                const nid = String(rawId);
+                const qid = isNovel ? 'n' + nid : nid;
+                if (!existingIds.has(qid)) {
                     newItems.push({
-                        id: String(id), title: `ID: ${id}`,
-                        url: `https://www.pixiv.net/artworks/${id}`,
+                        id: qid,
+                        kind: isNovel ? 'novel' : 'illust',
+                        novelId: isNovel ? nid : null,
+                        title: isNovel ? `小说 ${nid}` : `ID: ${nid}`,
+                        url: isNovel
+                            ? `https://www.pixiv.net/novel/show.php?id=${nid}`
+                            : `https://www.pixiv.net/artworks/${nid}`,
                         status: 'idle', totalImages: 0, downloadedCount: 0,
                         startTime: null, endTime: null, lastMessage: '',
                         lastMessageParts: null,
@@ -1860,7 +2122,211 @@
             return {idx, item: this.queue[idx]};
         }
 
+        async _processNovel({item}) {
+            item.lastMessageParts = null;
+            item.bookmarkResult = null;
+            item.collectionResult = null;
+            item.ugoiraProgress = null;
+            item.imageProgress = null;
+            const novelId = item.novelId || String(item.id).replace(/^n/, '');
+            item.lastMessage = '正在检查历史记录...';
+            this.ui.renderQueue(this.queue);
+            try {
+                if (this.globalSettings.skipHistory) {
+                    const downloaded = await Api.checkNovelDownloaded(novelId);
+                    if (downloaded) {
+                        item.status = 'skipped';
+                        item.lastMessage = '跳过 — 历史记录中已存在';
+                        item.endTime = new Date().toISOString();
+                        this.updateStats();
+                        this.saveToStorage();
+                        this.ui.renderQueue(this.queue);
+                        return;
+                    }
+                }
+
+                item.lastMessage = '正在获取作品信息...';
+                this.ui.setCurrent(item);
+                this.ui.setStatus(`获取信息：${novelId}`, 'info');
+                this.ui.renderQueue(this.queue);
+
+                const meta = await Api.getNovelMeta(novelId);
+
+                if (this.globalSettings.r18Only && Number(meta.xRestrict || 0) < 1) {
+                    item.status = 'skipped';
+                    item.lastMessage = '跳过 — 非 R18 内容';
+                    item.endTime = new Date().toISOString();
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
+                    return;
+                }
+
+                item.title = meta.title || item.title;
+                item.totalImages = 1;
+                item.downloadedCount = 0;
+                this.saveToStorage();
+                this.ui.setStatus(`下载中：${item.title}`, 'info');
+                this.ui.renderQueue(this.queue);
+
+                const fmt = (this.globalSettings.novelFormat || 'txt').toLowerCase();
+                const seriesInfo = meta.seriesId ? {
+                    seriesId: meta.seriesId,
+                    seriesOrder: meta.seriesOrder,
+                    seriesTitle: meta.seriesTitle
+                } : null;
+                const seriesEnrich = seriesInfo
+                    ? await Api.getNovelSeriesEnrichment(seriesInfo.seriesId)
+                    : null;
+                const cookie = document.cookie || '';
+                const body = {
+                    novelId: Number(novelId),
+                    title: meta.title,
+                    cookie: cookie || null,
+                    content: meta.content,
+                    other: {
+                        authorId: meta.authorId,
+                        authorName: meta.authorName,
+                        xRestrict: meta.xRestrict,
+                        ai: meta.isAi,
+                        original: meta.isOriginal,
+                        language: meta.language,
+                        wordCount: meta.wordCount,
+                        textLength: meta.textLength,
+                        readingTimeSeconds: meta.readingTimeSeconds ?? null,
+                        pageCount: meta.pageCount,
+                        description: meta.description,
+                        tags: Array.isArray(meta.tags) ? meta.tags : [],
+                        seriesId: seriesInfo ? seriesInfo.seriesId : null,
+                        seriesOrder: seriesInfo ? seriesInfo.seriesOrder : null,
+                        seriesTitle: seriesInfo ? seriesInfo.seriesTitle : null,
+                        seriesDescription: seriesEnrich && seriesEnrich.caption ? seriesEnrich.caption : null,
+                        seriesCoverUrl: seriesEnrich && seriesEnrich.coverUrl ? seriesEnrich.coverUrl : null,
+                        seriesTags: seriesEnrich && seriesEnrich.tags && seriesEnrich.tags.length
+                            ? seriesEnrich.tags : null,
+                        bookmark: !!this.globalSettings.bookmark,
+                        collectionId: null,
+                        format: fmt,
+                        uploadTimestamp: meta.uploadTimestamp || null,
+                        coverUrl: meta.coverUrl || '',
+                        embeddedImages: meta.textEmbeddedImages || {}
+                    }
+                };
+
+                const dlData = await Api.sendNovelDownloadRequest(body);
+                if (dlData && dlData.alreadyDownloaded) {
+                    item.status = 'skipped';
+                    item.lastMessage = '跳过 — 已下载（服务器确认）';
+                    item.endTime = new Date().toISOString();
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
+                    this.ui.setStatus(`跳过：${item.title}（已下载）`, 'info');
+                    return;
+                }
+
+                item.lastMessage = '下载中，等待完成...';
+                this.ui.renderQueue(this.queue);
+
+                const start = Date.now();
+                while (Date.now() - start < CONFIG.STATUS_TIMEOUT_MS) {
+                    await this._sleep(800);
+                    let status;
+                    try {
+                        status = await Api.getNovelStatus(novelId);
+                    } catch (_) {
+                        continue;
+                    }
+                    if (status && status.completed) {
+                        if (status.failed) {
+                            item.status = 'failed';
+                            item.lastMessage = `失败 — ${status.message || t('page.msg.backend-reported-failure', '后端报告失败')}`;
+                            this.ui.setStatus(`失败：${item.title}`, 'error');
+                        } else {
+                            item.status = 'completed';
+                            item.downloadedCount = 1;
+                            item.bookmarkResult = status.bookmarkResult || null;
+                            item.collectionResult = status.collectionResult || null;
+                            const baseMessage = t('page.msg.novel-completed', '完成');
+                            item.lastMessage = appendPostDownloadOutcome(baseMessage, status);
+                            item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'success', status);
+                            this.ui.setStatus(`完成：${item.title}`, 'success');
+                            if (quotaInfo.enabled) {
+                                quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
+                                this.ui.updateQuotaBar(quotaInfo);
+                            }
+                        }
+                        item.endTime = new Date().toISOString();
+                        this.updateStats();
+                        this.saveToStorage();
+                        this.ui.renderQueue(this.queue);
+                        return;
+                    }
+                    if (status && status.stage) {
+                        const eTotal = Number(status.embeddedTotal || 0);
+                        const eDone = Number(status.embeddedDone || 0);
+                        if (status.stage === 'downloading-images' && eTotal > 0) {
+                            item.lastMessage = t('page.msg.novel-stage-images',
+                                '阶段：下载内嵌图片（{done}/{total}）', {done: eDone, total: eTotal});
+                        } else {
+                            item.lastMessage = t('page.msg.novel-stage', '阶段：{stage}',
+                                {stage: novelStageLabel(status.stage)});
+                        }
+                        this.ui.renderQueue(this.queue);
+                    }
+                }
+                item.status = 'failed';
+                item.lastMessage = '失败 — 超时未收到完成状态';
+                this.ui.setStatus(`失败：${item.title}`, 'error');
+            } catch (e) {
+                if (e.message === '需要登录') {
+                    item.status = 'failed';
+                    item.lastMessage = '失败 - 需要登录';
+                    this.queue.forEach(q => {
+                        if (['pending', 'idle', 'paused'].includes(q.status)) {
+                            q.status = 'failed';
+                            q.lastMessage = '失败 - 需要登录';
+                        }
+                    });
+                    this.stopRequested = true;
+                    this.isRunning = false;
+                    this.ui.setStatus('需要登录，已停止下载', 'error');
+                } else if (e.message === 'quota_exceeded') {
+                    item.status = 'failed';
+                    item.lastMessage = '失败 - 达到限额';
+                    if (!this._quotaExceededHandled) {
+                        this._quotaExceededHandled = true;
+                        this.queue.forEach(q => {
+                            if (['pending', 'idle', 'paused'].includes(q.status)) {
+                                q.status = 'failed';
+                                q.lastMessage = '失败 - 达到限额';
+                            }
+                        });
+                        this.stopRequested = true;
+                        this.isRunning = false;
+                        this.ui.setStatus('已达到下载限额', 'error');
+                        if (e.quotaData) {
+                            this.ui.showQuotaExceeded(e.quotaData);
+                        }
+                    }
+                } else {
+                    item.status = 'failed';
+                    item.lastMessage = `失败 — ${e.message}`;
+                    this.ui.setStatus(`错误：${item.title} - ${item.lastMessage}`, 'error');
+                }
+            } finally {
+                item.endTime = item.endTime || new Date().toISOString();
+                this.updateStats();
+                this.saveToStorage();
+                this.ui.renderQueue(this.queue);
+                this.ui.setCurrent(null);
+            }
+        }
+
         async _processSingle({item}) {
+            if (item.kind === 'novel') {
+                return this._processNovel({item});
+            }
             item.lastMessageParts = null;
             item.bookmarkResult = null;
             item.collectionResult = null;
@@ -2216,7 +2682,7 @@
             const container = $el('div', {
                 id: 'pixiv-page-batch-ui',
                 style: {
-                    position: 'fixed', top: '120px', right: '20px', zIndex: 10000,
+                    position: 'fixed', top: '160px', right: '80px', zIndex: 10000,
                     background: 'white', border: '2px solid #17a2b8', borderRadius: '8px',
                     padding: '15px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
                     minWidth: '400px', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
@@ -2335,6 +2801,49 @@
                     <label style="font-size: 12px; cursor:pointer;">
                         <input type="checkbox" id="pbd-bookmark" style="vertical-align: middle;"> ${t('page.setting.bookmark', '下载后自动收藏')}
                     </label>
+                    <label style="font-size: 12px; cursor:pointer;">
+                        <input type="checkbox" id="pbd-queue-frame" style="vertical-align: middle;"> ${t('page.setting.queue-frame', '抓取项加边框')}
+                    </label>
+                </div>
+                <div id="pbd-frame-settings" style="display:none;margin:6px 0 10px;padding-top:8px;border-top:1px dashed #ddd;">
+                    <div style="font-size:12px;font-weight:bold;color:#17a2b8;margin-bottom:8px;">${t('page.frame.settings-title', '🔲 边框设置')}</div>
+                    <div style="display:flex;align-items:center;margin-bottom:6px;">
+                        <label style="font-size:12px;margin-right:10px;width:120px;">${t('page.frame.width', '边框宽度(px):')}</label>
+                        <input type="number" id="pbd-frame-width" min="1" max="12" step="1"
+                               style="width:70px;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+                    </div>
+                    <div style="display:flex;align-items:center;margin-bottom:6px;">
+                        <label style="font-size:12px;margin-right:10px;width:120px;">${t('page.frame.color', '边框颜色:')}</label>
+                        <input type="color" id="pbd-frame-color"
+                               style="width:48px;height:28px;padding:0;border:1px solid #ddd;border-radius:4px;cursor:pointer;">
+                    </div>
+                    <div style="display:flex;align-items:center;">
+                        <label style="font-size:12px;margin-right:10px;width:120px;">${t('page.frame.style', '边框样式:')}</label>
+                        <select id="pbd-frame-style" style="flex:1;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+                            <option value="solid">${t('page.frame.style-solid', '实线')}</option>
+                            <option value="dashed">${t('page.frame.style-dashed', '虚线')}</option>
+                            <option value="double">${t('page.frame.style-double', '双线')}</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="pbd-kind-switcher" role="radiogroup" style="display:flex;gap:0;margin:6px 0 10px;border:1px solid #17a2b8;border-radius:6px;overflow:hidden;">
+                    <label data-kind="illust" style="flex:1;text-align:center;font-size:12px;padding:6px 4px;cursor:pointer;">
+                        <input type="radio" name="pbd-kind" value="illust" style="display:none;"> ${t('page.kind.illust', '插画+漫画+动图')}
+                    </label>
+                    <label data-kind="novel" style="flex:1;text-align:center;font-size:12px;padding:6px 4px;cursor:pointer;border-left:1px solid #17a2b8;">
+                        <input type="radio" name="pbd-kind" value="novel" style="display:none;"> ${t('page.kind.novel', '小说')}
+                    </label>
+                </div>
+                <div id="pbd-novel-settings" style="display:none;margin:6px 0 10px;padding-top:8px;border-top:1px dashed #ddd;">
+                    <div style="font-size:12px;font-weight:bold;color:#0d9488;margin-bottom:8px;">${t('page.novel.settings-title', '📕 小说设置')}</div>
+                    <div style="display:flex;align-items:center;">
+                        <label style="font-size:12px;margin-right:10px;width:120px;">${t('page.novel.format-label', '小说格式:')}</label>
+                        <select id="pbd-novel-format" style="flex:1;padding:4px;border:1px solid #ddd;border-radius:4px;font-size:12px;">
+                            <option value="txt">${t('page.novel.format-txt', '纯文本（TXT）')}</option>
+                            <option value="html">${t('page.novel.format-html', '网页（HTML）')}</option>
+                            <option value="epub">${t('page.novel.format-epub', '电子书（EPUB）')}</option>
+                        </select>
+                    </div>
                 </div>
                 <div style="display: flex; align-items: center; margin-bottom: 8px;">
                     <label style="font-size: 12px; margin-right: 10px; width: 120px;">${t('page.setting.server', '服务器地址:')}</label>
@@ -2514,6 +3023,15 @@
                 verifyHistoryFilesRow: container.querySelector('#pbd-verify-history-files-row'),
                 r18Only: container.querySelector('#pbd-r18-only'),
                 bookmark: container.querySelector('#pbd-bookmark'),
+                queueFrame: container.querySelector('#pbd-queue-frame'),
+                frameSettings: container.querySelector('#pbd-frame-settings'),
+                frameWidth: container.querySelector('#pbd-frame-width'),
+                frameColor: container.querySelector('#pbd-frame-color'),
+                frameStyle: container.querySelector('#pbd-frame-style'),
+                novelFormat: container.querySelector('#pbd-novel-format'),
+                kindSwitcher: container.querySelector('#pbd-kind-switcher'),
+                novelSettings: container.querySelector('#pbd-novel-settings'),
+                scrapeBtn: container.querySelector('#pbd-scrape-btn'),
                 serverUrl: container.querySelector('#pbd-server-url'),
                 startBtn: container.querySelector('#pbd-start-btn'),
                 pauseBtn: container.querySelector('#pbd-pause-btn')
@@ -2532,6 +3050,32 @@
             bindChange(this.elements.verifyHistoryFiles, (e) => this.manager && this.manager.setVerifyHistoryFiles(e.target.checked));
             bindChange(this.elements.r18Only, (e) => this.manager && this.manager.setR18Only(e.target.checked));
             bindChange(this.elements.bookmark, (e) => this.manager && this.manager.setBookmark(e.target.checked));
+            if (this.elements.queueFrame) {
+                bindChange(this.elements.queueFrame, (e) => this.manager && this.manager.setQueueFrame(e.target.checked));
+            }
+            if (this.elements.frameWidth) {
+                bindChange(this.elements.frameWidth, (e) => this.manager && this.manager.setQueueFrameWidth(e.target.value));
+            }
+            if (this.elements.frameColor) {
+                const applyColor = (e) => this.manager && this.manager.setQueueFrameColor(e.target.value);
+                this.elements.frameColor.addEventListener('input', applyColor);
+                this.elements.frameColor.addEventListener('change', applyColor);
+            }
+            if (this.elements.frameStyle) {
+                bindChange(this.elements.frameStyle, (e) => this.manager && this.manager.setQueueFrameStyle(e.target.value));
+            }
+            if (this.elements.novelFormat) {
+                bindChange(this.elements.novelFormat, (e) => this.manager && this.manager.setNovelFormat(e.target.value));
+            }
+            if (this.elements.kindSwitcher) {
+                this.elements.kindSwitcher.querySelectorAll('input[name="pbd-kind"]').forEach(radio => {
+                    radio.addEventListener('change', (e) => {
+                        if (!this.manager || !e.target.checked) return;
+                        this.manager.setPageKind(e.target.value);
+                        this.applyKindUI();
+                    });
+                });
+            }
             bindChange(this.elements.interval, (e) => this.manager && this.manager.setInterval(e.target.value));
             bindChange(this.elements.imageDelay, (e) => this.manager && this.manager.setImageDelay(e.target.value));
             bindChange(this.elements.concurrent, (e) => this.manager && this.manager.setConcurrent(e.target.value));
@@ -2585,6 +3129,11 @@
             this.elements.verifyHistoryFilesRow.style.display = enabled ? 'flex' : 'none';
         }
 
+        updateFrameSettingsVisibility(enabled) {
+            if (!this.elements || !this.elements.frameSettings) return;
+            this.elements.frameSettings.style.display = enabled ? 'block' : 'none';
+        }
+
         syncSettings() {
             if (!this.manager || !this.elements.interval) return;
             const s = this.manager.globalSettings;
@@ -2592,12 +3141,45 @@
             this.elements.verifyHistoryFiles.checked = s.verifyHistoryFiles ?? false;
             this.elements.r18Only.checked = s.r18Only;
             this.elements.bookmark.checked = s.bookmark;
+            if (this.elements.queueFrame) this.elements.queueFrame.checked = s.queueFrame !== false;
+            if (this.elements.frameWidth) this.elements.frameWidth.value = s.queueFrameWidth ?? 3;
+            if (this.elements.frameColor) this.elements.frameColor.value = s.queueFrameColor || '#17a2b8';
+            if (this.elements.frameStyle) this.elements.frameStyle.value = s.queueFrameStyle || 'solid';
+            this.updateFrameSettingsVisibility(s.queueFrame !== false);
             this.elements.interval.value = s.interval;
             this.elements.intervalUnitBtn.textContent = s.intervalUnit || 's';
             this.elements.imageDelay.value = s.imageDelay ?? 0;
             this.elements.imageDelayUnitBtn.textContent = s.imageDelayUnit || 'ms';
             this.elements.concurrent.value = s.concurrent;
+            if (this.elements.novelFormat) {
+                this.elements.novelFormat.value = s.novelFormat || 'txt';
+            }
+            if (this.elements.kindSwitcher) {
+                const target = this.elements.kindSwitcher.querySelector(`input[value="${s.pageKind === 'novel' ? 'novel' : 'illust'}"]`);
+                if (target) target.checked = true;
+            }
+            this.applyKindUI();
             this.updateSkipHistoryVisibility(s.skipHistory);
+        }
+
+        applyKindUI() {
+            const isNovel = this.manager && this.manager.globalSettings.pageKind === 'novel';
+            if (this.elements.kindSwitcher) {
+                this.elements.kindSwitcher.querySelectorAll('label[data-kind]').forEach(lbl => {
+                    const active = (lbl.dataset.kind === 'novel') === !!isNovel;
+                    lbl.style.background = active ? '#17a2b8' : 'transparent';
+                    lbl.style.color = active ? '#fff' : '#666';
+                    lbl.style.fontWeight = active ? '700' : '400';
+                });
+            }
+            if (this.elements.novelSettings) {
+                this.elements.novelSettings.style.display = isNovel ? 'block' : 'none';
+            }
+            if (this.elements.scrapeBtn) {
+                this.elements.scrapeBtn.innerText = isNovel
+                    ? t('page.button.scrape-novel', '📕 抓取当前页面小说')
+                    : t('page.button.scrape', '📷 抓取当前页面作品');
+            }
         }
 
         toggleCollapse() {
@@ -2634,12 +3216,23 @@
         }
 
         handleScrape() {
+            const isNovel = this.manager.globalSettings.pageKind === 'novel';
+            if (isNovel) {
+                const ids = scrapePageNovelIds();
+                if (ids.length === 0) {
+                    this.setStatus('当前页面未找到小说链接', 'warning');
+                    return;
+                }
+                const added = this.manager.addItemsToQueue(ids, 'novel');
+                this.setStatus(`抓取完成：页面共 ${ids.length} 篇小说，新增 ${added} 篇到队列`, 'success');
+                return;
+            }
             const ids = scrapePageArtworkIds();
             if (ids.length === 0) {
                 this.setStatus('当前页面未找到任何作品链接', 'warning');
                 return;
             }
-            const added = this.manager.addItemsToQueue(ids);
+            const added = this.manager.addItemsToQueue(ids, 'illust');
             this.setStatus(`抓取完成：页面共 ${ids.length} 个作品，新增 ${added} 个到队列`, 'success');
         }
 
@@ -2740,7 +3333,7 @@
                 alert(t('page.alert.queue-empty-export', '队列为空，无内容可导出'));
                 return;
             }
-            const lines = this.manager.queue.map(item => `https://www.pixiv.net/artworks/${item.id} | ${item.title}`);
+            const lines = this.manager.queue.map(item => `${item.kind === 'novel' ? 'https://www.pixiv.net/novel/show.php?id=' + (item.novelId || String(item.id).replace(/^n/, '')) : 'https://www.pixiv.net/artworks/' + item.id} | ${item.title}`);
             this._downloadTxt(lines.join('\n'), 'pixiv_page_all_list.txt');
             this.setStatus(`已导出 ${lines.length} 个作品`, 'success');
         }
@@ -2752,7 +3345,7 @@
                 alert(t('page.alert.no-undownloaded', '没有未下载的作品'));
                 return;
             }
-            const lines = items.map(item => `https://www.pixiv.net/artworks/${item.id} | ${item.title}`);
+            const lines = items.map(item => `${item.kind === 'novel' ? 'https://www.pixiv.net/novel/show.php?id=' + (item.novelId || String(item.id).replace(/^n/, '')) : 'https://www.pixiv.net/artworks/' + item.id} | ${item.title}`);
             this._downloadTxt(lines.join('\n'), 'pixiv_page_undownloaded_list.txt');
             this.setStatus(`已导出 ${lines.length} 个未下载作品`, 'success');
         }
@@ -2794,8 +3387,17 @@
                 const removeBtn = canRemove
                     ? `<button data-remove-id="${q.id}" title="${t('common.action.remove', '从队列移除')}" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:11px;padding:1px 2px;line-height:1;">✕</button>`
                     : '';
-                const linkBtn = `<a href="https://www.pixiv.net/artworks/${q.id}" target="_blank" title="${t('common.action.open-artwork', '打开作品页面')}" style="color:#007bff;font-size:11px;padding:1px 2px;text-decoration:none;line-height:1;">🔗</a>`;
-                item.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:4px;">${escapeHtml(q.title || 'ID: ' + q.id)}</strong><span style="display:flex;gap:1px;flex-shrink:0;">${linkBtn}${removeBtn}</span></div><div>ID: ${q.id} | ${descHtml}</div>${this._progressHtml(q)}${detailProgress}`;
+                const isNovel = q.kind === 'novel';
+                const nid = isNovel ? (q.novelId || String(q.id).replace(/^n/, '')) : q.id;
+                const linkHref = isNovel
+                    ? `https://www.pixiv.net/novel/show.php?id=${nid}`
+                    : `https://www.pixiv.net/artworks/${q.id}`;
+                const linkBtn = `<a href="${linkHref}" target="_blank" title="${t('common.action.open-artwork', '打开作品页面')}" style="color:#007bff;font-size:11px;padding:1px 2px;text-decoration:none;line-height:1;">🔗</a>`;
+                const novelTag = isNovel
+                    ? `<span style="background:#0d9488;color:white;border-radius:3px;padding:0 4px;font-size:9px;margin-left:3px;vertical-align:middle;">📕 ${escapeHtml(t('page.novel.tag', '小说'))}</span>`
+                    : '';
+                const idLabel = isNovel ? `${nid} (Novel)` : q.id;
+                item.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;"><strong style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:4px;">${escapeHtml(q.title || 'ID: ' + q.id)}${novelTag}</strong><span style="display:flex;gap:1px;flex-shrink:0;">${linkBtn}${removeBtn}</span></div><div>ID: ${idLabel} | ${descHtml}</div>${this._progressHtml(q)}${detailProgress}`;
                 node.appendChild(item);
             }
             node.onclick = (e) => {
@@ -2978,12 +3580,18 @@
             if (!this.manager) return;
             this._injectOverlayStyles();
             const queuedIds = new Set(this.manager.queue.map(q => q.id));
-            // Create or update overlays on all thumbnail anchors
-            document.querySelectorAll('a[href*="/artworks/"]').forEach(a => {
-                const m = a.href.match(/\/artworks\/(\d+)/);
-                if (!m) return;
+            const gs = this.manager.globalSettings;
+            const frameOn = gs.queueFrame !== false;
+            const fw = Math.min(12, Math.max(1, parseInt(gs.queueFrameWidth, 10) || 3));
+            const fc = gs.queueFrameColor || '#17a2b8';
+            const fs = ['solid', 'dashed', 'double'].includes(gs.queueFrameStyle) ? gs.queueFrameStyle : 'solid';
+            const frameCss = 'position:absolute;inset:0;pointer-events:none;box-sizing:border-box;'
+                + 'border:' + fw + 'px ' + fs + ' ' + fc + ';border-radius:8px;z-index:9998;';
+
+            // 在缩略图链接上标记复选框（点击加入/移出队列）+ 可选边框。
+            // 插画与小说处理一致；小说的队列 id 形如 'n<id>'。
+            const mark = (a, queueId, rawId, kind) => {
                 if (!a.querySelector('img')) return; // 只标记缩略图链接，跳过标题链接
-                const id = m[1];
 
                 // 确定 overlay 容器：如果 <a> 本身已定位则直接使用，
                 // 否则查找最近的已定位祖先元素，避免给 <a> 强制设置 position:relative
@@ -3007,25 +3615,27 @@
                     }
                 }
 
-                let overlay = container.querySelector(`.pixiv-queue-overlay[data-artwork-id="${id}"]`);
+                let overlay = container.querySelector(`.pixiv-queue-overlay[data-queue-id="${queueId}"]`);
                 if (!overlay) {
                     overlay = document.createElement('div');
                     overlay.className = 'pixiv-queue-overlay';
-                    overlay.dataset.artworkId = id;
+                    overlay.dataset.queueId = queueId;
+                    overlay.dataset.rawId = rawId;
+                    overlay.dataset.kind = kind;
                     overlay.style.cssText = 'position:absolute;bottom:4px;left:4px;width:18px;height:18px;border-radius:3px;font-size:13px;line-height:14px;text-align:center;z-index:9999;cursor:pointer;pointer-events:all;user-select:none;font-weight:bold;box-sizing:border-box;border:2px solid #007bff;';
                     overlay.addEventListener('click', (e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        const oid = overlay.dataset.artworkId;
-                        if (this.manager.queue.some(q => q.id === oid)) {
-                            this.manager.removeFromQueue(oid);
+                        const qid = overlay.dataset.queueId;
+                        if (this.manager.queue.some(q => q.id === qid)) {
+                            this.manager.removeFromQueue(qid);
                         } else {
-                            this.manager.addItemsToQueue([oid]);
+                            this.manager.addItemsToQueue([overlay.dataset.rawId], overlay.dataset.kind);
                         }
                     });
                     container.appendChild(overlay);
                 }
-                if (queuedIds.has(id)) {
+                if (queuedIds.has(queueId)) {
                     overlay.classList.add('pqo-checked');
                     overlay.classList.remove('pqo-unchecked');
                     overlay.title = t('page.overlay.remove', '已加入队列，点击移出');
@@ -3040,6 +3650,30 @@
                     overlay.style.color = '#007bff';
                     overlay.textContent = '';
                 }
+
+                // 已加入队列（抓取到）的项在缩略图上画一圈边框，一眼可辨（可在设置中关闭）
+                let frame = container.querySelector(`.pixiv-queue-frame[data-queue-id="${queueId}"]`);
+                if (frameOn && queuedIds.has(queueId)) {
+                    if (!frame) {
+                        frame = document.createElement('div');
+                        frame.className = 'pixiv-queue-frame';
+                        frame.dataset.queueId = queueId;
+                        container.appendChild(frame);
+                    }
+                    // 每次都按当前设置重写，确保宽度/颜色/样式变更后即时生效
+                    frame.style.cssText = frameCss;
+                } else if (frame) {
+                    frame.remove();
+                }
+            };
+
+            document.querySelectorAll('a[href*="/artworks/"]').forEach(a => {
+                const m = a.href.match(/\/artworks\/(\d+)/);
+                if (m) mark(a, m[1], m[1], 'illust');
+            });
+            document.querySelectorAll('a[href*="/novel/show.php"]').forEach(a => {
+                const m = a.href.match(/\/novel\/show\.php\?[^#]*\bid=(\d+)/);
+                if (m) mark(a, 'n' + m[1], m[1], 'novel');
             });
         }
     }

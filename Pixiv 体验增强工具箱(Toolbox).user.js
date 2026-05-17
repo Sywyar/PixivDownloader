@@ -2,6 +2,7 @@
 // @name         Pixiv 体验增强工具箱
 // @namespace    http://tampermonkey.net/
 // @version      1.0.0
+// @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E4%BD%93%E9%AA%8C%E5%A2%9E%E5%BC%BA%E5%B7%A5%E5%85%B7%E7%AE%B1(Toolbox).user.js
 // @description  Pixiv 使用体验增强工具箱
 // @author       Sywyar
 // @match        https://www.pixiv.net/*
@@ -366,8 +367,8 @@
             'enhance.gate.not-login': 'Requires being logged in to the server (solo mode).',
             'enhance.gate.unreachable': 'Server unreachable. Check the server URL and that it is running.',
             'enhance.gate.ready': 'Conditions met. You can enable this feature.',
-            'downloaded-border.name': 'Border on downloaded artworks',
-            'downloaded-border.desc': 'Scans artwork cards on the page and draws a border on the thumbnail of any artwork already downloaded by the server.',
+            'downloaded-border.name': 'Border on downloaded works',
+            'downloaded-border.desc': 'Scans artwork and novel cards on the page and draws a border on the thumbnail of anything already downloaded by the server.',
             'downloaded-border.setting.width': 'Border width (px):',
             'downloaded-border.setting.color': 'Border color:',
             'downloaded-border.setting.style': 'Border style:',
@@ -394,7 +395,7 @@
             'enhance.gate.unreachable': '无法连接服务器，请检查服务器地址以及服务是否已启动。',
             'enhance.gate.ready': '条件已满足，可以开启此功能。',
             'downloaded-border.name': '已下载作品加边框',
-            'downloaded-border.desc': '抓取页面上的作品卡片，对服务器已下载过的作品在缩略图上添加边框。',
+            'downloaded-border.desc': '抓取页面上的作品与小说卡片，对服务器已下载过的作品/小说在缩略图上添加边框。',
             'downloaded-border.setting.width': '边框宽度(px):',
             'downloaded-border.setting.color': '边框颜色:',
             'downloaded-border.setting.style': '边框样式:',
@@ -641,21 +642,56 @@
             document.querySelectorAll('.' + this.FRAME_CLASS).forEach(el => { el.style.cssText = css; });
         },
 
-        _collectAnchorsById() {
-            const byId = new Map();
+        // 作品与小说共用同一数字 ID 空间，缓存键统一加前缀（a: 作品 / n: 小说）避免串号
+        _collectTargets() {
+            const byKey = new Map();
+            const push = (key, a) => {
+                if (!byKey.has(key)) byKey.set(key, []);
+                byKey.get(key).push(a);
+            };
             document.querySelectorAll('a[href*="/artworks/"]').forEach(a => {
                 const m = (a.getAttribute('href') || '').match(/\/artworks\/(\d+)/);
-                if (!m) return;
-                const id = m[1];
-                if (!byId.has(id)) byId.set(id, []);
-                byId.get(id).push(a);
+                if (m) push('a:' + m[1], a);
             });
-            return byId;
+            document.querySelectorAll('a[href*="/novel/show.php"]').forEach(a => {
+                const m = (a.getAttribute('href') || '').match(/\/novel\/show\.php\?[^#]*\bid=(\d+)/);
+                if (m) push('n:' + m[1], a);
+            });
+            return byKey;
         },
 
-        // 同一作品可能有多个链接（缩略图链接 + 标题文本链接），取面积最大的那个
-        // 作为缩略图；纯文本标题链接又矮又窄，会被自然排除。
+        // 同一作品通常有「缩略图链接 + 标题文本链接」两个 <a>。在「精选新作」等版面，
+        // 标题链接是有高度的内联文本（约 184x22），而缩略图 <a> 的可见盒子由内部绝对
+        // 定位子元素撑开、自身 rect 近乎为 0——只按面积比会错选到标题，边框就圈到了标题上。
+        // 改为优先锁定真正承载缩略图 <img> 的元素，再向上取与图片等高的最大盒子作为 host，
+        // 让边框始终贴住 184x184 的图片而非标题。其它版面缩略图 <a> 本身有尺寸，走兜底逻辑。
         _pickThumb(anchors) {
+            let bestImg = null;
+            let bestImgArea = 0;
+            anchors.forEach(a => {
+                a.querySelectorAll('img').forEach(img => {
+                    const r = img.getBoundingClientRect();
+                    const area = r.width * r.height;
+                    if (area > bestImgArea) { bestImgArea = area; bestImg = img; }
+                });
+            });
+            if (bestImg && bestImgArea >= 1600) {
+                // <img> 自身不能挂子元素；从其父级开始向上，跳过 0 高度的包裹链接，
+                // 取“仍没明显高于图片”（再往上会把标题行包进来，高度突增）的最大盒子。
+                const imgH = bestImg.getBoundingClientRect().height;
+                let host = bestImg.parentElement || bestImg;
+                let hostArea = 0;
+                let node = bestImg.parentElement;
+                while (node && node !== document.body) {
+                    const r = node.getBoundingClientRect();
+                    if (r.height > imgH + 8) break;
+                    const area = r.width * r.height;
+                    if (area > hostArea) { hostArea = area; host = node; }
+                    node = node.parentElement;
+                }
+                return host;
+            }
+            // 兜底：用户/搜索/排行等版面缩略图 <a> 本身就有尺寸，沿用原按面积选链接逻辑
             let best = null;
             let bestArea = 0;
             anchors.forEach(a => {
@@ -690,25 +726,35 @@
         },
 
         _scan(api) {
-            const byId = this._collectAnchorsById();
-            this._applyMarks(byId, api);
+            const byKey = this._collectTargets();
+            this._applyMarks(byKey, api);
 
-            const unknown = [];
-            byId.forEach((_anchors, id) => {
-                if (!this._cache.has(id) && !this._querying.has(id)) unknown.push(id);
+            const unknownArt = [];
+            const unknownNovel = [];
+            byKey.forEach((_anchors, key) => {
+                if (this._cache.has(key) || this._querying.has(key)) return;
+                (key.charAt(0) === 'n' ? unknownNovel : unknownArt).push(key);
             });
-            if (!unknown.length) return;
+            this._queryBatch(api, unknownArt, 'a');
+            this._queryBatch(api, unknownNovel, 'n');
+        },
 
-            // 分块查询，避免一次请求过大
+        // kind: 'a' 作品 → /api/downloaded/batch；'n' 小说 → /api/gallery/novels/downloaded-batch
+        _queryBatch(api, keys, kind) {
+            if (!keys.length) return;
+            const isNovel = kind === 'n';
+            const url = api.serverBase + (isNovel ? '/api/gallery/novels/downloaded-batch' : '/api/downloaded/batch');
+            const bodyKey = isNovel ? 'novelIds' : 'artworkIds';
             const CHUNK = 200;
-            for (let i = 0; i < unknown.length; i += CHUNK) {
-                const chunk = unknown.slice(i, i + CHUNK);
-                chunk.forEach(id => this._querying.add(id));
+            for (let i = 0; i < keys.length; i += CHUNK) {
+                const chunk = keys.slice(i, i + CHUNK);
+                chunk.forEach(k => this._querying.add(k));
+                const ids = chunk.map(k => Number(k.slice(2)));
                 api.gmRequest({
                     method: 'POST',
-                    url: api.serverBase + '/api/downloaded/batch',
+                    url,
                     headers: { 'Content-Type': 'application/json' },
-                    data: JSON.stringify({ artworkIds: chunk.map(Number) }),
+                    data: JSON.stringify({ [bodyKey]: ids }),
                     timeout: 15000
                 }).then(res => {
                     if (res.status === 401) { api.handleUnauthorized(); return; }
@@ -716,20 +762,24 @@
                         console.warn('[Pixiv体验增强] 批量查询返回非 200：', res.status);
                         return;
                     }
-                    let downloaded = new Set();
+                    const downloaded = new Set();
                     try {
                         const data = JSON.parse(res.responseText) || {};
-                        (data.artworks || []).forEach(a => {
-                            if (a && a.artworkId != null) downloaded.add(String(a.artworkId));
-                        });
+                        if (isNovel) {
+                            (data.novelIds || []).forEach(n => { if (n != null) downloaded.add(String(n)); });
+                        } else {
+                            (data.artworks || []).forEach(a => {
+                                if (a && a.artworkId != null) downloaded.add(String(a.artworkId));
+                            });
+                        }
                     } catch (e) { return; }
-                    chunk.forEach(id => this._cache.set(id, downloaded.has(id)));
-                    this._applyMarks(this._collectAnchorsById(), api);
+                    chunk.forEach(k => this._cache.set(k, downloaded.has(k.slice(2))));
+                    this._applyMarks(this._collectTargets(), api);
                 }).catch((err) => {
-                    // 失败的 id 解除占用，下次扫描可重试
+                    // 失败的 key 解除占用，下次扫描可重试
                     console.warn('[Pixiv体验增强] 批量查询失败：', err);
                 }).finally(() => {
-                    chunk.forEach(id => this._querying.delete(id));
+                    chunk.forEach(k => this._querying.delete(k));
                 });
             }
         },
@@ -827,7 +877,7 @@
             const container = $el('div', {
                 id: PANEL_ID,
                 style: {
-                    position: 'fixed', top: '120px', right: '20px', zIndex: 10000,
+                    position: 'fixed', top: '210px', right: '20px', zIndex: 10000,
                     background: 'white', border: '2px solid ' + BRAND, borderRadius: '8px',
                     padding: '15px', boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
                     minWidth: '360px', maxWidth: '420px',

@@ -341,6 +341,14 @@ public interface NovelMapper {
     @Select("SELECT novel_id FROM novel_collections WHERE collection_id = #{collectionId}")
     List<Long> findNovelIdsByCollectionId(@Param("collectionId") long collectionId);
 
+    @Select({
+            "<script>",
+            "SELECT novel_id FROM novels WHERE novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "</script>"
+    })
+    List<Long> findExistingNovelIds(@Param("ids") Collection<Long> ids);
+
     @Select("SELECT COUNT(*) FROM novel_collections WHERE collection_id = #{collectionId}")
     long countNovelsByCollectionId(@Param("collectionId") long collectionId);
 

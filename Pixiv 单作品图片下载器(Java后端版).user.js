@@ -1,7 +1,8 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.0.6
+// @version      2.1.0
+// @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Java%E5%90%8E%E7%AB%AF%E7%89%88).user.js
 // @description  通过Java后端服务下载 Pixiv 单个作品图片
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*
@@ -27,6 +28,7 @@
     const KEY_BOOKMARK_AFTER_DL = 'pixiv_bookmark_after_dl';
     const KEY_SKIP_HISTORY = 'pixiv_single_skip_history';
     const KEY_VERIFY_HISTORY_FILES = 'pixiv_single_verify_history_files';
+    const KEY_NOVEL_FORMAT = 'pixiv_single_novel_format';
     const VERIFY_HISTORY_FILES_TOOLTIP = '通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载';
 
     // 动态 URL 计算
@@ -82,6 +84,124 @@
         }
         return { once };
     })();
+
+    /* ========== PixivPanelState: 跨脚本共享的面板展开/收起状态 ==========
+     * 所有 Pixiv 用户脚本共用同一个折叠状态：localStorage 权威 + BroadcastChannel +
+     * storage 事件 + 1s 轮询兜底（跨 sandbox 对齐），同一 sandbox 内经 window 共享单例。
+     * 默认展开（无存储值时 collapsed=false）。仅“用户手动收/展”写入；页面类型默认值与
+     * 跨面板自动收起不写入（沿用各脚本既有语义）。收起任一面板 → 全部收起；展开时各脚本
+     * 仍按自身页面类型 + pixiv_panel_active 互斥决定实际可见的那一个。
+     * ------------------------------------------------------------------------ */
+    const PixivPanelState = (() => {
+        const SHARED_KEY = '__PixivPanelState_v1__';
+        if (typeof window !== 'undefined' && window[SHARED_KEY]) return window[SHARED_KEY];
+        const LS_KEY = 'pixiv_panel_collapsed_shared';
+        const BC_NAME = '__pixiv_panel_collapsed_v1__';
+        let collapsed = null;
+        const listeners = new Set();
+        let bc = null;
+        const readLS = () => {
+            try {
+                return localStorage.getItem(LS_KEY) === '1';
+            } catch (e) {
+                return false;
+            }
+        };
+        const notify = () => listeners.forEach(fn => {
+            try {
+                fn(collapsed);
+            } catch (e) {
+                console.error('[PixivPanelState]', e);
+            }
+        });
+
+        function ensureInit() {
+            if (collapsed !== null) return;
+            collapsed = readLS();
+            try {
+                if (typeof BroadcastChannel !== 'undefined') {
+                    bc = new BroadcastChannel(BC_NAME);
+                    bc.addEventListener('message', ev => {
+                        if (ev && ev.data && ev.data.type === 'panel-collapsed') {
+                            const v = ev.data.value === true;
+                            if (v !== collapsed) {
+                                collapsed = v;
+                                notify();
+                            }
+                        }
+                    });
+                }
+            } catch (e) {
+            }
+            try {
+                window.addEventListener('storage', ev => {
+                    if (ev.key !== LS_KEY) return;
+                    const v = ev.newValue === '1';
+                    if (v !== collapsed) {
+                        collapsed = v;
+                        notify();
+                    }
+                });
+            } catch (e) {
+            }
+            try {
+                setInterval(() => {
+                    const v = readLS();
+                    if (v !== collapsed) {
+                        collapsed = v;
+                        notify();
+                    }
+                }, 1000);
+            } catch (e) {
+            }
+        }
+
+        function get() {
+            ensureInit();
+            return collapsed;
+        }
+
+        function set(v) {
+            ensureInit();
+            v = v === true;
+            if (v === collapsed) return;
+            collapsed = v;
+            try {
+                localStorage.setItem(LS_KEY, v ? '1' : '0');
+            } catch (e) {
+            }
+            if (bc) {
+                try {
+                    bc.postMessage({type: 'panel-collapsed', value: v});
+                } catch (e) {
+                }
+            }
+            notify();
+        }
+
+        function onChange(fn) {
+            ensureInit();
+            listeners.add(fn);
+            return () => listeners.delete(fn);
+        }
+
+        const api = {get, set, onChange};
+        try {
+            if (typeof window !== 'undefined') window[SHARED_KEY] = api;
+        } catch (e) {
+        }
+        return api;
+    })();
+
+    function loadPanelCollapsed() {
+        return PixivPanelState.get();
+    }
+
+    function savePanelCollapsed(collapsed) {
+        PixivPanelState.set(collapsed);
+    }
+
+    let panelCollapsed = loadPanelCollapsed();
 
     /* ========== PixivUserscriptI18n: shared userscript i18n runtime ==========
      * Same-origin Pixiv userscripts share localStorage + BroadcastChannel state
@@ -313,6 +433,9 @@
             'common.quota.exceeded': 'Download limit reached',
             'common.quota.summary': 'Quota: {used}/{max}',
             'single.title': 'Pixiv Downloader (Java Backend)',
+            'single.action.collapse': 'Collapse',
+            'single.fab.title': 'Pixiv Downloader (Java Backend)',
+            'single.menu.open': 'Open Pixiv single-artwork downloader panel',
             'single.status.ready': '⬇️ This artwork can be downloaded',
             'single.button.download': '📥 Download via Backend',
             'single.option.bookmark': 'Auto-bookmark after download',
@@ -336,7 +459,20 @@
             'single.alert.download-failed': 'Download failed: {message}',
             'single.type.ugoira': 'Animated illustration (will be converted to WebP)',
             'single.type.images': 'Images: {count}',
-            'single.archive.download-limit': 'Download limit reached'
+            'single.type.novel': 'Novel ({format})',
+            'single.archive.download-limit': 'Download limit reached',
+            'single.novel.title': 'Pixiv Novel Downloader (Java Backend)',
+            'single.novel.status.ready': '⬇️ This novel can be downloaded',
+            'single.novel.button.download': '📥 Download novel via Backend',
+            'single.novel.id': 'Novel ID: {id}',
+            'single.novel.format-label': 'Novel format:',
+            'single.novel.format-txt': 'Plain text (TXT)',
+            'single.novel.format-html': 'Web page (HTML)',
+            'single.novel.format-epub': 'eBook (EPUB)',
+            'single.novel.menu.download': 'Download current novel via backend',
+            'single.alert.no-novel-id': 'Cannot detect novel ID',
+            'single.alert.novel-history-skipped': 'Novel {novelId} already exists in download history and was skipped.',
+            'single.alert.novel-start-download': 'Starting download for novel {novelId}...'
         },
         'zh-CN': {
             'switcher.label': '语言',
@@ -354,6 +490,9 @@
             'common.quota.exceeded': '已达到下载限额',
             'common.quota.summary': '配额：{used}/{max}',
             'single.title': 'Pixiv下载器 (Java后端)',
+            'single.action.collapse': '收起',
+            'single.fab.title': 'Pixiv 单作品下载器 (Java后端)',
+            'single.menu.open': '打开 Pixiv 单作品下载器面板',
             'single.status.ready': '⬇️ 可下载此作品',
             'single.button.download': '📥 通过后端下载',
             'single.option.bookmark': '下载后自动收藏',
@@ -377,7 +516,20 @@
             'single.alert.download-failed': '下载失败: {message}',
             'single.type.ugoira': '动图（将合成为WebP）',
             'single.type.images': '图片数量: {count}张',
-            'single.archive.download-limit': '已达到下载限额'
+            'single.type.novel': '小说（{format}）',
+            'single.archive.download-limit': '已达到下载限额',
+            'single.novel.title': 'Pixiv小说下载器 (Java后端)',
+            'single.novel.status.ready': '⬇️ 可下载此小说',
+            'single.novel.button.download': '📥 通过后端下载小说',
+            'single.novel.id': '小说ID: {id}',
+            'single.novel.format-label': '小说格式:',
+            'single.novel.format-txt': '纯文本（TXT）',
+            'single.novel.format-html': '网页（HTML）',
+            'single.novel.format-epub': '电子书（EPUB）',
+            'single.novel.menu.download': '通过后端下载当前小说',
+            'single.alert.no-novel-id': '无法获取小说ID',
+            'single.alert.novel-history-skipped': '小说 {novelId} 已存在于下载历史中，已跳过本次下载。',
+            'single.alert.novel-start-download': '开始下载小说 {novelId} ...'
         }
     });
 
@@ -452,6 +604,211 @@
         const url = window.location.href;
         const match = url.match(/artworks\/(\d+)/);
         return match ? match[1] : null;
+    }
+
+    // 获取小说ID（/novel/show.php?id=N）
+    function getNovelId() {
+        const m = window.location.href.match(/\/novel\/show\.php\?[^#]*\bid=(\d+)/);
+        return m ? m[1] : null;
+    }
+
+    // 当前页面目标：插画单作品或小说单作品
+    function getPageTarget() {
+        const novelId = getNovelId();
+        if (novelId) return {kind: 'novel', id: novelId};
+        const artworkId = getArtworkId();
+        if (artworkId) return {kind: 'illust', id: artworkId};
+        return null;
+    }
+
+    // 后端小说元数据
+    async function getNovelMeta(novelId) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `${serverBase}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`,
+                headers: {'X-Pixiv-Cookie': document.cookie || ''},
+                onload: function (response) {
+                    if (response.status === 401) {
+                        handleUnauthorized();
+                        reject(new Error('需要登录'));
+                        return;
+                    }
+                    try {
+                        const data = JSON.parse(response.responseText);
+                        if (response.status < 200 || response.status >= 300) {
+                            reject(new Error(data.error || ('meta HTTP ' + response.status)));
+                        } else {
+                            resolve(data);
+                        }
+                    } catch (e) {
+                        reject(e);
+                    }
+                },
+                onerror: reject
+            });
+        });
+    }
+
+    // 小说是否已下载（后端画廊存在即视为已下载）
+    async function checkNovelDownloaded(novelId) {
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `${serverBase}/api/gallery/novel/${encodeURIComponent(novelId)}`,
+                timeout: 5000,
+                onload: (res) => resolve(res.status === 200),
+                onerror: () => resolve(false),
+                ontimeout: () => resolve(false)
+            });
+        });
+    }
+
+    // 单次脚本生命周期的小说系列元数据缓存
+    const novelSeriesEnrichmentCache = new Map();
+    function fetchNovelSeriesEnrichment(seriesId) {
+        const sid = Number(seriesId);
+        if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
+        if (novelSeriesEnrichmentCache.has(sid)) return novelSeriesEnrichmentCache.get(sid);
+        const p = new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `${serverBase}/api/pixiv/novel/series/${sid}?page=1`,
+                headers: {'X-Pixiv-Cookie': document.cookie || ''},
+                onload: (res) => {
+                    try {
+                        const data = JSON.parse(res.responseText);
+                        const meta = data && data.series ? data.series : null;
+                        resolve(meta ? {
+                            caption: meta.caption || '',
+                            coverUrl: meta.coverUrl || '',
+                            tags: Array.isArray(meta.tags) ? meta.tags : []
+                        } : null);
+                    } catch (_) {
+                        resolve(null);
+                    }
+                },
+                onerror: () => resolve(null)
+            });
+        });
+        novelSeriesEnrichmentCache.set(sid, p);
+        return p;
+    }
+
+    async function downloadNovel() {
+        const novelId = getNovelId();
+        if (!novelId) {
+            alert(t('single.alert.no-novel-id', '无法获取小说ID'));
+            return;
+        }
+        const isBackendAvailable = await checkBackendStatus();
+        if (!isBackendAvailable) {
+            alert(t('single.alert.backend-not-running', null, {serverBase: serverBase}));
+            return;
+        }
+        const skipHistory = GM_getValue(KEY_SKIP_HISTORY, false);
+        if (skipHistory) {
+            const already = await checkNovelDownloaded(novelId);
+            if (already) {
+                alert(t('single.alert.novel-history-skipped', null, {novelId: novelId}));
+                return;
+            }
+        }
+        try {
+            alert(t('single.alert.novel-start-download', null, {novelId: novelId}));
+            const meta = await getNovelMeta(novelId);
+            const fmt = (GM_getValue(KEY_NOVEL_FORMAT, 'txt') || 'txt').toLowerCase();
+            const bookmark = GM_getValue(KEY_BOOKMARK_AFTER_DL, false);
+            const seriesInfo = meta.seriesId ? {
+                seriesId: meta.seriesId,
+                seriesOrder: meta.seriesOrder,
+                seriesTitle: meta.seriesTitle
+            } : null;
+            const seriesEnrich = seriesInfo
+                ? await fetchNovelSeriesEnrichment(seriesInfo.seriesId)
+                : null;
+            const cookie = document.cookie || '';
+            const body = {
+                novelId: Number(novelId),
+                title: meta.title,
+                cookie: cookie || null,
+                content: meta.content,
+                other: {
+                    authorId: meta.authorId,
+                    authorName: meta.authorName,
+                    xRestrict: meta.xRestrict,
+                    ai: meta.isAi,
+                    original: meta.isOriginal,
+                    language: meta.language,
+                    wordCount: meta.wordCount,
+                    textLength: meta.textLength,
+                    readingTimeSeconds: meta.readingTimeSeconds ?? null,
+                    pageCount: meta.pageCount,
+                    description: meta.description,
+                    tags: Array.isArray(meta.tags) ? meta.tags : [],
+                    seriesId: seriesInfo ? seriesInfo.seriesId : null,
+                    seriesOrder: seriesInfo ? seriesInfo.seriesOrder : null,
+                    seriesTitle: seriesInfo ? seriesInfo.seriesTitle : null,
+                    seriesDescription: seriesEnrich && seriesEnrich.caption ? seriesEnrich.caption : null,
+                    seriesCoverUrl: seriesEnrich && seriesEnrich.coverUrl ? seriesEnrich.coverUrl : null,
+                    seriesTags: seriesEnrich && seriesEnrich.tags && seriesEnrich.tags.length
+                        ? seriesEnrich.tags : null,
+                    bookmark: !!bookmark,
+                    collectionId: null,
+                    format: fmt,
+                    uploadTimestamp: meta.uploadTimestamp || null,
+                    coverUrl: meta.coverUrl || '',
+                    embeddedImages: meta.textEmbeddedImages || {}
+                }
+            };
+            const response = await new Promise((resolve, reject) => {
+                const headers = {'Content-Type': 'application/json'};
+                if (userUUID) headers['X-User-UUID'] = userUUID;
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: `${serverBase}/api/download/pixiv/novel`,
+                    headers,
+                    data: JSON.stringify(body),
+                    onload: (res) => {
+                        let data = {};
+                        try {
+                            data = JSON.parse(res.responseText);
+                        } catch (_) {
+                        }
+                        if (res.status === 401) {
+                            handleUnauthorized();
+                            reject(new Error('需要登录'));
+                        } else if (res.status === 429 && data.quotaExceeded) {
+                            const err = new Error('quota_exceeded');
+                            err.quotaData = data;
+                            reject(err);
+                        } else if (res.status === 200) {
+                            resolve(data);
+                        } else {
+                            reject(new Error(data.message || '下载请求失败'));
+                        }
+                    },
+                    onerror: reject
+                });
+            });
+            if (quotaInfo.enabled) {
+                quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
+            }
+            updateDownloadUI();
+            const typeHint = t('single.type.novel', '小说（{format}）', {format: fmt.toUpperCase()});
+            alert(t('single.alert.download-submitted', null, {
+                typeHint: typeHint,
+                message: response.message || ''
+            }));
+        } catch (error) {
+            if (error.message === 'quota_exceeded' && error.quotaData) {
+                console.warn('已达到下载限额');
+                showQuotaExceededUI(error.quotaData);
+            } else {
+                console.error('小说下载失败:', error);
+                alert(t('single.alert.download-failed', null, {message: error.message}));
+            }
+        }
     }
 
     // 获取图片URL
@@ -684,6 +1041,9 @@
     }
 
     async function downloadImages() {
+        if (getNovelId()) {
+            return downloadNovel();
+        }
         const artworkId = getArtworkId();
         if (!artworkId) {
             alert(t('single.alert.no-artwork-id', '无法获取作品ID'));
@@ -800,24 +1160,28 @@
     // 创建下载UI
     function createDownloadUI() {
         // 移除已存在的UI
-        const existingUI = document.getElementById('pixiv-downloader-ui');
+        const existingUI = document.getElementById('pixiv-java-downloader-ui');
         if (existingUI) {
             existingUI.remove();
         }
+        const existingFab = document.getElementById('pixiv-single-java-mini-fab');
+        if (existingFab) existingFab.remove();
 
-        const artworkId = getArtworkId();
-        if (!artworkId) return; // 如果不是作品页面，不显示UI
+        const target = getPageTarget();
+        if (!target) return; // 不是单作品/单小说页面，不显示UI
+        const isNovel = target.kind === 'novel';
+        const artworkId = target.id;
 
         const skipHistoryEnabled = GM_getValue(KEY_SKIP_HISTORY, false);
         const verifyHistoryFilesEnabled = GM_getValue(KEY_VERIFY_HISTORY_FILES, false);
 
         const container = document.createElement('div');
-        container.id = 'pixiv-downloader-ui';
+        container.id = 'pixiv-java-downloader-ui';
         container.style.cssText = `
             position: fixed;
-            top: 100px;
-            right: 20px;
-            z-index: 10000;
+            top: 260px;
+            right: 80px;
+            z-index: 9999;
             background: white;
             border: 2px solid #0096fa;
             border-radius: 8px;
@@ -838,7 +1202,9 @@
         `;
 
         const titleDiv = document.createElement('div');
-        titleDiv.textContent = t('single.title', 'Pixiv下载器 (Java后端)');
+        titleDiv.textContent = isNovel
+            ? t('single.novel.title', 'Pixiv小说下载器 (Java后端)')
+            : t('single.title', 'Pixiv下载器 (Java后端)');
         titleDiv.style.cssText = `
             font-weight: bold;
             color: #333;
@@ -846,11 +1212,19 @@
             font-size: 16px;
             flex: 1;
         `;
+        const collapseBtn = document.createElement('button');
+        collapseBtn.textContent = '◀';
+        collapseBtn.title = t('single.action.collapse', '收起');
+        collapseBtn.style.cssText = 'background:none;border:1px solid #ccc;border-radius:4px;cursor:pointer;font-size:12px;padding:2px 6px;color:#666;flex-shrink:0;';
+        collapseBtn.addEventListener('click', () => toggleSinglePanel(true));
+        titleRow.appendChild(collapseBtn);
         titleRow.appendChild(titleDiv);
         titleRow.appendChild(buildLangSwitcher());
 
         const statusDiv = document.createElement('div');
-        statusDiv.textContent = t('single.status.ready', '⬇️ 可下载此作品');
+        statusDiv.textContent = isNovel
+            ? t('single.novel.status.ready', '⬇️ 可下载此小说')
+            : t('single.status.ready', '⬇️ 可下载此作品');
         statusDiv.style.cssText = `
             font-weight: bold;
             margin-bottom: 8px;
@@ -860,7 +1234,9 @@
         `;
 
         const button = document.createElement('button');
-        button.textContent = t('single.button.download', '📥 通过后端下载');
+        button.textContent = isNovel
+            ? t('single.novel.button.download', '📥 通过后端下载小说')
+            : t('single.button.download', '📥 通过后端下载');
         button.style.cssText = `
             width: 100%;
             background: #0096fa;
@@ -936,8 +1312,32 @@
             GM_setValue(KEY_VERIFY_HISTORY_FILES, verifyHistoryFilesChk.checked);
         });
 
+        // 小说格式选择（仅小说页面显示）
+        const novelFormatRow = document.createElement('div');
+        novelFormatRow.style.cssText = `display:${isNovel ? 'flex' : 'none'};align-items:center;gap:6px;margin-bottom:6px;font-size:12px;color:#555;`;
+        const novelFormatLabel = document.createElement('label');
+        novelFormatLabel.htmlFor = 'pixiv-dl-novel-format';
+        novelFormatLabel.textContent = t('single.novel.format-label', '小说格式:');
+        const novelFormatSel = document.createElement('select');
+        novelFormatSel.id = 'pixiv-dl-novel-format';
+        novelFormatSel.style.cssText = 'flex:1;padding:3px 4px;border:1px solid #ddd;border-radius:4px;font-size:12px;';
+        [['txt', t('single.novel.format-txt', '纯文本（TXT）')],
+            ['html', t('single.novel.format-html', '网页（HTML）')],
+            ['epub', t('single.novel.format-epub', '电子书（EPUB）')]].forEach(([val, label]) => {
+            const opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = label;
+            novelFormatSel.appendChild(opt);
+        });
+        novelFormatSel.value = GM_getValue(KEY_NOVEL_FORMAT, 'txt');
+        novelFormatSel.addEventListener('change', () => GM_setValue(KEY_NOVEL_FORMAT, novelFormatSel.value));
+        novelFormatRow.appendChild(novelFormatLabel);
+        novelFormatRow.appendChild(novelFormatSel);
+
         const artworkIdDiv = document.createElement('div');
-        artworkIdDiv.textContent = t('single.artwork-id', '作品ID: {id}', { id: artworkId });
+        artworkIdDiv.textContent = isNovel
+            ? t('single.novel.id', '小说ID: {id}', { id: artworkId })
+            : t('single.artwork-id', '作品ID: {id}', { id: artworkId });
         artworkIdDiv.style.cssText = `
             font-size: 12px;
             color: #666;
@@ -978,13 +1378,31 @@
         container.appendChild(button);
         container.appendChild(bookmarkRow);
         container.appendChild(skipHistoryRow);
-        container.appendChild(verifyHistoryFilesRow);
+        if (isNovel) {
+            container.appendChild(novelFormatRow);
+        } else {
+            container.appendChild(verifyHistoryFilesRow);
+        }
         container.appendChild(artworkIdDiv);
         container.appendChild(backendStatusDiv);
         container.appendChild(infoDiv);
         container.appendChild(quotaBarDiv);
         container.appendChild(archiveCardDiv);
         document.body.appendChild(container);
+
+        // Mini FAB（收起态显示，固定在视口右侧，堆叠在工具箱 FAB 下方）
+        const miniFab = document.createElement('button');
+        miniFab.id = 'pixiv-single-java-mini-fab';
+        miniFab.textContent = '☁️';
+        miniFab.title = isNovel
+            ? t('single.novel.title', 'Pixiv小说下载器 (Java后端)')
+            : t('single.fab.title', 'Pixiv 单作品下载器 (Java后端)');
+        miniFab.style.cssText = 'display:none;position:fixed;top:260px;right:20px;z-index:10001;background:#0096fa;color:white;border:none;border-radius:50%;width:40px;height:40px;cursor:pointer;font-size:18px;box-shadow:0 2px 8px rgba(0,0,0,0.3);line-height:40px;text-align:center;padding:0;';
+        miniFab.addEventListener('click', () => toggleSinglePanel(true));
+        document.body.appendChild(miniFab);
+
+        // 重建面板时沿用当前折叠状态（初始值来自共享存储，跨脚本变更经 onChange 同步）
+        applySinglePanelCollapsed();
 
         // 渲染配额栏
         if (quotaInfo.enabled) renderSingleQuotaBar();
@@ -1121,6 +1539,34 @@
         createDownloadUI();
     }
 
+    // 面板收起/展开：收起态显示 Mini FAB，展开态显示面板
+    function applySinglePanelCollapsed() {
+        const container = document.getElementById('pixiv-java-downloader-ui');
+        const fab = document.getElementById('pixiv-single-java-mini-fab');
+        if (panelCollapsed) {
+            if (container) container.style.display = 'none';
+            if (fab) fab.style.display = 'block';
+        } else {
+            if (container) container.style.display = 'block';
+            if (fab) fab.style.display = 'none';
+        }
+    }
+
+    function setSinglePanelCollapsed(collapsed, manual) {
+        panelCollapsed = !!collapsed;
+        applySinglePanelCollapsed();
+        if (!panelCollapsed) {
+            // 展开时与其它面板互斥：通知同侧面板收起
+            document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'single-java' }));
+        }
+        // 仅用户手动收/展写入共享状态；自动收起不持久化
+        if (manual) savePanelCollapsed(panelCollapsed);
+    }
+
+    function toggleSinglePanel(manual) {
+        setSinglePanelCollapsed(!panelCollapsed, manual);
+    }
+
     // 初始化下载UI
     async function initDownloadUI() {
         try {
@@ -1161,6 +1607,26 @@
         updateDownloadUI();
     });
     PixivUserscriptI18n.enrichFromBackend(serverBase);
+
+    // 跨脚本共享折叠状态：仅“收起”跨脚本传播（收一个=全收），“展开”不在此级联
+    PixivPanelState.onChange(c => {
+        if (c && !panelCollapsed) {
+            panelCollapsed = true;
+            applySinglePanelCollapsed();
+        }
+    });
+
+    // 跨脚本面板互斥：其它面板展开时收起本面板，避免同侧堆叠遮挡
+    document.addEventListener('pixiv_panel_active', e => {
+        if (e.detail && e.detail !== 'single-java' && !panelCollapsed) {
+            panelCollapsed = true;
+            applySinglePanelCollapsed();
+        }
+    });
+
+    GM_registerMenuCommand(t('single.menu.open', '打开 Pixiv 单作品下载器面板'), () => {
+        setSinglePanelCollapsed(false, true);
+    });
 
     // 添加快捷键支持 (Ctrl+Shift+J)
     document.addEventListener('keydown', function (e) {
