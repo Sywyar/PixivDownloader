@@ -154,13 +154,13 @@ public class ScriptController {
     }
 
     /**
-     * 将脚本中的 {@code @updateURL} 替换为后端安装地址，并在需要时替换 {@code YOUR_SERVER_HOST}。
+     * 将脚本中的 {@code @updateURL} / {@code @downloadURL} 替换为后端安装地址，并在需要时替换 {@code YOUR_SERVER_HOST}。
      * 若请求来自 localhost / 127.0.0.1，保留占位符（用户自行在 Tampermonkey 中修改）。
      * 替换后在 {@code @version} 行追加 {@code +host-<host>} 子版本号。
      */
     private String applyInstallReplacements(String content, String host, String installUrl) {
         String replaced = content.replaceAll(
-                "(//\\s*@updateURL\\s+)\\S+",
+                "(//\\s*@(?:update|download)URL\\s+)\\S+",
                 "$1" + Matcher.quoteReplacement(installUrl)
         );
         if ("localhost".equals(host) || "127.0.0.1".equals(host)) {

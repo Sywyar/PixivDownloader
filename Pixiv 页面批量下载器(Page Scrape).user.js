@@ -3,6 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.1.0
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E9%A1%B5%E9%9D%A2%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E5%99%A8(Page%20Scrape).user.js
+// @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E9%A1%B5%E9%9D%A2%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E5%99%A8(Page%20Scrape).user.js
 // @description  抓取当前 Pixiv 页面（搜索页、关注动态、排行榜、主页等）上的所有作品
 // @author       Sywyar
 // @match        https://www.pixiv.net/*

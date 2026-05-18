@@ -182,6 +182,7 @@ if (-not $grantValues.Contains("GM_registerMenuCommand")) {
 $runAt = "document-end"
 $metadataLines = [System.Collections.Generic.List[string]]::new()
 $bundleUpdateUrl = "// @updateURL    https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js"
+$bundleDownloadUrl = "// @downloadURL  https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js"
 $bundleDescriptionZh = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("Ly8gQGRlc2NyaXB0aW9uICBQaXhpdiDlpJrlkIjkuIDohJrmnKzvvIzmlbTlkIjpobXpnaLmibnph4/kuIvovb3jgIFVc2VyIOaJuemHj+S4i+i9veOAgeaJuemHj+WvvOWFpeWNleS9nOWTgeOAgeWNleS9nOWTgeS4i+i9ve+8iEphdmHlkI7nq6/niYjvvInkuI7kvZPpqozlop7lvLrlt6XlhbfnrrHjgILlpoLlpJrlkIjkuIDohJrmnKzlvILluLjvvIzor7flhYjlsJ3or5Xlr7nlupTni6znq4vohJrmnKzvvIzlho3lsIbkuKTnp43ohJrmnKznmoTooajnjrDkuIDlubbpmYTkuIrlkI7mj5DkuqQgaXNzdWXjgII="))
 $bundleDescriptionEn = "// @description:en  Pixiv all-in-one toolkit bundling page batch, user batch, bulk import single works, single-artwork download (Java backend), and the experience-enhancement toolbox. If the bundle misbehaves, try the matching standalone script first; if only the bundle fails, open an issue with reproduction details."
 
@@ -190,6 +191,7 @@ $null = $metadataLines.Add("// @name         Pixiv All-in-One Downloader")
 $null = $metadataLines.Add("// @namespace    http://tampermonkey.net/")
 $null = $metadataLines.Add("// @version      $Version")
 $null = $metadataLines.Add($bundleUpdateUrl)
+$null = $metadataLines.Add($bundleDownloadUrl)
 $null = $metadataLines.Add($bundleDescriptionZh)
 $null = $metadataLines.Add($bundleDescriptionEn)
 $null = $metadataLines.Add("// @author       Sywyar")

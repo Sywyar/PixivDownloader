@@ -3,6 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      2.1.0
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20URL%20%E6%89%B9%E9%87%8F%E5%AF%BC%E5%85%A5%E5%8D%95%E4%BD%9C%E5%93%81%E4%B8%8B%E8%BD%BD%E5%99%A8(URL%20Batch).user.js
+// @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20URL%20%E6%89%B9%E9%87%8F%E5%AF%BC%E5%85%A5%E5%8D%95%E4%BD%9C%E5%93%81%E4%B8%8B%E8%BD%BD%E5%99%A8(URL%20Batch).user.js
 // @description  粘贴单作品链接列表批量下载，格式为 url | title，兼容 One-Tab，N-Tab 等标签页管理插件导出格式，支持严格的下载状态校验。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*

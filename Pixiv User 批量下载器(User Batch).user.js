@@ -3,6 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      2.1.0
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20User%20%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E5%99%A8(User%20Batch).user.js
+// @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20User%20%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E5%99%A8(User%20Batch).user.js
 // @description  适配 Pixiv 用户页面，自动获取所有作品 ID，对接本地 Java 后端。
 // @author       Rewritten by ChatGPT,Claude,Sywyar
 // @match        https://www.pixiv.net/*

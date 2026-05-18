@@ -4,6 +4,7 @@
 // @namespace         http://tampermonkey.net/
 // @version           1.4.0
 // @updateURL         https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Local%20Download).user.js
+// @downloadURL       https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Local%20Download).user.js
 // @description       下载 Pixiv 单个作品的所有图片，并记录已下载的作品（本地存储，不通过后端数据库）
 // @description:en    Download all images of a single Pixiv artwork and remember which works have been downloaded (local storage, no backend database)
 // @author            Rewritten by ChatGPT,Claude,Sywyar
