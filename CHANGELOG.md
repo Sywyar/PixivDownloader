@@ -55,6 +55,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 修复 Windows 安装完成后以管理员上下文启动应用的问题，安装后会按当前用户启动。
 - 修复 GUI 开机自启动在安装路径或 Startup 路径包含空格时创建快捷方式失败的问题，并修复 PowerShell 错误输出在中文系统中乱码的问题。
 - 修复打包后的预发布版本号丢失 `-rc` 等后缀的问题。
+- 修复 Windows 安装包升级安装后，安装目录的 `app` 文件夹下会残留旧版本 JAR 文件、长期占用磁盘空间的问题；现在升级时会先清理旧的程序文件再写入新版本（用户数据与配置不受影响）。
 
 ## [v1.8.2] - 2026-05-15
 

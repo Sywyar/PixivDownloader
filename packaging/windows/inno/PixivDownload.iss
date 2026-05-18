@@ -116,6 +116,12 @@ zhcn.AppRunningAbort=PixivDownload 正在运行，安装无法继续，已取消
 [Tasks]
 Name: "downloadffmpeg"; Description: "{cm:TaskDownloadFfmpeg}"; GroupDescription: "{cm:OptionalTasksGroup}"; Flags: unchecked; Check: ShouldShowFfmpegTask
 
+[InstallDelete]
+; jpackage 把版本号写进主 jar 文件名（PixivDownload-<version>.jar），升级时新旧 jar 会同时
+; 残留在 {app}\app 下。安装文件复制前先清空该目录，避免旧版本 jar 堆积。
+; 用户数据（config.yaml、pixiv-download\ 等）位于 {app} 根目录而非 {app}\app，不受影响。
+Type: filesandordirs; Name: "{app}\app"; Check: ShouldInstallApplicationFiles
+
 [Files]
 Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallApplicationFiles
 
