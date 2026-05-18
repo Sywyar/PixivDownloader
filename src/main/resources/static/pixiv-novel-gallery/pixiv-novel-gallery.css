@@ -569,6 +569,7 @@
         html[data-theme="dark"] .badge.original { background: #133b22; color: #4cd47c; }
 
         .empty { text-align: center; color: var(--muted); padding: 60px 0; font-size: 14px; }
+        .empty-cta { display: flex; flex-direction: column; align-items: center; gap: 16px; }
 
         .pagination {
             margin: 24px 0 8px;

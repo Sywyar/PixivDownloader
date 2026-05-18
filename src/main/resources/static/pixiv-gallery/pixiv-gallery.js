@@ -2058,33 +2058,53 @@
         if (state.authorFilters.or.size) params.set('orAuthorIds', [...state.authorFilters.or].join(','));
         if (state.seriesFilter.id) params.set('seriesId', String(state.seriesFilter.id));
 
-        document.getElementById('galleryStatus').textContent = t('status.loading', 'Loading...');
+        document.getElementById('galleryStatus').textContent = t('status.loading', '加载中...');
         try {
             const result = await api('/api/gallery/artworks?' + params.toString());
-            state.totalPages = result.totalPages;
-            state.totalElements = result.totalElements;
-            renderGallery(result.content || []);
-            renderPagination();
-            setSearchEmptyState(state.totalElements === 0);
+            state.totalPages = result.totalPages || 0;
+            state.totalElements = result.totalElements || 0;
+            // 先更新计数文案，确保即使列表为空也不会停留在「加载中…」
             const from = state.totalElements === 0 ? 0 : state.page * state.size + 1;
             const to = Math.min(state.totalElements, (state.page + 1) * state.size);
-            document.getElementById('galleryStatus').textContent = t('status.gallery-range', '{total} total, {from}-{to} shown', {
+            document.getElementById('galleryStatus').textContent = t('status.gallery-range', '共 {total} 条，第 {from}-{to} 条', {
                 total: state.totalElements,
                 from,
                 to
             });
+            renderGallery(result.content || []);
+            renderPagination();
+            // 仅在存在有效搜索/筛选条件时才把搜索框与筛选按钮标红
+            setSearchEmptyState(state.totalElements === 0 && hasActiveGalleryFilters());
         } catch (e) {
-            document.getElementById('galleryStatus').textContent = t('status.load-failed', 'Load failed: {message}', {message: e.message});
+            document.getElementById('galleryStatus').textContent = t('status.load-failed', '加载失败：{message}', {message: e.message});
             document.getElementById('galleryGrid').innerHTML = '';
             document.getElementById('pagination').innerHTML = '';
             setSearchEmptyState(false);
         }
     }
 
+    function hasActiveGalleryFilters() {
+        return !!(state.search
+            || state.r18 !== 'any'
+            || state.ai !== 'any'
+            || state.formats.size
+            || state.collectionIds.size
+            || state.tagFilters.must.size || state.tagFilters.not.size || state.tagFilters.or.size
+            || state.authorFilters.must.size || state.authorFilters.not.size || state.authorFilters.or.size
+            || state.seriesFilter.id);
+    }
+
     function renderGallery(items) {
         const grid = document.getElementById('galleryGrid');
         if (!items.length) {
-            grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">' + escapeHtml(t('status.no-matching-artworks', 'No matching artworks')) + '</div>';
+            if (hasActiveGalleryFilters()) {
+                grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">' + escapeHtml(t('status.no-matching-artworks', 'No matching artworks')) + '</div>';
+            } else {
+                grid.innerHTML = '<div class="empty-state empty-state-cta" style="grid-column:1/-1">'
+                    + '<div>' + escapeHtml(t('status.no-downloads', '没有下载的作品，快去下载页下载吧！')) + '</div>'
+                    + '<a class="btn btn-primary" href="/pixiv-batch.html" target="_blank" rel="noopener">' + escapeHtml(t('status.go-download', '前往下载页')) + '</a>'
+                    + '</div>';
+            }
             return;
         }
         grid.innerHTML = items.map(item => {

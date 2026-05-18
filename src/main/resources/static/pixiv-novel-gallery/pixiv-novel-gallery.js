@@ -1375,7 +1375,8 @@ async function reloadNovels() {
         const data = await r.json();
         renderGrid(data.content || []);
         renderPagination('pagination', data.totalPages || 0, data.page || 0, p => { state.page = p; reloadNovels(); });
-        setSearchEmptyState((data.content || []).length === 0);
+        // 仅在存在有效搜索/筛选条件时才把搜索框与筛选按钮标红
+        setSearchEmptyState((data.content || []).length === 0 && hasActiveNovelFilters());
     } catch (e) {
         document.getElementById('grid').innerHTML = `<div class="empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
         document.getElementById('pagination').innerHTML = '';
@@ -1402,10 +1403,28 @@ function formatReadingTime(seconds) {
     return text ? pageI18n.t('novel:meta.reading-time', '预计阅读：{time}', { time: text }) : '';
 }
 
+function hasActiveNovelFilters() {
+    return !!(state.search
+        || state.r18 !== 'any'
+        || state.ai !== 'any'
+        || state.selectedCollections.size
+        || state.selectedTags.size
+        || state.selectedSeries.size
+        || state.selectedAuthors.size
+        || state.exclusiveAuthorId != null);
+}
+
 function renderGrid(items) {
     const grid = document.getElementById('grid');
     if (!items.length) {
-        grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.empty', '暂无小说'))}</div>`;
+        if (hasActiveNovelFilters()) {
+            grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel:status.empty', '暂无小说'))}</div>`;
+        } else {
+            grid.innerHTML = `<div class="empty empty-cta" style="grid-column:1/-1;">`
+                + `<div>${esc(pageI18n.t('novel:status.no-downloads', '没有下载的作品，快去下载页下载吧！'))}</div>`
+                + `<a class="btn btn-primary" href="/pixiv-batch.html" target="_blank" rel="noopener">${esc(pageI18n.t('novel:status.go-download', '前往下载页'))}</a>`
+                + `</div>`;
+        }
         return;
     }
     const heartTitle = esc(pageI18n.t('collection.add', '添加到收藏夹'));

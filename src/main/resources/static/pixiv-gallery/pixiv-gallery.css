@@ -1038,6 +1038,13 @@
             font-size: 14px;
         }
 
+        .empty-state-cta {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+
         .work-card {
             display: block;
             cursor: pointer;
