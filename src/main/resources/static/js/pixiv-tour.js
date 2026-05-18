@@ -45,12 +45,19 @@
         this.i18n = options.i18n || null;
         this.steps = Array.isArray(options.steps) ? options.steps : [];
         this.onComplete = typeof options.onComplete === 'function' ? options.onComplete : null;
+        // onFinish 仅在用户按「完成」（最后一步的下一步）时触发，跳过 / Esc 不触发；
+        // 与 onComplete（任意 persist 关闭都触发）区分，向后兼容既有调用方。
+        this.onFinish = typeof options.onFinish === 'function' ? options.onFinish : null;
+        this.noHelpFab = options.noHelpFab === true;
         this.index = 0;
         this.active = false;
         this.root = null;
         this.spot = null;
         this.pop = null;
         this.helpFab = null;
+        this._shownIndex = -1;
+        this._gateTimer = null;
+        this._interactiveEl = null;
         this._onResize = this._reposition.bind(this);
         this._onKey = this._handleKey.bind(this);
     }
@@ -129,6 +136,7 @@
             '<span class="pt-progress"></span>' +
             '<button type="button" class="pt-btn pt-btn-skip"></button>' +
             '<button type="button" class="pt-btn pt-btn-prev"></button>' +
+            '<button type="button" class="pt-btn pt-btn-action" style="display:none"></button>' +
             '<button type="button" class="pt-btn pt-btn-primary pt-btn-next"></button>' +
             '</div>';
 
@@ -139,13 +147,23 @@
 
         var self = this;
         pop.querySelector('.pt-btn-skip').addEventListener('click', function () {
-            self.end(true);
+            self.end(true, 'skip');
         });
         pop.querySelector('.pt-btn-prev').addEventListener('click', function () {
             self.prev();
         });
         pop.querySelector('.pt-btn-next').addEventListener('click', function () {
             self.next();
+        });
+        pop.querySelector('.pt-btn-action').addEventListener('click', function () {
+            var step = self.steps[self.index];
+            if (step && typeof step.onAction === 'function') {
+                try {
+                    step.onAction(self);
+                } catch (e) {
+                    /* 自定义动作失败不应中断指引 */
+                }
+            }
         });
 
         this.root = root;
@@ -176,10 +194,33 @@
         this._render();
     };
 
+    // 当前步骤是否允许前进：声明了 step.gate 时由其返回值决定（未满足则禁止下一步）。
+    PixivTourController.prototype._gateOk = function () {
+        var step = this.steps[this.index];
+        if (step && typeof step.gate === 'function') {
+            try {
+                return !!step.gate(this);
+            } catch (e) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // 重新渲染当前步骤（异步内容/门槛状态变化后由外部调用）。
+    PixivTourController.prototype.refresh = function () {
+        if (this.active) {
+            this._render();
+        }
+    };
+
     PixivTourController.prototype.next = function () {
+        if (!this._gateOk()) {
+            return;
+        }
         var n = this._nextResolvable(this.index + 1, 1);
         if (n < 0) {
-            this.end(true);
+            this.end(true, 'finish');
             return;
         }
         this.index = n;
@@ -195,11 +236,17 @@
         this._render();
     };
 
-    PixivTourController.prototype.end = function (persist) {
+    PixivTourController.prototype.end = function (persist, reason) {
         if (!this.active) {
             return;
         }
         this.active = false;
+        if (this._gateTimer) {
+            global.clearInterval(this._gateTimer);
+            this._gateTimer = null;
+        }
+        this._clearInteractive();
+        this._shownIndex = -1;
         global.removeEventListener('resize', this._onResize, true);
         global.removeEventListener('scroll', this._onResize, true);
         document.removeEventListener('keydown', this._onKey, true);
@@ -216,6 +263,13 @@
                     /* 完成回调失败不应影响指引关闭 */
                 }
             }
+            if (reason === 'finish' && this.onFinish) {
+                try {
+                    this.onFinish();
+                } catch (e) {
+                    /* 完成回调失败不应影响指引关闭 */
+                }
+            }
         }
         if (this.helpFab) {
             this.helpFab.hidden = false;
@@ -224,7 +278,7 @@
 
     PixivTourController.prototype._handleKey = function (e) {
         if (e.key === 'Escape') {
-            this.end(true);
+            this.end(true, 'skip');
         } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
             this.next();
         } else if (e.key === 'ArrowLeft') {
@@ -237,6 +291,17 @@
             return;
         }
         var step = this.steps[this.index];
+        // 进入某步骤时执行一次 onShow（refresh() 重渲染同一步不重复触发）
+        if (this._shownIndex !== this.index) {
+            this._shownIndex = this.index;
+            if (typeof step.onShow === 'function') {
+                try {
+                    step.onShow(this);
+                } catch (e) {
+                    /* onShow 失败不应中断指引 */
+                }
+            }
+        }
         var resolved = this._resolveStep(step);
         if (resolved.el && resolved.el.scrollIntoView) {
             resolved.el.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'smooth'});
@@ -257,11 +322,45 @@
         var prevBtn = this.pop.querySelector('.pt-btn-prev');
         prevBtn.textContent = this.t('tour:common.prev', '上一步');
         prevBtn.style.display = isFirst ? 'none' : '';
-        this.pop.querySelector('.pt-btn-next').textContent = isLast
+        var nextBtn = this.pop.querySelector('.pt-btn-next');
+        nextBtn.textContent = isLast
             ? this.t('tour:common.done', '完成')
             : this.t('tour:common.next', '下一步');
 
+        // 步骤自定义动作按钮（如「我已安装 All-in-One」直接进入下一步骤）
+        var actionBtn = this.pop.querySelector('.pt-btn-action');
+        if (step && step.actionKey) {
+            actionBtn.textContent = this.t(step.actionKey, step.actionFallback || '');
+            actionBtn.style.display = '';
+        } else {
+            actionBtn.style.display = 'none';
+        }
+
         var self = this;
+
+        // 门槛 / 可交互目标轮询：声明 step.gate 时未满足前禁用「下一步/完成」；
+        // 声明 step.interactiveSelector 时持续重定位，让聚光与点击洞口跟随异步
+        // 渲染出的目标（如脚本列表加载后才出现的安装按钮）及布局变化。
+        if (this._gateTimer) {
+            global.clearInterval(this._gateTimer);
+            this._gateTimer = null;
+        }
+        var hasGate = typeof step.gate === 'function';
+        nextBtn.disabled = hasGate ? !self._gateOk() : false;
+        if (hasGate || step.interactiveSelector) {
+            var tick = function () {
+                if (!self.active || self.steps[self.index] !== step) {
+                    return;
+                }
+                if (hasGate) {
+                    nextBtn.disabled = !self._gateOk();
+                }
+                if (step.interactiveSelector) {
+                    self._reposition();
+                }
+            };
+            this._gateTimer = global.setInterval(tick, 400);
+        }
         // 等待 scrollIntoView 平滑滚动后再定位高亮框与气泡
         global.requestAnimationFrame(function () {
             global.setTimeout(function () {
@@ -271,12 +370,33 @@
         });
     };
 
+    // 取消上一个被「抬升到遮罩之上」的可交互元素
+    PixivTourController.prototype._clearInteractive = function () {
+        if (this._interactiveEl) {
+            this._interactiveEl.classList.remove('pt-interactive');
+            this._interactiveEl = null;
+        }
+    };
+
     PixivTourController.prototype._reposition = function () {
         if (!this.active || !this.spot) {
             return;
         }
         var step = this.steps[this.index];
-        var el = step && step.target ? document.querySelector(step.target) : null;
+        // step.interactiveSelector：把该元素抬到遮罩之上，使其成为引导期间页面上
+        // 唯一可点击的内容（其余被 backdrop 拦截）；聚光也跟随它。元素可能因列表
+        // 异步渲染而稍后才出现，故每次 reposition 都重新解析。
+        var inter = step && step.interactiveSelector
+            ? document.querySelector(step.interactiveSelector) : null;
+        if (inter !== this._interactiveEl) {
+            this._clearInteractive();
+            if (inter) {
+                inter.classList.add('pt-interactive');
+                this._interactiveEl = inter;
+            }
+        }
+        var el = inter
+            || (step && step.target ? document.querySelector(step.target) : null);
         var vw = document.documentElement.clientWidth;
         var vh = document.documentElement.clientHeight;
         var rect;
@@ -335,9 +455,17 @@
                 if (typeof options.onComplete === 'function') {
                     ctrl.onComplete = options.onComplete;
                 }
+                if (typeof options.onFinish === 'function') {
+                    ctrl.onFinish = options.onFinish;
+                }
+                if (options.noHelpFab === true) {
+                    ctrl.noHelpFab = true;
+                }
             }
-            ctrl.ensureHelpFab();
-            ctrl.refreshHelpFabLabel();
+            if (!ctrl.noHelpFab) {
+                ctrl.ensureHelpFab();
+                ctrl.refreshHelpFabLabel();
+            }
             if (options.auto) {
                 ctrl.start(false);
             }

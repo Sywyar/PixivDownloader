@@ -126,6 +126,22 @@ html[data-theme="dark"] {
     padding: 6px 6px;
 }
 
+.pt-btn:disabled,
+.pt-btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+    filter: none;
+}
+
+/* 引导期间唯一可点击的页面元素：抬到遮罩之上（z 须高于 .pt-root），
+   其余内容仍被透明 backdrop 拦截。position:relative 仅用于让 z-index 生效，
+   不改变布局。 */
+.pt-interactive {
+    position: relative !important;
+    z-index: 2147483500 !important;
+    pointer-events: auto !important;
+}
+
 /* 重新查看引导的浮动按钮 */
 .pt-help-fab {
     position: fixed;

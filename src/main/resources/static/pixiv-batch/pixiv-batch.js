@@ -2412,10 +2412,23 @@
         card.style.display = visible ? '' : 'none';
     }
 
+    const STATUS_COLORS = {info: '#007bff', success: '#28a745', error: '#dc3545', warning: '#e6a700'};
+
     function setStatus(msg, type = 'info') {
         const el = document.getElementById('status-bar');
         el.textContent = msg;
-        el.style.color = {info: '#007bff', success: '#28a745', error: '#dc3545', warning: '#e6a700'}[type] || '#666';
+        el.style.color = STATUS_COLORS[type] || '#666';
+    }
+
+    // Cookie 相关提示显示在 Cookie 区域，而非下载队列状态栏
+    function setCookieStatus(msg, type = 'info') {
+        const el = document.getElementById('cookie-status');
+        if (!el) {
+            setStatus(msg, type);
+            return;
+        }
+        el.textContent = msg;
+        el.style.color = STATUS_COLORS[type] || '#666';
     }
 
     function updateStats() {
@@ -4337,12 +4350,12 @@
             const raw = document.getElementById('cookie-input').value.trim();
             const result = validateAndParseCookie(raw, getCookieFmt());
             if (!result.ok) {
-                setStatus(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {message: result.error}), 'error');
+                setCookieStatus(bt('status.cookie-save-failed', 'Cookie 保存失败：{message}', {message: result.error}), 'error');
                 return;
             }
             storeSet('pixiv_cookie', raw);
             if (result.warnings.length) {
-                setStatus(
+                setCookieStatus(
                     bt('status.cookie-saved-warning', 'Cookie 已保存（{count} 个字段）⚠ {warnings}', {
                         count: result.count,
                         warnings: result.warnings.join(uiLang() === 'en-US' ? '; ' : '；')
@@ -4350,7 +4363,7 @@
                     'warning'
                 );
             } else {
-                setStatus(bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}), 'success');
+                setCookieStatus(bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}), 'success');
             }
         });
 
@@ -4368,8 +4381,22 @@
             if (!uiConfirmKey('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
             storeRemove('pixiv_cookie');
             document.getElementById('cookie-input').value = '';
-            setStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'success');
+            setCookieStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'success');
         });
+
+        // 一键导入 Cookie：仅 solo 模式可用（依赖服务器端 /api/batch/state 中转）
+        const cookieImportBtn = document.getElementById('cookie-import');
+        const cookieImportHint = document.getElementById('cookie-import-hint');
+        if (cookieImportBtn) {
+            if (appMode === 'solo') {
+                cookieImportBtn.hidden = false;
+                cookieImportBtn.addEventListener('click', importCookieViaScript);
+                if (cookieImportHint) cookieImportHint.hidden = false;
+            } else {
+                cookieImportBtn.hidden = true;
+                if (cookieImportHint) cookieImportHint.hidden = true;
+            }
+        }
 
         // Settings change → auto-save
         ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-R18', 's-bookmark', 's-collection', 's-file-name-template', 's-novel-format', 's-novel-merge', 's-novel-merge-format'].forEach(id => {
@@ -4501,7 +4528,7 @@
                     '</div>' +
                     '<div class="userscript-card-desc">' + escHtml(s.description) + '</div>' +
                     '<div class="userscript-card-actions">' +
-                        '<button class="btn btn-green userscript-card-btn" onclick="installScript(\'' + escHtml(s.id) + '\')">' +
+                        '<button class="btn btn-green userscript-card-btn" data-install-id="' + escHtml(s.id) + '" onclick="installScript(\'' + escHtml(s.id) + '\')">' +
                             escHtml(bt('userscripts.install', '⬇ 安装')) +
                         '</button>' +
                         '<a class="btn btn-blue userscript-card-btn userscript-card-source" ' +
@@ -4516,9 +4543,202 @@
         }
     }
 
+    /* ------------------------------------------------------------------
+       脚本安装追踪（按浏览器记录，localStorage）
+       仅记录「用户点过哪个脚本的安装按钮」，无法真正探测 Tampermonkey 是否
+       装好；用于「一键导入 Cookie」判断是否需要先引导安装体验增强工具箱。
+       All-in-One 合并包内含除「Local Download」外的全部脚本，安装它视为
+       这些脚本（含体验增强工具箱）均已安装。
+    ------------------------------------------------------------------ */
+    const SCRIPT_ID_TOOLBOX = 'experience-toolbox';
+    const SCRIPT_ID_ALL_IN_ONE = 'all-in-one';
+    const SCRIPT_ID_LOCAL_DOWNLOAD = 'artwork-local';
+    // All-in-One 覆盖的脚本 id（除 Local Download 外的全部）
+    const ALL_IN_ONE_SCRIPT_IDS = [
+        'experience-toolbox', 'artwork-java', 'user-batch', 'page-batch', 'import-batch'
+    ];
+    const INSTALLED_SCRIPTS_KEY = 'pixiv_userscript_installed';
+
+    function getInstalledScripts() {
+        try {
+            return JSON.parse(localStorage.getItem(INSTALLED_SCRIPTS_KEY) || '{}') || {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function markScriptInstalled(id) {
+        const map = getInstalledScripts();
+        map[id] = true;
+        if (id === SCRIPT_ID_ALL_IN_ONE) {
+            ALL_IN_ONE_SCRIPT_IDS.forEach(sid => {
+                map[sid] = true;
+            });
+        }
+        try {
+            localStorage.setItem(INSTALLED_SCRIPTS_KEY, JSON.stringify(map));
+        } catch (e) {
+            /* 隐私模式等场景静默降级 */
+        }
+    }
+
+    function isToolboxInstalled() {
+        const map = getInstalledScripts();
+        return map[SCRIPT_ID_TOOLBOX] === true || map[SCRIPT_ID_ALL_IN_ONE] === true;
+    }
+
     function installScript(id) {
+        // 记录该脚本安装按钮已被点击（All-in-One 连带标记其覆盖的脚本）
+        markScriptInstalled(id);
         // URL 必须以 .user.js 结尾，Tampermonkey 才会拦截并弹出安装确认页
         window.location.href = '/api/scripts/' + encodeURIComponent(id) + '.user.js';
+    }
+
+    /* ------------------------------------------------------------------
+       一键导入 Cookie：让 pixiv.net 上的体验增强工具箱自动取 Cookie 回传
+    ------------------------------------------------------------------ */
+    const COOKIE_SYNC_SIGNAL = '__pixiv_cookie_sync__';
+
+    function ensureUserscriptsExpanded() {
+        const panel = document.getElementById('userscripts-panel');
+        if (panel && panel.hidden) {
+            toggleUserscripts();
+        } else if (!_userscriptsLoaded) {
+            _userscriptsLoaded = true;
+            loadUserscripts();
+        }
+        const card = document.getElementById('userscripts-card');
+        if (card && card.scrollIntoView) {
+            card.scrollIntoView({block: 'center', behavior: 'smooth'});
+        }
+    }
+
+    async function fetchServerPixivCookie() {
+        try {
+            const res = await fetch(BASE + '/api/batch/state', {credentials: 'same-origin'});
+            if (!res.ok) return null;
+            const data = await res.json();
+            const st = data.state || {};
+            return {
+                cookie: st.pixiv_cookie != null ? String(st.pixiv_cookie) : '',
+                fmt: st.pixiv_cookie_fmt || 'header',
+                syncAt: st.pixiv_cookie_sync_at != null ? String(st.pixiv_cookie_sync_at) : ''
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function applyImportedCookie(snapshot) {
+        serverState['pixiv_cookie'] = snapshot.cookie;
+        serverState['pixiv_cookie_fmt'] = snapshot.fmt;
+        if (snapshot.syncAt) serverState['pixiv_cookie_sync_at'] = snapshot.syncAt;
+        setCookieFmt(snapshot.fmt);
+        const input = document.getElementById('cookie-input');
+        if (input) input.value = snapshot.cookie;
+        const hasPhp = /(?:^|;\s*)PHPSESSID=/.test(snapshot.cookie);
+        if (hasPhp) {
+            setCookieStatus(bt('status.cookie-imported', '已从 Pixiv 自动导入并保存 Cookie'), 'success');
+        } else {
+            setCookieStatus(bt('status.cookie-imported-no-phpsessid',
+                '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'), 'warning');
+        }
+    }
+
+    function runScriptCookieImport() {
+        if (appMode !== 'solo') {
+            setCookieStatus(bt('status.cookie-import-solo-only', '一键导入仅在 solo 模式可用'), 'error');
+            return;
+        }
+        // window.open 必须在用户手势内同步调用，await 会让弹窗被拦截，故先开窗。
+        // 同步基线取内存中的 serverState（不可 await），靠同步时间戳判定本次同步是否发生，
+        // 即便 Cookie 内容与已存的相同也能识别成功。
+        const baselineSyncAt = serverState['pixiv_cookie_sync_at'] != null
+            ? String(serverState['pixiv_cookie_sync_at']) : '';
+        const win = window.open(
+            'https://www.pixiv.net/#' + COOKIE_SYNC_SIGNAL,
+            'pixivCookieSync',
+            'width=560,height=420'
+        );
+        if (!win) {
+            setCookieStatus(bt('status.cookie-import-popup-blocked',
+                '弹窗被拦截，请允许本站弹窗后重试'), 'error');
+            return;
+        }
+        setCookieStatus(bt('status.cookie-import-opening', '正在打开 Pixiv 自动获取 Cookie...'), 'info');
+        const deadline = Date.now() + 25000;
+        const poll = () => {
+            setTimeout(async () => {
+                const cur = await fetchServerPixivCookie();
+                if (cur && cur.syncAt && cur.syncAt !== baselineSyncAt) {
+                    try { win.close(); } catch (e) {}
+                    applyImportedCookie(cur);
+                    return;
+                }
+                if (Date.now() > deadline) {
+                    setCookieStatus(bt('status.cookie-import-timeout',
+                        '未能自动获取 Cookie，请确认已安装并启用「体验增强工具箱」且已登录 Pixiv，或手动粘贴'),
+                        'error');
+                    return;
+                }
+                poll();
+            }, 1500);
+        };
+        poll();
+    }
+
+    function importCookieViaScript() {
+        if (appMode !== 'solo') {
+            setCookieStatus(bt('status.cookie-import-solo-only', '一键导入仅在 solo 模式可用'), 'error');
+            return;
+        }
+        if (isToolboxInstalled()) {
+            runScriptCookieImport();
+            return;
+        }
+        // 未安装工具箱：复用引导遮罩，门槛步骤须先点安装按钮才能进入下一步
+        if (typeof PixivTour === 'undefined') {
+            setCookieStatus(bt('status.cookie-import-need-toolbox',
+                '请先在「油猴脚本」面板安装「体验增强工具箱」'), 'error');
+            ensureUserscriptsExpanded();
+            return;
+        }
+        const ctrl = PixivTour.init({
+            pageKey: 'cookie-import',
+            i18n: pageI18n,
+            noHelpFab: true,
+            onFinish: runScriptCookieImport,
+            steps: [
+                {
+                    target: '#userscripts-card',
+                    interactiveSelector: '#userscripts-list [data-install-id="' + SCRIPT_ID_TOOLBOX + '"]',
+                    titleKey: 'tour:batch.cookie-import.install.title',
+                    bodyKey: 'tour:batch.cookie-import.install.body',
+                    fallbackTitle: '① 安装体验增强工具箱',
+                    fallbackBody: '一键导入需要 pixiv.net 上的「体验增强工具箱」配合。请点击下方高亮的「体验增强工具箱」安装按钮（引导期间页面其它内容不可点击，安装后才能进入下一步）。',
+                    onShow: ctrl => {
+                        ensureUserscriptsExpanded();
+                        setTimeout(() => ctrl.refresh(), 400);
+                    },
+                    gate: () => isToolboxInstalled(),
+                    actionKey: 'tour:batch.cookie-import.install.have-aio',
+                    actionFallback: '我已安装 All-in-One',
+                    onAction: ctrl => {
+                        // 用户声明已装 All-in-One（含工具箱）：记录并直接结束引导、开始获取
+                        markScriptInstalled(SCRIPT_ID_ALL_IN_ONE);
+                        ctrl.end(true, 'finish');
+                    }
+                },
+                {
+                    target: '#cookie-import',
+                    titleKey: 'tour:batch.cookie-import.ready.title',
+                    bodyKey: 'tour:batch.cookie-import.ready.body',
+                    fallbackTitle: '② 开始导入',
+                    fallbackBody: '请确保已在本浏览器登录 Pixiv。点击「完成」后会打开 Pixiv 页面自动获取 Cookie 并返回，整个过程几秒内完成。'
+                }
+            ]
+        });
+        if (ctrl) ctrl.start(true);
     }
 
     function escHtml(str) {

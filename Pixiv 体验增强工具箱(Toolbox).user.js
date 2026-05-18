@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 体验增强工具箱
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.1.0
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E4%BD%93%E9%AA%8C%E5%A2%9E%E5%BC%BA%E5%B7%A5%E5%85%B7%E7%AE%B1(Toolbox).user.js
 // @description  Pixiv 使用体验增强工具箱
 // @author       Sywyar
@@ -11,6 +11,10 @@
 // @grant        GM_getValue
 // @grant        GM_deleteValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_cookie
+// @connect      pixiv.net
+// @connect      www.pixiv.net
+// @connect      self
 // @connect      localhost
 // @connect      YOUR_SERVER_HOST
 // @run-at       document-end
@@ -356,6 +360,7 @@
             'enhance.fab.title': 'Pixiv Experience Toolbox',
             'enhance.menu.open': 'Open Pixiv Experience Toolbox',
             'enhance.action.collapse': 'Collapse',
+            'enhance.action.failed': 'Operation failed, please retry.',
             'enhance.section.features': 'Features',
             'enhance.setting.server': 'Server URL:',
             'enhance.footer.hint': 'Each feature is independent — toggle them on demand. More features will be added over time.',
@@ -374,7 +379,18 @@
             'downloaded-border.setting.style': 'Border style:',
             'downloaded-border.style.solid': 'Solid',
             'downloaded-border.style.dashed': 'Dashed',
-            'downloaded-border.style.double': 'Double'
+            'downloaded-border.style.double': 'Double',
+            'cookie-sync.name': 'One-click save Cookie',
+            'cookie-sync.desc': 'Reads the current pixiv.net cookie and saves it to the server (shared with the batch page Cookie setting), so downloads/searches that need a login can use it. Requires solo mode and being logged in; the server URL does not matter.',
+            'cookie-sync.action': 'Get & save Cookie now',
+            'cookie-sync.status.empty': 'No cookie found — make sure you are logged in to Pixiv in this browser.',
+            'cookie-sync.status.sending': 'Sending to server...',
+            'cookie-sync.status.success': 'Cookie saved to the server.',
+            'cookie-sync.status.no-phpsessid': 'Could not read the login cookie (PHPSESSID), so saving was cancelled to avoid overwriting your existing cookie. The Pixiv HttpOnly session cookie was not exposed by your browser/userscript manager. See the Cookie guide in the Cookie section on the download page to set it manually.',
+            'cookie-sync.status.failed': 'Save failed (HTTP {0}).',
+            'cookie-sync.signal.done': 'Cookie synced. You can close this page and return to PixivDownload.',
+            'cookie-sync.signal.fail': 'Cookie sync failed. Make sure you are logged in to Pixiv and retry; you may close this page.',
+            'cookie-sync.signal.nophp': 'Could not read the login cookie (PHPSESSID); nothing was saved. The Pixiv HttpOnly session cookie was not exposed by your browser/userscript manager. See the Cookie guide in the Cookie section on the download page to set it manually. You may close this page.'
         },
         'zh-CN': {
             'switcher.label': '语言',
@@ -383,6 +399,7 @@
             'enhance.fab.title': 'Pixiv 体验增强工具箱',
             'enhance.menu.open': '打开 Pixiv 体验增强工具箱',
             'enhance.action.collapse': '收起',
+            'enhance.action.failed': '操作失败，请重试。',
             'enhance.section.features': '功能列表',
             'enhance.setting.server': '服务器地址:',
             'enhance.footer.hint': '每个功能相互独立，可按需开关。后续会持续增加更多功能。',
@@ -401,7 +418,18 @@
             'downloaded-border.setting.style': '边框样式:',
             'downloaded-border.style.solid': '实线',
             'downloaded-border.style.dashed': '虚线',
-            'downloaded-border.style.double': '双线'
+            'downloaded-border.style.double': '双线',
+            'cookie-sync.name': '一键获取 Cookie',
+            'cookie-sync.desc': '读取当前 pixiv.net 的 Cookie 并保存到服务器（与批量下载页的「Cookie」设置共用同一存储），需要登录态的下载/搜索即可直接使用。要求 solo 模式且已登录，服务器地址不限。',
+            'cookie-sync.action': '一键获取并保存 Cookie',
+            'cookie-sync.status.empty': '未读取到 Cookie，请确认已在本浏览器登录 Pixiv。',
+            'cookie-sync.status.sending': '正在发送到服务器...',
+            'cookie-sync.status.success': 'Cookie 已保存到服务器。',
+            'cookie-sync.status.no-phpsessid': '未能读取登录态 Cookie（PHPSESSID），已取消保存以免覆盖现有 Cookie。本环境的浏览器/脚本管理器未暴露 Pixiv 的 HttpOnly 会话 Cookie，请在下载页 Cookie 区查看《获取 Cookie 指南》手动设置。',
+            'cookie-sync.status.failed': '保存失败（HTTP {0}）。',
+            'cookie-sync.signal.done': 'Cookie 已同步，请关闭本页面并返回 PixivDownload。',
+            'cookie-sync.signal.fail': 'Cookie 同步失败，请确认已登录 Pixiv 后重试，可关闭本页面。',
+            'cookie-sync.signal.nophp': '未能读取登录态 Cookie（PHPSESSID），未保存任何内容。本环境的浏览器/脚本管理器未暴露 Pixiv 的 HttpOnly 会话 Cookie，请在下载页 Cookie 区查看《获取 Cookie 指南》手动设置。可关闭本页面。'
         }
     });
 
@@ -451,6 +479,145 @@
         });
     }
 
+    /* ========== Cookie 推送到服务器（功能按钮与 hash 信号共用）==========
+     * 读取完整 Cookie（含 HttpOnly 的 PHPSESSID，见 readPixivCookieHeader），
+     * 并入服务器端 solo 批量状态（/api/batch/state 的 pixiv_cookie /
+     * pixiv_cookie_fmt 键）。返回 { code, status }：
+     *   'empty'        无可读 Cookie
+     *   'unauthorized' 401（未登录后端）
+     *   'http'         其它非 200
+     *   'network'      请求异常
+     *   'ok'           成功且含 PHPSESSID
+     *   'no-php'       读不到登录态 PHPSESSID（已取消保存，不覆盖现有 Cookie）
+     */
+    const COOKIE_LOG = '[Pixiv体验增强][cookie]';
+
+    // 解析 GM_cookie / GM.cookie API（仅 Tampermonkey / FireMonkey 提供；
+    // Violentmonkey / Greasemonkey 没有，document.cookie 读不到 HttpOnly 的 PHPSESSID）。
+    function resolveCookieApi() {
+        try {
+            if (typeof GM_cookie !== 'undefined' && GM_cookie && typeof GM_cookie.list === 'function') {
+                return GM_cookie;
+            }
+        } catch (e) {}
+        try {
+            if (typeof GM !== 'undefined' && GM && GM.cookie && typeof GM.cookie.list === 'function') {
+                return GM.cookie;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    // 用一组 details 调一次 GM_cookie.list，统一回调式与 Promise 式，返回 cookie 数组（失败 → null）
+    function gmCookieList(api, details) {
+        return new Promise(resolve => {
+            let settled = false;
+            const finish = (arr, err) => {
+                if (settled) return;
+                settled = true;
+                if (err) console.warn(COOKIE_LOG, 'GM_cookie.list error', details, err);
+                resolve(Array.isArray(arr) ? arr : null);
+            };
+            try {
+                const ret = api.list(details, (cookies, error) => finish(cookies, error));
+                if (ret && typeof ret.then === 'function') {
+                    ret.then(c => finish(c)).catch(e => finish(null, e));
+                }
+            } catch (e) {
+                finish(null, e);
+            }
+            setTimeout(() => finish(null, 'timeout'), 4000);
+        });
+    }
+
+    // 读取完整 Cookie 头串：用 GM_cookie 取全部（含 HttpOnly 的 PHPSESSID），与
+    // document.cookie 合并（GM 结果优先），尽力保证登录态 cookie 在内。
+    async function readPixivCookieHeader() {
+        const docCookie = (document.cookie || '').trim();
+        const api = resolveCookieApi();
+        if (!api) {
+            console.warn(COOKIE_LOG, 'GM_cookie 不可用（脚本管理器可能是 Violentmonkey/Greasemonkey，或未授予 GM_cookie 权限）→ 回退 document.cookie');
+            return docCookie;
+        }
+        const host = location.host;                 // www.pixiv.net
+        const cleanUrl = location.protocol + '//' + host + '/';
+        // 多种 details 形态依次尝试，合并去重（不同管理器/版本对 url/domain 支持不一）
+        const attempts = [
+            { url: cleanUrl },
+            { domain: host },
+            { domain: 'pixiv.net' },
+            {}
+        ];
+        const map = new Map();
+        // 先填入 document.cookie 的非 HttpOnly 项，GM 结果再覆盖/补充
+        docCookie.split(';').forEach(part => {
+            const i = part.indexOf('=');
+            if (i > 0) map.set(part.slice(0, i).trim(), part.slice(i + 1).trim());
+        });
+        let gotAny = false;
+        for (const details of attempts) {
+            const cookies = await gmCookieList(api, details);
+            const n = cookies ? cookies.length : -1;
+            const names = cookies ? cookies.map(c => c && c.name).filter(Boolean) : [];
+            console.warn(COOKIE_LOG, 'GM_cookie.list', JSON.stringify(details),
+                '→ ' + (n < 0 ? 'null/失败' : n + ' 个'),
+                names.length ? '名称=[' + names.join(',') + ']' : '');
+            if (cookies && cookies.length) {
+                gotAny = true;
+                cookies.forEach(c => {
+                    if (c && c.name) map.set(String(c.name), String(c.value != null ? c.value : ''));
+                });
+                if (map.has('PHPSESSID')) break;     // 拿到登录态关键 cookie 即可停
+            }
+        }
+        const header = Array.from(map.entries()).map(([k, v]) => k + '=' + v).join('; ');
+        console.warn(COOKIE_LOG,
+            'GM_cookie 可用；合并后共 ' + map.size + ' 个 cookie；',
+            'GM 返回=' + gotAny, 'PHPSESSID=' + map.has('PHPSESSID'),
+            '名称=[' + Array.from(map.keys()).join(',') + ']');
+        return header || docCookie;
+    }
+
+    async function pushPixivCookieToServer(base) {
+        const raw = (await readPixivCookieHeader()).trim();
+        if (!raw) return { code: 'empty' };
+        // 没有登录态 PHPSESSID 时绝不写入：否则会用一份无登录态的 Cookie
+        // 覆盖掉用户之前手动粘贴的可用 Cookie，反而更糟。直接返回失败。
+        if (!/(?:^|;\s*)PHPSESSID=/.test(raw)) return { code: 'no-php' };
+        const stateUrl = base + '/api/batch/state';
+        try {
+            const getRes = await gmRequest({ method: 'GET', url: stateUrl, timeout: 10000 });
+            if (getRes.status === 401) return { code: 'unauthorized' };
+            if (getRes.status !== 200) return { code: 'http', status: getRes.status };
+
+            let state = {};
+            try {
+                const parsed = JSON.parse(getRes.responseText || '{}');
+                const s = parsed && parsed.state;
+                if (s && typeof s === 'object') state = s;
+            } catch (e) { state = {}; }
+
+            state['pixiv_cookie'] = raw;
+            state['pixiv_cookie_fmt'] = 'header';
+            // 同步时间戳：让批量下载页即使 Cookie 内容未变也能确认本次同步已发生
+            state['pixiv_cookie_sync_at'] = String(Date.now());
+
+            const postRes = await gmRequest({
+                method: 'POST',
+                url: stateUrl,
+                headers: { 'Content-Type': 'application/json' },
+                data: JSON.stringify({ state }),
+                timeout: 10000
+            });
+            if (postRes.status === 401) return { code: 'unauthorized' };
+            if (postRes.status !== 200) return { code: 'http', status: postRes.status };
+            return { code: 'ok' };
+        } catch (e) {
+            console.warn('[Pixiv体验增强] Cookie 推送失败：', e);
+            return { code: 'network' };
+        }
+    }
+
     /* ========== 服务器状态（localhost + solo + 已登录）========== */
     const ServerStatus = (() => {
         const listeners = new Set();
@@ -475,14 +642,13 @@
             notify();
         }
 
+        // 始终探测服务器（即使地址不是 localhost）：是否 localhost 单独记在 state.local，
+        // 由各功能的 gate 决定是否把「非本机」当作阻塞条件（solo-login 门槛不要求本机）。
         async function refresh() {
             const base = serverBase;
-            if (!isLocalHost(base)) {
-                setState({ phase: 'not-local', local: false, mode: null, loggedIn: false });
-                return;
-            }
+            const local = isLocalHost(base);
             if (inFlight) return inFlight;
-            setState({ phase: 'checking', local: true });
+            setState({ phase: 'checking', local });
             inFlight = (async () => {
                 try {
                     const [statusRes, checkRes] = await Promise.all([
@@ -493,13 +659,10 @@
                     let loggedIn = false;
                     try { mode = (JSON.parse(statusRes.responseText) || {}).mode || null; } catch (e) {}
                     try { loggedIn = (JSON.parse(checkRes.responseText) || {}).valid === true; } catch (e) {}
-                    let phase = 'ready';
-                    if (mode !== 'solo') phase = 'not-solo';
-                    else if (!loggedIn) phase = 'not-login';
-                    setState({ phase, local: true, mode, loggedIn });
+                    setState({ phase: 'resolved', local, mode, loggedIn });
                 } catch (e) {
                     console.warn('[Pixiv体验增强] 服务器状态检测失败：', e);
-                    setState({ phase: 'unreachable', local: true, mode: null, loggedIn: false });
+                    setState({ phase: 'unreachable', local, mode: null, loggedIn: false });
                 }
             })();
             try { await inFlight; } finally { inFlight = null; }
@@ -511,10 +674,41 @@
         return { refresh, get, onChange };
     })();
 
+    /* ========== 门槛求值 ==========
+     * gate 取值：
+     *   null              无门槛
+     *   'local-solo-login' 需要本机 + solo 模式 + 已登录
+     *   'solo-login'       需要 solo 模式 + 已登录（不要求本机，服务器地址不重要）
+     * 返回 { ok, key, fb, color }，供功能可用性判断与面板提示文案复用。
+     */
+    function gateInfo(gate) {
+        const s = ServerStatus.get();
+        const GRAY = '#888', RED = '#dc3545', GREEN = '#28a745';
+        if (gate !== 'local-solo-login' && gate !== 'solo-login') {
+            return { ok: true, key: 'enhance.gate.ready', fb: '条件已满足，可以开启此功能。', color: GREEN };
+        }
+        if (s.phase === 'checking') {
+            return { ok: false, key: 'enhance.gate.checking', fb: '正在检测服务器状态...', color: GRAY };
+        }
+        if (gate === 'local-solo-login' && !s.local) {
+            return { ok: false, key: 'enhance.gate.not-local', fb: '需要服务器地址指向 localhost / 127.0.0.1。', color: RED };
+        }
+        if (s.phase === 'unreachable') {
+            return { ok: false, key: 'enhance.gate.unreachable', fb: '无法连接服务器。', color: RED };
+        }
+        if (s.mode !== 'solo') {
+            return { ok: false, key: 'enhance.gate.not-solo', fb: '需要服务器运行在 solo 模式。', color: RED };
+        }
+        if (!s.loggedIn) {
+            return { ok: false, key: 'enhance.gate.not-login', fb: '需要已登录服务器（solo 模式）。', color: RED };
+        }
+        return { ok: true, key: 'enhance.gate.ready', fb: '条件已满足，可以开启此功能。', color: GREEN };
+    }
+
     /* ========== 功能注册中心 ==========
      * 每个功能是一个独立对象，互不依赖：
      *   id            唯一标识
-     *   gate          'local-solo-login' 时由 ServerStatus 决定可用性，null 表示无门槛
+     *   gate          'local-solo-login' / 'solo-login' 时由 ServerStatus 决定可用性，null 表示无门槛
      *   nameKey/descKey  i18n key
      *   settingDefs   子设置字段（开启后展示），声明式渲染
      *   defaults      子设置默认值
@@ -553,8 +747,9 @@
         }
 
         function available(feature) {
-            if (feature.def.gate !== 'local-solo-login') return true;
-            return ServerStatus.get().phase === 'ready';
+            const g = feature.def.gate;
+            if (g !== 'local-solo-login' && g !== 'solo-login') return true;
+            return gateInfo(g).ok;
         }
 
         function evaluate() {
@@ -829,6 +1024,43 @@
         }
     });
 
+    /* ========== 功能：一键获取并保存 Cookie ==========
+     * 读取当前 pixiv.net 的完整 Cookie（含 HttpOnly PHPSESSID），合并进服务器端 solo 模式的批量状态
+     * （/api/batch/state 的 pixiv_cookie / pixiv_cookie_fmt 键），与网页端「Cookie」
+     * 设置共用同一存储，下载/搜索等需要登录态的请求即可直接使用。
+     * 门槛 solo-login：仅要求 solo 模式 + 已登录，不要求服务器地址为本机。
+     */
+    FeatureRegistry.register({
+        id: 'cookie-sync',
+        gate: 'solo-login',
+        nameKey: 'cookie-sync.name',
+        descKey: 'cookie-sync.desc',
+        settingDefs: [
+            { key: 'sync', type: 'button', labelKey: 'cookie-sync.action' }
+        ],
+
+        start() {},
+        stop() {},
+
+        async onAction(api, _key, ctx) {
+            ctx.setStatus(t('cookie-sync.status.sending', '正在发送到服务器...'), 'info');
+            const r = await pushPixivCookieToServer(api.serverBase);
+            if (r.code === 'unauthorized') { api.handleUnauthorized(); return; }
+            if (r.code === 'empty') {
+                ctx.setStatus(t('cookie-sync.status.empty',
+                    '未读取到 Cookie，请确认已在本浏览器登录 Pixiv'), 'error');
+            } else if (r.code === 'http' || r.code === 'network') {
+                ctx.setStatus(t('cookie-sync.status.failed', '保存失败（HTTP {0}）',
+                    [r.status != null ? r.status : '-']), 'error');
+            } else if (r.code === 'no-php') {
+                ctx.setStatus(t('cookie-sync.status.no-phpsessid',
+                    '未能读取登录态 Cookie（PHPSESSID），已取消保存以免覆盖现有 Cookie'), 'error');
+            } else {
+                ctx.setStatus(t('cookie-sync.status.success', 'Cookie 已保存到服务器'), 'success');
+            }
+        }
+    });
+
     /* ========== 语言切换器 ========== */
     function buildLangSwitcher() {
         const wrapper = document.createElement('span');
@@ -1019,6 +1251,45 @@
 
         _buildSettingRow(feature, sd) {
             const row = $el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px' } });
+
+            // 动作按钮：整行按钮 + 下方状态行，点击调用 feature.def.onAction(api, key, ctx)
+            if (sd.type === 'button') {
+                row.style.flexDirection = 'column';
+                row.style.alignItems = 'stretch';
+                const btn = $el('button', {
+                    innerText: t(sd.labelKey, sd.key),
+                    style: {
+                        padding: '7px 10px', border: 'none', borderRadius: '4px',
+                        background: BRAND, color: '#fff', fontSize: '12px',
+                        fontWeight: 'bold', cursor: 'pointer'
+                    }
+                });
+                const statusEl = $el('div', {
+                    style: { fontSize: '11px', color: '#777', minHeight: '16px', lineHeight: '1.5' }
+                });
+                const ctx = {
+                    setStatus: (text, kind) => {
+                        statusEl.innerText = text || '';
+                        statusEl.style.color = kind === 'error' ? '#dc3545'
+                            : kind === 'success' ? '#28a745' : '#777';
+                    }
+                };
+                btn.addEventListener('click', () => {
+                    if (typeof feature.def.onAction !== 'function') return;
+                    btn.disabled = true;
+                    Promise.resolve()
+                        .then(() => feature.def.onAction(feature.api, sd.key, ctx))
+                        .catch(e => {
+                            console.error('[' + feature.def.id + '] onAction', e);
+                            ctx.setStatus(t('enhance.action.failed', '操作失败，请重试'), 'error');
+                        })
+                        .finally(() => { btn.disabled = false; });
+                });
+                row.appendChild(btn);
+                row.appendChild(statusEl);
+                return row;
+            }
+
             const label = $el('label', {
                 innerText: t(sd.labelKey, sd.key),
                 style: { width: '120px', flexShrink: '0' }
@@ -1074,17 +1345,9 @@
         }
 
         _gateMessage(feature) {
-            if (feature.def.gate !== 'local-solo-login') return null;
-            const phase = ServerStatus.get().phase;
-            const map = {
-                'checking': { key: 'enhance.gate.checking', fb: '正在检测服务器状态...', color: '#888' },
-                'not-local': { key: 'enhance.gate.not-local', fb: '需要服务器地址指向 localhost / 127.0.0.1。', color: '#dc3545' },
-                'not-solo': { key: 'enhance.gate.not-solo', fb: '需要服务器运行在 solo 模式。', color: '#dc3545' },
-                'not-login': { key: 'enhance.gate.not-login', fb: '需要已登录服务器（solo 模式）。', color: '#dc3545' },
-                'unreachable': { key: 'enhance.gate.unreachable', fb: '无法连接服务器。', color: '#dc3545' },
-                'ready': { key: 'enhance.gate.ready', fb: '条件已满足，可以开启此功能。', color: '#28a745' }
-            };
-            return map[phase] || map['checking'];
+            const g = feature.def.gate;
+            if (g !== 'local-solo-login' && g !== 'solo-login') return null;
+            return gateInfo(g);
         }
 
         _renderFeatureBody(feature, card) {
@@ -1146,6 +1409,55 @@
             this._applyCollapsed();
             document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'enhance' }));
         }
+    }
+
+    /* ========== 一键导入 Cookie：hash 信号处理 ==========
+     * 批量下载页「一键导入 Cookie」会用 window.open 打开
+     * https://www.pixiv.net/#__pixiv_cookie_sync__ 这个临时弹窗。本脚本在此
+     * 命中信号时：直接读取并回传 Cookie，然后自动关闭，不挂面板、不做其它初始化，
+     * 让用户感知尽量小。无需在面板里开启「一键获取 Cookie」功能即可工作。
+     */
+    const COOKIE_SYNC_HASH = '__pixiv_cookie_sync__';
+    function isCookieSyncSignal() {
+        try {
+            return (location.hash || '').indexOf(COOKIE_SYNC_HASH) >= 0;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    if (isCookieSyncSignal()) {
+        const showSignalNotice = state => {
+            try {
+                const box = document.createElement('div');
+                box.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;'
+                    + 'align-items:center;justify-content:center;background:#fff;color:#333;'
+                    + 'font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;'
+                    + 'text-align:center;padding:28px;';
+                box.textContent = state === 'ok'
+                    ? t('cookie-sync.signal.done', 'Cookie 已同步，请关闭本页面并返回 PixivDownload。')
+                    : state === 'nophp'
+                        ? t('cookie-sync.signal.nophp', '未能读取登录态 Cookie（PHPSESSID），未保存任何内容。本环境的浏览器/脚本管理器未暴露 Pixiv 的 HttpOnly 会话 Cookie，请在下载页 Cookie 区查看《获取 Cookie 指南》手动设置。可关闭本页面。')
+                        : t('cookie-sync.signal.fail', 'Cookie 同步失败，请确认已登录 Pixiv 后重试，可关闭本页面。');
+                document.documentElement.appendChild(box);
+            } catch (e) {}
+        };
+        (async () => {
+            let result;
+            try {
+                result = await pushPixivCookieToServer(serverBase);
+            } catch (e) {
+                result = { code: 'network' };
+            }
+            const code = result && result.code;
+            const state = code === 'ok' ? 'ok' : (code === 'no-php' ? 'nophp' : 'fail');
+            // 无论结果如何都自动关闭弹窗；仅在浏览器拒绝关闭时才显示文字提示兜底。
+            setTimeout(() => {
+                try { window.close(); } catch (e) {}
+                if (!window.closed) showSignalNotice(state);
+            }, 300);
+        })();
+        return; // 临时弹窗：不构建面板 / 不做重复实例处理
     }
 
     /* ========== 重复实例检测 ==========

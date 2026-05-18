@@ -104,6 +104,18 @@
             margin-top: 6px;
         }
 
+        .cookie-status {
+            font-size: 12px;
+            margin-top: 8px;
+            min-height: 16px;
+            line-height: 1.5;
+            word-break: break-word;
+        }
+
+        .cookie-status:empty {
+            display: none;
+        }
+
         .cookie-fmt {
             display: flex;
             gap: 0;
@@ -1463,6 +1475,12 @@
         html[data-theme="dark"] #cookie-clear {
             background: #dc3545 !important;
             border-color: #dc3545 !important;
+            color: white !important;
+        }
+
+        html[data-theme="dark"] #cookie-import {
+            background: #1a73e8 !important;
+            border-color: #1a73e8 !important;
             color: white !important;
         }
 
