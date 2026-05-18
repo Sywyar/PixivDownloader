@@ -257,6 +257,7 @@
         applyAttributeBinding(root, client, '[data-i18n-placeholder]', 'placeholder', 'data-i18n-placeholder');
         applyAttributeBinding(root, client, '[data-i18n-title]', 'title', 'data-i18n-title');
         applyAttributeBinding(root, client, '[data-i18n-aria-label]', 'aria-label', 'data-i18n-aria-label');
+        applyAttributeBinding(root, client, '[data-i18n-href]', 'href', 'data-i18n-href');
     }
 
     function buildClient(meta, namespaces, bundleMap) {
