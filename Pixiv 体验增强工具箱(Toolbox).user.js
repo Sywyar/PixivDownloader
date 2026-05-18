@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 体验增强工具箱
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E4%BD%93%E9%AA%8C%E5%A2%9E%E5%BC%BA%E5%B7%A5%E5%85%B7%E7%AE%B1(Toolbox).user.js
 // @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E4%BD%93%E9%AA%8C%E5%A2%9E%E5%BC%BA%E5%B7%A5%E5%85%B7%E7%AE%B1(Toolbox).user.js
 // @description  Pixiv 使用体验增强工具箱
@@ -382,7 +382,7 @@
             'downloaded-border.style.dashed': 'Dashed',
             'downloaded-border.style.double': 'Double',
             'cookie-sync.name': 'One-click save Cookie',
-            'cookie-sync.desc': 'Reads the current pixiv.net cookie and saves it to the server (shared with the batch page Cookie setting), so downloads/searches that need a login can use it. Requires solo mode and being logged in; the server URL does not matter.',
+            'cookie-sync.desc': 'Reads the current pixiv.net cookie and saves it to the server (shared with the batch page Cookie setting), so downloads/searches that need a login can use it. Requires solo mode and being logged in; the server URL does not matter. NOTE: the login token PHPSESSID is an HttpOnly cookie — this needs Tampermonkey → Settings → Config mode "Advanced" → Security → "Allow scripts to access cookies" = All. Keeping that on permanently is NOT recommended (any other userscript could then read your login credentials). Unless you trust every userscript installed, only set it to All temporarily for the fetch and change it back to "All except HttpOnly" right after; or prefer the manual method in the Cookie guide instead.',
             'cookie-sync.action': 'Get & save Cookie now',
             'cookie-sync.status.empty': 'No cookie found — make sure you are logged in to Pixiv in this browser.',
             'cookie-sync.status.sending': 'Sending to server...',
@@ -421,7 +421,7 @@
             'downloaded-border.style.dashed': '虚线',
             'downloaded-border.style.double': '双线',
             'cookie-sync.name': '一键获取 Cookie',
-            'cookie-sync.desc': '读取当前 pixiv.net 的 Cookie 并保存到服务器（与批量下载页的「Cookie」设置共用同一存储），需要登录态的下载/搜索即可直接使用。要求 solo 模式且已登录，服务器地址不限。',
+            'cookie-sync.desc': '读取当前 pixiv.net 的 Cookie 并保存到服务器（与批量下载页的「Cookie」设置共用同一存储），需要登录态的下载/搜索即可直接使用。要求 solo 模式且已登录，服务器地址不限。注意：登录凭证 PHPSESSID 是 HttpOnly Cookie，需在 Tampermonkey「设置 → 配置模式选『高级』→ 安全 → 允许脚本访问 Cookie」设为 All 才能读取；但不建议长期开启（开启后其它油猴脚本也能任意读取您的登录凭证）。除非您信任已安装的所有脚本，否则建议仅在获取时临时设为 All、成功后立即改回『除了 HttpOnly』，或改用《获取 Cookie 指南》中的第一种手动方法。',
             'cookie-sync.action': '一键获取并保存 Cookie',
             'cookie-sync.status.empty': '未读取到 Cookie，请确认已在本浏览器登录 Pixiv。',
             'cookie-sync.status.sending': '正在发送到服务器...',
@@ -581,10 +581,8 @@
 
     async function pushPixivCookieToServer(base) {
         const raw = (await readPixivCookieHeader()).trim();
-        if (!raw) return { code: 'empty' };
-        // 没有登录态 PHPSESSID 时绝不写入：否则会用一份无登录态的 Cookie
-        // 覆盖掉用户之前手动粘贴的可用 Cookie，反而更糟。直接返回失败。
-        if (!/(?:^|;\s*)PHPSESSID=/.test(raw)) return { code: 'no-php' };
+        const hasPhp = !!raw && /(?:^|;\s*)PHPSESSID=/.test(raw);
+        const status = hasPhp ? 'ok' : (raw ? 'no-php' : 'empty');
         const stateUrl = base + '/api/batch/state';
         try {
             const getRes = await gmRequest({ method: 'GET', url: stateUrl, timeout: 10000 });
@@ -598,10 +596,16 @@
                 if (s && typeof s === 'object') state = s;
             } catch (e) { state = {}; }
 
-            state['pixiv_cookie'] = raw;
-            state['pixiv_cookie_fmt'] = 'header';
-            // 同步时间戳：让批量下载页即使 Cookie 内容未变也能确认本次同步已发生
+            // 仅在拿到登录态 PHPSESSID 时才写入 Cookie，避免用无登录态的
+            // Cookie 覆盖用户已手动粘贴的可用 Cookie。
+            if (hasPhp) {
+                state['pixiv_cookie'] = raw;
+                state['pixiv_cookie_fmt'] = 'header';
+            }
+            // 始终更新同步标记 + 结果状态：即使没写 Cookie，也让批量下载页能
+            // 立即得知本次同步已结束及其结果，不必空等到超时。
             state['pixiv_cookie_sync_at'] = String(Date.now());
+            state['pixiv_cookie_sync_status'] = status;
 
             const postRes = await gmRequest({
                 method: 'POST',
@@ -612,7 +616,7 @@
             });
             if (postRes.status === 401) return { code: 'unauthorized' };
             if (postRes.status !== 200) return { code: 'http', status: postRes.status };
-            return { code: 'ok' };
+            return { code: status };
         } catch (e) {
             console.warn('[Pixiv体验增强] Cookie 推送失败：', e);
             return { code: 'network' };

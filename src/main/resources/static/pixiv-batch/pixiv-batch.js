@@ -4622,7 +4622,8 @@
             return {
                 cookie: st.pixiv_cookie != null ? String(st.pixiv_cookie) : '',
                 fmt: st.pixiv_cookie_fmt || 'header',
-                syncAt: st.pixiv_cookie_sync_at != null ? String(st.pixiv_cookie_sync_at) : ''
+                syncAt: st.pixiv_cookie_sync_at != null ? String(st.pixiv_cookie_sync_at) : '',
+                syncStatus: st.pixiv_cookie_sync_status != null ? String(st.pixiv_cookie_sync_status) : ''
             };
         } catch (e) {
             return null;
@@ -4650,9 +4651,9 @@
             setCookieStatus(bt('status.cookie-import-solo-only', '一键导入仅在 solo 模式可用'), 'error');
             return;
         }
-        // window.open 必须在用户手势内同步调用，await 会让弹窗被拦截，故先开窗。
-        // 同步基线取内存中的 serverState（不可 await），靠同步时间戳判定本次同步是否发生，
-        // 即便 Cookie 内容与已存的相同也能识别成功。
+        // window.open 必须在用户手势内同步调用（await 会让弹窗被拦截），故同步取
+        // 内存里的同步时间戳作基线。基线必须在每次同步结束后（成功或缺 PHPSESSID）
+        // 都同步更新到 serverState，否则上次遗留的时间戳会让下次重试被瞬间误判。
         const baselineSyncAt = serverState['pixiv_cookie_sync_at'] != null
             ? String(serverState['pixiv_cookie_sync_at']) : '';
         const win = window.open(
@@ -4670,9 +4671,18 @@
         const poll = () => {
             setTimeout(async () => {
                 const cur = await fetchServerPixivCookie();
+                // 本次同步已结束（时间戳变化）。无论成功与否工具箱都会更新时间戳，
+                // 故缺 PHPSESSID 时也能立即停下并给出明确提示，不再空等到超时。
                 if (cur && cur.syncAt && cur.syncAt !== baselineSyncAt) {
                     try { win.close(); } catch (e) {}
-                    applyImportedCookie(cur);
+                    // 同步内存基线，避免下次重试用旧时间戳瞬间误判
+                    serverState['pixiv_cookie_sync_at'] = cur.syncAt;
+                    if (cur.syncStatus === 'ok' || /(?:^|;\s*)PHPSESSID=/.test(cur.cookie || '')) {
+                        applyImportedCookie(cur);
+                    } else {
+                        setCookieStatus(bt('status.cookie-imported-no-phpsessid',
+                            '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'), 'error');
+                    }
                     return;
                 }
                 if (Date.now() > deadline) {
