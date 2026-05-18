@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.AppVersion;
+import top.sywyar.pixivdownload.common.SemanticVersion;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.IOException;
@@ -484,59 +485,12 @@ public class UpdateService {
     }
 
     /**
-     * 简易版本比较：按 . 拆分、按段数字比较，非数字段当作 -1。
-     * 返回 &gt;0 表示 left 较新，&lt;0 表示 left 较旧，0 表示一致或两侧为空。
+     * 版本比较，支持本项目标准的 {@code n.n.n-xx.n} 预发布后缀
+     * （见 {@link SemanticVersion}）。返回 &gt;0 表示 left 较新，
+     * &lt;0 表示 left 较旧，0 表示一致或两侧为空。
      */
     static int compareVersions(String left, String right) {
-        if (left == null || left.isBlank()) {
-            return right == null || right.isBlank() ? 0 : -1;
-        }
-        if (right == null || right.isBlank()) {
-            return 1;
-        }
-        String[] l = stripBuildSuffix(left).split("\\.");
-        String[] r = stripBuildSuffix(right).split("\\.");
-        int len = Math.max(l.length, r.length);
-        for (int i = 0; i < len; i++) {
-            int li = parseSegment(i < l.length ? l[i] : "0");
-            int ri = parseSegment(i < r.length ? r[i] : "0");
-            if (li != ri) {
-                return Integer.compare(li, ri);
-            }
-        }
-        return 0;
-    }
-
-    private static int parseSegment(String segment) {
-        try {
-            return Integer.parseInt(segment);
-        } catch (NumberFormatException e) {
-            // 类似 "1.0-SNAPSHOT" 中的 "0-SNAPSHOT"：尽量取出前导数字部分
-            StringBuilder digits = new StringBuilder();
-            for (char c : segment.toCharArray()) {
-                if (Character.isDigit(c)) {
-                    digits.append(c);
-                } else {
-                    break;
-                }
-            }
-            if (digits.isEmpty()) {
-                return -1;
-            }
-            return Integer.parseInt(digits.toString());
-        }
-    }
-
-    private static String stripBuildSuffix(String version) {
-        int dash = version.indexOf('-');
-        if (dash > 0) {
-            return version.substring(0, dash);
-        }
-        int plus = version.indexOf('+');
-        if (plus > 0) {
-            return version.substring(0, plus);
-        }
-        return version;
+        return SemanticVersion.compare(left, right);
     }
 
     private String forLog(String code, Object... args) {
