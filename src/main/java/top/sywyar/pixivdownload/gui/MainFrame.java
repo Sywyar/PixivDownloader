@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.gui.panel.AboutPanel;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
 import top.sywyar.pixivdownload.gui.panel.StatusPanel;
 import top.sywyar.pixivdownload.gui.panel.ToolsPanel;
+import top.sywyar.pixivdownload.gui.panel.WelcomePanel;
 
 import javax.swing.*;
 import java.awt.*;
@@ -27,7 +28,10 @@ public class MainFrame extends JFrame {
     private final String rootFolder;
     private final Path configPath;
 
+    private static final int STATUS_TAB_INDEX = 1;
+
     private JTabbedPane tabs;
+    private WelcomePanel welcomePanel;
     private StatusPanel statusPanel;
     private ToolsPanel toolsPanel;
 
@@ -60,12 +64,33 @@ public class MainFrame extends JFrame {
         }
 
         setContentPane(buildTabs());
+
+        // 引导未完成前每次启动都停留在引导首页（含未完成配置的情况）；
+        // “完成” = 首次安装已完成 且 整套引导已走完。任一不满足都停在首页。
+        // setup 未完成却存在 seen 标记 → 是旧版本残留的无效标记，复位掉。
+        if (OnboardingState.isComplete(rootFolder)) {
+            tabs.setSelectedIndex(STATUS_TAB_INDEX);
+        } else {
+            if (!OnboardingState.isSetupComplete(rootFolder)) {
+                OnboardingState.clear();
+            }
+            tabs.setSelectedIndex(0);
+        }
     }
 
     private JTabbedPane buildTabs() {
         tabs = new JTabbedPane();
         statusPanel = new StatusPanel(serverPort, rootFolder, configPath, this::reloadLocale);
+        welcomePanel = new WelcomePanel(statusPanel, serverPort,
+                () -> {
+                    showWindow();
+                    if (tabs != null) {
+                        tabs.setSelectedIndex(0);
+                    }
+                },
+                () -> { if (tabs != null) tabs.setSelectedIndex(STATUS_TAB_INDEX); });
         toolsPanel = new ToolsPanel(configPath);
+        tabs.addTab(GuiMessages.get("gui.tab.welcome"), welcomePanel);
         tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
         tabs.addTab(GuiMessages.get("gui.tab.config"), new ConfigPanel(configPath, serverPort));
         tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
@@ -89,6 +114,9 @@ public class MainFrame extends JFrame {
     public void reloadLocale() {
         int previousTab = tabs == null ? 0 : tabs.getSelectedIndex();
 
+        if (welcomePanel != null) {
+            welcomePanel.dispose();
+        }
         if (statusPanel != null) {
             statusPanel.dispose();
         }
@@ -137,6 +165,9 @@ public class MainFrame extends JFrame {
 
     @Override
     public void dispose() {
+        if (welcomePanel != null) {
+            welcomePanel.dispose();
+        }
         statusPanel.dispose();
         toolsPanel.dispose();
         super.dispose();

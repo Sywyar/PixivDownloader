@@ -1,0 +1,160 @@
+/* 引导遮罩（操作指引）。自包含的 CSS 变量 + 深色模式覆盖，
+   不依赖各页面自己的变量集，可被任意页面安全引入。 */
+:root {
+    --pt-pop-bg: #ffffff;
+    --pt-pop-text: #1f2328;
+    --pt-pop-muted: #6a737d;
+    --pt-pop-line: #e1e4e8;
+    --pt-brand: #28a745;
+    --pt-brand-text: #ffffff;
+    --pt-btn-bg: #f3f4f6;
+    --pt-btn-text: #1f2328;
+    --pt-shadow: rgba(0, 0, 0, 0.22);
+    --pt-mask: rgba(17, 22, 28, 0.62);
+}
+
+html[data-theme="dark"] {
+    --pt-pop-bg: #1f242b;
+    --pt-pop-text: #e6e6e6;
+    --pt-pop-muted: #9aa4af;
+    --pt-pop-line: #353b44;
+    --pt-brand: #2ea043;
+    --pt-brand-text: #ffffff;
+    --pt-btn-bg: #2b313a;
+    --pt-btn-text: #e6e6e6;
+    --pt-shadow: rgba(0, 0, 0, 0.55);
+    --pt-mask: rgba(0, 0, 0, 0.7);
+}
+
+/* 仅遮罩容器需要全屏定位；FAB 不再共用此类（否则会被撑满整屏） */
+.pt-root {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483000;
+    font-family: inherit;
+}
+
+.pt-backdrop {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    pointer-events: auto;
+}
+
+/* 用大范围 box-shadow 制造“聚光”洞口，目标区域保持清晰 */
+.pt-spot {
+    position: fixed;
+    border-radius: 10px;
+    box-shadow: 0 0 0 9999px var(--pt-mask);
+    transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+}
+
+.pt-pop {
+    position: fixed;
+    max-width: 340px;
+    min-width: 240px;
+    background: var(--pt-pop-bg);
+    color: var(--pt-pop-text);
+    border: 1px solid var(--pt-pop-line);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px var(--pt-shadow);
+    padding: 16px 18px;
+    pointer-events: auto;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.22s ease, transform 0.22s ease;
+}
+
+.pt-pop.pt-pop-in {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.pt-pop-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin: 0 0 6px;
+}
+
+.pt-pop-body {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--pt-pop-text);
+    margin: 0 0 14px;
+}
+
+.pt-pop-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pt-progress {
+    font-size: 12px;
+    color: var(--pt-pop-muted);
+    margin-right: auto;
+}
+
+.pt-btn {
+    appearance: none;
+    border: 1px solid var(--pt-pop-line);
+    background: var(--pt-btn-bg);
+    color: var(--pt-btn-text);
+    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    line-height: 1.2;
+}
+
+.pt-btn:hover {
+    filter: brightness(0.97);
+}
+
+.pt-btn-primary {
+    background: var(--pt-brand);
+    border-color: var(--pt-brand);
+    color: var(--pt-brand-text);
+    font-weight: 600;
+}
+
+.pt-btn-skip {
+    background: transparent;
+    border-color: transparent;
+    color: var(--pt-pop-muted);
+    padding: 6px 6px;
+}
+
+/* 重新查看引导的浮动按钮 */
+.pt-help-fab {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 2147482000;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--pt-pop-bg, #fff);
+    color: var(--pt-pop-text, #1f2328);
+    border: 1px solid var(--pt-pop-line, #e1e4e8);
+    box-shadow: 0 4px 14px var(--pt-shadow, rgba(0, 0, 0, 0.18));
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.pt-help-fab:hover {
+    filter: brightness(0.97);
+}
+
+.pt-help-fab[hidden] {
+    display: none;
+}
+
+@media (max-width: 600px) {
+    .pt-pop {
+        max-width: calc(100vw - 32px);
+    }
+}

@@ -77,6 +77,14 @@ public class GuiLauncher {
     private static final int DEFAULT_PORT = 6999;
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
 
+    /**
+     * 标记本次运行是否为无 GUI（headless / {@code --no-gui}）模式。
+     * 由 {@code BrowserLauncher} 读取：仅 nogui 模式才自动打开浏览器到 setup 页，
+     * GUI 模式改由「首页」引导内完成配置。{@code --no-gui} 会被 filterArgs 过滤掉，
+     * 无法经 ApplicationArguments 传递，故用系统属性桥接。
+     */
+    public static final String HEADLESS_PROPERTY = "pixivdownload.headless";
+
     public static void main(String[] args) throws Exception {
         // ── 0a. 全局 locale 检测（必须先于 logback 初始化）────────────────────────
         //    检测器内部不允许使用 SLF4J / @Slf4j 类；通过 Locale.setDefault 写回，
@@ -131,6 +139,7 @@ public class GuiLauncher {
         // ── 1. 判断是否需要 GUI ─────────────────────────────────────────────────
         boolean noGui = Arrays.asList(args).contains("--no-gui")
                 || GraphicsEnvironment.isHeadless();
+        System.setProperty(HEADLESS_PROPERTY, Boolean.toString(noGui));
 
         if (noGui) {
             log.info(logMessage("gui.launcher.log.headless"));

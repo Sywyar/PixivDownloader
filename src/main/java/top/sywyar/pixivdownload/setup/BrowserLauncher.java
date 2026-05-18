@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.awt.Desktop;
+import java.awt.GraphicsEnvironment;
 import java.net.URI;
 
 @Component
@@ -26,6 +27,16 @@ public class BrowserLauncher implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         if (setupService.isSetupComplete()) return;
+
+        // 仅 nogui（headless / --no-gui）模式才自动打开浏览器到 setup 页；
+        // GUI 模式下首次配置改由「首页」引导内完成，不再弹浏览器。
+        // GuiLauncher 通过系统属性桥接（--no-gui 会被 filterArgs 过滤，无法走 ApplicationArguments）；
+        // 属性缺失时（如直接运行 PixivDownloadApplication）回退到 isHeadless()。
+        String headlessProp = System.getProperty("pixivdownload.headless");
+        boolean noGui = headlessProp != null
+                ? Boolean.parseBoolean(headlessProp)
+                : GraphicsEnvironment.isHeadless();
+        if (!noGui) return;
 
         String url = "http://localhost:" + port + "/setup.html";
         log.info(message("setup.browser.log.first-launch.opening", url));

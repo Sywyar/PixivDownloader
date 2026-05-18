@@ -524,7 +524,7 @@
     }
 
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: ['gallery', 'invite', 'common']});
+        pageI18n = await PixivI18n.create({namespaces: ['gallery', 'invite', 'common', 'tour']});
         window.PixivInvitesI18n = pageI18n;
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
@@ -544,12 +544,47 @@
                     renderAddToCollectionList();
                 }
                 reloadCurrentView();
+                setupTour(false);
             }
         });
         PixivTheme.mount({
             mountPoint: document.getElementById('langSwitcherAnchor')
         });
         applyStaticPageTranslations();
+    }
+
+    // 首次进入画廊页时自动展示操作指引；语言切换时刷新文案。
+    function setupTour(auto) {
+        if (typeof PixivTour === 'undefined') {
+            return;
+        }
+        PixivTour.init({
+            pageKey: 'gallery',
+            i18n: pageI18n,
+            auto: auto,
+            onComplete: function () {
+                // 通知后端：画廊操作指引已完成，GUI 会据此把窗口带到前台继续引导
+                fetch('/api/onboarding/gallery-guide-done', {
+                    method: 'POST',
+                    credentials: 'same-origin'
+                }).catch(function () { /* best-effort */ });
+            },
+            steps: [
+                {target: '.search-box', titleKey: 'tour:gallery.search.title', bodyKey: 'tour:gallery.search.body'},
+                {target: '#filterToggle', titleKey: 'tour:gallery.filter.title', bodyKey: 'tour:gallery.filter.body'},
+                {
+                    target: '.nav-item[data-view="all"]',
+                    titleKey: 'tour:gallery.views.title',
+                    bodyKey: 'tour:gallery.views.body'
+                },
+                {target: '#galleryGrid', titleKey: 'tour:gallery.grid.title', bodyKey: 'tour:gallery.grid.body'},
+                {
+                    target: 'a.nav-item[href="/pixiv-batch.html"]',
+                    titleKey: 'tour:gallery.download.title',
+                    bodyKey: 'tour:gallery.download.body'
+                }
+            ]
+        });
     }
 
 
@@ -2778,6 +2813,7 @@
             if (state.seriesOptions.length) renderSeriesFilterChips();
             if (state.authorOptions.length) renderAuthorChips();
             applyGalleryStateToUi();
+            setupTour(true);
         }).catch(err => console.error('i18n 加载失败', err));
 
         // 侧边栏与筛选选项数据请求并行触发

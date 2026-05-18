@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.config.RuntimeConfigReloadService;
 import top.sywyar.pixivdownload.config.SslConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.onboarding.OnboardingProgressService;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;
@@ -40,6 +41,7 @@ public class GuiStatusController {
     private final SslConfig sslConfig;
     private final RuntimeConfigReloadService runtimeConfigReloadService;
     private final AppMessages messages;
+    private final OnboardingProgressService onboardingProgressService;
 
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -136,6 +138,65 @@ public class GuiStatusController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new GuiConfigReloadResponse(false, List.of(), e.getMessage()));
         }
+    }
+
+    /**
+     * GET /api/gui/onboarding
+     * 引导进度（供「首页」分步引导轮询）。仅 GUI（本地 + GUI 令牌）可访问，
+     * 由 AuthFilter 对 /api/gui/** 统一强制本地 + 令牌校验。
+     */
+    @GetMapping("/onboarding")
+    public ResponseEntity<OnboardingStatusResponse> onboarding(HttpServletRequest req) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.ok(new OnboardingStatusResponse(
+                setupService.isSetupComplete(),
+                setupService.getMode() != null ? setupService.getMode() : "",
+                onboardingProgressService.isBatchVisited(),
+                onboardingProgressService.isGalleryVisited(),
+                onboardingProgressService.isGalleryGuideCompleted()));
+    }
+
+    /**
+     * POST /api/gui/setup/init
+     * 由 GUI「首页」引导内联完成首次配置（管理员账号 + 模式）。
+     * 与公开的 /api/setup/init（setup.html 后备入口）等价，但走 GUI 令牌通道。
+     * 已完成时幂等返回 ok，方便与 setup.html 后备并存。
+     */
+    @PostMapping("/setup/init")
+    public ResponseEntity<GuiSetupInitResponse> setupInit(@RequestBody GuiSetupInitRequest body,
+                                                          HttpServletRequest req) throws IOException {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        if (setupService.isSetupComplete()) {
+            return ResponseEntity.ok(new GuiSetupInitResponse(true, setupService.getMode(), null));
+        }
+        String username = body == null || body.username() == null ? "" : body.username().trim();
+        String password = body == null || body.password() == null ? "" : body.password();
+        String mode = body == null || body.mode() == null ? "" : body.mode().trim();
+        if (username.isEmpty() || password.length() < 6
+                || !("solo".equals(mode) || "multi".equals(mode))) {
+            return ResponseEntity.badRequest()
+                    .body(new GuiSetupInitResponse(false, null, "invalid"));
+        }
+        setupService.init(username, password, mode);
+        return ResponseEntity.ok(new GuiSetupInitResponse(true, mode, null));
+    }
+
+    public record OnboardingStatusResponse(
+            boolean setupComplete,
+            String mode,
+            boolean batchVisited,
+            boolean galleryVisited,
+            boolean galleryGuideCompleted) {
+    }
+
+    public record GuiSetupInitRequest(String username, String password, String mode) {
+    }
+
+    public record GuiSetupInitResponse(boolean success, String mode, String error) {
     }
 
     // ── 私有工具 ──────────────────────────────────────────────────────────────────

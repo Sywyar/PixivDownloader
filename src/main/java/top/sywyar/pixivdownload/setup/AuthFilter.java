@@ -360,7 +360,8 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private boolean isAlwaysPublicApi(String path) {
         return path.startsWith("/api/auth/")
-                || path.startsWith("/api/i18n/");
+                || path.startsWith("/api/i18n/")
+                || path.startsWith("/api/onboarding/");
     }
 
     private boolean isValidGuiRequest(HttpServletRequest req) {

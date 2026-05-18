@@ -1,0 +1,79 @@
+package top.sywyar.pixivdownload.gui;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.setup.SetupConfig;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+/**
+ * 记录用户是否已经完成 GUI 引导首页。
+ *
+ * <p>“看过/完成引导” 标记文件落在工作目录下独立的 {@code ./_gui/} 文件夹，
+ * 遵循 “辅助数据不写入下载根目录” 的约定，仅在整套引导真正完成时写入。</p>
+ *
+ * <p>注意：该标记与 “首次安装是否完成”（{@code setup_config.json} 中的
+ * {@code setupComplete}）是两套独立存储。引导能完成的前提是 setup 已完成，
+ * 故判断 “是否还要停留在首页” 必须同时看 setup 状态——否则一个残留的旧标记
+ * 会让未配置的用户被错误地带到「状态」页。</p>
+ */
+@Slf4j
+public final class OnboardingState {
+
+    private static final Path FLAG_FILE = Path.of("_gui", "onboarding-seen");
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private OnboardingState() {
+    }
+
+    public static boolean isSeen() {
+        return Files.exists(FLAG_FILE);
+    }
+
+    /**
+     * 引导是否真正全部完成：首次安装已完成（setup_config.json.setupComplete）
+     * 且引导标记已写入。两者缺一不可。
+     */
+    public static boolean isComplete(String rootFolder) {
+        return isSeen() && isSetupComplete(rootFolder);
+    }
+
+    /** 读取 {@code setup_config.json} 判断首次安装是否完成；读不到一律视为未完成。 */
+    public static boolean isSetupComplete(String rootFolder) {
+        Path path = RuntimeFiles.resolveSetupConfigPath(rootFolder);
+        if (!Files.exists(path)) {
+            return false;
+        }
+        try {
+            SetupConfig config = MAPPER.readValue(path.toFile(), SetupConfig.class);
+            return config.isSetupComplete();
+        } catch (Exception e) {
+            log.debug("Failed to read setup_config.json: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /** 清除引导标记（用于发现残留的无效旧标记时复位）。 */
+    public static void clear() {
+        try {
+            Files.deleteIfExists(FLAG_FILE);
+        } catch (Exception e) {
+            log.debug("Failed to clear onboarding flag: {}", e.getMessage());
+        }
+    }
+
+    public static void markSeen() {
+        if (Files.exists(FLAG_FILE)) {
+            return;
+        }
+        try {
+            Files.createDirectories(FLAG_FILE.getParent());
+            Files.writeString(FLAG_FILE, "1");
+        } catch (Exception e) {
+            // 写失败仅意味着下次仍会自动展示引导，不影响功能
+            log.debug("Failed to persist onboarding flag: {}", e.getMessage());
+        }
+    }
+}

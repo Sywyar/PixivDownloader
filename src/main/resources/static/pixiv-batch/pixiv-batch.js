@@ -145,7 +145,7 @@
     }
 
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: ['batch', 'common', 'novel']});
+        pageI18n = await PixivI18n.create({namespaces: ['batch', 'common', 'novel', 'tour']});
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
@@ -169,6 +169,7 @@
                 if (_userscriptsLoaded) {
                     loadUserscripts();
                 }
+                setupTour(false);
             }
         });
         PixivTheme.mount({
@@ -176,6 +177,29 @@
             variant: 'green'
         });
         applyStaticPageTranslations();
+    }
+
+    // 首次进入下载页时自动展示操作指引；语言切换时刷新文案。
+    function setupTour(auto) {
+        if (typeof PixivTour === 'undefined') {
+            return;
+        }
+        PixivTour.init({
+            pageKey: 'batch',
+            i18n: pageI18n,
+            auto: auto,
+            steps: [
+                {target: '#cookie-input', titleKey: 'tour:batch.cookie.title', bodyKey: 'tour:batch.cookie.body'},
+                {target: '.tabs', titleKey: 'tour:batch.mode.title', bodyKey: 'tour:batch.mode.body'},
+                {target: '#btn-start', titleKey: 'tour:batch.start.title', bodyKey: 'tour:batch.start.body'},
+                {target: '#status-bar', titleKey: 'tour:batch.queue.title', bodyKey: 'tour:batch.queue.body'},
+                {
+                    target: 'a.app-nav-link[href*="pixiv-gallery"]',
+                    titleKey: 'tour:batch.gallery.title',
+                    bodyKey: 'tour:batch.gallery.body'
+                }
+            ]
+        });
     }
 
     function uiAlertKey(key, fallback, vars) {
@@ -4419,6 +4443,7 @@
     document.addEventListener('DOMContentLoaded', async () => {
         await initPageI18n();
         init();
+        setupTour(true);
     });
 
     /* ============================================================
