@@ -4,8 +4,11 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.text.InternationalFormatter;
 import java.awt.*;
 import java.io.File;
+import java.text.NumberFormat;
+import java.text.Format;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -55,6 +58,14 @@ public final class FieldRenderer {
         sp.setPreferredSize(new Dimension(120, sp.getPreferredSize().height));
         if (sp.getEditor() instanceof JSpinner.DefaultEditor de) {
             de.getTextField().setHorizontalAlignment(JTextField.LEFT);
+            JFormattedTextField.AbstractFormatter formatter = de.getTextField().getFormatter();
+            if (formatter instanceof InternationalFormatter intlFmt) {
+                Format fmt = intlFmt.getFormat();
+                if (fmt instanceof NumberFormat nf) {
+                    nf.setGroupingUsed(false);
+                    de.getTextField().setValue(sp.getValue());
+                }
+            }
         }
         JPanel p = fieldPanel(spec, sp);
         return new RenderedField(p,

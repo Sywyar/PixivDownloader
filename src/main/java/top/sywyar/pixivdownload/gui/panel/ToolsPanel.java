@@ -16,10 +16,13 @@ import top.sywyar.pixivdownload.tools.FolderChecker;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
+import javax.swing.text.InternationalFormatter;
 import java.awt.*;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.Format;
+import java.text.NumberFormat;
 
 /**
  * Tool shortcuts exposed from the main Swing GUI.
@@ -934,6 +937,14 @@ public class ToolsPanel extends JPanel {
     private static void leftAlignSpinnerText(JSpinner spinner) {
         if (spinner.getEditor() instanceof JSpinner.DefaultEditor editor) {
             editor.getTextField().setHorizontalAlignment(JTextField.LEFT);
+            JFormattedTextField.AbstractFormatter formatter = editor.getTextField().getFormatter();
+            if (formatter instanceof InternationalFormatter intlFmt) {
+                Format fmt = intlFmt.getFormat();
+                if (fmt instanceof NumberFormat nf) {
+                    nf.setGroupingUsed(false);
+                    editor.getTextField().setValue(spinner.getValue());
+                }
+            }
         }
     }
 
