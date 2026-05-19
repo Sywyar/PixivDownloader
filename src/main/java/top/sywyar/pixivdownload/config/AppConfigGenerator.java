@@ -226,6 +226,9 @@ public class AppConfigGenerator {
         appendSetting(config, locale,
                 "update.manifest-url: " + top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_MANIFEST_URL,
                 "config.template.update.manifest-url.comment");
+        appendSetting(config, locale,
+                "update.nightly-manifest-url: " + top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL,
+                "config.template.update.nightly-manifest-url.comment");
         appendSetting(config, locale, "update.auto-check: true", "config.template.update.auto-check.comment");
 
         return config.toString();

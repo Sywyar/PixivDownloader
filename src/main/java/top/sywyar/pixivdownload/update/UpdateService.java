@@ -154,7 +154,37 @@ public class UpdateService {
             if (manifest == null || manifest.getLatestVersion() == null) {
                 throw new IllegalStateException(forLog("update.error.manifest.invalid", "empty"));
             }
-            return handleManifest(currentVersion, manifest);
+            UpdateCheckResult officialResult = handleManifest(currentVersion, manifest, false);
+
+            UpdateCheckResult chosen = officialResult;
+
+            if (isNightlyVersion(currentVersion) && !officialResult.isUpdateAvailable()) {
+                String nightlyUrl = updateConfig.getNightlyManifestUrl();
+                if (nightlyUrl != null && !nightlyUrl.isBlank()) {
+                    try {
+                        UpdateManifest nightlyManifest = fetchManifest(nightlyUrl);
+                        if (nightlyManifest != null && nightlyManifest.getLatestVersion() != null) {
+                            UpdateCheckResult nightlyResult = handleManifest(currentVersion, nightlyManifest, true);
+                            if (nightlyResult.isUpdateAvailable()
+                                    && nightlyResult.getReleaseNotes() != null
+                                    && !nightlyResult.getReleaseNotes().isBlank()) {
+                                chosen = nightlyResult;
+                                log.info(forLog("update.log.check.nightly-available",
+                                        currentVersion, nightlyResult.getLatestVersion()));
+                            } else if (nightlyResult.isUpdateAvailable()) {
+                                log.info(forLog("update.log.check.nightly-empty-notes",
+                                        nightlyResult.getLatestVersion()));
+                            }
+                        }
+                    } catch (RestClientException | IOException | IllegalStateException e) {
+                        log.warn(forLog("update.log.check.nightly-failed", e.getMessage()));
+                    }
+                }
+            }
+
+            lastResult = chosen;
+            lastSuccessfulCheckAt = chosen.getCheckedAt();
+            return chosen;
         } catch (RestClientException | IOException | IllegalStateException e) {
             log.warn(forLog("update.log.check.failed", e.getMessage()));
             UpdateCheckResult failed = UpdateCheckResult.builder()
@@ -268,7 +298,7 @@ public class UpdateService {
         return last.plus(AUTO_CHECK_MIN_INTERVAL_MS, ChronoUnit.MILLIS).isBefore(Instant.now());
     }
 
-    private UpdateCheckResult handleManifest(String currentVersion, UpdateManifest manifest) {
+    private UpdateCheckResult handleManifest(String currentVersion, UpdateManifest manifest, boolean nightly) {
         String latest = manifest.getLatestVersion().trim();
         String platformKey = currentPlatformAssetKey();
         UpdateManifest.Asset asset = platformKey == null
@@ -287,7 +317,7 @@ public class UpdateService {
             log.info(forLog("update.log.check.up-to-date", currentVersion));
         }
 
-        UpdateCheckResult result = UpdateCheckResult.builder()
+        return UpdateCheckResult.builder()
                 .enabled(true)
                 .checkSucceeded(true)
                 .updateAvailable(updateAvailable)
@@ -301,10 +331,8 @@ public class UpdateService {
                 .assetSha256(asset == null ? null : asset.getSha256())
                 .assetSizeBytes(asset == null ? 0L : asset.getSizeBytes())
                 .checkedAt(Instant.now())
+                .nightly(nightly)
                 .build();
-        lastResult = result;
-        lastSuccessfulCheckAt = result.getCheckedAt();
-        return result;
     }
 
     private static UpdateManifest.Asset pickAsset(Map<String, UpdateManifest.Asset> assets, String key) {
@@ -495,5 +523,9 @@ public class UpdateService {
 
     private String forLog(String code, Object... args) {
         return messages.getForLog(code, args);
+    }
+
+    private static boolean isNightlyVersion(String version) {
+        return version != null && version.toLowerCase(Locale.ROOT).contains("nightly");
     }
 }

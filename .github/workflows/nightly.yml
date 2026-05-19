@@ -1,0 +1,302 @@
+name: Nightly Build
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-jar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Fix Git UTF-8 filenames
+        run: git config --global core.quotepath false
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Resolve next version
+        id: vars
+        shell: bash
+        run: |
+          LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+          LATEST_VERSION="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+          NEXT_PATCH=$((PATCH + 1))
+          NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          NIGHTLY_VERSION="${NEXT_VERSION}-nightly.$(date +%Y%m%d)"
+          echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build JAR
+        run: mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
+
+      - name: Rename JAR
+        run: |
+          mv target/PixivDownload-*.jar target/PixivDownload-${{ steps.vars.outputs.version }}.jar
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar
+          path: target/PixivDownload-*.jar
+
+      - name: Stage release userscripts
+        shell: bash
+        run: |
+          mkdir -p build/release-userscripts
+          cp "build/generated-userscripts/Pixiv All-in-One.user.js" build/release-userscripts/
+          cp "Pixiv 单作品图片下载器(Local download).user.js" build/release-userscripts/
+
+      - name: Upload userscript artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: userscripts
+          path: build/release-userscripts/*.user.js
+
+  build-windows-installer:
+    needs: build-jar
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Fix Git UTF-8 filenames
+        run: git config --global core.quotepath false
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Resolve next version
+        id: vars
+        shell: bash
+        run: |
+          LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+          LATEST_VERSION="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+          NEXT_PATCH=$((PATCH + 1))
+          NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          NIGHTLY_VERSION="${NEXT_VERSION}-nightly.$(date +%Y%m%d)"
+          echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jar
+          path: artifacts/jar
+
+      - name: Package Windows setup
+        shell: pwsh
+        run: |
+          $version = '${{ steps.vars.outputs.version }}'
+          $jar = Get-ChildItem artifacts/jar/PixivDownload-*.jar -File | Select-Object -First 1
+          if (-not $jar) {
+            throw "Could not find downloaded JAR artifact under artifacts/jar"
+          }
+          ./scripts/package-local.ps1 `
+            -Version $version `
+            -PrebuiltJar $jar.FullName `
+            -SkipPortable `
+            -SkipOfflinePortable
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: build/out/*-setup.exe
+
+  release-nightly:
+    needs: [build-jar, build-windows-installer]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jar
+          path: artifacts/
+
+      - name: Download Windows installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: artifacts/
+
+      - name: Download userscript artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: userscripts
+          path: artifacts/userscripts
+
+      - name: Resolve version and date
+        id: vars
+        shell: bash
+        run: |
+          LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+          LATEST_VERSION="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+          NEXT_PATCH=$((PATCH + 1))
+          NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          NIGHTLY_VERSION="${NEXT_VERSION}-nightly.$(date +%Y%m%d)"
+          echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
+      - name: Diff changelog since last nightly
+        id: changelog
+        shell: bash
+        run: |
+          git fetch --tags origin 2>/dev/null || true
+
+          if git rev-parse --verify nightly^{commit} >/dev/null 2>&1; then
+            # nightly tag exists: diff CHANGELOG.md between last nightly and HEAD
+            git diff nightly -- CHANGELOG.md | grep '^\+' | grep -v '^+++' | sed 's/^\+//' > CHANGELOG_DIFF.md
+          else
+            # First nightly build: fall back to full [Unreleased] section
+            awk '
+              /^## \[Unreleased\]/ { found=1; next }
+              /^## \[/ { if (found) exit }
+              found { print }
+            ' CHANGELOG.md > CHANGELOG_DIFF.md
+          fi
+
+          if [ -s CHANGELOG_DIFF.md ]; then
+            echo "has_notes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_notes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate update.json
+        shell: bash
+        env:
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          INSTALLER=$(ls artifacts/*-win-x64-setup.exe 2>/dev/null | head -n1 || true)
+          if [ -z "$INSTALLER" ]; then
+            echo "No installer artifact found for update manifest" >&2
+            exit 1
+          fi
+
+          FILENAME=$(basename "$INSTALLER")
+          SHA256=$(sha256sum "$INSTALLER" | awk '{print $1}')
+          SIZE=$(stat -c%s "$INSTALLER")
+          LATEST_VERSION="${{ steps.vars.outputs.version }}"
+          RELEASE_DATE=$(date -u +%Y-%m-%d)
+          ASSET_URL="https://github.com/${GH_REPOSITORY}/releases/download/nightly/${FILENAME}"
+          NOTES_URL="https://github.com/${GH_REPOSITORY}/releases/tag/nightly"
+
+          jq -n \
+            --arg latestVersion "$LATEST_VERSION" \
+            --arg releaseDate "$RELEASE_DATE" \
+            --rawfile releaseNotes CHANGELOG_DIFF.md \
+            --arg releaseNotesUrl "$NOTES_URL" \
+            --arg assetUrl "$ASSET_URL" \
+            --arg assetSha256 "$SHA256" \
+            --argjson assetSize "$SIZE" \
+            '{
+              latestVersion: $latestVersion,
+              releaseDate: $releaseDate,
+              releaseNotes: $releaseNotes,
+              releaseNotesUrl: $releaseNotesUrl,
+              assets: {
+                "win-x64-installer": {
+                  url: $assetUrl,
+                  sha256: $assetSha256,
+                  sizeBytes: $assetSize
+                }
+              }
+            }' > artifacts/update.json
+
+          echo "Generated update.json:"
+          cat artifacts/update.json
+
+      - name: Build release body
+        shell: bash
+        run: |
+          cat > RELEASE_BODY.md <<'EOF'
+          > ⚠️ 这是自动构建的每夜版，可能包含未测试的功能和 bug。
+          > This is an automated nightly build. It may contain untested features and bugs.
+
+          **构建日期 / Build Date:** ${{ steps.vars.outputs.date }}
+          **Commit:** [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+
+          ## 使用说明 / Usage
+
+          ### Windows 安装器
+          下载 `PixivDownload-*-win-x64-setup.exe` 并运行。
+
+          ### JAR 包（跨平台）
+          需要 Java 17+：
+          ```
+          java -jar PixivDownload-*.jar
+          ```
+          EOF
+
+          if [ "${{ steps.changelog.outputs.has_notes }}" = "true" ]; then
+            echo "" >> RELEASE_BODY.md
+            echo "## 本日变更 / Today's Changes" >> RELEASE_BODY.md
+            echo "" >> RELEASE_BODY.md
+            cat CHANGELOG_DIFF.md >> RELEASE_BODY.md
+          fi
+
+      - name: Update nightly tag
+        shell: bash
+        run: |
+          git tag -f nightly
+          git push -f origin nightly
+
+      - name: Create/Update Nightly Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: "Nightly Build ${{ steps.vars.outputs.version }}"
+          body_path: RELEASE_BODY.md
+          prerelease: true
+          files: |
+            artifacts/PixivDownload-*.jar
+            artifacts/*-setup.exe
+            artifacts/userscripts/*.user.js
+            artifacts/update.json

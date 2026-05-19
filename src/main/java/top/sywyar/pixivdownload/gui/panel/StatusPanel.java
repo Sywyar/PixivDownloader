@@ -97,6 +97,8 @@ public class StatusPanel extends JPanel {
     private JPanel updateProgressPanel;
     private volatile String pendingInstallerUrl;
     private volatile long pendingInstallerSize;
+    private volatile String pendingReleaseNotes;
+    private volatile boolean pendingIsNightly;
     private volatile String savedBannerVersionText;
     private volatile Timer downloadProgressTimer;
     private LocaleOption currentAppliedLanguageOption;
@@ -1029,14 +1031,22 @@ public class StatusPanel extends JPanel {
             updateBanner.setVisible(false);
             pendingInstallerUrl = null;
             pendingInstallerSize = 0L;
+            pendingReleaseNotes = null;
+            pendingIsNightly = false;
             return;
         }
         String latest = node.path("latestVersion").asText("");
         String current = node.path("currentVersion").asText("");
         pendingInstallerUrl = node.path("assetUrl").asText(null);
         pendingInstallerSize = node.path("assetSizeBytes").asLong(0L);
+        pendingReleaseNotes = node.path("releaseNotes").asText(null);
+        pendingIsNightly = node.path("nightly").asBoolean(false);
 
-        updateBannerLabel.setText(message("gui.update.banner.text", current, latest));
+        if (pendingIsNightly) {
+            updateBannerLabel.setText(message("gui.update.banner.nightly-text", current, latest));
+        } else {
+            updateBannerLabel.setText(message("gui.update.banner.text", current, latest));
+        }
         updateBanner.setVisible(true);
         updateBanner.revalidate();
         updateBanner.repaint();
@@ -1047,8 +1057,16 @@ public class StatusPanel extends JPanel {
             return;
         }
         String latest = extractFromBanner();
+        String confirmMessage;
+        if (pendingIsNightly && pendingReleaseNotes != null && !pendingReleaseNotes.isBlank()) {
+            confirmMessage = message("gui.update.dialog.install.confirm.nightly-message",
+                    latest, formatSize(pendingInstallerSize), pendingReleaseNotes);
+        } else {
+            confirmMessage = message("gui.update.dialog.install.confirm.message",
+                    latest, formatSize(pendingInstallerSize));
+        }
         int confirm = JOptionPane.showConfirmDialog(this,
-                message("gui.update.dialog.install.confirm.message", latest, formatSize(pendingInstallerSize)),
+                confirmMessage,
                 message("gui.update.dialog.install.title"), JOptionPane.YES_NO_OPTION);
         if (confirm != JOptionPane.YES_OPTION) {
             return;

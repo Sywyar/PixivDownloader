@@ -32,6 +32,8 @@ public class UpdateCheckResult {
     private String assetPlatform;
     /** 检查发生时间（epoch 毫秒）。 */
     private Instant checkedAt;
+    /** 是否为每夜版更新（而非正式发布）。 */
+    private boolean nightly;
     /** 检查失败时的人类可读信息（成功时为空）。 */
     private String error;
 }

@@ -302,6 +302,13 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
+                ConfigFieldSpec.builder("update.nightly-manifest-url", message("gui.config.field.update.nightly-manifest-url.label"), STRING, groupUpdate)
+                        .defaultValue(UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL)
+                        .help(message("gui.config.field.update.nightly-manifest-url.help"))
+                        .enabledWhen(snap -> snap.isTrue("update.enabled"))
+                        .hotReloadable()
+                        .build(),
+
                 ConfigFieldSpec.builder("update.auto-check", message("gui.config.field.update.auto-check.label"), BOOL, groupUpdate)
                         .defaultValue("true")
                         .help(message("gui.config.field.update.auto-check.help"))
