@@ -25,5 +25,6 @@ public class NovelSearchResponse {
         private final String userName;
         private final String coverUrl;
         private final boolean isOriginal;
+        private final List<String> tags;
     }
 }

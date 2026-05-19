@@ -971,27 +971,33 @@
             margin-top: 10px;
         }
 
-        .search-fill-row {
-            display: flex;
+        /* 搜索模式 / 作品批量获取模式 子模式切换：复用 .kind-switcher 外观，活动色用蓝色区分 */
+        .submode-switcher label.active {
+            background: #1a73e8;
+            color: #fff;
+        }
+
+        .search-action-group {
+            display: inline-flex;
             align-items: center;
             gap: 8px;
             flex-wrap: wrap;
-            margin-bottom: 12px;
-            font-size: 13px;
         }
 
-        .search-fill-row input[type=number] {
-            width: 88px;
+        .batch-range-label {
+            font-size: 13px;
+            color: var(--muted, #555);
+            font-weight: 600;
+        }
+
+        .batch-range-input {
+            width: 72px;
             padding: 6px 8px;
-            border: 1px solid #ddd;
+            border: 1px solid var(--line-strong, #ddd);
             border-radius: 5px;
             font-size: 13px;
-            background: white;
-        }
-
-        .search-fill-label {
-            color: #555;
-            font-weight: bold;
+            background: var(--control-bg, #fff);
+            color: var(--text, inherit);
         }
 
         .search-fill-warning {
@@ -1392,7 +1398,7 @@
         html[data-theme="dark"] .search-filter-row span,
         html[data-theme="dark"] .search-extra-title,
         html[data-theme="dark"] .search-extra-item label,
-        html[data-theme="dark"] .search-fill-label {
+        html[data-theme="dark"] .batch-range-label {
             color: var(--heading);
         }
 

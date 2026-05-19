@@ -27,5 +27,6 @@ public class SearchResponse {
         private final int pageCount;
         private final String userId;
         private final String userName;
+        private final List<String> tags;
     }
 }

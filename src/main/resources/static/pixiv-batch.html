@@ -130,11 +130,37 @@
                 <span data-i18n="novel:batch.search.kind-novel">小说</span>
             </label>
         </div>
+        <div class="kind-switcher submode-switcher" id="search-submode-switcher" role="radiogroup">
+            <label class="active" data-submode="search">
+                <input type="radio" name="search-submode" value="search" checked>
+                <span data-i18n="search.submode.search">🔍 搜索模式</span>
+            </label>
+            <label data-submode="batch">
+                <input type="radio" name="search-submode" value="batch">
+                <span data-i18n="search.submode.batch">📦 作品批量获取模式</span>
+            </label>
+        </div>
         <div class="search-controls">
             <input type="text" id="search-word" data-i18n-placeholder="input.search-word.placeholder" placeholder="输入关键词..."
-                   onkeydown="if(event.key==='Enter')performSearch(1)">
-            <button class="btn btn-blue" onclick="performSearch(1)" data-i18n="button.search">🔍 搜索</button>
-            <button class="btn btn-green" id="btn-add-all" onclick="addAllSearchResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
+                   onkeydown="if(event.key==='Enter')handleSearchEnter()">
+            <span id="search-mode-actions" class="search-action-group">
+                <button class="btn btn-blue" onclick="performSearch(1)" data-i18n="button.search">🔍 搜索</button>
+                <button class="btn btn-green" id="btn-add-all" onclick="addAllSearchResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
+            </span>
+            <span id="batch-mode-actions" class="search-action-group" style="display:none;">
+                <label class="batch-range-label" for="batch-start-page" data-i18n="search.batch.start-page">起始页</label>
+                <input type="number" id="batch-start-page" class="batch-range-input" min="1" step="1" value="1"
+                       onchange="handleBatchRangeChange()">
+                <label class="batch-range-label" for="batch-end-page" data-i18n="search.batch.end-page">结束页</label>
+                <input type="number" id="batch-end-page" class="batch-range-input" min="1" step="1" value="3"
+                       onchange="handleBatchRangeChange()">
+                <span class="search-fill-warning" data-i18n-title="dialog.search-batch-warning"
+                      title="按页码范围抓取 Pixiv 搜索结果并去重，再按 Pixiv 返回顺序本地分页（60/页）。范围过大会导致请求量暴增；solo 模式不限制；multi 模式下每次最多 multi-mode.limit-page 页（管理员不受限）。">⚠</span>
+                <button class="btn btn-yellow" id="btn-batch-fetch" style="color:#333;" onclick="runBatchFetch()" data-i18n="button.batch-fetch">📦 获取</button>
+                <button class="btn btn-cyan" id="btn-batch-add-page" onclick="addCurrentBatchPageToQueue()" disabled data-i18n="button.batch-add-page">将此页内容加入队列</button>
+                <button class="btn btn-green" id="btn-batch-add-all" onclick="addAllSearchResultsToQueue()" disabled data-i18n="button.batch-add-all">➕ 将全部结果加入队列</button>
+                <span class="search-fill-note" id="batch-limit-note"></span>
+            </span>
         </div>
         <div class="search-filter-row">
             <span data-i18n="label.search-content">内容:</span>
@@ -166,6 +192,16 @@
                         <option value="exclude" data-i18n="search.filter.exclude-ai">排除 AI</option>
                         <option value="only" data-i18n="search.filter.only-ai">仅 AI</option>
                     </select>
+                </div>
+                <div class="search-extra-item">
+                    <label for="search-tags-exact" data-i18n="label.search-tags-exact">标签(精确匹配)</label>
+                    <input type="text" id="search-tags-exact" data-i18n-placeholder="search.tags.placeholder"
+                           placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
+                </div>
+                <div class="search-extra-item">
+                    <label for="search-tags-fuzzy" data-i18n="label.search-tags-fuzzy">标签(模糊匹配)</label>
+                    <input type="text" id="search-tags-fuzzy" data-i18n-placeholder="search.tags.placeholder"
+                           placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
                 </div>
                 <div class="search-extra-item search-illust-only">
                     <label for="search-type-filter" data-i18n="label.search-type">作品类型</label>
@@ -214,19 +250,6 @@
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
             <input type="checkbox" id="search-blur-r18" onchange="toggleBlurR18()">
             <label for="search-blur-r18" style="cursor:pointer;color:#d63384;" data-i18n="search.blur-r18">模糊 R18 缩略图（悬停查看）</label>
-        </div>
-        <!-- TODO: 向后补充功能暂时隐藏，等待后续决策后恢复。
-             恢复方法：删除此注释包裹，将下方 div 重新显示即可。
-             同时需恢复后端 GET /api/pixiv/search/fill 端点（PixivProxyController.java），
-             搜索 "TODO: 向后补充" 定位两处注释。 -->
-        <div class="search-fill-row" style="display:none;">
-            <span class="search-fill-label" data-i18n="label.search-fill">向后补充</span>
-            <input type="number" id="search-fill-pages" min="1" step="1" value="3" onchange="handleSearchFillInputChange()">
-            <span data-i18n="search.page-unit">页</span>
-            <span class="search-fill-warning" data-i18n-title="dialog.search-fill-warning"
-                  title="每次点击补充，会在上次已加载的页面之后继续向后获取 N 页并追加到当前结果中，可多次点击叠加。过大的 N 会导致请求量暴增；solo 模式下 N 不受限制；multi 模式下每次最多 multi-mode.limit-page 页（管理员不受限）。">⚠</span>
-            <button class="btn btn-yellow" id="btn-search-fill" style="padding:6px 12px;color:#333;" onclick="fillSearchResults()" disabled data-i18n="button.search-fill">补充</button>
-            <span class="search-fill-note" id="search-fill-note" data-i18n="search.fill.note.solo">solo 模式：不限制</span>
         </div>
         <div id="search-results-area">
             <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.search-empty">输入关键词后点击搜索；未保存 Cookie 时搜索结果可能减少</div>

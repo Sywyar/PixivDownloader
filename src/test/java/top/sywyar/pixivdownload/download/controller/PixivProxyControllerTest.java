@@ -89,7 +89,8 @@ class PixivProxyControllerTest {
                           "url": "https://i.pximg.net/c/250x250_80_a2/img-master/img/2024/01/01/00/00/00/123456_p0_master1200.jpg",
                           "pageCount": 3,
                           "userId": "9999",
-                          "userName": "TestArtist"
+                          "userName": "TestArtist",
+                          "tags": ["初音ミク", "VOCALOID"]
                         }
                       ],
                       "total": 12345
@@ -119,7 +120,10 @@ class PixivProxyControllerTest {
                     .andExpect(jsonPath("$.items[0].aiType").value(2))
                     .andExpect(jsonPath("$.items[0].pageCount").value(3))
                     .andExpect(jsonPath("$.items[0].userId").value("9999"))
-                    .andExpect(jsonPath("$.items[0].userName").value("TestArtist"));
+                    .andExpect(jsonPath("$.items[0].userName").value("TestArtist"))
+                    .andExpect(jsonPath("$.items[0].tags", hasSize(2)))
+                    .andExpect(jsonPath("$.items[0].tags[0]").value("初音ミク"))
+                    .andExpect(jsonPath("$.items[0].tags[1]").value("VOCALOID"));
         }
 
         @Test
@@ -309,26 +313,76 @@ class PixivProxyControllerTest {
         }
     }
 
-    // ========== GET /api/pixiv/search/fill ==========
+    // ========== GET /api/pixiv/search/range ==========
 
     @Nested
-    @DisplayName("GET /api/pixiv/search/fill")
-    class SearchFillTests {
+    @DisplayName("GET /api/pixiv/search/range")
+    class SearchRangeTests {
+
+        @BeforeEach
+        void setUpSoloMode() {
+            when(setupService.getMode()).thenReturn("solo");
+        }
+
+        private static final String PIXIV_SEARCH_RESPONSE = """
+                {
+                  "error": false,
+                  "body": {
+                    "illustManga": {
+                      "data": [
+                        {
+                          "id": "123456",
+                          "title": "Test Artwork",
+                          "illustType": 0,
+                          "xRestrict": 0,
+                          "aiType": 0,
+                          "url": "https://i.pximg.net/x.jpg",
+                          "pageCount": 1,
+                          "userId": "9999",
+                          "userName": "TestArtist",
+                          "tags": ["TagA"]
+                        }
+                      ],
+                      "total": 12345
+                    }
+                  }
+                }
+                """;
 
         @Test
-        @DisplayName("当前 SEARCH_FILL_DISABLED=true 时应直接返回 503")
-        void shouldReturn503BecauseFeatureIsDisabled() throws Exception {
-            mockMvc.perform(get("/api/pixiv/search/fill")
+        @DisplayName("按页码范围抓取并跨页去重，solo 模式不限页数")
+        void shouldFetchRangeAndDedupe() throws Exception {
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(String.class)))
+                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE));
+
+            mockMvc.perform(get("/api/pixiv/search/range")
+                            .param("word", "初音ミク")
+                            .param("startPage", "1")
+                            .param("endPage", "2"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.total").value(12345))
+                    .andExpect(jsonPath("$.startPage").value(1))
+                    .andExpect(jsonPath("$.endPage").value(2))
+                    .andExpect(jsonPath("$.requestedPages").value(2))
+                    .andExpect(jsonPath("$.fetchedPages").value(2))
+                    .andExpect(jsonPath("$.limitPage").value(0))
+                    // 两页相同 id 去重后只剩 1 个
+                    .andExpect(jsonPath("$.items", hasSize(1)))
+                    .andExpect(jsonPath("$.items[0].id").value("123456"))
+                    .andExpect(jsonPath("$.items[0].tags[0]").value("TagA"));
+        }
+
+        @Test
+        @DisplayName("startPage / endPage < 1 应返回 400")
+        void shouldRejectInvalidRange() throws Exception {
+            mockMvc.perform(get("/api/pixiv/search/range")
                             .param("word", "src/main/test")
-                            .param("page", "1")
-                            .param("extraPages", "2"))
-                    .andExpect(status().isServiceUnavailable())
-                    // 文案随 locale 变化，仅断言非空错误描述存在
+                            .param("startPage", "0")
+                            .param("endPage", "0"))
+                    .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").isNotEmpty());
 
-            // 拦在 SEARCH_FILL_DISABLED 之前，未走多人模式校验，也不应触达 RestTemplate
             verifyNoInteractions(restTemplate);
-            verify(userQuotaService, never()).checkAndReserveProxy(any());
         }
     }
 

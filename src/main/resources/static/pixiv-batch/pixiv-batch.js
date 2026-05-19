@@ -164,7 +164,7 @@
                     renderSeriesResults();
                     renderSeriesPagination();
                 }
-                updateSearchFillUI();
+                updateBatchLimitNote();
                 await refreshBatchCollections();
                 if (_userscriptsLoaded) {
                     loadUserscripts();
@@ -2745,6 +2745,9 @@
     /* ============================================================
        搜索模式
     ============================================================ */
+    // 本地批量获取分页：每页固定 60 个（与 Pixiv 插画搜索一致）
+    const BATCH_PER_PAGE = 60;
+
     function defaultSearchFilters() {
         return {
             ai: 'all',
@@ -2754,8 +2757,27 @@
             bookmarkMin: null,
             bookmarkMax: null,
             wordsMin: null,
-            wordsMax: null
+            wordsMax: null,
+            tagsExact: [],
+            tagsFuzzy: []
         };
+    }
+
+    // 标签输入：逗号（半/全角）分隔，去空白去重；不按空格切分（标签本身可能含空格）
+    function parseTagTerms(value) {
+        if (Array.isArray(value)) {
+            value = value.join(',');
+        }
+        const seen = new Set();
+        const out = [];
+        String(value || '').split(/[,，]/).forEach(raw => {
+            const t = raw.trim();
+            if (t && !seen.has(t.toLowerCase())) {
+                seen.add(t.toLowerCase());
+                out.push(t);
+            }
+        });
+        return out;
     }
 
     let searchState = {
@@ -2763,7 +2785,9 @@
         results: [],
         total: 0,
         currentPage: 1,
-        lastFetchedPage: 1,  // 记录已加载到第几页，fill 从此页之后继续
+        submode: 'search',  // 'search'=搜索模式 | 'batch'=作品批量获取模式
+        localPage: 1,       // 批量获取模式下的本地分页页码
+        batchInfo: null,    // 最近一次批量获取的元信息（范围/限额）
         currentWord: '',
         currentMode: 'all',
         currentOrder: 'date_d',
@@ -2803,6 +2827,8 @@
         out.bookmarkMax = parseSearchFilterNumber(filters?.bookmarkMax, 0);
         out.wordsMin = parseSearchFilterNumber(filters?.wordsMin, 0);
         out.wordsMax = parseSearchFilterNumber(filters?.wordsMax, 0);
+        out.tagsExact = parseTagTerms(filters?.tagsExact);
+        out.tagsFuzzy = parseTagTerms(filters?.tagsFuzzy);
         if (out.pageMin !== null && out.pageMax !== null && out.pageMin > out.pageMax) {
             [out.pageMin, out.pageMax] = [out.pageMax, out.pageMin];
         }
@@ -2826,6 +2852,10 @@
         if (wMin) wMin.value = filters.wordsMin ?? '';
         const wMax = document.getElementById('search-words-max');
         if (wMax) wMax.value = filters.wordsMax ?? '';
+        const tEx = document.getElementById('search-tags-exact');
+        if (tEx) tEx.value = (filters.tagsExact || []).join(', ');
+        const tFz = document.getElementById('search-tags-fuzzy');
+        if (tFz) tFz.value = (filters.tagsFuzzy || []).join(', ');
     }
 
     function getSearchFiltersFromUI() {
@@ -2839,7 +2869,9 @@
             bookmarkMin: document.getElementById('search-bookmarks-min').value,
             bookmarkMax: document.getElementById('search-bookmarks-max').value,
             wordsMin: wMin ? wMin.value : null,
-            wordsMax: wMax ? wMax.value : null
+            wordsMax: wMax ? wMax.value : null,
+            tagsExact: (document.getElementById('search-tags-exact') || {}).value || '',
+            tagsFuzzy: (document.getElementById('search-tags-fuzzy') || {}).value || ''
         });
     }
 
@@ -2852,7 +2884,9 @@
             bookmarkMin: filters.bookmarkMin,
             bookmarkMax: filters.bookmarkMax,
             wordsMin: filters.wordsMin,
-            wordsMax: filters.wordsMax
+            wordsMax: filters.wordsMax,
+            tagsExact: filters.tagsExact,
+            tagsFuzzy: filters.tagsFuzzy
         }));
     }
 
@@ -2881,7 +2915,27 @@
             || filters.pageMax !== null
             || filters.wordsMin !== null
             || filters.wordsMax !== null
+            || (filters.tagsExact && filters.tagsExact.length > 0)
+            || (filters.tagsFuzzy && filters.tagsFuzzy.length > 0)
             || hasBookmarkFilter(filters);
+    }
+
+    // 标签筛选：逗号分隔多标签全部命中(AND)；精确=与某个作品标签完全相等，
+    // 模糊=被某个作品标签包含；两框都填则两者都需满足(AND)。大小写不敏感。
+    function matchTagFilters(item, filters) {
+        const exact = filters.tagsExact || [];
+        const fuzzy = filters.tagsFuzzy || [];
+        if (!exact.length && !fuzzy.length) return true;
+        const tags = (item.tags || []).map(t => String(t).toLowerCase());
+        for (const term of exact) {
+            const t = term.toLowerCase();
+            if (!tags.some(x => x === t)) return false;
+        }
+        for (const term of fuzzy) {
+            const t = term.toLowerCase();
+            if (!tags.some(x => x.includes(t))) return false;
+        }
+        return true;
     }
 
     function getCachedSearchMeta(artworkId) {
@@ -2940,6 +2994,8 @@
         const aiType = Number(item.aiType ?? 0);
         if (filters.ai === 'exclude' && aiType >= 2) return false;
         if (filters.ai === 'only' && aiType < 2) return false;
+
+        if (!matchTagFilters(item, filters)) return false;
 
         if (searchState.kind === 'novel') {
             const wc = Number(item.wordCount ?? 0);
@@ -3007,13 +3063,22 @@
         searchState.results = filtered;
         searchState.filterSummary = stats;
 
+        if (searchState.submode === 'batch') {
+            const totalPages = batchLocalPageCount();
+            if (searchState.localPage > totalPages) searchState.localPage = totalPages;
+            if (searchState.localPage < 1) searchState.localPage = 1;
+        }
+
         renderSearchResults();
         renderSearchPagination();
         document.getElementById('btn-add-all').disabled = searchState.results.length === 0;
+        updateBatchQueueButtons();
 
         if (options.setStatus && searchState.currentWord) {
             const prefix = options.statusPrefix || bt('status.search-filters-applied', '已应用筛选：');
-            const parts = [bt('search.summary.current-page', '当前页 {count} 个', {count: stats.rawCount})];
+            const parts = [searchState.submode === 'batch'
+                ? bt('search.batch.summary.fetched', '已抓取去重 {count} 个', {count: stats.rawCount})
+                : bt('search.summary.current-page', '当前页 {count} 个', {count: stats.rawCount})];
             if (hasExtraSearchFilter(filters)) {
                 parts.push(bt('search.summary.filtered-count', '筛选后 {count} 个', {count: stats.filteredCount}));
                 if (stats.bookmarkMetaMissing > 0) {
@@ -3038,6 +3103,7 @@
         searchState.currentFilters = filters;
         saveSearchFilterPrefs(filters);
         if (!searchState.currentWord) return;
+        if (searchState.submode === 'batch') searchState.localPage = 1;
         await applyCurrentSearchFilters({setStatus: true});
     }
 
@@ -3047,6 +3113,7 @@
         setSearchFiltersUI(filters);
         saveSearchFilterPrefs(filters);
         if (!searchState.currentWord) return;
+        if (searchState.submode === 'batch') searchState.localPage = 1;
         await applyCurrentSearchFilters({setStatus: true});
     }
 
@@ -3084,14 +3151,14 @@
         searchState.currentOrder = order;
         searchState.currentSMode = sMode;
         searchState.currentPage = page;
-        searchState.lastFetchedPage = page;
+        searchState.submode = 'search';
+        searchState.batchInfo = null;
         searchState.kind = kind;
 
         document.getElementById('search-results-area').innerHTML =
             `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.searching', '搜索中...'))}</div>`;
         document.getElementById('search-pagination').style.display = 'none';
         document.getElementById('btn-add-all').disabled = true;
-        document.getElementById('btn-search-fill').disabled = true;
 
         try {
             const endpoint = kind === 'novel' ? '/api/pixiv/novel-search' : '/api/pixiv/search';
@@ -3154,11 +3221,32 @@
         } catch (e) {
             document.getElementById('search-results-area').innerHTML =
                 `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.request-failed', '请求失败：{message}', {message: e.message}))}</div>`;
-        } finally {
-            if (searchState.rawResults.length > 0) {
-                document.getElementById('btn-search-fill').disabled = false;
-            }
         }
+    }
+
+    // 批量获取模式下结果可能跨多页：本地按 BATCH_PER_PAGE 分页。
+    // base 为当前视图首项在 searchState.results 中的绝对下标，
+    // 渲染与队列同步统一使用绝对下标，避免索引错位。
+    function batchLocalPageCount() {
+        return Math.max(1, Math.ceil(searchState.results.length / BATCH_PER_PAGE));
+    }
+
+    function getSearchView() {
+        if (searchState.submode !== 'batch') {
+            return {items: searchState.results, base: 0, localPage: 1, localPages: 1};
+        }
+        const localPages = batchLocalPageCount();
+        let localPage = searchState.localPage;
+        if (!Number.isFinite(localPage) || localPage < 1) localPage = 1;
+        if (localPage > localPages) localPage = localPages;
+        searchState.localPage = localPage;
+        const base = (localPage - 1) * BATCH_PER_PAGE;
+        return {
+            items: searchState.results.slice(base, base + BATCH_PER_PAGE),
+            base,
+            localPage,
+            localPages
+        };
     }
 
     function renderSearchResults() {
@@ -3183,17 +3271,20 @@
             area.innerHTML = `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(bt('status.search-no-filtered-results', '附加筛选后无结果'))}<br><span style="font-size:12px;">${tips.map(t => `<span>${esc(t)}</span>`).join(summarySeparator())}</span></div>`;
             return;
         }
+        const view = getSearchView();
         if (searchState.kind === 'novel') {
-            renderNovelSearchResults(area);
+            renderNovelSearchResults(area, view);
             return;
         }
         const inQueue = new Set(state.queue.map(q => q.id));
         const clientModeLabel = getSearchClientModeLabel();
-        const summary = [
-            bt('search.summary.total-results', '共 {count} 个结果', {count: searchState.total.toLocaleString()}),
-            bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
-            bt('search.summary.pixiv-returned', 'Pixiv 返回 {count} 个', {count: searchState.pixivPageCount})
-        ];
+        const summary = searchState.submode === 'batch'
+            ? [batchSummaryText(view)]
+            : [
+                bt('search.summary.total-results', '共 {count} 个结果', {count: searchState.total.toLocaleString()}),
+                bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
+                bt('search.summary.pixiv-returned', 'Pixiv 返回 {count} 个', {count: searchState.pixivPageCount})
+            ];
         if (clientModeLabel) {
             summary.push(bt('search.summary.client-filtered', '{label} 筛后 {count} 个', {
                 label: clientModeLabel,
@@ -3216,7 +3307,8 @@
       ${summary.map(s => `<span>${esc(s)}</span>`).join(summarySeparator())}
     </div>
     <div class="search-grid">
-      ${searchState.results.map((item, idx) => {
+      ${view.items.map((item, i) => {
+            const idx = view.base + i;
             const xr = Number(item.xRestrict ?? 0);
             const illustType = Number(item.illustType ?? 0);
             const isR18 = xr >= 1;
@@ -3244,28 +3336,52 @@
         </div>`;
         }).join('')}
     </div>`;
-        loadThumbnailsBatched(searchState.results);
+        loadThumbnailsBatched(view.items, view.base);
     }
 
-    async function loadThumbnailsBatched(items) {
+    function batchSummaryText(view) {
+        const parts = [
+            bt('search.batch.summary.fetched', '已抓取去重 {count} 个', {count: searchState.rawResults.length})
+        ];
+        if (hasExtraSearchFilter()) {
+            parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
+            if (searchState.filterSummary.bookmarkMetaMissing > 0) {
+                parts.push(bt('search.summary.bookmark-missing', '{count} 个收藏数不可用已排除',
+                    {count: searchState.filterSummary.bookmarkMetaMissing}));
+            }
+        }
+        parts.push(bt('search.batch.summary.local-page', '本地第 {page}/{total} 页',
+            {page: view.localPage, total: view.localPages}));
+        if (searchState.batchInfo) {
+            parts.push(bt('search.batch.summary.range', '范围第 {start}–{end} 页',
+                {start: searchState.batchInfo.startPage, end: searchState.batchInfo.endPage}));
+        }
+        return summaryJoin(parts);
+    }
+
+    async function loadThumbnailsBatched(items, base = 0) {
         const BATCH = 10;
         for (let i = 0; i < items.length; i += BATCH) {
             const batch = items.slice(i, i + BATCH);
-            await Promise.allSettled(batch.map((item, offset) => loadSingleThumbnail(item, i + offset)));
+            await Promise.allSettled(batch.map((item, offset) => loadSingleThumbnail(item, base + i + offset)));
         }
     }
 
-    function renderNovelSearchResults(area) {
+    function renderNovelSearchResults(area, view) {
+        view = view || getSearchView();
         const inQueue = new Set(state.queue.map(q => q.id));
-        const summary = [
-            bt('search.summary.total-results', '共 {count} 个结果', {count: searchState.total.toLocaleString()}),
-            bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
-            bt('search.summary.pixiv-returned', 'Pixiv 返回 {count} 个', {count: searchState.pixivPageCount})
-        ];
-        if (hasExtraSearchFilter()) {
+        const summary = searchState.submode === 'batch'
+            ? [batchSummaryText(view)]
+            : [
+                bt('search.summary.total-results', '共 {count} 个结果', {count: searchState.total.toLocaleString()}),
+                bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
+                bt('search.summary.pixiv-returned', 'Pixiv 返回 {count} 个', {count: searchState.pixivPageCount})
+            ];
+        if (searchState.submode !== 'batch' && hasExtraSearchFilter()) {
             summary.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
         }
-        const cards = searchState.results.map((item, idx) => {
+        const cards = view.items.map((item, i) => {
+            const idx = view.base + i;
             const xr = Number(item.xRestrict ?? 0);
             const isAi = Number(item.aiType ?? 0) >= 2;
             const wc = Number(item.wordCount ?? item.textLength ?? 0);
@@ -3327,9 +3443,9 @@
         if (!searchState.results.length) return;
         const inQueue = new Set(state.queue.map(q => q.id));
         if (searchState.kind === 'novel') {
-            const cards = document.querySelectorAll('.novel-search-card');
+            // 批量模式下仅渲染当前本地页，按绝对下标定位卡片
             searchState.results.forEach((item, idx) => {
-                const el = cards[idx];
+                const el = document.querySelector(`.novel-search-card[data-novel-idx="${idx}"]`);
                 if (!el) return;
                 el.classList.toggle('in-queue', inQueue.has('n' + String(item.id)));
             });
@@ -4080,10 +4196,14 @@
     }
 
     function renderSearchPagination() {
+        const pag = document.getElementById('search-pagination');
+        if (searchState.submode === 'batch') {
+            renderBatchLocalPagination(pag);
+            return;
+        }
         const perPage = searchState.kind === 'novel' ? 24 : 60;
         const totalPages = Math.ceil(searchState.total / perPage);
         const cur = searchState.currentPage;
-        const pag = document.getElementById('search-pagination');
         if (totalPages <= 1) {
             pag.style.display = 'none';
             return;
@@ -4109,6 +4229,50 @@
             }))}</span>`;
     }
 
+    function renderBatchLocalPagination(pag) {
+        const totalPages = batchLocalPageCount();
+        if (!searchState.results.length || totalPages <= 1) {
+            pag.style.display = 'none';
+            return;
+        }
+        let cur = searchState.localPage;
+        if (!Number.isFinite(cur) || cur < 1) cur = 1;
+        if (cur > totalPages) cur = totalPages;
+        searchState.localPage = cur;
+        pag.style.display = 'flex';
+        const radius = 3;
+        const pages = [];
+        for (let p = Math.max(1, cur - radius); p <= Math.min(totalPages, cur + radius); p++) {
+            pages.push(p);
+        }
+        pag.innerHTML =
+            `<button onclick="goBatchPage(1)" ${cur === 1 ? 'disabled' : ''}>«</button>` +
+            `<button onclick="goBatchPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>‹</button>` +
+            pages.map(p =>
+                `<button onclick="${p === cur ? '' : `goBatchPage(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`
+            ).join('') +
+            `<button onclick="goBatchPage(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>›</button>` +
+            `<button onclick="goBatchPage(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>»</button>` +
+            `<span class="pg-info">${esc(bt('search.pagination.info', '第 {current} / {total} 页 · 共 {count} 个', {
+                current: cur,
+                total: totalPages,
+                count: searchState.results.length.toLocaleString()
+            }))}</span>`;
+    }
+
+    function goBatchPage(p) {
+        const totalPages = batchLocalPageCount();
+        let next = Number(p);
+        if (!Number.isFinite(next) || next < 1) next = 1;
+        if (next > totalPages) next = totalPages;
+        searchState.localPage = next;
+        cleanupBlobUrls();
+        renderSearchResults();
+        renderSearchPagination();
+        updateBatchQueueButtons();
+        window.scrollTo({top: document.getElementById('search-results-area').offsetTop - 20, behavior: 'smooth'});
+    }
+
     function toggleBlurR18() {
         searchState.blurR18 = document.getElementById('search-blur-r18').checked;
         storeSet('pixiv_search_blur_r18', String(searchState.blurR18));
@@ -4120,114 +4284,245 @@
         });
     }
 
-    function updateSearchFillUI() {
-        const note = document.getElementById('search-fill-note');
-        const input = document.getElementById('search-fill-pages');
-        if (!note || !input) return;
-        const loadedPart = searchState.lastFetchedPage > 1
-            ? bt('search.fill.note.loaded-prefix', '已加载至第 {page} 页 · ', {page: searchState.lastFetchedPage})
-            : '';
-        const loadedGap = loadedPart && uiLang() === 'en-US' && !/\s$/.test(loadedPart) ? ' ' : '';
-        if (appMode === 'solo' || multiModeLimitPage === 0) {
-            note.textContent = loadedPart + loadedGap + (appMode === 'solo'
-                ? bt('search.fill.note.solo', 'solo 模式：不限制')
-                : bt('search.fill.note.multi-unlimited', 'multi 模式：不限制'));
-            input.removeAttribute('max');
+    /* ============================================================
+       搜索模式 / 作品批量获取模式 子模式切换
+    ============================================================ */
+    function applySubmodeUI(value, opts = {}) {
+        const submode = value === 'batch' ? 'batch' : 'search';
+        searchState.submode = submode;
+        const root = document.getElementById('search-submode-switcher');
+        if (root) {
+            root.querySelectorAll('label').forEach(lbl => {
+                const matches = lbl.dataset.submode === submode;
+                lbl.classList.toggle('active', matches);
+                const input = lbl.querySelector('input[type=radio]');
+                if (input) input.checked = matches;
+            });
+        }
+        const searchActions = document.getElementById('search-mode-actions');
+        const batchActions = document.getElementById('batch-mode-actions');
+        if (searchActions) searchActions.style.display = submode === 'batch' ? 'none' : '';
+        if (batchActions) batchActions.style.display = submode === 'batch' ? '' : 'none';
+        updateBatchLimitNote();
+        if (opts.clear) {
+            cleanupBlobUrls();
+            searchState.rawResults = [];
+            searchState.results = [];
+            searchState.total = 0;
+            searchState.currentWord = '';
+            searchState.batchInfo = null;
+            searchState.localPage = 1;
+            renderSearchResults();
+            renderSearchPagination();
+            document.getElementById('btn-add-all').disabled = true;
+            updateBatchQueueButtons();
+        }
+    }
+
+    function bindSubmodeSwitcher() {
+        const root = document.getElementById('search-submode-switcher');
+        if (!root) return;
+        root.querySelectorAll('label').forEach(lbl => {
+            lbl.addEventListener('click', () => {
+                const next = lbl.dataset.submode === 'batch' ? 'batch' : 'search';
+                if (searchState.submode === next) return;
+                storeSet('pixiv_search_submode', next);
+                applySubmodeUI(next, {clear: true});
+            });
+        });
+    }
+
+    function loadSubmodePref() {
+        const saved = storeGet('pixiv_search_submode');
+        applySubmodeUI(saved === 'batch' ? 'batch' : 'search', {clear: false});
+    }
+
+    function handleSearchEnter() {
+        if (searchState.submode === 'batch') {
+            runBatchFetch();
         } else {
-            note.textContent = bt(
-                'search.fill.note.multi-limited',
-                '{prefix}multi 模式：上限 {limit} 页/次',
-                {prefix: loadedPart + loadedGap, limit: multiModeLimitPage}
-            );
-            input.max = multiModeLimitPage;
-            const cur = parseInt(input.value, 10);
-            if (!Number.isFinite(cur) || cur > multiModeLimitPage) input.value = multiModeLimitPage;
+            performSearch(1);
         }
     }
 
-    function handleSearchFillInputChange() {
-        if (appMode !== 'solo' && multiModeLimitPage > 0) {
-            const input = document.getElementById('search-fill-pages');
-            let v = parseInt(input.value, 10);
-            if (!Number.isFinite(v) || v < 1) {
-                input.value = 1;
-                return;
-            }
-            if (v > multiModeLimitPage) input.value = multiModeLimitPage;
+    // multi 模式下每次抓取页数（end-start+1）受 multi-mode.limit-page 约束；
+    // solo 模式与管理员不限制。
+    function batchPageLimit() {
+        return (appMode !== 'solo' && multiModeLimitPage > 0) ? multiModeLimitPage : 0;
+    }
+
+    function getBatchRange() {
+        const startEl = document.getElementById('batch-start-page');
+        const endEl = document.getElementById('batch-end-page');
+        let start = parseInt(startEl.value, 10);
+        let end = parseInt(endEl.value, 10);
+        if (!Number.isFinite(start) || start < 1) start = 1;
+        if (!Number.isFinite(end) || end < 1) end = start;
+        if (end < start) {
+            const t = start;
+            start = end;
+            end = t;
+        }
+        const limit = batchPageLimit();
+        if (limit > 0 && (end - start + 1) > limit) {
+            end = start + limit - 1;
+        }
+        startEl.value = start;
+        endEl.value = end;
+        return {start, end};
+    }
+
+    function handleBatchRangeChange() {
+        getBatchRange();
+        updateBatchLimitNote();
+    }
+
+    function updateBatchLimitNote() {
+        const note = document.getElementById('batch-limit-note');
+        if (!note) return;
+        const limit = batchPageLimit();
+        if (limit > 0) {
+            note.textContent = bt('search.batch.note.multi-limited',
+                'multi 模式：每次最多 {limit} 页', {limit});
+        } else if (appMode === 'solo') {
+            note.textContent = bt('search.batch.note.solo', 'solo 模式：不限制');
+        } else {
+            note.textContent = bt('search.batch.note.multi-unlimited', 'multi 模式：不限制');
         }
     }
 
-    async function fillSearchResults() {
-        if (!searchState.currentWord) return;
-        const input = document.getElementById('search-fill-pages');
-        let extraPages = parseInt(input.value, 10);
-        if (!Number.isFinite(extraPages) || extraPages < 1) extraPages = 1;
-        if (appMode !== 'solo' && multiModeLimitPage > 0) {
-            extraPages = Math.min(extraPages, multiModeLimitPage);
-            input.value = extraPages;
+    function updateBatchQueueButtons() {
+        const addPage = document.getElementById('btn-batch-add-page');
+        const addAll = document.getElementById('btn-batch-add-all');
+        const hasResults = searchState.submode === 'batch' && searchState.results.length > 0;
+        if (addAll) addAll.disabled = !hasResults;
+        if (addPage) {
+            const view = hasResults ? getSearchView() : null;
+            addPage.disabled = !(view && view.items.length > 0);
         }
+    }
 
-        const btn = document.getElementById('btn-search-fill');
+    async function runBatchFetch() {
+        const word = document.getElementById('search-word').value.trim();
+        if (!word) {
+            setStatus(bt('alert.search-keyword-required', '请输入搜索关键词'), 'error');
+            return;
+        }
+        const {start, end} = getBatchRange();
+        const uiMode = document.querySelector('input[name="search-mode"]:checked').value;
+        const sMode = document.querySelector('input[name="search-smode"]:checked').value;
+        const order = document.querySelector('input[name="search-order"]:checked').value;
+        const r18Family = uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus';
+        const mode = r18Family ? 'r18' : uiMode;
+        const clientFilter = uiMode === 'r18' ? 1 : uiMode === 'r18g' ? 2 : 0;
+        const kind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';
+
+        document.getElementById('search-premium-tip').style.display = order === 'popular_d' ? 'block' : 'none';
+
+        cleanupBlobUrls();
+        searchState.submode = 'batch';
+        searchState.currentWord = word;
+        searchState.currentMode = uiMode;
+        searchState.currentOrder = order;
+        searchState.currentSMode = sMode;
+        searchState.kind = kind;
+        searchState.localPage = 1;
+        searchState.batchInfo = null;
+
+        const btn = document.getElementById('btn-batch-fetch');
         btn.disabled = true;
+        document.getElementById('search-results-area').innerHTML =
+            `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.batch-fetching', '批量获取第 {start}–{end} 页中...', {start, end}))}</div>`;
+        document.getElementById('search-pagination').style.display = 'none';
+        document.getElementById('btn-batch-add-page').disabled = true;
+        document.getElementById('btn-batch-add-all').disabled = true;
 
-        const word = searchState.currentWord;
-        const order = searchState.currentOrder;
-        const r18Family = searchState.currentMode === 'r18' || searchState.currentMode === 'r18g' || searchState.currentMode === 'r18plus';
-        const mode = r18Family ? 'r18' : searchState.currentMode;
-        const sMode = searchState.currentSMode;
-        const page = searchState.lastFetchedPage;  // 从上次加载到的页继续
-
-        setStatus(bt('status.search-fill-loading', '正在补充第 {page} 页起的内容...', {page: page + 1}), 'info');
         try {
-            const params = new URLSearchParams({word, order, mode, sMode, page, extraPages});
-            const res = await fetch(`${BASE}/api/pixiv/search/fill?${params}`, {headers: pixivHeader()});
+            const endpoint = kind === 'novel' ? '/api/pixiv/novel-search/range' : '/api/pixiv/search/range';
+            const params = new URLSearchParams({word, order, mode, sMode, startPage: start, endPage: end});
+            const res = await fetch(`${BASE}${endpoint}?${params}`, {headers: pixivHeader()});
             const data = await res.json();
             if (!res.ok) {
-                setStatus(
-                    bt('status.search-fill-failed', '补充失败：{message}', {
-                        message: data.error || bt('queue.unknown-error', '未知错误')
-                    }),
-                    'error'
-                );
+                document.getElementById('search-results-area').innerHTML =
+                    `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.batch-fetch-failed', '批量获取失败：{message}', {message: data.error || bt('queue.unknown-error', '未知错误')}))}</div>`;
                 return;
             }
-
-            const clientFilter = searchState.currentMode === 'r18' ? 1 : searchState.currentMode === 'r18g' ? 2 : 0;
-            let newItems = data.items || [];
-            if (clientFilter > 0) newItems = newItems.filter(it => Number(it.xRestrict ?? 0) === clientFilter);
-
-            const existingIds = new Set(searchState.rawResults.map(r => r.id));
-            const added = newItems.filter(it => !existingIds.has(it.id));
-            searchState.rawResults = [...searchState.rawResults, ...added];
-
-            if (data.fetchedPages > 0) {
-                searchState.lastFetchedPage = data.endPage;
-            }
+            let items = data.items || [];
+            if (clientFilter > 0) items = items.filter(it => Number(it.xRestrict ?? 0) === clientFilter);
+            searchState.pixivPageCount = items.length;
+            searchState.rawResults = items;
+            searchState.results = items;
+            searchState.total = data.total || 0;
+            searchState.noCookie = !hasPixivCookie();
+            searchState.batchInfo = {
+                startPage: data.startPage,
+                endPage: data.endPage,
+                requestedPages: data.requestedPages,
+                acceptedPages: data.acceptedPages,
+                fetchedPages: data.fetchedPages,
+                limitPage: data.limitPage
+            };
 
             const filterStats = await applyCurrentSearchFilters();
             if (!filterStats) return;
 
             const parts = [
-                bt('search.fill.summary.added-count', '新增 {count} 个作品', {count: added.length}),
-                bt('search.fill.summary.fetched-pages', '获取第 {start}–{end} 页', {
-                    start: data.startPage + 1,
+                bt('search.batch.summary.fetched', '已抓取去重 {count} 个', {count: searchState.rawResults.length}),
+                bt('search.batch.summary.range', '范围第 {start}–{end} 页', {
+                    start: data.startPage,
                     end: data.endPage
                 })
             ];
             if (data.acceptedPages < data.requestedPages) {
-                parts.push(bt(
-                    'search.fill.summary.limit-applied',
+                parts.push(bt('search.batch.summary.limit-applied',
                     'multi 模式上限 {limit} 页，请求 {requested} 页已限制',
-                    {limit: data.limitPage, requested: data.requestedPages}
-                ));
+                    {limit: data.limitPage, requested: data.requestedPages}));
             }
-            setStatus(bt('status.search-fill-complete', '补充完成：{summary}', {summary: summaryJoin(parts)}), 'success');
-            updateSearchFillUI();
+            if (hasExtraSearchFilter()) {
+                parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
+            }
+            parts.push(bt('search.summary.pixiv-total', 'Pixiv 总数 {count}', {count: searchState.total.toLocaleString()}));
+            setStatus(bt('status.batch-fetch-complete', '批量获取完成：{summary}', {summary: summaryJoin(parts)}), 'success');
         } catch (e) {
-            setStatus(bt('status.search-fill-request-failed', '补充请求失败：{message}', {message: e.message}), 'error');
+            document.getElementById('search-results-area').innerHTML =
+                `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.request-failed', '请求失败：{message}', {message: e.message}))}</div>`;
         } finally {
             btn.disabled = false;
+            updateBatchQueueButtons();
         }
+    }
+
+    function addCurrentBatchPageToQueue() {
+        if (searchState.submode !== 'batch') return;
+        const view = getSearchView();
+        if (!view.items.length) return;
+        const isNovel = searchState.kind === 'novel';
+        const ids = view.items.map(r => isNovel ? 'n' + String(r.id) : String(r.id));
+        const metas = view.items.map(r => isNovel
+            ? {
+                title: r.title,
+                novelId: String(r.id),
+                kind: 'novel',
+                authorId: r.userId ? Number(r.userId) : null,
+                authorName: r.userName || '',
+                isAi: Number(r.aiType ?? 0) >= 2,
+                xRestrict: Number(r.xRestrict ?? 0)
+            }
+            : {
+                title: r.title,
+                authorId: r.userId,
+                authorName: r.userName,
+                isAi: Number(r.aiType ?? 0) >= 2
+            });
+        const added = addItemsToQueue(ids, metas, isNovel ? 'search-novel' : 'search', '');
+        setStatus(
+            bt(
+                'status.added-many-to-queue',
+                '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
+                {added, total: ids.length, existing: ids.length - added}
+            ),
+            'success'
+        );
     }
 
     /* ============================================================
@@ -4329,7 +4624,7 @@
         // 检测使用模式，solo 模式则从服务器加载状态
         await detectMode();
         applyCookieHint();
-        updateSearchFillUI();
+        updateBatchLimitNote();
         await detectAuthState();
         // 多人模式：初始化配额状态
         if (appMode === 'multi') {
@@ -4422,10 +4717,14 @@
             searchState.results = [];
             searchState.total = 0;
             searchState.currentWord = '';
+            searchState.batchInfo = null;
+            searchState.localPage = 1;
             renderSearchResults();
             renderSearchPagination();
             document.getElementById('btn-add-all').disabled = true;
+            updateBatchQueueButtons();
         });
+        bindSubmodeSwitcher();
 
         // Mode
         const savedMode = normalizeImportMode(storeGet('pixiv_mode') || SINGLE_IMPORT_MODE);
@@ -4454,6 +4753,7 @@
             }
         }
         loadSearchFilterPrefs();
+        loadSubmodePref();
 
         switchMode(savedMode);
 

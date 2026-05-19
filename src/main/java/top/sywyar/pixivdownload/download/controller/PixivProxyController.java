@@ -47,11 +47,6 @@ public class PixivProxyController {
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
-    // TODO: 向后补充功能暂时禁用，等待后续决策后恢复。
-    // 恢复方法：将此常量改为 false，并在前端 pixiv-batch.html 中搜索 "TODO: 向后补充"，
-    // 将 search-fill-row 的 display:none 及注释包裹去掉。
-    private static final boolean SEARCH_FILL_DISABLED = true;
-
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
     private final SetupService setupService;
@@ -369,6 +364,25 @@ public class PixivProxyController {
         return Math.max(0, multiModeConfig.getLimitPage());
     }
 
+    /**
+     * Pixiv 搜索结果 item 的 tags 为字符串数组（如 ["tag1","tag2"]）。
+     * 解析为去空白、去重、保序的字符串列表，供前端做客户端标签精确/模糊筛选。
+     */
+    private List<String> parseStringTags(JsonNode tagsNode) {
+        if (tagsNode == null || !tagsNode.isArray() || tagsNode.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> tags = new LinkedHashSet<>();
+        for (JsonNode tag : tagsNode) {
+            String value = tag.isTextual() ? tag.asText("") : tag.path("tag").asText("");
+            value = value.trim();
+            if (!value.isEmpty()) {
+                tags.add(value);
+            }
+        }
+        return new ArrayList<>(tags);
+    }
+
     private SearchResponse fetchSearchPage(
             String word,
             String order,
@@ -407,10 +421,56 @@ public class PixivProxyController {
                     item.path("url").asText(""),
                     item.path("pageCount").asInt(1),
                     item.path("userId").asText(""),
-                    item.path("userName").asText("")
+                    item.path("userName").asText(""),
+                    parseStringTags(item.path("tags"))
             ));
         }
         return new SearchResponse(items, total, safePage);
+    }
+
+    private NovelSearchResponse fetchNovelSearchPage(
+            String word,
+            String order,
+            String mode,
+            String sMode,
+            int page,
+            String cookie) throws IOException {
+        int safePage = Math.max(page, 1);
+        URI searchUri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/search/novels/{word}")
+                .queryParam("word", "{word}")
+                .queryParam("order", order)
+                .queryParam("mode", mode)
+                .queryParam("s_mode", sMode)
+                .queryParam("p", safePage)
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("word", word))
+                .encode()
+                .toUri();
+        String body = proxyGetUri(searchUri, cookie);
+        JsonNode root = objectMapper.readTree(body);
+        if (root.path("error").asBoolean(false)) {
+            throw new IllegalArgumentException(root.path("message").asText(messages.get("pixiv.proxy.search.failed")));
+        }
+        JsonNode novel = root.path("body").path("novel");
+        int total = novel.path("total").asInt(0);
+        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
+        for (JsonNode item : novel.path("data")) {
+            items.add(new NovelSearchResponse.NovelSearchItem(
+                    item.path("id").asText(""),
+                    item.path("title").asText(""),
+                    item.path("xRestrict").asInt(0),
+                    item.path("aiType").asInt(0),
+                    item.path("wordCount").asInt(0),
+                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
+                    item.path("userId").asText(""),
+                    item.path("userName").asText(""),
+                    item.path("url").asText(""),
+                    item.path("isOriginal").asBoolean(false),
+                    parseStringTags(item.path("tags"))
+            ));
+        }
+        return new NovelSearchResponse(items, total, safePage);
     }
 
     @GetMapping("/search")
@@ -435,69 +495,117 @@ public class PixivProxyController {
         }
     }
 
-    // TODO: 向后补充功能暂时禁用，等待后续决策后恢复。
-    // 恢复方法：删除下方的 disabled 拦截块（return 503 那两行），并在前端 pixiv-batch.html
-    // 中找到 "TODO: 向后补充" 注释，将 search-fill-row 的 display:none 和注释包裹去掉。
-    @GetMapping("/search/fill")
-    public ResponseEntity<?> fillSearchArtworks(
+    @FunctionalInterface
+    private interface RangePageFetcher {
+        RangePage fetch(int page) throws IOException;
+    }
+
+    /** 单页抓取结果：items 的元素需提供 id（用于跨页去重），total 为 Pixiv 报告的总数。 */
+    private record RangePage(List<?> items, int total, java.util.function.Function<Object, String> idOf) {
+    }
+
+    /**
+     * 按页码范围 [startParam, endParam] 抓取并跨页去重，受 multi-mode.limit-page 约束。
+     * perPage 仅用于估算总页数以便提前停止抓取。
+     */
+    private SearchRangeResponse buildSearchRange(
+            int startParam, int endParam, int perPage, RangePageFetcher fetcher) throws IOException {
+        int startPage = Math.max(1, Math.min(startParam, endParam));
+        int endRequested = Math.max(startPage, Math.max(startParam, endParam));
+        int requestedPages = endRequested - startPage + 1;
+        int limitPage = resolveSearchFillLimitPage();
+        int acceptedPages = limitPage > 0 ? Math.min(requestedPages, limitPage) : requestedPages;
+        int cappedEnd = startPage + acceptedPages - 1;
+
+        LinkedHashMap<String, Object> deduped = new LinkedHashMap<>();
+        int total = 0;
+        int totalPages = Integer.MAX_VALUE;
+        int fetchedPages = 0;
+        int endPage = startPage;
+
+        for (int p = startPage; p <= cappedEnd; p++) {
+            if (p > totalPages) break;
+            RangePage pageResponse = fetcher.fetch(p);
+            total = pageResponse.total();
+            totalPages = Math.max(1, (int) Math.ceil(total / (double) perPage));
+            if (p > totalPages) break;
+            for (Object item : pageResponse.items()) {
+                deduped.putIfAbsent(pageResponse.idOf().apply(item), item);
+            }
+            fetchedPages++;
+            endPage = p;
+            if (p >= totalPages) break;
+        }
+
+        return new SearchRangeResponse(
+                new ArrayList<>(deduped.values()),
+                total,
+                startPage,
+                endPage,
+                requestedPages,
+                acceptedPages,
+                fetchedPages,
+                limitPage
+        );
+    }
+
+    @GetMapping("/search/range")
+    public ResponseEntity<?> rangeSearchArtworks(
             @RequestParam String word,
             @RequestParam(defaultValue = "date_d") String order,
             @RequestParam(defaultValue = "all") String mode,
             @RequestParam(defaultValue = "s_tag") String sMode,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "1") int extraPages,
+            @RequestParam(defaultValue = "1") int startPage,
+            @RequestParam(defaultValue = "1") int endPage,
             @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
             HttpServletRequest request) throws IOException {
-        if (SEARCH_FILL_DISABLED) {
-            return ResponseEntity.status(503).body(new ErrorResponse(messages.get("pixiv.proxy.search-fill.disabled")));
-        }
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
-
         String validationError = validateSearchParams(order, mode, sMode);
         if (validationError != null) {
             return ResponseEntity.badRequest().body(new ErrorResponse(validationError));
         }
-        if (extraPages < 1) {
+        if (startPage < 1 || endPage < 1) {
             return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(messages.get("pixiv.proxy.search-fill.extra-pages.invalid")));
+                    .body(new ErrorResponse(messages.get("pixiv.proxy.search-range.invalid")));
         }
-
-        int startPage = Math.max(page, 1);
-        int limitPage = resolveSearchFillLimitPage();
-        int acceptedPages = limitPage > 0 ? Math.min(extraPages, limitPage) : extraPages;
-
         try {
-            LinkedHashMap<String, SearchResponse.SearchItem> deduped = new LinkedHashMap<>();
-            int total = 0;
-            int totalPages = Integer.MAX_VALUE;
-            int fetchedPages = 0;
-            int endPage = startPage;
+            return ResponseEntity.ok(buildSearchRange(startPage, endPage, 60, p -> {
+                SearchResponse r = fetchSearchPage(word, order, mode, sMode, p, cookie);
+                return new RangePage(r.getItems(), r.getTotal(),
+                        o -> ((SearchResponse.SearchItem) o).getId());
+            }));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
 
-            for (int nextPage = startPage + 1; nextPage <= startPage + acceptedPages; nextPage++) {
-                if (nextPage > totalPages) break;
-                SearchResponse pageResponse = fetchSearchPage(word, order, mode, sMode, nextPage, cookie);
-                total = pageResponse.getTotal();
-                totalPages = Math.max(1, (int) Math.ceil(total / 60.0));
-                if (nextPage > totalPages) break;
-                for (SearchResponse.SearchItem item : pageResponse.getItems()) {
-                    deduped.putIfAbsent(item.getId(), item);
-                }
-                fetchedPages++;
-                endPage = nextPage;
-                if (nextPage >= totalPages) break;
-            }
-
-            return ResponseEntity.ok(new SearchFillResponse(
-                    new ArrayList<>(deduped.values()),
-                    total,
-                    startPage,
-                    endPage,
-                    extraPages,
-                    acceptedPages,
-                    fetchedPages,
-                    limitPage
-            ));
+    @GetMapping("/novel-search/range")
+    public ResponseEntity<?> rangeSearchNovels(
+            @RequestParam String word,
+            @RequestParam(defaultValue = "date_d") String order,
+            @RequestParam(defaultValue = "all") String mode,
+            @RequestParam(defaultValue = "s_tag") String sMode,
+            @RequestParam(defaultValue = "1") int startPage,
+            @RequestParam(defaultValue = "1") int endPage,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        String validationError = validateSearchParams(order, mode, sMode);
+        if (validationError != null) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(validationError));
+        }
+        if (startPage < 1 || endPage < 1) {
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponse(messages.get("pixiv.proxy.search-range.invalid")));
+        }
+        try {
+            return ResponseEntity.ok(buildSearchRange(startPage, endPage, 24, p -> {
+                NovelSearchResponse r = fetchNovelSearchPage(word, order, mode, sMode, p, cookie);
+                return new RangePage(r.getItems(), r.getTotal(),
+                        o -> ((NovelSearchResponse.NovelSearchItem) o).getId());
+            }));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         }
@@ -848,41 +956,11 @@ public class PixivProxyController {
         if (validationError != null) {
             return ResponseEntity.badRequest().body(new ErrorResponse(validationError));
         }
-        int safePage = Math.max(page, 1);
-        URI searchUri = UriComponentsBuilder
-                .fromUriString("https://www.pixiv.net/ajax/search/novels/{word}")
-                .queryParam("word", "{word}")
-                .queryParam("order", order)
-                .queryParam("mode", mode)
-                .queryParam("s_mode", sMode)
-                .queryParam("p", safePage)
-                .queryParam("lang", "zh")
-                .buildAndExpand(Map.of("word", word))
-                .encode()
-                .toUri();
-        String body = proxyGetUri(searchUri, cookie);
-        JsonNode root = objectMapper.readTree(body);
-        if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText(messages.get("pixiv.proxy.search.failed"))));
+        try {
+            return ResponseEntity.ok(fetchNovelSearchPage(word, order, mode, sMode, page, cookie));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         }
-        JsonNode novel = root.path("body").path("novel");
-        int total = novel.path("total").asInt(0);
-        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
-        for (JsonNode item : novel.path("data")) {
-            items.add(new NovelSearchResponse.NovelSearchItem(
-                    item.path("id").asText(""),
-                    item.path("title").asText(""),
-                    item.path("xRestrict").asInt(0),
-                    item.path("aiType").asInt(0),
-                    item.path("wordCount").asInt(0),
-                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
-                    item.path("userId").asText(""),
-                    item.path("userName").asText(""),
-                    item.path("url").asText(""),
-                    item.path("isOriginal").asBoolean(false)
-            ));
-        }
-        return ResponseEntity.ok(new NovelSearchResponse(items, total, safePage));
     }
 
     @GetMapping("/user/{userId}/novels")
