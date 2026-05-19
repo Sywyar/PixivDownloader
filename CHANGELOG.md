@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
-## [Unreleased]
+## [v1.9.0] - 2026-05-19
 
 ### Features
 - GUI 新增「首页」单步引导向导：「服务已就绪 → 配置 → 开始下载 → 浏览画廊 → 完成」每一步是独立页面，点击「下一步 / 完成」或后端信号自动推进时以滑动动画切换（服务状态带实时呼吸点）。第二步可直接在 GUI 内完成首次配置（设置管理员账号并选择 solo/multi 模式），无需再打开网页 setup；引导会随用户在浏览器打开下载页、完成画廊操作指引而自动推进，画廊指引完成后 GUI 窗口自动回到前台继续后续步骤。整套引导未全部完成前每次启动都停留在首页，完成后默认回到「状态」页；完成页附油猴脚本与动图 ffmpeg 等可选进阶说明。
