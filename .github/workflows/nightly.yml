@@ -63,7 +63,7 @@ jobs:
         run: |
           mkdir -p build/release-userscripts
           cp "build/generated-userscripts/Pixiv All-in-One.user.js" build/release-userscripts/
-          cp "Pixiv 单作品图片下载器(Local download).user.js" build/release-userscripts/
+          cp "Pixiv 单作品图片下载器(Local Download).user.js" build/release-userscripts/
 
       - name: Upload userscript artifact
         uses: actions/upload-artifact@v4
