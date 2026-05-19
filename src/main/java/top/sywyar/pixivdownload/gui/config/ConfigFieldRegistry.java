@@ -305,6 +305,7 @@ public final class ConfigFieldRegistry {
                 ConfigFieldSpec.builder("update.nightly-manifest-url", message("gui.config.field.update.nightly-manifest-url.label"), STRING, groupUpdate)
                         .defaultValue(UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL)
                         .help(message("gui.config.field.update.nightly-manifest-url.help"))
+                        .visibleWhen(snap -> snap.isTrue("_app.is-nightly"))
                         .enabledWhen(snap -> snap.isTrue("update.enabled"))
                         .hotReloadable()
                         .build(),

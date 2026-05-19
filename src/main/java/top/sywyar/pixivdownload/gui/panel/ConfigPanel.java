@@ -309,11 +309,17 @@ public class ConfigPanel extends JPanel {
         }
     }
 
+    private static boolean isNightlyCurrentVersion() {
+        String v = top.sywyar.pixivdownload.common.AppVersion.getDisplayVersionOrNull();
+        return v != null && v.toLowerCase(java.util.Locale.ROOT).contains("nightly");
+    }
+
     private ConfigSnapshot buildSnapshot() {
         Map<String, String> snap = new HashMap<>();
         for (Map.Entry<String, FieldRenderer.RenderedField> e : renderedFields.entrySet()) {
             snap.put(e.getKey(), e.getValue().getValue().get());
         }
+        snap.put("_app.is-nightly", Boolean.toString(isNightlyCurrentVersion()));
         return new ConfigSnapshot(snap);
     }
 
