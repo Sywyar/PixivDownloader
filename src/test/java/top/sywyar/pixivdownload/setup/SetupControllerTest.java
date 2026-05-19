@@ -204,7 +204,7 @@ class SetupControllerTest {
         }
 
         @Test
-        @DisplayName("正确凭据应登录成功并设置 Cookie")
+        @DisplayName("未勾选记住我应设置浏览器会话 Cookie")
         void shouldLoginSuccessfully() throws Exception {
             when(setupService.checkLogin("admin", "password123")).thenReturn(true);
             when(setupService.createSession(false)).thenReturn("test-token");
@@ -213,11 +213,16 @@ class SetupControllerTest {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of(
                                     "username", "admin",
-                                    "password", "password123"
+                                    "password", "password123",
+                                    "rememberMe", false
                             ))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.ok").value(true))
-                    .andExpect(header().exists("Set-Cookie"));
+                    .andExpect(header().string("Set-Cookie", allOf(
+                            containsString("pixiv_session=test-token"),
+                            not(containsString("Max-Age")),
+                            not(containsString("Expires"))
+                    )));
         }
 
         @Test

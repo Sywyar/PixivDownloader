@@ -50,6 +50,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - GUI 本地管理接口（`/api/gui/**`）新增一次性本地令牌校验；Swing GUI 会自动携带令牌，外部页面不能只凭 localhost 访问这些接口。
 
 ### Bug Fixes
+- 修复登录页未勾选「保存登录状态」时会立即丢失会话 Cookie、导致登录后仍停留在登录页的问题。
 - 修复批量下载页「清除队列」只清理前端队列、不终止后端图片/动图/小说下载任务的问题；多人模式访客只会清理自己的任务。
 - 修复小说下载遇到 Pixiv Cookie 失效或 Pixiv 上游错误时只返回笼统失败的问题，现在会显示更明确的登录 Cookie 或上游 HTTP 错误提示。
 - 修复登录页暗色模式显示不完整，以及小说阅读页切换语言后动态元数据、标签、系列导航和收藏状态不刷新的问题。

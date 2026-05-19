@@ -84,12 +84,14 @@ public class SetupController {
         }
 
         String token = setupService.createSession(request.isRememberMe());
-        ResponseCookie cookie = ResponseCookie.from("pixiv_session", token)
+        ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from("pixiv_session", token)
                 .path("/")
                 .httpOnly(true)
-                .sameSite("Strict")
-                .maxAge(request.isRememberMe() ? Duration.ofDays(30) : Duration.ZERO)
-                .build();
+                .sameSite("Strict");
+        if (request.isRememberMe()) {
+            cookieBuilder.maxAge(Duration.ofDays(30));
+        }
+        ResponseCookie cookie = cookieBuilder.build();
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
