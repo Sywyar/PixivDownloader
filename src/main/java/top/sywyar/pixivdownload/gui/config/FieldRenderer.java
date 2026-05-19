@@ -6,6 +6,9 @@ import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.text.InternationalFormatter;
 import java.awt.*;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.event.HierarchyEvent;
 import java.io.File;
 import java.text.NumberFormat;
 import java.text.Format;
@@ -17,6 +20,13 @@ import java.util.function.Supplier;
  * 每个字段返回一个 {@link RenderedField}，包含控件面板、取值和赋值方法。
  */
 public final class FieldRenderer {
+
+    private static final double LABEL_WIDTH_RATIO = 0.25;
+    private static final int MIN_LABEL_WIDTH = 96;
+    private static final int MIN_DESCRIPTION_WIDTH = 120;
+    private static final int LABEL_HEIGHT = 24;
+    private static final int DESCRIPTION_HEIGHT_PADDING = 2;
+    private static final int DESCRIPTION_WIDTH_PADDING = 24;
 
     private FieldRenderer() {}
 
@@ -140,7 +150,40 @@ public final class FieldRenderer {
      * 布局：[标签] [控件 + 帮助文字 + 需重启标记]
      */
     private static JPanel fieldPanel(ConfigFieldSpec spec, JComponent control) {
-        JPanel panel = new JPanel(new GridBagLayout());
+        JLabel effect = new JLabel(message(spec.requiresRestart()
+                ? "gui.label.restart-required"
+                : "gui.label.hot-reload"));
+        effect.setFont(effect.getFont().deriveFont(Font.PLAIN, 11f));
+        effect.setForeground(spec.requiresRestart()
+                ? new Color(180, 100, 0)
+                : new Color(0, 128, 96));
+
+        return fieldPanel(
+                spec.label() + message("gui.punctuation.colon"),
+                control,
+                effect,
+                spec.helpText());
+    }
+
+    public static JPanel fieldPanel(String labelText, JComponent control, JComponent effect, String helpText) {
+        JLabel label = new JLabel(labelText);
+        label.setToolTipText(labelText);
+
+        JTextArea help = null;
+        if (helpText != null && !helpText.isBlank()) {
+            help = new JTextArea(helpText);
+            help.setEditable(false);
+            help.setFocusable(false);
+            help.setOpaque(false);
+            help.setLineWrap(true);
+            help.setWrapStyleWord(true);
+            help.setBorder(BorderFactory.createEmptyBorder());
+            Font labelFont = UIManager.getFont("Label.font");
+            help.setFont((labelFont == null ? help.getFont() : labelFont).deriveFont(Font.PLAIN, 11f));
+            help.setForeground(Color.GRAY);
+        }
+
+        ResponsiveFieldPanel panel = new ResponsiveFieldPanel(label, help);
         panel.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(4, 4, 4, 4);
@@ -148,8 +191,6 @@ public final class FieldRenderer {
         gbc.anchor = GridBagConstraints.WEST;
 
         // 标签
-        JLabel label = new JLabel(spec.label() + message("gui.punctuation.colon"));
-        label.setPreferredSize(new Dimension(160, 24));
         gbc.gridx = 0;
         gbc.gridy = 0;
         gbc.weightx = 0;
@@ -161,26 +202,18 @@ public final class FieldRenderer {
         panel.add(control, gbc);
 
         // 生效方式标记
-        JLabel effect = new JLabel(message(spec.requiresRestart()
-                ? "gui.label.restart-required"
-                : "gui.label.hot-reload"));
-        effect.setFont(effect.getFont().deriveFont(Font.PLAIN, 11f));
-        effect.setForeground(spec.requiresRestart()
-                ? new Color(180, 100, 0)
-                : new Color(0, 128, 96));
-        gbc.gridx = 2;
-        gbc.weightx = 0;
-        panel.add(effect, gbc);
+        if (effect != null) {
+            gbc.gridx = 2;
+            gbc.weightx = 0;
+            panel.add(effect, gbc);
+        }
 
         // 帮助文字
-        if (!spec.helpText().isBlank()) {
-            JLabel help = new JLabel(spec.helpText());
-            help.setFont(help.getFont().deriveFont(Font.PLAIN, 11f));
-            help.setForeground(Color.GRAY);
+        if (help != null) {
             gbc.gridx = 1;
             gbc.gridy = 1;
             gbc.weightx = 1;
-            gbc.gridwidth = 2;
+            gbc.gridwidth = effect == null ? 1 : 2;
             gbc.insets = new Insets(0, 4, 6, 4);
             panel.add(help, gbc);
         }
@@ -198,5 +231,136 @@ public final class FieldRenderer {
 
     private static String message(String code, Object... args) {
         return GuiMessages.get(code, args);
+    }
+
+    private static final class ResponsiveFieldPanel extends JPanel {
+        private final JLabel label;
+        private final JTextArea description;
+        private final ComponentAdapter windowResizeListener = new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                refreshAndRelayout();
+            }
+        };
+        private Window observedWindow;
+
+        ResponsiveFieldPanel(JLabel label, JTextArea description) {
+            super(new GridBagLayout());
+            this.label = label;
+            this.description = description;
+            addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    refreshAndRelayout();
+                }
+            });
+            addHierarchyListener(e -> {
+                long flags = e.getChangeFlags();
+                if ((flags & (HierarchyEvent.PARENT_CHANGED
+                        | HierarchyEvent.SHOWING_CHANGED
+                        | HierarchyEvent.DISPLAYABILITY_CHANGED)) != 0) {
+                    updateWindowResizeListener();
+                    refreshAndRelayout();
+                }
+            });
+        }
+
+        @Override
+        public void doLayout() {
+            refreshPreferredSizes();
+            super.doLayout();
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            refreshPreferredSizes();
+            return super.getPreferredSize();
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            Dimension preferred = getPreferredSize();
+            return new Dimension(Integer.MAX_VALUE, preferred.height);
+        }
+
+        private void updateWindowResizeListener() {
+            Window window = SwingUtilities.getWindowAncestor(this);
+            if (observedWindow == window) {
+                return;
+            }
+            if (observedWindow != null) {
+                observedWindow.removeComponentListener(windowResizeListener);
+            }
+            observedWindow = window;
+            if (observedWindow != null) {
+                observedWindow.addComponentListener(windowResizeListener);
+            }
+        }
+
+        private void refreshAndRelayout() {
+            if (refreshPreferredSizes()) {
+                revalidate();
+                repaint();
+            }
+        }
+
+        private boolean refreshPreferredSizes() {
+            int width = availableWidth();
+            if (width <= 0) {
+                return false;
+            }
+
+            int labelWidth = Math.max(MIN_LABEL_WIDTH, (int) Math.round(width * LABEL_WIDTH_RATIO));
+            boolean changed = setFixedSize(label, labelWidth, LABEL_HEIGHT);
+
+            if (description != null) {
+                int descriptionWidth = Math.max(MIN_DESCRIPTION_WIDTH,
+                        width - labelWidth - DESCRIPTION_WIDTH_PADDING);
+                Dimension current = description.getPreferredSize();
+                description.setPreferredSize(null);
+                description.setMinimumSize(null);
+                description.setMaximumSize(null);
+                description.setSize(new Dimension(descriptionWidth, Integer.MAX_VALUE));
+                Dimension preferred = description.getPreferredSize();
+                int descriptionHeight = preferred.height + DESCRIPTION_HEIGHT_PADDING;
+                Dimension next = new Dimension(descriptionWidth, descriptionHeight);
+                changed |= current == null || !current.equals(next);
+                setFixedSize(description, descriptionWidth, descriptionHeight);
+            }
+
+            return changed;
+        }
+
+        private int availableWidth() {
+            if (getWidth() > 0) {
+                return getWidth();
+            }
+            Container parent = getParent();
+            if (parent != null && parent.getWidth() > 0) {
+                Insets insets = parent.getInsets();
+                return Math.max(0, parent.getWidth() - insets.left - insets.right);
+            }
+            Container viewport = SwingUtilities.getAncestorOfClass(JViewport.class, this);
+            if (viewport != null && viewport.getWidth() > 0) {
+                return viewport.getWidth();
+            }
+            Window window = SwingUtilities.getWindowAncestor(this);
+            if (window != null && window.getWidth() > 0) {
+                return window.getWidth();
+            }
+            return 0;
+        }
+
+        private static boolean setFixedSize(JComponent component, int width, int height) {
+            Dimension next = new Dimension(width, height);
+            Dimension preferred = component.getPreferredSize();
+            if (preferred != null && preferred.equals(next)) {
+                return false;
+            }
+            component.setPreferredSize(next);
+            component.setMinimumSize(next);
+            component.setMaximumSize(next);
+            return true;
+        }
     }
 }

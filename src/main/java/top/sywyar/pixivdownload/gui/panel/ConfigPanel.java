@@ -96,8 +96,7 @@ public class ConfigPanel extends JPanel {
     }
 
     private JScrollPane buildGroupPanel(String group) {
-        JPanel content = new JPanel();
-        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        JPanel content = new GroupContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         List<ConfigFieldSpec> fields = allFields.stream()
@@ -109,14 +108,12 @@ public class ConfigPanel extends JPanel {
             renderedFields.put(spec.key(), rf);
             attachChangeListener(rf.control());
             rf.panel().setAlignmentX(Component.LEFT_ALIGNMENT);
-            rf.panel().setMaximumSize(new Dimension(Integer.MAX_VALUE, rf.panel().getPreferredSize().height + 20));
             content.add(rf.panel());
             content.add(Box.createVerticalStrut(2));
         }
         if (serverGroup.equals(group)) {
             JPanel autoStartPanel = buildAutoStartPanel();
             autoStartPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            autoStartPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, autoStartPanel.getPreferredSize().height + 20));
             content.add(autoStartPanel);
             content.add(Box.createVerticalStrut(2));
         }
@@ -133,40 +130,17 @@ public class ConfigPanel extends JPanel {
         autoStartCheckBox = new JCheckBox();
         autoStartCheckBox.setSelected(AutoStartManager.isEnabled());
         autoStartCheckBox.setEnabled(autoStartSupported);
-        autoStartCheckBox.setToolTipText(message(autoStartSupported
+        String helpText = message(autoStartSupported
                 ? "gui.config.field.autostart.help"
-                : "gui.config.field.autostart.unsupported.help"));
+                : "gui.config.field.autostart.unsupported.help");
+        autoStartCheckBox.setToolTipText(helpText);
         autoStartCheckBox.addActionListener(e -> handleAutoStartToggle());
 
-        JPanel panel = new JPanel(new GridBagLayout());
-        panel.setOpaque(false);
-
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.insets = new Insets(4, 4, 4, 4);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.anchor = GridBagConstraints.WEST;
-
-        JLabel label = new JLabel(message("gui.config.field.autostart.label") + message("gui.punctuation.colon"));
-        label.setPreferredSize(new Dimension(160, 24));
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.weightx = 0;
-        panel.add(label, gbc);
-
-        gbc.gridx = 1;
-        gbc.weightx = 1;
-        panel.add(autoStartCheckBox, gbc);
-
-        JLabel help = new JLabel(message(autoStartSupported
-                ? "gui.config.field.autostart.help"
-                : "gui.config.field.autostart.unsupported.help"));
-        help.setFont(help.getFont().deriveFont(Font.PLAIN, 11f));
-        help.setForeground(Color.GRAY);
-        gbc.gridx = 1;
-        gbc.gridy = 1;
-        gbc.weightx = 1;
-        gbc.insets = new Insets(0, 4, 6, 4);
-        panel.add(help, gbc);
+        JPanel panel = FieldRenderer.fieldPanel(
+                message("gui.config.field.autostart.label") + message("gui.punctuation.colon"),
+                autoStartCheckBox,
+                null,
+                helpText);
 
         if (!autoStartSupported) {
             setControlEnabled(panel, false);
@@ -630,6 +604,37 @@ public class ConfigPanel extends JPanel {
             return context;
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    private static final class GroupContentPanel extends JPanel implements Scrollable {
+        GroupContentPanel() {
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return Math.max(16, visibleRect.height - 16);
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
         }
     }
 
