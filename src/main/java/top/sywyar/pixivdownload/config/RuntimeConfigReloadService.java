@@ -205,10 +205,20 @@ public class RuntimeConfigReloadService {
                 next.getManifestUrl(),
                 () -> updateConfig.setManifestUrl(next.getManifestUrl()));
         applyIfChanged(applied,
+                "update.nightly-manifest-url",
+                updateConfig.getNightlyManifestUrl(),
+                next.getNightlyManifestUrl(),
+                () -> updateConfig.setNightlyManifestUrl(next.getNightlyManifestUrl()));
+        applyIfChanged(applied,
                 "update.auto-check",
                 updateConfig.isAutoCheck(),
                 next.isAutoCheck(),
                 () -> updateConfig.setAutoCheck(next.isAutoCheck()));
+        applyIfChanged(applied,
+                "update.check-nightly",
+                updateConfig.getCheckNightly(),
+                next.getCheckNightly(),
+                () -> updateConfig.setCheckNightly(next.getCheckNightly()));
     }
 
     private static MultiModeConfig.Quota ensureQuota(MultiModeConfig config) {

@@ -230,6 +230,9 @@ public class AppConfigGenerator {
                 "update.nightly-manifest-url: " + top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL,
                 "config.template.update.nightly-manifest-url.comment");
         appendSetting(config, locale, "update.auto-check: true", "config.template.update.auto-check.comment");
+        appendSetting(config, locale,
+                "update.check-nightly: " + top.sywyar.pixivdownload.update.UpdateConfig.isCurrentVersionNightly(),
+                "config.template.update.check-nightly.comment");
 
         return config.toString();
     }

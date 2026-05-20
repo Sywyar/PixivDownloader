@@ -155,23 +155,27 @@ public class UpdateService {
                 throw new IllegalStateException(forLog("update.error.manifest.invalid", "empty"));
             }
             UpdateCheckResult officialResult = handleManifest(currentVersion, manifest, false);
+            UpdateCheckResult nightlyAlternative = null;
 
-            UpdateCheckResult chosen = officialResult;
-
-            if (isNightlyVersion(currentVersion) && !officialResult.isUpdateAvailable()) {
+            if (updateConfig.resolveCheckNightly()) {
                 String nightlyUrl = updateConfig.getNightlyManifestUrl();
                 if (nightlyUrl != null && !nightlyUrl.isBlank()) {
                     try {
                         UpdateManifest nightlyManifest = fetchManifest(nightlyUrl);
                         if (nightlyManifest != null && nightlyManifest.getLatestVersion() != null) {
                             UpdateCheckResult nightlyResult = handleManifest(currentVersion, nightlyManifest, true);
-                            if (nightlyResult.isUpdateAvailable()
-                                    && nightlyResult.getReleaseNotes() != null
-                                    && !nightlyResult.getReleaseNotes().isBlank()) {
-                                chosen = nightlyResult;
+                            boolean hasUpdate = nightlyResult.isUpdateAvailable();
+                            boolean hasNotes = nightlyResult.getReleaseNotes() != null
+                                    && !nightlyResult.getReleaseNotes().isBlank();
+                            // 每夜版严格新于最新正式版时才作为替代选项
+                            boolean newerThanOfficial = compareVersions(
+                                    nightlyResult.getLatestVersion(),
+                                    officialResult.getLatestVersion()) > 0;
+                            if (hasUpdate && hasNotes && newerThanOfficial) {
+                                nightlyAlternative = nightlyResult;
                                 log.info(forLog("update.log.check.nightly-available",
                                         currentVersion, nightlyResult.getLatestVersion()));
-                            } else if (nightlyResult.isUpdateAvailable()) {
+                            } else if (hasUpdate && !hasNotes) {
                                 log.info(forLog("update.log.check.nightly-empty-notes",
                                         nightlyResult.getLatestVersion()));
                             }
@@ -182,9 +186,14 @@ public class UpdateService {
                 }
             }
 
-            lastResult = chosen;
-            lastSuccessfulCheckAt = chosen.getCheckedAt();
-            return chosen;
+            UpdateCheckResult combined = officialResult;
+            if (nightlyAlternative != null) {
+                combined = officialResult.toBuilder().nightlyAlternative(nightlyAlternative).build();
+            }
+
+            lastResult = combined;
+            lastSuccessfulCheckAt = combined.getCheckedAt();
+            return combined;
         } catch (RestClientException | IOException | IllegalStateException e) {
             log.warn(forLog("update.log.check.failed", e.getMessage()));
             UpdateCheckResult failed = UpdateCheckResult.builder()
@@ -239,23 +248,21 @@ public class UpdateService {
      * 在后台线程异步启动安装包下载，立即返回。
      * 进度通过 {@link #currentDownloadProgress} 暴露；GUI 轮询 {@code /api/gui/update/download/progress}。
      *
+     * @param nightlyChannel {@code true} 表示下载每夜版替代选项；{@code false} 表示下载正式版
      * @throws IllegalStateException 若已有下载正在进行，或无可用的更新资产
      */
-    public synchronized void startDownloadAsync() {
+    public synchronized void startDownloadAsync(boolean nightlyChannel) {
         if (downloadInProgress) {
             throw new IllegalStateException("Download already in progress");
         }
-        UpdateCheckResult check = lastResult;
-        if (check == null || !check.isUpdateAvailable() || check.getAssetUrl() == null) {
-            throw new IllegalStateException(forLog("update.error.asset.missing-url"));
-        }
+        UpdateCheckResult selected = selectChannel(nightlyChannel);
         downloadInProgress = true;
-        long declaredSize = check.getAssetSizeBytes();
+        long declaredSize = selected.getAssetSizeBytes();
         currentDownloadProgress = new DownloadProgress(0, declaredSize, false, false, null, null);
 
         Thread worker = new Thread(() -> {
             try {
-                downloadInstaller();
+                downloadInstaller(nightlyChannel);
             } catch (Exception e) {
                 DownloadProgress cur = currentDownloadProgress;
                 if (cur == null || (!cur.done() && !cur.failed())) {
@@ -268,6 +275,25 @@ public class UpdateService {
         }, "update-download");
         worker.setDaemon(true);
         worker.start();
+    }
+
+    /**
+     * 根据 channel 从 {@link #lastResult} 中挑选可下载的 {@link UpdateCheckResult}。
+     * 每夜版 channel 取 {@code nightlyAlternative}；正式版 channel 取 {@code lastResult} 本体。
+     */
+    private UpdateCheckResult selectChannel(boolean nightlyChannel) {
+        UpdateCheckResult check = lastResult;
+        if (check == null) {
+            throw new IllegalStateException(forLog("update.error.asset.missing-url"));
+        }
+        UpdateCheckResult selected = nightlyChannel ? check.getNightlyAlternative() : check;
+        if (selected == null
+                || !selected.isUpdateAvailable()
+                || selected.getAssetUrl() == null
+                || selected.getAssetUrl().isBlank()) {
+            throw new IllegalStateException(forLog("update.error.asset.missing-url"));
+        }
+        return selected;
     }
 
     /**
@@ -358,12 +384,11 @@ public class UpdateService {
      * 下载已检查到的 installer。调用前应先调用 {@link #checkForUpdate(boolean)} 并确认
      * {@code updateAvailable} 为 true。
      * <p>下载过程中实时更新 {@link #currentDownloadProgress}，供 GUI 轮询展示进度。
+     *
+     * @param nightlyChannel {@code true} 表示下载每夜版替代选项；{@code false} 表示下载正式版
      */
-    public UpdateDownloadResult downloadInstaller() throws IOException {
-        UpdateCheckResult check = lastResult;
-        if (check == null || !check.isUpdateAvailable() || check.getAssetUrl() == null) {
-            throw new IllegalStateException(forLog("update.error.asset.missing-url"));
-        }
+    public UpdateDownloadResult downloadInstaller(boolean nightlyChannel) throws IOException {
+        UpdateCheckResult check = selectChannel(nightlyChannel);
 
         String url = check.getAssetUrl();
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
@@ -523,9 +548,5 @@ public class UpdateService {
 
     private String forLog(String code, Object... args) {
         return messages.getForLog(code, args);
-    }
-
-    private static boolean isNightlyVersion(String version) {
-        return version != null && version.toLowerCase(Locale.ROOT).contains("nightly");
     }
 }

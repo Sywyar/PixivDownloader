@@ -57,14 +57,17 @@ public class UpdateController {
     /**
      * 启动安装包后台下载，立即返回 202。GUI 通过 {@code /download/progress} 轮询进度直到完成。
      * 若已有下载正在进行，返回 409。
+     *
+     * @param channel {@code nightly} 时下载每夜版替代选项，默认 {@code official}
      */
     @PostMapping("/download")
-    public ResponseEntity<?> download(HttpServletRequest req) {
+    public ResponseEntity<?> download(HttpServletRequest req,
+                                      @RequestParam(value = "channel", defaultValue = "official") String channel) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         try {
-            updateService.startDownloadAsync();
+            updateService.startDownloadAsync("nightly".equalsIgnoreCase(channel));
             return ResponseEntity.accepted().build();
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));

@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
+import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -92,15 +93,21 @@ public class StatusPanel extends JPanel {
     private final JLabel updateBannerLabel = new JLabel();
     private final JButton updateBannerInstallButton = new JButton();
     private final JButton updateBannerDismissButton = new JButton();
+    private final JPanel updateBannerNightly = new JPanel(new BorderLayout(8, 0));
+    private final JLabel updateBannerNightlyLabel = new JLabel();
+    private final JButton updateBannerNightlyInstallButton = new JButton();
+    private final JButton updateBannerNightlyDismissButton = new JButton();
     private final JProgressBar updateProgressBar = new JProgressBar(0, 100);
     private final JLabel updateProgressLabel = new JLabel();
     private JPanel updateProgressPanel;
-    private volatile String pendingInstallerUrl;
-    private volatile long pendingInstallerSize;
-    private volatile String pendingReleaseNotes;
-    private volatile boolean pendingIsNightly;
+    private volatile PendingInstall pendingOfficial;
+    private volatile PendingInstall pendingNightly;
+    private volatile boolean downloadingNightly;
     private volatile String savedBannerVersionText;
     private volatile Timer downloadProgressTimer;
+
+    /** 一份待安装的更新选项：URL、安装包大小、发布说明、最新版本号。 */
+    private record PendingInstall(String url, long size, String releaseNotes, String latestVersion) {}
     private LocaleOption currentAppliedLanguageOption;
     private final java.awt.event.ActionListener languageActionListener = e -> applyLanguageSelection();
 
@@ -278,13 +285,45 @@ public class StatusPanel extends JPanel {
     }
 
     private JComponent buildUpdateBanner() {
+        // 正式版横幅（黄色）
         updateBanner.setOpaque(true);
         updateBanner.setBackground(new Color(255, 247, 220));
         updateBanner.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(220, 190, 120)),
                 BorderFactory.createEmptyBorder(8, 12, 8, 12)));
         updateBannerLabel.setFont(updateBannerLabel.getFont().deriveFont(Font.BOLD));
+        updateBannerInstallButton.setText(message("gui.update.banner.install"));
+        updateBannerInstallButton.addActionListener(e -> triggerUpdateInstall(false));
+        updateBannerDismissButton.setText(message("gui.update.banner.dismiss"));
+        updateBannerDismissButton.addActionListener(e -> updateBanner.setVisible(false));
+        JPanel officialActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        officialActions.setOpaque(false);
+        officialActions.add(updateBannerInstallButton);
+        officialActions.add(updateBannerDismissButton);
+        updateBanner.add(updateBannerLabel, BorderLayout.CENTER);
+        updateBanner.add(officialActions, BorderLayout.EAST);
+        updateBanner.setVisible(false);
 
+        // 每夜版横幅（淡紫色，区分正式版）
+        updateBannerNightly.setOpaque(true);
+        updateBannerNightly.setBackground(new Color(232, 232, 252));
+        updateBannerNightly.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(150, 150, 210)),
+                BorderFactory.createEmptyBorder(8, 12, 8, 12)));
+        updateBannerNightlyLabel.setFont(updateBannerNightlyLabel.getFont().deriveFont(Font.BOLD));
+        updateBannerNightlyInstallButton.setText(message("gui.update.banner.install.nightly"));
+        updateBannerNightlyInstallButton.addActionListener(e -> triggerUpdateInstall(true));
+        updateBannerNightlyDismissButton.setText(message("gui.update.banner.dismiss"));
+        updateBannerNightlyDismissButton.addActionListener(e -> updateBannerNightly.setVisible(false));
+        JPanel nightlyActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        nightlyActions.setOpaque(false);
+        nightlyActions.add(updateBannerNightlyInstallButton);
+        nightlyActions.add(updateBannerNightlyDismissButton);
+        updateBannerNightly.add(updateBannerNightlyLabel, BorderLayout.CENTER);
+        updateBannerNightly.add(nightlyActions, BorderLayout.EAST);
+        updateBannerNightly.setVisible(false);
+
+        // 共享的下载进度区
         updateProgressLabel.setFont(updateProgressLabel.getFont().deriveFont(11f));
         updateProgressLabel.setForeground(Color.GRAY);
         updateProgressPanel = new JPanel(new BorderLayout(8, 0));
@@ -293,28 +332,19 @@ public class StatusPanel extends JPanel {
         updateProgressPanel.add(updateProgressLabel, BorderLayout.EAST);
         updateProgressPanel.setVisible(false);
 
-        JPanel left = new JPanel();
-        left.setOpaque(false);
-        left.setLayout(new BoxLayout(left, BoxLayout.Y_AXIS));
-        left.add(updateBannerLabel);
-        left.add(Box.createVerticalStrut(4));
-        left.add(updateProgressPanel);
-
-        updateBannerInstallButton.setText(message("gui.update.banner.install"));
-        updateBannerInstallButton.addActionListener(e -> triggerUpdateInstall());
-
-        updateBannerDismissButton.setText(message("gui.update.banner.dismiss"));
-        updateBannerDismissButton.addActionListener(e -> updateBanner.setVisible(false));
-
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
-        actions.setOpaque(false);
-        actions.add(updateBannerInstallButton);
-        actions.add(updateBannerDismissButton);
-
-        updateBanner.add(left, BorderLayout.CENTER);
-        updateBanner.add(actions, BorderLayout.EAST);
-        updateBanner.setVisible(false);
-        return updateBanner;
+        // 容器：两个横幅 + 共享进度区，竖向堆叠
+        JPanel container = new JPanel();
+        container.setOpaque(false);
+        container.setLayout(new BoxLayout(container, BoxLayout.Y_AXIS));
+        updateBanner.setAlignmentX(Component.LEFT_ALIGNMENT);
+        updateBannerNightly.setAlignmentX(Component.LEFT_ALIGNMENT);
+        updateProgressPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        container.add(updateBanner);
+        container.add(Box.createVerticalStrut(6));
+        container.add(updateBannerNightly);
+        container.add(Box.createVerticalStrut(4));
+        container.add(updateProgressPanel);
+        return container;
     }
 
     private JButton webButton(String messageCode, String path) {
@@ -1017,7 +1047,9 @@ public class StatusPanel extends JPanel {
                     message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
             return;
         }
-        if (!node.path("updateAvailable").asBoolean(false)) {
+        boolean officialAvailable = node.path("updateAvailable").asBoolean(false);
+        boolean nightlyAvailable = node.path("nightlyAlternative").path("updateAvailable").asBoolean(false);
+        if (!officialAvailable && !nightlyAvailable) {
             JOptionPane.showMessageDialog(this,
                     message("gui.update.dialog.up-to-date.message",
                             node.path("currentVersion").asText("")),
@@ -1026,72 +1058,117 @@ public class StatusPanel extends JPanel {
     }
 
     private void applyUpdateResult(JsonNode node) {
-        boolean available = node.path("updateAvailable").asBoolean(false);
-        if (!available) {
-            updateBanner.setVisible(false);
-            pendingInstallerUrl = null;
-            pendingInstallerSize = 0L;
-            pendingReleaseNotes = null;
-            pendingIsNightly = false;
-            return;
-        }
-        String latest = node.path("latestVersion").asText("");
         String current = node.path("currentVersion").asText("");
-        pendingInstallerUrl = node.path("assetUrl").asText(null);
-        pendingInstallerSize = node.path("assetSizeBytes").asLong(0L);
-        pendingReleaseNotes = node.path("releaseNotes").asText(null);
-        pendingIsNightly = node.path("nightly").asBoolean(false);
+        boolean officialAvailable = node.path("updateAvailable").asBoolean(false);
+        JsonNode officialNode = officialAvailable ? node : null;
+        JsonNode nightlyNode = node.path("nightlyAlternative");
+        boolean nightlyAvailable = nightlyNode != null
+                && !nightlyNode.isMissingNode()
+                && nightlyNode.path("updateAvailable").asBoolean(false);
 
-        if (pendingIsNightly) {
-            updateBannerLabel.setText(message("gui.update.banner.nightly-text", current, latest));
+        // 正式版横幅
+        if (officialNode != null) {
+            pendingOfficial = extractPendingInstall(officialNode);
+            updateBannerLabel.setText(message("gui.update.banner.text",
+                    current, pendingOfficial.latestVersion()));
+            updateBanner.setVisible(true);
         } else {
-            updateBannerLabel.setText(message("gui.update.banner.text", current, latest));
+            pendingOfficial = null;
+            updateBanner.setVisible(false);
         }
-        updateBanner.setVisible(true);
-        updateBanner.revalidate();
-        updateBanner.repaint();
+
+        // 每夜版横幅
+        if (nightlyAvailable) {
+            pendingNightly = extractPendingInstall(nightlyNode);
+            updateBannerNightlyLabel.setText(message("gui.update.banner.nightly-text",
+                    current, pendingNightly.latestVersion()));
+            updateBannerNightly.setVisible(true);
+        } else {
+            pendingNightly = null;
+            updateBannerNightly.setVisible(false);
+        }
+
+        updateBanner.getParent().revalidate();
+        updateBanner.getParent().repaint();
     }
 
-    private void triggerUpdateInstall() {
+    private static PendingInstall extractPendingInstall(JsonNode node) {
+        return new PendingInstall(
+                node.path("assetUrl").asText(null),
+                node.path("assetSizeBytes").asLong(0L),
+                node.path("releaseNotes").asText(null),
+                node.path("latestVersion").asText(""));
+    }
+
+    private void triggerUpdateInstall(boolean nightlyChannel) {
         if (updateInstalling) {
             return;
         }
-        String latest = extractFromBanner();
+        PendingInstall target = nightlyChannel ? pendingNightly : pendingOfficial;
+        if (target == null) {
+            return;
+        }
         String confirmMessage;
-        if (pendingIsNightly && pendingReleaseNotes != null && !pendingReleaseNotes.isBlank()) {
+        if (nightlyChannel && target.releaseNotes() != null && !target.releaseNotes().isBlank()) {
             confirmMessage = message("gui.update.dialog.install.confirm.nightly-message",
-                    latest, formatSize(pendingInstallerSize), pendingReleaseNotes);
+                    target.latestVersion(), formatSize(target.size()), target.releaseNotes());
         } else {
             confirmMessage = message("gui.update.dialog.install.confirm.message",
-                    latest, formatSize(pendingInstallerSize));
+                    target.latestVersion(), formatSize(target.size()));
         }
+
+        boolean currentIsNightly = UpdateConfig.isCurrentVersionNightly();
+        // 仅在「每夜构建版 → 正式版」回退时询问；安装每夜构建版一律默认开启
+        boolean askContinueNightlyCheck = currentIsNightly && !nightlyChannel;
+        JCheckBox continueNightlyCheckBox = null;
+        Object dialogMessage;
+        if (askContinueNightlyCheck) {
+            continueNightlyCheckBox = new JCheckBox(
+                    message("gui.update.dialog.install.confirm.check-nightly-checkbox"));
+            continueNightlyCheckBox.setSelected(true);
+            dialogMessage = new Object[]{confirmMessage, continueNightlyCheckBox};
+        } else {
+            dialogMessage = confirmMessage;
+        }
+
         int confirm = JOptionPane.showConfirmDialog(this,
-                confirmMessage,
+                dialogMessage,
                 message("gui.update.dialog.install.title"), JOptionPane.YES_NO_OPTION);
         if (confirm != JOptionPane.YES_OPTION) {
             return;
         }
+        if (nightlyChannel) {
+            persistCheckNightlyPreference(true);
+        } else if (continueNightlyCheckBox != null) {
+            persistCheckNightlyPreference(continueNightlyCheckBox.isSelected());
+        }
         updateInstalling = true;
-        savedBannerVersionText = updateBannerLabel.getText();
-        updateBannerLabel.setText(message("gui.update.banner.downloading"));
+        downloadingNightly = nightlyChannel;
+        JLabel activeLabel = nightlyChannel ? updateBannerNightlyLabel : updateBannerLabel;
+        savedBannerVersionText = activeLabel.getText();
+        activeLabel.setText(message("gui.update.banner.downloading"));
         updateBannerInstallButton.setEnabled(false);
         updateBannerDismissButton.setEnabled(false);
+        updateBannerNightlyInstallButton.setEnabled(false);
+        updateBannerNightlyDismissButton.setEnabled(false);
         updateProgressBar.setIndeterminate(true);
         updateProgressBar.setValue(0);
         updateProgressLabel.setText("");
         updateProgressPanel.setVisible(true);
-        updateBanner.revalidate();
-        updateBanner.repaint();
+        updateBanner.getParent().revalidate();
+        updateBanner.getParent().repaint();
 
         downloadProgressTimer = new Timer(500, e -> pollDownloadProgress());
         downloadProgressTimer.setInitialDelay(800);
         downloadProgressTimer.start();
 
+        String downloadPath = "/api/gui/update/download?channel="
+                + (nightlyChannel ? "nightly" : "official");
         SwingWorker<JsonNode, Void> worker = new SwingWorker<>() {
             @Override
             protected JsonNode doInBackground() throws InterruptedException {
                 // 发起下载（立即返回 202）；超时只需覆盖握手时间
-                JsonNode startResp = callUpdateEndpoint("POST", "/api/gui/update/download", null, 10_000);
+                JsonNode startResp = callUpdateEndpoint("POST", downloadPath, null, 10_000);
                 // 409 = 已有下载进行中，startResp 含 error 字段
                 if (startResp != null && startResp.hasNonNull("error")) {
                     return startResp;
@@ -1160,10 +1237,15 @@ public class StatusPanel extends JPanel {
 
     private void restoreBannerAfterInstallFailure() {
         updateInstalling = false;
-        updateBannerInstallButton.setEnabled(true);
-        updateBannerDismissButton.setEnabled(true);
+        boolean officialEnabled = pendingOfficial != null;
+        boolean nightlyEnabled = pendingNightly != null;
+        updateBannerInstallButton.setEnabled(officialEnabled);
+        updateBannerDismissButton.setEnabled(officialEnabled);
+        updateBannerNightlyInstallButton.setEnabled(nightlyEnabled);
+        updateBannerNightlyDismissButton.setEnabled(nightlyEnabled);
         if (savedBannerVersionText != null) {
-            updateBannerLabel.setText(savedBannerVersionText);
+            JLabel activeLabel = downloadingNightly ? updateBannerNightlyLabel : updateBannerLabel;
+            activeLabel.setText(savedBannerVersionText);
         }
     }
 
@@ -1192,8 +1274,17 @@ public class StatusPanel extends JPanel {
         }
     }
 
-    private String extractFromBanner() {
-        return updateBannerLabel.getText();
+    /**
+     * 把用户在安装确认对话框中选择的 check-nightly 偏好写回 config.yaml。
+     * 失败仅记日志，不阻塞安装流程。
+     */
+    private void persistCheckNightlyPreference(boolean enabled) {
+        try {
+            new ConfigFileEditor(configPath).write("update.check-nightly", Boolean.toString(enabled));
+        } catch (java.io.IOException e) {
+            log.warn(logMessage("gui.status.log.update.check-nightly-persist-failed",
+                    safeText(e)), e);
+        }
     }
 
     private void launchInstaller(String installerPath) {

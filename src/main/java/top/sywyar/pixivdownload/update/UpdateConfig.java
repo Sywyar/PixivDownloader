@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.update;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.common.AppVersion;
+
+import java.util.Locale;
 
 @Data
 @Component
@@ -22,4 +25,24 @@ public class UpdateConfig {
     private volatile String manifestUrl = DEFAULT_MANIFEST_URL;
     private volatile String nightlyManifestUrl = DEFAULT_NIGHTLY_MANIFEST_URL;
     private volatile boolean autoCheck = true;
+    /**
+     * 是否检查每日构建版（nightly）更新；未配置（{@code null}）时按当前运行版本决定
+     * —— 每日构建版默认开启，正式版默认关闭。
+     */
+    private volatile Boolean checkNightly;
+
+    /** 计算 checkNightly 的有效值：显式配置优先，缺失时按当前版本派生。 */
+    public boolean resolveCheckNightly() {
+        Boolean configured = this.checkNightly;
+        if (configured != null) {
+            return configured;
+        }
+        return isCurrentVersionNightly();
+    }
+
+    /** 当前运行版本号是否为每日构建版。 */
+    public static boolean isCurrentVersionNightly() {
+        String version = AppVersion.getDisplayVersionOrNull();
+        return version != null && version.toLowerCase(Locale.ROOT).contains("nightly");
+    }
 }
