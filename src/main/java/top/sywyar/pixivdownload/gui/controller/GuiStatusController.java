@@ -185,6 +185,47 @@ public class GuiStatusController {
         return ResponseEntity.ok(new GuiSetupInitResponse(true, mode, null));
     }
 
+    /**
+     * POST /api/gui/change-password
+     * 修改管理员密码。GUI 侧使用，本地访问 + GUI 令牌双重保护。
+     * 修改成功后所有现存 session 会被清空，使用者需要重新登录 web 端。
+     */
+    @PostMapping("/change-password")
+    public ResponseEntity<GuiChangePasswordResponse> changePassword(
+            @RequestBody GuiChangePasswordRequest body, HttpServletRequest req) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        if (!setupService.isSetupComplete()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new GuiChangePasswordResponse(false, "setup-incomplete"));
+        }
+        String oldPwd = body == null || body.oldPassword() == null ? "" : body.oldPassword();
+        String newPwd = body == null || body.newPassword() == null ? "" : body.newPassword();
+        if (newPwd.length() < 6) {
+            return ResponseEntity.badRequest()
+                    .body(new GuiChangePasswordResponse(false, "weak-password"));
+        }
+        if (oldPwd.equals(newPwd)) {
+            return ResponseEntity.badRequest()
+                    .body(new GuiChangePasswordResponse(false, "same-password"));
+        }
+        try {
+            setupService.changePassword(oldPwd, newPwd);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new GuiChangePasswordResponse(false, "invalid-current"));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new GuiChangePasswordResponse(false, "setup-incomplete"));
+        } catch (IOException e) {
+            log.warn(logMessage("gui.security.log.change-password.save-failed", e.getMessage()), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new GuiChangePasswordResponse(false, "save-failed"));
+        }
+        return ResponseEntity.ok(new GuiChangePasswordResponse(true, null));
+    }
+
     public record OnboardingStatusResponse(
             boolean setupComplete,
             String mode,
@@ -197,6 +238,12 @@ public class GuiStatusController {
     }
 
     public record GuiSetupInitResponse(boolean success, String mode, String error) {
+    }
+
+    public record GuiChangePasswordRequest(String oldPassword, String newPassword) {
+    }
+
+    public record GuiChangePasswordResponse(boolean success, String error) {
     }
 
     // ── 私有工具 ──────────────────────────────────────────────────────────────────

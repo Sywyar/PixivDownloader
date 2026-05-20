@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+### Features
+- GUI 新增「安全」标签页，提供「修改管理员密码」面板：填入当前密码与新密码后即可在桌面端直接修改用于登录 web 端的管理员密码，无需手动编辑 `setup_config.json` 或重跑安装向导。修改成功后所有已登录的 web 会话会被自动注销，需使用新密码重新登录。
+
 ### Bug Fixes
 - 修复后端运行语言为 English 时，前端在语言选择中切换到「简体中文」仍然加载英文文案的问题（其它命名空间如 setup、login、画廊等也受同一缺陷影响）。
 

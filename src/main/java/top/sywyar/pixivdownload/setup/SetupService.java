@@ -130,6 +130,31 @@ public class SetupService {
         log.info(message("setup.log.completed", usageMode));
     }
 
+    // ---- 修改密码 -------------------------------------------------------
+
+    /**
+     * 修改管理员密码。校验旧密码后用 BCrypt 重新编码新密码并落盘。
+     * 出于安全考虑，密码变更后所有现存 session（含长期记住的）一并失效，
+     * 调用方必须重新登录。
+     */
+    public synchronized void changePassword(String oldPwd, String newPwd) throws IOException {
+        if (!setupComplete || username == null || passwordHash == null) {
+            throw new IllegalStateException("Setup not completed");
+        }
+        if (!checkLogin(username, oldPwd)) {
+            throw new IllegalArgumentException("Invalid current password");
+        }
+        if (newPwd == null || newPwd.length() < 6) {
+            throw new IllegalArgumentException("New password must be at least 6 characters");
+        }
+        this.salt = null;
+        this.passwordHash = BCRYPT.encode(newPwd);
+        sessions.clear();
+        persistentSessions.clear();
+        save();
+        log.info(message("setup.log.password.changed"));
+    }
+
     // ---- 登录验证 -------------------------------------------------------
 
     public boolean checkLogin(String uname, String pwd) {

@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.panel.AboutPanel;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
+import top.sywyar.pixivdownload.gui.panel.SecurityPanel;
 import top.sywyar.pixivdownload.gui.panel.StatusPanel;
 import top.sywyar.pixivdownload.gui.panel.ToolsPanel;
 import top.sywyar.pixivdownload.gui.panel.WelcomePanel;
@@ -94,6 +95,7 @@ public class MainFrame extends JFrame {
         tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
         tabs.addTab(GuiMessages.get("gui.tab.config"), new ConfigPanel(configPath, serverPort));
         tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
+        tabs.addTab(GuiMessages.get("gui.tab.security"), new SecurityPanel(serverPort));
         tabs.addTab(GuiMessages.get("gui.tab.about"), new AboutPanel());
         return tabs;
     }
