@@ -1084,6 +1084,12 @@
         return data;
     }
 
+    async function getNovelMetaForSearch(novelId) {
+        const data = await apiGet(`/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`);
+        if (data.error) throw new Error(data.error);
+        return data;
+    }
+
     async function getArtworkPages(artworkId) {
         const data = await apiGet(`/api/pixiv/artwork/${artworkId}/pages`);
         if (data.error) throw new Error(data.error);
@@ -2904,7 +2910,6 @@
     }
 
     function hasBookmarkFilter(filters = searchState.currentFilters) {
-        if (searchState.kind === 'novel') return false;
         return filters.bookmarkMin !== null || filters.bookmarkMax !== null;
     }
 
@@ -2938,8 +2943,13 @@
         return true;
     }
 
+    // 缓存键带 kind 前缀：插画与小说 ID 命名空间不同，相同数字可能指向不同作品。
+    function searchMetaCacheKey(id, kind = searchState.kind) {
+        return (kind === 'novel' ? 'n:' : 'i:') + String(id);
+    }
+
     function getCachedSearchMeta(artworkId) {
-        return searchState.metaCache[String(artworkId)] || null;
+        return searchState.metaCache[searchMetaCacheKey(artworkId)] || null;
     }
 
     function getSearchBookmarkCount(item) {
@@ -2961,6 +2971,7 @@
         }
         if (!missingIds.length) return;
 
+        const fetchMeta = searchState.kind === 'novel' ? getNovelMetaForSearch : getArtworkMeta;
         let cursor = 0;
         const workers = [];
         const workerCount = Math.min(6, missingIds.length);
@@ -2969,16 +2980,17 @@
                 while (cursor < missingIds.length) {
                     if (requestSeq !== searchState.filterSeq) return;
                     const id = missingIds[cursor++];
+                    const cacheKey = searchMetaCacheKey(id);
                     try {
-                        const meta = await getArtworkMeta(id);
-                        searchState.metaCache[id] = {
-                            ...(searchState.metaCache[id] || {}),
+                        const meta = await fetchMeta(id);
+                        searchState.metaCache[cacheKey] = {
+                            ...(searchState.metaCache[cacheKey] || {}),
                             bookmarkCount: Number(meta?.bookmarkCount ?? -1),
                             bookmarkResolved: true
                         };
                     } catch {
-                        searchState.metaCache[id] = {
-                            ...(searchState.metaCache[id] || {}),
+                        searchState.metaCache[cacheKey] = {
+                            ...(searchState.metaCache[cacheKey] || {}),
                             bookmarkCount: -1,
                             bookmarkResolved: true,
                             bookmarkError: true
@@ -3001,6 +3013,15 @@
             const wc = Number(item.wordCount ?? 0);
             if (filters.wordsMin !== null && wc < filters.wordsMin) return false;
             if (filters.wordsMax !== null && wc > filters.wordsMax) return false;
+            if (hasBookmarkFilter(filters)) {
+                const bookmarkCount = getSearchBookmarkCount(item);
+                if (bookmarkCount === null) {
+                    stats.bookmarkMetaMissing++;
+                    return false;
+                }
+                if (filters.bookmarkMin !== null && bookmarkCount < filters.bookmarkMin) return false;
+                if (filters.bookmarkMax !== null && bookmarkCount > filters.bookmarkMax) return false;
+            }
             return true;
         }
 
@@ -3385,6 +3406,7 @@
             const xr = Number(item.xRestrict ?? 0);
             const isAi = Number(item.aiType ?? 0) >= 2;
             const wc = Number(item.wordCount ?? item.textLength ?? 0);
+            const bookmarkCount = getSearchBookmarkCount(item);
             const queueId = 'n' + String(item.id);
             const inQueueClass = inQueue.has(queueId) ? ' in-queue' : '';
             const meta = [];
@@ -3393,9 +3415,15 @@
             if (isAi) meta.push('<span class="nsc-ai">AI</span>');
             if (item.isOriginal) meta.push(`<span class="nsc-original">${esc(bt('novel:batch.search.original', '原创'))}</span>`);
             if (wc > 0) meta.push(`<span>${esc(bt('novel:batch.search.summary.novel-words', '{count} 字', {count: wc.toLocaleString()}))}</span>`);
+            if (bookmarkCount !== null) {
+                meta.push(`<span>${esc(bt('search.summary.bookmark-badge', '收藏 {count}', {count: bookmarkCount.toLocaleString()}))}</span>`);
+            }
             const fallbackTitle = bt('novel:status.unknown-novel', '小说 {id}', {id: item.id});
             const fallbackAuthor = bt('novel:status.unknown-author', '未知');
-            return `<div class="novel-search-card${inQueueClass}" data-novel-idx="${idx}">
+            const bookmarkTip = buildBookmarkTip(bookmarkCount);
+            const queueTip = buildQueueToggleTip(inQueue.has(queueId));
+            const cardTitle = `${item.title || fallbackTitle} (${item.userName || fallbackAuthor})${bookmarkTip}${queueTip}`;
+            return `<div class="novel-search-card${inQueueClass}" data-novel-idx="${idx}" title="${esc(cardTitle)}">
         <div class="nsc-title">${esc(item.title || fallbackTitle)}</div>
         <div class="nsc-author">${esc(item.userName || fallbackAuthor)}</div>
         <div class="nsc-meta">${meta.join('')}</div>
