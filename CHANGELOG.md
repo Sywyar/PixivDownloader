@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [Unreleased]
+
+### Bug Fixes
+- 修复后端运行语言为 English 时，前端在语言选择中切换到「简体中文」仍然加载英文文案的问题（其它命名空间如 setup、login、画廊等也受同一缺陷影响）。
+
 ## [v1.9.0] - 2026-05-19
 
 ### Features
