@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ### Bug Fixes
 - 修复后端运行语言为 English 时，前端在语言选择中切换到「简体中文」仍然加载英文文案的问题（其它命名空间如 setup、login、画廊等也受同一缺陷影响）。
 - 修复 GUI 在线更新读取每日构建版变更日志（CHANGELOG 差异内容）时中文出现乱码的问题。
+- 修复画廊页创建邀请后弹出的「邀请链接已生成」对话框中，邀请链接和邀请码两个内容框在深色模式下仍显示为浅色背景的问题。
 
 ## [v1.9.0] - 2026-05-19
 

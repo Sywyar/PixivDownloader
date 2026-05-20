@@ -51,6 +51,14 @@
             --scrollbar-thumb: #3b4352;
         }
 
+        /* alias 给 invite-modals.js 用 */
+        html, html[data-theme="dark"] {
+            --text-muted: var(--muted);
+            --border: var(--line);
+            --surface-muted: var(--control-muted-bg);
+            --surface-hover: var(--hover-bg);
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
