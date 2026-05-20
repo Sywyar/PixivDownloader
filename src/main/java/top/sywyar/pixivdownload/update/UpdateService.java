@@ -210,27 +210,31 @@ public class UpdateService {
     }
 
     /**
-     * 拉取 manifest 文本并手动用 Jackson 解析，避免 GitHub release 资产以
-     * {@code application/octet-stream} 返回时被默认 MessageConverter 拒绝。
+     * 拉取 manifest 字节并手动用 Jackson 解析。
+     * <p>必须请求 {@code byte[]} 而不是 {@code String}：GitHub release 资产以
+     * {@code application/octet-stream}（无 charset）返回，Spring 默认的
+     * {@code StringHttpMessageConverter} 会按 ISO-8859-1 解码，把 UTF-8 的中文
+     * （如发布说明里的"修复"、"新增"）变成乱码。Jackson 直接对字节流按 UTF-8
+     * 解析即可绕过这一层错误的字符集协商。
      */
     private UpdateManifest fetchManifest(String manifestUrl) throws IOException {
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(java.util.List.of(MediaType.APPLICATION_JSON, MediaType.ALL));
         headers.set(HttpHeaders.USER_AGENT, "PixivDownload-Updater");
 
-        ResponseEntity<String> response = downloadRestTemplate.exchange(
+        ResponseEntity<byte[]> response = downloadRestTemplate.exchange(
                 URI.create(manifestUrl),
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
-                String.class);
+                byte[].class);
 
         if (response.getStatusCode() != HttpStatus.OK) {
             throw new IOException(forLog("update.error.manifest.invalid",
                     "HTTP " + response.getStatusCode().value()));
         }
 
-        String body = response.getBody();
-        if (body == null || body.isBlank()) {
+        byte[] body = response.getBody();
+        if (body == null || body.length == 0) {
             throw new IOException(forLog("update.error.manifest.invalid", "empty body"));
         }
         return MAPPER.readValue(body, UpdateManifest.class);

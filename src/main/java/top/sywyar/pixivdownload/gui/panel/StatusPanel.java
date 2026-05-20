@@ -92,10 +92,12 @@ public class StatusPanel extends JPanel {
     private final JPanel updateBanner = new JPanel(new BorderLayout(8, 0));
     private final JLabel updateBannerLabel = new JLabel();
     private final JButton updateBannerInstallButton = new JButton();
+    private final JButton updateBannerViewLogButton = new JButton();
     private final JButton updateBannerDismissButton = new JButton();
     private final JPanel updateBannerNightly = new JPanel(new BorderLayout(8, 0));
     private final JLabel updateBannerNightlyLabel = new JLabel();
     private final JButton updateBannerNightlyInstallButton = new JButton();
+    private final JButton updateBannerNightlyViewDiffButton = new JButton();
     private final JButton updateBannerNightlyDismissButton = new JButton();
     private final JProgressBar updateProgressBar = new JProgressBar(0, 100);
     private final JLabel updateProgressLabel = new JLabel();
@@ -292,12 +294,15 @@ public class StatusPanel extends JPanel {
                 BorderFactory.createLineBorder(new Color(220, 190, 120)),
                 BorderFactory.createEmptyBorder(8, 12, 8, 12)));
         updateBannerLabel.setFont(updateBannerLabel.getFont().deriveFont(Font.BOLD));
+        updateBannerViewLogButton.setText(message("gui.update.banner.view-log"));
+        updateBannerViewLogButton.addActionListener(e -> showOfficialReleaseNotesDialog());
         updateBannerInstallButton.setText(message("gui.update.banner.install"));
         updateBannerInstallButton.addActionListener(e -> triggerUpdateInstall(false));
         updateBannerDismissButton.setText(message("gui.update.banner.dismiss"));
         updateBannerDismissButton.addActionListener(e -> updateBanner.setVisible(false));
         JPanel officialActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         officialActions.setOpaque(false);
+        officialActions.add(updateBannerViewLogButton);
         officialActions.add(updateBannerInstallButton);
         officialActions.add(updateBannerDismissButton);
         updateBanner.add(updateBannerLabel, BorderLayout.CENTER);
@@ -311,12 +316,15 @@ public class StatusPanel extends JPanel {
                 BorderFactory.createLineBorder(new Color(150, 150, 210)),
                 BorderFactory.createEmptyBorder(8, 12, 8, 12)));
         updateBannerNightlyLabel.setFont(updateBannerNightlyLabel.getFont().deriveFont(Font.BOLD));
+        updateBannerNightlyViewDiffButton.setText(message("gui.update.banner.view-diff"));
+        updateBannerNightlyViewDiffButton.addActionListener(e -> showNightlyDiffDialog());
         updateBannerNightlyInstallButton.setText(message("gui.update.banner.install.nightly"));
         updateBannerNightlyInstallButton.addActionListener(e -> triggerUpdateInstall(true));
         updateBannerNightlyDismissButton.setText(message("gui.update.banner.dismiss"));
         updateBannerNightlyDismissButton.addActionListener(e -> updateBannerNightly.setVisible(false));
         JPanel nightlyActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
         nightlyActions.setOpaque(false);
+        nightlyActions.add(updateBannerNightlyViewDiffButton);
         nightlyActions.add(updateBannerNightlyInstallButton);
         nightlyActions.add(updateBannerNightlyDismissButton);
         updateBannerNightly.add(updateBannerNightlyLabel, BorderLayout.CENTER);
@@ -1108,35 +1116,32 @@ public class StatusPanel extends JPanel {
         if (target == null) {
             return;
         }
-        String confirmMessage;
-        if (nightlyChannel && target.releaseNotes() != null && !target.releaseNotes().isBlank()) {
-            confirmMessage = message("gui.update.dialog.install.confirm.nightly-message",
-                    target.latestVersion(), formatSize(target.size()), target.releaseNotes());
-        } else {
-            confirmMessage = message("gui.update.dialog.install.confirm.message",
-                    target.latestVersion(), formatSize(target.size()));
-        }
 
-        boolean currentIsNightly = UpdateConfig.isCurrentVersionNightly();
-        // 仅在「每夜构建版 → 正式版」回退时询问；安装每夜构建版一律默认开启
-        boolean askContinueNightlyCheck = currentIsNightly && !nightlyChannel;
+        // 每夜版安装按钮：直接下载，跳过确认对话框；变更日志改由「查看详细构建差距日志」按钮单独展示
         JCheckBox continueNightlyCheckBox = null;
-        Object dialogMessage;
-        if (askContinueNightlyCheck) {
-            continueNightlyCheckBox = new JCheckBox(
-                    message("gui.update.dialog.install.confirm.check-nightly-checkbox"));
-            continueNightlyCheckBox.setSelected(true);
-            dialogMessage = new Object[]{confirmMessage, continueNightlyCheckBox};
-        } else {
-            dialogMessage = confirmMessage;
+        if (!nightlyChannel) {
+            String confirmMessage = message("gui.update.dialog.install.confirm.message",
+                    target.latestVersion(), formatSize(target.size()));
+            boolean currentIsNightly = UpdateConfig.isCurrentVersionNightly();
+            // 仅在「每夜构建版 → 正式版」回退时询问；安装每夜构建版一律默认开启
+            Object dialogMessage;
+            if (currentIsNightly) {
+                continueNightlyCheckBox = new JCheckBox(
+                        message("gui.update.dialog.install.confirm.check-nightly-checkbox"));
+                continueNightlyCheckBox.setSelected(true);
+                dialogMessage = new Object[]{confirmMessage, continueNightlyCheckBox};
+            } else {
+                dialogMessage = confirmMessage;
+            }
+
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    dialogMessage,
+                    message("gui.update.dialog.install.title"), JOptionPane.YES_NO_OPTION);
+            if (confirm != JOptionPane.YES_OPTION) {
+                return;
+            }
         }
 
-        int confirm = JOptionPane.showConfirmDialog(this,
-                dialogMessage,
-                message("gui.update.dialog.install.title"), JOptionPane.YES_NO_OPTION);
-        if (confirm != JOptionPane.YES_OPTION) {
-            return;
-        }
         if (nightlyChannel) {
             persistCheckNightlyPreference(true);
         } else if (continueNightlyCheckBox != null) {
@@ -1148,8 +1153,10 @@ public class StatusPanel extends JPanel {
         savedBannerVersionText = activeLabel.getText();
         activeLabel.setText(message("gui.update.banner.downloading"));
         updateBannerInstallButton.setEnabled(false);
+        updateBannerViewLogButton.setEnabled(false);
         updateBannerDismissButton.setEnabled(false);
         updateBannerNightlyInstallButton.setEnabled(false);
+        updateBannerNightlyViewDiffButton.setEnabled(false);
         updateBannerNightlyDismissButton.setEnabled(false);
         updateProgressBar.setIndeterminate(true);
         updateProgressBar.setValue(0);
@@ -1227,6 +1234,60 @@ public class StatusPanel extends JPanel {
         worker.execute();
     }
 
+    /**
+     * 打开「查看更新日志」对话框：滚动展示正式版 manifest 的 releaseNotes
+     * （release.yml 注入的 release notes）。无内容时给出简单提示。
+     */
+    private void showOfficialReleaseNotesDialog() {
+        showReleaseNotesDialog(pendingOfficial,
+                "gui.update.dialog.view-log.title",
+                "gui.update.dialog.view-log.empty");
+    }
+
+    /**
+     * 打开「查看详细构建差距日志」对话框：滚动展示每夜版 manifest 的 releaseNotes
+     * （由 nightly.yml 的 CHANGELOG_DIFF.md 生成）。无内容时给出简单提示。
+     */
+    private void showNightlyDiffDialog() {
+        showReleaseNotesDialog(pendingNightly,
+                "gui.update.dialog.view-diff.title",
+                "gui.update.dialog.view-diff.empty");
+    }
+
+    /**
+     * 共用的 release notes 展示对话框：初始尺寸 640×420，内容垂直滚动 + 按词换行，
+     * 避免长 CHANGELOG / 差异日志撑爆窗口；对话框本身可被用户拖拽缩放
+     * （{@code JOptionPane.showMessageDialog} 默认产出 {@code resizable=false}，
+     * 因此需要走 {@code createDialog} 手动开启）。
+     */
+    private void showReleaseNotesDialog(PendingInstall target, String titleKey, String emptyKey) {
+        String notes = target == null ? null : target.releaseNotes();
+        String title = message(titleKey);
+        if (notes == null || notes.isBlank()) {
+            JOptionPane.showMessageDialog(this,
+                    message(emptyKey), title, JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        JTextArea area = new JTextArea(notes);
+        area.setEditable(false);
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        area.setCaretPosition(0);
+        JScrollPane scroll = new JScrollPane(area,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setPreferredSize(new Dimension(640, 420));
+
+        JOptionPane pane = new JOptionPane(scroll, JOptionPane.INFORMATION_MESSAGE);
+        JDialog dialog = pane.createDialog(this, title);
+        dialog.setResizable(true);
+        try {
+            dialog.setVisible(true);
+        } finally {
+            dialog.dispose();
+        }
+    }
+
     private void stopDownloadProgressTimer() {
         Timer t = downloadProgressTimer;
         if (t != null) {
@@ -1240,8 +1301,10 @@ public class StatusPanel extends JPanel {
         boolean officialEnabled = pendingOfficial != null;
         boolean nightlyEnabled = pendingNightly != null;
         updateBannerInstallButton.setEnabled(officialEnabled);
+        updateBannerViewLogButton.setEnabled(officialEnabled);
         updateBannerDismissButton.setEnabled(officialEnabled);
         updateBannerNightlyInstallButton.setEnabled(nightlyEnabled);
+        updateBannerNightlyViewDiffButton.setEnabled(nightlyEnabled);
         updateBannerNightlyDismissButton.setEnabled(nightlyEnabled);
         if (savedBannerVersionText != null) {
             JLabel activeLabel = downloadingNightly ? updateBannerNightlyLabel : updateBannerLabel;
