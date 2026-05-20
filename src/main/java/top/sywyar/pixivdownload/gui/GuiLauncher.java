@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
+import top.sywyar.pixivdownload.cli.CliSetupCommand;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.download.db.DatabaseSchemaInspector;
@@ -108,6 +109,11 @@ public class GuiLauncher {
         //    未捕获异常都会落进文件日志，必要时弹窗，便于排查。
         installGlobalExceptionHandler();
 
+        // ── 启动参数校验 ───────────────────────────────────────────────────────
+        //    在单实例锁取得之前完成：避免拼写错误的参数也会去占锁。
+        //    命中未识别参数 / 漏值时打印帮助并以 64 退出；--help / -h 则打印帮助并以 0 退出。
+        CliSetupCommand.validateArgsOrExit(args);
+
         boolean startupLaunch = AutoStartManager.isStartupLaunch(args);
 
         SingleInstanceManager singleInstanceManager;
@@ -120,6 +126,12 @@ public class GuiLauncher {
         }
 
         if (singleInstanceManager == null) {
+            // CLI 管理命令需要排他写入 setup_config.json，无法与运行中的实例共存：
+            // 直接退出并提示用户先停止服务，而不是去激活另一个 GUI 窗口或静默退出。
+            if (CliSetupCommand.containsCliCommand(args)) {
+                log.info(logMessage("gui.launcher.log.single-instance.existing-detected", false));
+                CliSetupCommand.abortBecauseAnotherInstanceRunning();
+            }
             if (startupLaunch) {
                 log.info(logMessage("gui.launcher.log.single-instance.startup-existing"));
                 return;
@@ -136,12 +148,20 @@ public class GuiLauncher {
         }
         registerSingleInstanceShutdown(singleInstanceManager);
 
+        // ── 0c. CLI 管理命令（--setup / --change-password / --reset-password）─────
+        //    必须在单实例锁取得之后执行：避免与正在运行的实例并发写 setup_config.json。
+        //    命中后会 System.exit，永不返回；未命中时正常继续。
+        CliSetupCommand.handleIfPresent(args);
+
         // ── 1. 判断是否需要 GUI ─────────────────────────────────────────────────
         boolean noGui = Arrays.asList(args).contains("--no-gui")
                 || GraphicsEnvironment.isHeadless();
         System.setProperty(HEADLESS_PROPERTY, Boolean.toString(noGui));
 
         if (noGui) {
+            // 无头模式下若未完成首次初始化，没有任何 UI 入口可用（setup.html 仅本地可访问）。
+            // 直接打印 CLI 提示并退出，避免起一个无法被任何人配置的服务。
+            CliSetupCommand.enforceSetupCompleteForHeadlessOrExit();
             log.info(logMessage("gui.launcher.log.headless"));
             try {
                 PixivDownloadApplication.start(filterArgs(args));
