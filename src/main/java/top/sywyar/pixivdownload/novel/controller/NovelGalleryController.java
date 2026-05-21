@@ -211,6 +211,22 @@ public class NovelGalleryController {
     }
 
     /**
+     * 本地小说正文（原始 Pixiv markup，来自 {@code novels.raw_content}）。
+     * 详情页据此在不访问 Pixiv 的前提下渲染正文；本地不存在该小说时 404。
+     */
+    @GetMapping("/novel/{novelId}/content")
+    public ResponseEntity<NovelContentResponse> getNovelContent(@PathVariable long novelId,
+                                                                HttpServletRequest httpRequest) {
+        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        NovelRecord rec = novelDatabase.getNovel(novelId);
+        if (rec == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(new NovelContentResponse(
+                rec.rawContent() == null ? "" : rec.rawContent()));
+    }
+
+    /**
      * 内嵌图片字节流，路径: {novelFolder}/embed_{imageId}.{ext}。
      * imageId 来自 [uploadedimage:id] 占位符；不存在时 404。
      */
@@ -299,20 +315,6 @@ public class NovelGalleryController {
         return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
     }
 
-    /**
-     * 从 Pixiv AJAX 拉取小说系列封面/简介并入库；要求 admin/solo 登录态。
-     */
-    @PostMapping("/novel/series/{seriesId}/refresh")
-    public ResponseEntity<NovelSeriesDetailResponse> refreshSeries(
-            @PathVariable long seriesId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
-        NovelSeries refreshed = novelSeriesService.refreshFromPixiv(seriesId, cookie);
-        if (refreshed == null) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(toDetailResponse(refreshed));
-    }
-
     private Set<Long> resolveGuestNovelSeriesFilter(HttpServletRequest httpRequest) {
         GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         if (session == null) return null;
@@ -349,6 +351,8 @@ public class NovelGalleryController {
     public record NovelDownloadedBatchRequest(List<Long> novelIds) {}
 
     public record NovelDownloadedBatchResponse(List<Long> novelIds) {}
+
+    public record NovelContentResponse(String content) {}
 
     public record NovelSeriesNavResponse(Long seriesId, String seriesTitle, Long currentOrder,
                                          NeighborView prev, NeighborView next) {}

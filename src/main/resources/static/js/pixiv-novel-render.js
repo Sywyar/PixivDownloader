@@ -21,12 +21,13 @@
         }[c]));
     }
 
-    function imageFigure(dataAttr, id, label, url) {
-        const head = `<figure class="novel-image" ${dataAttr}="${escapeHtml(id)}">`;
-        if (url) {
-            return `${head}<img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy"></figure>`;
+    function imageFigure(dataAttr, id, label, url, hideMissing) {
+        if (!url) {
+            // 缺失资源：hideMissing 时完全不渲染（本地离线模式），否则保留占位提示。
+            if (hideMissing) return '';
+            return `<figure class="novel-image" ${dataAttr}="${escapeHtml(id)}"><span class="novel-image-placeholder">${escapeHtml(label)}</span></figure>`;
         }
-        return `${head}<span class="novel-image-placeholder">${escapeHtml(label)}</span></figure>`;
+        return `<figure class="novel-image" ${dataAttr}="${escapeHtml(id)}"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy"></figure>`;
     }
 
     function imageLabel(resolver, kind, id) {
@@ -53,11 +54,13 @@
             } else if (m[6] !== undefined) {
                 const url = resolver && typeof resolver.uploadedImage === 'function'
                     ? resolver.uploadedImage(m[6]) : null;
-                out += imageFigure('data-uploaded-image', m[6], imageLabel(resolver, 'uploadedImage', m[6]), url);
+                out += imageFigure('data-uploaded-image', m[6], imageLabel(resolver, 'uploadedImage', m[6]), url,
+                    resolver && resolver.hideMissingImages);
             } else if (m[7] !== undefined) {
                 const url = resolver && typeof resolver.pixivImage === 'function'
                     ? resolver.pixivImage(m[7]) : null;
-                out += imageFigure('data-pixiv-image', m[7], imageLabel(resolver, 'pixivImage', m[7]), url);
+                out += imageFigure('data-pixiv-image', m[7], imageLabel(resolver, 'pixivImage', m[7]), url,
+                    resolver && resolver.hideMissingImages);
             }
             last = m.index + m[0].length;
         }

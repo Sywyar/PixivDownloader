@@ -14,34 +14,7 @@
         search: '',
         items: [],
         collections: [],
-        autoRefreshTried: false,
-        refreshing: false,
     };
-
-    function readStoredCookie() {
-        try {
-            const raw = localStorage.getItem('pixiv_cookie');
-            if (!raw) return '';
-            const fmt = localStorage.getItem('pixiv_cookie_fmt') || 'header';
-            if (fmt === 'json') {
-                const obj = JSON.parse(raw);
-                return Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('; ');
-            }
-            if (fmt === 'netscape') {
-                return raw.split('\n')
-                    .filter(l => l.trim() && !l.trim().startsWith('#'))
-                    .map(l => {
-                        const p = l.split('\t');
-                        return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null;
-                    })
-                    .filter(Boolean)
-                    .join('; ');
-            }
-            return raw.trim();
-        } catch (_) {
-            return '';
-        }
-    }
 
     let pageI18n = null;
     let searchTimer = null;
@@ -439,7 +412,6 @@
             renderCover();
             renderDescription();
             renderSeriesTags();
-            renderRefreshButton();
             return;
         }
 
@@ -479,8 +451,6 @@
         renderCover();
         renderDescription();
         renderSeriesTags();
-        renderRefreshButton();
-        maybeAutoRefresh();
     }
 
     function renderCover() {
@@ -541,92 +511,6 @@
             return `<a class="series-tag" href="${escapeHtml(buildNovelGalleryTagFilterHref(tag))}">${escapeHtml(label)}${translated}</a>`;
         }).join('');
         el.style.display = 'flex';
-    }
-
-    function renderRefreshButton() {
-        const btn = document.getElementById('refreshMetaBtn');
-        if (!btn) return;
-        // 仅在已知 seriesId 时展示；guest 模式下后端会 403，由 maybeAutoRefresh 静默处理。
-        btn.style.display = state.seriesId ? 'inline-flex' : 'none';
-        btn.disabled = state.refreshing;
-        const label = document.getElementById('refreshMetaLabel');
-        if (label) {
-            label.textContent = state.refreshing
-                ? t('button.refresh-meta-loading', 'Refreshing...')
-                : t('button.refresh-meta', 'Refresh from Pixiv');
-        }
-    }
-
-    function maybeAutoRefresh() {
-        if (state.autoRefreshTried || state.refreshing) return;
-        const detail = state.detail;
-        if (!detail || !state.seriesId) return;
-        // 仅在本地既无封面也无简介时尝试一次自动刷新，避免反复打扰 Pixiv。
-        const hasCover = !!detail.coverExt;
-        const hasDescription = detail.description && String(detail.description).trim();
-        if (hasCover || hasDescription) {
-            state.autoRefreshTried = true;
-            return;
-        }
-        const cookie = readStoredCookie();
-        if (!cookie) {
-            state.autoRefreshTried = true;
-            return;
-        }
-        state.autoRefreshTried = true;
-        refreshSeriesMeta({silent: true});
-    }
-
-    async function refreshSeriesMeta(opts) {
-        if (!state.seriesId || state.refreshing) return;
-        const silent = opts && opts.silent;
-        const url = isNovelMode()
-            ? `/api/gallery/novel/series/${state.seriesId}/refresh`
-            : `/api/series/${state.seriesId}/refresh`;
-        const headers = {Accept: 'application/json'};
-        const cookie = readStoredCookie();
-        if (cookie) headers['X-Pixiv-Cookie'] = cookie;
-        state.refreshing = true;
-        renderRefreshButton();
-        try {
-            const res = await fetch(url, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers,
-            });
-            if (!res.ok) {
-                if (!silent) {
-                    document.getElementById('seriesStatus').textContent = t(
-                        'status.refresh-failed',
-                        'Refresh failed: HTTP {status}',
-                        {status: res.status}
-                    );
-                }
-                return;
-            }
-            const updated = await res.json();
-            if (!updated) return;
-            // 合并到 detail，保留章节数、作者名等 detail 独有字段
-            state.detail = Object.assign({}, state.detail || {}, {
-                description: updated.description,
-                coverExt: updated.coverExt,
-                tags: Array.isArray(updated.tags) ? updated.tags : (state.detail && state.detail.tags),
-                title: updated.title || (state.detail && state.detail.title),
-                authorId: updated.authorId != null ? updated.authorId : (state.detail && state.detail.authorId),
-            });
-            renderSeriesHeader();
-        } catch (e) {
-            if (!silent) {
-                document.getElementById('seriesStatus').textContent = t(
-                    'status.refresh-failed',
-                    'Refresh failed: {message}',
-                    {message: e.message}
-                );
-            }
-        } finally {
-            state.refreshing = false;
-            renderRefreshButton();
-        }
     }
 
     function renderMeta() {
@@ -989,10 +873,6 @@
     document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
     document.getElementById('mobileMenuBtn').addEventListener('click', openMobileSidebar);
     document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
-    const refreshMetaBtn = document.getElementById('refreshMetaBtn');
-    if (refreshMetaBtn) {
-        refreshMetaBtn.addEventListener('click', () => refreshSeriesMeta({silent: false}));
-    }
     document.getElementById('searchInput').addEventListener('input', e => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {

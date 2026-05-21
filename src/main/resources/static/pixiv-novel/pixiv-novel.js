@@ -31,29 +31,47 @@ async function loadAll() {
     }
     document.getElementById('btn-pixiv').href = `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(novelId)}`;
     try {
-        await loadNovel();
+        const localOk = await loadNovel();
+        if (!localOk) {
+            // 本地无此小说：与图片详情页一致，仅提示不存在，绝不访问 Pixiv
+            showNotDownloaded();
+            return;
+        }
         await loadSeriesNav();
-        document.getElementById('loading').style.display = 'none';
-        document.getElementById('root').style.display = 'block';
-        setupTts();
-        loadCollectionState();
+        revealNovel();
     } catch (e) {
         document.getElementById('loading').textContent = pageI18n.t('status.novel-load-failed', null, { message: String(e && e.message ? e.message : e) });
     }
 }
 
+function revealNovel() {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('root').style.display = 'block';
+    setupTts();
+    loadCollectionState();
+}
+
 async function loadNovel() {
     const r = await fetch(`/api/gallery/novel/${encodeURIComponent(novelId)}`);
-    if (!r.ok) {
-        // Fallback: try fetching from Pixiv proxy
-        const remote = await fetch(`/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`);
-        if (!remote.ok) throw new Error(`HTTP ${r.status}`);
-        const meta = await remote.json();
-        renderRemote(meta);
-        return;
-    }
+    if (!r.ok) return false;
     const view = await r.json();
     await renderLocal(view);
+    return true;
+}
+
+// 本地没有该小说：与图片详情页保持一致，仅提示「不存在」，不访问 Pixiv、不提供联网加载入口。
+function showNotDownloaded() {
+    const el = document.getElementById('loading');
+    el.classList.remove('empty');
+    el.style.display = 'block';
+    el.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'not-downloaded';
+    const title = document.createElement('div');
+    title.className = 'nd-title';
+    title.textContent = pageI18n.t('status.not-downloaded', '该小说尚未下载到本地');
+    box.appendChild(title);
+    el.appendChild(box);
 }
 
 function showCover() {
@@ -66,42 +84,15 @@ function showCover() {
 function rerenderDynamic() {
     if (!rerenderPayload) return;
     const d = rerenderPayload.data;
-    if (rerenderPayload.kind === 'remote') {
-        renderBadges({ xRestrict: d.xRestrict, isAi: d.isAi, isOriginal: d.isOriginal });
-        renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.language, uploadTimestamp: d.uploadTimestamp });
-        renderDescription(d.description);
-        renderTags(d.tags || []);
-    } else {
-        renderBadges({ xRestrict: d.xRestrict, isAi: d.isAi, isOriginal: d.isOriginal });
-        renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.xLanguage, uploadTimestamp: d.time });
-        renderDescription(d.description);
-        renderTags(d.tags || []);
-    }
+    renderBadges({ xRestrict: d.xRestrict, isAi: d.isAi, isOriginal: d.isOriginal });
+    renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.xLanguage, uploadTimestamp: d.time });
+    renderDescription(d.description);
+    renderTags(d.tags || []);
     if (cachedSeriesNav) {
         renderSeriesNavSet(cachedSeriesNav, { wrap: 'series-nav', prev: 'series-prev', index: 'series-index', next: 'series-next' });
         renderSeriesNavSet(cachedSeriesNav, { wrap: 'series-nav-bottom', prev: 'series-prev-bottom', index: 'series-index-bottom', next: 'series-next-bottom' });
     }
     updateHeart();
-}
-
-function renderRemote(meta) {
-    rerenderPayload = { kind: 'remote', data: meta };
-    if (meta.coverUrl) showCover();
-    document.getElementById('novel-title').textContent = meta.title || '';
-    document.getElementById('novel-author').innerHTML = meta.authorId
-        ? `<a href="https://www.pixiv.net/users/${meta.authorId}" target="_blank">${escapeHtml(meta.authorName || '')}</a>`
-        : escapeHtml(meta.authorName || pageI18n.t('status.unknown-author'));
-    renderBadges({ xRestrict: meta.xRestrict, isAi: meta.isAi, isOriginal: meta.isOriginal });
-    renderMetaRow({
-        wordCount: meta.wordCount,
-        textLength: meta.textLength,
-        readingTimeSeconds: meta.readingTimeSeconds,
-        language: meta.language,
-        uploadTimestamp: meta.uploadTimestamp
-    });
-    renderDescription(meta.description);
-    renderTags(meta.tags || []);
-    renderContent(meta.content || '', buildImageResolver({ remote: meta.textEmbeddedImages || {} }));
 }
 
 async function renderLocal(view) {
@@ -121,16 +112,13 @@ async function renderLocal(view) {
     });
     renderDescription(view.description);
     renderTags(view.tags || []);
-    // Local view doesn't include content; need a fresh fetch
+    // 正文取自本地权威源 novels.raw_content；内嵌图只用本地落盘的，缺失的静默不显示，全程不访问 Pixiv。
     const localIds = new Set(view.embeddedImageIds || []);
     try {
-        const remote = await fetch(`/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`);
-        if (remote.ok) {
-            const meta = await remote.json();
-            renderContent(meta.content || '', buildImageResolver({
-                local: localIds,
-                remote: meta.textEmbeddedImages || {}
-            }));
+        const r = await fetch(`/api/gallery/novel/${encodeURIComponent(novelId)}/content`);
+        if (r.ok) {
+            const data = await r.json();
+            renderContent(data.content || '', buildImageResolver({ local: localIds, hideMissing: true }));
             return;
         }
     } catch {}
@@ -236,14 +224,14 @@ function renderContent(raw, resolver) {
 }
 
 /**
- * 构造内嵌图片解析器：
+ * 构造内嵌图片解析器（纯本地）：
  * - opts.local: Set<string>，已落盘到本地的 [uploadedimage:id] ID 集合，命中时走本地接口；
- * - opts.remote: { id: pximgUrl }，未在本地的 ID 走 thumbnail-proxy 透传 pximg。
+ * - opts.hideMissing: true 时，本地没有的内嵌图静默不渲染（不访问 Pixiv），否则保留占位文字。
  */
 function buildImageResolver(opts) {
     const local = opts && opts.local ? opts.local : null;
-    const remote = opts && opts.remote ? opts.remote : {};
     return {
+        hideMissingImages: !!(opts && opts.hideMissing),
         labels: {
             uploadedImage(id) {
                 return pageI18n.t('render.uploaded-image', null, { id });
@@ -255,10 +243,6 @@ function buildImageResolver(opts) {
         uploadedImage(id) {
             if (local && local.has(String(id))) {
                 return `/api/gallery/novel/${encodeURIComponent(novelId)}/embed/${encodeURIComponent(id)}`;
-            }
-            const pximg = remote[id];
-            if (pximg) {
-                return `/api/pixiv/thumbnail-proxy?url=${encodeURIComponent(pximg)}`;
             }
             return null;
         },

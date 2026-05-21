@@ -282,6 +282,16 @@
             font-size: 14px;
         }
 
+        .not-downloaded {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+            padding: 48px 16px;
+            text-align: center;
+        }
+        .not-downloaded .nd-title { font-size: 16px; color: var(--text); }
+
         .heart-btn {
             display: inline-flex;
             align-items: center;

@@ -37,7 +37,7 @@ public class NovelDownloadRequest {
         private String seriesDescription;
         /** 系列封面 URL（pximg），下载时若本地尚无封面则尝试 SSRF-safe 拉取后落盘。 */
         private String seriesCoverUrl;
-        /** 系列标签；下载时整体替换 novel_series_tags（与 refreshFromPixiv 语义一致）。 */
+        /** 系列标签；下载时整体替换 novel_series_tags。 */
         private List<TagDto> seriesTags;
         private String fileNameTemplate;
         private String fileName;

@@ -249,75 +249,12 @@ public class MangaSeriesService {
     }
 
     /**
-     * 拉取 Pixiv 漫画系列元数据（标题/简介/封面），落盘封面到
-     * {@code {rootFolder}/artwork-series-{seriesId}/cover.{ext}} 并写入 DB。
-     * 调用前必须保证 {@code seriesId > 0}。Best-effort：网络失败/封面缺失只清空对应字段。
-     * 返回刷新后的 {@link MangaSeries}；series 不存在时返回 {@code null}。
-     */
-    public MangaSeries refreshFromPixiv(long seriesId, String cookie) {
-        if (seriesId <= 0) return null;
-        try {
-            JsonNode root = fetchJson("https://www.pixiv.net/ajax/series/" + seriesId + "?p=1&lang=zh", cookie);
-            if (root == null || root.path("error").asBoolean(false)) {
-                log.warn(messages.getForLog("series.log.refresh.failed.response", seriesId, root));
-                return resolveSeries(mangaSeriesMapper.findById(seriesId));
-            }
-            JsonNode body = root.path("body");
-            JsonNode seriesArr = body.path("illustSeries");
-            JsonNode meta = seriesArr.isArray() && !seriesArr.isEmpty() ? seriesArr.get(0) : null;
-            if (meta == null) return resolveSeries(mangaSeriesMapper.findById(seriesId));
-
-            String title = meta.path("title").asText("").trim();
-            String caption = meta.path("caption").asText("");
-            Long authorId = parsePositiveLong(meta.path("userId").asText(null));
-            String coverUrl = extractCoverUrl(meta);
-
-            // 先持久化 title/author（observe 内部带并发安全的 upsert）
-            observe(seriesId, StringUtils.hasText(title) ? title : null, authorId);
-
-            String normalizedDescription = PixivDescriptionHtml.normalizeLinks(caption);
-            String coverExt = null;
-            String coverFolder = null;
-            if (coverUrl != null && !coverUrl.isBlank()) {
-                Path coverDir = resolveCoverDir(seriesId);
-                coverExt = coverDownloader.download(coverUrl, coverDir, "cover", cookie);
-                if (coverExt != null) {
-                    coverFolder = coverDir.toString();
-                }
-            }
-            mangaSeriesMapper.updateMetadata(seriesId, normalizedDescription, coverExt,
-                    pathPrefixCodec.encode(PathPrefixCodec.stripTrailingSeparators(coverFolder)));
-            return resolveSeries(mangaSeriesMapper.findById(seriesId));
-        } catch (Exception e) {
-            log.warn(messages.getForLog("series.log.refresh.failed.exception", seriesId), e);
-            return resolveSeries(mangaSeriesMapper.findById(seriesId));
-        }
-    }
-
-    /**
      * 漫画系列封面磁盘目录：{@code {rootFolder}/artwork-series-{seriesId}}。
      * 始终返回绝对路径，方便落盘后存入 {@code manga_series.cover_folder}。
      */
     public Path resolveCoverDir(long seriesId) {
         return Paths.get(downloadConfig.getRootFolder(), "artwork-series-" + seriesId)
                 .toAbsolutePath().normalize();
-    }
-
-    private static String extractCoverUrl(JsonNode meta) {
-        // illustSeries[0].cover.urls.{original|1200x1200|720x720|240mw}
-        JsonNode urls = meta.path("cover").path("urls");
-        if (urls.isObject()) {
-            for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
-                String value = urls.path(key).asText("");
-                if (!value.isBlank()) return value;
-            }
-        }
-        // 兜底：少见的扁平字段
-        for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
-            String value = meta.path(key).asText("");
-            if (!value.isBlank()) return value;
-        }
-        return null;
     }
 
     public void asyncLookupMissingSeries(long artworkId, String cookie) {

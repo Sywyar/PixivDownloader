@@ -8,8 +8,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -105,21 +103,6 @@ public class MangaSeriesController {
         headers.setContentType(MediaType.parseMediaType(mimeFor(series.coverExt())));
         headers.setCacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic());
         return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
-    }
-
-    /**
-     * 从 Pixiv AJAX 拉取系列封面/简介并入库；要求 admin/solo 登录态（访客邀请会话仅放行 GET）。
-     * 浏览器需带上 {@code X-Pixiv-Cookie} 头供后端访问 Pixiv。
-     */
-    @PostMapping("/{seriesId}/refresh")
-    public ResponseEntity<MangaSeries> refreshSeries(
-            @PathVariable long seriesId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
-        MangaSeries refreshed = mangaSeriesService.refreshFromPixiv(seriesId, cookie);
-        if (refreshed == null) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(refreshed);
     }
 
     private static String mimeFor(String ext) {
