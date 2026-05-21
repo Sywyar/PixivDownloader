@@ -117,7 +117,13 @@ public class AuthFilter extends OncePerRequestFilter {
             "/api/downloaded/history",
             "/api/downloaded/history/paged",
             "/api/downloaded/by-move-folder",
-            "/api/download/status/active"
+            "/api/download/status/active",
+            "/api/tts/edge/voices"
+    );
+
+    /** 访客邀请会话被允许访问的精确路径（仅 POST）。在线 TTS 合成是 POST，单列于此。 */
+    private static final Set<String> GUEST_ALLOWED_POST_EXACT = Set.of(
+            "/api/tts/edge/synthesize"
     );
 
     /** 访客邀请会话被允许访问的前缀路径（仅 GET）。 */
@@ -533,6 +539,9 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isAllowedForGuestInvite(String path, String method) {
+        if ("POST".equalsIgnoreCase(method)) {
+            return GUEST_ALLOWED_POST_EXACT.contains(path);
+        }
         if (!"GET".equalsIgnoreCase(method) && !"HEAD".equalsIgnoreCase(method)) {
             return false;
         }

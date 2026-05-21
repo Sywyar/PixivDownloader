@@ -21,6 +21,7 @@ async function loadAll() {
             pageI18n = next;
             pageI18n.apply();
             rerenderDynamic();
+            if (window.PixivNovelTts) PixivNovelTts.setI18n(next);
         }
     });
     PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') });
@@ -34,6 +35,7 @@ async function loadAll() {
         await loadSeriesNav();
         document.getElementById('loading').style.display = 'none';
         document.getElementById('root').style.display = 'block';
+        setupTts();
         loadCollectionState();
     } catch (e) {
         document.getElementById('loading').textContent = pageI18n.t('status.novel-load-failed', null, { message: String(e && e.message ? e.message : e) });
@@ -325,6 +327,18 @@ function renderSeriesNavSet(nav, ids) {
 
 function escapeHtml(s) {
     return PixivNovelRender.escapeHtml(s);
+}
+
+// ---------- 听书（TTS） ----------
+function setupTts() {
+    if (!window.PixivNovelTts) return;
+    const contentEl = document.getElementById('content-card');
+    const hasReadable = contentEl && contentEl.querySelector('p, h2.novel-chapter');
+    if (!hasReadable) return; // 正文加载失败 / 无可朗读内容时不显示听书入口
+    document.getElementById('ttsToggle').style.display = '';
+    const data = rerenderPayload ? rerenderPayload.data : null;
+    const language = data ? (data.language || data.xLanguage || '') : '';
+    PixivNovelTts.attach({ i18n: pageI18n, contentEl, toast, language, novelId });
 }
 
 // ---------- Collections ----------

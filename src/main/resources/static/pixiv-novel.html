@@ -18,6 +18,7 @@
     <a class="btn" href="/pixiv-novel-gallery.html?view=all" data-i18n="button.gallery">画廊</a>
     <div class="topbar-actions">
         <span id="langSwitcherAnchor"></span>
+        <button class="btn" id="ttsToggle" type="button" style="display:none" data-i18n="tts.listen">🎧 听书</button>
         <button class="heart-btn" id="heartBtn" type="button" style="display:none">
             <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
             <span id="heartLabel" data-i18n="button.favorite">收藏</span>
@@ -76,8 +77,43 @@
     </div>
 </div>
 
+<div class="tts-bar" id="ttsBar" style="display:none;">
+    <div class="tts-progressbar" id="ttsProgressBar" data-i18n-title="tts.seek" title="点击跳转">
+        <div class="tts-progressbar-fill" id="ttsProgressFill"></div>
+    </div>
+    <div class="tts-bar-main">
+        <button class="tts-icon-btn tts-play" id="ttsPlayPause" type="button" data-i18n-title="tts.play" title="播放">▶</button>
+        <button class="tts-icon-btn" id="ttsPrev" type="button" data-i18n-title="tts.prev" title="上一段">⏮</button>
+        <button class="tts-icon-btn" id="ttsNext" type="button" data-i18n-title="tts.next" title="下一段">⏭</button>
+        <button class="tts-icon-btn" id="ttsStop" type="button" data-i18n-title="tts.stop" title="停止">⏹</button>
+        <span class="tts-progress" id="ttsProgress">0 / 0</span>
+        <button class="tts-icon-btn tts-gear" id="ttsSettingsToggle" type="button" data-i18n-title="tts.settings" title="设置">⚙</button>
+        <button class="tts-icon-btn tts-close" id="ttsClose" type="button" data-i18n-title="tts.close" title="关闭">×</button>
+    </div>
+    <div class="tts-settings" id="ttsSettings" style="display:none;">
+        <div class="tts-field">
+            <label data-i18n="tts.engine">引擎</label>
+            <select id="ttsEngine">
+                <option value="browser" data-i18n="tts.engine.browser">浏览器（离线）</option>
+                <option value="edge" data-i18n="tts.engine.edge">在线（Edge 神经语音）</option>
+            </select>
+        </div>
+        <div class="tts-field">
+            <label data-i18n="tts.voice">语音</label>
+            <select id="ttsVoice"></select>
+        </div>
+        <div class="tts-field tts-field-rate">
+            <label data-i18n="tts.rate">语速</label>
+            <input type="range" id="ttsRate" min="-50" max="100" step="10" value="0">
+            <span class="tts-rate-value" id="ttsRateValue">0%</span>
+        </div>
+        <div class="tts-hint" id="ttsEngineHint"></div>
+    </div>
+</div>
+
 <div class="toast-container" id="toastContainer"></div>
 
+<script src="/pixiv-novel/pixiv-novel-tts.js"></script>
 <script src="/pixiv-novel/pixiv-novel.js"></script>
 </body>
 </html>

@@ -196,6 +196,7 @@ public class AppConfigGenerator {
 
         appendSetting(config, locale, "multi-mode.request-limit-minute: 300", "config.template.multi-mode.request-limit-minute.comment");
         appendSetting(config, locale, "multi-mode.static-resource-request-limit-minute: 1200", "config.template.multi-mode.static-resource-request-limit-minute.comment");
+        appendSetting(config, locale, "multi-mode.tts-request-limit-minute: 30", "config.template.multi-mode.tts-request-limit-minute.comment");
         appendSetting(config, locale, "multi-mode.limit-page: 3", "config.template.multi-mode.limit-page.comment");
         appendBlankLine(config);
 

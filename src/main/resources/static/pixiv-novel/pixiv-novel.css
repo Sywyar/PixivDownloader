@@ -402,4 +402,121 @@
             from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
         }
-    
+
+        #ttsToggle.active {
+            border-color: var(--brand);
+            color: var(--brand);
+            background: var(--pink-soft-bg);
+        }
+
+        /* 当前朗读段落高亮 */
+        .content-card .tts-active {
+            background: var(--control-muted-bg);
+            box-shadow: -10px 0 0 var(--control-muted-bg), inset 3px 0 0 var(--brand);
+            border-radius: 0 4px 4px 0;
+        }
+
+        .tts-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 16px;
+            transform: translateX(-50%);
+            width: calc(100% - 32px);
+            max-width: var(--page-max);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+            z-index: 1500;
+            overflow: hidden;
+        }
+        .tts-progressbar {
+            position: relative;
+            height: 6px;
+            background: var(--control-muted-bg);
+            cursor: pointer;
+        }
+        .tts-progressbar:hover { height: 8px; }
+        .tts-progressbar-fill {
+            height: 100%;
+            width: 0;
+            background: var(--brand);
+            transition: width .15s linear;
+            pointer-events: none;
+        }
+        .tts-bar-main {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+        }
+        .tts-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 15px;
+            line-height: 1;
+        }
+        .tts-icon-btn:hover { border-color: var(--brand); color: var(--brand); }
+        .tts-icon-btn.tts-play { color: var(--brand); border-color: var(--brand); }
+        .tts-progress {
+            flex: 1;
+            text-align: center;
+            font-size: 13px;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tts-close { margin-left: auto; }
+
+        .tts-settings {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-top: 1px solid var(--line);
+            background: var(--control-muted-bg);
+        }
+        .tts-field {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .tts-field label { white-space: nowrap; color: var(--muted); }
+        .tts-field select {
+            max-width: 220px;
+            height: 32px;
+            padding: 0 8px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 13px;
+            outline: none;
+        }
+        .tts-field select:focus { border-color: var(--brand); }
+        .tts-field-rate input[type="range"] { width: 120px; accent-color: var(--brand); }
+        .tts-rate-value { min-width: 40px; color: var(--muted); }
+        .tts-hint {
+            flex-basis: 100%;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--muted);
+        }
+        @media (max-width: 600px) {
+            .tts-field select { max-width: 150px; }
+            .tts-field-rate input[type="range"] { width: 80px; }
+        }
+

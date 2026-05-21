@@ -230,6 +230,20 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
+                ConfigFieldSpec.builder("multi-mode.tts-request-limit-minute", message("gui.config.field.multi-mode.tts-request-limit-minute.label"), INT, groupMultiMode)
+                        .defaultValue("30")
+                        .help(message("gui.config.field.multi-mode.tts-request-limit-minute.help"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 0 ? null : message("gui.config.validation.non-negative-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
                 ConfigFieldSpec.builder("multi-mode.limit-page", message("gui.config.field.multi-mode.limit-page.label"), INT, groupMultiMode)
                         .defaultValue("3")
                         .help(message("gui.config.field.multi-mode.limit-page.help"))
