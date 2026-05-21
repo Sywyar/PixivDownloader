@@ -2,7 +2,7 @@ name: Nightly Build
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '33 18 * * *'
   workflow_dispatch:
 
 env:
@@ -287,6 +287,23 @@ jobs:
         run: |
           git tag -f nightly
           git push -f origin nightly
+
+      - name: Delete old nightly assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The nightly version embeds the date, so old releases' filenames never
+          # collide with today's — they would otherwise accumulate forever. Remove
+          # every existing asset on the `nightly` release before re-uploading.
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release view nightly --json assets --jq '.assets[].name' \
+              | while IFS= read -r asset; do
+                  [ -n "$asset" ] || continue
+                  echo "Deleting old asset: $asset"
+                  gh release delete-asset nightly "$asset" --yes || true
+                done
+          fi
 
       - name: Create/Update Nightly Release
         uses: softprops/action-gh-release@v2
