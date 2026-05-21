@@ -38,6 +38,7 @@ import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CancellationException;
@@ -93,7 +94,7 @@ public class DownloadService {
         this.messages = messages;
     }
 
-    @Async
+    @Async("downloadTaskExecutor")
     public void downloadImages(Long artworkId, String title, List<String> imageUrls,
                                String referer, DownloadRequest.Other other, String cookie,
                                String userUuid) {
@@ -303,111 +304,118 @@ public class DownloadService {
                                   BooleanSupplier cancellationRequested) {
         int maxRetries = 3;
         int retryCount = 0;
+        // 先写入 .part 临时文件，整段下载成功后再重命名为最终文件；失败 / 取消时清理 .part，
+        // 避免半截文件污染下载目录或在重试 / 重新下载时被误判为已完成。
+        Path tempPath = filePath.resolveSibling(filePath.getFileName().toString() + ".part");
 
-        while (retryCount < maxRetries) {
-            ensureNotCancelled(cancellationRequested);
-            try {
-                Boolean success = downloadRestTemplate.execute(imageUrl, HttpMethod.GET,
-                        request -> {
-                            request.getHeaders().set("Referer", referer);
-                            request.getHeaders().set("User-Agent",
-                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-                            if (cookie != null && !cookie.trim().isEmpty()) {
-                                request.getHeaders().set("Cookie", cookie);
-                            }
-                        },
-                        (ClientHttpResponse response) -> {
-                            if (!response.getStatusCode().is2xxSuccessful()) {
-                                log.error(logMessage("download.log.http-error", response.getStatusCode(), imageUrl));
-                                return false;
-                            }
-                            long totalBytes = response.getHeaders().getContentLength();
-                            long[] downloadedBytes = {0L};
-                            int[] lastProgress = {-1};
-                            long[] lastBytes = {0L};
-                            long[] lastAt = {0L};
-                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                                    .status(ImageDownloadProgress.STATUS_RUNNING)
-                                    .imageNumber(imageNumber)
-                                    .totalImages(totalImages)
-                                    .downloadedBytes(0L)
-                                    .totalBytes(totalBytes > 0 ? totalBytes : null)
-                                    .progress(totalBytes > 0 ? 0 : null)
-                                    .build());
-                            try (InputStream inputStream = response.getBody();
-                                 FileOutputStream outputStream = new FileOutputStream(filePath.toFile())) {
-                                byte[] buffer = new byte[4096];
-                                int bytesRead;
-                                while ((bytesRead = inputStream.read(buffer)) != -1) {
-                                    ensureNotCancelled(cancellationRequested);
-                                    outputStream.write(buffer, 0, bytesRead);
-                                    downloadedBytes[0] += bytesRead;
-                                    Integer progress = totalBytes > 0
-                                            ? Math.min(99, (int) (downloadedBytes[0] * 100 / totalBytes))
-                                            : null;
-                                    if (shouldEmitImageByteProgress(
-                                            progress, downloadedBytes[0], lastProgress, lastBytes, lastAt)) {
-                                        publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                                                .status(ImageDownloadProgress.STATUS_RUNNING)
-                                                .imageNumber(imageNumber)
-                                                .totalImages(totalImages)
-                                                .downloadedBytes(downloadedBytes[0])
-                                                .totalBytes(totalBytes > 0 ? totalBytes : null)
-                                                .progress(progress)
-                                                .build());
-                                    }
+        try {
+            while (retryCount < maxRetries) {
+                ensureNotCancelled(cancellationRequested);
+                try {
+                    Boolean success = downloadRestTemplate.execute(imageUrl, HttpMethod.GET,
+                            request -> {
+                                request.getHeaders().set("Referer", referer);
+                                request.getHeaders().set("User-Agent",
+                                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                                if (cookie != null && !cookie.trim().isEmpty()) {
+                                    request.getHeaders().set("Cookie", cookie);
                                 }
-                            }
-                            if (imageNumber < totalImages) {
+                            },
+                            (ClientHttpResponse response) -> {
+                                if (!response.getStatusCode().is2xxSuccessful()) {
+                                    log.error(logMessage("download.log.http-error", response.getStatusCode(), imageUrl));
+                                    return false;
+                                }
+                                long totalBytes = response.getHeaders().getContentLength();
+                                long[] downloadedBytes = {0L};
+                                int[] lastProgress = {-1};
+                                long[] lastBytes = {0L};
+                                long[] lastAt = {0L};
                                 publishImageProgress(progressListener, ImageDownloadProgress.builder()
                                         .status(ImageDownloadProgress.STATUS_RUNNING)
-                                        .imageNumber(imageNumber + 1)
-                                        .totalImages(totalImages)
-                                        .downloadedBytes(0L)
-                                        .progress(0)
-                                        .build());
-                            } else {
-                                publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                                        .status(ImageDownloadProgress.STATUS_COMPLETED)
                                         .imageNumber(imageNumber)
                                         .totalImages(totalImages)
-                                        .downloadedBytes(downloadedBytes[0])
+                                        .downloadedBytes(0L)
                                         .totalBytes(totalBytes > 0 ? totalBytes : null)
-                                        .progress(100)
+                                        .progress(totalBytes > 0 ? 0 : null)
                                         .build());
-                            }
-                            return true;
-                        });
+                                try (InputStream inputStream = response.getBody();
+                                     FileOutputStream outputStream = new FileOutputStream(tempPath.toFile())) {
+                                    byte[] buffer = new byte[4096];
+                                    int bytesRead;
+                                    while ((bytesRead = inputStream.read(buffer)) != -1) {
+                                        ensureNotCancelled(cancellationRequested);
+                                        outputStream.write(buffer, 0, bytesRead);
+                                        downloadedBytes[0] += bytesRead;
+                                        Integer progress = totalBytes > 0
+                                                ? Math.min(99, (int) (downloadedBytes[0] * 100 / totalBytes))
+                                                : null;
+                                        if (shouldEmitImageByteProgress(
+                                                progress, downloadedBytes[0], lastProgress, lastBytes, lastAt)) {
+                                            publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                                    .status(ImageDownloadProgress.STATUS_RUNNING)
+                                                    .imageNumber(imageNumber)
+                                                    .totalImages(totalImages)
+                                                    .downloadedBytes(downloadedBytes[0])
+                                                    .totalBytes(totalBytes > 0 ? totalBytes : null)
+                                                    .progress(progress)
+                                                    .build());
+                                        }
+                                    }
+                                }
+                                if (imageNumber < totalImages) {
+                                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                            .status(ImageDownloadProgress.STATUS_RUNNING)
+                                            .imageNumber(imageNumber + 1)
+                                            .totalImages(totalImages)
+                                            .downloadedBytes(0L)
+                                            .progress(0)
+                                            .build());
+                                } else {
+                                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                                            .status(ImageDownloadProgress.STATUS_COMPLETED)
+                                            .imageNumber(imageNumber)
+                                            .totalImages(totalImages)
+                                            .downloadedBytes(downloadedBytes[0])
+                                            .totalBytes(totalBytes > 0 ? totalBytes : null)
+                                            .progress(100)
+                                            .build());
+                                }
+                                return true;
+                            });
 
-                if (Boolean.TRUE.equals(success)) {
-                    return true;
-                }
-                retryCount++;
-            } catch (CancellationException e) {
-                throw e;
-            } catch (Exception e) {
-                retryCount++;
-                log.error(logMessage("download.log.retry", imageUrl, e.getMessage(), retryCount, maxRetries));
+                    if (Boolean.TRUE.equals(success)) {
+                        Files.move(tempPath, filePath, StandardCopyOption.REPLACE_EXISTING);
+                        return true;
+                    }
+                    retryCount++;
+                } catch (CancellationException e) {
+                    throw e;
+                } catch (Exception e) {
+                    retryCount++;
+                    log.error(logMessage("download.log.retry", imageUrl, e.getMessage(), retryCount, maxRetries));
 
-                if (retryCount < maxRetries) {
-                    sleepCancellable(2000L * retryCount, cancellationRequested);
-                } else {
-                    log.error(logMessage("download.log.retry.exhausted", imageUrl));
-                    publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                            .status(ImageDownloadProgress.STATUS_FAILED)
-                            .imageNumber(imageNumber)
-                            .totalImages(totalImages)
-                            .build());
-                    return false;
+                    if (retryCount < maxRetries) {
+                        sleepCancellable(2000L * retryCount, cancellationRequested);
+                    } else {
+                        log.error(logMessage("download.log.retry.exhausted", imageUrl));
+                    }
                 }
             }
+            publishImageProgress(progressListener, ImageDownloadProgress.builder()
+                    .status(ImageDownloadProgress.STATUS_FAILED)
+                    .imageNumber(imageNumber)
+                    .totalImages(totalImages)
+                    .build());
+            return false;
+        } finally {
+            // 成功路径已把 .part 重命名为最终文件，这里只清理失败 / 取消遗留的半截文件。
+            try {
+                Files.deleteIfExists(tempPath);
+            } catch (IOException ex) {
+                log.warn(logMessage("download.log.temp-cleanup.failed", tempPath, ex.getMessage()));
+            }
         }
-        publishImageProgress(progressListener, ImageDownloadProgress.builder()
-                .status(ImageDownloadProgress.STATUS_FAILED)
-                .imageNumber(imageNumber)
-                .totalImages(totalImages)
-                .build());
-        return false;
     }
 
     private void publishImageProgress(Consumer<ImageDownloadProgress> progressListener, ImageDownloadProgress progress) {

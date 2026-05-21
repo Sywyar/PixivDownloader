@@ -219,7 +219,7 @@ public class UserQuotaService {
         return token;
     }
 
-    @Async
+    @Async("archiveTaskExecutor")
     public void buildArchiveAsync(String token, String uuid) {
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
@@ -283,7 +283,7 @@ public class UserQuotaService {
         }
     }
 
-    @Async
+    @Async("archiveTaskExecutor")
     public void buildAdminArchiveAsync(String token, List<Path> folders) {
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;

@@ -165,6 +165,8 @@ public class AppConfigGenerator {
 
         appendSetting(config, locale, "download.root-folder: pixiv-download", "config.template.download.root-folder.comment");
         appendSetting(config, locale, "download.user-flat-folder: false", "config.template.download.user-flat-folder.comment");
+        appendSetting(config, locale, "download.max-concurrent: 10", "config.template.download.max-concurrent.comment");
+        appendSetting(config, locale, "download.novel-max-concurrent: 10", "config.template.download.novel-max-concurrent.comment");
         appendBlankLine(config);
 
         appendSection(config, locale, "config.template.section.proxy");
@@ -180,6 +182,7 @@ public class AppConfigGenerator {
         appendSetting(config, locale, "multi-mode.quota.archive-expire-minutes: 60", "config.template.multi-mode.quota.archive-expire-minutes.comment");
         appendSetting(config, locale, "multi-mode.quota.limit-image: 0", "config.template.multi-mode.quota.limit-image.comment");
         appendSetting(config, locale, "multi-mode.quota.max-proxy-requests: 200", "config.template.multi-mode.quota.max-proxy-requests.comment");
+        appendSetting(config, locale, "multi-mode.quota.archive-max-concurrent: 10", "config.template.multi-mode.quota.archive-max-concurrent.comment");
         appendBlankLine(config);
 
         appendComment(config, message(locale, "config.template.multi-mode.post-download-mode.comment"));

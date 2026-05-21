@@ -115,7 +115,7 @@ public class NovelDownloadService {
         this.messages = messages;
     }
 
-    @Async
+    @Async("novelDownloadTaskExecutor")
     public void download(NovelDownloadRequest request, String userUuid) {
         Long novelId = request.getNovelId();
         NovelDownloadRequest.Other other = request.getOther() == null

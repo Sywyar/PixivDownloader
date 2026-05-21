@@ -21,4 +21,25 @@ public class DownloadConfig {
      */
     private volatile boolean userFlatFolder = false;
 
+    /**
+     * 同时下载的图片 / 作品数上限。图片下载任务跑在专用的 {@code downloadTaskExecutor} 线程池上，
+     * 超出该上限的作品会排队等待。调小可降低被 Pixiv 限流的概率。
+     * 线程池大小在启动时确定，修改后需重启服务才能生效。
+     */
+    private int maxConcurrent = 10;
+
+    public int getMaxConcurrent() {
+        return Math.max(1, maxConcurrent);
+    }
+
+    /**
+     * 同时下载的小说数上限。小说下载任务跑在专用的 {@code novelDownloadTaskExecutor} 线程池上，
+     * 与图片下载相互隔离、互不抢线程。线程池大小在启动时确定，修改后需重启服务才能生效。
+     */
+    private int novelMaxConcurrent = 10;
+
+    public int getNovelMaxConcurrent() {
+        return Math.max(1, novelMaxConcurrent);
+    }
+
 }

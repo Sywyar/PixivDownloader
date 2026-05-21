@@ -47,5 +47,15 @@ public class MultiModeConfig {
         private volatile int limitImage = 0;
         /** 每用户每重置周期最多发起的搜索/代理请求次数（0=不限制） */
         private volatile int maxProxyRequests = 200;
+
+        /**
+         * 同时进行的配额归档打包数上限。归档打包跑在专用的 {@code archiveTaskExecutor} 线程池上，
+         * 与图片 / 小说下载相互隔离。线程池大小在启动时确定，修改后需重启服务才能生效。
+         */
+        private volatile int archiveMaxConcurrent = 10;
+
+        public int getArchiveMaxConcurrent() {
+            return Math.max(1, archiveMaxConcurrent);
+        }
     }
 }

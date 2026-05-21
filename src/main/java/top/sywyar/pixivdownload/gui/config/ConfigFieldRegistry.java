@@ -79,6 +79,32 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
+                ConfigFieldSpec.builder("download.max-concurrent", message("gui.config.field.download.max-concurrent.label"), INT, groupDownload)
+                        .defaultValue("10")
+                        .help(message("gui.config.field.download.max-concurrent.help"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 1 ? null : message("gui.config.validation.positive-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .build(),
+
+                ConfigFieldSpec.builder("download.novel-max-concurrent", message("gui.config.field.download.novel-max-concurrent.label"), INT, groupDownload)
+                        .defaultValue("10")
+                        .help(message("gui.config.field.download.novel-max-concurrent.help"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 1 ? null : message("gui.config.validation.positive-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .build(),
+
                 // ── 代理 ───────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("proxy.enabled", message("gui.config.field.proxy.enabled.label"), BOOL, groupProxy)
                         .defaultValue("true")
@@ -155,6 +181,19 @@ public final class ConfigFieldRegistry {
                             }
                         })
                         .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("multi-mode.quota.archive-max-concurrent", message("gui.config.field.multi-mode.quota.archive-max-concurrent.label"), INT, groupMultiMode)
+                        .defaultValue("10")
+                        .help(message("gui.config.field.multi-mode.quota.archive-max-concurrent.help"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 1 ? null : message("gui.config.validation.positive-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
                         .build(),
 
                 ConfigFieldSpec.builder("multi-mode.post-download-mode", message("gui.config.field.multi-mode.post-download-mode.label"), ENUM, groupMultiMode)

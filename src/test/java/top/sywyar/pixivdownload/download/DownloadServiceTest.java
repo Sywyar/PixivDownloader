@@ -12,8 +12,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.ResponseExtractor;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
@@ -28,6 +33,7 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -745,6 +751,50 @@ class DownloadServiceTest {
             status.setErrorMessage("网络超时");
             assertThat(status.getStatusMessageCode()).isEqualTo("download.status.failed");
             assertThat(APP_MESSAGES.get(status.getStatusMessageCode(), status.getStatusMessageArgs())).isEqualTo("失败: 网络超时");
+        }
+    }
+
+    @Nested
+    @DisplayName("普通图片下载 .part 临时文件")
+    class PartTempFileTests {
+
+        private static final String IMAGE_URL =
+                "https://i.pximg.net/img-original/img/2024/01/01/00/00/00/12345_p0.jpg";
+
+        @BeforeEach
+        void setupDownloadPath() {
+            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
+            lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
+        }
+
+        @Test
+        @DisplayName("下载成功后最终文件就位且不残留 .part")
+        void shouldRenamePartToFinalAndLeaveNoTempFile() throws Exception {
+            byte[] payload = {1, 2, 3, 4, 5};
+            when(downloadRestTemplate.execute(eq(IMAGE_URL), eq(HttpMethod.GET), any(), any()))
+                    .thenAnswer(invocation -> {
+                        ResponseExtractor<Boolean> extractor = invocation.getArgument(3);
+                        ClientHttpResponse response = mock(ClientHttpResponse.class);
+                        lenient().when(response.getStatusCode()).thenReturn(HttpStatus.OK);
+                        HttpHeaders headers = new HttpHeaders();
+                        headers.setContentLength(payload.length);
+                        lenient().when(response.getHeaders()).thenReturn(headers);
+                        lenient().when(response.getBody()).thenReturn(new ByteArrayInputStream(payload));
+                        return extractor.extractData(response);
+                    });
+
+            downloadService.downloadImages(12345L, "title", List.of(IMAGE_URL),
+                    "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);
+
+            Path artworkDir = tempDir.resolve("12345");
+            try (var stream = Files.list(artworkDir)) {
+                List<Path> files = stream.toList();
+                assertThat(files).hasSize(1);
+                Path finalFile = files.get(0);
+                assertThat(finalFile.getFileName().toString()).doesNotEndWith(".part");
+                assertThat(Files.readAllBytes(finalFile)).containsExactly(payload);
+            }
         }
     }
 }
