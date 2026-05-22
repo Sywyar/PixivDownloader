@@ -1,0 +1,31 @@
+# 构建产物 / 本地生成物（容器内会重新生成）
+target/
+build/
+*.iml
+
+# 运行时数据与配置（应通过 volume 持久化，绝不烘进镜像）
+config/
+state/
+data/
+pixiv-download/
+pixiv-download-Enn/
+_collection_icons/
+collection_icons/
+_tts/
+_gui/
+log/
+update-cache/
+test/
+test-data/
+
+# 版本管理 / IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+.settings/
+
+# 文档与本地说明（构建不需要）
+docs/
+*.md
+LICENSE

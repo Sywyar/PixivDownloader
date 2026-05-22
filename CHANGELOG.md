@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [Unreleased]
 
 ### Features
+- 新增容器化部署支持：仓库提供 `Dockerfile`（multi-stage 构建，运行镜像内置动图所需的 ffmpeg）与 `docker-compose.yml`（配置、登录态、数据库、下载文件、收藏夹图标等通过 volume 持久化，重启容器后数据仍在）。首次部署可用 `docker compose run --rm app --setup` 在容器内完成初始化，之后 `docker compose up -d` 常驻运行。
+- 新增公开的健康检查端点 `/actuator/health`（及只读的 `/actuator/info`，返回应用名称与版本），供容器/编排器探针使用：无需登录即可访问，且在维护窗口与限流期间仍保持可用；不返回数据源、磁盘等内部明细，也不暴露配置或环境变量。`docker-compose.yml` 已据此配置 healthcheck。
 - 小说详情页新增「🎧 听书」功能：可逐段朗读正文，支持播放/暂停、上一段/下一段、停止，并高亮、自动滚动到当前朗读段落。提供两种可切换的语音引擎（默认使用浏览器内置语音），设置面板内说明二者区别：
   - 浏览器引擎（默认）：使用浏览器内置语音，完全离线、即时、免费；音质与可用语言取决于系统已安装的语音包。
   - 在线引擎（Edge 神经语音）：音质自然、语言丰富、免费，需联网（经后端配置的代理访问）。

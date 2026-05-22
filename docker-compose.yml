@@ -1,0 +1,49 @@
+# ──────────────────────────────────────────────────────────────────────────
+# 首次部署（务必先完成初始化，再常驻运行）：
+#   1. docker compose run --rm app --setup   # 交互式创建管理员/选择 solo|multi，
+#                                            #   写入 state/setup_config.json
+#   2. docker compose up -d                  # 常驻运行
+#   跳过第 1 步直接 up：容器会以退出码 78 反复重启（日志会打印需运行 --setup 的提示）。
+#   setup 向导网页与桌面 GUI 在容器内不可用（仅本机可访问），容器环境一律用 CLI --setup。
+#
+# 代理（关键）：本应用需经代理访问 Pixiv。config.yaml 默认 proxy.host=127.0.0.1，
+#   在容器内指向容器自身、不可达。下面已配 host.docker.internal -> 宿主网关，
+#   初始化后请编辑挂载出的 config/config.yaml：
+#     proxy.host: host.docker.internal      # 复用宿主机上运行的代理（端口沿用，如 7890）
+#   若无需代理（已有其它出网路径），改 proxy.enabled: false。改完重启容器生效。
+# ──────────────────────────────────────────────────────────────────────────
+services:
+  app:
+    build: .
+    image: pixiv-download:latest
+    container_name: pixiv-download
+    restart: unless-stopped
+    # 让容器内可用 host.docker.internal 解析到宿主机（Linux 需显式声明；Docker Desktop 自带）。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      # 左侧宿主端口可改；右侧须与 config.yaml 的 server.port（默认 6999）一致。
+      - "6999:6999"
+    volumes:
+      # 运行时配置（首次启动自动生成 config/config.yaml）。
+      - ./config:/app/config
+      # 登录态 / setup_config.json / 批量下载状态。
+      - ./state:/app/state
+      # SQLite 数据库（pixiv_download.db）。
+      - ./data:/app/data
+      # 下载的作品文件（含 _archives 临时打包、小说、系列封面）。
+      - ./pixiv-download:/app/pixiv-download
+      # 用户自定义收藏夹图标。
+      - ./collection_icons:/app/collection_icons
+      # GUI 引导「看过/完成」标记。
+      - ./_gui:/app/_gui
+      # Edge TTS 的 Chromium 版本号缓存（可选）。
+      - ./_tts:/app/_tts
+      # 运行日志（可选，便于宿主侧查看）。
+      - ./log:/app/log
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:6999/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3

@@ -169,6 +169,14 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        // 容器探针端点：health / info 永远放行，且置于维护窗口与限流检查之前，
+        // 确保维护期间探针不会因 503 而被编排器误判为不健康。仅这两个端点对外暴露
+        // （management.endpoints.web.exposure.include），不会泄露配置/环境变量。
+        if (isPublicActuatorEndpoint(path)) {
+            chain.doFilter(req, res);
+            return;
+        }
+
         // GUI 路径：必须同时满足本地请求 + 有效的 GUI 令牌，通过后跳过所有后续过滤逻辑。
         // 置于维护检查之前，确保 GUI 在维护窗口内仍可操控后端。
         if (path.startsWith("/api/gui/")) {
@@ -368,6 +376,16 @@ public class AuthFilter extends OncePerRequestFilter {
         return path.startsWith("/api/auth/")
                 || path.startsWith("/api/i18n/")
                 || path.startsWith("/api/onboarding/");
+    }
+
+    /**
+     * 对外公开的 actuator 探针端点：仅 health（含 liveness/readiness 子组）与 info。
+     * 其余 actuator 端点未在 exposure 中暴露，命中此处也不会路由到任何处理器。
+     */
+    private boolean isPublicActuatorEndpoint(String path) {
+        return path.equals("/actuator/health")
+                || path.startsWith("/actuator/health/")
+                || path.equals("/actuator/info");
     }
 
     private boolean isValidGuiRequest(HttpServletRequest req) {
