@@ -6,11 +6,12 @@
 #   跳过第 1 步直接 up：容器会以退出码 78 反复重启（日志会打印需运行 --setup 的提示）。
 #   setup 向导网页与桌面 GUI 在容器内不可用（仅本机可访问），容器环境一律用 CLI --setup。
 #
-# 代理（关键）：本应用需经代理访问 Pixiv。config.yaml 默认 proxy.host=127.0.0.1，
-#   在容器内指向容器自身、不可达。下面已配 host.docker.internal -> 宿主网关，
-#   初始化后请编辑挂载出的 config/config.yaml：
-#     proxy.host: host.docker.internal      # 复用宿主机上运行的代理（端口沿用，如 7890）
-#   若无需代理（已有其它出网路径），改 proxy.enabled: false。改完重启容器生效。
+# 代理（关键）：本应用的对外访问都经此代理——访问 Pixiv 与下载作品、在线更新、下载内置 FFmpeg、
+#   在线 TTS。config.yaml 默认 proxy.host=127.0.0.1，在容器内指向容器自身、不可达。
+#   下面已配 host.docker.internal -> 宿主网关，可在第 1 步 --setup 时直接配置代理：
+#     docker compose run --rm app --setup --proxy-host=host.docker.internal --proxy-port=7890
+#     若无需代理（已有其它出网路径），加 --proxy-enabled=false。
+#   也可初始化后编辑挂载出的 config/config.yaml 修改 proxy.host / proxy.enabled，改完重启容器生效。
 # ──────────────────────────────────────────────────────────────────────────
 services:
   app:

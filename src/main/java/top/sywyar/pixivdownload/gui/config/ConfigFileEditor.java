@@ -27,7 +27,7 @@ public class ConfigFileEditor {
      * 若 key 不存在或被注释掉则返回 null；调用方应自行回退到字段默认值。
      */
     public String read(String key) throws IOException {
-        for (String line : Files.readAllLines(configPath, StandardCharsets.UTF_8)) {
+        for (String line : readLines()) {
             String trimmed = line.trim();
             if (matchesActiveKey(trimmed, key)) {
                 return extractValue(trimmed);
@@ -39,7 +39,7 @@ public class ConfigFileEditor {
     /** 批量读取，仅匹配活跃行（未注释），返回 key→value 的 Map（不存在的 key 不包含在结果中）。 */
     public Map<String, String> readAll(Collection<String> keys) throws IOException {
         Map<String, String> result = new LinkedHashMap<>();
-        for (String line : Files.readAllLines(configPath, StandardCharsets.UTF_8)) {
+        for (String line : readLines()) {
             String trimmed = line.trim();
             for (String key : keys) {
                 if (!result.containsKey(key) && matchesActiveKey(trimmed, key)) {
@@ -61,7 +61,7 @@ public class ConfigFileEditor {
      * </ul>
      */
     public synchronized void write(String key, String value) throws IOException {
-        List<String> lines = new ArrayList<>(Files.readAllLines(configPath, StandardCharsets.UTF_8));
+        List<String> lines = new ArrayList<>(readLines());
         boolean found = false;
         for (int i = 0; i < lines.size(); i++) {
             if (matchesKey(lines.get(i).trim(), key)) {
@@ -81,7 +81,7 @@ public class ConfigFileEditor {
      * 所有 key 均写为活跃行，值为空时写入 "key: "（不注释）。
      */
     public synchronized void writeAll(Map<String, String> values) throws IOException {
-        List<String> lines = new ArrayList<>(Files.readAllLines(configPath, StandardCharsets.UTF_8));
+        List<String> lines = new ArrayList<>(readLines());
         Set<String> written = new HashSet<>();
 
         for (int i = 0; i < lines.size(); i++) {
@@ -108,6 +108,14 @@ public class ConfigFileEditor {
     }
 
     // ── 私有工具方法 ──────────────────────────────────────────────────────────────
+
+    /** 读取所有行；文件尚不存在（如 CLI 首次安装早于 config.yaml 生成）时按空文件处理。 */
+    private List<String> readLines() throws IOException {
+        if (!Files.exists(configPath)) {
+            return List.of();
+        }
+        return Files.readAllLines(configPath, StandardCharsets.UTF_8);
+    }
 
     /**
      * 判断某行（已 trim）是否与 key 匹配——仅匹配活跃行（未注释）。

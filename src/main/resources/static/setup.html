@@ -69,6 +69,27 @@
   </div>
 
   <div class="card">
+    <div class="card-title" data-i18n="proxy.title">代理设置</div>
+    <p class="proxy-hint" data-i18n="proxy.hint">
+      后端的对外网络访问都会经此 HTTP 代理：访问 Pixiv（浏览、搜索，下载图片/动图/小说/封面，收藏）、在线更新（检查并下载新版本）、下载内置 FFmpeg（动图转换所需）、在线 TTS（听书的 Edge 神经语音）。若运行在 Docker 容器中，127.0.0.1 通常无法连到宿主机代理，请按需关闭或填入容器可达的代理地址。
+    </p>
+    <label class="proxy-toggle">
+      <input type="checkbox" id="proxy-enabled" checked onchange="syncProxyEnabled()">
+      <span data-i18n="proxy.enabled">启用代理</span>
+    </label>
+    <div class="field">
+      <label data-i18n="proxy.host">代理主机</label>
+      <input type="text" id="proxy-host" value="127.0.0.1" placeholder="127.0.0.1"
+             data-i18n-placeholder="proxy.host.placeholder">
+    </div>
+    <div class="field">
+      <label data-i18n="proxy.port">代理端口</label>
+      <input type="text" id="proxy-port" value="7890" inputmode="numeric" placeholder="7890"
+             data-i18n-placeholder="proxy.port.placeholder">
+    </div>
+  </div>
+
+  <div class="card">
     <div id="status-msg"></div>
     <button class="btn btn-green" id="submit-btn" onclick="submitSetup()" data-i18n="button.submit">完成配置</button>
   </div>

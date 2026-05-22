@@ -3,7 +3,10 @@ package top.sywyar.pixivdownload.cli;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import top.sywyar.pixivdownload.common.AppVersion;
+import top.sywyar.pixivdownload.config.DefaultConfigTemplate;
+import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.setup.SetupConfig;
 
@@ -19,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -49,6 +53,9 @@ public final class CliSetupCommand {
     public static final String FLAG_OLD_PASSWORD = "--old-password";
     public static final String FLAG_NEW_PASSWORD = "--new-password";
     public static final String FLAG_MODE = "--mode";
+    public static final String FLAG_PROXY_ENABLED = "--proxy-enabled";
+    public static final String FLAG_PROXY_HOST = "--proxy-host";
+    public static final String FLAG_PROXY_PORT = "--proxy-port";
 
     public static final String FLAG_HELP_LONG = "--help";
     public static final String FLAG_HELP_SHORT = "-h";
@@ -86,7 +93,10 @@ public final class CliSetupCommand {
             FLAG_PASSWORD,
             FLAG_OLD_PASSWORD,
             FLAG_NEW_PASSWORD,
-            FLAG_MODE
+            FLAG_MODE,
+            FLAG_PROXY_ENABLED,
+            FLAG_PROXY_HOST,
+            FLAG_PROXY_PORT
     );
 
     private static final BCryptPasswordEncoder BCRYPT = new BCryptPasswordEncoder(12);
@@ -192,6 +202,9 @@ public final class CliSetupCommand {
         printOption(out, FLAG_OLD_PASSWORD + "=PWD", "cli.help.opt.old-password");
         printOption(out, FLAG_NEW_PASSWORD + "=PWD", "cli.help.opt.new-password");
         printOption(out, FLAG_MODE + "=solo|multi", "cli.help.opt.mode");
+        printOption(out, FLAG_PROXY_ENABLED + "=true|false", "cli.help.opt.proxy-enabled");
+        printOption(out, FLAG_PROXY_HOST + "=HOST", "cli.help.opt.proxy-host");
+        printOption(out, FLAG_PROXY_PORT + "=PORT", "cli.help.opt.proxy-port");
         out.println();
 
         out.println(message("cli.help.section.spring-override"));
@@ -201,6 +214,7 @@ public final class CliSetupCommand {
         out.println(message("cli.help.section.examples"));
         out.println("  java -jar app.jar --setup");
         out.println("  java -jar app.jar --setup --username=admin --password=secret123 --mode=solo");
+        out.println("  java -jar app.jar --setup --username=admin --password=secret123 --mode=multi --proxy-enabled=false");
         out.println("  java -jar app.jar --change-password");
         out.println("  java -jar app.jar --reset-password");
         out.println("  java -jar app.jar --no-gui");
@@ -389,6 +403,12 @@ public final class CliSetupCommand {
             return 2;
         }
 
+        // 代理配置（Docker 兼容：可关闭，或指向容器可达的代理地址）
+        ProxyChoice proxy = resolveProxy(flags);
+        if (proxy == null) {
+            return 2;
+        }
+
         SetupConfig updated = new SetupConfig();
         updated.setSetupComplete(true);
         updated.setUsername(username);
@@ -398,9 +418,126 @@ public final class CliSetupCommand {
         updated.setSessions(new LinkedHashMap<>());
 
         writeSetupConfig(path, updated);
+        writeProxyConfig(proxy);
         out("");
         out(message("cli.setup.success", username, mode));
+        out(message("cli.setup.proxy.summary",
+                message(proxy.enabled() ? "cli.setup.proxy.on" : "cli.setup.proxy.off"),
+                proxy.host(), proxy.port()));
         return 0;
+    }
+
+    /**
+     * 解析代理配置：flag 优先，缺省时交互式询问。校验失败返回 null（调用方据此以 2 退出）。
+     * 关闭代理时仍记录 host/port（flag 或默认值），便于后续开启复用。
+     */
+    private static ProxyChoice resolveProxy(Flags flags) {
+        Boolean flagEnabled = parseBoolFlag(flags.proxyEnabled);
+        if (flags.proxyEnabled != null && flagEnabled == null) {
+            err(message("cli.error.invalid-proxy-enabled"));
+            return null;
+        }
+
+        boolean enabled;
+        if (flagEnabled != null) {
+            enabled = flagEnabled;
+        } else {
+            out("");
+            out(message("cli.setup.proxy.intro"));
+            String answer = promptLine(message("cli.prompt.proxy-enable"));
+            enabled = !isNegative(answer);  // 缺省启用
+        }
+
+        String host = flags.proxyHost;
+        int port;
+        if (enabled) {
+            if (host == null || host.isBlank()) {
+                String input = promptLine(message("cli.prompt.proxy-host", ProxyConfig.DEFAULT_HOST));
+                host = (input == null || input.isBlank()) ? ProxyConfig.DEFAULT_HOST : input.trim();
+            } else {
+                host = host.trim();
+            }
+            String portText = flags.proxyPort;
+            if (portText == null || portText.isBlank()) {
+                String input = promptLine(message("cli.prompt.proxy-port", ProxyConfig.DEFAULT_PORT));
+                portText = (input == null || input.isBlank())
+                        ? Integer.toString(ProxyConfig.DEFAULT_PORT) : input.trim();
+            }
+            port = parsePort(portText);
+            if (port < 1 || port > 65535) {
+                err(message("cli.error.invalid-proxy-port"));
+                return null;
+            }
+        } else {
+            host = (host == null || host.isBlank()) ? ProxyConfig.DEFAULT_HOST : host.trim();
+            int parsed = parsePort(flags.proxyPort);
+            port = (parsed < 1 || parsed > 65535) ? ProxyConfig.DEFAULT_PORT : parsed;
+        }
+        return new ProxyChoice(enabled, host, port);
+    }
+
+    /**
+     * 把代理配置写入 config.yaml（best-effort：失败仅警告，不影响已完成的初始化）。
+     * <p>CLI 在 Spring 启动前运行，此时 config.yaml 可能尚未由 {@code AppConfigGenerator} 生成。
+     * 为避免只写入 proxy.* 而其余配置缺失（导致下次启动 server.port 等回退到非预期默认值），
+     * 文件不存在时先用 {@link DefaultConfigTemplate} 生成完整默认配置，再覆盖代理项。
+     */
+    private static void writeProxyConfig(ProxyChoice proxy) {
+        try {
+            Path configYaml = RuntimeFiles.resolveConfigYamlPath();
+            if (!Files.exists(configYaml)) {
+                Locale locale = Locale.getDefault();
+                Files.createDirectories(configYaml.getParent());
+                Files.writeString(configYaml,
+                        DefaultConfigTemplate.build(code -> MessageBundles.get(locale, code)),
+                        StandardCharsets.UTF_8);
+            }
+            ConfigFileEditor editor = new ConfigFileEditor(configYaml);
+            Map<String, String> values = new LinkedHashMap<>();
+            values.put(ProxyConfig.KEY_ENABLED, Boolean.toString(proxy.enabled()));
+            values.put(ProxyConfig.KEY_HOST, proxy.host());
+            values.put(ProxyConfig.KEY_PORT, Integer.toString(proxy.port()));
+            editor.writeAll(values);
+        } catch (IOException e) {
+            err(message("cli.setup.proxy.write-failed", safeMessage(e)));
+        }
+    }
+
+    private static int parsePort(String text) {
+        if (text == null) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** 解析布尔型 flag 值：true/false/yes/no/y/n/1/0/on/off；无法识别返回 null。 */
+    private static Boolean parseBoolFlag(String value) {
+        if (value == null) {
+            return null;
+        }
+        return switch (value.trim().toLowerCase(Locale.ROOT)) {
+            case "true", "yes", "y", "1", "on" -> Boolean.TRUE;
+            case "false", "no", "n", "0", "off" -> Boolean.FALSE;
+            default -> null;
+        };
+    }
+
+    /** 交互式 [Y/n] 回答是否为「否」；空输入视为默认（是）。 */
+    private static boolean isNegative(String answer) {
+        if (answer == null) {
+            return false;
+        }
+        return switch (answer.trim().toLowerCase(Locale.ROOT)) {
+            case "n", "no", "false", "0", "off" -> true;
+            default -> false;
+        };
+    }
+
+    private record ProxyChoice(boolean enabled, String host, int port) {
     }
 
     private static int runChangePassword(Flags flags) throws IOException {
@@ -631,6 +768,9 @@ public final class CliSetupCommand {
         String oldPassword;
         String newPassword;
         String mode;
+        String proxyEnabled;
+        String proxyHost;
+        String proxyPort;
 
         static Flags parse(String[] args) {
             Flags flags = new Flags();
@@ -641,6 +781,9 @@ public final class CliSetupCommand {
                 flags.oldPassword = takeValue(arg, FLAG_OLD_PASSWORD, flags.oldPassword);
                 flags.newPassword = takeValue(arg, FLAG_NEW_PASSWORD, flags.newPassword);
                 flags.mode = takeValue(arg, FLAG_MODE, flags.mode);
+                flags.proxyEnabled = takeValue(arg, FLAG_PROXY_ENABLED, flags.proxyEnabled);
+                flags.proxyHost = takeValue(arg, FLAG_PROXY_HOST, flags.proxyHost);
+                flags.proxyPort = takeValue(arg, FLAG_PROXY_PORT, flags.proxyPort);
             }
             return flags;
         }

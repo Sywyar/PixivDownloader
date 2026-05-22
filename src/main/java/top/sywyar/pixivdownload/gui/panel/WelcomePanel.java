@@ -5,11 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.formdev.flatlaf.util.Animator;
 import com.formdev.flatlaf.util.CubicBezierEasing;
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.config.ProxyConfig;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.OnboardingState;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -19,6 +22,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import javax.swing.*;
 import java.awt.*;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -26,6 +30,8 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * “首页 / 引导” 标签页：单步向导。每一步是一个独立 Panel，
@@ -44,10 +50,11 @@ public class WelcomePanel extends JPanel {
 
     private static final int STEP_SERVICE = 1;
     private static final int STEP_CONFIG = 2;
-    private static final int STEP_START = 3;
-    private static final int STEP_GALLERY = 4;
-    private static final int STEP_ADVANCED = 5;
-    private static final int STEP_DONE = 6;
+    private static final int STEP_PROXY = 3;
+    private static final int STEP_START = 4;
+    private static final int STEP_GALLERY = 5;
+    private static final int STEP_ADVANCED = 6;
+    private static final int STEP_DONE = 7;
 
     private final StatusPanel statusPanel;
     private final int serverPort;
@@ -87,6 +94,13 @@ public class WelcomePanel extends JPanel {
     private final JLabel configFeedback = new JLabel();
     private volatile boolean submitting;
 
+    // 代理配置表单控件（跨重建复用）
+    private final JCheckBox proxyEnabledCheck = new JCheckBox();
+    private final JTextField proxyHostField = new JTextField(16);
+    private final JTextField proxyPortField = new JTextField(8);
+    private final JLabel proxyFeedback = new JLabel();
+    private boolean proxyDefaultsLoaded;
+
     private final BackendLifecycleManager.Listener backendListener = s ->
             SwingUtilities.invokeLater(() -> {
                 applyBackendState(s);
@@ -107,6 +121,8 @@ public class WelcomePanel extends JPanel {
         g.add(soloRadio);
         g.add(multiRadio);
         soloRadio.setSelected(true);
+
+        proxyEnabledCheck.addItemListener(e -> updateProxyEnabledState());
 
         BackendLifecycleManager.addListener(backendListener);
         applyBackendState(BackendLifecycleManager.snapshot());
@@ -188,6 +204,7 @@ public class WelcomePanel extends JPanel {
         return switch (step) {
             case STEP_SERVICE -> buildServiceStep();
             case STEP_CONFIG -> buildConfigStep();
+            case STEP_PROXY -> buildProxyStep();
             case STEP_START -> buildStartStep();
             case STEP_GALLERY -> buildGalleryStep();
             case STEP_ADVANCED -> buildAdvancedStep();
@@ -224,7 +241,7 @@ public class WelcomePanel extends JPanel {
             s.para("gui.welcome.config.done.body");
             s.bullet("gui.welcome.config.point.change");
             s.footer(GuiMessages.get("gui.welcome.nav.next"), true,
-                    () -> goTo(STEP_START, true), true);
+                    () -> goTo(STEP_PROXY, true), true);
             return s.root;
         }
 
@@ -295,6 +312,164 @@ public class WelcomePanel extends JPanel {
         s.footer(GuiMessages.get("gui.welcome.config.submit"), editable,
                 this::submitConfig, true);
         return s.root;
+    }
+
+    private JComponent buildProxyStep() {
+        StepLayout s = new StepLayout("gui.welcome.proxy.title", "gui.welcome.proxy.body");
+        s.bullet("gui.welcome.proxy.point.usage");
+        s.bullet("gui.welcome.proxy.point.docker");
+        s.gap(6);
+
+        loadProxyDefaults();
+
+        proxyEnabledCheck.setText(GuiMessages.get("gui.welcome.proxy.enabled"));
+        proxyEnabledCheck.setOpaque(false);
+        proxyEnabledCheck.setAlignmentX(LEFT_ALIGNMENT);
+        s.add(proxyEnabledCheck);
+        s.gap(6);
+
+        JPanel form = new JPanel(new GridBagLayout());
+        form.setOpaque(false);
+        form.setAlignmentX(LEFT_ALIGNMENT);
+        GridBagConstraints g = new GridBagConstraints();
+        g.insets = new Insets(4, 0, 4, 10);
+        g.anchor = GridBagConstraints.WEST;
+        g.gridx = 0;
+        g.gridy = 0;
+        form.add(new JLabel(GuiMessages.get("gui.welcome.proxy.host")), g);
+        g.gridx = 1;
+        form.add(proxyHostField, g);
+        g.gridx = 0;
+        g.gridy = 1;
+        form.add(new JLabel(GuiMessages.get("gui.welcome.proxy.port")), g);
+        g.gridx = 1;
+        form.add(proxyPortField, g);
+        s.add(form);
+
+        proxyEnabledCheck.setEnabled(true);
+        updateProxyEnabledState();
+
+        s.gap(8);
+        proxyFeedback.setAlignmentX(LEFT_ALIGNMENT);
+        s.content.add(proxyFeedback);
+        s.gap(8);
+        s.bullet("gui.welcome.proxy.point.change");
+
+        s.footer(GuiMessages.get("gui.welcome.nav.next"), true, this::submitProxy, true);
+        return s.root;
+    }
+
+    /** 从 config.yaml 读取当前代理配置填充控件，仅首次构建代理步骤时执行一次。 */
+    private void loadProxyDefaults() {
+        if (proxyDefaultsLoaded) {
+            return;
+        }
+        proxyDefaultsLoaded = true;
+        boolean enabled = true;
+        String host = ProxyConfig.DEFAULT_HOST;
+        String port = Integer.toString(ProxyConfig.DEFAULT_PORT);
+        try {
+            ConfigFileEditor editor = new ConfigFileEditor(RuntimeFiles.resolveConfigYamlPath());
+            String e = editor.read(ProxyConfig.KEY_ENABLED);
+            String h = editor.read(ProxyConfig.KEY_HOST);
+            String p = editor.read(ProxyConfig.KEY_PORT);
+            if (e != null && !e.isBlank()) {
+                enabled = Boolean.parseBoolean(e.trim());
+            }
+            if (h != null && !h.isBlank()) {
+                host = h.trim();
+            }
+            if (p != null && !p.isBlank()) {
+                port = p.trim();
+            }
+        } catch (IOException ignored) {
+            // 读取失败按默认值填充
+        }
+        proxyEnabledCheck.setSelected(enabled);
+        proxyHostField.setText(host);
+        proxyPortField.setText(port);
+    }
+
+    private void updateProxyEnabledState() {
+        boolean fieldsEnabled = proxyEnabledCheck.isSelected();
+        proxyHostField.setEnabled(fieldsEnabled);
+        proxyPortField.setEnabled(fieldsEnabled);
+    }
+
+    /** 写入代理配置到 config.yaml 并热重载（best-effort），随后进入下一步。 */
+    private void submitProxy() {
+        boolean enabled = proxyEnabledCheck.isSelected();
+        String host = proxyHostField.getText().trim();
+        int port;
+        try {
+            port = Integer.parseInt(proxyPortField.getText().trim());
+        } catch (NumberFormatException ex) {
+            port = -1;
+        }
+        if (enabled) {
+            if (host.isEmpty()) {
+                showProxyError(GuiMessages.get("gui.welcome.proxy.invalid.host"));
+                return;
+            }
+            if (port < 1 || port > 65535) {
+                showProxyError(GuiMessages.get("gui.welcome.proxy.invalid.port"));
+                return;
+            }
+        } else {
+            // 关闭代理时仍落盘 host/port，缺省回退默认值以便后续开启复用
+            if (host.isEmpty()) {
+                host = ProxyConfig.DEFAULT_HOST;
+            }
+            if (port < 1 || port > 65535) {
+                port = ProxyConfig.DEFAULT_PORT;
+            }
+        }
+
+        Map<String, String> values = new LinkedHashMap<>();
+        values.put(ProxyConfig.KEY_ENABLED, Boolean.toString(enabled));
+        values.put(ProxyConfig.KEY_HOST, host);
+        values.put(ProxyConfig.KEY_PORT, Integer.toString(port));
+        try {
+            new ConfigFileEditor(RuntimeFiles.resolveConfigYamlPath()).writeAll(values);
+        } catch (IOException ex) {
+            log.warn(MessageBundles.get("gui.config.log.save-failed", ex.getMessage()));
+            showProxyError(GuiMessages.get("gui.welcome.proxy.failed", safe(ex.getMessage())));
+            GuiErrorDialog.show(this, GuiMessages.get("gui.dialog.error.title"),
+                    GuiMessages.get("gui.welcome.proxy.failed", safe(ex.getMessage())));
+            return;
+        }
+
+        triggerHotReloadAsync();
+        goTo(STEP_START, true);
+    }
+
+    private void showProxyError(String msg) {
+        proxyFeedback.setForeground(new Color(180, 60, 60));
+        proxyFeedback.setText(msg);
+        slider.refreshCurrent(buildStep(STEP_PROXY));
+    }
+
+    /** 异步触发 /api/gui/config/reload，让代理改动立即生效；失败仅记日志（下次启动仍会生效）。 */
+    private void triggerHotReloadAsync() {
+        new SwingWorker<int[], Void>() {
+            @Override
+            protected int[] doInBackground() {
+                return postJson("/api/gui/config/reload", "{}", b -> {
+                });
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    int status = get()[0];
+                    if (status != 200) {
+                        log.warn(MessageBundles.get("gui.config.log.hot-reload-failed", "status=" + status));
+                    }
+                } catch (Exception e) {
+                    log.warn(MessageBundles.get("gui.config.log.hot-reload-failed", safe(e.getMessage())));
+                }
+            }
+        }.execute();
     }
 
     private JComponent buildStartStep() {
@@ -426,7 +601,7 @@ public class WelcomePanel extends JPanel {
                 }
                 if (status == 200) {
                     setupComplete = true;
-                    goTo(STEP_START, true);
+                    goTo(STEP_PROXY, true);
                 } else if (status == 403) {
                     // 多为已通过 setup.html 后备完成；交给轮询对账
                     configFeedback.setForeground(Color.GRAY);

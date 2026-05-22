@@ -40,6 +40,12 @@ function selectMode(mode) {
   document.getElementById('opt-multi').classList.toggle('selected', mode === 'multi');
 }
 
+function syncProxyEnabled() {
+  const enabled = document.getElementById('proxy-enabled').checked;
+  document.getElementById('proxy-host').disabled = !enabled;
+  document.getElementById('proxy-port').disabled = !enabled;
+}
+
 function showStatus(msg, tone) {
   const el = document.getElementById('status-msg');
   el.textContent = msg;
@@ -74,10 +80,25 @@ async function submitSetup() {
   const password = document.getElementById('password').value;
   const confirm  = document.getElementById('confirm-password').value;
   const mode     = document.querySelector('input[name="mode"]:checked').value;
+  const proxyEnabled = document.getElementById('proxy-enabled').checked;
+  const proxyHost = document.getElementById('proxy-host').value.trim();
+  const proxyPortText = document.getElementById('proxy-port').value.trim();
 
   if (!username) { setStatusKey('validation.username-required', '请填写用户名', null, 'error'); return; }
   if (password.length < 6) { setStatusKey('validation.password-short', '密码长度至少 6 位', null, 'error'); return; }
   if (password !== confirm) { setStatusKey('validation.password-mismatch', '两次密码输入不一致', null, 'error'); return; }
+
+  let proxyPort = 7890;
+  if (proxyEnabled) {
+    if (!proxyHost) { setStatusKey('proxy.validation.host-required', '启用代理时请填写代理主机', null, 'error'); return; }
+    proxyPort = Number(proxyPortText);
+    if (!Number.isInteger(proxyPort) || proxyPort < 1 || proxyPort > 65535) {
+      setStatusKey('proxy.validation.port-invalid', '代理端口必须是 1-65535 之间的整数', null, 'error');
+      return;
+    }
+  } else if (proxyPortText && Number.isInteger(Number(proxyPortText))) {
+    proxyPort = Number(proxyPortText);
+  }
 
   const btn = document.getElementById('submit-btn');
   btn.disabled = true;
@@ -87,7 +108,12 @@ async function submitSetup() {
     const res = await fetch('/api/setup/init', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, mode })
+      body: JSON.stringify({
+        username, password, mode,
+        proxyEnabled,
+        proxyHost: proxyHost || '127.0.0.1',
+        proxyPort
+      })
     });
     const data = await res.json();
     if (!res.ok) {

@@ -40,12 +40,14 @@ class SetupControllerTest {
     private LoginRateLimitService loginRateLimitService;
     @Mock
     private MultiModeConfig multiModeConfig;
+    @Mock
+    private ProxySetupService proxySetupService;
 
     @BeforeEach
     void setUp() {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         MessageSource messageSource = TestI18nBeans.messageSource();
-        SetupController controller = new SetupController(setupService, loginRateLimitService, multiModeConfig);
+        SetupController controller = new SetupController(setupService, loginRateLimitService, multiModeConfig, proxySetupService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(TestI18nBeans.appMessages(messageSource)))
                 .setValidator(TestI18nBeans.validator(messageSource))
@@ -175,6 +177,48 @@ class SetupControllerTest {
                             ))))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").value(containsString("密码长度至少 6 位")));
+        }
+
+        @Test
+        @DisplayName("携带代理配置时应写入并热重载")
+        void shouldApplyProxyConfig() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(false);
+
+            mockMvc.perform(post("/api/setup/init")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of(
+                                    "username", "admin",
+                                    "password", "password123",
+                                    "mode", "solo",
+                                    "proxyEnabled", true,
+                                    "proxyHost", "127.0.0.1",
+                                    "proxyPort", 1080
+                            ))))
+                    .andExpect(status().isOk());
+
+            verify(setupService).init("admin", "password123", "solo");
+            verify(proxySetupService).applyAndReload(true, "127.0.0.1", 1080);
+        }
+
+        @Test
+        @DisplayName("启用代理但主机为空应返回 400 且不完成初始化")
+        void shouldReturn400ForBlankProxyHost() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(false);
+
+            mockMvc.perform(post("/api/setup/init")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of(
+                                    "username", "admin",
+                                    "password", "password123",
+                                    "mode", "solo",
+                                    "proxyEnabled", true,
+                                    "proxyHost", "",
+                                    "proxyPort", 1080
+                            ))))
+                    .andExpect(status().isBadRequest());
+
+            verify(setupService, never()).init(any(), any(), any());
+            verify(proxySetupService, never()).applyAndReload(anyBoolean(), any(), anyInt());
         }
 
         @Test

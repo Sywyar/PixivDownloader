@@ -30,10 +30,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class AppConfigGenerator {
 
-    private static final String COMMENT_PREFIX = "# ";
-    private static final String HEADER_SEPARATOR = "========================================================";
-    private static final int CONFIG_ENTRY_WIDTH = 45;
-
     private final AppMessages messages;
 
     @PostConstruct
@@ -78,7 +74,7 @@ public class AppConfigGenerator {
 
             StringBuilder appendix = new StringBuilder();
             appendix.append("\n")
-                    .append(comment(message(locale, "config.template.section.appendix")))
+                    .append(DefaultConfigTemplate.comment(message(locale, "config.template.section.appendix")))
                     .append("\n\n");
             for (ConfigBlock block : missingBlocks) {
                 for (String comment : block.comments()) {
@@ -118,7 +114,7 @@ public class AppConfigGenerator {
     }
 
     /**
-     * 解析 DEFAULT_CONFIG，将每个配置项提取为 {@link ConfigBlock}。
+     * 解析默认配置文本（由 {@link DefaultConfigTemplate} 生成），将每个配置项提取为 {@link ConfigBlock}。
      * <p>
      * 规则：
      * <ul>
@@ -152,123 +148,7 @@ public class AppConfigGenerator {
     }
 
     private String buildDefaultConfig(Locale locale) {
-        StringBuilder config = new StringBuilder();
-
-        appendComment(config, HEADER_SEPARATOR);
-        appendComment(config, message(locale, "config.template.header.title"));
-        appendComment(config, message(locale, "config.template.header.restart-required"));
-        appendComment(config, HEADER_SEPARATOR);
-        appendBlankLine(config);
-
-        appendSetting(config, locale, "server.port: 6999", "config.template.server.port.comment");
-        appendBlankLine(config);
-
-        appendSetting(config, locale, "download.root-folder: pixiv-download", "config.template.download.root-folder.comment");
-        appendSetting(config, locale, "download.user-flat-folder: false", "config.template.download.user-flat-folder.comment");
-        appendSetting(config, locale, "download.max-concurrent: 10", "config.template.download.max-concurrent.comment");
-        appendSetting(config, locale, "download.novel-max-concurrent: 10", "config.template.download.novel-max-concurrent.comment");
-        appendBlankLine(config);
-
-        appendSection(config, locale, "config.template.section.proxy");
-        appendSetting(config, locale, "proxy.enabled: true", "config.template.proxy.enabled.comment");
-        appendSetting(config, locale, "proxy.host: 127.0.0.1", "config.template.proxy.host.comment");
-        appendSetting(config, locale, "proxy.port: 7890", "config.template.proxy.port.comment");
-        appendBlankLine(config);
-
-        appendSection(config, locale, "config.template.section.multi-mode");
-        appendSetting(config, locale, "multi-mode.quota.enabled: true", "config.template.multi-mode.quota.enabled.comment");
-        appendSetting(config, locale, "multi-mode.quota.max-artworks: 50", "config.template.multi-mode.quota.max-artworks.comment");
-        appendSetting(config, locale, "multi-mode.quota.reset-period-hours: 24", "config.template.multi-mode.quota.reset-period-hours.comment");
-        appendSetting(config, locale, "multi-mode.quota.archive-expire-minutes: 60", "config.template.multi-mode.quota.archive-expire-minutes.comment");
-        appendSetting(config, locale, "multi-mode.quota.limit-image: 0", "config.template.multi-mode.quota.limit-image.comment");
-        appendSetting(config, locale, "multi-mode.quota.max-proxy-requests: 200", "config.template.multi-mode.quota.max-proxy-requests.comment");
-        appendSetting(config, locale, "multi-mode.quota.archive-max-concurrent: 10", "config.template.multi-mode.quota.archive-max-concurrent.comment");
-        appendBlankLine(config);
-
-        appendComment(config, message(locale, "config.template.multi-mode.post-download-mode.comment"));
-        appendIndentedComment(config, message(locale, "config.template.multi-mode.post-download-mode.pack-and-delete"));
-        appendIndentedComment(config, message(locale, "config.template.multi-mode.post-download-mode.never-delete"));
-        appendIndentedComment(config, message(locale, "config.template.multi-mode.post-download-mode.timed-delete"));
-        config.append("multi-mode.post-download-mode: pack-and-delete\n\n");
-
-        appendSetting(config, locale, "multi-mode.delete-after-hours: 72", "config.template.multi-mode.delete-after-hours.comment");
-        appendBlankLine(config);
-
-        appendSetting(config, locale, "multi-mode.request-limit-minute: 300", "config.template.multi-mode.request-limit-minute.comment");
-        appendSetting(config, locale, "multi-mode.static-resource-request-limit-minute: 1200", "config.template.multi-mode.static-resource-request-limit-minute.comment");
-        appendSetting(config, locale, "multi-mode.tts-request-limit-minute: 30", "config.template.multi-mode.tts-request-limit-minute.comment");
-        appendSetting(config, locale, "multi-mode.limit-page: 3", "config.template.multi-mode.limit-page.comment");
-        appendBlankLine(config);
-
-        appendSection(config, locale, "config.template.section.login-security");
-        appendSetting(config, locale, "setup.login-rate-limit-minute: 10", "config.template.setup.login-rate-limit-minute.comment");
-        appendBlankLine(config);
-
-        appendSection(config, locale, "config.template.section.maintenance");
-        appendSetting(config, locale, "maintenance.enabled: true", "config.template.maintenance.enabled.comment");
-        appendBlankLine(config);
-
-        appendSection(config, locale, "config.template.section.ssl");
-        appendSetting(config, locale, "ssl.domain: localhost", "config.template.ssl.domain.comment");
-        appendSetting(config, locale, "ssl.type: pem", "config.template.ssl.type.comment");
-        appendSetting(config, locale, "server.ssl.enabled: false", "config.template.server.ssl.enabled.comment");
-        appendSetting(config, locale, "server.ssl.certificate:", "config.template.server.ssl.certificate.comment");
-        appendSetting(config, locale, "server.ssl.certificate-private-key:", "config.template.server.ssl.certificate-private-key.comment");
-        appendSetting(config, locale, "server.ssl.key-store-type: JKS", "config.template.server.ssl.key-store-type.comment");
-        appendSetting(config, locale, "server.ssl.key-store:", "config.template.server.ssl.key-store.comment");
-        appendSetting(config, locale, "server.ssl.key-store-password:", "config.template.server.ssl.key-store-password.comment");
-        appendSetting(config, locale, "ssl.http-redirect: false", "config.template.ssl.http-redirect.comment");
-        appendSetting(config, locale, "ssl.http-redirect-port: 80", "config.template.ssl.http-redirect-port.comment");
-        appendBlankLine(config);
-
-        appendSection(config, locale, "config.template.section.language");
-        appendSetting(config, locale, "app.language:", "config.template.app.language.comment");
-        appendBlankLine(config);
-
-        appendSection(config, locale, "config.template.section.update");
-        appendSetting(config, locale, "update.enabled: true", "config.template.update.enabled.comment");
-        appendSetting(config, locale,
-                "update.manifest-url: " + top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_MANIFEST_URL,
-                "config.template.update.manifest-url.comment");
-        appendSetting(config, locale,
-                "update.nightly-manifest-url: " + top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL,
-                "config.template.update.nightly-manifest-url.comment");
-        appendSetting(config, locale, "update.auto-check: true", "config.template.update.auto-check.comment");
-        appendSetting(config, locale,
-                "update.check-nightly: " + top.sywyar.pixivdownload.update.UpdateConfig.isCurrentVersionNightly(),
-                "config.template.update.check-nightly.comment");
-
-        return config.toString();
-    }
-
-    private void appendSection(StringBuilder builder, Locale locale, String titleCode) {
-        appendComment(builder, message(locale, titleCode));
-        appendBlankLine(builder);
-    }
-
-    private void appendSetting(StringBuilder builder, Locale locale, String keyValue, String commentCode) {
-        builder.append(String.format(
-                Locale.ROOT,
-                "%-" + CONFIG_ENTRY_WIDTH + "s # %s%n",
-                keyValue,
-                message(locale, commentCode)
-        ));
-    }
-
-    private void appendComment(StringBuilder builder, String text) {
-        builder.append(comment(text)).append("\n");
-    }
-
-    private void appendIndentedComment(StringBuilder builder, String text) {
-        builder.append(comment("  " + text)).append("\n");
-    }
-
-    private static void appendBlankLine(StringBuilder builder) {
-        builder.append("\n");
-    }
-
-    private String comment(String text) {
-        return COMMENT_PREFIX + text;
+        return DefaultConfigTemplate.build(code -> message(locale, code));
     }
 
     private String message(String code, Object... args) {

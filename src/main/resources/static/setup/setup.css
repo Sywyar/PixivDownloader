@@ -115,6 +115,15 @@
   .mode-option label input[type=radio] { width: 15px; height: 15px; cursor: pointer; }
   .mode-desc { font-size: 12px; color: var(--muted); line-height: 1.5; padding-left: 23px; }
 
+  /* Proxy settings */
+  .proxy-hint { font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 12px; }
+  .proxy-toggle {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-weight: bold; font-size: 13px; color: var(--heading); margin-bottom: 12px;
+  }
+  .proxy-toggle input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; }
+  .field input:disabled { opacity: .5; cursor: not-allowed; }
+
   /* Buttons */
   .btn {
     display: block; width: 100%; padding: 10px;

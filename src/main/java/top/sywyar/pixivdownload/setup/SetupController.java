@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
+import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.request.LoginRequest;
@@ -34,6 +35,7 @@ public class SetupController {
     private final SetupService setupService;
     private final LoginRateLimitService loginRateLimitService;
     private final MultiModeConfig multiModeConfig;
+    private final ProxySetupService proxySetupService;
 
     @GetMapping("/api/setup/status")
     public SetupStatusResponse status() {
@@ -61,8 +63,49 @@ public class SetupController {
                     "Setup already completed"
             );
         }
+        // 先校验代理输入（无效则整体拒绝，不写入 setup_config.json），再完成安装并落盘代理配置
+        ProxySettings proxy = resolveProxy(request);
         setupService.init(request.getUsername(), request.getPassword(), request.getMode());
+        if (proxy != null) {
+            proxySetupService.applyAndReload(proxy.enabled(), proxy.host(), proxy.port());
+        }
         return new SetupInitResponse(true, request.getMode());
+    }
+
+    /**
+     * 解析并校验请求中的可选代理配置。{@code proxyEnabled} 为 null 时返回 null（本次安装不改动代理默认值）。
+     * 启用代理时主机不能为空、端口必须在 1-65535；未启用时缺省回退到默认值以便后续开启复用。
+     */
+    private ProxySettings resolveProxy(SetupInitRequest request) {
+        if (request.getProxyEnabled() == null) {
+            return null;
+        }
+        boolean enabled = request.getProxyEnabled();
+        String host = request.getProxyHost() == null ? "" : request.getProxyHost().trim();
+        Integer portObj = request.getProxyPort();
+        int port = portObj == null ? ProxyConfig.DEFAULT_PORT : portObj;
+
+        if (enabled) {
+            if (host.isBlank()) {
+                throw new LocalizedException(HttpStatus.BAD_REQUEST,
+                        "setup.init.proxy.invalid-host", "Proxy host is required when proxy is enabled");
+            }
+            if (port < 1 || port > 65535) {
+                throw new LocalizedException(HttpStatus.BAD_REQUEST,
+                        "setup.init.proxy.invalid-port", "Proxy port must be between 1 and 65535");
+            }
+        } else {
+            if (host.isBlank()) {
+                host = ProxyConfig.DEFAULT_HOST;
+            }
+            if (port < 1 || port > 65535) {
+                port = ProxyConfig.DEFAULT_PORT;
+            }
+        }
+        return new ProxySettings(enabled, host, port);
+    }
+
+    private record ProxySettings(boolean enabled, String host, int port) {
     }
 
     @PostMapping("/api/auth/login")
