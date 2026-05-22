@@ -15,6 +15,9 @@
 - Powerful artwork and novel galleries
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![GitHub Repo stars](https://img.shields.io/github/stars/Sywyar/PixivDownload)](https://github.com/Sywyar/PixivDownload/stargazers)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Sywyar/PixivDownload)](../../releases)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/Sywyar/PixivDownload)](https://github.com/Sywyar/PixivDownload/commits)
 
 ## Features
 
