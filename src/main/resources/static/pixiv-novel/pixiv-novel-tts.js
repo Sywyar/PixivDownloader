@@ -145,6 +145,9 @@
         edgeVoices: [],
         edgeVoicesLoaded: false,
         edgeAudio: null,       // 共享 <audio>
+        edgeAudioIndex: -1,
+        edgeFetching: null,
+        edgePending: null,     // 在线合成完成但用户仍处于暂停状态时，暂存待播放音频
         edgeCache: new Map()   // cacheKey(段号|语音|语速) -> blob URL；浏览器端暂存，暂停/停止后复用，避免重复合成
     };
 
@@ -427,7 +430,18 @@
         state.playing = true;
         setPlayIcon(true);
         if (state.engine === 'edge') {
-            if (state.edgeAudio) state.edgeAudio.play().catch(() => {});
+            const pending = state.edgePending;
+            if (pending && pending.token === state.token) {
+                state.edgePending = null;
+                playEdgeUrl(pending.url, pending.index, pending.token);
+                prefetchEdge(pending.index + 1);
+            } else if (state.edgeAudio && state.edgeAudioIndex === state.index) {
+                state.edgeAudio.play().catch(() => {});
+            } else if (state.edgeFetching && state.edgeFetching.token === state.token && state.edgeFetching.index === state.index) {
+                // 合成请求仍在路上；保持 paused=false，完成后 speakEdge() 会继续播放。
+            } else if (state.index >= 0) {
+                speak(state.index);
+            }
         } else if ('speechSynthesis' in window) {
             window.speechSynthesis.resume();
         }
@@ -440,6 +454,8 @@
 
     function cancelCurrent() {
         state.token++;
+        state.edgeFetching = null;
+        state.edgePending = null;
         if ('speechSynthesis' in window) window.speechSynthesis.cancel();
         if (state.edgeAudio) { try { state.edgeAudio.pause(); } catch {} }
     }
@@ -497,23 +513,32 @@
     // ---------- Edge 在线引擎 ----------
     function speakEdge(i, myToken) {
         updateProgress(true);
+        state.edgeFetching = { index: i, token: myToken };
         fetchEdgeAudio(i)
             .then((url) => {
                 if (myToken !== state.token) return;
+                state.edgeFetching = null;
                 updateProgress(false);
+                if (state.paused) {
+                    state.edgePending = { url: url, index: i, token: myToken };
+                    return;
+                }
                 playEdgeUrl(url, i, myToken);
                 prefetchEdge(i + 1);
             })
             .catch((err) => {
                 if (myToken !== state.token) return;
+                state.edgeFetching = null;
                 state.toast && state.toast(String(err && err.message ? err.message : err), 'error');
                 stop();
             });
     }
 
     function playEdgeUrl(url, i, myToken) {
+        state.edgePending = null;
         if (!state.edgeAudio) state.edgeAudio = new Audio();
         const audio = state.edgeAudio;
+        state.edgeAudioIndex = i;
         audio.src = url;
         audio.ontimeupdate = () => {
             if (myToken !== state.token) return;

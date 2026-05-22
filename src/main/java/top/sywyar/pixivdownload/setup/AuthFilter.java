@@ -71,6 +71,7 @@ public class AuthFilter extends OncePerRequestFilter {
             "/api/stats/",
             "/api/collections",
             "/api/admin/",
+            "/api/tts/",
             "/monitor/",
             "/pixiv-stats/",
             "/pixiv-gallery/",

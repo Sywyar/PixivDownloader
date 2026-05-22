@@ -746,6 +746,41 @@ class AuthFilterTest {
         }
 
         @Test
+        @DisplayName("未登录普通游客不应直接调用在线 TTS 合成 API")
+        void shouldRejectAnonymousTtsSynthesizeApi() throws Exception {
+            request.setMethod("POST");
+            request.setRequestURI("/api/tts/edge/synthesize");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(rateLimitService, never()).isAllowed(any());
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("邀请访客仍可调用在线 TTS 合成 API")
+        void shouldAllowGuestInviteTtsSynthesizeApi() throws Exception {
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+            when(rateLimitService.isAllowedForInvite("invite:invite-code")).thenReturn(true);
+
+            request.setMethod("POST");
+            request.setRequestURI("/api/tts/edge/synthesize");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+            verify(guestInviteService).recordHit(1L);
+        }
+
+        @Test
         @DisplayName("已登录管理员访问 monitor 页面应放行并补发 UUID Cookie")
         void shouldAllowMonitorPageForLoggedInAdmin() throws Exception {
             when(setupService.isValidSession("valid-token")).thenReturn(true);
