@@ -25,6 +25,8 @@
 - Page batch download userscript — scrape works from search results, following feed, rankings, and more
 - Experience-enhancement toolbox (downloaded-work marking, one-click Cookie import)
 - Powerful artwork and novel galleries with search-scope selection, filtering, sorting, and collections
+- Full-text "body" search in the novel gallery (backed by a local full-text index; combinable with age-rating / tag / author filters)
+- Statistics dashboard (admin): overview cards, downloads-by-month line chart, top authors by downloads, popular-tag cloud; authors/tags are clickable and jump to a filtered gallery view
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
 - Animated image (Ugoira) auto-conversion to WebP
 - Custom file naming templates (11 variables)

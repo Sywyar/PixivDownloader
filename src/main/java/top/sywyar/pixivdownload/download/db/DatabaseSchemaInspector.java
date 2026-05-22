@@ -67,20 +67,47 @@ public final class DatabaseSchemaInspector {
     }
 
     private static Map<String, ManagedDatabaseSchema.TableSpec> readActualTables(Connection connection) throws SQLException {
-        LinkedHashMap<String, ManagedDatabaseSchema.TableSpec> tables = new LinkedHashMap<>();
+        // 第一遍：收集虚拟表名（如 FTS5 的 novels_fts），它们的内部存储不纳入受管 schema。
+        List<String> virtualTableNames = new ArrayList<>();
+        LinkedHashMap<String, Boolean> candidateTables = new LinkedHashMap<>();
         try (Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery(
-                     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")) {
+                     "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")) {
             while (rs.next()) {
                 String tableName = ManagedDatabaseSchema.normalizeIdentifier(rs.getString("name"));
-                tables.put(tableName, new ManagedDatabaseSchema.TableSpec(
-                        tableName,
-                        readColumns(connection, tableName),
-                        readIndexes(connection, tableName)
-                ));
+                String sql = rs.getString("sql");
+                boolean virtual = sql != null
+                        && sql.replaceAll("\\s+", " ").trim().toUpperCase().startsWith("CREATE VIRTUAL TABLE");
+                if (virtual) {
+                    virtualTableNames.add(tableName);
+                }
+                candidateTables.put(tableName, virtual);
             }
         }
+
+        LinkedHashMap<String, ManagedDatabaseSchema.TableSpec> tables = new LinkedHashMap<>();
+        for (Map.Entry<String, Boolean> entry : candidateTables.entrySet()) {
+            String tableName = entry.getKey();
+            // 跳过虚拟表本身，以及它的影子表（FTS5 的 *_data / *_idx / *_docsize / *_config 等）。
+            if (entry.getValue() || isShadowTable(tableName, virtualTableNames)) {
+                continue;
+            }
+            tables.put(tableName, new ManagedDatabaseSchema.TableSpec(
+                    tableName,
+                    readColumns(connection, tableName),
+                    readIndexes(connection, tableName)
+            ));
+        }
         return tables;
+    }
+
+    private static boolean isShadowTable(String tableName, List<String> virtualTableNames) {
+        for (String virtual : virtualTableNames) {
+            if (tableName.startsWith(virtual + "_")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<ManagedDatabaseSchema.ColumnSpec> readColumns(Connection connection, String tableName) throws SQLException {

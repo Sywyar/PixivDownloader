@@ -118,6 +118,27 @@ class DatabaseSchemaInspectorTest {
         }
 
         @Test
+        @DisplayName("FTS5 虚拟表及其影子表不应被报为 UNMANAGED_TABLE")
+        void shouldIgnoreFts5VirtualAndShadowTables() throws Exception {
+            exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+            // FTS5 虚拟表会附带创建 t_fts_data / t_fts_idx / t_fts_docsize / t_fts_config 等影子表
+            exec("CREATE VIRTUAL TABLE t_fts USING fts5(content, tokenize='trigram')");
+
+            ManagedDatabaseSchema.DatabaseSchema expected = schemaOf(table(
+                    "t",
+                    List.of(col("id", "INTEGER", false, null, 1)),
+                    List.of()
+            ));
+
+            DatabaseSchemaInspector.SchemaComparison result =
+                    DatabaseSchemaInspector.compare(connection, expected);
+
+            assertThat(result.matches())
+                    .as("FTS5 内部表不应产生漂移：%s", result.details())
+                    .isTrue();
+        }
+
+        @Test
         @DisplayName("缺列应产生 MISSING_COLUMN")
         void shouldDetectMissingColumn() throws Exception {
             exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");

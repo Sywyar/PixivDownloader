@@ -41,6 +41,11 @@ public class NovelDatabase {
         novelMapper.createNovelCollectionsTable();
         novelMapper.createNovelCollectionsNovelIndex();
         novelMapper.createNovelImagesTable();
+        novelMapper.createNovelFtsTable();
+        // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
+        try { novelMapper.backfillNovelFts(); } catch (Exception e) {
+            log.warn("Failed to backfill novel full-text index: {}", e.getMessage());
+        }
         // 幂等迁移：旧库 novels 表补 cover_ext 列；列已存在抛异常吞掉
         try { novelMapper.addCoverExtColumn(); } catch (Exception ignored) {}
         try { novelMapper.addReadingTimeSecondsColumn(); } catch (Exception ignored) {}
@@ -90,6 +95,41 @@ public class NovelDatabase {
                 count, extensions, time, xRestrict, isAi, authorId, description,
                 fileName, fileAuthorNameId, seriesId, seriesOrder,
                 wordCount, textLength, readingTimeSeconds, pageCount, isOriginal, xLanguage, rawContent, coverExt);
+        syncNovelFts(novelId, rawContent);
+    }
+
+    /** 重建单本小说的全文索引行；正文索引是辅助数据，失败仅记日志、不影响下载落库。 */
+    private void syncNovelFts(long novelId, String rawContent) {
+        try {
+            novelMapper.deleteNovelFts(novelId);
+            novelMapper.insertNovelFts(novelId, rawContent == null ? "" : rawContent);
+        } catch (Exception e) {
+            log.warn("Failed to update novel full-text index for {}: {}", novelId, e.getMessage());
+        }
+    }
+
+    /**
+     * 正文全文检索，返回命中的 novel_id 集合。trigram 索引要求查询串至少 3 个字符，
+     * 更短的关键词回退到 {@code raw_content} 的 LIKE 子串扫描。
+     */
+    public java.util.Set<Long> searchNovelContentIds(String term) {
+        if (term == null) return java.util.Collections.emptySet();
+        String trimmed = term.trim();
+        if (trimmed.isEmpty()) return java.util.Collections.emptySet();
+        try {
+            List<Long> ids;
+            if (trimmed.codePointCount(0, trimmed.length()) < 3) {
+                ids = novelMapper.findNovelIdsByContentLike("%" + trimmed + "%");
+            } else {
+                String phrase = "\"" + trimmed.replace("\"", "\"\"") + "\"";
+                ids = novelMapper.searchNovelFtsIds(phrase);
+            }
+            return new java.util.HashSet<>(ids);
+        } catch (Exception e) {
+            // 全文检索是辅助能力，查询异常时退化为"无匹配"，不让画廊列表请求 500
+            log.warn("Novel full-text search failed for term '{}': {}", trimmed, e.getMessage());
+            return java.util.Collections.emptySet();
+        }
     }
 
     public void updateCoverExt(long novelId, String coverExt) {
@@ -154,6 +194,9 @@ public class NovelDatabase {
         novelMapper.deleteAllNovelCollections(novelId);
         novelMapper.deleteNovelImages(novelId);
         novelMapper.deleteById(novelId);
+        try { novelMapper.deleteNovelFts(novelId); } catch (Exception e) {
+            log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
+        }
     }
 
     // ── Embedded images ────────────────────────────────────────────────────────

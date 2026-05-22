@@ -44,6 +44,7 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private static final Set<String> MONITOR_EXACT_PATHS = Set.of(
             "/monitor.html",
+            "/pixiv-stats.html",
             "/pixiv-gallery.html",
             "/pixiv-artwork.html",
             "/pixiv-showcase.html",
@@ -67,9 +68,11 @@ public class AuthFilter extends OncePerRequestFilter {
             "/api/authors",
             "/api/series",
             "/api/gallery/",
+            "/api/stats/",
             "/api/collections",
             "/api/admin/",
             "/monitor/",
+            "/pixiv-stats/",
             "/pixiv-gallery/",
             "/pixiv-artwork/",
             "/pixiv-showcase/",

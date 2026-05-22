@@ -121,6 +121,33 @@ public interface NovelMapper {
             + "PRIMARY KEY (novel_id, image_id))")
     void createNovelImagesTable();
 
+    // ── Full-text search (FTS5) ──────────────────────────────────────────────────
+    // novels_fts 是对 novels.raw_content 的辅助全文索引（同库虚拟表，不落到 rootFolder）。
+    // trigram 分词器对中日英混排正文都按 3-gram 子串匹配，rowid 复用 novel_id。
+
+    @Update("CREATE VIRTUAL TABLE IF NOT EXISTS novels_fts USING fts5(content, tokenize='trigram')")
+    void createNovelFtsTable();
+
+    /** 把尚未建立索引的小说正文补进 FTS（首次启用本功能或旧库升级时回填）。 */
+    @Update("INSERT INTO novels_fts(rowid, content)"
+            + " SELECT novel_id, COALESCE(raw_content, '') FROM novels"
+            + " WHERE novel_id NOT IN (SELECT rowid FROM novels_fts)")
+    void backfillNovelFts();
+
+    @Insert("INSERT INTO novels_fts(rowid, content) VALUES(#{novelId}, #{content})")
+    void insertNovelFts(@Param("novelId") long novelId, @Param("content") String content);
+
+    @Delete("DELETE FROM novels_fts WHERE rowid = #{novelId}")
+    void deleteNovelFts(@Param("novelId") long novelId);
+
+    /** 正文全文检索：{@code query} 为已转义的 FTS5 phrase，返回命中的 novel_id（= rowid）。 */
+    @Select("SELECT rowid FROM novels_fts WHERE novels_fts MATCH #{query}")
+    List<Long> searchNovelFtsIds(@Param("query") String query);
+
+    /** 短关键词（trigram 无法索引）回退：直接对 raw_content 做 LIKE 子串扫描。 */
+    @Select("SELECT novel_id FROM novels WHERE raw_content LIKE #{like}")
+    List<Long> findNovelIdsByContentLike(@Param("like") String like);
+
     @Update("UPDATE novel_series SET updated_time = updated_time * 1000"
             + " WHERE updated_time > 0 AND updated_time < 1000000000000")
     int migrateNovelSeriesTimestampsToMillis();

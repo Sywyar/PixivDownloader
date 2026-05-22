@@ -67,6 +67,10 @@ public class NovelGalleryService {
         String searchRaw = q.search() == null ? "" : q.search().trim();
         String search = searchRaw.toLowerCase(Locale.ROOT);
         Long searchId = parseLongOrNull(searchRaw);
+        // 正文全文检索一次性命中 id 集合（FTS5），避免逐行扫描 raw_content
+        Set<Long> contentMatchIds = ("content".equals(searchType) && !searchRaw.isEmpty())
+                ? novelDatabase.searchNovelContentIds(searchRaw)
+                : null;
         Map<Long, String> authorNameCache = new HashMap<>();
         Set<Long> mustTags = nullSafe(q.tagIds());
         Set<Long> notTags = nullSafe(q.notTagIds());
@@ -82,8 +86,13 @@ public class NovelGalleryService {
             if (r == null) continue;
             if (!matchAgeFilter(r.xRestrict(), q.r18())) continue;
             if (!matchAiFilter(r.isAi(), q.ai())) continue;
-            if (!searchRaw.isEmpty()
-                    && !matchNovelSearch(r, searchType, search, searchId, authorNameCache)) continue;
+            if (!searchRaw.isEmpty()) {
+                if ("content".equals(searchType)) {
+                    if (contentMatchIds == null || !contentMatchIds.contains(r.novelId())) continue;
+                } else if (!matchNovelSearch(r, searchType, search, searchId, authorNameCache)) {
+                    continue;
+                }
+            }
             if (!matchAuthorFilter(r.authorId(), mustAuthors, notAuthors, orAuthors)) continue;
             if (!matchSeriesFilter(r.seriesId(), mustSeries, notSeries)) continue;
             if (!matchTagFilter(r.novelId(), mustTags, notTags, orTags)) continue;
@@ -477,7 +486,7 @@ public class NovelGalleryService {
 
     /** 合法搜索范围，与插画画廊一致。 */
     public static final Set<String> ALLOWED_SEARCH_TYPES = Set.of(
-            "all", "title", "author", "id", "authorId", "desc", "tag", "tagExact");
+            "all", "title", "author", "id", "authorId", "desc", "tag", "tagExact", "content");
 
     public static String normalizeSearchType(String value) {
         if (value == null) return "all";

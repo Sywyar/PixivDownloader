@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PixivDownload</title>
+    <title>Pixiv 统计</title>
     <script src="/js/pixiv-i18n.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
     <link rel="stylesheet" href="/css/admin-visibility.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
-    <link rel="stylesheet" href="/pixiv-series/pixiv-series.css">
+    <link rel="stylesheet" href="/pixiv-stats/pixiv-stats.css">
 </head>
 <body>
 <div class="app-shell">
@@ -21,8 +21,9 @@
                     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
                 </svg>
             </div>
-            <span class="sidebar-brand" data-i18n="sidebar.brand"></span>
-            <button class="sidebar-toggle" id="sidebarToggle" type="button" data-i18n-title="sidebar.toggle.title">
+            <span class="sidebar-brand" data-i18n="gallery:sidebar.brand">Pixiv Gallery</span>
+            <button class="sidebar-toggle" id="sidebarToggle" type="button"
+                    data-i18n-title="gallery:sidebar.toggle.title" title="Toggle sidebar">
                 <svg viewBox="0 0 24 24">
                     <polyline points="15 18 9 12 15 6"/>
                 </svg>
@@ -30,7 +31,7 @@
         </div>
 
         <div class="section-header">
-            <span class="section-title" data-i18n="gallery:section.view"></span>
+            <span class="section-title" data-i18n="gallery:section.view">视图</span>
         </div>
         <nav class="sidebar-nav">
             <a class="nav-item" id="navViewAll" href="/pixiv-gallery.html?view=all">
@@ -43,7 +44,7 @@
                         <rect x="14" y="14" width="7" height="7" rx="1"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="gallery:nav.all"></span>
+                <span class="nav-label" data-i18n="gallery:nav.all">全部图片</span>
             </a>
             <a class="nav-item" id="navViewAuthors" href="/pixiv-gallery.html?view=authors">
                 <div class="nav-icon">
@@ -55,9 +56,9 @@
                         <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="gallery:nav.authors"></span>
+                <span class="nav-label" data-i18n="gallery:nav.authors">按作者查看图片</span>
             </a>
-            <a class="nav-item active" id="navViewSeries" href="/pixiv-gallery.html?view=series">
+            <a class="nav-item" id="navViewSeries" href="/pixiv-gallery.html?view=series">
                 <div class="nav-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                          stroke-linejoin="round">
@@ -65,14 +66,14 @@
                         <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="gallery:nav.series"></span>
+                <span class="nav-label" data-i18n="gallery:nav.series">按系列漫画查看</span>
             </a>
         </nav>
 
         <div class="sidebar-divider"></div>
 
         <div class="section-header">
-            <span class="section-title" data-i18n="gallery:section.collections"></span>
+            <span class="section-title" data-i18n="gallery:section.collections">收藏夹</span>
             <a class="section-add" id="btnCreateCollection" href="/pixiv-gallery.html?view=all&createCollection=1"
                data-i18n-title="gallery:collection.new" data-i18n-aria-label="gallery:collection.new">
                 <svg viewBox="0 0 24 24">
@@ -86,7 +87,7 @@
         <div class="sidebar-divider"></div>
 
         <div class="section-header">
-            <span class="section-title" data-i18n="section.navigation"></span>
+            <span class="section-title" data-i18n="gallery:section.navigation">导航</span>
         </div>
         <nav class="sidebar-nav">
             <a class="nav-item" id="navGalleryHome" href="/pixiv-gallery.html?view=all">
@@ -98,7 +99,7 @@
                         <polyline points="21 15 16 10 5 21"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="gallery:nav.gallery"></span>
+                <span class="nav-label" data-i18n="gallery:nav.gallery">画廊</span>
             </a>
             <a class="nav-item" href="/pixiv-batch.html" target="_blank" rel="noopener">
                 <div class="nav-icon">
@@ -109,7 +110,7 @@
                         <line x1="12" y1="15" x2="12" y2="3"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="nav.download"></span>
+                <span class="nav-label" data-i18n="gallery:nav.download">下载</span>
             </a>
             <a class="nav-item" href="/monitor.html" target="_blank" rel="noopener">
                 <div class="nav-icon">
@@ -120,9 +121,9 @@
                         <line x1="12" y1="17" x2="12" y2="21"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="nav.monitor"></span>
+                <span class="nav-label" data-i18n="gallery:nav.monitor">监控</span>
             </a>
-            <a class="nav-item admin-only" id="navStats" href="/pixiv-stats.html" target="_blank" rel="noopener">
+            <div class="nav-item current" aria-current="page">
                 <div class="nav-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
                          stroke-linejoin="round">
@@ -131,8 +132,8 @@
                         <line x1="6" y1="20" x2="6" y2="14"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="gallery:nav.stats"></span>
-            </a>
+                <span class="nav-label" data-i18n="gallery:nav.stats">统计</span>
+            </div>
             <a class="nav-item admin-only" id="navInviteManage" href="/pixiv-invite-manage.html" target="_blank" rel="noopener">
                 <div class="nav-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -141,7 +142,7 @@
                         <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
                     </svg>
                 </div>
-                <span class="nav-label" data-i18n="gallery:nav.invite-manage"></span>
+                <span class="nav-label" data-i18n="gallery:nav.invite-manage">邀请码管理</span>
             </a>
         </nav>
 
@@ -149,8 +150,8 @@
             <div class="user-card">
                 <div class="user-avatar">P</div>
                 <div class="user-info">
-                    <div class="user-name" data-i18n="user.name"></div>
-                    <div class="user-status" data-i18n="status.online"></div>
+                    <div class="user-name">Pixiv User</div>
+                    <div class="user-status" data-i18n="gallery:status.online">在线</div>
                 </div>
             </div>
         </div>
@@ -160,70 +161,71 @@
 
     <main class="main-content">
         <div class="topbar">
-            <button class="mobile-menu-btn" id="mobileMenuBtn" type="button" data-i18n-aria-label="button.open-menu">
+            <button class="mobile-menu-btn" id="mobileMenuBtn" type="button" data-i18n-aria-label="gallery:button.open-menu">
                 <svg viewBox="0 0 24 24">
                     <line x1="3" y1="12" x2="21" y2="12"/>
                     <line x1="3" y1="6" x2="21" y2="6"/>
                     <line x1="3" y1="18" x2="21" y2="18"/>
                 </svg>
             </button>
-            <label class="search-box">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                     stroke-linejoin="round">
-                    <circle cx="11" cy="11" r="8"/>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-                <input type="text" id="searchInput" data-i18n-placeholder="search.placeholder">
-            </label>
+            <h1 class="page-title" data-i18n="page.heading">统计仪表盘</h1>
             <div class="topbar-actions" id="langSwitcherAnchor"></div>
         </div>
 
-        <div class="series-wrapper">
-            <section class="series-hero">
-                <div class="series-hero-cover" id="seriesCover" style="display:none">
-                    <img id="seriesCoverImg" alt=""
-                         onerror="document.getElementById('seriesCover').style.display='none'">
+        <div class="stats-wrapper">
+            <div class="status-banner" id="statusBanner" data-i18n="status.loading">加载中...</div>
+
+            <section class="overview-grid" id="overviewGrid" hidden>
+                <div class="stat-card">
+                    <span class="stat-value" id="ovArtworks">0</span>
+                    <span class="stat-label" data-i18n="overview.artworks">总作品数</span>
                 </div>
-                <div class="series-hero-main">
-                    <div class="series-kicker" data-i18n="page.kicker"></div>
-                    <h1 class="series-title" id="seriesTitle"></h1>
-                    <a class="series-author" id="seriesAuthor" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
-                        <svg viewBox="0 0 24 24">
-                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-                            <circle cx="12" cy="7" r="4"/>
-                        </svg>
-                        <span id="seriesAuthorName"></span>
-                    </a>
+                <div class="stat-card">
+                    <span class="stat-value" id="ovImages">0</span>
+                    <span class="stat-label" data-i18n="overview.images">总图片数</span>
                 </div>
-                <div class="series-actions">
-                    <a class="btn" id="backToArtworkBtn" href="#" style="display:none">
-                        <svg viewBox="0 0 24 24">
-                            <polyline points="15 18 9 12 15 6"/>
-                        </svg>
-                        <span data-i18n="button.back-to-artwork"></span>
-                    </a>
-                    <a class="btn btn-primary" id="openGalleryFilterBtn" href="/pixiv-gallery.html?view=all">
-                        <svg viewBox="0 0 24 24">
-                            <rect x="3" y="3" width="7" height="7"/>
-                            <rect x="14" y="3" width="7" height="7"/>
-                            <rect x="14" y="14" width="7" height="7"/>
-                            <rect x="3" y="14" width="7" height="7"/>
-                        </svg>
-                        <span data-i18n="button.open-gallery-filter"></span>
-                    </a>
+                <div class="stat-card">
+                    <span class="stat-value" id="ovNovels">0</span>
+                    <span class="stat-label" data-i18n="overview.novels">总小说数</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="ovAuthors">0</span>
+                    <span class="stat-label" data-i18n="overview.authors">作者数</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="ovTags">0</span>
+                    <span class="stat-label" data-i18n="overview.tags">标签数</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="ovSeries">0</span>
+                    <span class="stat-label" data-i18n="overview.series">系列数</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value" id="ovMoved">0</span>
+                    <span class="stat-label" data-i18n="overview.moved">已归档/移动</span>
                 </div>
             </section>
 
-            <div class="meta-strip" id="metaStrip"></div>
-            <div class="series-description" id="seriesDescription" style="display:none"></div>
-            <div class="series-tags" id="seriesTags" style="display:none"></div>
-            <div class="gallery-status" id="seriesStatus" data-i18n="status.loading"></div>
-            <section class="chapter-grid" id="chapterGrid"></section>
-            <nav class="pagination" id="pagination"></nav>
+            <section class="panel" id="monthlyPanel" hidden>
+                <h2 class="panel-title" data-i18n="monthly.title">按月下载量</h2>
+                <div class="chart-wrap" id="monthlyChart"></div>
+            </section>
+
+            <div class="two-col">
+                <section class="panel" id="authorsPanel" hidden>
+                    <h2 class="panel-title" data-i18n="authors.title">下载量 Top 作者</h2>
+                    <div class="bar-list" id="authorsList"></div>
+                </section>
+
+                <section class="panel" id="tagsPanel" hidden>
+                    <h2 class="panel-title" data-i18n="tags.title">热门标签</h2>
+                    <div class="tag-cloud" id="tagCloud"></div>
+                </section>
+            </div>
         </div>
     </main>
 </div>
 
-<script src="/pixiv-series/pixiv-series.js"></script>
+<script src="/pixiv-stats/pixiv-stats.js"></script>
 </body>
 </html>

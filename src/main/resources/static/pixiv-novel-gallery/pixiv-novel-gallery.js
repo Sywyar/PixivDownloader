@@ -9,7 +9,7 @@ const FILTER_SELECTION_RANK = { must: 0, not: 1, or: 2 };
 const NOVEL_SORT_VALUES = new Set(['date', 'novelId', 'wordCount', 'series']);
 const NOVEL_R18_VALUES = new Set(['any', 'r18plus', 'r18', 'r18g', 'no']);
 const NOVEL_AI_VALUES = new Set(['any', 'yes', 'no']);
-const NOVEL_SEARCH_TYPE_VALUES = new Set(['all', 'title', 'author', 'id', 'authorId', 'desc', 'tag', 'tagExact']);
+const NOVEL_SEARCH_TYPE_VALUES = new Set(['all', 'title', 'author', 'id', 'authorId', 'desc', 'content', 'tag', 'tagExact']);
 const FILTER_MODE_VALUES = new Set(['must', 'not', 'or']);
 const NOVEL_URL_FILTER_KEYS = [
     'tagId', 'tagIds', 'filterTagId', 'tagName', 'tagTranslatedName', 'filterTag', 'filterTagTranslated',
@@ -331,6 +331,7 @@ function searchPlaceholderFor(type) {
         case 'id': return pageI18n.t('novel:search.placeholder.id', '输入小说 ID（数字，精确匹配）...');
         case 'authorId': return pageI18n.t('gallery:search.placeholder.author-id', '输入作者 ID（数字，精确匹配）...');
         case 'desc': return pageI18n.t('gallery:search.placeholder.desc', '按作品简介搜索...');
+        case 'content': return pageI18n.t('novel:search.placeholder.content', '按正文关键词全文检索...');
         case 'tag': return pageI18n.t('gallery:search.placeholder.tag', '按标签关键词搜索（模糊）...');
         case 'tagExact': return pageI18n.t('gallery:search.placeholder.tag-exact', '输入完整标签名（精确匹配）...');
         default: return pageI18n.t('novel:search.placeholder', '按标题搜索...');
