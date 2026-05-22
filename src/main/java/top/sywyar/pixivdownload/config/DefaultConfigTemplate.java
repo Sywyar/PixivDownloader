@@ -73,8 +73,13 @@ public final class DefaultConfigTemplate {
 
         appendSetting(config, messages, "multi-mode.request-limit-minute: 300", "config.template.multi-mode.request-limit-minute.comment");
         appendSetting(config, messages, "multi-mode.static-resource-request-limit-minute: 1200", "config.template.multi-mode.static-resource-request-limit-minute.comment");
-        appendSetting(config, messages, "multi-mode.tts-request-limit-minute: 30", "config.template.multi-mode.tts-request-limit-minute.comment");
         appendSetting(config, messages, "multi-mode.limit-page: 3", "config.template.multi-mode.limit-page.comment");
+        appendBlankLine(config);
+
+        appendSection(config, messages, "config.template.section.guest-invite");
+        appendSetting(config, messages, "guest-invite.request-limit-minute: 300", "config.template.guest-invite.request-limit-minute.comment");
+        appendSetting(config, messages, "guest-invite.static-resource-request-limit-minute: 1200", "config.template.guest-invite.static-resource-request-limit-minute.comment");
+        appendSetting(config, messages, "guest-invite.tts-request-limit-minute: 30", "config.template.guest-invite.tts-request-limit-minute.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.login-security");

@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.SetupProperties;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.io.IOException;
@@ -31,6 +32,7 @@ public class RuntimeConfigReloadService {
 
     private final DownloadConfig downloadConfig;
     private final MultiModeConfig multiModeConfig;
+    private final GuestInviteConfig guestInviteConfig;
     private final SetupProperties setupProperties;
     private final SslConfig sslConfig;
     private final MaintenanceProperties maintenanceProperties;
@@ -41,6 +43,7 @@ public class RuntimeConfigReloadService {
         Binder binder = loadBinder();
         DownloadConfig nextDownload = bind(binder, "download", DownloadConfig::new, DownloadConfig.class);
         MultiModeConfig nextMultiMode = bind(binder, "multi-mode", MultiModeConfig::new, MultiModeConfig.class);
+        GuestInviteConfig nextGuestInvite = bind(binder, "guest-invite", GuestInviteConfig::new, GuestInviteConfig.class);
         SetupProperties nextSetup = bind(binder, "setup", SetupProperties::new, SetupProperties.class);
         SslConfig nextSsl = bind(binder, "ssl", SslConfig::new, SslConfig.class);
         MaintenanceProperties nextMaintenance = bind(binder, "maintenance", MaintenanceProperties::new, MaintenanceProperties.class);
@@ -50,6 +53,7 @@ public class RuntimeConfigReloadService {
         List<String> applied = new ArrayList<>();
         applyDownloadConfig(nextDownload, applied);
         applyMultiModeConfig(nextMultiMode, applied);
+        applyGuestInviteConfig(nextGuestInvite, applied);
         applySetupConfig(nextSetup, applied);
         applySslConfig(nextSsl, applied);
         applyMaintenanceConfig(nextMaintenance, applied);
@@ -149,6 +153,24 @@ public class RuntimeConfigReloadService {
                 multiModeConfig.getLimitPage(),
                 next.getLimitPage(),
                 () -> multiModeConfig.setLimitPage(next.getLimitPage()));
+    }
+
+    private void applyGuestInviteConfig(GuestInviteConfig next, List<String> applied) {
+        applyIfChanged(applied,
+                "guest-invite.request-limit-minute",
+                guestInviteConfig.getRequestLimitMinute(),
+                next.getRequestLimitMinute(),
+                () -> guestInviteConfig.setRequestLimitMinute(next.getRequestLimitMinute()));
+        applyIfChanged(applied,
+                "guest-invite.static-resource-request-limit-minute",
+                guestInviteConfig.getStaticResourceRequestLimitMinute(),
+                next.getStaticResourceRequestLimitMinute(),
+                () -> guestInviteConfig.setStaticResourceRequestLimitMinute(next.getStaticResourceRequestLimitMinute()));
+        applyIfChanged(applied,
+                "guest-invite.tts-request-limit-minute",
+                guestInviteConfig.getTtsRequestLimitMinute(),
+                next.getTtsRequestLimitMinute(),
+                () -> guestInviteConfig.setTtsRequestLimitMinute(next.getTtsRequestLimitMinute()));
     }
 
     private void applySetupConfig(SetupProperties next, List<String> applied) {

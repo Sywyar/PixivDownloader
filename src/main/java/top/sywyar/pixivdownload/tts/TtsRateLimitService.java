@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.quota.MultiModeConfig;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>仅作用于携带有效邀请会话的访客；管理员 / solo 拥有者不受限——
  * 调用方（{@link top.sywyar.pixivdownload.tts.controller.TtsController}）负责在调用前判定身份。
- * {@code multi-mode.tts-request-limit-minute <= 0} 时关闭限流。
+ * {@code guest-invite.tts-request-limit-minute <= 0} 时关闭限流。
  *
  * <p>内存滑动窗口清理沿用 {@code StaticResourceRateLimitService} 的既有模式（早于 MaintenanceCoordinator 规则，保持一致）。
  */
@@ -25,12 +25,12 @@ public class TtsRateLimitService {
 
     static final int MAX_TRACKED_KEYS = 50_000;
 
-    private final MultiModeConfig multiModeConfig;
+    private final GuestInviteConfig guestInviteConfig;
 
     private final ConcurrentHashMap<String, WindowCounter> counters = new ConcurrentHashMap<>();
 
     public int getLimitPerMinute() {
-        return multiModeConfig.getTtsRequestLimitMinute();
+        return guestInviteConfig.getTtsRequestLimitMinute();
     }
 
     public boolean isAllowed(String key) {

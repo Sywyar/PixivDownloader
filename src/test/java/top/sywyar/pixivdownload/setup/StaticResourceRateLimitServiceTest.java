@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -12,12 +13,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 class StaticResourceRateLimitServiceTest {
 
     private MultiModeConfig multiModeConfig;
+    private GuestInviteConfig guestInviteConfig;
     private StaticResourceRateLimitService service;
 
     @BeforeEach
     void setUp() {
         multiModeConfig = new MultiModeConfig();
-        service = new StaticResourceRateLimitService(multiModeConfig);
+        guestInviteConfig = new GuestInviteConfig();
+        service = new StaticResourceRateLimitService(multiModeConfig, guestInviteConfig);
     }
 
     @Nested
@@ -77,6 +80,26 @@ class StaticResourceRateLimitServiceTest {
             for (int i = 0; i < 10; i++) {
                 assertThat(service.isAllowed("203.0.113.10")).isTrue();
             }
+        }
+    }
+
+    @Nested
+    @DisplayName("邀请访客限流（按邀请码、guest-invite 上限）")
+    class WhenInviteGuest {
+
+        @Test
+        @DisplayName("邀请访客使用 guest-invite 上限，与多人模式 IP 上限互不影响")
+        void shouldUseGuestInviteLimitIndependentlyFromMultiMode() {
+            guestInviteConfig.setStaticResourceRequestLimitMinute(2);
+            multiModeConfig.setStaticResourceRequestLimitMinute(0); // 多人模式 IP 不限流
+
+            String inviteKey = "invite:ABC123";
+            assertThat(service.isAllowedForInvite(inviteKey)).isTrue();
+            assertThat(service.isAllowedForInvite(inviteKey)).isTrue();
+            assertThat(service.isAllowedForInvite(inviteKey)).isFalse();
+
+            // IP 路径不受 guest-invite 上限影响
+            assertThat(service.isAllowed("203.0.113.10")).isTrue();
         }
     }
 

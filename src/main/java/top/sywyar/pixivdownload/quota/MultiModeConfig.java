@@ -30,9 +30,6 @@ public class MultiModeConfig {
     /** 多人模式游客每 IP 每分钟最大静态资源请求次数（0 表示不限制） */
     private volatile int staticResourceRequestLimitMinute = 1200;
 
-    /** 邀请访客每会话每分钟最大在线 TTS（语音合成）请求次数（0 表示不限制） */
-    private volatile int ttsRequestLimitMinute = 30;
-
     /** 搜索模式自动向后补页上限（0 表示不限制，仅多人模式生效） */
     private volatile int limitPage = 3;
 

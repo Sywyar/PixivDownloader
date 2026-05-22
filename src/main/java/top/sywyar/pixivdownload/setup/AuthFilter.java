@@ -149,6 +149,9 @@ public class AuthFilter extends OncePerRequestFilter {
     /** 访客邀请 cookie 名（浏览器会话 cookie，不带 Max-Age）。 */
     public static final String INVITE_COOKIE = "pixiv_invite_token";
 
+    /** request attribute 标记：邀请会话是否已在本次请求内解析过（用于缓存，避免重复查库）。 */
+    private static final String GUEST_SESSION_RESOLVED_ATTR = "pixiv.guestInviteSessionResolved";
+
     private final SetupService setupService;
     private final StaticResourceRateLimitService staticResourceRateLimitService;
     private final RateLimitService rateLimitService;
@@ -216,7 +219,12 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         if (shouldApplyStaticResourceRateLimit(req, path)) {
-            if (!staticResourceRateLimitService.isAllowed(req.getRemoteAddr())) {
+            // 邀请访客按邀请码限流（两种模式均生效）；其余未登录流量按客户端 IP 限流。
+            GuestInviteSession inviteSession = resolveGuestInviteSessionCached(req, res);
+            boolean allowed = inviteSession != null
+                    ? staticResourceRateLimitService.isAllowedForInvite("invite:" + inviteSession.code())
+                    : staticResourceRateLimitService.isAllowed(req.getRemoteAddr());
+            if (!allowed) {
                 log.warn(messages.getForLog("static-resource.log.rate-limit.exceeded", req.getRemoteAddr(), path));
                 sendTextError(req, res, 429, "auth.too-many-requests", "Too Many Requests");
                 return;
@@ -260,15 +268,11 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         // 解析访客邀请会话（若 cookie 有效）：挂到 request attribute，用于后续过滤与单作品守卫
-        GuestInviteSession guestSession = resolveGuestInviteSession(req, res);
-        if (guestSession != null) {
-            req.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession);
-        }
+        GuestInviteSession guestSession = resolveGuestInviteSessionCached(req, res);
 
         if (guestSession != null && isAllowedForGuestInvite(path, method)) {
             if (isApi(path)) {
-                String key = rateLimitService.resolveLimitKey(req);
-                if (!rateLimitService.isAllowed(key)) {
+                if (!rateLimitService.isAllowedForInvite("invite:" + guestSession.code())) {
                     sendJsonError(req, res, 429, "auth.too-many-requests", "Too Many Requests");
                     return;
                 }
@@ -528,6 +532,23 @@ public class AuthFilter extends OncePerRequestFilter {
         res.setCharacterEncoding(StandardCharsets.UTF_8.name());
         res.setHeader(HttpHeaders.RETRY_AFTER, "60");
         res.getWriter().write(message);
+    }
+
+    /**
+     * 解析邀请会话并在 request 内缓存：静态资源限流与后续过滤分别需要该会话，
+     * 缓存避免对携带邀请 cookie 的请求重复查库（无 cookie 时 {@link #resolveGuestInviteSession} 立即返回）。
+     */
+    private GuestInviteSession resolveGuestInviteSessionCached(HttpServletRequest req, HttpServletResponse res) {
+        if (Boolean.TRUE.equals(req.getAttribute(GUEST_SESSION_RESOLVED_ATTR))) {
+            Object cached = req.getAttribute(GuestInviteSession.REQUEST_ATTR);
+            return cached instanceof GuestInviteSession session ? session : null;
+        }
+        GuestInviteSession session = resolveGuestInviteSession(req, res);
+        req.setAttribute(GUEST_SESSION_RESOLVED_ATTR, Boolean.TRUE);
+        if (session != null) {
+            req.setAttribute(GuestInviteSession.REQUEST_ATTR, session);
+        }
+        return session;
     }
 
     private GuestInviteSession resolveGuestInviteSession(HttpServletRequest req, HttpServletResponse res) {

@@ -33,6 +33,7 @@ public final class ConfigFieldRegistry {
                 message("gui.config.group.download"),
                 message("gui.config.group.proxy"),
                 message("gui.config.group.multi-mode"),
+                message("gui.config.group.guest-invite"),
                 message("gui.config.group.security"),
                 message("gui.config.group.maintenance"),
                 message("gui.config.group.https"),
@@ -46,6 +47,7 @@ public final class ConfigFieldRegistry {
         String groupDownload = message("gui.config.group.download");
         String groupProxy = message("gui.config.group.proxy");
         String groupMultiMode = message("gui.config.group.multi-mode");
+        String groupGuestInvite = message("gui.config.group.guest-invite");
         String groupSecurity = message("gui.config.group.security");
         String groupMaintenance = message("gui.config.group.maintenance");
         String groupHttps = message("gui.config.group.https");
@@ -230,9 +232,9 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("multi-mode.tts-request-limit-minute", message("gui.config.field.multi-mode.tts-request-limit-minute.label"), INT, groupMultiMode)
-                        .defaultValue("30")
-                        .help(message("gui.config.field.multi-mode.tts-request-limit-minute.help"))
+                ConfigFieldSpec.builder("multi-mode.limit-page", message("gui.config.field.multi-mode.limit-page.label"), INT, groupMultiMode)
+                        .defaultValue("3")
+                        .help(message("gui.config.field.multi-mode.limit-page.help"))
                         .validator(v -> {
                             try {
                                 int n = Integer.parseInt(v);
@@ -244,9 +246,38 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("multi-mode.limit-page", message("gui.config.field.multi-mode.limit-page.label"), INT, groupMultiMode)
-                        .defaultValue("3")
-                        .help(message("gui.config.field.multi-mode.limit-page.help"))
+                // ── 访客邀请限流（solo / multi 均生效）──────────────────────────────
+                ConfigFieldSpec.builder("guest-invite.request-limit-minute", message("gui.config.field.guest-invite.request-limit-minute.label"), INT, groupGuestInvite)
+                        .defaultValue("300")
+                        .help(message("gui.config.field.guest-invite.request-limit-minute.help"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 0 ? null : message("gui.config.validation.non-negative-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("guest-invite.static-resource-request-limit-minute", message("gui.config.field.guest-invite.static-resource-request-limit-minute.label"), INT, groupGuestInvite)
+                        .defaultValue("1200")
+                        .help(message("gui.config.field.guest-invite.static-resource-request-limit-minute.help"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 0 ? null : message("gui.config.validation.non-negative-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("guest-invite.tts-request-limit-minute", message("gui.config.field.guest-invite.tts-request-limit-minute.label"), INT, groupGuestInvite)
+                        .defaultValue("30")
+                        .help(message("gui.config.field.guest-invite.tts-request-limit-minute.help"))
                         .validator(v -> {
                             try {
                                 int n = Integer.parseInt(v);

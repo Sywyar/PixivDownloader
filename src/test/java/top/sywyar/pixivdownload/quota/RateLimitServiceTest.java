@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -12,12 +13,14 @@ import static org.assertj.core.api.Assertions.*;
 class RateLimitServiceTest {
 
     private MultiModeConfig multiModeConfig;
+    private GuestInviteConfig guestInviteConfig;
     private RateLimitService rateLimitService;
 
     @BeforeEach
     void setUp() {
         multiModeConfig = new MultiModeConfig();
-        rateLimitService = new RateLimitService(multiModeConfig, TestI18nBeans.appMessages());
+        guestInviteConfig = new GuestInviteConfig();
+        rateLimitService = new RateLimitService(multiModeConfig, guestInviteConfig, TestI18nBeans.appMessages());
     }
 
     @Nested
@@ -72,6 +75,36 @@ class RateLimitServiceTest {
             assertThat(rateLimitService.isAllowed(uuid)).isTrue();
             // 第 4 次超出上限，应拒绝
             assertThat(rateLimitService.isAllowed(uuid)).isFalse();
+        }
+    }
+
+    @Nested
+    @DisplayName("邀请访客限流（按邀请码、guest-invite 上限）")
+    class WhenInviteGuest {
+
+        @Test
+        @DisplayName("邀请访客使用 guest-invite 上限，与多人模式上限互不影响")
+        void shouldUseGuestInviteLimitIndependentlyFromMultiMode() {
+            guestInviteConfig.setRequestLimitMinute(2);
+            multiModeConfig.setRequestLimitMinute(0); // 多人模式不限流
+
+            String inviteKey = "invite:ABC123";
+            assertThat(rateLimitService.isAllowedForInvite(inviteKey)).isTrue();
+            assertThat(rateLimitService.isAllowedForInvite(inviteKey)).isTrue();
+            // 第 3 次超出 guest-invite 上限
+            assertThat(rateLimitService.isAllowedForInvite(inviteKey)).isFalse();
+
+            // 多人模式 UUID 路径不受 guest-invite 上限影响
+            assertThat(rateLimitService.isAllowed("uuid-x")).isTrue();
+        }
+
+        @Test
+        @DisplayName("guest-invite 上限为 0 时邀请访客不限流")
+        void shouldAllowAllWhenInviteLimitIsZero() {
+            guestInviteConfig.setRequestLimitMinute(0);
+            for (int i = 0; i < 1000; i++) {
+                assertThat(rateLimitService.isAllowedForInvite("invite:Z")).isTrue();
+            }
         }
     }
 
