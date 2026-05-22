@@ -144,8 +144,8 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("solo 模式访客页面静态资源也应启用 IP 限流")
-        void shouldCheckStaticResourceRateLimitForSoloGuestStaticResource() throws Exception {
+        @DisplayName("邀请访客页面静态资源应按邀请码限流（而非客户端 IP）")
+        void shouldCheckStaticResourceRateLimitForInviteGuestStaticResource() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("solo");
             when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
@@ -153,6 +153,7 @@ class AuthFilterTest {
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
             )));
+            when(staticResourceRateLimitService.isAllowedForInvite("invite:invite-code")).thenReturn(true);
 
             request.setMethod("GET");
             request.setRequestURI("/pixiv-gallery/pixiv-gallery.js");
@@ -161,7 +162,8 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            verify(staticResourceRateLimitService).isAllowed("192.168.1.100");
+            verify(staticResourceRateLimitService).isAllowedForInvite("invite:invite-code");
+            verify(staticResourceRateLimitService, never()).isAllowed("192.168.1.100");
             verify(filterChain).doFilter(request, response);
             verify(guestInviteService).recordHit(1L);
         }

@@ -36,6 +36,7 @@
         <java.version>17</java.version>
         <app.release.version>${project.version}</app.release.version>
         <powershell.executable>pwsh</powershell.executable>
+        <jacoco.version>0.8.12</jacoco.version>
     </properties>
     <dependencies>
         <dependency>
@@ -147,6 +148,27 @@
                 <configuration>
                     <mainClass>top.sywyar.pixivdownload.gui.GuiLauncher</mainClass>
                 </configuration>
+            </plugin>
+            <!-- 代码覆盖率：mvn test 后产出 target/site/jacoco/index.html -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>

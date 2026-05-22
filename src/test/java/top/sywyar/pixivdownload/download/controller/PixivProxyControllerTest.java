@@ -171,6 +171,25 @@ class PixivProxyControllerTest {
         }
 
         @Test
+        @DisplayName("含空格 / % 的关键词只能被编码一次（防 UriComponentsBuilder 二次编码）")
+        void shouldEncodeWordExactlyOnce() throws Exception {
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(String.class)))
+                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE));
+
+            // 空格单次编码为 %20、二次编码为 %2520；字面 % 单次为 %25、二次为 %2525。
+            mockMvc.perform(get("/api/pixiv/search").param("word", "blue archive 100%"))
+                    .andExpect(status().isOk());
+
+            verify(restTemplate).exchange(
+                    argThat((URI uri) -> {
+                        String s = uri.toString();
+                        return s.contains("%20") && !s.contains("%2520")     // 空格只编码一次
+                                && s.contains("100%25") && !s.contains("100%2525"); // % 只编码一次
+                    }),
+                    eq(HttpMethod.GET), any(), eq(String.class));
+        }
+
+        @Test
         @DisplayName("默认参数时应使用 date_d 排序和 all 模式")
         void shouldUseDefaultParameters() throws Exception {
             when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(String.class)))
