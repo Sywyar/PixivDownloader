@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.core.task.TaskExecutor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
@@ -15,6 +16,7 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
@@ -25,6 +27,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @DisplayName("UserQuotaService 单元测试")
 class UserQuotaServiceTest {
+    private static final TaskExecutor DIRECT_EXECUTOR = Runnable::run;
 
     @TempDir
     Path tempDir;
@@ -50,7 +53,8 @@ class UserQuotaServiceTest {
                 multiModeConfig,
                 downloadConfig,
                 pixivDatabase,
-                TestI18nBeans.appMessages()
+                TestI18nBeans.appMessages(),
+                DIRECT_EXECUTOR
         );
     }
 
@@ -110,7 +114,8 @@ class UserQuotaServiceTest {
                     multiModeConfig,
                     downloadConfig,
                     pixivDatabase,
-                    TestI18nBeans.appMessages()
+                    TestI18nBeans.appMessages(),
+                    DIRECT_EXECUTOR
             );
         }
 
@@ -297,6 +302,30 @@ class UserQuotaServiceTest {
             assertThat(entry).isNotNull();
             assertThat(entry.getToken()).isEqualTo(token);
             assertThat(entry.getUserUuid()).isEqualTo("user1");
+        }
+
+        @Test
+        @DisplayName("archive build should be submitted to executor")
+        void shouldSubmitArchiveBuildToExecutor() {
+            List<Runnable> submitted = new ArrayList<>();
+            UserQuotaService queuedService = new UserQuotaService(
+                    multiModeConfig,
+                    downloadConfig,
+                    pixivDatabase,
+                    TestI18nBeans.appMessages(),
+                    submitted::add
+            );
+            queuedService.checkAndReserve("user1", 1);
+
+            String token = queuedService.triggerArchive("user1");
+            UserQuotaService.ArchiveEntry entry = queuedService.getArchive(token);
+
+            assertThat(submitted).hasSize(1);
+            assertThat(entry).isNotNull();
+            assertThat(entry.getStatus()).isEqualTo("pending");
+
+            submitted.get(0).run();
+            assertThat(entry.getStatus()).isEqualTo("empty");
         }
 
         @Test

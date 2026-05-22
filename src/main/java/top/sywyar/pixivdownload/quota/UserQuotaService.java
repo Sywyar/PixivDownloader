@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.quota;
 
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
@@ -25,13 +25,25 @@ import java.util.zip.ZipOutputStream;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class UserQuotaService {
 
     private final MultiModeConfig config;
     private final DownloadConfig downloadConfig;
     private final PixivDatabase pixivDatabase;
     private final AppMessages messages;
+    private final TaskExecutor archiveTaskExecutor;
+
+    public UserQuotaService(MultiModeConfig config,
+                            DownloadConfig downloadConfig,
+                            PixivDatabase pixivDatabase,
+                            AppMessages messages,
+                            @Qualifier("archiveTaskExecutor") TaskExecutor archiveTaskExecutor) {
+        this.config = config;
+        this.downloadConfig = downloadConfig;
+        this.pixivDatabase = pixivDatabase;
+        this.messages = messages;
+        this.archiveTaskExecutor = archiveTaskExecutor;
+    }
 
     /** UUID → 用户配额信息 */
     private final ConcurrentHashMap<String, UserQuota> quotaMap = new ConcurrentHashMap<>();
@@ -205,7 +217,7 @@ public class UserQuotaService {
             quota.setArchiveToken(token);
         }
 
-        buildArchiveAsync(token, uuid);
+        archiveTaskExecutor.execute(() -> buildArchive(token, uuid));
         return token;
     }
 
@@ -215,12 +227,11 @@ public class UserQuotaService {
                 + (long) config.getQuota().getArchiveExpireMinutes() * 60_000;
         ArchiveEntry entry = new ArchiveEntry(token, null, expireTime);
         archiveMap.put(token, entry);
-        buildAdminArchiveAsync(token, folders);
+        archiveTaskExecutor.execute(() -> buildAdminArchive(token, folders));
         return token;
     }
 
-    @Async("archiveTaskExecutor")
-    public void buildArchiveAsync(String token, String uuid) {
+    private void buildArchive(String token, String uuid) {
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
 
@@ -283,8 +294,7 @@ public class UserQuotaService {
         }
     }
 
-    @Async("archiveTaskExecutor")
-    public void buildAdminArchiveAsync(String token, List<Path> folders) {
+    private void buildAdminArchive(String token, List<Path> folders) {
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
 
