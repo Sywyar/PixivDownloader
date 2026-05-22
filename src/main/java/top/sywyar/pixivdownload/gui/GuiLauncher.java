@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.PixivDownloadApplication;
 import top.sywyar.pixivdownload.cli.CliSetupCommand;
 import top.sywyar.pixivdownload.common.AppVersion;
+import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.download.db.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
@@ -87,6 +88,10 @@ public class GuiLauncher {
     public static final String HEADLESS_PROPERTY = "pixivdownload.headless";
 
     public static void main(String[] args) throws Exception {
+        // ── 0. 统一标准输出/错误流为 UTF-8（必须先于 logback 初始化与任何打印）──────
+        //    logback 的 ConsoleAppender 在初始化时会捕获当时的 System.out，故须最先执行。
+        Utf8ConsoleStreams.install();
+
         // ── 0a. 全局 locale 检测（必须先于 logback 初始化）────────────────────────
         //    检测器内部不允许使用 SLF4J / @Slf4j 类；通过 Locale.setDefault 写回，
         //    使后续 HtmlLogLayout / GuiMessages / getForLog 拿到统一信号。

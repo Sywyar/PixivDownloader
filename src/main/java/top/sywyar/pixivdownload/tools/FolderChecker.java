@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tools;
 
 import org.sqlite.SQLiteConfig;
+import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
@@ -73,6 +74,7 @@ public class FolderChecker {
     }
 
     public static void main(String[] args) {
+        Utf8ConsoleStreams.install();
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception ignored) {

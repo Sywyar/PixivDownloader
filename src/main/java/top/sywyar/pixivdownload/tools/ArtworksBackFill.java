@@ -11,6 +11,7 @@ import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.util.Timeout;
 import org.sqlite.SQLiteConfig;
+import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -73,6 +74,7 @@ public class ArtworksBackFill {
     };
 
     public static void main(String[] args) throws Exception {
+        Utf8ConsoleStreams.install();
         Options options;
         try {
             options = Options.parse(args);

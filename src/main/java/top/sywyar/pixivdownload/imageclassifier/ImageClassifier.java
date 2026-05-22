@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.imageclassifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -116,6 +117,7 @@ public class ImageClassifier extends JFrame {
     }
 
     public static void main(String[] args) {
+        Utf8ConsoleStreams.install();
         SwingUtilities.invokeLater(() -> {
             ImageClassifier classifier = new ImageClassifier();
             classifier.setVisible(true);
