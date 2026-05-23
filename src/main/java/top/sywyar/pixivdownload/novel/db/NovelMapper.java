@@ -145,7 +145,7 @@ public interface NovelMapper {
     List<Long> searchNovelFtsIds(@Param("query") String query);
 
     /** 短关键词（trigram 无法索引）回退：直接对 raw_content 做 LIKE 子串扫描。 */
-    @Select("SELECT novel_id FROM novels WHERE raw_content LIKE #{like}")
+    @Select("SELECT novel_id FROM novels WHERE raw_content LIKE #{like} ESCAPE '\\'")
     List<Long> findNovelIdsByContentLike(@Param("like") String like);
 
     @Update("UPDATE novel_series SET updated_time = updated_time * 1000"

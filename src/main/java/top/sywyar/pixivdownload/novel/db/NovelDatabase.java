@@ -119,7 +119,7 @@ public class NovelDatabase {
         try {
             List<Long> ids;
             if (trimmed.codePointCount(0, trimmed.length()) < 3) {
-                ids = novelMapper.findNovelIdsByContentLike("%" + trimmed + "%");
+                ids = novelMapper.findNovelIdsByContentLike("%" + escapeLikePattern(trimmed) + "%");
             } else {
                 String phrase = "\"" + trimmed.replace("\"", "\"\"") + "\"";
                 ids = novelMapper.searchNovelFtsIds(phrase);
@@ -130,6 +130,18 @@ public class NovelDatabase {
             log.warn("Novel full-text search failed for term '{}': {}", trimmed, e.getMessage());
             return java.util.Collections.emptySet();
         }
+    }
+
+    private static String escapeLikePattern(String value) {
+        StringBuilder out = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch == '\\' || ch == '%' || ch == '_') {
+                out.append('\\');
+            }
+            out.append(ch);
+        }
+        return out.toString();
     }
 
     public void updateCoverExt(long novelId, String coverExt) {

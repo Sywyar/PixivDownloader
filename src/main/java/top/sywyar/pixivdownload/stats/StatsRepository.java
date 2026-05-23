@@ -31,9 +31,21 @@ public class StatsRepository {
                                 rs.getLong("total_moved"), 0, 0, 0, 0)
                         : new StatsDto.Overview(0, 0, 0, 0, 0, 0, 0));
         long totalNovels = queryCount("SELECT COUNT(*) FROM novels");
-        long totalAuthors = queryCount("SELECT COUNT(DISTINCT author_id) FROM artworks WHERE author_id IS NOT NULL");
-        long totalTags = queryCount("SELECT COUNT(DISTINCT tag_id) FROM artwork_tags");
-        long totalSeries = queryCount("SELECT COUNT(DISTINCT series_id) FROM artworks WHERE series_id IS NOT NULL AND series_id > 0");
+        long totalAuthors = queryCount("SELECT COUNT(DISTINCT author_id) FROM ("
+                + " SELECT author_id FROM artworks WHERE author_id IS NOT NULL"
+                + " UNION"
+                + " SELECT author_id FROM novels WHERE author_id IS NOT NULL"
+                + ")");
+        long totalTags = queryCount("SELECT COUNT(DISTINCT tag_id) FROM ("
+                + " SELECT tag_id FROM artwork_tags"
+                + " UNION"
+                + " SELECT tag_id FROM novel_tags"
+                + ")");
+        long totalSeries = queryCount("SELECT COUNT(*) FROM ("
+                + " SELECT series_id FROM artworks WHERE series_id IS NOT NULL AND series_id > 0 GROUP BY series_id"
+                + " UNION ALL"
+                + " SELECT series_id FROM novels WHERE series_id IS NOT NULL AND series_id > 0 GROUP BY series_id"
+                + ")");
         return new StatsDto.Overview(
                 fromStatsRow.totalArtworks(), fromStatsRow.totalImages(), fromStatsRow.totalMoved(),
                 totalNovels, totalAuthors, totalTags, totalSeries);
@@ -46,12 +58,15 @@ public class StatsRepository {
 
     /** 下载量最高的作者，按作品数降序。name 为空时由上层回退展示 author_id。 */
     public List<StatsDto.AuthorStat> topAuthors(int limit) {
-        String sql = "SELECT a.author_id AS author_id, au.name AS name, COUNT(*) AS cnt"
-                + " FROM artworks a"
-                + " LEFT JOIN authors au ON au.author_id = a.author_id"
-                + " WHERE a.author_id IS NOT NULL"
-                + " GROUP BY a.author_id, au.name"
-                + " ORDER BY cnt DESC, a.author_id ASC"
+        String sql = "SELECT works.author_id AS author_id, au.name AS name, COUNT(*) AS cnt"
+                + " FROM ("
+                + " SELECT author_id FROM artworks WHERE author_id IS NOT NULL"
+                + " UNION ALL"
+                + " SELECT author_id FROM novels WHERE author_id IS NOT NULL"
+                + " ) works"
+                + " LEFT JOIN authors au ON au.author_id = works.author_id"
+                + " GROUP BY works.author_id, au.name"
+                + " ORDER BY cnt DESC, works.author_id ASC"
                 + " LIMIT :limit";
         MapSqlParameterSource params = new MapSqlParameterSource().addValue("limit", limit);
         return jdbc.query(sql, params, (rs, rowNum) -> {
@@ -63,9 +78,13 @@ public class StatsRepository {
     /** 使用最多的标签，按作品数降序（标签词云 / Top 标签）。 */
     public List<StatsDto.TagStat> topTags(int limit) {
         String sql = "SELECT t.tag_id AS tag_id, t.name AS name, t.translated_name AS translated_name,"
-                + " COUNT(at.artwork_id) AS cnt"
+                + " COUNT(*) AS cnt"
                 + " FROM tags t"
-                + " JOIN artwork_tags at ON at.tag_id = t.tag_id"
+                + " JOIN ("
+                + " SELECT tag_id FROM artwork_tags"
+                + " UNION ALL"
+                + " SELECT tag_id FROM novel_tags"
+                + " ) work_tags ON work_tags.tag_id = t.tag_id"
                 + " GROUP BY t.tag_id, t.name, t.translated_name"
                 + " ORDER BY cnt DESC, t.tag_id ASC"
                 + " LIMIT :limit";
@@ -83,7 +102,11 @@ public class StatsRepository {
      */
     public List<StatsDto.MonthlyStat> monthlyArtworkCounts() {
         String sql = "SELECT strftime('%Y-%m', time / 1000, 'unixepoch', 'localtime') AS ym, COUNT(*) AS cnt"
-                + " FROM artworks WHERE time > 0"
+                + " FROM ("
+                + " SELECT time FROM artworks WHERE time > 0"
+                + " UNION ALL"
+                + " SELECT time FROM novels WHERE time > 0"
+                + " )"
                 + " GROUP BY ym ORDER BY ym ASC";
         return jdbc.getJdbcTemplate().query(sql, (rs, rowNum) ->
                 new StatsDto.MonthlyStat(rs.getString("ym"), rs.getLong("cnt")));

@@ -88,4 +88,17 @@ class NovelFtsSearchTest {
 
         assertThat(hits).containsExactly(20L);
     }
+
+    @Test
+    @DisplayName("短关键词 LIKE 回退按字面量匹配通配符")
+    void shouldEscapeLikeWildcardsForShortTerms() {
+        insertNovel(30L, "100% literal");
+        insertNovel(31L, "100 percent");
+        insertNovel(32L, "A_B literal");
+        insertNovel(33L, "ACB literal");
+        NovelDatabase database = new NovelDatabase(mapper, null, null);
+
+        assertThat(database.searchNovelContentIds("%")).containsExactly(30L);
+        assertThat(database.searchNovelContentIds("_")).containsExactly(32L);
+    }
 }

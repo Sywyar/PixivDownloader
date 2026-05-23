@@ -22,6 +22,10 @@ import java.util.stream.Collectors;
  */
 public final class DatabaseSchemaInspector {
 
+    private static final Set<String> VIRTUAL_TABLE_SHADOW_SUFFIXES = Set.of(
+            "_content", "_data", "_idx", "_docsize", "_config",
+            "_segments", "_segdir", "_stat");
+
     private DatabaseSchemaInspector() {}
 
     public static SchemaComparison compare(Path databasePath) throws SQLException {
@@ -103,8 +107,10 @@ public final class DatabaseSchemaInspector {
 
     private static boolean isShadowTable(String tableName, List<String> virtualTableNames) {
         for (String virtual : virtualTableNames) {
-            if (tableName.startsWith(virtual + "_")) {
-                return true;
+            for (String suffix : VIRTUAL_TABLE_SHADOW_SUFFIXES) {
+                if (tableName.equals(virtual + suffix)) {
+                    return true;
+                }
             }
         }
         return false;

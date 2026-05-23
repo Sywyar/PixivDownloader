@@ -139,6 +139,29 @@ class DatabaseSchemaInspectorTest {
         }
 
         @Test
+        @DisplayName("虚拟表同前缀的普通表仍应产生 UNMANAGED_TABLE")
+        void shouldReportNormalTableWithVirtualTablePrefix() throws Exception {
+            exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+            exec("CREATE VIRTUAL TABLE t_fts USING fts5(content, tokenize='trigram')");
+            exec("CREATE TABLE t_fts_backup (id INTEGER PRIMARY KEY)");
+
+            ManagedDatabaseSchema.DatabaseSchema expected = schemaOf(table(
+                    "t",
+                    List.of(col("id", "INTEGER", false, null, 1)),
+                    List.of()
+            ));
+
+            DatabaseSchemaInspector.SchemaComparison result =
+                    DatabaseSchemaInspector.compare(connection, expected);
+
+            assertThat(result.details())
+                    .extracting(DatabaseSchemaInspector.SchemaDifference::kind,
+                            DatabaseSchemaInspector.SchemaDifference::tableName)
+                    .containsExactly(org.assertj.core.api.Assertions.tuple(
+                            DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE, "t_fts_backup"));
+        }
+
+        @Test
         @DisplayName("缺列应产生 MISSING_COLUMN")
         void shouldDetectMissingColumn() throws Exception {
             exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
