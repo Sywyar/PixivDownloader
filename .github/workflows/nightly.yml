@@ -9,7 +9,39 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.vars.outputs.version }}
+      date: ${{ steps.vars.outputs.date }}
+
+    steps:
+      - name: Fix Git UTF-8 filenames
+        run: git config --global core.quotepath false
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve next version
+        id: vars
+        shell: bash
+        run: |
+          LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+          LATEST_VERSION="${LATEST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+          NEXT_PATCH=$((PATCH + 1))
+          NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          NIGHTLY_VERSION="${NEXT_VERSION}-nightly.$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
   build-jar:
+    needs: resolve-version
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,27 +62,12 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Resolve next version
-        id: vars
-        shell: bash
-        run: |
-          LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)
-          if [ -z "$LATEST_TAG" ]; then
-            LATEST_TAG="v0.0.0"
-          fi
-          LATEST_VERSION="${LATEST_TAG#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
-          NEXT_PATCH=$((PATCH + 1))
-          NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
-          NIGHTLY_VERSION="${NEXT_VERSION}-nightly.$(date +%Y%m%d)"
-          echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Build JAR
-        run: mvn package -DskipTests -Dapp.release.version=${{ steps.vars.outputs.version }}
+        run: mvn package -DskipTests -Dapp.release.version=${{ needs.resolve-version.outputs.version }}
 
       - name: Rename JAR
         run: |
-          mv target/PixivDownload-*.jar target/PixivDownload-${{ steps.vars.outputs.version }}.jar
+          mv target/PixivDownload-*.jar target/PixivDownload-${{ needs.resolve-version.outputs.version }}.jar
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
@@ -72,7 +89,7 @@ jobs:
           path: build/release-userscripts/*.user.js
 
   build-windows-installer:
-    needs: build-jar
+    needs: [resolve-version, build-jar]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -96,21 +113,6 @@ jobs:
         shell: pwsh
         run: choco install innosetup --no-progress -y
 
-      - name: Resolve next version
-        id: vars
-        shell: bash
-        run: |
-          LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)
-          if [ -z "$LATEST_TAG" ]; then
-            LATEST_TAG="v0.0.0"
-          fi
-          LATEST_VERSION="${LATEST_TAG#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
-          NEXT_PATCH=$((PATCH + 1))
-          NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
-          NIGHTLY_VERSION="${NEXT_VERSION}-nightly.$(date +%Y%m%d)"
-          echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Download JAR artifact
         uses: actions/download-artifact@v4
         with:
@@ -120,7 +122,7 @@ jobs:
       - name: Package Windows setup
         shell: pwsh
         run: |
-          $version = '${{ steps.vars.outputs.version }}'
+          $version = '${{ needs.resolve-version.outputs.version }}'
           $jar = Get-ChildItem artifacts/jar/PixivDownload-*.jar -File | Select-Object -First 1
           if (-not $jar) {
             throw "Could not find downloaded JAR artifact under artifacts/jar"
@@ -138,7 +140,7 @@ jobs:
           path: build/out/*-setup.exe
 
   release-nightly:
-    needs: [build-jar, build-windows-installer]
+    needs: [resolve-version, build-jar, build-windows-installer]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -167,22 +169,6 @@ jobs:
           name: userscripts
           path: artifacts/userscripts
 
-      - name: Resolve version and date
-        id: vars
-        shell: bash
-        run: |
-          LATEST_TAG=$(git tag --sort=-v:refname --list 'v*' | head -1)
-          if [ -z "$LATEST_TAG" ]; then
-            LATEST_TAG="v0.0.0"
-          fi
-          LATEST_VERSION="${LATEST_TAG#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
-          NEXT_PATCH=$((PATCH + 1))
-          NEXT_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
-          NIGHTLY_VERSION="${NEXT_VERSION}-nightly.$(date +%Y%m%d)"
-          echo "version=$NIGHTLY_VERSION" >> "$GITHUB_OUTPUT"
-          echo "date=$(date -u +'%Y-%m-%d %H:%M UTC')" >> "$GITHUB_OUTPUT"
-
       - name: Diff changelog since last nightly
         id: changelog
         shell: bash
@@ -191,7 +177,8 @@ jobs:
 
           if git rev-parse --verify nightly^{commit} >/dev/null 2>&1; then
             # nightly tag exists: diff CHANGELOG.md between last nightly and HEAD
-            git diff nightly -- CHANGELOG.md | grep '^\+' | grep -v '^+++' | sed 's/^\+//' > CHANGELOG_DIFF.md
+            git diff nightly -- CHANGELOG.md \
+              | awk '/^\+\+\+/ { next } /^\+/ { sub(/^\+/, ""); print }' > CHANGELOG_DIFF.md
           else
             # First nightly build: fall back to full [Unreleased] section
             awk '
@@ -223,7 +210,7 @@ jobs:
           FILENAME=$(basename "$INSTALLER")
           SHA256=$(sha256sum "$INSTALLER" | awk '{print $1}')
           SIZE=$(stat -c%s "$INSTALLER")
-          LATEST_VERSION="${{ steps.vars.outputs.version }}"
+          LATEST_VERSION="${{ needs.resolve-version.outputs.version }}"
           RELEASE_DATE=$(date -u +%Y-%m-%d)
           ASSET_URL="https://github.com/${GH_REPOSITORY}/releases/download/nightly/${FILENAME}"
           NOTES_URL="https://github.com/${GH_REPOSITORY}/releases/tag/nightly"
@@ -260,7 +247,7 @@ jobs:
           > ⚠️ 这是自动构建的每夜版，可能包含未测试的功能和 bug。
           > This is an automated nightly build. It may contain untested features and bugs.
 
-          **构建日期 / Build Date:** ${{ steps.vars.outputs.date }}
+          **构建日期 / Build Date:** ${{ needs.resolve-version.outputs.date }}
           **Commit:** [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
 
           ## 使用说明 / Usage
@@ -293,9 +280,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # The nightly version embeds the date, so old releases' filenames never
-          # collide with today's — they would otherwise accumulate forever. Remove
-          # every existing asset on the `nightly` release before re-uploading.
+          # The nightly version embeds a unique build id, so old release assets
+          # would otherwise accumulate forever. Remove every existing asset on
+          # the `nightly` release before re-uploading.
           if gh release view nightly >/dev/null 2>&1; then
             gh release view nightly --json assets --jq '.assets[].name' \
               | while IFS= read -r asset; do
@@ -309,7 +296,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          name: "Nightly Build ${{ steps.vars.outputs.version }}"
+          name: "Nightly Build ${{ needs.resolve-version.outputs.version }}"
           body_path: RELEASE_BODY.md
           prerelease: true
           files: |

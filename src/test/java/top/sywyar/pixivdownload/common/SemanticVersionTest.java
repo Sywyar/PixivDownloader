@@ -47,6 +47,17 @@ class SemanticVersionTest {
     }
 
     @Test
+    @DisplayName("nightly build identifiers compare by date, run number, and attempt")
+    void nightlyBuildIdentifiers() {
+        assertThat(SemanticVersion.compare(
+                "1.0.0-nightly.20260523.101.1",
+                "1.0.0-nightly.20260523.100.1")).isPositive();
+        assertThat(SemanticVersion.compare(
+                "1.0.0-nightly.20260523.100.2",
+                "1.0.0-nightly.20260523.100.1")).isPositive();
+    }
+
+    @Test
     @DisplayName("case-insensitive suffix")
     void caseInsensitive() {
         assertThat(SemanticVersion.compare("1.0.0-RC.1", "1.0.0-rc.1")).isZero();
