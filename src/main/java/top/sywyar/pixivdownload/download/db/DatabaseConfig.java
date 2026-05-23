@@ -1,10 +1,11 @@
 package top.sywyar.pixivdownload.download.db;
 
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.sqlite.SQLiteConfig;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
@@ -30,15 +31,24 @@ public class DatabaseConfig {
         String url = "jdbc:sqlite:" + databasePath;
         log.info(messages.getForLog("download.db.log.path", url));
 
-        // 每条新连接都会携带这些 PRAGMA，确保并发写时等待而不是立即失败
+        // 池中每条物理连接都会带上这些 PRAGMA：
+        // - busy_timeout=5000：SQLite 单写者模型下并发写会排队等待，而不是立刻抛 SQLITE_BUSY
+        // - journal_mode=WAL：与启动时设置一致，读不阻塞写
+        // HikariCP 的 dataSourceProperties 会经 DriverDataSource 传给驱动 driver.connect(url, props)
         SQLiteConfig sqliteConfig = new SQLiteConfig();
         sqliteConfig.setBusyTimeout(5000);
         sqliteConfig.setJournalMode(SQLiteConfig.JournalMode.WAL);
 
-        DriverManagerDataSource dataSource = new DriverManagerDataSource();
-        dataSource.setDriverClassName("org.sqlite.JDBC");
-        dataSource.setUrl(url);
-        dataSource.setConnectionProperties(sqliteConfig.toProperties());
-        return dataSource;
+        HikariConfig hikari = new HikariConfig();
+        hikari.setPoolName("pixiv-sqlite");
+        hikari.setDriverClassName("org.sqlite.JDBC");
+        hikari.setJdbcUrl(url);
+        hikari.setDataSourceProperties(sqliteConfig.toProperties());
+        // SQLite 是单写者模型，池不宜大；并发写靠 busy_timeout 排队，WAL 下读不阻塞
+        hikari.setMaximumPoolSize(8);
+        hikari.setMinimumIdle(1);
+        // 兜底：万一某条连接没套到 PRAGMA，连接初始化时再设一次 busy_timeout（仅支持单条语句）
+        hikari.setConnectionInitSql("PRAGMA busy_timeout=5000");
+        return new HikariDataSource(hikari);
     }
 }
