@@ -1147,6 +1147,160 @@
         return `<span style="color:${fallbackColor};font-weight:bold;">${escapeHtml(fallbackText)}</span>`;
     }
 
+    /* ========== Pixiv 小说 meta 解析 helper ==========
+     * 直连 https://www.pixiv.net/ajax/novel/{id} 时，把 Pixiv 原始 body 转成与后端
+     * NovelMetaResponse 等价的 JS 对象，保持 _processNovel 的字段访问不变。description
+     * 与 series caption 的 HTML 归一化由后端 NovelDownloadService / NovelSeriesService
+     * 在落库前完成，脚本传原始字符串即可。
+     * ------------------------------------------------------------------------ */
+    function _pn_parsePositiveLong(value) {
+        if (value == null) return null;
+        const n = Number(String(value).trim());
+        return Number.isFinite(n) && n > 0 ? n : null;
+    }
+
+    function _pn_extractTags(body) {
+        let arr = body && body.tags && body.tags.tags;
+        if (!Array.isArray(arr) || arr.length === 0) {
+            arr = Array.isArray(body && body.tags) ? body.tags : null;
+        }
+        if (!Array.isArray(arr) || arr.length === 0) return [];
+        const out = [];
+        for (const t of arr) {
+            let name = '';
+            if (typeof t === 'string') name = t;
+            else if (t && typeof t === 'object') name = String(t.tag || t.name || '');
+            if (!name) continue;
+            let translated = null;
+            const tr = t && typeof t === 'object' ? t.translation : null;
+            if (tr && typeof tr === 'object') {
+                const en = String(tr.en || '');
+                if (en) translated = en;
+            }
+            out.push({name, translatedName: translated});
+        }
+        return out;
+    }
+
+    function _pn_extractReadingTimeSeconds(node) {
+        const fields = ['readingTimeSeconds', 'readingTime', 'readTime', 'estimatedReadingTime'];
+        for (const f of fields) {
+            const v = node ? node[f] : undefined;
+            if (v == null) continue;
+            if (typeof v === 'number') return v > 0 ? Math.floor(v) : null;
+            const raw = String(v).trim();
+            if (!raw) continue;
+            const digits = raw.replace(/[^0-9]/g, '');
+            if (!digits) continue;
+            const n = parseInt(digits, 10);
+            if (Number.isFinite(n) && n > 0) return n;
+        }
+        return null;
+    }
+
+    function _pn_countPages(content) {
+        if (!content) return 1;
+        let pages = 1, idx = 0;
+        while ((idx = content.indexOf('[newpage]', idx)) >= 0) {
+            pages++;
+            idx += '[newpage]'.length;
+        }
+        return pages;
+    }
+
+    function _pn_extractCoverUrl(node) {
+        if (!node) return '';
+        for (const parent of ['imageUrls', 'urls']) {
+            const urls = node[parent];
+            if (urls && typeof urls === 'object') {
+                for (const k of ['original', 'large', 'regular', 'medium', 'squareMedium']) {
+                    const u = String(urls[k] || '');
+                    if (u) return u;
+                }
+            }
+        }
+        for (const k of ['coverUrl', 'url', 'thumbnailUrl']) {
+            const u = String(node[k] || '');
+            if (u) return u;
+        }
+        return '';
+    }
+
+    function _pn_extractUploadTimestamp(node) {
+        if (!node) return null;
+        for (const f of ['uploadDate', 'createDate', 'updateDate']) {
+            const iso = String(node[f] || '');
+            if (!iso) continue;
+            const ts = Date.parse(iso);
+            if (Number.isFinite(ts) && ts > 0) return ts;
+        }
+        return null;
+    }
+
+    function _pn_extractTextEmbeddedImages(body) {
+        const node = body && body.textEmbeddedImages;
+        if (!node || typeof node !== 'object') return {};
+        const out = {};
+        for (const key of Object.keys(node)) {
+            const item = node[key];
+            const url = item && item.urls && item.urls.original ? String(item.urls.original) : '';
+            if (!url) continue;
+            try {
+                const u = new URL(url);
+                if (!u.host || !/\.pximg\.net$/.test(u.host)) continue;
+            } catch (_) {
+                continue;
+            }
+            out[String(key)] = url;
+        }
+        return out;
+    }
+
+    function _pn_extractSeriesCoverUrl(meta) {
+        if (!meta) return '';
+        const urls = meta.cover && meta.cover.urls;
+        if (urls && typeof urls === 'object') {
+            for (const k of ['original', '1200x1200', '720x720', '480mw', '240mw']) {
+                const u = String(urls[k] || '');
+                if (u) return u;
+            }
+        }
+        for (const k of ['coverImageUrl', 'coverImage', 'thumbnailUrl']) {
+            const u = String(meta[k] || '');
+            if (u) return u;
+        }
+        return '';
+    }
+
+    function buildNovelMetaFromPixivBody(novelId, body) {
+        const nav = body && body.seriesNavData;
+        const hasSeries = nav && Number(nav.seriesId) > 0;
+        return {
+            novelId: Number(novelId),
+            title: String((body && body.title) || ''),
+            xRestrict: Number((body && body.xRestrict) || 0),
+            isAi: Number((body && body.aiType) || 0) >= 2,
+            bookmarkCount: body && body.bookmarkCount != null ? Number(body.bookmarkCount) : -1,
+            authorId: _pn_parsePositiveLong(body && body.userId),
+            authorName: String((body && body.userName) || ''),
+            description: String((body && body.description) || ''),
+            tags: _pn_extractTags(body),
+            seriesId: hasSeries ? Number(nav.seriesId) : null,
+            seriesOrder: hasSeries ? Number(nav.order || 0) : null,
+            seriesTitle: hasSeries ? String(nav.title || '') : null,
+            content: String((body && body.content) || ''),
+            wordCount: body && body.wordCount != null ? Number(body.wordCount) : null,
+            textLength: body && body.characterCount != null ? Number(body.characterCount) : null,
+            readingTimeSeconds: _pn_extractReadingTimeSeconds(body),
+            pageCount: _pn_countPages(body && body.content),
+            isOriginal: !!(body && body.isOriginal),
+            language: String((body && body.language) || ''),
+            coverUrl: _pn_extractCoverUrl(body),
+            uploadTimestamp: _pn_extractUploadTimestamp(body),
+            textEmbeddedImages: _pn_extractTextEmbeddedImages(body)
+        };
+    }
+
     /* ========== API 封装 ========== */
     const Api = {
         checkBackend() {
@@ -1473,24 +1627,27 @@
             });
         },
         getNovelMeta(novelId) {
+            // 直连 Pixiv：GM_xmlhttpRequest 会带上浏览器的登录 Cookie（含 HttpOnly 的
+            // PHPSESSID），从而能取到受限 / R18 小说的完整 meta（含正文 content）。
+            // 不要走后端代理 + document.cookie —— document.cookie 取不到 HttpOnly 会话
+            // Cookie，导致后端以匿名身份请求 Pixiv，受限小说被隐藏或元信息缺失。
             return new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: 'GET',
-                    url: `${serverBase}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`,
-                    headers: {'X-Pixiv-Cookie': document.cookie || ''},
+                    url: `https://www.pixiv.net/ajax/novel/${encodeURIComponent(novelId)}?lang=zh`,
+                    headers: {Referer: 'https://www.pixiv.net/'},
                     onload: (res) => {
-                        if (res.status === 401) {
-                            handleUnauthorized();
-                            reject(new Error(t('user.err.need-login', '需要登录')));
-                            return;
-                        }
                         try {
                             const data = JSON.parse(res.responseText);
-                            if (res.status < 200 || res.status >= 300) {
-                                reject(new Error(data.error || ('meta HTTP ' + res.status)));
-                            } else {
-                                resolve(data);
+                            if (data && data.error) {
+                                reject(new Error(data.message || 'pixiv novel meta error'));
+                                return;
                             }
+                            if (res.status < 200 || res.status >= 300) {
+                                reject(new Error('meta HTTP ' + res.status));
+                                return;
+                            }
+                            resolve(buildNovelMetaFromPixivBody(novelId, data.body || {}));
                         } catch (e) {
                             reject(e);
                         }
@@ -1563,20 +1720,24 @@
             const sid = Number(seriesId);
             if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
             if (this._novelSeriesMetaPromises.has(sid)) return this._novelSeriesMetaPromises.get(sid);
+            // 直连 Pixiv 系列接口（与 getNovelMeta 同理，避免后端代理 + document.cookie
+            // 取不到 HttpOnly 会话 Cookie 导致受限系列封面 / 简介 / 标签缺失）。
             const p = new Promise((resolve) => {
                 GM_xmlhttpRequest({
                     method: 'GET',
-                    url: `${serverBase}/api/pixiv/novel/series/${sid}?page=1`,
-                    headers: {'X-Pixiv-Cookie': document.cookie || ''},
+                    url: `https://www.pixiv.net/ajax/novel/series/${sid}?lang=zh`,
+                    headers: {Referer: 'https://www.pixiv.net/'},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
-                            const meta = data && data.series ? data.series : null;
-                            resolve(meta ? {
-                                caption: meta.caption || '',
-                                coverUrl: meta.coverUrl || '',
-                                tags: Array.isArray(meta.tags) ? meta.tags : []
-                            } : null);
+                            if (!data || data.error) return resolve(null);
+                            const meta = data.body || null;
+                            if (!meta) return resolve(null);
+                            resolve({
+                                caption: String(meta.caption || ''),
+                                coverUrl: _pn_extractSeriesCoverUrl(meta),
+                                tags: _pn_extractTags(meta)
+                            });
                         } catch (_) {
                             resolve(null);
                         }
