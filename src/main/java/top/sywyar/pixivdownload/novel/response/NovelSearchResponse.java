@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.novel.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -19,11 +20,13 @@ public class NovelSearchResponse {
         private final String title;
         private final int xRestrict;
         private final int aiType;
+        private final int bookmarkCount;
         private final int wordCount;
         private final int textLength;
         private final String userId;
         private final String userName;
         private final String coverUrl;
+        @JsonProperty("isOriginal")
         private final boolean isOriginal;
         private final List<String> tags;
     }

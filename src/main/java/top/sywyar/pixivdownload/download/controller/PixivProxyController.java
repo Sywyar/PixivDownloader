@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.novel.NovelCoverUrlResolver;
+import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;
 import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
@@ -466,6 +467,7 @@ public class PixivProxyController {
                     item.path("title").asText(""),
                     item.path("xRestrict").asInt(0),
                     item.path("aiType").asInt(0),
+                    item.path("bookmarkCount").asInt(-1),
                     item.path("wordCount").asInt(0),
                     item.path("textLength").asInt(item.path("characterCount").asInt(0)),
                     item.path("userId").asText(""),
@@ -830,6 +832,35 @@ public class PixivProxyController {
                 uploadTimestamp,
                 extractTextEmbeddedImages(b)
         ));
+    }
+
+    @GetMapping("/novel/{novelId}/bookmark-count")
+    public ResponseEntity<?> getNovelBookmarkCount(
+            @PathVariable String novelId,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        guardNovelForGuest(request, novelId);
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        long parsedId;
+        try {
+            parsedId = Long.parseLong(novelId);
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.novel.id.invalid", novelId)));
+        }
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("id", parsedId))
+                .encode()
+                .toUri();
+        String body = proxyGetUri(uri, cookie);
+        JsonNode root = objectMapper.readTree(body);
+        if (root.path("error").asBoolean(false)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+        }
+        int bookmarkCount = root.path("body").path("bookmarkCount").asInt(-1);
+        return ResponseEntity.ok(new NovelBookmarkCountResponse(bookmarkCount));
     }
 
     /**

@@ -1084,8 +1084,8 @@
         return data;
     }
 
-    async function getNovelMetaForSearch(novelId) {
-        const data = await apiGet(`/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`);
+    async function getNovelBookmarkCountForSearch(novelId) {
+        const data = await apiGet(`/api/pixiv/novel/${encodeURIComponent(novelId)}/bookmark-count`);
         if (data.error) throw new Error(data.error);
         return data;
     }
@@ -3021,30 +3021,38 @@
         return (kind === 'novel' ? 'n:' : 'i:') + String(id);
     }
 
-    function getCachedSearchMeta(artworkId) {
-        return searchState.metaCache[searchMetaCacheKey(artworkId)] || null;
+    function getCachedSearchMeta(id, kind = searchState.kind) {
+        return searchState.metaCache[searchMetaCacheKey(id, kind)] || null;
     }
 
-    function getSearchBookmarkCount(item) {
-        const cached = getCachedSearchMeta(item.id);
-        if (!cached || !cached.bookmarkResolved) return null;
-        const count = Number(cached.bookmarkCount);
+    function getInlineSearchBookmarkCount(item) {
+        const count = Number(item?.bookmarkCount);
         return Number.isFinite(count) && count >= 0 ? count : null;
     }
 
-    async function ensureSearchBookmarkMeta(items, requestSeq) {
+    function getSearchBookmarkCount(item, kind = searchState.kind) {
+        const cached = getCachedSearchMeta(item.id, kind);
+        if (cached && cached.bookmarkResolved) {
+            const count = Number(cached.bookmarkCount);
+            if (Number.isFinite(count) && count >= 0) return count;
+        }
+        return getInlineSearchBookmarkCount(item);
+    }
+
+    async function ensureSearchBookmarkMeta(items, requestSeq, kind = searchState.kind) {
         const missingIds = [];
         const seen = new Set();
         for (const item of items) {
             const id = String(item.id);
             if (seen.has(id)) continue;
             seen.add(id);
-            const cached = getCachedSearchMeta(id);
+            if (getInlineSearchBookmarkCount(item) !== null) continue;
+            const cached = getCachedSearchMeta(id, kind);
             if (!cached || !cached.bookmarkResolved) missingIds.push(id);
         }
         if (!missingIds.length) return;
 
-        const fetchMeta = searchState.kind === 'novel' ? getNovelMetaForSearch : getArtworkMeta;
+        const fetchMeta = kind === 'novel' ? getNovelBookmarkCountForSearch : getArtworkMeta;
         let cursor = 0;
         const workers = [];
         const workerCount = Math.min(6, missingIds.length);
@@ -3053,15 +3061,17 @@
                 while (cursor < missingIds.length) {
                     if (requestSeq !== searchState.filterSeq) return;
                     const id = missingIds[cursor++];
-                    const cacheKey = searchMetaCacheKey(id);
+                    const cacheKey = searchMetaCacheKey(id, kind);
                     try {
                         const meta = await fetchMeta(id);
+                        if (requestSeq !== searchState.filterSeq) return;
                         searchState.metaCache[cacheKey] = {
                             ...(searchState.metaCache[cacheKey] || {}),
                             bookmarkCount: Number(meta?.bookmarkCount ?? -1),
                             bookmarkResolved: true
                         };
                     } catch {
+                        if (requestSeq !== searchState.filterSeq) return;
                         searchState.metaCache[cacheKey] = {
                             ...(searchState.metaCache[cacheKey] || {}),
                             bookmarkCount: -1,
@@ -3075,19 +3085,19 @@
         await Promise.all(workers);
     }
 
-    function matchSearchFilters(item, filters, stats) {
+    function matchSearchFilters(item, filters, stats, kind = searchState.kind) {
         const aiType = Number(item.aiType ?? 0);
         if (filters.ai === 'exclude' && aiType >= 2) return false;
         if (filters.ai === 'only' && aiType < 2) return false;
 
         if (!matchTagFilters(item, filters)) return false;
 
-        if (searchState.kind === 'novel') {
+        if (kind === 'novel') {
             const wc = Number(item.wordCount ?? 0);
             if (filters.wordsMin !== null && wc < filters.wordsMin) return false;
             if (filters.wordsMax !== null && wc > filters.wordsMax) return false;
             if (hasBookmarkFilter(filters)) {
-                const bookmarkCount = getSearchBookmarkCount(item);
+                const bookmarkCount = getSearchBookmarkCount(item, kind);
                 if (bookmarkCount === null) {
                     stats.bookmarkMetaMissing++;
                     return false;
@@ -3108,7 +3118,7 @@
         if (filters.pageMax !== null && pageCount > filters.pageMax) return false;
 
         if (hasBookmarkFilter(filters)) {
-            const bookmarkCount = getSearchBookmarkCount(item);
+            const bookmarkCount = getSearchBookmarkCount(item, kind);
             if (bookmarkCount === null) {
                 stats.bookmarkMetaMissing++;
                 return false;
@@ -3122,6 +3132,7 @@
 
     async function applyCurrentSearchFilters(options = {}) {
         const filters = normalizeSearchFilters(options.filters || getSearchFiltersFromUI());
+        const kind = searchState.kind;
         searchState.currentFilters = filters;
         setSearchFiltersUI(filters);
         saveSearchFilterPrefs(filters);
@@ -3130,7 +3141,8 @@
         const sourceItems = searchState.rawResults || [];
         const bookmarkFilterActive = hasBookmarkFilter(filters);
         const needsBookmarkMeta = bookmarkFilterActive && sourceItems.some(item => {
-            const cached = getCachedSearchMeta(item.id);
+            if (getInlineSearchBookmarkCount(item) !== null) return false;
+            const cached = getCachedSearchMeta(item.id, kind);
             return !cached || !cached.bookmarkResolved;
         });
 
@@ -3141,7 +3153,7 @@
         }
 
         if (bookmarkFilterActive) {
-            await ensureSearchBookmarkMeta(sourceItems, requestSeq);
+            await ensureSearchBookmarkMeta(sourceItems, requestSeq, kind);
             if (requestSeq !== searchState.filterSeq) return null;
         }
 
@@ -3151,7 +3163,7 @@
             bookmarkMetaMissing: 0,
             bookmarkFilterActive
         };
-        const filtered = sourceItems.filter(item => matchSearchFilters(item, filters, stats));
+        const filtered = sourceItems.filter(item => matchSearchFilters(item, filters, stats, kind));
         stats.filteredCount = filtered.length;
 
         searchState.results = filtered;
@@ -3248,6 +3260,7 @@
         searchState.submode = 'search';
         searchState.batchInfo = null;
         searchState.kind = kind;
+        searchState.filterSeq++;
 
         document.getElementById('search-results-area').innerHTML =
             `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.searching', '搜索中...'))}</div>`;
@@ -4413,6 +4426,7 @@
             searchState.currentWord = '';
             searchState.batchInfo = null;
             searchState.localPage = 1;
+            searchState.filterSeq++;
             renderSearchResults();
             renderSearchPagination();
             document.getElementById('btn-add-all').disabled = true;
@@ -4529,6 +4543,7 @@
         searchState.kind = kind;
         searchState.localPage = 1;
         searchState.batchInfo = null;
+        searchState.filterSeq++;
 
         const btn = document.getElementById('btn-batch-fetch');
         btn.disabled = true;
@@ -4820,6 +4835,7 @@
             searchState.currentWord = '';
             searchState.batchInfo = null;
             searchState.localPage = 1;
+            searchState.filterSeq++;
             renderSearchResults();
             renderSearchPagination();
             document.getElementById('btn-add-all').disabled = true;
