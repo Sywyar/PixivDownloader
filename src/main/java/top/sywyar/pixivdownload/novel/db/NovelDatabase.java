@@ -4,6 +4,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.download.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.db.TagDto;
@@ -47,12 +48,12 @@ public class NovelDatabase {
             log.warn("Failed to backfill novel full-text index: {}", e.getMessage());
         }
         // 幂等迁移：旧库 novels 表补 cover_ext 列；列已存在抛异常吞掉
-        try { novelMapper.addCoverExtColumn(); } catch (Exception ignored) {}
-        try { novelMapper.addReadingTimeSecondsColumn(); } catch (Exception ignored) {}
+        addColumnIfMissing(novelMapper::addCoverExtColumn);
+        addColumnIfMissing(novelMapper::addReadingTimeSecondsColumn);
         // 幂等迁移：novel_series 表补 description/cover_ext/cover_folder 列；列已存在抛异常吞掉
-        try { novelMapper.addNovelSeriesDescriptionColumn(); } catch (Exception ignored) {}
-        try { novelMapper.addNovelSeriesCoverExtColumn(); } catch (Exception ignored) {}
-        try { novelMapper.addNovelSeriesCoverFolderColumn(); } catch (Exception ignored) {}
+        addColumnIfMissing(novelMapper::addNovelSeriesDescriptionColumn);
+        addColumnIfMissing(novelMapper::addNovelSeriesCoverExtColumn);
+        addColumnIfMissing(novelMapper::addNovelSeriesCoverFolderColumn);
         novelMapper.migrateNovelTimestampsToMillis();
         novelMapper.migrateNovelCollectionTimestampsToMillis();
         novelMapper.migrateNovelSeriesTimestampsToMillis();
@@ -64,6 +65,15 @@ public class NovelDatabase {
 
     public long getUniqueTime() {
         return getUniqueTime(TimestampUtils.nowMillis());
+    }
+
+    private void addColumnIfMissing(Runnable addColumn) {
+        try { addColumn.run(); } catch (Exception e) {
+            String msg = String.valueOf(e.getMessage());
+            if (!msg.toLowerCase().contains("duplicate column")) {
+                log.warn("Unexpected error adding column: {}", msg, e);
+            }
+        }
     }
 
     public long getUniqueTime(long preferredTime) {
@@ -83,6 +93,7 @@ public class NovelDatabase {
         return candidate;
     }
 
+    @Transactional
     public void insertNovel(long novelId, String title, String folder, int count,
                             String extensions, long time, Integer xRestrict, Boolean isAi,
                             Long authorId, String description,
@@ -201,6 +212,7 @@ public class NovelDatabase {
         );
     }
 
+    @Transactional
     public void deleteNovel(long novelId) {
         novelMapper.deleteNovelTags(novelId);
         novelMapper.deleteAllNovelCollections(novelId);
@@ -278,6 +290,7 @@ public class NovelDatabase {
      * Reuse the shared {@code tags} pool from {@link PixivDatabase} so illustration tags and
      * novel tags share the same name → tag_id mapping.
      */
+    @Transactional
     public void saveNovelTags(long novelId, List<TagDto> tags) {
         if (tags == null || tags.isEmpty()) return;
         for (TagDto t : tags) {
@@ -327,6 +340,7 @@ public class NovelDatabase {
     /**
      * Reuse the shared {@code tags} pool so series tags and novel tags share the same name → tag_id mapping.
      */
+    @Transactional
     public void saveNovelSeriesTags(long seriesId, List<TagDto> tags) {
         if (seriesId <= 0 || tags == null || tags.isEmpty()) return;
         for (TagDto t : tags) {
@@ -366,6 +380,7 @@ public class NovelDatabase {
                 pathPrefixCodec.encode(stripTrailingSlash(coverFolder)));
     }
 
+    @Transactional
     public void observeSeries(long seriesId, String title, Long authorId) {
         if (seriesId <= 0) return;
         long now = TimestampUtils.nowMillis();

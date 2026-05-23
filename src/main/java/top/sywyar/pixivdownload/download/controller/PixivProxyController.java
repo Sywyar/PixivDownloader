@@ -106,8 +106,9 @@ public class PixivProxyController {
         }
 
         HttpEntity<Void> entity = new HttpEntity<>(headers);
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-        return response.getBody();
+        ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
+        byte[] body = response.getBody();
+        return body != null ? new String(body, java.nio.charset.StandardCharsets.UTF_8) : null;
     }
 
     private String proxyGetUri(URI uri, String cookie) {
@@ -118,8 +119,9 @@ public class PixivProxyController {
             headers.set("Cookie", cookie);
         }
         HttpEntity<Void> entity = new HttpEntity<>(headers);
-        ResponseEntity<String> response = restTemplate.exchange(uri, HttpMethod.GET, entity, String.class);
-        return response.getBody();
+        ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET, entity, byte[].class);
+        byte[] body = response.getBody();
+        return body != null ? new String(body, java.nio.charset.StandardCharsets.UTF_8) : null;
     }
 
     @GetMapping("/user/{userId}/artworks")

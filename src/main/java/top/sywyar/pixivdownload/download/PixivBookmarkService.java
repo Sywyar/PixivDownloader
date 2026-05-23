@@ -66,12 +66,13 @@ public class PixivBookmarkService {
 
     private String fetchCsrfToken(String cookie) {
         HttpHeaders headers = buildBaseHeaders(cookie);
-        ResponseEntity<String> response =
-                restTemplate.exchange(PIXIV_HOME, HttpMethod.GET, new HttpEntity<>(headers), String.class);
-        String body = response.getBody();
-        if (body == null) {
+        ResponseEntity<byte[]> response =
+                restTemplate.exchange(PIXIV_HOME, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+        byte[] rawBody = response.getBody();
+        if (rawBody == null || rawBody.length == 0) {
             throw new IllegalStateException(message("bookmark.log.reason.home-response-empty"));
         }
+        String body = new String(rawBody, java.nio.charset.StandardCharsets.UTF_8);
 
         // 1. 新版 Pixiv Next.js：引号转义格式  token\":\"abc...\"
         Matcher m = CSRF_PATTERN_ESCAPED.matcher(body);
@@ -139,13 +140,17 @@ public class PixivBookmarkService {
         NovelBookmarkRequest body = new NovelBookmarkRequest(String.valueOf(novelId), 0, "", List.of());
         String bodyJson = objectMapper.writeValueAsString(body);
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                NOVEL_BOOKMARK_URL, HttpMethod.POST, new HttpEntity<>(bodyJson, headers), String.class);
+        ResponseEntity<byte[]> response = restTemplate.exchange(
+                NOVEL_BOOKMARK_URL, HttpMethod.POST, new HttpEntity<>(bodyJson, headers), byte[].class);
 
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new IllegalStateException(message("bookmark.log.reason.api.non-2xx", response.getStatusCode()));
         }
-        JsonNode root = objectMapper.readTree(response.getBody());
+        byte[] respBody = response.getBody();
+        if (respBody == null) {
+            throw new IllegalStateException(message("bookmark.log.reason.api.error", "empty response"));
+        }
+        JsonNode root = objectMapper.readValue(respBody, JsonNode.class);
         if (root.path("error").asBoolean(false)) {
             throw new IllegalStateException(message("bookmark.log.reason.api.error", root.path("message").asText()));
         }
@@ -159,13 +164,17 @@ public class PixivBookmarkService {
         BookmarkRequest body = new BookmarkRequest(String.valueOf(artworkId), 0, "", List.of());
         String bodyJson = objectMapper.writeValueAsString(body);
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                BOOKMARK_URL, HttpMethod.POST, new HttpEntity<>(bodyJson, headers), String.class);
+        ResponseEntity<byte[]> response = restTemplate.exchange(
+                BOOKMARK_URL, HttpMethod.POST, new HttpEntity<>(bodyJson, headers), byte[].class);
 
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new IllegalStateException(message("bookmark.log.reason.api.non-2xx", response.getStatusCode()));
         }
-        JsonNode root = objectMapper.readTree(response.getBody());
+        byte[] respBody = response.getBody();
+        if (respBody == null) {
+            throw new IllegalStateException(message("bookmark.log.reason.api.error", "empty response"));
+        }
+        JsonNode root = objectMapper.readValue(respBody, JsonNode.class);
         if (root.path("error").asBoolean(false)) {
             throw new IllegalStateException(message("bookmark.log.reason.api.error", root.path("message").asText()));
         }

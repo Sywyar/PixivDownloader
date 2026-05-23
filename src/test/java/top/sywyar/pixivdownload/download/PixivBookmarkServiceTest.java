@@ -66,10 +66,10 @@ class PixivBookmarkServiceTest {
             String pageHtml = "<html><script>pixiv.context = {\"token\":\"abc123def456\"};</script></html>";
             String bookmarkResponse = "{\"error\":false,\"body\":{\"last_bookmark_id\":\"999\"}}";
 
-            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(String.class)))
-                    .thenReturn(ResponseEntity.ok(pageHtml));
-            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(String.class)))
-                    .thenReturn(ResponseEntity.ok(bookmarkResponse));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok(pageHtml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok(bookmarkResponse.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
             DownloadActionResult result = service.bookmarkArtwork(12345L, "PHPSESSID=test");
 
@@ -80,7 +80,7 @@ class PixivBookmarkServiceTest {
                     eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"),
                     eq(HttpMethod.POST),
                     postCaptor.capture(),
-                    eq(String.class));
+                    eq(byte[].class));
             HttpHeaders postHeaders = postCaptor.getValue().getHeaders();
             assertThat(postHeaders.getFirst("x-csrf-token")).isEqualTo("abc123def456");
         }
@@ -90,34 +90,34 @@ class PixivBookmarkServiceTest {
         void shouldExtractCsrfFromEscapedFormat() {
             // 新版 Pixiv Next.js 页面：token 嵌入 JS 字符串，引号被转义
             String pageHtml = "<script>JSON.parse(\"{\\\"token\\\":\\\"xyz789\\\",\\\"isLoggedIn\\\":true}\")</script>";
-            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(String.class)))
-                    .thenReturn(ResponseEntity.ok(pageHtml));
-            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(String.class)))
-                    .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{}}"));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok(pageHtml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{}}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
             ArgumentCaptor<HttpEntity<String>> postCaptor = ArgumentCaptor.forClass(HttpEntity.class);
             assertThatCode(() -> service.bookmarkArtwork(12345L, "PHPSESSID=test")).doesNotThrowAnyException();
             verify(restTemplate).exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"),
-                    eq(HttpMethod.POST), postCaptor.capture(), eq(String.class));
+                    eq(HttpMethod.POST), postCaptor.capture(), eq(byte[].class));
             assertThat(postCaptor.getValue().getHeaders().getFirst("x-csrf-token")).isEqualTo("xyz789");
         }
 
         @Test
         @DisplayName("页面中不含 token 时 bookmarkArtwork 应吞掉异常")
         void shouldSwallowExceptionWhenTokenMissing() {
-            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(String.class)))
-                    .thenReturn(ResponseEntity.ok("<html>no token here</html>"));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok("<html>no token here</html>".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
             DownloadActionResult result = service.bookmarkArtwork(12345L, "PHPSESSID=test");
             assertThat(result.getStatus()).isEqualTo(DownloadActionResult.FAILED);
             verify(restTemplate, never()).exchange(
-                    eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), any(), any(), eq(String.class));
+                    eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), any(), any(), eq(byte[].class));
         }
 
         @Test
         @DisplayName("主页响应体为 null 时 bookmarkArtwork 应吞掉异常")
         void shouldSwallowExceptionWhenPageBodyIsNull() {
-            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(String.class)))
+            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok(null));
 
             assertThatCode(() -> service.bookmarkArtwork(12345L, "PHPSESSID=test")).doesNotThrowAnyException();
@@ -132,16 +132,16 @@ class PixivBookmarkServiceTest {
 
         private void mockPageWithToken(String token) {
             String pageHtml = "{\"token\":\"" + token + "\"}";
-            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(String.class)))
-                    .thenReturn(ResponseEntity.ok(pageHtml));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok(pageHtml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         }
 
         @Test
         @DisplayName("POST 返回 2xx 且 error=false 时应成功完成")
         void shouldSucceedOn2xxWithNoError() {
             mockPageWithToken("tok111");
-            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(String.class)))
-                    .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{}}"));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok("{\"error\":false,\"body\":{}}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
             DownloadActionResult result = service.bookmarkArtwork(99L, "cookie=val");
 
@@ -152,8 +152,8 @@ class PixivBookmarkServiceTest {
         @DisplayName("POST 返回 error=true 时 bookmarkArtwork 应吞掉异常")
         void shouldSwallowExceptionWhenApiReturnsError() {
             mockPageWithToken("tok222");
-            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(String.class)))
-                    .thenReturn(ResponseEntity.ok("{\"error\":true,\"message\":\"Not logged in\"}"));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok("{\"error\":true,\"message\":\"Not logged in\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
             DownloadActionResult result = service.bookmarkArtwork(99L, "cookie=val");
 
@@ -166,8 +166,8 @@ class PixivBookmarkServiceTest {
         @DisplayName("POST 返回非 2xx 时 bookmarkArtwork 应吞掉异常")
         void shouldSwallowExceptionOnNon2xxResponse() {
             mockPageWithToken("tok333");
-            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(String.class)))
-                    .thenReturn(ResponseEntity.status(HttpStatus.FORBIDDEN).body("{\"error\":true}"));
+            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.status(HttpStatus.FORBIDDEN).body("{\"error\":true}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
             assertThatCode(() -> service.bookmarkArtwork(99L, "cookie=val")).doesNotThrowAnyException();
         }
@@ -182,7 +182,7 @@ class PixivBookmarkServiceTest {
         @Test
         @DisplayName("RestTemplate 抛出 RuntimeException 时 bookmarkArtwork 不应向上传播")
         void shouldIsolateRestTemplateException() {
-            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(String.class)))
+            when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(byte[].class)))
                     .thenThrow(new RuntimeException("连接超时"));
 
             assertThatCode(() -> service.bookmarkArtwork(12345L, "PHPSESSID=abc")).doesNotThrowAnyException();
@@ -191,7 +191,7 @@ class PixivBookmarkServiceTest {
         @Test
         @DisplayName("两步请求均失败时 bookmarkArtwork 不应抛出")
         void shouldIsolateBothStepsFailure() {
-            when(restTemplate.exchange(anyString(), any(), any(), eq(String.class)))
+            when(restTemplate.exchange(anyString(), any(), any(), eq(byte[].class)))
                     .thenThrow(new RuntimeException("网络不可达"));
 
             assertThatCode(() -> service.bookmarkArtwork(99L, "cookie=xyz")).doesNotThrowAnyException();

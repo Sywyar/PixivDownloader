@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -164,6 +165,9 @@ public class AuthFilter extends OncePerRequestFilter {
     private final ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider;
     private final GuestInviteService guestInviteService;
     private final GuiTokenService guiTokenService;
+
+    @Value("${server.ssl.enabled:false}")
+    private boolean sslEnabled;
 
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res,
@@ -576,7 +580,7 @@ public class AuthFilter extends OncePerRequestFilter {
         if (resolved.isPresent()) return resolved.get();
         // 失效：让浏览器丢掉无效的 cookie
         ResponseCookie cleared = ResponseCookie.from(INVITE_COOKIE, "")
-                .path("/").httpOnly(true).sameSite("Strict").maxAge(0).build();
+                .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").maxAge(0).build();
         res.addHeader(HttpHeaders.SET_COOKIE, cleared.toString());
         return null;
     }
@@ -615,7 +619,7 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
         ResponseCookie cookie = ResponseCookie.from(INVITE_COOKIE, session.get().code())
-                .path("/").httpOnly(true).sameSite("Strict").build();
+                .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").build();
         res.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
         res.sendRedirect("/pixiv-gallery.html");
     }

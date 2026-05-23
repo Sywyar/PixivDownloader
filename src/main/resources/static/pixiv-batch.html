@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -46,9 +46,9 @@
         <div class="cookie-row">
             <input type="password" id="cookie-input" data-i18n-placeholder="cookie.placeholder" placeholder="粘贴 Cookie...">
             <button class="btn-sm" id="cookie-toggle" data-i18n="cookie.toggle.show">显示</button>
-            <button class="btn-sm" id="cookie-save" style="background:#e8f5e9;border-color:#28a745;" data-i18n="common:button.save">保存</button>
+            <button class="btn-cookie-save" id="cookie-save" data-i18n="common:button.save">保存</button>
             <button class="btn-sm" id="cookie-import" hidden style="background:#e7f0fb;border-color:#1a73e8;" data-i18n="cookie.import">一键导入 Cookie</button>
-            <button class="btn-sm" id="cookie-clear" style="background:#fdecea;border-color:#dc3545;" data-i18n="cookie.clear">清除</button>
+            <button class="btn-cookie-clear" id="cookie-clear" data-i18n="cookie.clear">清除</button>
         </div>
         <div class="cookie-status" id="cookie-status" role="status" aria-live="polite"></div>
         <div class="cookie-hint" id="cookie-import-hint" hidden><span data-i18n="cookie.import-hint.prefix">「一键导入 Cookie」无效（如浏览器/脚本管理器无法读取登录态）时，请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.import-hint.suffix">，按其中步骤手动设置 Cookie。</span></div>
@@ -82,7 +82,7 @@
         <textarea id="single-import-textarea"
                   data-i18n-placeholder="input.single-import.placeholder"
                   placeholder="粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式..."></textarea>
-        <div style="margin:10px 0 12px;padding:10px 12px;border:1px solid #ffb84d;background:#fff4db;border-radius:8px;color:#8a5100;font-size:13px;line-height:1.6;">
+        <div class="import-format-box">
             <div style="font-weight:700;"><span data-i18n="label.import-format">导入格式：</span><span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">url | title</span></div>
             <div><span data-i18n="label.import-example">每行一条，例如：</span><span data-i18n="label.import-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">https://www.pixiv.net/artworks/12345678 | 示例标题</span></div>
             <div><span data-i18n="label.import-novel-example">小说链接示例：</span><span data-i18n="label.import-novel-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">https://www.pixiv.net/novel/show.php?id=12345678 | 示例标题</span></div>
@@ -91,7 +91,7 @@
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:0;">
             <button class="btn btn-blue" onclick="parseSingleImport()" data-i18n="button.import">📋 导入并加入队列</button>
-            <button class="btn" style="background:#e67e22;" onclick="parseSingleImportFresh()" data-i18n="button.import-fresh">🗑 清空队列后重新导入</button>
+            <button class="btn btn-orange" onclick="parseSingleImportFresh()" data-i18n="button.import-fresh">🗑 清空队列后重新导入</button>
         </div>
     </div>
 
@@ -111,7 +111,7 @@
         <div class="user-row">
             <input type="text" id="user-id-input" data-i18n-placeholder="input.user-id.placeholder" placeholder="用户 ID（数字）">
             <button class="btn btn-cyan" onclick="handleFetchAll()" data-i18n="button.fetch-all">📥 获取全部作品</button>
-            <button class="btn" style="background:#e67e22;" onclick="handleFetchAllFresh()" data-i18n="button.fetch-all-fresh">🗑 清除队列并重新获取</button>
+            <button class="btn btn-orange" onclick="handleFetchAllFresh()" data-i18n="button.fetch-all-fresh">🗑 清除队列并重新获取</button>
             <button class="btn btn-purple" onclick="handleFetchNew()" data-i18n="button.fetch-new">🆕 仅获取新作品并下载</button>
         </div>
         <div id="user-info-display" style="margin-top:8px;">-</div>
@@ -156,7 +156,7 @@
                        onchange="handleBatchRangeChange()">
                 <span class="search-fill-warning" data-i18n-title="dialog.search-batch-warning"
                       title="按页码范围抓取 Pixiv 搜索结果并去重，再按 Pixiv 返回顺序本地分页（60/页）。范围过大会导致请求量暴增；solo 模式不限制；multi 模式下每次最多 multi-mode.limit-page 页（管理员不受限）。">⚠</span>
-                <button class="btn btn-yellow" id="btn-batch-fetch" style="color:#333;" onclick="runBatchFetch()" data-i18n="button.batch-fetch">📦 获取</button>
+                <button class="btn btn-yellow" id="btn-batch-fetch" onclick="runBatchFetch()" data-i18n="button.batch-fetch">📦 获取</button>
                 <button class="btn btn-cyan" id="btn-batch-add-page" onclick="addCurrentBatchPageToQueue()" disabled data-i18n="button.batch-add-page">将此页内容加入队列</button>
                 <button class="btn btn-green" id="btn-batch-add-all" onclick="addAllSearchResultsToQueue()" disabled data-i18n="button.batch-add-all">➕ 将全部结果加入队列</button>
                 <span class="search-fill-note" id="batch-limit-note"></span>
@@ -249,10 +249,10 @@
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
             <input type="checkbox" id="search-blur-r18" onchange="toggleBlurR18()">
-            <label for="search-blur-r18" style="cursor:pointer;color:#d63384;" data-i18n="search.blur-r18">模糊 R18 缩略图（悬停查看）</label>
+            <label for="search-blur-r18" class="r18-blur-label" style="cursor:pointer;" data-i18n="search.blur-r18">模糊 R18 缩略图（悬停查看）</label>
         </div>
         <div id="search-results-area">
-            <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.search-empty">输入关键词后点击搜索；未保存 Cookie 时搜索结果可能减少</div>
+            <div class="search-empty-text" style="text-align:center;padding:24px 0;font-size:13px;" data-i18n="status.search-empty">输入关键词后点击搜索；未保存 Cookie 时搜索结果可能减少</div>
         </div>
         <div class="search-pagination" id="search-pagination" style="display:none;"></div>
     </div>

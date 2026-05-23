@@ -4,6 +4,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.util.TimestampUtils;
@@ -40,14 +41,14 @@ public class PixivDatabase {
         pixivMapper.createArtworkTagsTable();
         pixivMapper.createArtworkTagsTagIndex();
         // 幂等迁移：为无 R18 列的旧库补列，已有数据行该列为 NULL
-        try { pixivMapper.addR18Column(); } catch (Exception ignored) {}
-        try { pixivMapper.addIsAiColumn(); } catch (Exception ignored) {}
-        try { pixivMapper.addAuthorIdColumn(); } catch (Exception ignored) {}
-        try { pixivMapper.addDescriptionColumn(); } catch (Exception ignored) {}
-        try { pixivMapper.addFileNameColumn(); } catch (Exception ignored) {}
-        try { pixivMapper.addFileAuthorNameIdColumn(); } catch (Exception ignored) {}
-        try { pixivMapper.addSeriesIdColumn(); } catch (Exception ignored) {}
-        try { pixivMapper.addSeriesOrderColumn(); } catch (Exception ignored) {}
+        addColumnIfMissing(pixivMapper::addR18Column);
+        addColumnIfMissing(pixivMapper::addIsAiColumn);
+        addColumnIfMissing(pixivMapper::addAuthorIdColumn);
+        addColumnIfMissing(pixivMapper::addDescriptionColumn);
+        addColumnIfMissing(pixivMapper::addFileNameColumn);
+        addColumnIfMissing(pixivMapper::addFileAuthorNameIdColumn);
+        addColumnIfMissing(pixivMapper::addSeriesIdColumn);
+        addColumnIfMissing(pixivMapper::addSeriesOrderColumn);
         pixivMapper.migrateArtworkTimestampsToMillis();
         pixivMapper.migrateArtworkMoveTimestampsToMillis();
         Long maxTime = pixivMapper.findMaxTime();
@@ -129,6 +130,7 @@ public class PixivDatabase {
         insertArtwork(artworkId, title, folder, count, extensions, time, xRestrict, null, null);
     }
 
+    @Transactional
     public long getOrCreateFileNameTemplateId(String template) {
         String normalized = ArtworkFileNameFormatter.normalizeTemplate(template);
         pixivMapper.insertFileNameTemplateIfAbsent(normalized);
@@ -145,6 +147,7 @@ public class PixivDatabase {
      * 驻留下载时的合规化作者名，返回 ID。优先复用已有记录，不存在时新建。
      * {@code name} 必须已是 {@link ArtworkFileNameFormatter#sanitize sanitize} 后的值。
      */
+    @Transactional
     public long getOrCreateFileAuthorNameId(String name) {
         if (name == null || name.isEmpty()) {
             return 0L;
@@ -297,11 +300,21 @@ public class PixivDatabase {
         return pixivMapper.findIdsMissingSeries();
     }
 
+    private void addColumnIfMissing(Runnable addColumn) {
+        try { addColumn.run(); } catch (Exception e) {
+            String msg = String.valueOf(e.getMessage());
+            if (!msg.toLowerCase().contains("duplicate column")) {
+                log.warn("Unexpected error adding column: {}", msg, e);
+            }
+        }
+    }
+
     /**
      * 将作品标签持久化到 {@code tags} + {@code artwork_tags} 表。
      * 标签名按 {@code INSERT OR IGNORE} 去重，已存在同名时仅补齐 {@code translated_name}；
      * 作品-标签对同样使用 {@code INSERT OR IGNORE}，重复调用不会产生冗余行。
      */
+    @Transactional
     public void saveArtworkTags(long artworkId, List<TagDto> tags) {
         if (tags == null || tags.isEmpty()) return;
         for (TagDto t : tags) {
@@ -319,6 +332,7 @@ public class PixivDatabase {
      * Upsert a tag (by name) into the shared {@code tags} pool and return its id.
      * Used by both artwork and novel tag persistence so they share the same id space.
      */
+    @Transactional
     public Long upsertTagAndGetId(String name, String translatedName) {
         if (name == null || name.isBlank()) return null;
         String translated = (translatedName != null && translatedName.isBlank()) ? null : translatedName;

@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.setup;
 
 import lombok.Data;
+import lombok.ToString;
 
-import java.util.LinkedHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
 /**
@@ -13,8 +14,8 @@ public class SetupConfig {
     private boolean setupComplete;
     private String mode;
     private String username;
-    private String passwordHash;
-    private String salt;
+    @ToString.Exclude private String passwordHash;
+    @ToString.Exclude private String salt;
     /** token → expiry timestamp (ms) */
-    private Map<String, Long> sessions = new LinkedHashMap<>();
+    @ToString.Exclude private Map<String, Long> sessions = new ConcurrentHashMap<>();
 }

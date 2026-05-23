@@ -1363,29 +1363,49 @@ public class ImageClassifier extends JFrame {
 
     private void checkServerStatus() {
         new Thread(() -> {
-            try {
-                String serverUrl = config.getProperty("server.url", "http://localhost:6999");
-                ResponseEntity<String> response = restTemplate.getForEntity(serverUrl + "/api/download/status", String.class);
-                boolean ok = response.getStatusCode() == HttpStatus.OK;
-                serverRunning = ok;
-                SwingUtilities.invokeLater(() -> {
-                    if (ok) {
-                        serverStatusLabel.setText(message("gui.image-classifier.server.ok"));
-                        serverStatusLabel.setForeground(new Color(34, 139, 87));
-                    } else {
-                        serverStatusLabel.setText(message("gui.image-classifier.server.error", response.getStatusCode()));
-                        serverStatusLabel.setForeground(C_DANGER);
-                    }
-                });
-            } catch (Exception e) {
-                serverRunning = false;
-                SwingUtilities.invokeLater(() -> {
+            String configuredUrl = config.getProperty("server.url", "http://localhost:6999");
+            boolean ok = tryCheckStatus(configuredUrl);
+            if (!ok && configuredUrl.startsWith("http://")) {
+                String httpsUrl = "https" + configuredUrl.substring(4);
+                ok = tryCheckStatus(httpsUrl);
+                if (ok) {
+                    log.info(logMessage("gui.image-classifier.log.server-url-fallback-https",
+                            configuredUrl, httpsUrl));
+                }
+            } else if (!ok && configuredUrl.startsWith("https://")) {
+                String httpUrl = "http" + configuredUrl.substring(5);
+                ok = tryCheckStatus(httpUrl);
+                if (ok) {
+                    log.info(logMessage("gui.image-classifier.log.server-url-fallback-http",
+                            configuredUrl, httpUrl));
+                }
+            }
+            serverRunning = ok;
+            final boolean finalOk = ok;
+            SwingUtilities.invokeLater(() -> {
+                if (finalOk) {
+                    serverStatusLabel.setText(message("gui.image-classifier.server.ok"));
+                    serverStatusLabel.setForeground(new Color(34, 139, 87));
+                } else {
                     serverStatusLabel.setText(message("gui.image-classifier.server.connect-failed"));
                     serverStatusLabel.setForeground(C_DANGER);
-                });
-                log.error(logMessage("gui.image-classifier.log.server-status-check-failed", e.getMessage()));
-            }
+                }
+            });
         }).start();
+    }
+
+    private boolean tryCheckStatus(String serverUrl) {
+        try {
+            ResponseEntity<byte[]> response = restTemplate.getForEntity(
+                    serverUrl + "/api/download/status", byte[].class);
+            if (response.getStatusCode() == HttpStatus.OK) {
+                return true;
+            }
+            log.debug(logMessage("gui.image-classifier.log.server-status-non-ok", response.getStatusCode()));
+        } catch (Exception e) {
+            log.debug(logMessage("gui.image-classifier.log.server-status-check-failed", e.getMessage()));
+        }
+        return false;
     }
 
     private void sendMoveArtWorkInfo(Long artWork, String movePath, String classifierTargetFolder) {
@@ -1405,8 +1425,10 @@ public class ImageClassifier extends JFrame {
         }
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), String.class);
-            log.info(logMessage("gui.image-classifier.log.move-api-response", response.getBody()));
+            ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.POST, new HttpEntity<>(body, headers), byte[].class);
+            byte[] respBody = response.getBody();
+            log.info(logMessage("gui.image-classifier.log.move-api-response",
+                    respBody != null ? new String(respBody, java.nio.charset.StandardCharsets.UTF_8) : ""));
         } catch (Exception e) {
             log.error(logMessage("gui.image-classifier.log.move-api-request-failed", e.getMessage()));
         }

@@ -4,6 +4,8 @@
     var STORAGE_KEY = 'pixiv_theme';
     var DARK = 'dark';
     var LIGHT = 'light';
+    var titleDark = 'Switch to light mode';
+    var titleLight = 'Switch to dark mode';
     var THEME_CHANNEL_NAME = 'pixiv.theme';
     var THEME_CHANGE_TYPE = 'theme-change';
     var INSTANCE_ID = String(Date.now()) + '-' + String(Math.random()).slice(2);
@@ -53,7 +55,7 @@
     }
 
     function nextTitle(theme) {
-        return theme === DARK ? 'Switch to light mode' : 'Switch to dark mode';
+        return theme === DARK ? titleDark : titleLight;
     }
 
     function nextIcon(theme) {
@@ -157,6 +159,8 @@
     }
 
     function mount(options) {
+        if (options && options.titleDark) titleDark = options.titleDark;
+        if (options && options.titleLight) titleLight = options.titleLight;
         var mountPoint = options && options.mountPoint;
         if (!mountPoint) {
             throw new Error('mountPoint is required');
