@@ -747,6 +747,107 @@
         return '';
     }
 
+    /* ========== Pixiv bookmark helper ==========
+     * 直连 Pixiv 发 bookmark 请求（GM_xmlhttpRequest 自带浏览器登录态含 HttpOnly
+     * PHPSESSID）；不再把 document.cookie 透传给后端让后端代发，那条路径取不到 PHPSESSID
+     * 必然失败。CSRF token 通过首页 HTML 正则提取（与后端 PixivBookmarkService.fetchCsrfToken
+     * 同款）+ 缓存复用。返回 {status, message} 与现有 bookmarkResult 渲染管线兼容。
+     * ------------------------------------------------------------------------ */
+    let _pixivCsrfToken = null;
+
+    function _resetPixivCsrfToken() {
+        _pixivCsrfToken = null;
+    }
+
+    function fetchPixivCsrfToken() {
+        if (_pixivCsrfToken) return Promise.resolve(_pixivCsrfToken);
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: 'https://www.pixiv.net/',
+                headers: {Referer: 'https://www.pixiv.net/'},
+                onload: (res) => {
+                    const body = res.responseText || '';
+                    const patterns = [
+                        /token\\":\\"([^\\"]+)\\"/,
+                        /"token":"([^"]+)"/,
+                        /&quot;token&quot;\s*:\s*&quot;([^&]+)&quot;/
+                    ];
+                    for (const p of patterns) {
+                        const m = body.match(p);
+                        if (m && m[1]) {
+                            _pixivCsrfToken = m[1];
+                            return resolve(_pixivCsrfToken);
+                        }
+                    }
+                    reject(new Error('无法获取 CSRF token（可能未登录 Pixiv）'));
+                },
+                onerror: () => reject(new Error('获取 CSRF token 请求失败')),
+                ontimeout: () => reject(new Error('获取 CSRF token 请求失败'))
+            });
+        });
+    }
+
+    async function _pixivBookmark(url, payload) {
+        let token;
+        try {
+            token = await fetchPixivCsrfToken();
+        } catch (e) {
+            return {status: 'failed', message: e && e.message ? e.message : 'csrf failed'};
+        }
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'x-csrf-token': token,
+                    Referer: 'https://www.pixiv.net/'
+                },
+                data: JSON.stringify(payload),
+                onload: (res) => {
+                    let body = null;
+                    try { body = JSON.parse(res.responseText || '{}'); } catch (_) {}
+                    if (res.status === 200) {
+                        if (body && body.error) {
+                            _resetPixivCsrfToken();
+                            resolve({status: 'failed', message: body.message || 'pixiv error'});
+                            return;
+                        }
+                        resolve({status: 'success'});
+                        return;
+                    }
+                    if (res.status === 401 || res.status === 403) {
+                        _resetPixivCsrfToken();
+                        resolve({status: 'failed', message: '收藏失败（未登录或登录已过期）'});
+                        return;
+                    }
+                    resolve({status: 'failed', message: 'HTTP ' + res.status});
+                },
+                onerror: () => resolve({status: 'failed', message: '收藏请求失败'}),
+                ontimeout: () => resolve({status: 'failed', message: '收藏请求失败'})
+            });
+        });
+    }
+
+    function pixivBookmarkArtwork(artworkId) {
+        return _pixivBookmark('https://www.pixiv.net/ajax/illusts/bookmarks/add', {
+            illust_id: String(artworkId),
+            restrict: 0,
+            comment: '',
+            tags: []
+        });
+    }
+
+    function pixivBookmarkNovel(novelId) {
+        return _pixivBookmark('https://www.pixiv.net/ajax/novels/bookmarks/add', {
+            novel_id: String(novelId),
+            restrict: 0,
+            comment: '',
+            tags: []
+        });
+    }
+
     function buildNovelMetaFromPixivBody(novelId, body) {
         const nav = body && body.seriesNavData;
         const hasSeries = nav && Number(nav.seriesId) > 0;
@@ -888,11 +989,12 @@
             const seriesEnrich = seriesInfo
                 ? await fetchNovelSeriesEnrichment(seriesInfo.seriesId)
                 : null;
-            const cookie = document.cookie || '';
             const body = {
                 novelId: Number(novelId),
                 title: meta.title,
-                cookie: cookie || null,
+                // bookmark 已迁到脚本端，后端不再需要用户 Pixiv cookie；pximg 下封面/内嵌图
+                // 只看 Referer，不需要 cookie。
+                cookie: null,
                 content: meta.content,
                 other: {
                     authorId: meta.authorId,
@@ -914,7 +1016,9 @@
                     seriesCoverUrl: seriesEnrich && seriesEnrich.coverUrl ? seriesEnrich.coverUrl : null,
                     seriesTags: seriesEnrich && seriesEnrich.tags && seriesEnrich.tags.length
                         ? seriesEnrich.tags : null,
-                    bookmark: !!bookmark,
+                    // bookmark 由脚本侧直连 Pixiv 完成（见下方 pixivBookmarkNovel 调用），
+                    // 永远不让后端代发 —— document.cookie 取不到 HttpOnly PHPSESSID。
+                    bookmark: false,
                     collectionId: null,
                     format: fmt,
                     uploadTimestamp: meta.uploadTimestamp || null,
@@ -961,6 +1065,15 @@
                 typeHint: typeHint,
                 message: response.message || ''
             }));
+            // 脚本端直连 Pixiv 完成 bookmark（best-effort，不阻断下载结果）。
+            if (bookmark) {
+                const bookmarkResult = await pixivBookmarkNovel(novelId);
+                if (bookmarkResult.status !== 'success') {
+                    alert(t('single.alert.bookmark-failed', '收藏失败：{message}', {
+                        message: bookmarkResult.message || ''
+                    }));
+                }
+            }
         } catch (error) {
             if (error.message === 'quota_exceeded' && error.quotaData) {
                 console.warn('已达到下载限额');
@@ -1013,7 +1126,10 @@
             }));
     }
 
-    // 单次脚本生命周期的系列元数据缓存：相同 seriesId 在同一页面里只查后端代理一次。
+    // 单次脚本生命周期的系列元数据缓存。插画系列：直连 Pixiv（与 fetchNovelSeriesEnrichment
+    // 同理，避免后端代理 + document.cookie 取不到 HttpOnly PHPSESSID 导致受限漫画系列 caption
+    // 缺失）。漫画系列通常没有独立封面字段（Pixiv UI 展示的"封面"是作者指定某话首图），
+    // _pn_extractSeriesCoverUrl 大概率返回空串，与之前后端代理路径行为一致。
     const seriesEnrichmentCache = new Map();
     function fetchSeriesEnrichment(seriesId) {
         const sid = Number(seriesId);
@@ -1022,13 +1138,19 @@
         const p = new Promise((resolve) => {
             GM_xmlhttpRequest({
                 method: 'GET',
-                url: `${serverBase}/api/pixiv/series/${sid}?page=1`,
-                headers: {'X-Pixiv-Cookie': document.cookie || ''},
+                url: `https://www.pixiv.net/ajax/series/${sid}?p=1&lang=zh`,
+                headers: {Referer: 'https://www.pixiv.net/'},
                 onload: (res) => {
                     try {
                         const data = JSON.parse(res.responseText);
-                        const meta = data && data.series ? data.series : null;
-                        resolve(meta ? {caption: meta.caption || '', coverUrl: meta.coverUrl || ''} : null);
+                        if (!data || data.error) return resolve(null);
+                        const arr = data.body && data.body.illustSeries;
+                        const meta = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
+                        if (!meta) return resolve(null);
+                        resolve({
+                            caption: String(meta.caption || ''),
+                            coverUrl: _pn_extractSeriesCoverUrl(meta)
+                        });
                     } catch (_) { resolve(null); }
                 },
                 onerror: () => resolve(null)
@@ -1109,7 +1231,8 @@
                 title: title,
                 imageUrls: imageUrls,
                 referer: 'https://www.pixiv.net/',
-                cookie: document.cookie,
+                // bookmark 已迁到脚本端，后端不再需要用户 Pixiv cookie；pximg 下图只看 Referer。
+                cookie: null,
                 other: other || {}
             };
             const headers = { 'Content-Type': 'application/json' };
@@ -1247,7 +1370,7 @@
             let imageUrls;
             const bookmark = GM_getValue(KEY_BOOKMARK_AFTER_DL, false);
             // 系列导航：仅在 Pixiv 标注该作品属于某个漫画系列时附带。
-            // 系列简介/封面通过后端代理缓存查询，失败时退回到 observe() 的轻量 upsert。
+            // 系列简介/封面通过 fetchSeriesEnrichment 直连 Pixiv 查询。
             const nav = meta && meta.seriesNavData;
             const seriesId = nav && Number(nav.seriesId) > 0 ? Number(nav.seriesId) : null;
             const seriesEnrich = seriesId ? await fetchSeriesEnrichment(seriesId) : null;
@@ -1258,7 +1381,9 @@
                 seriesDescription: seriesEnrich && seriesEnrich.caption ? seriesEnrich.caption : null,
                 seriesCoverUrl: seriesEnrich && seriesEnrich.coverUrl ? seriesEnrich.coverUrl : null
             } : {};
-            let other = { bookmark, authorId, authorName, xRestrict, isAi, description, tags, ...seriesFields };
+            // bookmark 由脚本侧直连 Pixiv 完成（见下方 pixivBookmarkArtwork 调用），
+            // 永远不让后端代发 —— document.cookie 取不到 HttpOnly PHPSESSID。
+            let other = { bookmark: false, authorId, authorName, xRestrict, isAi, description, tags, ...seriesFields };
 
             if (meta && meta.illustType === 2) {
                 // 动图作品：获取ugoira元数据，下载ZIP并在后端合成WebP
@@ -1269,7 +1394,7 @@
                     isUgoira: true,
                     ugoiraZipUrl: zipSrc,
                     ugoiraDelays: ugoiraMeta.frames.map(f => f.delay),
-                    bookmark,
+                    bookmark: false,
                     authorId,
                     authorName,
                     xRestrict,
@@ -1306,6 +1431,16 @@
                 typeHint: typeHint,
                 message: response.message
             }));
+
+            // 脚本端直连 Pixiv 完成 bookmark（best-effort，不阻断下载结果）。
+            if (bookmark) {
+                const bookmarkResult = await pixivBookmarkArtwork(artworkId);
+                if (bookmarkResult.status !== 'success') {
+                    alert(t('single.alert.bookmark-failed', '收藏失败：{message}', {
+                        message: bookmarkResult.message || ''
+                    }));
+                }
+            }
 
         } catch (error) {
             if (error.message === 'quota_exceeded' && error.quotaData) {
