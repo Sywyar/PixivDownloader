@@ -246,6 +246,16 @@ public class PixivDatabase {
         pixivMapper.deleteById(artworkId);
     }
 
+    /**
+     * 仅在对应字段当前为 NULL / 空字符串时填入新值，不覆盖已有数据。
+     * 用于 pixiv-batch 的两阶段恢复：先用磁盘文件写一条裸记录（{@link #insertArtwork} 时 meta 为空），
+     * 再用前端拉到的 Pixiv 元数据补齐。
+     */
+    public void fillArtworkMetadataIfMissing(long artworkId, String title, Integer xRestrict,
+                                             Boolean isAi, Long authorId, String description) {
+        pixivMapper.updateMetadataIfMissing(artworkId, title, xRestrict, isAi, authorId, description);
+    }
+
     public boolean hasArtwork(long artworkId) {
         return pixivMapper.countById(artworkId) > 0;
     }

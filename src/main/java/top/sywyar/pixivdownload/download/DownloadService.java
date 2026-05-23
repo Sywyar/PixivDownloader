@@ -733,6 +733,73 @@ public class DownloadService {
         return null;
     }
 
+    /**
+     * pixiv-batch 两阶段恢复入口：调用方已从 Pixiv 拉回元数据。
+     * <ul>
+     *   <li>DB 已有记录且 title 非空 → 返回原记录（不覆盖任何字段）</li>
+     *   <li>DB 已有记录但 title 为空（说明先前是裸记录恢复出来的）→ 仅填补 NULL/空字段后返回最新记录</li>
+     *   <li>DB 无记录但 {@code {rootFolder}/{artworkId}/} 下有匹配默认模板的图片 → 用 meta + 实际页数/扩展名写完整记录</li>
+     *   <li>否则返回 null（调用方按未下载处理）</li>
+     * </ul>
+     */
+    public ArtworkRecord recoverMetadata(Long artworkId, top.sywyar.pixivdownload.download.request.RecoverMetadataRequest meta) {
+        if (meta == null) {
+            meta = new top.sywyar.pixivdownload.download.request.RecoverMetadataRequest();
+        }
+        ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
+        String normalizedDescription = PixivDescriptionHtml.normalizeLinks(meta.getDescription());
+        if (existing != null) {
+            if (StringUtils.hasText(existing.title())) {
+                return existing;
+            }
+            pixivDatabase.fillArtworkMetadataIfMissing(artworkId,
+                    StringUtils.hasText(meta.getTitle()) ? meta.getTitle() : null,
+                    meta.getXRestrict(), meta.getIsAi(), meta.getAuthorId(),
+                    StringUtils.hasText(normalizedDescription) ? normalizedDescription : null);
+            observeAuthorIfPresent(artworkId, meta);
+            return pixivDatabase.getArtwork(artworkId);
+        }
+        // DB 无记录：扫描磁盘 → 用 meta 写完整记录
+        String rootFolder = downloadConfig.getRootFolder();
+        File rootDir = new File(rootFolder);
+        if (!rootDir.isDirectory()) {
+            return null;
+        }
+        Path flatDir = Paths.get(rootFolder, String.valueOf(artworkId));
+        File dirFile = flatDir.toFile();
+        if (!dirFile.isDirectory()) {
+            return null;
+        }
+        Map<Integer, String> pageExt = scanDefaultTemplateFiles(dirFile, artworkId);
+        if (pageExt.isEmpty()) {
+            return null;
+        }
+        int count = Collections.max(pageExt.keySet()) + 1;
+        LinkedHashSet<String> uniqueExts = new LinkedHashSet<>();
+        new java.util.TreeMap<>(pageExt).values().forEach(uniqueExts::add);
+        String extensions = String.join(",", uniqueExts);
+        String absoluteFolder = flatDir.toAbsolutePath().toString();
+        log.info(logMessage("download.log.stale-record.restored",
+                id(artworkId), absoluteFolder));
+        pixivDatabase.insertArtwork(artworkId,
+                StringUtils.hasText(meta.getTitle()) ? meta.getTitle() : "",
+                absoluteFolder, count, extensions,
+                pixivDatabase.getUniqueTime(), meta.getXRestrict(), meta.getIsAi(),
+                meta.getAuthorId(),
+                normalizedDescription == null ? "" : normalizedDescription);
+        observeAuthorIfPresent(artworkId, meta);
+        return pixivDatabase.getArtwork(artworkId);
+    }
+
+    private void observeAuthorIfPresent(Long artworkId, top.sywyar.pixivdownload.download.request.RecoverMetadataRequest meta) {
+        if (meta.getAuthorId() == null) return;
+        try {
+            authorService.observe(meta.getAuthorId(), meta.getAuthorName());
+        } catch (Exception e) {
+            log.warn(logMessage("download.log.record-author.failed", id(artworkId)), e);
+        }
+    }
+
     private ArtworkRecord findArtworkOnDisk(Long artworkId) {
         String rootFolder = downloadConfig.getRootFolder();
         File rootDir = new File(rootFolder);

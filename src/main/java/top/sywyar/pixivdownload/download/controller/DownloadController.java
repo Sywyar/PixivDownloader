@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.request.ArtworkBatchRequest;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.request.MoveArtworkRequest;
+import top.sywyar.pixivdownload.download.request.RecoverMetadataRequest;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.gallery.GalleryQuery;
 import top.sywyar.pixivdownload.gallery.GalleryRepository;
@@ -243,6 +244,24 @@ public class DownloadController {
             return ResponseEntity.status(400).build();
         }
         return ResponseEntity.ok(downloadedResponse);
+    }
+
+    /**
+     * pixiv-batch 两阶段恢复：当 GET verifyFiles 命中裸记录恢复或确认磁盘有匹配文件时，
+     * 前端拉到 Pixiv 元数据后 POST 到这里把缺字段补齐 / 写完整记录。
+     * 幂等：DB 已有完整记录（title 非空）直接返回原记录，不覆盖。
+     */
+    @PostMapping("/downloaded/{artworkId}/recover-metadata")
+    public ResponseEntity<DownloadedResponse> recoverMetadata(
+            @PathVariable Long artworkId,
+            @RequestBody(required = false) RecoverMetadataRequest body,
+            HttpServletRequest httpRequest) {
+        guestAccessGuard.requireVisible(httpRequest, artworkId);
+        ArtworkRecord artwork = downloadService.recoverMetadata(artworkId, body);
+        if (artwork == null) {
+            return ResponseEntity.status(400).build();
+        }
+        return ResponseEntity.ok(toDownloadedResponse(artwork, resolveAuthorNames(List.of(artwork))));
     }
 
     @PostMapping("/downloaded/batch")

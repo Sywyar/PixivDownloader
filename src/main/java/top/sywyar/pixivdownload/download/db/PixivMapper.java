@@ -159,6 +159,22 @@ public interface PixivMapper {
                     @Param("movePath") String movePath,
                     @Param("moveTime") long moveTime);
 
+    // 仅补齐缺失的元数据字段：title 仅在当前为空字符串/NULL 时覆盖；
+    // 其余字段仅在当前为 NULL 时覆盖。用于 pixiv-batch 两阶段恢复的 metadata 回填。
+    @Update("UPDATE artworks SET"
+            + "  title = CASE WHEN title IS NULL OR title = '' THEN #{title} ELSE title END,"
+            + "  \"R18\" = COALESCE(\"R18\", #{xRestrict}),"
+            + "  is_ai = COALESCE(is_ai, #{isAi}),"
+            + "  author_id = COALESCE(author_id, #{authorId}),"
+            + "  description = CASE WHEN description IS NULL OR description = '' THEN #{description} ELSE description END"
+            + " WHERE artwork_id = #{artworkId}")
+    void updateMetadataIfMissing(@Param("artworkId") long artworkId,
+                                 @Param("title") String title,
+                                 @Param("xRestrict") Integer xRestrict,
+                                 @Param("isAi") Boolean isAi,
+                                 @Param("authorId") Long authorId,
+                                 @Param("description") String description);
+
     @Delete("DELETE FROM artworks WHERE artwork_id = #{artworkId}")
     void deleteById(long artworkId);
 

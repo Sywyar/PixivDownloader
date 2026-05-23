@@ -1108,12 +1108,32 @@
             const res = await fetch(`${BASE}/api/downloaded/${artworkId}${query}`);
             if (res.status === 200) {
                 const data = await res.json();
-                return !!data.artworkId;
+                if (!data.artworkId) return null;
+                return data;
             }
-            return false;
+            return null;
         } catch {
-            return false;
+            return null;
         }
+    }
+
+    // 两阶段恢复：当 verifyFiles=true 的 fallback 路径把磁盘上已有的作品恢复成一条空 title 的裸记录时，
+    // 用前端拉到的 Pixiv 元数据补齐缺失字段。后端是幂等的：DB 已有完整记录直接返回原记录。
+    async function recoverArtworkMetadata(artworkId, meta) {
+        try {
+            const res = await fetch(`${BASE}/api/downloaded/${artworkId}/recover-metadata`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(meta)
+            });
+            if (res.status === 200) {
+                return await res.json();
+            }
+        } catch (e) {
+            // best-effort：失败不影响跳过逻辑，至少裸记录仍在
+            console.warn('recoverArtworkMetadata failed', artworkId, e);
+        }
+        return null;
     }
 
     function getIntervalMs() {
@@ -1610,8 +1630,35 @@
         if (state.settings.skipHistory) {
             const downloaded = await checkDownloaded(item.id);
             if (downloaded) {
+                // 若 verifyFiles=true 时是从磁盘恢复出来的裸记录（title 为空），
+                // 拉 Pixiv meta 补齐后再跳过，避免画廊里这些恢复出的作品没有标题/作者/简介。
+                let recoveredMeta = false;
+                if (state.settings.verifyHistoryFiles && !downloaded.title) {
+                    item.lastMessage = bt('queue.message.recovering-metadata', '正在补齐已下载作品的元数据...');
+                    renderQueue();
+                    try {
+                        const meta = await getArtworkMeta(item.id);
+                        const recovered = await recoverArtworkMetadata(item.id, {
+                            title: meta.illustTitle || '',
+                            authorId: normalizeAuthorId(meta.authorId ?? meta.userId),
+                            authorName: meta.authorName || meta.userName || '',
+                            xRestrict: Number(meta.xRestrict ?? meta.xrestrict ?? 0),
+                            isAi: meta?.isAi === true || Number(meta?.aiType ?? 0) >= 2,
+                            description: meta.description || ''
+                        });
+                        if (recovered && recovered.title) {
+                            recoveredMeta = true;
+                            item.title = recovered.title;
+                        }
+                    } catch (e) {
+                        // best-effort：拉 meta 失败不影响跳过
+                        console.warn('recover metadata failed', item.id, e);
+                    }
+                }
                 item.status = 'skipped';
-                item.lastMessage = bt('queue.message.skipped-history', '跳过 — 历史记录中已存在');
+                item.lastMessage = recoveredMeta
+                    ? bt('queue.message.skipped-history-recovered', '跳过 — 已下载（自动补齐元数据）')
+                    : bt('queue.message.skipped-history', '跳过 — 历史记录中已存在');
                 item.endTime = new Date().toISOString();
                 updateStats();
                 saveQueue();
