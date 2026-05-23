@@ -401,6 +401,7 @@
         if (status) status.style.display = showAll ? '' : 'none';
         if (authorView) authorView.classList.toggle('active', !showAll);
         if (authorPagination) authorPagination.style.display = showAll ? 'none' : '';
+        updateSearchPlaceholder();
     }
 
     function setupGalleryCrossPageHandoff() {
@@ -501,9 +502,29 @@
         }
     }
 
+    function searchPlaceholderForCurrentView() {
+        if (state.view === 'authors') {
+            return t('filter.authors.search.placeholder', 'Search authors...');
+        }
+        if (state.view === 'series') {
+            return t('filter.series.search.placeholder', 'Search manga series...');
+        }
+        return searchPlaceholderFor(state.searchType || 'all');
+    }
+
+    function syncSearchTypeSelect() {
+        const select = document.getElementById('searchType');
+        if (!select) return;
+        const enabled = state.view === 'all';
+        select.hidden = !enabled;
+        select.disabled = !enabled;
+        select.value = enabled ? (state.searchType || 'all') : 'all';
+    }
+
     function updateSearchPlaceholder() {
         const el = document.getElementById('searchInput');
-        if (el) el.placeholder = searchPlaceholderFor(state.searchType || 'all');
+        if (el) el.placeholder = searchPlaceholderForCurrentView();
+        syncSearchTypeSelect();
     }
 
     function setSearchEmptyState(empty) {
@@ -2051,6 +2072,10 @@
     const searchTypeEl = document.getElementById('searchType');
     if (searchTypeEl) {
         searchTypeEl.addEventListener('change', e => {
+            if (state.view !== 'all') {
+                updateSearchPlaceholder();
+                return;
+            }
             const v = e.target.value;
             state.searchType = GALLERY_SEARCH_TYPE_VALUES.has(v) ? v : 'all';
             updateSearchPlaceholder();
@@ -2058,13 +2083,7 @@
             state.authors.page = 0;
             state.series.page = 0;
             if (state.search) {
-                if (state.view === 'authors') {
-                    loadAuthorsView();
-                } else if (state.view === 'series') {
-                    loadSeriesView();
-                } else {
-                    loadGallery();
-                }
+                loadGallery();
             } else {
                 persistGalleryState();
             }
@@ -2455,6 +2474,7 @@
         syncSeriesFilterBar();
         document.getElementById('authorView').classList.toggle('active', !showAll);
         document.getElementById('authorPagination').style.display = showAll ? 'none' : '';
+        updateSearchPlaceholder();
         if (view === 'authors') {
             loadAuthorsView();
         } else if (view === 'series') {

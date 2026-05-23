@@ -338,9 +338,33 @@ function searchPlaceholderFor(type) {
     }
 }
 
+function searchPlaceholderForCurrentView() {
+    if (state.view === 'authors') {
+        return pageI18n
+            ? pageI18n.t('gallery:filter.authors.search.placeholder', 'Search authors...')
+            : 'Search authors...';
+    }
+    if (state.view === 'series') {
+        return pageI18n
+            ? pageI18n.t('novel:filter.series.search.placeholder', 'Search series...')
+            : 'Search series...';
+    }
+    return searchPlaceholderFor(state.searchType || 'all');
+}
+
+function syncSearchTypeSelect() {
+    const select = document.getElementById('searchType');
+    if (!select) return;
+    const enabled = state.view === 'all';
+    select.hidden = !enabled;
+    select.disabled = !enabled;
+    select.value = enabled ? (state.searchType || 'all') : 'all';
+}
+
 function updateSearchPlaceholder() {
     const el = document.getElementById('searchInput');
-    if (el && pageI18n) el.placeholder = searchPlaceholderFor(state.searchType || 'all');
+    if (el && pageI18n) el.placeholder = searchPlaceholderForCurrentView();
+    syncSearchTypeSelect();
 }
 
 function setSearchEmptyState(empty) {
@@ -570,12 +594,16 @@ function setupEventHandlers() {
     const searchTypeEl = document.getElementById('searchType');
     if (searchTypeEl) {
         searchTypeEl.addEventListener('change', () => {
+            if (state.view !== 'all') {
+                updateSearchPlaceholder();
+                return;
+            }
             const v = searchTypeEl.value;
             state.searchType = NOVEL_SEARCH_TYPE_VALUES.has(v) ? v : 'all';
             updateSearchPlaceholder();
             state.page = 0;
             if (state.search) {
-                reloadCurrentView();
+                reloadNovels();
             } else {
                 persistNovelGalleryState();
             }
@@ -1332,6 +1360,7 @@ function setActiveViewNav() {
     pag.style.display = (isAuthors || isSeries) ? 'none' : '';
     av.classList.toggle('active', isAuthors);
     sv.classList.toggle('active', isSeries);
+    updateSearchPlaceholder();
 }
 
 function reloadCurrentView() {
@@ -1377,7 +1406,7 @@ async function reloadNovels() {
         renderGrid(data.content || []);
         renderPagination('pagination', data.totalPages || 0, data.page || 0, p => { state.page = p; reloadNovels(); });
         // 仅在存在有效搜索/筛选条件时才把搜索框与筛选按钮标红
-        setSearchEmptyState((data.content || []).length === 0 && hasActiveNovelFilters());
+        setSearchEmptyState((data.totalElements || 0) === 0 && hasActiveNovelFilters());
     } catch (e) {
         document.getElementById('grid').innerHTML = `<div class="empty">${esc(pageI18n.t('novel:status.load-failed', '加载失败'))}</div>`;
         document.getElementById('pagination').innerHTML = '';

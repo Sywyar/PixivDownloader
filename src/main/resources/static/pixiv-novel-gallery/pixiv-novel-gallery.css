@@ -266,6 +266,12 @@
             color: var(--brand);
         }
 
+        .search-type-select:disabled {
+            opacity: 0.55;
+            cursor: default;
+            color: var(--muted);
+        }
+
         .search-box.search-no-result {
             border-color: var(--danger);
             background: rgba(220, 38, 38, 0.06);

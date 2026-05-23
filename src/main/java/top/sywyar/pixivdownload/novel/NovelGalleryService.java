@@ -31,6 +31,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class NovelGalleryService {
 
+    private static final int AUTHOR_NAME_BATCH_SIZE = 500;
+
     private final NovelDatabase novelDatabase;
     private final NovelGalleryRepository novelGalleryRepository;
     private final AuthorService authorService;
@@ -63,8 +65,6 @@ public class NovelGalleryService {
                 return new PagedNovels(List.of(), 0, q.page(), q.size(), 0);
             }
         }
-        List<Long> allIds = novelDatabase.getAllNovelIdsSortedByTimeDesc();
-        List<NovelView> filtered = new ArrayList<>();
         String searchType = normalizeSearchType(q.searchType());
         String searchRaw = q.search() == null ? "" : q.search().trim();
         String search = searchRaw.toLowerCase(Locale.ROOT);
@@ -73,7 +73,23 @@ public class NovelGalleryService {
         Set<Long> contentMatchIds = ("content".equals(searchType) && !searchRaw.isEmpty())
                 ? novelDatabase.searchNovelContentIds(searchRaw)
                 : null;
-        Map<Long, String> authorNameCache = new HashMap<>();
+        boolean searchUsesAuthorNames = !searchRaw.isEmpty() && usesAuthorNameSearch(searchType);
+        Set<Long> searchAuthorIds = searchUsesAuthorNames ? new LinkedHashSet<>() : Set.of();
+        List<Long> allIds = novelDatabase.getAllNovelIdsSortedByTimeDesc();
+        List<NovelRecord> candidateRecords = new ArrayList<>();
+        for (Long id : allIds) {
+            if (idCandidates != null && !idCandidates.contains(id)) continue;
+            NovelRecord r = novelDatabase.getNovel(id);
+            if (r == null) continue;
+            candidateRecords.add(r);
+            if (searchUsesAuthorNames && r.authorId() != null && r.authorId() > 0) {
+                searchAuthorIds.add(r.authorId());
+            }
+        }
+        Map<Long, String> authorNameCache = searchUsesAuthorNames
+                ? resolveAuthorNameCache(searchAuthorIds)
+                : Map.of();
+        List<NovelView> filtered = new ArrayList<>();
         Set<Long> mustTags = nullSafe(q.tagIds());
         Set<Long> notTags = nullSafe(q.notTagIds());
         Set<Long> orTags = nullSafe(q.orTagIds());
@@ -82,10 +98,7 @@ public class NovelGalleryService {
         Set<Long> orAuthors = nullSafe(q.orAuthorIds());
         Set<Long> mustSeries = nullSafe(q.seriesIds());
         Set<Long> notSeries = nullSafe(q.notSeriesIds());
-        for (Long id : allIds) {
-            if (idCandidates != null && !idCandidates.contains(id)) continue;
-            NovelRecord r = novelDatabase.getNovel(id);
-            if (r == null) continue;
+        for (NovelRecord r : candidateRecords) {
             if (!matchAgeFilter(r.xRestrict(), q.r18())) continue;
             if (!matchAiFilter(r.isAi(), q.ai())) continue;
             if (!searchRaw.isEmpty()) {
@@ -202,6 +215,33 @@ public class NovelGalleryService {
         );
     }
 
+    private boolean usesAuthorNameSearch(String searchType) {
+        return "all".equals(searchType) || "author".equals(searchType);
+    }
+
+    private Map<Long, String> resolveAuthorNameCache(Set<Long> authorIds) {
+        if (authorIds == null || authorIds.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            Map<Long, String> out = new HashMap<>(authorIds.size());
+            List<Long> ids = new ArrayList<>(authorIds);
+            for (int from = 0; from < ids.size(); from += AUTHOR_NAME_BATCH_SIZE) {
+                int to = Math.min(from + AUTHOR_NAME_BATCH_SIZE, ids.size());
+                Map<Long, String> names = authorService.getAuthorNames(ids.subList(from, to));
+                names.forEach((id, name) -> {
+                    if (id != null && name != null) {
+                        out.put(id, name.toLowerCase(Locale.ROOT));
+                    }
+                });
+            }
+            return out;
+        } catch (Exception e) {
+            log.debug("Failed to resolve novel author names for search", e);
+            return Map.of();
+        }
+    }
+
     private boolean matchNovelSearch(NovelRecord r, String searchType, String searchLower,
                                      Long searchId, Map<Long, String> authorNameCache) {
         return switch (searchType) {
@@ -237,15 +277,7 @@ public class NovelGalleryService {
 
     private String resolveAuthorNameLower(Long authorId, Map<Long, String> cache) {
         if (authorId == null || authorId <= 0) return "";
-        return cache.computeIfAbsent(authorId, id -> {
-            try {
-                String name = authorService.getAuthorNames(List.of(id)).get(id);
-                return name == null ? "" : name.toLowerCase(Locale.ROOT);
-            } catch (Exception e) {
-                log.debug("Failed to resolve author name for authorId={}", id, e);
-                return "";
-            }
-        });
+        return cache.getOrDefault(authorId, "");
     }
 
     private static Long parseLongOrNull(String s) {
