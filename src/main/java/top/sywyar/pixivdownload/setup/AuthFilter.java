@@ -187,6 +187,10 @@ public class AuthFilter extends OncePerRequestFilter {
             chain.doFilter(req, res);
             return;
         }
+        if (isActuatorEndpoint(path)) {
+            res.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
 
         // GUI 路径：必须同时满足本地请求 + 有效的 GUI 令牌，通过后跳过所有后续过滤逻辑。
         // 置于维护检查之前，确保 GUI 在维护窗口内仍可操控后端。
@@ -396,8 +400,13 @@ public class AuthFilter extends OncePerRequestFilter {
      */
     private boolean isPublicActuatorEndpoint(String path) {
         return path.equals("/actuator/health")
-                || path.startsWith("/actuator/health/")
+                || path.equals("/actuator/health/liveness")
+                || path.equals("/actuator/health/readiness")
                 || path.equals("/actuator/info");
+    }
+
+    private boolean isActuatorEndpoint(String path) {
+        return path.equals("/actuator") || path.startsWith("/actuator/");
     }
 
     private boolean isValidGuiRequest(HttpServletRequest req) {

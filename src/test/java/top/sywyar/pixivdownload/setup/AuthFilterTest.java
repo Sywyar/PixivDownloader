@@ -1064,4 +1064,51 @@ class AuthFilterTest {
             verifyNoInteractions(filterChain);
         }
     }
+
+    @Nested
+    @DisplayName("Actuator 探针端点")
+    class ActuatorEndpointTests {
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/actuator/health",
+                "/actuator/health/liveness",
+                "/actuator/health/readiness",
+                "/actuator/info"
+        })
+        @DisplayName("仅 health、liveness、readiness 与 info 应公开放行")
+        void shouldPassThroughPublicActuatorEndpoints(String path) throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+            verifyNoInteractions(setupService, rateLimitService);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/actuator",
+                "/actuator/env",
+                "/actuator/configprops",
+                "/actuator/logfile",
+                "/actuator/health/",
+                "/actuator/health/db",
+                "/actuator/health/diskSpace",
+                "/actuator/health/readiness/details"
+        })
+        @DisplayName("其它 actuator 路径应在鉴权兜底前直接拦截")
+        void shouldBlockOtherActuatorEndpoints(String path) throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(404);
+            verifyNoInteractions(filterChain, setupService, rateLimitService);
+        }
+    }
 }
