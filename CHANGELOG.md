@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
-## [Unreleased]
+## [v1.10.0] - 2026.5.23
 
 ### Features
 - 新增容器化部署支持：仓库提供 `Dockerfile`（multi-stage 构建，运行镜像内置动图所需的 ffmpeg）与 `docker-compose.yml`（配置、登录态、数据库、下载文件、收藏夹图标等通过 volume 持久化，重启容器后数据仍在）。首次部署可用 `docker compose run --rm app --setup` 在容器内完成初始化，之后 `docker compose up -d` 常驻运行。
