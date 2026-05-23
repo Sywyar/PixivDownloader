@@ -392,6 +392,30 @@ class PixivProxyControllerTest {
         }
 
         @Test
+        @DisplayName("multi 模式管理员不受 limitPage 限制")
+        void shouldNotLimitRangePagesForMultiModeAdmin() throws Exception {
+            reset(setupService);
+            when(setupService.getMode()).thenReturn("multi");
+            when(setupService.isAdminLoggedIn(any())).thenReturn(true);
+            multiModeConfig.setLimitPage(1);
+            when(restTemplate.exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class)))
+                    .thenReturn(ResponseEntity.ok(PIXIV_SEARCH_RESPONSE.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+            mockMvc.perform(get("/api/pixiv/search/range")
+                            .param("word", "初音ミク")
+                            .param("startPage", "1")
+                            .param("endPage", "3"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.requestedPages").value(3))
+                    .andExpect(jsonPath("$.acceptedPages").value(3))
+                    .andExpect(jsonPath("$.fetchedPages").value(3))
+                    .andExpect(jsonPath("$.limitPage").value(0));
+
+            verify(restTemplate, times(3)).exchange(any(URI.class), eq(HttpMethod.GET), any(), eq(byte[].class));
+            verify(userQuotaService, never()).checkAndReserveProxy(any());
+        }
+
+        @Test
         @DisplayName("startPage / endPage < 1 应返回 400")
         void shouldRejectInvalidRange() throws Exception {
             mockMvc.perform(get("/api/pixiv/search/range")

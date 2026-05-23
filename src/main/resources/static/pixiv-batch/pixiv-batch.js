@@ -2465,6 +2465,7 @@
     function updateAuthButtons() {
         document.getElementById('login-btn').style.display = isAdmin ? 'none' : 'block';
         document.getElementById('logout-btn').style.display = isAdmin ? 'block' : 'none';
+        updateBatchLimitNote();
     }
 
     function updateAdminPackButton() {
@@ -4376,7 +4377,7 @@
     // multi 模式下每次抓取页数（end-start+1）受 multi-mode.limit-page 约束；
     // solo 模式与管理员不限制。
     function batchPageLimit() {
-        return (appMode !== 'solo' && multiModeLimitPage > 0) ? multiModeLimitPage : 0;
+        return (appMode !== 'solo' && !isAdmin && multiModeLimitPage > 0) ? multiModeLimitPage : 0;
     }
 
     function getBatchRange() {

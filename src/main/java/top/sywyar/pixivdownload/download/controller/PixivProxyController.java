@@ -359,8 +359,11 @@ public class PixivProxyController {
         return null;
     }
 
-    private int resolveSearchFillLimitPage() {
+    private int resolveSearchFillLimitPage(HttpServletRequest request) {
         if (!"multi".equals(setupService.getMode())) {
+            return 0;
+        }
+        if (setupService.isAdminLoggedIn(request)) {
             return 0;
         }
         return Math.max(0, multiModeConfig.getLimitPage());
@@ -511,11 +514,10 @@ public class PixivProxyController {
      * perPage 仅用于估算总页数以便提前停止抓取。
      */
     private SearchRangeResponse buildSearchRange(
-            int startParam, int endParam, int perPage, RangePageFetcher fetcher) throws IOException {
+            int startParam, int endParam, int perPage, int limitPage, RangePageFetcher fetcher) throws IOException {
         int startPage = Math.max(1, Math.min(startParam, endParam));
         int endRequested = Math.max(startPage, Math.max(startParam, endParam));
         int requestedPages = endRequested - startPage + 1;
-        int limitPage = resolveSearchFillLimitPage();
         int acceptedPages = limitPage > 0 ? Math.min(requestedPages, limitPage) : requestedPages;
         int cappedEnd = startPage + acceptedPages - 1;
 
@@ -572,7 +574,8 @@ public class PixivProxyController {
                     .body(new ErrorResponse(messages.get("pixiv.proxy.search-range.invalid")));
         }
         try {
-            return ResponseEntity.ok(buildSearchRange(startPage, endPage, 60, p -> {
+            int limitPage = resolveSearchFillLimitPage(request);
+            return ResponseEntity.ok(buildSearchRange(startPage, endPage, 60, limitPage, p -> {
                 SearchResponse r = fetchSearchPage(word, order, mode, sMode, p, cookie);
                 return new RangePage(r.getItems(), r.getTotal(),
                         o -> ((SearchResponse.SearchItem) o).getId());
@@ -603,7 +606,8 @@ public class PixivProxyController {
                     .body(new ErrorResponse(messages.get("pixiv.proxy.search-range.invalid")));
         }
         try {
-            return ResponseEntity.ok(buildSearchRange(startPage, endPage, 24, p -> {
+            int limitPage = resolveSearchFillLimitPage(request);
+            return ResponseEntity.ok(buildSearchRange(startPage, endPage, 24, limitPage, p -> {
                 NovelSearchResponse r = fetchNovelSearchPage(word, order, mode, sMode, p, cookie);
                 return new RangePage(r.getItems(), r.getTotal(),
                         o -> ((NovelSearchResponse.NovelSearchItem) o).getId());
