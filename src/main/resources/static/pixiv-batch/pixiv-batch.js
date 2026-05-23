@@ -2180,6 +2180,14 @@
 
     // 当系列内最后一个待合并章节完成后，触发合订
     const _novelMergeFiredSeries = new Set();
+    async function readMergeResponse(res) {
+        try {
+            return await res.json();
+        } catch {
+            return null;
+        }
+    }
+
     async function maybeTriggerSeriesMerge(seriesId) {
         if (!seriesId) return;
         const remaining = state.queue.filter(q => q.kind === 'novel'
@@ -2191,12 +2199,29 @@
         try {
             // 合订本格式独立于单章下载格式（novelFormat），默认推荐 EPUB
             const mfmt = (state.settings.mergeNovelFormat || 'epub').toLowerCase();
-            await fetch(`${BASE}/api/gallery/novel/series/${encodeURIComponent(seriesId)}/merge?format=${encodeURIComponent(mfmt)}`, {
+            const res = await fetch(`${BASE}/api/gallery/novel/series/${encodeURIComponent(seriesId)}/merge?format=${encodeURIComponent(mfmt)}`, {
                 method: 'POST', credentials: 'same-origin'
             });
+            const data = await readMergeResponse(res);
+            if (res.status === 401) {
+                _novelMergeFiredSeries.delete(seriesId);
+                isAdmin = false;
+                updateAuthButtons();
+                updateAdminPackButton();
+                setStatus(bt('status.login-expired', '登录状态已失效，请重新登录'), 'error');
+                return;
+            }
+            if (!res.ok || !data || data.success !== true) {
+                const message = data && data.message ? data.message : `HTTP ${res.status}`;
+                throw new Error(message);
+            }
             setStatus(bt('status.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: seriesId}), 'success');
         } catch (e) {
             console.warn('merge failed', seriesId, e);
+            _novelMergeFiredSeries.delete(seriesId);
+            setStatus(bt('status.novel-series-merge-failed',
+                '小说系列合订本生成失败（系列 {id}）：{message}',
+                {id: seriesId, message: e.message || String(e)}), 'error');
         }
     }
 

@@ -613,6 +613,7 @@
             'user.novel.tag': 'Novel',
             'user.msg.novel-completed': 'Completed',
             'user.msg.novel-series-merged': 'Series consolidated file generated (series {id})',
+            'user.msg.novel-series-merge-failed': 'Failed to generate series consolidated file (series {id}): {message}',
             'user.msg.novel-stage': 'Stage: {stage}',
             'user.msg.novel-stage-images': 'Stage: downloading inline images ({done}/{total})',
             'user.novel.stage.pending': 'Queued',
@@ -746,6 +747,7 @@
             'user.novel.tag': '小说',
             'user.msg.novel-completed': '完成',
             'user.msg.novel-series-merged': '小说系列合订本已生成（系列 {id}）',
+            'user.msg.novel-series-merge-failed': '小说系列合订本生成失败（系列 {id}）：{message}',
             'user.msg.novel-stage': '阶段：{stage}',
             'user.msg.novel-stage-images': '阶段：下载内嵌图片（{done}/{total}）',
             'user.novel.stage.pending': '排队中',
@@ -2295,6 +2297,41 @@
             GM_setValue(CONFIG.KEY_NOVEL_MERGE_FORMAT, this.globalSettings.mergeNovelFormat);
         }
 
+        _parseMergeResponse(res) {
+            try {
+                return JSON.parse(res.responseText || '{}');
+            } catch {
+                return null;
+            }
+        }
+
+        _reportMergeFailure(sid, message) {
+            console.warn('[UserBatch] novel series merge failed', sid, message);
+            if (this.ui) {
+                this.ui.setStatus(t('user.msg.novel-series-merge-failed',
+                    '小说系列合订本生成失败（系列 {id}）：{message}',
+                    {id: sid, message}), 'error');
+            }
+        }
+
+        _handleMergeResponse(sid, res) {
+            if (res.status === 401) {
+                handleUnauthorized();
+                this._reportMergeFailure(sid, t('user.err.need-login', '需要登录'));
+                return;
+            }
+            const data = this._parseMergeResponse(res);
+            if (res.status >= 200 && res.status < 300 && data && data.success === true) {
+                if (this.ui) {
+                    this.ui.setStatus(t('user.msg.novel-series-merged',
+                        '小说系列合订本已生成（系列 {id}）', {id: sid}), 'success');
+                }
+                return;
+            }
+            const message = data && data.message ? data.message : `HTTP ${res.status}`;
+            this._reportMergeFailure(sid, message);
+        }
+
         // 队列结束后，对已完成的小说按其所属系列各生成一次合订本
         _mergeFinishedNovelSeries() {
             if (!this.globalSettings.mergeNovelSeries) return;
@@ -2311,9 +2348,9 @@
                     method: 'POST',
                     url: `${serverBase}/api/gallery/novel/series/${encodeURIComponent(sid)}/merge?format=${encodeURIComponent(fmt)}`,
                     headers: {'X-User-UUID': userUUID || ''},
-                    onload: () => this.ui && this.ui.setStatus(
-                        t('user.msg.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: sid}), 'success'),
-                    onerror: () => console.warn('[UserBatch] novel series merge failed', sid)
+                    onload: (res) => this._handleMergeResponse(sid, res),
+                    onerror: () => this._reportMergeFailure(
+                        sid, t('user.err.backend-failed', '后端返回失败'))
                 });
             }
         }

@@ -631,6 +631,7 @@
             'page.novel.merge-format-hint': 'EPUB recommended: embeds cover & inline images, builds a clickable Novel → Chapter multi-level table of contents, and carries title/author/synopsis so it shows on a reader bookshelf. TXT/HTML are plain-text / single-page fallbacks without images.',
             'page.novel.tag': 'Novel',
             'page.msg.novel-series-merged': 'Series consolidated file generated (series {id})',
+            'page.msg.novel-series-merge-failed': 'Failed to generate series consolidated file (series {id}): {message}',
             'page.msg.novel-completed': 'Completed',
             'page.msg.novel-stage': 'Stage: {stage}',
             'page.msg.novel-stage-images': 'Stage: downloading inline images ({done}/{total})',
@@ -777,6 +778,7 @@
             'page.novel.merge-format-hint': '推荐 EPUB：内嵌封面与插图、按「小说 → 章节」生成可跳转的多级目录、带书名/作者/简介等信息可在阅读器书架显示；TXT/HTML 为无插图的纯文本 / 单页备选。',
             'page.novel.tag': '小说',
             'page.msg.novel-series-merged': '小说系列合订本已生成（系列 {id}）',
+            'page.msg.novel-series-merge-failed': '小说系列合订本生成失败（系列 {id}）：{message}',
             'page.msg.novel-completed': '完成',
             'page.msg.novel-stage': '阶段：{stage}',
             'page.msg.novel-stage-images': '阶段：下载内嵌图片（{done}/{total}）',
@@ -2201,6 +2203,41 @@
             GM_setValue(CONFIG.KEY_NOVEL_MERGE_FORMAT, this.globalSettings.mergeNovelFormat);
         }
 
+        _parseMergeResponse(res) {
+            try {
+                return JSON.parse(res.responseText || '{}');
+            } catch {
+                return null;
+            }
+        }
+
+        _reportMergeFailure(sid, message) {
+            console.warn('[PageScrape] novel series merge failed', sid, message);
+            if (this.ui) {
+                this.ui.setStatus(t('page.msg.novel-series-merge-failed',
+                    '小说系列合订本生成失败（系列 {id}）：{message}',
+                    {id: sid, message}), 'error');
+            }
+        }
+
+        _handleMergeResponse(sid, res) {
+            if (res.status === 401) {
+                handleUnauthorized();
+                this._reportMergeFailure(sid, t('page.err.need-login', '需要登录'));
+                return;
+            }
+            const data = this._parseMergeResponse(res);
+            if (res.status >= 200 && res.status < 300 && data && data.success === true) {
+                if (this.ui) {
+                    this.ui.setStatus(t('page.msg.novel-series-merged',
+                        '小说系列合订本已生成（系列 {id}）', {id: sid}), 'success');
+                }
+                return;
+            }
+            const message = data && data.message ? data.message : `HTTP ${res.status}`;
+            this._reportMergeFailure(sid, message);
+        }
+
         // 队列结束后，对已完成的小说按其所属系列各生成一次合订本
         _mergeFinishedNovelSeries() {
             if (!this.globalSettings.mergeNovelSeries) return;
@@ -2217,9 +2254,9 @@
                     method: 'POST',
                     url: `${serverBase}/api/gallery/novel/series/${encodeURIComponent(sid)}/merge?format=${encodeURIComponent(fmt)}`,
                     headers: {'X-User-UUID': userUUID || ''},
-                    onload: () => this.ui && this.ui.setStatus(
-                        t('page.msg.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: sid}), 'success'),
-                    onerror: () => console.warn('[PageScrape] novel series merge failed', sid)
+                    onload: (res) => this._handleMergeResponse(sid, res),
+                    onerror: () => this._reportMergeFailure(
+                        sid, t('page.err.backend-failed', '后端返回失败'))
                 });
             }
         }

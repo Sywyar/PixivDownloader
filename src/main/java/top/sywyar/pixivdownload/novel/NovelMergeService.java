@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.novel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.TagDto;
@@ -35,6 +36,7 @@ public class NovelMergeService {
 
     private final DownloadConfig downloadConfig;
     private final NovelDatabase novelDatabase;
+    private final AuthorService authorService;
     private final AppMessages messages;
 
     public record MergeResult(boolean success, String message, String mergedPath, int chapterCount) {}
@@ -142,12 +144,39 @@ public class NovelMergeService {
                 firstLang = r.xLanguage();
             }
         }
-        byte[] epub = NovelEpubWriter.write(seriesTitle, "", firstLang,
+        byte[] epub = NovelEpubWriter.write(seriesTitle, resolveSeriesAuthor(series, chapters), firstLang,
                 "urn:pixiv:novel-series:" + seriesId, epubChapters, nav,
                 new ArrayList<>(imagesById.values()),
                 readSeriesCover(series), buildSeriesMetadata(seriesId, seriesTitle, series),
                 epubLabels());
         Files.write(file, epub);
+    }
+
+    private String resolveSeriesAuthor(NovelSeries series, List<NovelRecord> chapters) {
+        List<Long> authorIds = new ArrayList<>();
+        if (series != null && series.authorId() != null && series.authorId() > 0) {
+            authorIds.add(series.authorId());
+        }
+        for (NovelRecord chapter : chapters) {
+            if (chapter.authorId() != null && chapter.authorId() > 0
+                    && !authorIds.contains(chapter.authorId())) {
+                authorIds.add(chapter.authorId());
+            }
+        }
+        Map<Long, String> names = authorService.getAuthorNames(authorIds);
+        if (series != null && series.authorId() != null) {
+            String seriesAuthor = names.get(series.authorId());
+            if (seriesAuthor != null && !seriesAuthor.isBlank()) {
+                return seriesAuthor;
+            }
+        }
+        for (Long authorId : authorIds) {
+            String name = names.get(authorId);
+            if (name != null && !name.isBlank()) {
+                return name;
+            }
+        }
+        return "";
     }
 
     /** 系列合订本的 OPF 元数据：系列简介、标签、Pixiv 系列源链接、系列归组。 */
