@@ -16,9 +16,11 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 
+import java.io.IOException;
 import java.util.Locale;
 import java.util.Map;
 
@@ -47,9 +49,11 @@ class SetupControllerTest {
     void setUp() {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         MessageSource messageSource = TestI18nBeans.messageSource();
-        SetupController controller = new SetupController(setupService, loginRateLimitService, multiModeConfig, proxySetupService);
+        AppMessages appMessages = TestI18nBeans.appMessages(messageSource);
+        SetupController controller = new SetupController(
+                setupService, loginRateLimitService, multiModeConfig, proxySetupService, appMessages);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new GlobalExceptionHandler(TestI18nBeans.appMessages(messageSource)))
+                .setControllerAdvice(new GlobalExceptionHandler(appMessages))
                 .setValidator(TestI18nBeans.validator(messageSource))
                 .defaultRequest(get("/").header("Accept-Language", "zh-CN"))
                 .build();
@@ -198,6 +202,31 @@ class SetupControllerTest {
 
             verify(setupService).init("admin", "password123", "solo");
             verify(proxySetupService).applyAndReload(true, "127.0.0.1", 1080);
+        }
+
+        @Test
+        @DisplayName("代理配置写入失败时仍应返回初始化成功并携带警告")
+        void shouldReturnSuccessWithWarningWhenProxyWriteFails() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(false);
+            doThrow(new IOException("disk full"))
+                    .when(proxySetupService).applyAndReload(true, "127.0.0.1", 1080);
+
+            mockMvc.perform(post("/api/setup/init")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of(
+                                    "username", "admin",
+                                    "password", "password123",
+                                    "mode", "solo",
+                                    "proxyEnabled", true,
+                                    "proxyHost", "127.0.0.1",
+                                    "proxyPort", 1080
+                            ))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.ok").value(true))
+                    .andExpect(jsonPath("$.mode").value("solo"))
+                    .andExpect(jsonPath("$.warning").value(containsString("代理配置写入 config.yaml 失败")));
+
+            verify(setupService).init("admin", "password123", "solo");
         }
 
         @Test

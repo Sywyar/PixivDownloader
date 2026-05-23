@@ -23,6 +23,7 @@ import java.nio.file.Path;
 public final class OnboardingState {
 
     private static final Path FLAG_FILE = Path.of("_gui", "onboarding-seen");
+    private static final Path PROXY_CONFIGURED_FILE = Path.of("_gui", "proxy-configured");
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private OnboardingState() {
@@ -30,6 +31,10 @@ public final class OnboardingState {
 
     public static boolean isSeen() {
         return Files.exists(FLAG_FILE);
+    }
+
+    public static boolean isProxyConfigured() {
+        return Files.exists(PROXY_CONFIGURED_FILE);
     }
 
     /**
@@ -59,21 +64,30 @@ public final class OnboardingState {
     public static void clear() {
         try {
             Files.deleteIfExists(FLAG_FILE);
+            Files.deleteIfExists(PROXY_CONFIGURED_FILE);
         } catch (Exception e) {
             log.debug("Failed to clear onboarding flag: {}", e.getMessage());
         }
     }
 
     public static void markSeen() {
-        if (Files.exists(FLAG_FILE)) {
+        mark(FLAG_FILE, "onboarding flag");
+    }
+
+    public static void markProxyConfigured() {
+        mark(PROXY_CONFIGURED_FILE, "proxy configured flag");
+    }
+
+    private static void mark(Path flagFile, String label) {
+        if (Files.exists(flagFile)) {
             return;
         }
         try {
-            Files.createDirectories(FLAG_FILE.getParent());
-            Files.writeString(FLAG_FILE, "1");
+            Files.createDirectories(flagFile.getParent());
+            Files.writeString(flagFile, "1");
         } catch (Exception e) {
             // 写失败仅意味着下次仍会自动展示引导，不影响功能
-            log.debug("Failed to persist onboarding flag: {}", e.getMessage());
+            log.debug("Failed to persist {}: {}", label, e.getMessage());
         }
     }
 }

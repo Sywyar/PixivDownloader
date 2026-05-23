@@ -11,6 +11,7 @@
     --brand: #28a745;
     --danger: #dc3545;
     --info: #007bff;
+    --warning: #b7791f;
     --status-muted: #666666;
     --shadow: 0 1px 4px rgba(0,0,0,.12);
   }
@@ -28,6 +29,7 @@
     --brand: #35c765;
     --danger: #f87171;
     --info: #60a5fa;
+    --warning: #fbbf24;
     --status-muted: #a7b0bf;
     --shadow: 0 1px 10px rgba(0,0,0,.35);
   }
@@ -143,4 +145,5 @@
   }
   #status-msg[data-tone="error"] { color: var(--danger); }
   #status-msg[data-tone="info"] { color: var(--info); }
+  #status-msg[data-tone="warning"] { color: var(--warning); }
   #status-msg[data-tone="success"] { color: var(--brand); }

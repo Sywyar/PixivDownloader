@@ -73,6 +73,7 @@ public class WelcomePanel extends JPanel {
     // 引导状态
     private boolean serviceReady;
     private boolean setupComplete;
+    private boolean proxyConfigured = OnboardingState.isSeen() || OnboardingState.isProxyConfigured();
     private boolean batchVisited;
     private boolean galleryGuideCompleted;
 
@@ -194,6 +195,7 @@ public class WelcomePanel extends JPanel {
     private int firstIncompleteStep() {
         if (!serviceReady) return STEP_SERVICE;
         if (!setupComplete) return STEP_CONFIG;
+        if (!proxyConfigured) return STEP_PROXY;
         if (!batchVisited) return STEP_START;
         if (!galleryGuideCompleted) return STEP_GALLERY;
         return STEP_ADVANCED;
@@ -439,6 +441,8 @@ public class WelcomePanel extends JPanel {
             return;
         }
 
+        proxyConfigured = true;
+        OnboardingState.markProxyConfigured();
         triggerHotReloadAsync();
         goTo(STEP_START, true);
     }

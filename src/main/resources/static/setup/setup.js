@@ -123,7 +123,11 @@ async function submitSetup() {
       return;
     }
 
-    setStatusKey('status.complete', '配置完成！正在跳转...', null, 'success');
+    if (data.warning) {
+      setStatusText(`${data.warning} ${st('status.redirecting', '正在跳转...')}`, 'warning');
+    } else {
+      setStatusKey('status.complete', '配置完成！正在跳转...', null, 'success');
+    }
     setTimeout(() => {
       window.location.href = mode === 'solo' ? '/login.html' : '/pixiv-batch.html';
     }, 800);

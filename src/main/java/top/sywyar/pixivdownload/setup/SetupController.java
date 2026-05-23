@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.config.ProxyConfig;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.request.LoginRequest;
@@ -36,6 +37,7 @@ public class SetupController {
     private final LoginRateLimitService loginRateLimitService;
     private final MultiModeConfig multiModeConfig;
     private final ProxySetupService proxySetupService;
+    private final AppMessages messages;
 
     @GetMapping("/api/setup/status")
     public SetupStatusResponse status() {
@@ -63,13 +65,21 @@ public class SetupController {
                     "Setup already completed"
             );
         }
-        // 先校验代理输入（无效则整体拒绝，不写入 setup_config.json），再完成安装并落盘代理配置
+        // 先校验代理输入（无效则整体拒绝，不写入 setup_config.json），再完成安装并落盘代理配置。
+        // 代理写入失败不回滚 setup，避免用户卡在已初始化但页面仍报失败的不可重试状态。
         ProxySettings proxy = resolveProxy(request);
         setupService.init(request.getUsername(), request.getPassword(), request.getMode());
+        String warning = null;
         if (proxy != null) {
-            proxySetupService.applyAndReload(proxy.enabled(), proxy.host(), proxy.port());
+            try {
+                proxySetupService.applyAndReload(proxy.enabled(), proxy.host(), proxy.port());
+            } catch (IOException | RuntimeException e) {
+                String detail = safeMessage(e);
+                log.warn(messages.getForLog("setup.proxy.log.write-failed", detail), e);
+                warning = messages.get("setup.init.proxy.write-warning", detail);
+            }
         }
-        return new SetupInitResponse(true, request.getMode());
+        return new SetupInitResponse(true, request.getMode(), warning);
     }
 
     /**
@@ -165,5 +175,9 @@ public class SetupController {
 
     private String getClientIp(HttpServletRequest request) {
         return request.getRemoteAddr();
+    }
+
+    private static String safeMessage(Throwable e) {
+        return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
     }
 }
