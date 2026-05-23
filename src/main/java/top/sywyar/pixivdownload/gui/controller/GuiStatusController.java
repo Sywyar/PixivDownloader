@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.common.NetworkUtils;
+import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.config.RuntimeConfigReloadService;
 import top.sywyar.pixivdownload.config.SslConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -16,6 +17,14 @@ import top.sywyar.pixivdownload.onboarding.OnboardingProgressService;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -39,10 +48,14 @@ public class GuiStatusController {
     private final SetupService setupService;
     private final Environment environment;
     private final SslConfig sslConfig;
+    private final ProxyConfig proxyConfig;
     private final RuntimeConfigReloadService runtimeConfigReloadService;
     private final AppMessages messages;
     private final OnboardingProgressService onboardingProgressService;
 
+    private static final URI PIXIV_CONNECTIVITY_URI = URI.create("https://www.pixiv.net/");
+    private static final Duration PIXIV_CONNECT_TIMEOUT = Duration.ofSeconds(5);
+    private static final Duration PIXIV_REQUEST_TIMEOUT = Duration.ofSeconds(8);
     private static final DateTimeFormatter FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -78,6 +91,47 @@ public class GuiStatusController {
                 .build();
 
         return ResponseEntity.ok(resp);
+    }
+
+    /**
+     * GET /api/gui/pixiv-connectivity
+     * 使用当前代理配置探测后端到 Pixiv 首页的网络连通性。
+     */
+    @GetMapping("/pixiv-connectivity")
+    public ResponseEntity<PixivConnectivityResponse> pixivConnectivity(HttpServletRequest req) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        long started = System.nanoTime();
+        try {
+            HttpRequest request = HttpRequest.newBuilder(PIXIV_CONNECTIVITY_URI)
+                    .timeout(PIXIV_REQUEST_TIMEOUT)
+                    .header("User-Agent", "PixivDownload-GUI")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .GET()
+                    .build();
+            HttpResponse<Void> response = buildPixivConnectivityClient()
+                    .send(request, HttpResponse.BodyHandlers.discarding());
+            long latencyMs = elapsedMillis(started);
+            int status = response.statusCode();
+            return ResponseEntity.ok(new PixivConnectivityResponse(
+                    status >= 200 && status < 500,
+                    status,
+                    latencyMs,
+                    null));
+        } catch (HttpTimeoutException e) {
+            return ResponseEntity.ok(new PixivConnectivityResponse(false, 0, elapsedMillis(started), "timeout"));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ResponseEntity.ok(new PixivConnectivityResponse(false, 0, elapsedMillis(started), "interrupted"));
+        } catch (IOException e) {
+            log.debug(logMessage("gui.controller.log.pixiv-connectivity.failed", e.getMessage()));
+            return ResponseEntity.ok(new PixivConnectivityResponse(false, 0, elapsedMillis(started), "network"));
+        } catch (RuntimeException e) {
+            log.debug(logMessage("gui.controller.log.pixiv-connectivity.failed", e.getMessage()), e);
+            return ResponseEntity.ok(new PixivConnectivityResponse(false, 0, elapsedMillis(started), "unknown"));
+        }
     }
 
     /**
@@ -246,7 +300,32 @@ public class GuiStatusController {
     public record GuiChangePasswordResponse(boolean success, String error) {
     }
 
+    public record PixivConnectivityResponse(
+            boolean reachable,
+            int statusCode,
+            long latencyMs,
+            String errorType) {
+    }
+
     // ── 私有工具 ──────────────────────────────────────────────────────────────────
+
+    private HttpClient buildPixivConnectivityClient() {
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(PIXIV_CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL);
+        if (proxyConfig.isEnabled()) {
+            String host = proxyConfig.getHost();
+            int port = proxyConfig.getPort();
+            if (host != null && !host.isBlank() && port > 0) {
+                builder.proxy(ProxySelector.of(new InetSocketAddress(host, port)));
+            }
+        }
+        return builder.build();
+    }
+
+    private static long elapsedMillis(long startedNanos) {
+        return Math.max(0L, Duration.ofNanos(System.nanoTime() - startedNanos).toMillis());
+    }
 
     private int resolvePort() {
         try {

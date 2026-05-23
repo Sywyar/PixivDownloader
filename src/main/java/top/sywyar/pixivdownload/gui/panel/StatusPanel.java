@@ -44,6 +44,7 @@ public class StatusPanel extends JPanel {
     private static final int POLL_INTERVAL_MS = 3000;
     private static final int STARTUP_SLOW_THRESHOLD_SECONDS = 10;
     private static final int STARTUP_ELAPSED_INTERVAL_MS = 1000;
+    private static final long PIXIV_CONNECTIVITY_AUTO_CHECK_INTERVAL_MS = 60_000L;
     private static final String BATCH_PAGE = "/pixiv-batch.html";
     private static final String MONITOR_PAGE = "/monitor.html";
     private static final String GALLERY_PAGE = "/pixiv-gallery.html";
@@ -62,6 +63,8 @@ public class StatusPanel extends JPanel {
     private final JLabel modeLabel = valueLabel("--");
     private final JLabel uptimeLabel = valueLabel("--");
     private final JLabel httpsLabel = valueLabel("--");
+    private final JLabel pixivConnectivityLabel = valueLabel("--");
+    private final JButton pixivConnectivityCheckButton = new JButton(message("gui.status.pixiv-connectivity.action.check"));
     private final JLabel statusBadge = new JLabel(message("gui.status.state.starting"));
 
     private final JLabel ffmpegBadge = new JLabel(message("gui.ffmpeg.badge.detecting"));
@@ -84,6 +87,8 @@ public class StatusPanel extends JPanel {
     private volatile boolean ffmpegInstalling;
     private volatile boolean updateChecking;
     private volatile boolean updateInstalling;
+    private volatile boolean pixivConnectivityChecking;
+    private volatile long lastPixivConnectivityCheckAtMillis;
     private Timer pollTimer;
     private Timer startupElapsedTimer;
     private long startupStartedAtMillis = -1L;
@@ -183,6 +188,7 @@ public class StatusPanel extends JPanel {
         addRow(grid, g, row++, message("gui.status.label.mode"), modeLabel);
         addRow(grid, g, row++, message("gui.status.label.start-time"), uptimeLabel);
         addRow(grid, g, row++, message("gui.status.label.https"), httpsLabel);
+        addRow(grid, g, row++, message("gui.status.label.pixiv-connectivity"), buildPixivConnectivityStatusRow());
 
         JLabel hint = secondaryLabel(message("gui.status.hint.web-console"));
         GridBagConstraints hc = new GridBagConstraints();
@@ -193,6 +199,19 @@ public class StatusPanel extends JPanel {
         hc.insets = new Insets(12, 4, 4, 4);
         grid.add(hint, hc);
         return grid;
+    }
+
+    private JComponent buildPixivConnectivityStatusRow() {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        row.setOpaque(false);
+        pixivConnectivityLabel.setForeground(Color.GRAY);
+        pixivConnectivityLabel.setToolTipText(message("gui.status.pixiv-connectivity.tooltip"));
+        pixivConnectivityCheckButton.setToolTipText(message("gui.status.pixiv-connectivity.tooltip"));
+        pixivConnectivityCheckButton.setEnabled(false);
+        pixivConnectivityCheckButton.addActionListener(e -> triggerPixivConnectivityCheck(true));
+        row.add(pixivConnectivityLabel);
+        row.add(pixivConnectivityCheckButton);
+        return row;
     }
 
     private JComponent buildFfmpegPanel() {
@@ -493,7 +512,7 @@ public class StatusPanel extends JPanel {
         }
     }
 
-    private static void addRow(JPanel grid, GridBagConstraints g, int row, String key, JLabel value) {
+    private static void addRow(JPanel grid, GridBagConstraints g, int row, String key, Component value) {
         g.gridy = row;
         g.gridx = 0;
         g.weightx = 0;
@@ -602,6 +621,10 @@ public class StatusPanel extends JPanel {
         if (!"--".equals(scheme)) {
             serverScheme = scheme;
         }
+        if (!pixivConnectivityChecking) {
+            pixivConnectivityCheckButton.setEnabled(true);
+        }
+        triggerPixivConnectivityCheck(false);
     }
 
     private void applyBackendSnapshot(BackendLifecycleManager.Snapshot snapshot) {
@@ -696,6 +719,88 @@ public class StatusPanel extends JPanel {
         uptimeLabel.setText("--");
         httpsLabel.setText("--");
         httpsLabel.setForeground(Color.GRAY);
+        pixivConnectivityLabel.setText("--");
+        pixivConnectivityLabel.setForeground(Color.GRAY);
+        pixivConnectivityCheckButton.setEnabled(false);
+        lastPixivConnectivityCheckAtMillis = 0L;
+    }
+
+    private void triggerPixivConnectivityCheck(boolean force) {
+        if (pixivConnectivityChecking) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!force
+                && lastPixivConnectivityCheckAtMillis > 0L
+                && now - lastPixivConnectivityCheckAtMillis < PIXIV_CONNECTIVITY_AUTO_CHECK_INTERVAL_MS) {
+            return;
+        }
+
+        pixivConnectivityChecking = true;
+        lastPixivConnectivityCheckAtMillis = now;
+        pixivConnectivityLabel.setText(message("gui.status.pixiv-connectivity.checking"));
+        pixivConnectivityLabel.setForeground(new Color(180, 100, 0));
+        pixivConnectivityCheckButton.setEnabled(false);
+
+        Thread worker = new Thread(() -> {
+            JsonNode node = callLocalGuiEndpoint(
+                    "GET",
+                    "/api/gui/pixiv-connectivity",
+                    null,
+                    10_000,
+                    "gui.status.log.pixiv-connectivity.call-failed");
+            SwingUtilities.invokeLater(() -> applyPixivConnectivityResult(node));
+        }, "gui-pixiv-connectivity");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void applyPixivConnectivityResult(JsonNode node) {
+        pixivConnectivityChecking = false;
+        boolean backendRunning = BackendLifecycleManager.snapshot().state() == BackendLifecycleManager.State.RUNNING;
+        pixivConnectivityCheckButton.setEnabled(backendRunning);
+        if (!backendRunning) {
+            pixivConnectivityLabel.setText("--");
+            pixivConnectivityLabel.setForeground(Color.GRAY);
+            return;
+        }
+        if (node == null) {
+            pixivConnectivityLabel.setText(message("gui.status.pixiv-connectivity.unavailable"));
+            pixivConnectivityLabel.setForeground(new Color(180, 60, 60));
+            return;
+        }
+
+        boolean reachable = node.path("reachable").asBoolean(false);
+        int statusCode = node.path("statusCode").asInt(0);
+        long latencyMs = Math.max(0L, node.path("latencyMs").asLong(0L));
+        if (reachable) {
+            pixivConnectivityLabel.setText(statusCode > 0
+                    ? message("gui.status.pixiv-connectivity.reachable", statusCode, latencyMs)
+                    : message("gui.status.pixiv-connectivity.reachable-no-status", latencyMs));
+            pixivConnectivityLabel.setForeground(new Color(0, 140, 0));
+            return;
+        }
+
+        if (statusCode > 0) {
+            pixivConnectivityLabel.setText(message(
+                    "gui.status.pixiv-connectivity.unreachable-with-status",
+                    statusCode,
+                    latencyMs));
+        } else {
+            pixivConnectivityLabel.setText(message(
+                    "gui.status.pixiv-connectivity.unreachable",
+                    pixivConnectivityReason(node.path("errorType").asText(""))));
+        }
+        pixivConnectivityLabel.setForeground(new Color(180, 60, 60));
+    }
+
+    private static String pixivConnectivityReason(String errorType) {
+        return switch (errorType == null ? "" : errorType) {
+            case "timeout" -> message("gui.status.pixiv-connectivity.reason.timeout");
+            case "interrupted" -> message("gui.status.pixiv-connectivity.reason.interrupted");
+            case "network" -> message("gui.status.pixiv-connectivity.reason.network");
+            default -> message("gui.status.pixiv-connectivity.reason.unknown");
+        };
     }
 
     private static String textOf(JsonNode node, String field) {
@@ -1387,6 +1492,18 @@ public class StatusPanel extends JPanel {
      * 同上，允许自定义读超时（毫秒）。下载安装包等长耗时操作应传入较大值。
      */
     private JsonNode callUpdateEndpoint(String method, String path, String formBody, int readTimeoutMs) {
+        return callLocalGuiEndpoint(method, path, formBody, readTimeoutMs, "gui.status.log.update.call-failed");
+    }
+
+    /**
+     * 调用本机 /api/gui/** 端点，参照 {@link #fetchStatus()} 的 scheme 探测策略。
+     * 返回 JSON 节点；HTTP 失败或异常时返回 null。
+     */
+    private JsonNode callLocalGuiEndpoint(String method,
+                                          String path,
+                                          String formBody,
+                                          int readTimeoutMs,
+                                          String failureLogCode) {
         // 优先尝试当前已知可用的 scheme，避免将 TLS 握手字节发送到 HTTP 端口
         String[] schemes = "https".equals(currentScheme)
                 ? new String[]{"https", "http"}
@@ -1425,7 +1542,7 @@ public class StatusPanel extends JPanel {
                     return MAPPER.readTree(is);
                 }
             } catch (Exception e) {
-                log.debug(logMessage("gui.status.log.update.call-failed", path, e.getMessage()));
+                log.debug(logMessage(failureLogCode, path, e.getMessage()));
             } finally {
                 if (conn != null) {
                     conn.disconnect();
