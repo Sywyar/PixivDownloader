@@ -412,6 +412,159 @@ class DownloadServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("getDownloadedRecord 磁盘反向恢复")
+    class FindArtworkOnDiskTests {
+
+        @BeforeEach
+        void setupRootFolder() {
+            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000200L);
+        }
+
+        @Test
+        @DisplayName("verifyFiles=false 时即便磁盘有文件也不应恢复")
+        void shouldNotRecoverWhenVerifyFilesFalse() throws Exception {
+            Path dir = Files.createDirectories(tempDir.resolve("11111"));
+            Files.write(dir.resolve("11111_p0.jpg"), new byte[]{1});
+            when(pixivDatabase.getArtwork(11111L)).thenReturn(null);
+
+            ArtworkRecord result = downloadService.getDownloadedRecord(11111L, false);
+
+            assertThat(result).isNull();
+            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
+                    anyString(), anyLong(), any(), any(), any(), anyString());
+        }
+
+        @Test
+        @DisplayName("根目录不存在时应返回 null")
+        void shouldReturnNullWhenRootFolderMissing() {
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.resolve("no-such-root").toString());
+            when(pixivDatabase.getArtwork(22222L)).thenReturn(null);
+
+            assertThat(downloadService.getDownloadedRecord(22222L, true)).isNull();
+            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
+                    anyString(), anyLong(), any(), any(), any(), anyString());
+        }
+
+        @Test
+        @DisplayName("作品目录不存在时应返回 null")
+        void shouldReturnNullWhenArtworkDirMissing() {
+            when(pixivDatabase.getArtwork(33333L)).thenReturn(null);
+
+            assertThat(downloadService.getDownloadedRecord(33333L, true)).isNull();
+            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
+                    anyString(), anyLong(), any(), any(), any(), anyString());
+        }
+
+        @Test
+        @DisplayName("目录仅含非匹配文件时不应恢复")
+        void shouldNotRecoverWhenNoMatchingFiles() throws Exception {
+            Path dir = Files.createDirectories(tempDir.resolve("44444"));
+            Files.writeString(dir.resolve("note.txt"), "x");
+            // 不同作品 ID 的图片不应被算作匹配
+            Files.write(dir.resolve("99999_p0.jpg"), new byte[]{1});
+            // 非默认模板格式
+            Files.write(dir.resolve("44444-title_p0.jpg"), new byte[]{1});
+            when(pixivDatabase.getArtwork(44444L)).thenReturn(null);
+
+            assertThat(downloadService.getDownloadedRecord(44444L, true)).isNull();
+            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
+                    anyString(), anyLong(), any(), any(), any(), anyString());
+        }
+
+        @Test
+        @DisplayName("单页同扩展名应按实际页数与扩展名恢复")
+        void shouldRecoverSinglePage() throws Exception {
+            long artworkId = 55555L;
+            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
+            Files.write(dir.resolve("55555_p0.jpg"), new byte[]{1, 2});
+            String absolute = dir.toAbsolutePath().toString();
+            ArtworkRecord inserted = new ArtworkRecord(artworkId, "", absolute, 1, "jpg",
+                    1700000200L, false, null, null, null, null, null, "", 1L, null, null, null);
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null, inserted);
+
+            ArtworkRecord result = downloadService.getDownloadedRecord(artworkId, true);
+
+            assertThat(result).isSameAs(inserted);
+            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 1, "jpg",
+                    1700000200L, null, null, null, "");
+        }
+
+        @Test
+        @DisplayName("多页同扩展名应记 count=最大页号+1，extensions 去重为单值")
+        void shouldRecoverMultiPageSameExt() throws Exception {
+            long artworkId = 66666L;
+            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
+            Files.write(dir.resolve("66666_p0.png"), new byte[]{1});
+            Files.write(dir.resolve("66666_p1.png"), new byte[]{1});
+            Files.write(dir.resolve("66666_p2.png"), new byte[]{1});
+            String absolute = dir.toAbsolutePath().toString();
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
+                    new ArtworkRecord(artworkId, "", absolute, 3, "png",
+                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
+
+            downloadService.getDownloadedRecord(artworkId, true);
+
+            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 3, "png",
+                    1700000200L, null, null, null, "");
+        }
+
+        @Test
+        @DisplayName("多页混合扩展名应按逗号拼接 extensions")
+        void shouldRecoverMultiPageMixedExt() throws Exception {
+            long artworkId = 77777L;
+            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
+            Files.write(dir.resolve("77777_p0.jpg"), new byte[]{1});
+            Files.write(dir.resolve("77777_p1.png"), new byte[]{1});
+            String absolute = dir.toAbsolutePath().toString();
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
+                    new ArtworkRecord(artworkId, "", absolute, 2, "jpg,png",
+                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
+
+            downloadService.getDownloadedRecord(artworkId, true);
+
+            // 按页号升序拼接 extensions（p0=jpg, p1=png）
+            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 2, "jpg,png",
+                    1700000200L, null, null, null, "");
+        }
+
+        @Test
+        @DisplayName("有缺页时 count 取最大页号+1")
+        void shouldUseMaxPagePlusOneAsCountWhenPagesHaveGap() throws Exception {
+            long artworkId = 88888L;
+            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
+            Files.write(dir.resolve("88888_p0.jpg"), new byte[]{1});
+            Files.write(dir.resolve("88888_p3.jpg"), new byte[]{1});
+            String absolute = dir.toAbsolutePath().toString();
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
+                    new ArtworkRecord(artworkId, "", absolute, 4, "jpg",
+                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
+
+            downloadService.getDownloadedRecord(artworkId, true);
+
+            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 4, "jpg",
+                    1700000200L, null, null, null, "");
+        }
+
+        @Test
+        @DisplayName("大小写后缀应被识别且归一化为小写")
+        void shouldRecognizeUppercaseExtensions() throws Exception {
+            long artworkId = 99998L;
+            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
+            Files.write(dir.resolve("99998_p0.JPG"), new byte[]{1});
+            String absolute = dir.toAbsolutePath().toString();
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
+                    new ArtworkRecord(artworkId, "", absolute, 1, "jpg",
+                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
+
+            downloadService.getDownloadedRecord(artworkId, true);
+
+            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 1, "jpg",
+                    1700000200L, null, null, null, "");
+        }
+    }
+
     // ========== recordStatistics ==========
 
     @Nested

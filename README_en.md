@@ -30,6 +30,7 @@
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
 - Animated image (Ugoira) auto-conversion to WebP
 - Custom file naming templates (11 variables)
+- Downloaded-state verification: stale DB records (file deleted on disk) are auto-pruned; if files for an artwork already exist on disk under the default filename template but the DB record is missing, the record is reconstructed from disk and the redownload is skipped
 - Quota and rate limiting for multi-user scenarios
 - Guest invite system (age-rating / tag / author whitelist)
 - Multiple languages / dark mode

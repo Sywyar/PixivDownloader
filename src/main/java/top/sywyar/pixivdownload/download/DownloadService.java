@@ -740,31 +740,47 @@ public class DownloadService {
             return null;
         }
         Path flatDir = Paths.get(rootFolder, String.valueOf(artworkId));
-        if (hasImageFilesInDirectory(flatDir.toFile())) {
-            log.info(logMessage("download.log.stale-record.restored",
-                    id(artworkId), flatDir.toString()));
-            pixivDatabase.insertArtwork(artworkId, "", flatDir.toString(), 0, "",
-                    pixivDatabase.getUniqueTime(), null, null, null, "");
-            return pixivDatabase.getArtwork(artworkId);
+        File dirFile = flatDir.toFile();
+        if (!dirFile.isDirectory()) {
+            return null;
         }
-        return null;
+        // 仅识别符合默认文件名模板 {artwork_id}_p{page}.{ext} 的文件 —— 恢复出的记录会以
+        // DEFAULT_TEMPLATE_ID 写回 DB，只有匹配该模板的文件才能被后续 resolveImageFile 查到。
+        Map<Integer, String> pageExt = scanDefaultTemplateFiles(dirFile, artworkId);
+        if (pageExt.isEmpty()) {
+            return null;
+        }
+        int count = Collections.max(pageExt.keySet()) + 1;
+        // 按页号升序收集，使 extensions 顺序稳定（便于排查与单测断言）
+        LinkedHashSet<String> uniqueExts = new LinkedHashSet<>();
+        new java.util.TreeMap<>(pageExt).values().forEach(uniqueExts::add);
+        String extensions = String.join(",", uniqueExts);
+        String absoluteFolder = flatDir.toAbsolutePath().toString();
+        log.info(logMessage("download.log.stale-record.restored",
+                id(artworkId), absoluteFolder));
+        pixivDatabase.insertArtwork(artworkId, "", absoluteFolder, count, extensions,
+                pixivDatabase.getUniqueTime(), null, null, null, "");
+        return pixivDatabase.getArtwork(artworkId);
     }
 
-    private boolean hasImageFilesInDirectory(File directory) {
-        if (!directory.isDirectory()) {
-            return false;
-        }
+    private Map<Integer, String> scanDefaultTemplateFiles(File directory, long artworkId) {
         File[] files = directory.listFiles();
         if (files == null) {
-            return false;
+            return Collections.emptyMap();
         }
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "^" + java.util.regex.Pattern.quote(String.valueOf(artworkId)) + "_p(\\d+)\\.([A-Za-z0-9]+)$");
+        Map<Integer, String> pageExt = new HashMap<>();
         for (File file : files) {
-            if (file.isFile() && IMAGE_EXTENSIONS.contains(
-                    getFileExtension(file.getName()).toLowerCase(Locale.ROOT))) {
-                return true;
-            }
+            if (!file.isFile()) continue;
+            java.util.regex.Matcher m = pattern.matcher(file.getName());
+            if (!m.matches()) continue;
+            String ext = m.group(2).toLowerCase(Locale.ROOT);
+            if (!IMAGE_EXTENSIONS.contains(ext)) continue;
+            int page = Integer.parseInt(m.group(1));
+            pageExt.merge(page, ext, (existing, incoming) -> existing);
         }
-        return false;
+        return pageExt;
     }
 
     public ImageResponse getImageResponse(Long artworkId, int page, boolean thumbnail) throws IOException {
