@@ -1356,8 +1356,7 @@ public class StatusPanel extends JPanel {
             JsonNode node = callUpdateEndpoint("POST", "/api/gui/update/install", body);
             SwingUtilities.invokeLater(() -> {
                 if (node == null || node.hasNonNull("error")) {
-                    updateInstalling = false;
-                    updateBannerInstallButton.setEnabled(true);
+                    restoreBannerAfterInstallFailure();
                     String err = node == null ? "" : node.path("error").asText("");
                     log.error(logMessage("gui.status.log.update.install-failed",
                             err.isBlank() ? logMessage("gui.log.no-detail") : err));
