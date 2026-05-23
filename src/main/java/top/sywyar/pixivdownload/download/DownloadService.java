@@ -717,14 +717,54 @@ public class DownloadService {
 
     public ArtworkRecord getDownloadedRecord(Long artworkId, boolean verifyFiles) {
         ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-        if (!verifyFiles || artwork == null) {
-            return artwork;
+        if (artwork != null) {
+            if (!verifyFiles) {
+                return artwork;
+            }
+            if (hasArtworkFiles(artwork)) {
+                return artwork;
+            }
+            removeStaleArtworkRecord(artwork);
+            return null;
         }
-        if (hasArtworkFiles(artwork)) {
-            return artwork;
+        if (verifyFiles) {
+            return findArtworkOnDisk(artworkId);
         }
-        removeStaleArtworkRecord(artwork);
         return null;
+    }
+
+    private ArtworkRecord findArtworkOnDisk(Long artworkId) {
+        String rootFolder = downloadConfig.getRootFolder();
+        File rootDir = new File(rootFolder);
+        if (!rootDir.isDirectory()) {
+            return null;
+        }
+        Path flatDir = Paths.get(rootFolder, String.valueOf(artworkId));
+        if (hasImageFilesInDirectory(flatDir.toFile())) {
+            log.info(logMessage("download.log.stale-record.restored",
+                    id(artworkId), flatDir.toString()));
+            pixivDatabase.insertArtwork(artworkId, "", flatDir.toString(), 0, "",
+                    pixivDatabase.getUniqueTime(), null, null, null, "");
+            return pixivDatabase.getArtwork(artworkId);
+        }
+        return null;
+    }
+
+    private boolean hasImageFilesInDirectory(File directory) {
+        if (!directory.isDirectory()) {
+            return false;
+        }
+        File[] files = directory.listFiles();
+        if (files == null) {
+            return false;
+        }
+        for (File file : files) {
+            if (file.isFile() && IMAGE_EXTENSIONS.contains(
+                    getFileExtension(file.getName()).toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public ImageResponse getImageResponse(Long artworkId, int page, boolean thumbnail) throws IOException {
