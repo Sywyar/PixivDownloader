@@ -597,6 +597,7 @@ public class ConfigPanel extends JPanel {
             context.init(null, trustAll, new java.security.SecureRandom());
             return context;
         } catch (Exception e) {
+            log.warn("Failed to create trust-all SSL context", e);
             return null;
         }
     }

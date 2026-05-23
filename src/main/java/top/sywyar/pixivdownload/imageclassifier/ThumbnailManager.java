@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.imageclassifier;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
 import javax.imageio.ImageIO;
@@ -27,6 +29,7 @@ import java.util.concurrent.Executors;
  */
 public class ThumbnailManager {
 
+    private static final Logger log = LoggerFactory.getLogger(ThumbnailManager.class);
     private final ExecutorService executor;
 
     // LRU cache for thumbnails. Adjust max size to fit memory budget.
@@ -177,7 +180,7 @@ public class ThumbnailManager {
                     applyBadge(targetLabel, badgeText);
                 });
             } catch (Exception e) {
-                // on error show a small message instead of freezing the UI
+                log.error("Failed to load thumbnail for {}", finalImageFile, e);
                 SwingUtilities.invokeLater(() -> {
                     targetLabel.setIcon(null);
                     targetLabel.setText(message("gui.image-classifier.thumbnail.load-failed"));

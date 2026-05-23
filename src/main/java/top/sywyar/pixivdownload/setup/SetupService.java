@@ -62,6 +62,16 @@ public class SetupService {
         this.messages = messages;
         this.introMode = Arrays.asList(args.getSourceArgs()).contains("--intro");
         load();
+        if (passwordHash != null && !passwordHash.startsWith("$2") && !persistentSessions.isEmpty()) {
+            sessions.clear();
+            persistentSessions.clear();
+            log.info(message("setup.log.password-hash.legacy-detected"));
+            try {
+                save();
+            } catch (IOException e) {
+                log.warn(message("setup.log.config.load.failed", e.getMessage()));
+            }
+        }
     }
 
     // ---- 配置加载/保存 -----------------------------------------------

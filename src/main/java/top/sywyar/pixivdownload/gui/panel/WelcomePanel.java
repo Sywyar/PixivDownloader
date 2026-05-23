@@ -721,7 +721,8 @@ public class WelcomePanel extends JPanel {
                         return MAPPER.readTree(is);
                     }
                 }
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.warn("Failed to fetch {} via {}", path, scheme, e);
             } finally {
                 if (conn != null) {
                     conn.disconnect();
@@ -752,11 +753,13 @@ public class WelcomePanel extends JPanel {
                         if (es != null) {
                             errorSink.accept(new String(es.readAllBytes(), StandardCharsets.UTF_8));
                         }
-                    } catch (Exception ignored) {
+                    } catch (Exception e) {
+                        log.debug("Failed to read error stream from {} response", path, e);
                     }
                 }
                 return new int[]{code};
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.warn("Failed to POST {}", path, e);
             } finally {
                 if (conn != null) {
                     conn.disconnect();
@@ -1058,6 +1061,7 @@ public class WelcomePanel extends JPanel {
             }, null);
             return ctx;
         } catch (Exception e) {
+            log.warn("Failed to create trust-all SSL context", e);
             return null;
         }
     }

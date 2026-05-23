@@ -464,6 +464,7 @@ public class UserQuotaService {
             byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
             return UUID.nameUUIDFromBytes(hash).toString();
         } catch (Exception e) {
+            log.warn("Failed to generate UUID fingerprint, falling back to random UUID", e);
             return UUID.randomUUID().toString();
         }
     }

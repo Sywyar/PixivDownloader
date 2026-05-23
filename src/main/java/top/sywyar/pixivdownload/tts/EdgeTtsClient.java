@@ -174,6 +174,7 @@ public class EdgeTtsClient {
         try {
             return ZonedDateTime.parse(date, DateTimeFormatter.RFC_1123_DATE_TIME).toEpochSecond();
         } catch (Exception e) {
+            log.debug("Failed to parse HTTP Date header: {}", date, e);
             return 0L;
         }
     }

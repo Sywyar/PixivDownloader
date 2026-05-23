@@ -100,9 +100,9 @@ public class MangaSeriesService {
     public void init() {
         mangaSeriesMapper.createMangaSeriesTable();
         // 幂等迁移：旧库补列；列已存在时 SQLite 会抛 SQLITE_ERROR，吞掉即可。
-        try { mangaSeriesMapper.addDescriptionColumn(); } catch (Exception ignored) {}
-        try { mangaSeriesMapper.addCoverExtColumn(); } catch (Exception ignored) {}
-        try { mangaSeriesMapper.addCoverFolderColumn(); } catch (Exception ignored) {}
+        try { mangaSeriesMapper.addDescriptionColumn(); } catch (Exception e) { log.debug("addDescriptionColumn migration skipped (column may already exist)", e); }
+        try { mangaSeriesMapper.addCoverExtColumn(); } catch (Exception e) { log.debug("addCoverExtColumn migration skipped (column may already exist)", e); }
+        try { mangaSeriesMapper.addCoverFolderColumn(); } catch (Exception e) { log.debug("addCoverFolderColumn migration skipped (column may already exist)", e); }
         mangaSeriesMapper.migrateSeriesTimestampsToMillis();
     }
 

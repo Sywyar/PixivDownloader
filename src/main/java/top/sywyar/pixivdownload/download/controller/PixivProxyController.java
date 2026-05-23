@@ -1001,6 +1001,7 @@ public class PixivProxyController {
         try {
             return java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli();
         } catch (Exception e) {
+            log.debug("Failed to parse Pixiv ISO date: {}", iso, e);
             return null;
         }
     }

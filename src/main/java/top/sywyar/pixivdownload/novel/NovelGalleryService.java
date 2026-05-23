@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.novel;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.db.TagDto;
@@ -26,6 +27,7 @@ import java.util.Map;
 import java.util.Set;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class NovelGalleryService {
 
@@ -172,7 +174,7 @@ public class NovelGalleryService {
         if (r.authorId() != null && r.authorId() > 0) {
             try {
                 authorName = authorService.getAuthorNames(List.of(r.authorId())).get(r.authorId());
-            } catch (Exception ignored) {}
+            } catch (Exception e) { log.debug("Failed to resolve author name for authorId={}", r.authorId(), e); }
         }
         List<TagDto> tags = novelDatabase.getNovelTags(r.novelId());
         return new NovelView(
@@ -239,7 +241,8 @@ public class NovelGalleryService {
             try {
                 String name = authorService.getAuthorNames(List.of(id)).get(id);
                 return name == null ? "" : name.toLowerCase(Locale.ROOT);
-            } catch (Exception ignored) {
+            } catch (Exception e) {
+                log.debug("Failed to resolve author name for authorId={}", id, e);
                 return "";
             }
         });

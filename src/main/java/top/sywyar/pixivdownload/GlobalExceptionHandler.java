@@ -73,9 +73,13 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e) {
-        log.warn(logMessage("error.log.request.failed", fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));
-        return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e, Locale locale) {
+        String rawMessage = e.getMessage();
+        String message = rawMessage == null || rawMessage.isBlank()
+                ? messages.getOrDefault(locale, "error.request.param.invalid", "请求参数错误")
+                : rawMessage;
+        log.warn(logMessage("error.log.request.failed", fallbackLogDetail(rawMessage, e.getClass().getSimpleName())));
+        return ResponseEntity.badRequest().body(new ErrorResponse(message));
     }
 
     @ExceptionHandler(IOException.class)
