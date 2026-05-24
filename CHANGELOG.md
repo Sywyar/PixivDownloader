@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [Unreleased]
 
 ### Features
+- 批量下载页新增页脚，展示 GitHub 仓库、Wiki、Release、许可证与当前应用版本信息。
 - GUI 状态页新增 Pixiv 连通性检测，使用当前代理配置从后端访问 Pixiv，并显示 HTTP 状态与耗时。
 
 ## [v1.10.0] - 2026.5.23

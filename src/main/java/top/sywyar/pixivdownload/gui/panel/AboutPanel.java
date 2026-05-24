@@ -18,7 +18,7 @@ import java.net.URI;
 @Slf4j
 public class AboutPanel extends JPanel {
 
-    private static final String GITHUB_URL = "https://github.com/Sywyar/PixivDownload";
+    private static final String GITHUB_URL = "https://github.com/Sywyar/PixivDownloader";
     private static final String APP_NAME = GuiMessages.get("app.name");
 
     private static final String LICENSE_TEXT = """

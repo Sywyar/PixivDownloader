@@ -15,9 +15,9 @@
 - Powerful artwork and novel galleries
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
-[![GitHub Repo stars](https://img.shields.io/github/stars/Sywyar/PixivDownload)](https://github.com/Sywyar/PixivDownload/stargazers)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Sywyar/PixivDownload)](../../releases)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/Sywyar/PixivDownload)](https://github.com/Sywyar/PixivDownload/commits)
+[![GitHub Repo stars](https://img.shields.io/github/stars/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/stargazers)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](../../releases)
+[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/commits)
 
 ## Features
 
@@ -72,7 +72,7 @@ PixivDownload.exe
 After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start downloading.
 
 > [!TIP]
-> **See the [Wiki](https://github.com/Sywyar/PixivDownload/wiki/en-Home) for detailed installation, usage, configuration, and development guides.**
+> **See the [Wiki](https://github.com/Sywyar/PixivDownloader/wiki/en-Home) for detailed installation, usage, configuration, and development guides.**
 
 ---
 

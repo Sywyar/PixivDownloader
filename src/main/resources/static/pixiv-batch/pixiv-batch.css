@@ -1451,6 +1451,64 @@
             cursor: default;
         }
 
+        /* ---- Footer ---- */
+        .app-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px 18px;
+            flex-wrap: wrap;
+            margin-top: 18px;
+            padding-top: 14px;
+            border-top: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .app-footer-meta,
+        .app-footer-links {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .app-footer-brand {
+            color: var(--heading);
+            font-weight: 700;
+        }
+
+        .app-footer-version {
+            font-family: Consolas, Monaco, monospace;
+            color: var(--heading);
+        }
+
+        .app-footer-separator {
+            color: var(--muted-2);
+        }
+
+        .app-footer a {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            color: #1a73e8;
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .app-footer a:hover {
+            color: #0b57d0;
+            text-decoration: underline;
+        }
+
+        @media (max-width: 640px) {
+            .app-footer {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+        }
+
         html[data-theme="dark"] .card,
         html[data-theme="dark"] #quota-bar {
             background: var(--surface);
@@ -1600,6 +1658,14 @@
         html[data-theme="dark"] .search-spinner-icon {
             border-color: var(--line);
             border-top-color: #28a745;
+        }
+
+        html[data-theme="dark"] .app-footer a {
+            color: #8ab4f8;
+        }
+
+        html[data-theme="dark"] .app-footer a:hover {
+            color: #aecbfa;
         }
 
         html[data-theme="dark"] [style*="background:#fafafa"],

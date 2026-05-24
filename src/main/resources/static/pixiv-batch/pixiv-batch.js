@@ -21,6 +21,48 @@
         return pageI18n ? pageI18n.lang : 'zh-CN';
     }
 
+    let appInfo = null;
+    let appInfoLoaded = false;
+
+    function setFooterLink(id, href) {
+        const link = document.getElementById(id);
+        if (link && href) {
+            link.href = href;
+        }
+    }
+
+    function renderFooterInfo() {
+        const versionEl = document.getElementById('app-version');
+        if (!versionEl) return;
+        if (appInfo && appInfo.version) {
+            versionEl.textContent = appInfo.version;
+        } else {
+            versionEl.textContent = appInfoLoaded
+                ? bt('footer.version-unknown', 'unknown')
+                : bt('footer.version-loading', 'loading...');
+        }
+        if (appInfo) {
+            setFooterLink('app-github-link', appInfo.githubUrl);
+            setFooterLink('app-releases-link', appInfo.releasesUrl);
+            setFooterLink('app-wiki-link', appInfo.wikiUrl);
+            setFooterLink('app-license-link', appInfo.licenseUrl);
+        }
+    }
+
+    async function loadAppInfo() {
+        renderFooterInfo();
+        try {
+            const res = await fetch(BASE + '/api/app/info', {credentials: 'same-origin'});
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            appInfo = await res.json();
+        } catch (e) {
+            appInfo = null;
+        } finally {
+            appInfoLoaded = true;
+            renderFooterInfo();
+        }
+    }
+
     function summarySeparator() {
         return uiLang() === 'en-US' ? ', ' : '，';
     }
@@ -142,6 +184,7 @@
         }
         applyCookieHint();
         syncCookieToggleLabel();
+        renderFooterInfo();
     }
 
     async function initPageI18n() {
@@ -4886,6 +4929,7 @@
 
     document.addEventListener('DOMContentLoaded', async () => {
         await initPageI18n();
+        loadAppInfo();
         init();
         setupTour(true);
     });

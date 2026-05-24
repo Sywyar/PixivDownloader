@@ -17,9 +17,9 @@ public class UpdateConfig {
      * 始终指向当前最新发布。
      */
     public static final String DEFAULT_MANIFEST_URL =
-            "https://github.com/Sywyar/PixivDownload/releases/latest/download/update.json";
+            "https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json";
     public static final String DEFAULT_NIGHTLY_MANIFEST_URL =
-            "https://github.com/Sywyar/PixivDownload/releases/download/nightly/update.json";
+            "https://github.com/Sywyar/PixivDownloader/releases/download/nightly/update.json";
 
     private volatile boolean enabled = true;
     private volatile String manifestUrl = DEFAULT_MANIFEST_URL;
