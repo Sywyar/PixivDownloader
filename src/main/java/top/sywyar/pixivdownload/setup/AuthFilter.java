@@ -90,6 +90,7 @@ public class AuthFilter extends OncePerRequestFilter {
             "/intro/",
             "/intro-canary/",
             "/login/",
+            "/maintenance/",
             "/vendor/fonts/"
     );
 
@@ -97,7 +98,8 @@ public class AuthFilter extends OncePerRequestFilter {
             "/favicon.ico",
             "/js/pixiv-i18n.js",
             "/js/pixiv-lang-switcher.js",
-            "/js/pixiv-theme.js"
+            "/js/pixiv-theme.js",
+            "/maintenance.html"
     );
 
     private static final Set<String> GUEST_ALLOWED_STATIC_EXACT = Set.of(
@@ -192,30 +194,35 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        // 维护窗口：所有请求看到维护提示页，API 调用返回 503
+        MaintenanceCoordinator maintenance = maintenanceCoordinatorProvider.getIfAvailable();
+        if (maintenance != null && maintenance.isPaused()) {
+            if (isMaintenancePageResource(path)) {
+                chain.doFilter(req, res);
+                return;
+            }
+            if (isApi(path)) {
+                res.setStatus(503);
+                res.setHeader(HttpHeaders.RETRY_AFTER, "60");
+                res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                res.setCharacterEncoding(StandardCharsets.UTF_8.name());
+                String message = messages.getOrDefault(localeResolver.resolveLocale(req),
+                        "auth.maintenance", "服务正在维护，请稍后再试");
+                res.getWriter().write(new ObjectMapper()
+                        .writeValueAsString(new ErrorResponse(message)));
+            } else {
+                res.sendRedirect("/maintenance.html");
+            }
+            return;
+        }
+
         // GUI 路径：必须同时满足本地请求 + 有效的 GUI 令牌，通过后跳过所有后续过滤逻辑。
-        // 置于维护检查之前，确保 GUI 在维护窗口内仍可操控后端。
         if (path.startsWith("/api/gui/")) {
             if (!isValidGuiRequest(req)) {
                 sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
                 return;
             }
             chain.doFilter(req, res);
-            return;
-        }
-
-        // 维护窗口：非本地管理员一律 503（避免维护中错改数据）
-        MaintenanceCoordinator maintenance = maintenanceCoordinatorProvider.getIfAvailable();
-        if (maintenance != null && maintenance.isPaused()
-                && !(NetworkUtils.isLocalRequest(req)
-                        && setupService.isAdminLoggedIn(req))) {
-            res.setStatus(503);
-            res.setHeader(HttpHeaders.RETRY_AFTER, "60");
-            res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            res.setCharacterEncoding(StandardCharsets.UTF_8.name());
-            String message = messages.getOrDefault(localeResolver.resolveLocale(req),
-                    "auth.maintenance", "服务正在维护，请稍后再试");
-            res.getWriter().write(new ObjectMapper()
-                    .writeValueAsString(new ErrorResponse(message)));
             return;
         }
 
@@ -407,6 +414,10 @@ public class AuthFilter extends OncePerRequestFilter {
 
     private boolean isActuatorEndpoint(String path) {
         return path.equals("/actuator") || path.startsWith("/actuator/");
+    }
+
+    private boolean isMaintenancePageResource(String path) {
+        return path.equals("/maintenance.html") || path.startsWith("/maintenance/");
     }
 
     private boolean isValidGuiRequest(HttpServletRequest req) {

@@ -27,6 +27,7 @@ public class WebI18nBundleRegistry {
         namespaces.put("userscript", "i18n.web.userscript");
         namespaces.put("invite", "i18n.web.invite");
         namespaces.put("tour", "i18n.web.tour");
+        namespaces.put("maintenance", "i18n.web.maintenance");
     }
 
     public String resolveBaseName(String namespace) {

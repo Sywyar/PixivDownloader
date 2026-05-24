@@ -10,11 +10,13 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Changed
 - 统一应用名称为 PixivDownloader，新增 AppInfo 类集中管理应用元数据，通过 LEGACY_ARTIFACT_NAME 保留文件路径与可执行文件名称的向后兼容。
+- 维护窗口拦截策略变更：页面请求重定向到新增的维护提示页（含 30 秒自动重试），API 请求返回 503；拦截范围扩大至包括本地管理员在内的所有请求，仅 `/actuator/health` 和 `/actuator/info` 不受影响。
 
 ### Features
 - GUI「配置 → 维护」新增维护任务时间设置，并将维护星期改为一行周一到周日复选框；可多选星期，并为每个启用的星期单独设置维护开始时间；对应配置支持热重载，默认仍为周一 10:00。
 - 批量下载页新增页脚，展示 GitHub 仓库、Wiki、Release、许可证与当前应用版本信息。
 - GUI 状态页新增 Pixiv 连通性检测，使用当前代理配置从后端访问 Pixiv，并显示 HTTP 状态与耗时。
+- 新增维护提示页：浏览器访问时显示维护状态、30 秒自动重试倒计时与手动重试按钮，支持语言切换和深色模式。
 
 ### Bug Fixes
 - GUI 配置页校验失败时不再只弹出汇总对话框，会把具体错误显示在对应字段下方并标红，便于直接定位需要修正的配置项。

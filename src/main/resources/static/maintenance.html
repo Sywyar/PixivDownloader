@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>维护中</title>
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/lang-theme-switcher.css">
+    <link rel="stylesheet" href="/maintenance/maintenance.css">
+</head>
+<body>
+
+<div class="topbar-actions" id="langSwitcherAnchor"></div>
+
+<div class="maintenance-container">
+    <div class="maintenance-icon">
+        <svg viewBox="0 0 24 24">
+            <path d="M10.05 4.86a7 7 0 0 1 6.09 6.09"/>
+            <path d="M4.86 10.05a7 7 0 0 1 6.09-6.09"/>
+            <line x1="9" y1="14" x2="9" y2="17"/>
+            <line x1="15" y1="14" x2="15" y2="17"/>
+            <path d="M3 13h18"/>
+            <path d="M5 21h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2z"/>
+        </svg>
+    </div>
+    <h1 class="maintenance-title" data-i18n="maintenance:page.heading">服务维护中</h1>
+    <p class="maintenance-description" data-i18n="maintenance:page.description">服务器正在进行例行维护，请稍后再试。</p>
+    <div class="maintenance-actions">
+        <button class="maintenance-retry-btn" id="btnRetry" data-i18n-title="maintenance:page.retry" title="重试">
+            <svg viewBox="0 0 24 24">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            <span data-i18n="maintenance:page.retry">重试</span>
+        </button>
+        <span class="maintenance-auto-retry" id="autoRetryText">30 秒后自动重试</span>
+    </div>
+</div>
+
+<script src="/maintenance/maintenance.js"></script>
+</body>
+</html>

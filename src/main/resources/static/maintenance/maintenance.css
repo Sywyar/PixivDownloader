@@ -1,0 +1,140 @@
+:root {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --line: #efefef;
+    --text: #111111;
+    --muted: #aaaaaa;
+    --text-secondary: #333333;
+    --brand: #0096fa;
+    --control-bg: #ffffff;
+    --control-muted-bg: #fafafa;
+    --hover-bg: #f5f5f5;
+    --scrollbar-thumb: #dddddd;
+}
+
+html[data-theme="dark"] {
+    --bg: #101216;
+    --surface: #171a21;
+    --line: #2a303b;
+    --text: #f4f7fb;
+    --muted: #8d98aa;
+    --text-secondary: #d6dde8;
+    --brand: #4bb3ff;
+    --control-bg: #1e2330;
+    --control-muted-bg: #151922;
+    --hover-bg: #222838;
+    --scrollbar-thumb: #3b4352;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.maintenance-container {
+    text-align: center;
+    max-width: 520px;
+    padding: 48px 32px;
+}
+
+.maintenance-icon {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 24px;
+    color: var(--muted);
+}
+
+.maintenance-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.maintenance-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 12px;
+    letter-spacing: -0.02em;
+}
+
+.maintenance-description {
+    font-size: 15px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 32px;
+}
+
+.maintenance-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.maintenance-retry-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--brand);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.15s;
+}
+
+.maintenance-retry-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.maintenance-retry-btn:active {
+    transform: translateY(0);
+}
+
+.maintenance-retry-btn svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.maintenance-auto-retry {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.topbar-actions {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
