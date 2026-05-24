@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.maintenance.MaintenanceTask;
 
@@ -37,7 +38,7 @@ public class DatabaseOptimizeTask implements MaintenanceTask {
         try (Connection connection = dataSource.getConnection();
              Statement statement = connection.createStatement()) {
             statement.execute("PRAGMA optimize");
-            log.info("Database optimize (PRAGMA optimize) done");
+            log.info(MessageBundles.get("maintenance.log.database-optimize.done"));
         }
     }
 }

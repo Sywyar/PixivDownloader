@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.maintenance;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.time.DayOfWeek;
 import java.time.LocalDateTime;
@@ -72,7 +73,7 @@ public class MaintenanceCoordinator {
 
     synchronized boolean runScheduledIfDue(LocalDateTime now) {
         if (!properties.isEnabled()) {
-            log.debug("Skipping scheduled maintenance: maintenance.enabled=false");
+            log.debug(MessageBundles.get("maintenance.log.scheduled.disabled"));
             return false;
         }
         if (now == null) {
@@ -118,33 +119,33 @@ public class MaintenanceCoordinator {
 
     private synchronized void runMaintenance(String trigger) {
         if (!paused.compareAndSet(false, true)) {
-            log.warn("Maintenance is already running, skipping new {} trigger", trigger);
+            log.warn(MessageBundles.get("maintenance.log.already-running", trigger));
             return;
         }
         long started = System.currentTimeMillis();
         lastStartedAt = started;
         lastTriggeredBy = trigger;
-        log.info("Maintenance window OPEN ({}); {} task(s) registered", trigger, tasks.size());
+        log.info(MessageBundles.get("maintenance.log.window.opened", trigger, tasks.size()));
         try {
             MaintenanceContext ctx = new MaintenanceContext(trigger, started);
             for (MaintenanceTask task : tasks) {
                 long taskStart = System.currentTimeMillis();
                 String name = task.name();
                 try {
-                    log.info("  → Maintenance task '{}' START", name);
+                    log.info(MessageBundles.get("maintenance.log.task.start", name));
                     task.execute(ctx);
-                    log.info("  ← Maintenance task '{}' OK ({} ms)", name,
-                            System.currentTimeMillis() - taskStart);
+                    log.info(MessageBundles.get("maintenance.log.task.ok", name,
+                            System.currentTimeMillis() - taskStart));
                 } catch (Throwable t) {
-                    log.error("  ✗ Maintenance task '{}' FAILED ({} ms): {}",
-                            name, System.currentTimeMillis() - taskStart, t.getMessage(), t);
+                    log.error(MessageBundles.get("maintenance.log.task.failed",
+                            name, System.currentTimeMillis() - taskStart, t.getMessage()), t);
                 }
             }
         } finally {
             long finished = System.currentTimeMillis();
             lastFinishedAt = finished;
             paused.set(false);
-            log.info("Maintenance window CLOSED ({} ms total)", finished - started);
+            log.info(MessageBundles.get("maintenance.log.window.closed", finished - started));
         }
     }
 
@@ -154,7 +155,7 @@ public class MaintenanceCoordinator {
             return;
         }
         lastInvalidScheduleWarning = key;
-        log.warn("Skipping scheduled maintenance for {}: maintenance.{}.time='{}' is invalid, expected HH:mm",
-                day, day.name().toLowerCase(Locale.ROOT), value);
+        log.warn(MessageBundles.get("maintenance.log.invalid-schedule",
+                day, day.name().toLowerCase(Locale.ROOT), value));
     }
 }

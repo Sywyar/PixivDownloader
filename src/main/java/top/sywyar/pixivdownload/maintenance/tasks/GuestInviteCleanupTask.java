@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
@@ -29,7 +30,7 @@ public class GuestInviteCleanupTask implements MaintenanceTask {
         long now = System.currentTimeMillis();
         int purged = guestInviteService.purgeExpiredAndRevoked(now);
         int trimmed = guestInviteService.trimOldAccessStats();
-        log.info("Guest invite cleanup: {} expired/revoked invite(s) purged, {} stale access bucket(s) trimmed",
-                purged, trimmed);
+        log.info(MessageBundles.get("maintenance.log.guest-invite-cleanup.result",
+                purged, trimmed));
     }
 }
