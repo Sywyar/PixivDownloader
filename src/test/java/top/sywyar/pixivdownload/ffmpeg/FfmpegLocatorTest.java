@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.ffmpeg;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.common.AppInfo;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -22,7 +23,7 @@ class FfmpegLocatorTest {
                 Path.of("C:\\Users\\tester")
         );
 
-        assertEquals(Path.of("C:\\Users\\tester\\AppData\\Local").resolve("PixivDownload"), root);
+        assertEquals(Path.of("C:\\Users\\tester\\AppData\\Local").resolve(AppInfo.LEGACY_ARTIFACT_NAME), root);
     }
 
     @Test
@@ -30,7 +31,7 @@ class FfmpegLocatorTest {
         Path userHome = Path.of("/home/tester");
         Path root = FfmpegLocator.defaultManagedRoot("Linux", "", userHome);
 
-        assertEquals(userHome.resolve(".pixivdownload"), root);
+        assertEquals(userHome.resolve(AppInfo.HIDDEN_DIRECTORY_NAME), root);
     }
 
     @Test

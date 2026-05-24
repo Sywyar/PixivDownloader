@@ -14,8 +14,7 @@ public class AppVersion {
     private static final String JPACKAGE_APP_VERSION = "jpackage.app-version";
     private static final String APP_VERSION_PROPERTIES = "/app-version.properties";
     private static final String APP_VERSION_KEY = "app.version";
-    private static final String MAVEN_POM_PROPERTIES =
-            "/META-INF/maven/top.sywyar.lovepopup/PixivDownload/pom.properties";
+    private static final String MAVEN_POM_PROPERTIES = AppInfo.MAVEN_POM_PROPERTIES_RESOURCE;
 
     /**
      * 返回展示给用户的应用版本。

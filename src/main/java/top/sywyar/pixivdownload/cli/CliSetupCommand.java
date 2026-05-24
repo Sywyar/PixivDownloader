@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.cli;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.config.DefaultConfigTemplate;
 import top.sywyar.pixivdownload.config.ProxyConfig;
@@ -176,10 +177,10 @@ public final class CliSetupCommand {
             return;
         }
         String version = AppVersion.getDisplayVersionOrDefault(message("app.version.unknown"));
-        out.println("PixivDownload " + version);
+        out.println(AppInfo.NAME + " " + version);
         out.println(message("cli.help.usage.heading"));
-        out.println("  java -jar PixivDownload-vX.X.X.jar [OPTIONS]");
-        out.println("  PixivDownload.exe [OPTIONS]");
+        out.println("  java -jar " + AppInfo.LEGACY_ARTIFACT_NAME + "-vX.X.X.jar [OPTIONS]");
+        out.println("  " + AppInfo.EXECUTABLE_NAME + " [OPTIONS]");
         out.println();
 
         out.println(message("cli.help.section.general"));

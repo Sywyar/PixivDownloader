@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel;
 
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
@@ -18,8 +19,8 @@ import java.net.URI;
 @Slf4j
 public class AboutPanel extends JPanel {
 
-    private static final String GITHUB_URL = "https://github.com/Sywyar/PixivDownloader";
-    private static final String APP_NAME = GuiMessages.get("app.name");
+    private static final String GITHUB_URL = AppInfo.GITHUB_URL;
+    private static final String APP_NAME = AppInfo.NAME;
 
     private static final String LICENSE_TEXT = """
                                 GNU AFFERO GENERAL PUBLIC LICENSE

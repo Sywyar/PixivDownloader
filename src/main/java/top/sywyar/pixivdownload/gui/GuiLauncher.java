@@ -58,7 +58,7 @@ import java.util.stream.Collectors;
  * <p>同时设置 {@code org.springframework.boot.logging.LoggingSystem=none}，禁止
  * Spring Boot 接管日志系统。否则 Spring Boot 启动时会重新初始化 logback，导致
  * {@code append=false} 的 HTML appender 截断文件，丢失 Spring Boot 启动前
- * （包括 {@code PixivDownload 启动中}）的日志行。本项目所有日志配置都在
+ * （包括 {@code PixivDownloader 启动中}）的日志行。本项目所有日志配置都在
  * {@code logback.xml} 中，未使用任何 {@code logging.*} 属性，因此禁用 Spring Boot
  * 日志接管是安全的。
  */

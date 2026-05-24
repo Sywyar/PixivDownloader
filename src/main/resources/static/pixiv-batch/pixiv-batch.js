@@ -32,14 +32,19 @@
     }
 
     function renderFooterInfo() {
+        const nameEl = document.getElementById('app-name');
         const versionEl = document.getElementById('app-version');
-        if (!versionEl) return;
-        if (appInfo && appInfo.version) {
-            versionEl.textContent = appInfo.version;
-        } else {
-            versionEl.textContent = appInfoLoaded
-                ? bt('footer.version-unknown', 'unknown')
-                : bt('footer.version-loading', 'loading...');
+        if (nameEl) {
+            nameEl.textContent = appInfo && appInfo.name ? appInfo.name : '...';
+        }
+        if (versionEl) {
+            if (appInfo && appInfo.version) {
+                versionEl.textContent = appInfo.version;
+            } else {
+                versionEl.textContent = appInfoLoaded
+                    ? bt('footer.version-unknown', 'unknown')
+                    : bt('footer.version-loading', 'loading...');
+            }
         }
         if (appInfo) {
             setFooterLink('app-github-link', appInfo.githubUrl);

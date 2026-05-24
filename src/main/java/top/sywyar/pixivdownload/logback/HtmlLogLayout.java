@@ -5,6 +5,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.classic.spi.StackTraceElementProxy;
 import ch.qos.logback.core.LayoutBase;
+import top.sywyar.pixivdownload.common.AppInfo;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -49,7 +50,7 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
                 <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
-                <title>PixivDownload Log</title>
+                <title>%s Log</title>
                 <style>
                   * { box-sizing: border-box; margin: 0; padding: 0; }
                   body {
@@ -100,6 +101,7 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
                 <body>
                 """.formatted(
                 java.util.Locale.getDefault().toLanguageTag(),
+                AppInfo.NAME,
                 COLOR_INFO, COLOR_WARN, COLOR_ERROR, COLOR_DEBUG, COLOR_TRACE);
     }
 

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.config;
 
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.io.IOException;
@@ -29,8 +30,8 @@ public final class RuntimeFiles {
     public static final String DEFAULT_DATA_DIR = "data";
     public static final String DEFAULT_DOWNLOAD_ROOT = "pixiv-download";
     private static final String WINDOWS_INSTANCE_ROOT_ENV = "LOCALAPPDATA";
-    private static final String WINDOWS_INSTANCE_APP_DIR = "PixivDownload";
-    private static final String NON_WINDOWS_INSTANCE_APP_DIR = ".pixivdownload";
+    private static final String WINDOWS_INSTANCE_APP_DIR = AppInfo.LEGACY_ARTIFACT_NAME;
+    private static final String NON_WINDOWS_INSTANCE_APP_DIR = AppInfo.HIDDEN_DIRECTORY_NAME;
     private static final String INSTANCE_SUBDIR = "run";
 
     public static final String CONFIG_YAML = "config.yaml";

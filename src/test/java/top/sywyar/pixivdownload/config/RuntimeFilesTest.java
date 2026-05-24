@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.common.AppInfo;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -144,7 +145,7 @@ class RuntimeFilesTest {
                 "C:\\Users\\tester",
                 "C:\\Temp");
 
-        assertThat(resolved).isEqualTo(Path.of("C:\\Users\\tester\\AppData\\Local", "PixivDownload", "run"));
+        assertThat(resolved).isEqualTo(Path.of("C:\\Users\\tester\\AppData\\Local", AppInfo.LEGACY_ARTIFACT_NAME, "run"));
     }
 
     @Test

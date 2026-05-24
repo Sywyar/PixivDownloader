@@ -17,8 +17,8 @@
     <groupId>top.sywyar.lovepopup</groupId>
     <artifactId>PixivDownload</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>PixivDownload</name>
-    <description>PixivDownload</description>
+    <name>PixivDownloader</name>
+    <description>PixivDownloader</description>
     <url/>
     <licenses>
         <license/>

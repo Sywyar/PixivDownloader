@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+### Changed
+- 统一应用名称为 PixivDownloader，新增 AppInfo 类集中管理应用元数据，通过 LEGACY_ARTIFACT_NAME 保留文件路径与可执行文件名称的向后兼容。
+
 ### Features
 - 批量下载页新增页脚，展示 GitHub 仓库、Wiki、Release、许可证与当前应用版本信息。
 - GUI 状态页新增 Pixiv 连通性检测，使用当前代理配置从后端访问 Pixiv，并显示 HTTP 状态与耗时。

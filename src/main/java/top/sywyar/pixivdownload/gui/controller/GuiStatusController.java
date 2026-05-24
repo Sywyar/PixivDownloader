@@ -8,6 +8,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.config.RuntimeConfigReloadService;
@@ -107,7 +108,7 @@ public class GuiStatusController {
         try {
             HttpRequest request = HttpRequest.newBuilder(PIXIV_CONNECTIVITY_URI)
                     .timeout(PIXIV_REQUEST_TIMEOUT)
-                    .header("User-Agent", "PixivDownload-GUI")
+                    .header("User-Agent", AppInfo.dashedUserAgent("GUI"))
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
                     .GET()
                     .build();

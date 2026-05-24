@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.update;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 
 import java.util.Locale;
@@ -17,9 +18,9 @@ public class UpdateConfig {
      * 始终指向当前最新发布。
      */
     public static final String DEFAULT_MANIFEST_URL =
-            "https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json";
+            AppInfo.LATEST_RELEASE_DOWNLOAD_URL + "/update.json";
     public static final String DEFAULT_NIGHTLY_MANIFEST_URL =
-            "https://github.com/Sywyar/PixivDownloader/releases/download/nightly/update.json";
+            AppInfo.NIGHTLY_RELEASE_DOWNLOAD_URL + "/update.json";
 
     private volatile boolean enabled = true;
     private volatile String manifestUrl = DEFAULT_MANIFEST_URL;

@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.common.SemanticVersion;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -220,7 +221,7 @@ public class UpdateService {
     private UpdateManifest fetchManifest(String manifestUrl) throws IOException {
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(java.util.List.of(MediaType.APPLICATION_JSON, MediaType.ALL));
-        headers.set(HttpHeaders.USER_AGENT, "PixivDownload-Updater");
+        headers.set(HttpHeaders.USER_AGENT, AppInfo.dashedUserAgent("Updater"));
 
         ResponseEntity<byte[]> response = downloadRestTemplate.exchange(
                 URI.create(manifestUrl),
@@ -412,7 +413,7 @@ public class UpdateService {
         currentDownloadProgress = new DownloadProgress(0, declaredSize, false, false, null, null);
 
         HttpHeaders requestHeaders = new HttpHeaders();
-        requestHeaders.set(HttpHeaders.USER_AGENT, "PixivDownload-Updater");
+        requestHeaders.set(HttpHeaders.USER_AGENT, AppInfo.dashedUserAgent("Updater"));
 
         try {
             downloadRestTemplate.execute(URI.create(url), HttpMethod.GET,
@@ -520,7 +521,7 @@ public class UpdateService {
         }
         // 防御性兜底：清单 URL 路径异常时仍能落地一个可用文件名
         if (guess.isBlank()) {
-            return "PixivDownload-" + (version == null ? "update" : version) + "-setup.exe";
+            return AppInfo.LEGACY_ARTIFACT_NAME + "-" + (version == null ? "update" : version) + "-setup.exe";
         }
         return guess;
     }

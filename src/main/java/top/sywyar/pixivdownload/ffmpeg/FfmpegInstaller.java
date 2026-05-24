@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
 import java.io.IOException;
@@ -96,7 +97,7 @@ public final class FfmpegInstaller {
 
         HttpRequest request = HttpRequest.newBuilder(URI.create(WINDOWS_ARCHIVE_URL))
                 .timeout(Duration.ofMinutes(10))
-                .header("User-Agent", "PixivDownload/ffmpeg-installer")
+                .header("User-Agent", AppInfo.userAgent("ffmpeg-installer"))
                 .GET()
                 .build();
 

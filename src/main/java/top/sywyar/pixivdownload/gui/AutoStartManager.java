@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui;
 
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.io.IOException;
@@ -17,8 +18,8 @@ public final class AutoStartManager {
     public static final String STARTUP_ARG = "--pixivdownload-startup";
 
     private static final String STARTUP_ARG_ALIAS = "--startup";
-    private static final String APP_EXE_NAME = "PixivDownload.exe";
-    private static final String SHORTCUT_NAME = "PixivDownload.lnk";
+    private static final String APP_EXE_NAME = AppInfo.EXECUTABLE_NAME;
+    private static final String SHORTCUT_NAME = AppInfo.SHORTCUT_NAME;
     private static final String STARTUP_FOLDER = "Microsoft\\Windows\\Start Menu\\Programs\\Startup";
     // 参数通过环境变量传入，而不是命令行位置参数：powershell.exe -Command 会把后续位置
     // 参数按空格重新拼回命令文本，导致含空格的路径（如 "...\Start Menu\..."）被截断。
@@ -73,7 +74,7 @@ public final class AutoStartManager {
         try {
             if (enabled) {
                 Path executable = currentApplicationExecutable()
-                        .orElseThrow(() -> new IOException("Current process is not PixivDownload.exe"));
+                        .orElseThrow(() -> new IOException("Current process is not " + AppInfo.EXECUTABLE_NAME));
                 createShortcut(shortcut.get(), executable);
                 log.info(MessageBundles.get("gui.autostart.log.enabled", shortcut.get()));
             } else {

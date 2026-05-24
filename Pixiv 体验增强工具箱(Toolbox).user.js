@@ -389,7 +389,7 @@
             'cookie-sync.status.success': 'Cookie saved to the server.',
             'cookie-sync.status.no-phpsessid': 'Could not read the login cookie (PHPSESSID), so saving was cancelled to avoid overwriting your existing cookie. The Pixiv HttpOnly session cookie was not exposed by your browser/userscript manager. See the Cookie guide in the Cookie section on the download page to set it manually.',
             'cookie-sync.status.failed': 'Save failed (HTTP {0}).',
-            'cookie-sync.signal.done': 'Cookie synced. You can close this page and return to PixivDownload.',
+            'cookie-sync.signal.done': 'Cookie synced. You can close this page and return to PixivDownloader.',
             'cookie-sync.signal.fail': 'Cookie sync failed. Make sure you are logged in to Pixiv and retry; you may close this page.',
             'cookie-sync.signal.nophp': 'Could not read the login cookie (PHPSESSID); nothing was saved. The Pixiv HttpOnly session cookie was not exposed by your browser/userscript manager. See the Cookie guide in the Cookie section on the download page to set it manually. You may close this page.'
         },
@@ -428,7 +428,7 @@
             'cookie-sync.status.success': 'Cookie 已保存到服务器。',
             'cookie-sync.status.no-phpsessid': '未能读取登录态 Cookie（PHPSESSID），已取消保存以免覆盖现有 Cookie。本环境的浏览器/脚本管理器未暴露 Pixiv 的 HttpOnly 会话 Cookie，请在下载页 Cookie 区查看《获取 Cookie 指南》手动设置。',
             'cookie-sync.status.failed': '保存失败（HTTP {0}）。',
-            'cookie-sync.signal.done': 'Cookie 已同步，请关闭本页面并返回 PixivDownload。',
+            'cookie-sync.signal.done': 'Cookie 已同步，请关闭本页面并返回 PixivDownloader。',
             'cookie-sync.signal.fail': 'Cookie 同步失败，请确认已登录 Pixiv 后重试，可关闭本页面。',
             'cookie-sync.signal.nophp': '未能读取登录态 Cookie（PHPSESSID），未保存任何内容。本环境的浏览器/脚本管理器未暴露 Pixiv 的 HttpOnly 会话 Cookie，请在下载页 Cookie 区查看《获取 Cookie 指南》手动设置。可关闭本页面。'
         }
@@ -1440,7 +1440,7 @@
                     + 'font:15px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;'
                     + 'text-align:center;padding:28px;';
                 box.textContent = state === 'ok'
-                    ? t('cookie-sync.signal.done', 'Cookie 已同步，请关闭本页面并返回 PixivDownload。')
+                    ? t('cookie-sync.signal.done', 'Cookie 已同步，请关闭本页面并返回 PixivDownloader。')
                     : state === 'nophp'
                         ? t('cookie-sync.signal.nophp', '未能读取登录态 Cookie（PHPSESSID），未保存任何内容。本环境的浏览器/脚本管理器未暴露 Pixiv 的 HttpOnly 会话 Cookie，请在下载页 Cookie 区查看《获取 Cookie 指南》手动设置。可关闭本页面。')
                         : t('cookie-sync.signal.fail', 'Cookie 同步失败，请确认已登录 Pixiv 后重试，可关闭本页面。');

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.ffmpeg;
 
+import top.sywyar.pixivdownload.common.AppInfo;
+
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -74,9 +76,9 @@ public final class FfmpegLocator {
     static Path defaultManagedRoot(String osName, String localAppData, Path userHome) {
         boolean windows = osName != null && osName.toLowerCase(Locale.ROOT).contains("win");
         if (windows && localAppData != null && !localAppData.isBlank()) {
-            return Path.of(localAppData).resolve("PixivDownload");
+            return Path.of(localAppData).resolve(AppInfo.LEGACY_ARTIFACT_NAME);
         }
-        return userHome.resolve(".pixivdownload");
+        return userHome.resolve(AppInfo.HIDDEN_DIRECTORY_NAME);
     }
 
     static Optional<FfmpegInstallation> installationAt(Path root, FfmpegInstallation.Source source) {

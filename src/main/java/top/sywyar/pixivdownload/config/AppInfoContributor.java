@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.config;
 import org.springframework.boot.actuate.info.Info;
 import org.springframework.boot.actuate.info.InfoContributor;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 
 import java.util.LinkedHashMap;
@@ -19,7 +20,7 @@ public class AppInfoContributor implements InfoContributor {
     @Override
     public void contribute(Info.Builder builder) {
         Map<String, Object> app = new LinkedHashMap<>();
-        app.put("name", "PixivDownload");
+        app.put("name", AppInfo.NAME);
         app.put("version", AppVersion.getDisplayVersionOrDefault("unknown"));
         builder.withDetail("app", app);
     }
