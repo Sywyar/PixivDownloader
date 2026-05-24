@@ -49,6 +49,12 @@ public interface NovelMapper {
             + "cover_ext TEXT DEFAULT NULL)")
     void createNovelsTable();
 
+    @Update("CREATE INDEX IF NOT EXISTS idx_novels_author_id ON novels(author_id)")
+    void createNovelsAuthorIndex();
+
+    @Update("CREATE INDEX IF NOT EXISTS idx_novels_series_order ON novels(series_id, series_order)")
+    void createNovelsSeriesOrderIndex();
+
     /** 幂等迁移：旧库为已存在的 novels 表补 cover_ext 列；列已存在时调用方需吞掉异常 */
     @Update("ALTER TABLE novels ADD COLUMN cover_ext TEXT DEFAULT NULL")
     void addCoverExtColumn();

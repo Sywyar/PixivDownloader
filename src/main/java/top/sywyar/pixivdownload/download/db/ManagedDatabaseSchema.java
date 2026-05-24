@@ -51,7 +51,9 @@ public final class ManagedDatabaseSchema {
                         column("move_time", "INTEGER", false, null, 0)
                 ),
                 List.of(
-                        uniqueConstraint("time")
+                        uniqueConstraint("time"),
+                        explicitIndex("idx_artworks_author_time", false, "author_id", "time"),
+                        explicitIndex("idx_artworks_series_order", false, "series_id", "series_order")
                 )
         ));
 
@@ -262,7 +264,9 @@ public final class ManagedDatabaseSchema {
                         column("cover_ext", "TEXT", false, null, 0)
                 ),
                 List.of(
-                        uniqueConstraint("time")
+                        uniqueConstraint("time"),
+                        explicitIndex("idx_novels_author_id", false, "author_id"),
+                        explicitIndex("idx_novels_series_order", false, "series_id", "series_order")
                 )
         ));
 

@@ -11,6 +11,7 @@ import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -41,6 +42,16 @@ class DatabaseSchemaInspectorTest {
             map.put(spec.name(), spec);
         }
         return new ManagedDatabaseSchema.DatabaseSchema(Map.copyOf(map));
+    }
+
+    private ManagedDatabaseSchema.DatabaseSchema specSubset(Set<String> tableNames) {
+        java.util.LinkedHashMap<String, ManagedDatabaseSchema.TableSpec> subset = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, ManagedDatabaseSchema.TableSpec> e : ManagedDatabaseSchema.SPEC.tables().entrySet()) {
+            if (tableNames.contains(e.getKey())) {
+                subset.put(e.getKey(), e.getValue());
+            }
+        }
+        return new ManagedDatabaseSchema.DatabaseSchema(Map.copyOf(subset));
     }
 
     private ManagedDatabaseSchema.TableSpec table(String name,
@@ -393,17 +404,10 @@ class DatabaseSchemaInspectorTest {
 
                 // 仅比对 PixivDatabase.init() 实际建的 6 张表；authors / collections / artwork_collections
                 // 由 AuthorMapper / CollectionMapper 各自负责，超出本测试范围。
-                java.util.Set<String> initManaged = java.util.Set.of(
+                Set<String> initManaged = Set.of(
                         "artworks", "file_author_names", "file_name_templates",
                         "statistics", "tags", "artwork_tags");
-                java.util.LinkedHashMap<String, ManagedDatabaseSchema.TableSpec> subset =
-                        new java.util.LinkedHashMap<>();
-                for (Map.Entry<String, ManagedDatabaseSchema.TableSpec> e : ManagedDatabaseSchema.SPEC.tables().entrySet()) {
-                    if (initManaged.contains(e.getKey())) {
-                        subset.put(e.getKey(), e.getValue());
-                    }
-                }
-                ManagedDatabaseSchema.DatabaseSchema sub = new ManagedDatabaseSchema.DatabaseSchema(Map.copyOf(subset));
+                ManagedDatabaseSchema.DatabaseSchema sub = specSubset(initManaged);
 
                 try (Connection c = ds.getConnection()) {
                     DatabaseSchemaInspector.SchemaComparison comparison =
@@ -416,6 +420,53 @@ class DatabaseSchemaInspectorTest {
                                     .toList();
                     assertThat(drift)
                             .as("init() 创建的表与 SPEC 之间不应有漂移：%s", drift)
+                            .isEmpty();
+                }
+            } finally {
+                ds.destroy();
+            }
+        }
+
+        @Test
+        @DisplayName("NovelDatabase.init() 后由其管理的所有表都应与 SPEC 完全匹配")
+        void shouldMatchNovelProductionSchemaAfterInit() throws Exception {
+            org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
+                    new org.springframework.jdbc.datasource.SingleConnectionDataSource();
+            ds.setDriverClassName("org.sqlite.JDBC");
+            ds.setUrl("jdbc:sqlite::memory:");
+            ds.setSuppressClose(true);
+
+            org.apache.ibatis.mapping.Environment env = new org.apache.ibatis.mapping.Environment(
+                    "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
+            org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
+            config.setMapUnderscoreToCamelCase(true);
+            config.addMapper(top.sywyar.pixivdownload.novel.db.NovelMapper.class);
+            org.apache.ibatis.session.SqlSessionFactory factory =
+                    new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
+
+            try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
+                top.sywyar.pixivdownload.novel.db.NovelMapper mapper =
+                        session.getMapper(top.sywyar.pixivdownload.novel.db.NovelMapper.class);
+                top.sywyar.pixivdownload.novel.db.NovelDatabase database =
+                        new top.sywyar.pixivdownload.novel.db.NovelDatabase(mapper, null, null);
+                database.init();
+
+                // 仅比对 NovelDatabase.init() 实际建的表；共享 tags 表由 PixivDatabase 负责。
+                Set<String> initManaged = Set.of(
+                        "novels", "novel_series", "novel_tags", "novel_series_tags",
+                        "novel_collections", "novel_images");
+                ManagedDatabaseSchema.DatabaseSchema sub = specSubset(initManaged);
+
+                try (Connection c = ds.getConnection()) {
+                    DatabaseSchemaInspector.SchemaComparison comparison =
+                            DatabaseSchemaInspector.compare(c, sub);
+
+                    java.util.List<DatabaseSchemaInspector.SchemaDifference> drift =
+                            comparison.details().stream()
+                                    .filter(d -> d.kind() != DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE)
+                                    .toList();
+                    assertThat(drift)
+                            .as("init() 创建的小说表与 SPEC 之间不应有漂移：%s", drift)
                             .isEmpty();
                 }
             } finally {

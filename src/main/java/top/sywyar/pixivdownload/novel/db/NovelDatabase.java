@@ -34,6 +34,8 @@ public class NovelDatabase {
     @PostConstruct
     public void init() {
         novelMapper.createNovelsTable();
+        novelMapper.createNovelsAuthorIndex();
+        novelMapper.createNovelsSeriesOrderIndex();
         novelMapper.createNovelSeriesTable();
         novelMapper.createNovelTagsTable();
         novelMapper.createNovelTagsTagIndex();

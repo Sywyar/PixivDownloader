@@ -49,6 +49,8 @@ public class PixivDatabase {
         addColumnIfMissing(pixivMapper::addFileAuthorNameIdColumn);
         addColumnIfMissing(pixivMapper::addSeriesIdColumn);
         addColumnIfMissing(pixivMapper::addSeriesOrderColumn);
+        pixivMapper.createArtworksAuthorTimeIndex();
+        pixivMapper.createArtworksSeriesOrderIndex();
         pixivMapper.migrateArtworkTimestampsToMillis();
         pixivMapper.migrateArtworkMoveTimestampsToMillis();
         Long maxTime = pixivMapper.findMaxTime();

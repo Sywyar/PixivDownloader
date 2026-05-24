@@ -72,6 +72,12 @@ public interface PixivMapper {
     @Update("CREATE INDEX IF NOT EXISTS idx_artwork_tags_tag_id ON artwork_tags(tag_id)")
     void createArtworkTagsTagIndex();
 
+    @Update("CREATE INDEX IF NOT EXISTS idx_artworks_author_time ON artworks(author_id, time)")
+    void createArtworksAuthorTimeIndex();
+
+    @Update("CREATE INDEX IF NOT EXISTS idx_artworks_series_order ON artworks(series_id, series_order)")
+    void createArtworksSeriesOrderIndex();
+
     /** 幂等迁移：为旧库补 R18 列，列已存在时调用方需吞掉异常 */
     @Update("ALTER TABLE artworks ADD COLUMN \"R18\" INTEGER DEFAULT NULL")
     void addR18Column();
