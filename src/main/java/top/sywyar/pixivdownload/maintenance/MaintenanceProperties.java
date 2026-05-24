@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 public class MaintenanceProperties {
 
     public static final String DEFAULT_TIME = "10:00";
-    private static final Pattern TIME_PATTERN = Pattern.compile("^(?:[01]?\\d|2[0-3]):[0-5]\\d$");
+    private static final Pattern TIME_PATTERN = Pattern.compile("^(?:[01]?\\d|2[0-3]):[0-5]?\\d$");
 
     private volatile boolean enabled = true;
     private volatile DaySchedule monday = new DaySchedule(true, DEFAULT_TIME);

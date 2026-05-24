@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
  * Surgical（行内替换）方式读写 config.yaml。
@@ -13,6 +14,9 @@ import java.util.*;
  * 与 SnakeYAML 重序列化方案相比不会丢失文件格式。
  */
 public class ConfigFileEditor {
+
+    /** YAML sexagesimal pattern: values like "23:50" are misinterpreted as integers by SnakeYAML. */
+    private static final Pattern YAML_SEXAGESIMAL = Pattern.compile("^-?\\d+:\\d+$");
 
     private final Path configPath;
 
@@ -149,7 +153,12 @@ public class ConfigFileEditor {
         if (colonIdx < 0) return "";
         String afterColon = work.substring(colonIdx + 1);
         int hashIdx = afterColon.indexOf('#');
-        return (hashIdx >= 0 ? afterColon.substring(0, hashIdx) : afterColon).trim();
+        String val = (hashIdx >= 0 ? afterColon.substring(0, hashIdx) : afterColon).trim();
+        if (val.length() >= 2 && val.startsWith("\"") && val.endsWith("\"")
+                && YAML_SEXAGESIMAL.matcher(val.substring(1, val.length() - 1)).matches()) {
+            val = val.substring(1, val.length() - 1);
+        }
+        return val;
     }
 
     /** 从行中提取行尾注释（"# ..." 部分，含前导空格）。 */
@@ -178,6 +187,9 @@ public class ConfigFileEditor {
         String inlineComment = extractInlineComment(originalLine.trim());
         String commentSuffix = inlineComment.isEmpty() ? "" : "  " + inlineComment;
         String v = (value == null) ? "" : value;
+        if (YAML_SEXAGESIMAL.matcher(v).matches()) {
+            v = "\"" + v + "\"";
+        }
         return ws + key + ": " + v + commentSuffix;
     }
 }
