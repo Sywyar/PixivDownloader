@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.util.List;
@@ -24,6 +25,10 @@ public final class ConfigFieldRegistry {
      */
     public static String groupMultiMode() {
         return message("gui.config.group.multi-mode");
+    }
+
+    public static String groupMaintenance() {
+        return message("gui.config.group.maintenance");
     }
 
     /** 全部分组名（按当前 locale，保持顺序）。 */
@@ -302,6 +307,104 @@ public final class ConfigFieldRegistry {
                         .help(message("gui.config.field.maintenance.enabled.help"))
                         .hotReloadable()
                         .build(),
+                ConfigFieldSpec.builder("maintenance.monday.enabled", message("gui.config.field.maintenance.monday.enabled.label"), BOOL, groupMaintenance)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.maintenance.day.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.monday.time", message("gui.config.field.maintenance.monday.time.label"), STRING, groupMaintenance)
+                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .help(message("gui.config.field.maintenance.day.time.help"))
+                        .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.monday.enabled"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.monday.enabled"))
+                        .validator(ConfigFieldRegistry::validateMaintenanceTime)
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.tuesday.enabled", message("gui.config.field.maintenance.tuesday.enabled.label"), BOOL, groupMaintenance)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.maintenance.day.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.tuesday.time", message("gui.config.field.maintenance.tuesday.time.label"), STRING, groupMaintenance)
+                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .help(message("gui.config.field.maintenance.day.time.help"))
+                        .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.tuesday.enabled"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.tuesday.enabled"))
+                        .validator(ConfigFieldRegistry::validateMaintenanceTime)
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.wednesday.enabled", message("gui.config.field.maintenance.wednesday.enabled.label"), BOOL, groupMaintenance)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.maintenance.day.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.wednesday.time", message("gui.config.field.maintenance.wednesday.time.label"), STRING, groupMaintenance)
+                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .help(message("gui.config.field.maintenance.day.time.help"))
+                        .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.wednesday.enabled"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.wednesday.enabled"))
+                        .validator(ConfigFieldRegistry::validateMaintenanceTime)
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.thursday.enabled", message("gui.config.field.maintenance.thursday.enabled.label"), BOOL, groupMaintenance)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.maintenance.day.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.thursday.time", message("gui.config.field.maintenance.thursday.time.label"), STRING, groupMaintenance)
+                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .help(message("gui.config.field.maintenance.day.time.help"))
+                        .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.thursday.enabled"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.thursday.enabled"))
+                        .validator(ConfigFieldRegistry::validateMaintenanceTime)
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.friday.enabled", message("gui.config.field.maintenance.friday.enabled.label"), BOOL, groupMaintenance)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.maintenance.day.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.friday.time", message("gui.config.field.maintenance.friday.time.label"), STRING, groupMaintenance)
+                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .help(message("gui.config.field.maintenance.day.time.help"))
+                        .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.friday.enabled"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.friday.enabled"))
+                        .validator(ConfigFieldRegistry::validateMaintenanceTime)
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.saturday.enabled", message("gui.config.field.maintenance.saturday.enabled.label"), BOOL, groupMaintenance)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.maintenance.day.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.saturday.time", message("gui.config.field.maintenance.saturday.time.label"), STRING, groupMaintenance)
+                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .help(message("gui.config.field.maintenance.day.time.help"))
+                        .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.saturday.enabled"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.saturday.enabled"))
+                        .validator(ConfigFieldRegistry::validateMaintenanceTime)
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.sunday.enabled", message("gui.config.field.maintenance.sunday.enabled.label"), BOOL, groupMaintenance)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.maintenance.day.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("maintenance.sunday.time", message("gui.config.field.maintenance.sunday.time.label"), STRING, groupMaintenance)
+                        .defaultValue(MaintenanceProperties.DEFAULT_TIME)
+                        .help(message("gui.config.field.maintenance.day.time.help"))
+                        .visibleWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.sunday.enabled"))
+                        .enabledWhen(snap -> snap.isTrue("maintenance.enabled") && snap.isTrue("maintenance.sunday.enabled"))
+                        .validator(ConfigFieldRegistry::validateMaintenanceTime)
+                        .hotReloadable()
+                        .build(),
 
                 // ── HTTPS ──────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("ssl.domain", message("gui.config.field.ssl.domain.label"), STRING, groupHttps)
@@ -411,5 +514,11 @@ public final class ConfigFieldRegistry {
 
     private static String message(String code, Object... args) {
         return GuiMessages.get(code, args);
+    }
+
+    private static String validateMaintenanceTime(String value) {
+        return MaintenanceProperties.isValidTime(value)
+                ? null
+                : message("gui.config.validation.time-hh-mm");
     }
 }

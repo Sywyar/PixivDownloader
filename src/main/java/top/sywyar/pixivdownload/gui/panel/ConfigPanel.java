@@ -41,6 +41,8 @@ public class ConfigPanel extends JPanel {
     private static final String DEFAULT_ROOT_FOLDER = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
     private static final String SOLO_MODE = "solo";
     private static final SSLContext TRUST_ALL_SSL = buildTrustAllSslContext();
+    private static final List<String> MAINTENANCE_WEEKDAYS = List.of(
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday");
 
     private final Path configPath;
     private final int serverPort;
@@ -52,6 +54,7 @@ public class ConfigPanel extends JPanel {
     private final List<String> groups;
     private final String serverGroup;
     private final String multiModeGroup;
+    private final String maintenanceGroup;
 
     /** key → 渲染后的字段（含取值/赋值方法） */
     private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
@@ -71,6 +74,7 @@ public class ConfigPanel extends JPanel {
         this.groups = ConfigFieldRegistry.groups();
         this.serverGroup = groups.isEmpty() ? "" : groups.get(0);
         this.multiModeGroup = ConfigFieldRegistry.groupMultiMode();
+        this.maintenanceGroup = ConfigFieldRegistry.groupMaintenance();
         buildUi();
         loadCurrentValues();
         checkFieldDrift();
@@ -104,12 +108,20 @@ public class ConfigPanel extends JPanel {
                 .toList();
 
         for (ConfigFieldSpec spec : fields) {
+            if (maintenanceGroup.equals(group) && isMaintenanceDayEnabledKey(spec.key())) {
+                continue;
+            }
             FieldRenderer.RenderedField rf = FieldRenderer.render(spec);
-            renderedFields.put(spec.key(), rf);
-            attachChangeListener(rf.control());
+            registerRenderedField(spec, rf);
             rf.panel().setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(rf.panel());
             content.add(Box.createVerticalStrut(2));
+            if (maintenanceGroup.equals(group) && "maintenance.enabled".equals(spec.key())) {
+                JPanel weekdaysPanel = buildMaintenanceWeekdayPanel(fields);
+                weekdaysPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+                content.add(weekdaysPanel);
+                content.add(Box.createVerticalStrut(2));
+            }
         }
         if (serverGroup.equals(group)) {
             JPanel autoStartPanel = buildAutoStartPanel();
@@ -123,6 +135,70 @@ public class ConfigPanel extends JPanel {
         sp.setBorder(null);
         sp.getVerticalScrollBar().setUnitIncrement(16);
         return sp;
+    }
+
+    private JPanel buildMaintenanceWeekdayPanel(List<ConfigFieldSpec> fields) {
+        JPanel checkBoxRow = new JPanel(new GridLayout(1, MAINTENANCE_WEEKDAYS.size(), 8, 0));
+        checkBoxRow.setOpaque(false);
+
+        Map<ConfigFieldSpec, JCheckBox> checkBoxes = new LinkedHashMap<>();
+        for (String weekday : MAINTENANCE_WEEKDAYS) {
+            findField(fields, "maintenance." + weekday + ".enabled").ifPresent(spec -> {
+                JCheckBox checkBox = new JCheckBox(spec.label());
+                checkBox.setSelected("true".equalsIgnoreCase(spec.defaultValue()));
+                checkBox.setToolTipText(spec.helpText());
+                checkBox.setOpaque(false);
+                checkBoxes.put(spec, checkBox);
+                checkBoxRow.add(checkBox);
+            });
+        }
+
+        JPanel panel = FieldRenderer.fieldPanel(
+                message("gui.config.field.maintenance.weekdays.label") + message("gui.punctuation.colon"),
+                checkBoxRow,
+                buildEffectLabel(false),
+                message("gui.config.field.maintenance.weekdays.help"));
+
+        for (Map.Entry<ConfigFieldSpec, JCheckBox> entry : checkBoxes.entrySet()) {
+            JCheckBox checkBox = entry.getValue();
+            FieldRenderer.RenderedField rf = new FieldRenderer.RenderedField(
+                    panel,
+                    () -> Boolean.toString(checkBox.isSelected()),
+                    value -> checkBox.setSelected("true".equalsIgnoreCase(value)),
+                    checkBox,
+                    createHiddenValidationError());
+            registerRenderedField(entry.getKey(), rf);
+        }
+
+        return panel;
+    }
+
+    private static Optional<ConfigFieldSpec> findField(List<ConfigFieldSpec> fields, String key) {
+        return fields.stream()
+                .filter(field -> key.equals(field.key()))
+                .findFirst();
+    }
+
+    private void registerRenderedField(ConfigFieldSpec spec, FieldRenderer.RenderedField rf) {
+        renderedFields.put(spec.key(), rf);
+        attachChangeListener(spec.key(), rf.control());
+    }
+
+    private static JLabel buildEffectLabel(boolean requiresRestart) {
+        JLabel effect = new JLabel(message(requiresRestart
+                ? "gui.label.restart-required"
+                : "gui.label.hot-reload"));
+        effect.setFont(effect.getFont().deriveFont(Font.PLAIN, 11f));
+        effect.setForeground(requiresRestart
+                ? new Color(180, 100, 0)
+                : new Color(0, 128, 96));
+        return effect;
+    }
+
+    private static JTextArea createHiddenValidationError() {
+        JTextArea validationError = new JTextArea();
+        validationError.setVisible(false);
+        return validationError;
     }
 
     private JPanel buildAutoStartPanel() {
@@ -295,21 +371,31 @@ public class ConfigPanel extends JPanel {
 
     private void saveConfig() {
         // 验证（仅验证可见且已启用的字段）
+        clearValidationErrors();
         List<String> errors = new ArrayList<>();
+        FieldRenderer.RenderedField firstInvalidField = null;
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
             if (rf == null || !rf.panel().isVisible() || !rf.control().isEnabled()) continue;
             String val = rf.getValue().get();
             String err = spec.validator().validate(val);
             if (err != null) {
-                errors.add(spec.label() + "：" + err);
+                String message = spec.label() + "：" + err;
+                errors.add(message);
+                rf.setValidationError(message);
+                if (firstInvalidField == null) {
+                    firstInvalidField = rf;
+                }
             }
         }
         if (!errors.isEmpty()) {
             log.warn(logMessage("gui.config.log.validation-failed", String.join("; ", errors)));
-            GuiErrorDialog.show(this,
-                    message("gui.config.dialog.validation-failed.title"),
-                    message("gui.config.dialog.validation-failed.message", String.join("\n", errors)));
+            showNotice(message("gui.config.notice.validation-failed"));
+            if (firstInvalidField != null) {
+                firstInvalidField.control().requestFocusInWindow();
+                firstInvalidField.panel().scrollRectToVisible(new Rectangle(
+                        0, 0, firstInvalidField.panel().getWidth(), firstInvalidField.panel().getHeight()));
+            }
             return;
         }
 
@@ -329,7 +415,9 @@ public class ConfigPanel extends JPanel {
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
             if (rf == null) continue;
-            values.put(spec.key(), rf.panel().isVisible() ? rf.getValue().get() : "");
+            values.put(spec.key(), rf.panel().isVisible() || shouldPreserveHiddenValue(spec)
+                    ? rf.getValue().get()
+                    : "");
         }
 
         Set<String> changedKeys = changedKeys(before, values);
@@ -383,6 +471,27 @@ public class ConfigPanel extends JPanel {
         return value == null ? "" : value.trim();
     }
 
+    private static boolean shouldPreserveHiddenValue(ConfigFieldSpec spec) {
+        return isMaintenanceDayTimeKey(spec.key());
+    }
+
+    private static boolean isMaintenanceDayEnabledKey(String key) {
+        return maintenanceDayKey(key, "enabled");
+    }
+
+    private static boolean isMaintenanceDayTimeKey(String key) {
+        return maintenanceDayKey(key, "time");
+    }
+
+    private static boolean maintenanceDayKey(String key, String suffix) {
+        for (String weekday : MAINTENANCE_WEEKDAYS) {
+            if (("maintenance." + weekday + "." + suffix).equals(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void reloadHotConfigAsync(boolean hasRestartRequiredChanges) {
         SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
             @Override
@@ -426,6 +535,7 @@ public class ConfigPanel extends JPanel {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
             if (rf != null) {
                 rf.setValue().accept(spec.defaultValue());
+                rf.setValidationError(null);
             }
         }
         updateEnabledStates();
@@ -469,19 +579,33 @@ public class ConfigPanel extends JPanel {
      * 为控件添加变更监听，任何值变化都触发一次 enabledWhen 重算。
      * 这样 ENUM/BOOL 类控件改变后，依赖它的字段会立即启用/禁用。
      */
-    private void attachChangeListener(JComponent control) {
+    private void attachChangeListener(String key, JComponent control) {
         if (control instanceof JCheckBox cb) {
-            cb.addItemListener(e -> updateEnabledStates());
+            cb.addItemListener(e -> handleFieldChanged(key));
         } else if (control instanceof JComboBox<?> combo) {
-            combo.addActionListener(e -> updateEnabledStates());
+            combo.addActionListener(e -> handleFieldChanged(key));
         } else if (control instanceof JSpinner sp) {
-            sp.addChangeListener(e -> updateEnabledStates());
+            sp.addChangeListener(e -> handleFieldChanged(key));
         } else if (control instanceof JTextField tf) {
             tf.getDocument().addDocumentListener(new DocumentListener() {
-                public void insertUpdate(DocumentEvent e) { updateEnabledStates(); }
-                public void removeUpdate(DocumentEvent e) { updateEnabledStates(); }
-                public void changedUpdate(DocumentEvent e) { updateEnabledStates(); }
+                public void insertUpdate(DocumentEvent e) { handleFieldChanged(key); }
+                public void removeUpdate(DocumentEvent e) { handleFieldChanged(key); }
+                public void changedUpdate(DocumentEvent e) { handleFieldChanged(key); }
             });
+        }
+    }
+
+    private void handleFieldChanged(String key) {
+        FieldRenderer.RenderedField rf = renderedFields.get(key);
+        if (rf != null) {
+            rf.setValidationError(null);
+        }
+        updateEnabledStates();
+    }
+
+    private void clearValidationErrors() {
+        for (FieldRenderer.RenderedField rf : renderedFields.values()) {
+            rf.setValidationError(null);
         }
     }
 

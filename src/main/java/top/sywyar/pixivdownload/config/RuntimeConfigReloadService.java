@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.update.UpdateConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.DayOfWeek;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -195,6 +196,28 @@ public class RuntimeConfigReloadService {
                 maintenanceProperties.isEnabled(),
                 next.isEnabled(),
                 () -> maintenanceProperties.setEnabled(next.isEnabled()));
+        applyMaintenanceSchedule(DayOfWeek.MONDAY, "monday", next, applied);
+        applyMaintenanceSchedule(DayOfWeek.TUESDAY, "tuesday", next, applied);
+        applyMaintenanceSchedule(DayOfWeek.WEDNESDAY, "wednesday", next, applied);
+        applyMaintenanceSchedule(DayOfWeek.THURSDAY, "thursday", next, applied);
+        applyMaintenanceSchedule(DayOfWeek.FRIDAY, "friday", next, applied);
+        applyMaintenanceSchedule(DayOfWeek.SATURDAY, "saturday", next, applied);
+        applyMaintenanceSchedule(DayOfWeek.SUNDAY, "sunday", next, applied);
+    }
+
+    private void applyMaintenanceSchedule(DayOfWeek day, String key, MaintenanceProperties next, List<String> applied) {
+        MaintenanceProperties.DaySchedule currentSchedule = maintenanceProperties.mutableScheduleFor(day);
+        MaintenanceProperties.DaySchedule nextSchedule = next.scheduleFor(day);
+        applyIfChanged(applied,
+                "maintenance." + key + ".enabled",
+                currentSchedule.isEnabled(),
+                nextSchedule.isEnabled(),
+                () -> currentSchedule.setEnabled(nextSchedule.isEnabled()));
+        applyIfChanged(applied,
+                "maintenance." + key + ".time",
+                currentSchedule.getTime(),
+                nextSchedule.getTime(),
+                () -> currentSchedule.setTime(nextSchedule.getTime()));
     }
 
     private void applyProxyConfig(ProxyConfig next, List<String> applied) {

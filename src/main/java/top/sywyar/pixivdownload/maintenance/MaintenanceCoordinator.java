@@ -4,13 +4,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.DayOfWeek;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 维护窗口协调器。
  *
- * <p>调度：Cron {@code 0 0 10 ? * MON} 每周一 10:00 触发，依次执行已注册的 {@link MaintenanceTask}。
+ * <p>调度：每分钟检查一次 {@code maintenance.<weekday>.enabled/time}，命中后依次执行已注册的 {@link MaintenanceTask}。
  * 维护期间 {@link #isPaused()} 返回 {@code true}，由 {@code AuthFilter} 拦截非本地管理员请求并返回 503。
  *
  * <p>可通过 POST {@code /api/admin/maintenance/run}（仅本地管理员）手动触发，便于排错。
@@ -21,12 +29,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Component
 public class MaintenanceCoordinator {
 
+    private static final DateTimeFormatter SLOT_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT);
+
     private final List<MaintenanceTask> tasks;
     private final MaintenanceProperties properties;
     private final AtomicBoolean paused = new AtomicBoolean(false);
     private volatile Long lastStartedAt;
     private volatile Long lastFinishedAt;
     private volatile String lastTriggeredBy;
+    private volatile String lastScheduledSlot;
+    private volatile String lastInvalidScheduleWarning;
 
     public MaintenanceCoordinator(List<MaintenanceTask> tasks, MaintenanceProperties properties) {
         this.tasks = tasks == null ? List.of() : List.copyOf(tasks);
@@ -53,13 +65,45 @@ public class MaintenanceCoordinator {
         return lastTriggeredBy;
     }
 
-    @Scheduled(cron = "0 0 10 ? * MON")
+    @Scheduled(cron = "0 * * * * *")
     public void runScheduled() {
+        runScheduledIfDue(LocalDateTime.now());
+    }
+
+    synchronized boolean runScheduledIfDue(LocalDateTime now) {
         if (!properties.isEnabled()) {
             log.debug("Skipping scheduled maintenance: maintenance.enabled=false");
-            return;
+            return false;
         }
+        if (now == null) {
+            return false;
+        }
+
+        DayOfWeek day = now.getDayOfWeek();
+        MaintenanceProperties.DaySchedule schedule = properties.scheduleFor(day);
+        if (!schedule.isEnabled()) {
+            return false;
+        }
+
+        Optional<LocalTime> scheduledTime = properties.scheduledTime(day);
+        if (scheduledTime.isEmpty()) {
+            warnInvalidScheduleOnce(day, schedule.getTime());
+            return false;
+        }
+
+        LocalDateTime slot = now.truncatedTo(ChronoUnit.MINUTES);
+        LocalTime expected = scheduledTime.get();
+        if (!expected.equals(slot.toLocalTime())) {
+            return false;
+        }
+
+        String slotId = slot.toLocalDate() + "T" + expected.format(SLOT_TIME_FORMATTER);
+        if (Objects.equals(lastScheduledSlot, slotId)) {
+            return false;
+        }
+        lastScheduledSlot = slotId;
         runMaintenance("schedule");
+        return true;
     }
 
     /**
@@ -102,5 +146,15 @@ public class MaintenanceCoordinator {
             paused.set(false);
             log.info("Maintenance window CLOSED ({} ms total)", finished - started);
         }
+    }
+
+    private void warnInvalidScheduleOnce(DayOfWeek day, String value) {
+        String key = day + ":" + value;
+        if (Objects.equals(lastInvalidScheduleWarning, key)) {
+            return;
+        }
+        lastInvalidScheduleWarning = key;
+        log.warn("Skipping scheduled maintenance for {}: maintenance.{}.time='{}' is invalid, expected HH:mm",
+                day, day.name().toLowerCase(Locale.ROOT), value);
     }
 }

@@ -88,6 +88,20 @@ public final class DefaultConfigTemplate {
 
         appendSection(config, messages, "config.template.section.maintenance");
         appendSetting(config, messages, "maintenance.enabled: true", "config.template.maintenance.enabled.comment");
+        appendSetting(config, messages, "maintenance.monday.enabled: true", "config.template.maintenance.day.enabled.comment");
+        appendSetting(config, messages, "maintenance.monday.time: 10:00", "config.template.maintenance.day.time.comment");
+        appendSetting(config, messages, "maintenance.tuesday.enabled: false", "config.template.maintenance.day.enabled.comment");
+        appendSetting(config, messages, "maintenance.tuesday.time: 10:00", "config.template.maintenance.day.time.comment");
+        appendSetting(config, messages, "maintenance.wednesday.enabled: false", "config.template.maintenance.day.enabled.comment");
+        appendSetting(config, messages, "maintenance.wednesday.time: 10:00", "config.template.maintenance.day.time.comment");
+        appendSetting(config, messages, "maintenance.thursday.enabled: false", "config.template.maintenance.day.enabled.comment");
+        appendSetting(config, messages, "maintenance.thursday.time: 10:00", "config.template.maintenance.day.time.comment");
+        appendSetting(config, messages, "maintenance.friday.enabled: false", "config.template.maintenance.day.enabled.comment");
+        appendSetting(config, messages, "maintenance.friday.time: 10:00", "config.template.maintenance.day.time.comment");
+        appendSetting(config, messages, "maintenance.saturday.enabled: false", "config.template.maintenance.day.enabled.comment");
+        appendSetting(config, messages, "maintenance.saturday.time: 10:00", "config.template.maintenance.day.time.comment");
+        appendSetting(config, messages, "maintenance.sunday.enabled: false", "config.template.maintenance.day.enabled.comment");
+        appendSetting(config, messages, "maintenance.sunday.time: 10:00", "config.template.maintenance.day.time.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.ssl");

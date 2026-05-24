@@ -27,6 +27,7 @@ public final class FieldRenderer {
     private static final int LABEL_HEIGHT = 24;
     private static final int DESCRIPTION_HEIGHT_PADDING = 2;
     private static final int DESCRIPTION_WIDTH_PADDING = 24;
+    private static final Color VALIDATION_ERROR_COLOR = new Color(180, 40, 40);
 
     private FieldRenderer() {}
 
@@ -34,8 +35,19 @@ public final class FieldRenderer {
             JPanel panel,
             Supplier<String> getValue,
             Consumer<String> setValue,
-            JComponent control
-    ) {}
+            JComponent control,
+            JTextArea validationError
+    ) {
+        public void setValidationError(String message) {
+            boolean hasError = message != null && !message.isBlank();
+            validationError.setText(hasError ? message : "");
+            validationError.setVisible(hasError);
+            panel.revalidate();
+            panel.repaint();
+        }
+    }
+
+    private record RenderedPanel(JPanel panel, JTextArea validationError) {}
 
     public static RenderedField render(ConfigFieldSpec spec) {
         return switch (spec.type()) {
@@ -55,11 +67,12 @@ public final class FieldRenderer {
     private static RenderedField renderBool(ConfigFieldSpec spec) {
         JCheckBox cb = new JCheckBox();
         cb.setSelected("true".equalsIgnoreCase(spec.defaultValue()));
-        JPanel p = fieldPanel(spec, cb);
-        return new RenderedField(p,
+        RenderedPanel p = renderFieldPanel(spec, cb);
+        return new RenderedField(p.panel(),
                 () -> Boolean.toString(cb.isSelected()),
                 v -> cb.setSelected("true".equalsIgnoreCase(v)),
-                cb);
+                cb,
+                p.validationError());
     }
 
     private static RenderedField renderSpinner(ConfigFieldSpec spec, int min, int max) {
@@ -77,11 +90,12 @@ public final class FieldRenderer {
                 }
             }
         }
-        JPanel p = fieldPanel(spec, sp);
-        return new RenderedField(p,
+        RenderedPanel p = renderFieldPanel(spec, sp);
+        return new RenderedField(p.panel(),
                 () -> String.valueOf(((Number) sp.getValue()).intValue()),
                 v -> sp.setValue(parseIntSafe(v, def)),
-                sp);
+                sp,
+                p.validationError());
     }
 
     private static RenderedField renderPath(ConfigFieldSpec spec, boolean dirMode) {
@@ -109,39 +123,43 @@ public final class FieldRenderer {
         row.add(tf, BorderLayout.CENTER);
         row.add(browse, BorderLayout.EAST);
 
-        JPanel p = fieldPanel(spec, row);
-        return new RenderedField(p,
+        RenderedPanel p = renderFieldPanel(spec, row);
+        return new RenderedField(p.panel(),
                 () -> tf.getText().trim(),
                 v -> tf.setText(v == null ? "" : v),
-                tf);
+                tf,
+                p.validationError());
     }
 
     private static RenderedField renderEnum(ConfigFieldSpec spec) {
         JComboBox<String> cb = new JComboBox<>(spec.enumValues().toArray(new String[0]));
         cb.setSelectedItem(spec.defaultValue());
-        JPanel p = fieldPanel(spec, cb);
-        return new RenderedField(p,
+        RenderedPanel p = renderFieldPanel(spec, cb);
+        return new RenderedField(p.panel(),
                 () -> (String) cb.getSelectedItem(),
                 cb::setSelectedItem,
-                cb);
+                cb,
+                p.validationError());
     }
 
     private static RenderedField renderPassword(ConfigFieldSpec spec) {
         JPasswordField pf = new JPasswordField(24);
-        JPanel p = fieldPanel(spec, pf);
-        return new RenderedField(p,
+        RenderedPanel p = renderFieldPanel(spec, pf);
+        return new RenderedField(p.panel(),
                 () -> new String(pf.getPassword()).trim(),
                 v -> pf.setText(v == null ? "" : v),
-                pf);
+                pf,
+                p.validationError());
     }
 
     private static RenderedField renderString(ConfigFieldSpec spec) {
         JTextField tf = new JTextField(spec.defaultValue(), 24);
-        JPanel p = fieldPanel(spec, tf);
-        return new RenderedField(p,
+        RenderedPanel p = renderFieldPanel(spec, tf);
+        return new RenderedField(p.panel(),
                 () -> tf.getText().trim(),
                 v -> tf.setText(v == null ? "" : v),
-                tf);
+                tf,
+                p.validationError());
     }
 
     // ── 字段面板布局 ──────────────────────────────────────────────────────────────
@@ -149,7 +167,7 @@ public final class FieldRenderer {
     /**
      * 布局：[标签] [控件 + 帮助文字 + 需重启标记]
      */
-    private static JPanel fieldPanel(ConfigFieldSpec spec, JComponent control) {
+    private static RenderedPanel renderFieldPanel(ConfigFieldSpec spec, JComponent control) {
         JLabel effect = new JLabel(message(spec.requiresRestart()
                 ? "gui.label.restart-required"
                 : "gui.label.hot-reload"));
@@ -157,33 +175,34 @@ public final class FieldRenderer {
         effect.setForeground(spec.requiresRestart()
                 ? new Color(180, 100, 0)
                 : new Color(0, 128, 96));
+        JTextArea validationError = createTextArea("");
+        validationError.setForeground(VALIDATION_ERROR_COLOR);
+        validationError.setVisible(false);
 
-        return fieldPanel(
+        return new RenderedPanel(buildFieldPanel(
                 spec.label() + message("gui.punctuation.colon"),
                 control,
                 effect,
-                spec.helpText());
+                spec.helpText(),
+                validationError), validationError);
     }
 
     public static JPanel fieldPanel(String labelText, JComponent control, JComponent effect, String helpText) {
+        return buildFieldPanel(labelText, control, effect, helpText, null);
+    }
+
+    private static JPanel buildFieldPanel(String labelText, JComponent control, JComponent effect,
+                                          String helpText, JTextArea validationError) {
         JLabel label = new JLabel(labelText);
         label.setToolTipText(labelText);
 
         JTextArea help = null;
         if (helpText != null && !helpText.isBlank()) {
-            help = new JTextArea(helpText);
-            help.setEditable(false);
-            help.setFocusable(false);
-            help.setOpaque(false);
-            help.setLineWrap(true);
-            help.setWrapStyleWord(true);
-            help.setBorder(BorderFactory.createEmptyBorder());
-            Font labelFont = UIManager.getFont("Label.font");
-            help.setFont((labelFont == null ? help.getFont() : labelFont).deriveFont(Font.PLAIN, 11f));
+            help = createTextArea(helpText);
             help.setForeground(Color.GRAY);
         }
 
-        ResponsiveFieldPanel panel = new ResponsiveFieldPanel(label, help);
+        ResponsiveFieldPanel panel = new ResponsiveFieldPanel(label, help, validationError);
         panel.setOpaque(false);
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(4, 4, 4, 4);
@@ -214,8 +233,18 @@ public final class FieldRenderer {
             gbc.gridy = 1;
             gbc.weightx = 1;
             gbc.gridwidth = effect == null ? 1 : 2;
-            gbc.insets = new Insets(0, 4, 6, 4);
+            gbc.insets = new Insets(0, 4, validationError == null ? 6 : 2, 4);
             panel.add(help, gbc);
+        }
+
+        // 校验错误
+        if (validationError != null) {
+            gbc.gridx = 1;
+            gbc.gridy = help == null ? 1 : 2;
+            gbc.weightx = 1;
+            gbc.gridwidth = effect == null ? 1 : 2;
+            gbc.insets = new Insets(0, 4, 6, 4);
+            panel.add(validationError, gbc);
         }
 
         return panel;
@@ -233,9 +262,23 @@ public final class FieldRenderer {
         return GuiMessages.get(code, args);
     }
 
+    private static JTextArea createTextArea(String text) {
+        JTextArea area = new JTextArea(text);
+        area.setEditable(false);
+        area.setFocusable(false);
+        area.setOpaque(false);
+        area.setLineWrap(true);
+        area.setWrapStyleWord(true);
+        area.setBorder(BorderFactory.createEmptyBorder());
+        Font labelFont = UIManager.getFont("Label.font");
+        area.setFont((labelFont == null ? area.getFont() : labelFont).deriveFont(Font.PLAIN, 11f));
+        return area;
+    }
+
     private static final class ResponsiveFieldPanel extends JPanel {
         private final JLabel label;
         private final JTextArea description;
+        private final JTextArea validationError;
         private final ComponentAdapter windowResizeListener = new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
@@ -244,10 +287,11 @@ public final class FieldRenderer {
         };
         private Window observedWindow;
 
-        ResponsiveFieldPanel(JLabel label, JTextArea description) {
+        ResponsiveFieldPanel(JLabel label, JTextArea description, JTextArea validationError) {
             super(new GridBagLayout());
             this.label = label;
             this.description = description;
+            this.validationError = validationError;
             addComponentListener(new ComponentAdapter() {
                 @Override
                 public void componentResized(ComponentEvent e) {
@@ -314,20 +358,28 @@ public final class FieldRenderer {
             boolean changed = setFixedSize(label, labelWidth, LABEL_HEIGHT);
 
             if (description != null) {
-                int descriptionWidth = Math.max(MIN_DESCRIPTION_WIDTH,
-                        width - labelWidth - DESCRIPTION_WIDTH_PADDING);
-                Dimension current = description.getPreferredSize();
-                description.setPreferredSize(null);
-                description.setMinimumSize(null);
-                description.setMaximumSize(null);
-                description.setSize(new Dimension(descriptionWidth, Integer.MAX_VALUE));
-                Dimension preferred = description.getPreferredSize();
-                int descriptionHeight = preferred.height + DESCRIPTION_HEIGHT_PADDING;
-                Dimension next = new Dimension(descriptionWidth, descriptionHeight);
-                changed |= current == null || !current.equals(next);
-                setFixedSize(description, descriptionWidth, descriptionHeight);
+                changed |= refreshTextAreaSize(description, width, labelWidth);
+            }
+            if (validationError != null && validationError.isVisible()) {
+                changed |= refreshTextAreaSize(validationError, width, labelWidth);
             }
 
+            return changed;
+        }
+
+        private boolean refreshTextAreaSize(JTextArea area, int width, int labelWidth) {
+            int textWidth = Math.max(MIN_DESCRIPTION_WIDTH,
+                    width - labelWidth - DESCRIPTION_WIDTH_PADDING);
+            Dimension current = area.getPreferredSize();
+            area.setPreferredSize(null);
+            area.setMinimumSize(null);
+            area.setMaximumSize(null);
+            area.setSize(new Dimension(textWidth, Integer.MAX_VALUE));
+            Dimension preferred = area.getPreferredSize();
+            int textHeight = preferred.height + DESCRIPTION_HEIGHT_PADDING;
+            Dimension next = new Dimension(textWidth, textHeight);
+            boolean changed = current == null || !current.equals(next);
+            setFixedSize(area, textWidth, textHeight);
             return changed;
         }
 
