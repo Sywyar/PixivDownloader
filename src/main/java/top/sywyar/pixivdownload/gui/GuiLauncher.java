@@ -28,6 +28,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -78,6 +79,18 @@ public class GuiLauncher {
     private static final int LOG_HISTORY_COUNT = 5;
     private static final int DEFAULT_PORT = 6999;
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
+
+    /**
+     * artworks 表中由后端在启动时通过 {@code ALTER TABLE ... ADD COLUMN} 自动补齐的列
+     * （带安全默认值、无需联网抓取即可迁移，见 {@code PixivDatabase.init()}）。
+     * <p>这些列在旧库里缺失只是后端首启前的暂时状态，会被自动迁移补齐，不应阻断
+     * {@link #supportsStartupAutoBackfill} 的整段元数据自动回填判定。与
+     * {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 区分：后者是必须联网抓取才能填充的列。
+     */
+    private static final Set<ArtworksBackFill.DatabaseColumn> RUNTIME_AUTO_MIGRATED_COLUMNS = Set.of(
+            new ArtworksBackFill.DatabaseColumn("artworks", "file_name"),
+            new ArtworksBackFill.DatabaseColumn("artworks", "file_author_name_id")
+    );
 
     /**
      * 标记本次运行是否为无 GUI（headless / {@code --no-gui}）模式。
@@ -468,10 +481,18 @@ public class GuiLauncher {
     private static boolean isSupportedStartupAutoBackfillDifference(
             DatabaseSchemaInspector.SchemaDifference difference) {
         if (difference.hasColumn()) {
-            return ArtworksBackFill.supportsDatabaseColumn(difference.tableName(), difference.columnName());
+            if (ArtworksBackFill.supportsDatabaseColumn(difference.tableName(), difference.columnName())) {
+                return true;
+            }
+            return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN
+                    && RUNTIME_AUTO_MIGRATED_COLUMNS.contains(
+                            new ArtworksBackFill.DatabaseColumn(difference.tableName(), difference.columnName()));
         }
-        return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE
-                && ArtworksBackFill.supportsDatabaseTable(difference.tableName());
+        // 缺表（MISSING_TABLE）一律放行：ManagedDatabaseSchema.SPEC 登记的每张表都由后端在启动时
+        // CREATE TABLE IF NOT EXISTS 自建（FTS 虚拟表不入 SPEC），旧库缺表只是后端首启前的暂时状态，
+        // 会自动补齐，不应阻断元数据自动回填。其余差异（列类型/默认值/主键不一致、索引差异、
+        // 未受管的表/列等）属于无法自动消解的真实漂移，保持阻断并提示用户。
+        return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE;
     }
 
     private static void showStartupBackfillResult(Component owner,

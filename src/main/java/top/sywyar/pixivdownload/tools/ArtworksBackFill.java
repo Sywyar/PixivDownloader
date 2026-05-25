@@ -60,10 +60,6 @@ public class ArtworksBackFill {
             new DatabaseColumn("artworks", "series_order")
     );
 
-    public static final Set<String> SUPPORTED_DATABASE_TABLES = Set.of(
-            normalizeIdentifier("manga_series")
-    );
-
     private static final String[] R18_KEYWORDS = {
             "R-18", "R18", "年齢制限", "年龄限制", "閲覧制限", "18歳未満",
             "成人向け", "成人向", "restricted", "age"
@@ -87,10 +83,6 @@ public class ArtworksBackFill {
 
     public static boolean supportsDatabaseColumn(String tableName, String columnName) {
         return SUPPORTED_DATABASE_COLUMNS.contains(new DatabaseColumn(tableName, columnName));
-    }
-
-    public static boolean supportsDatabaseTable(String tableName) {
-        return SUPPORTED_DATABASE_TABLES.contains(normalizeIdentifier(tableName));
     }
 
     public static int countCandidates(Options options) throws Exception {
