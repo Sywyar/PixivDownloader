@@ -1,0 +1,30 @@
+package top.sywyar.pixivdownload.download;
+
+import top.sywyar.pixivdownload.download.request.DownloadRequest;
+
+import java.util.List;
+
+/**
+ * 单作品下载入口的窄接缝。
+ *
+ * <p>由 {@link DownloadService} 实现。让调度 / 自动化等上层功能只依赖这一个方法，
+ * 而不必注入 {@code DownloadService} 本体（其依赖众多），既缩小耦合面又便于测试。
+ * 实现仍是异步执行（{@code @Async}），调用方不应假设方法返回即下载完成。
+ */
+public interface ArtworkDownloader {
+
+    /**
+     * 异步下载单个作品的全部图片。语义与 {@link DownloadService#downloadImages} 完全一致。
+     *
+     * @param artworkId 作品 ID
+     * @param title     作品标题（可为 Pixiv 原始标题，落库前会处理）
+     * @param imageUrls 待下载的原图 URL 列表（动图场景由 {@code other} 内字段描述）
+     * @param referer   请求 Referer（通常为 Pixiv 作品页）
+     * @param other     下载附加参数（文件名模板、动图、收藏夹、R18 等）
+     * @param cookie    本次下载使用的 Pixiv Cookie；可为 null（匿名 / 受限）
+     * @param userUuid  多人模式访客 UUID；管理员 / solo 传 null（不计配额）
+     */
+    void downloadImages(Long artworkId, String title, List<String> imageUrls,
+                        String referer, DownloadRequest.Other other, String cookie,
+                        String userUuid);
+}

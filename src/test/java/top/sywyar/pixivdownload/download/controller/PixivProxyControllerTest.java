@@ -16,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
+import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
@@ -54,9 +55,11 @@ class PixivProxyControllerTest {
     @BeforeEach
     void setUp() {
         multiModeConfig = new MultiModeConfig();
+        PixivFetchService pixivFetchService =
+                new PixivFetchService(restTemplate, objectMapper);
         PixivProxyController controller = new PixivProxyController(
-                objectMapper, restTemplate, setupService, userQuotaService, multiModeConfig,
-                guestAccessGuard, APP_MESSAGES);
+                objectMapper, restTemplate, pixivFetchService, setupService, userQuotaService,
+                multiModeConfig, guestAccessGuard, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();

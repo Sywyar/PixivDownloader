@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.UuidUtils;
+import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.novel.NovelCoverUrlResolver;
@@ -50,6 +51,7 @@ public class PixivProxyController {
 
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
+    private final PixivFetchService pixivFetchService;
     private final SetupService setupService;
     private final UserQuotaService userQuotaService;
     private final MultiModeConfig multiModeConfig;
@@ -99,30 +101,11 @@ public class PixivProxyController {
     }
 
     private String proxyGet(String url, String cookie) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Referer", PIXIV_REFERER);
-        headers.set("User-Agent", USER_AGENT);
-        if (cookie != null && !cookie.trim().isEmpty()) {
-            headers.set("Cookie", cookie);
-        }
-
-        HttpEntity<Void> entity = new HttpEntity<>(headers);
-        ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
-        byte[] body = response.getBody();
-        return body != null ? new String(body, java.nio.charset.StandardCharsets.UTF_8) : null;
+        return pixivFetchService.proxyGet(url, cookie);
     }
 
     private String proxyGetUri(URI uri, String cookie) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Referer", PIXIV_REFERER);
-        headers.set("User-Agent", USER_AGENT);
-        if (cookie != null && !cookie.trim().isEmpty()) {
-            headers.set("Cookie", cookie);
-        }
-        HttpEntity<Void> entity = new HttpEntity<>(headers);
-        ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET, entity, byte[].class);
-        byte[] body = response.getBody();
-        return body != null ? new String(body, java.nio.charset.StandardCharsets.UTF_8) : null;
+        return pixivFetchService.proxyGetUri(uri, cookie);
     }
 
     @GetMapping("/user/{userId}/artworks")

@@ -52,7 +52,7 @@ import java.util.function.Consumer;
 
 @Slf4j
 @Service
-public class DownloadService {
+public class DownloadService implements ArtworkDownloader {
     private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp");
 
     private final DownloadConfig downloadConfig;
@@ -107,6 +107,7 @@ public class DownloadService {
         this.messages = messages;
     }
 
+    @Override
     @Async("downloadTaskExecutor")
     public void downloadImages(Long artworkId, String title, List<String> imageUrls,
                                String referer, DownloadRequest.Other other, String cookie,

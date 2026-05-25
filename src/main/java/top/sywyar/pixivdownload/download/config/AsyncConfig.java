@@ -12,8 +12,11 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 
+// proxyTargetClass = true：强制 @Async 走 CGLIB 子类代理。否则当被代理的 @Async bean
+// （如 DownloadService）实现了接口（ArtworkDownloader）时，Spring 会退化为 JDK 动态代理，
+// 导致按具体类型注入 DownloadService 的地方（DownloadController 等）拿到的是 $Proxy 而非 DownloadService。
 @Configuration
-@EnableAsync
+@EnableAsync(proxyTargetClass = true)
 @EnableScheduling
 public class AsyncConfig {
 
