@@ -491,6 +491,10 @@ class AuthFilterTest {
                 "/api/gallery/tags",
                 "/api/gallery/tags/lookup",
                 "/api/gallery/artwork/12345",
+                "/api/duplicates/groups",
+                "/api/duplicates/scan",
+                "/api/duplicates/scan/status",
+                "/api/duplicates/rescan",
                 "/api/collections",
                 "/api/collections/7/artworks/12345"
         })
@@ -513,6 +517,9 @@ class AuthFilterTest {
                 "/pixiv-gallery/pixiv-gallery.css",
                 "/pixiv-artwork/pixiv-artwork.js",
                 "/monitor/monitor.js",
+                "/pixiv-duplicates.html",
+                "/pixiv-duplicates/pixiv-duplicates.css",
+                "/pixiv-duplicates/pixiv-duplicates.js",
                 "/pixiv-invite-manage/pixiv-invite-manage.css"
         })
         @DisplayName("画廊/作品详情页应按 monitor 权限保护，未登录时重定向到 /login.html")
@@ -569,6 +576,32 @@ class AuthFilterTest {
 
             verify(filterChain).doFilter(request, response);
             verify(guestInviteService).recordHit(1L);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "/pixiv-duplicates.html",
+                "/pixiv-duplicates/pixiv-duplicates.js",
+                "/api/duplicates/groups"
+        })
+        @DisplayName("访客邀请会话不应访问疑似重复页面与 API")
+        void shouldRejectGuestInviteForDuplicateResources(String path) throws Exception {
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+            verify(guestInviteService, never()).recordHit(anyLong());
         }
 
         @ParameterizedTest

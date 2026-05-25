@@ -28,6 +28,7 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.request.RecoverMetadataRequest;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
+import top.sywyar.pixivdownload.duplicate.ImageHashService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -76,15 +77,19 @@ class DownloadServiceTest {
     private CollectionService collectionService;
     @Mock
     private MangaSeriesService mangaSeriesService;
+    @Mock
+    private ImageHashService imageHashService;
 
+    private ArtworkFileLocator artworkFileLocator;
     private DownloadService downloadService;
 
     @BeforeEach
     void setUp() {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+        artworkFileLocator = new ArtworkFileLocator(pixivDatabase);
         downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService,
                 downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService, authorService,
-                collectionService, mangaSeriesService, APP_MESSAGES);
+                collectionService, mangaSeriesService, artworkFileLocator, imageHashService, APP_MESSAGES);
     }
 
     @Nested

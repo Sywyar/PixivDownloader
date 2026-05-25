@@ -162,6 +162,21 @@ public final class ManagedDatabaseSchema {
                 )
         ));
 
+        tables.put("artwork_image_hashes", new TableSpec(
+                "artwork_image_hashes",
+                List.of(
+                        column("artwork_id", "INTEGER", true, null, 1),
+                        column("page", "INTEGER", true, null, 2),
+                        column("ext", "TEXT", true, null, 0),
+                        column("dhash", "INTEGER", true, null, 0),
+                        column("ahash", "INTEGER", false, null, 0),
+                        column("created_time", "INTEGER", true, null, 0)
+                ),
+                List.of(
+                        explicitIndex("idx_artwork_image_hashes_dhash", false, "dhash")
+                )
+        ));
+
         tables.put("guest_invites", new TableSpec(
                 "guest_invites",
                 List.of(

@@ -406,7 +406,7 @@ class DatabaseSchemaInspectorTest {
                 // 由 AuthorMapper / CollectionMapper 各自负责，超出本测试范围。
                 Set<String> initManaged = Set.of(
                         "artworks", "file_author_names", "file_name_templates",
-                        "statistics", "tags", "artwork_tags");
+                        "statistics", "tags", "artwork_tags", "artwork_image_hashes");
                 ManagedDatabaseSchema.DatabaseSchema sub = specSubset(initManaged);
 
                 try (Connection c = ds.getConnection()) {

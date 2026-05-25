@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.ImageResponse;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
+import top.sywyar.pixivdownload.duplicate.ImageHashService;
 import top.sywyar.pixivdownload.imageclassifier.ThumbnailManager;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
@@ -65,6 +66,8 @@ public class DownloadService {
     private final AuthorService authorService;
     private final CollectionService collectionService;
     private final MangaSeriesService mangaSeriesService;
+    private final ArtworkFileLocator artworkFileLocator;
+    private final ImageHashService imageHashService;
     private final AppMessages messages;
 
     // 存储下载状态
@@ -85,6 +88,8 @@ public class DownloadService {
                            AuthorService authorService,
                            CollectionService collectionService,
                            MangaSeriesService mangaSeriesService,
+                           ArtworkFileLocator artworkFileLocator,
+                           ImageHashService imageHashService,
                            AppMessages messages) {
         this.downloadConfig = downloadConfig;
         this.eventPublisher = eventPublisher;
@@ -97,6 +102,8 @@ public class DownloadService {
         this.authorService = authorService;
         this.collectionService = collectionService;
         this.mangaSeriesService = mangaSeriesService;
+        this.artworkFileLocator = artworkFileLocator;
+        this.imageHashService = imageHashService;
         this.messages = messages;
     }
 
@@ -239,6 +246,12 @@ public class DownloadService {
                     log.warn(logMessage("download.log.collection.add.failed", artworkId, other.getCollectionId(), e.getMessage()), e);
                     status.setCollectionResult(DownloadActionResult.failed(messages.get("collection.result.failed")));
                 }
+            }
+
+            try {
+                imageHashService.recordArtworkHashes(pixivDatabase.getArtwork(artworkId));
+            } catch (Exception e) {
+                log.warn(logMessage("duplicate.log.hash.artwork-failed", artworkId, e.getMessage()), e);
             }
 
             // 更新下载状态为完成。放在后置动作之后，确保最终事件包含收藏/收藏夹结果。
@@ -1036,62 +1049,15 @@ public class DownloadService {
     }
 
     private File resolveImageFile(ArtworkRecord artwork, int page) {
-        String directoryPath = resolveArtworkDirectory(artwork);
-        if (!StringUtils.hasText(directoryPath)) {
-            return null;
-        }
-        String baseName = resolveStoredFileBaseName(artwork, page);
-        String[] extensions = artwork.extensions() == null ? new String[0] : artwork.extensions().split(",");
-        File imageFile;
-        if (extensions.length > 1) {
-            imageFile = findFileByName(directoryPath, baseName);
-        } else {
-            String extension = extensions.length == 0 || !StringUtils.hasText(extensions[0]) ? "jpg" : extensions[0];
-            imageFile = Paths.get(directoryPath, baseName + "." + extension).toFile();
-        }
-        return imageFile != null && imageFile.exists() ? imageFile : null;
+        return artworkFileLocator.resolveImageFile(artwork, page);
     }
 
     private String resolveStoredFileBaseName(ArtworkRecord artwork, int page) {
-        long fileNameId = artwork.fileName() == null
-                ? ArtworkFileNameFormatter.DEFAULT_TEMPLATE_ID
-                : artwork.fileName();
-        String template = pixivDatabase.getFileNameTemplate(fileNameId);
-        int count = Math.max(artwork.count(), page + 1);
-        String authorName = resolveStoredFileAuthorName(artwork);
-        if (authorName == null && template != null && template.contains("{author_name}")) {
-            log.warn("模板含{author_name}但file_author_name_id为空，作者名将缺失: artworkId={}", artwork.artworkId());
-        }
-        List<String> baseNames = ArtworkFileNameFormatter.formatAll(
-                template,
-                artwork.artworkId(),
-                artwork.title(),
-                artwork.authorId(),
-                authorName,
-                artwork.time(),
-                count,
-                artwork.isAi(),
-                artwork.xRestrict()
-        );
-        return baseNames.get(page);
-    }
-
-    private String resolveStoredFileAuthorName(ArtworkRecord artwork) {
-        Long fileAuthorNameId = artwork.fileAuthorNameId();
-        if (fileAuthorNameId == null || fileAuthorNameId <= 0) {
-            return null;
-        }
-        return pixivDatabase.getFileAuthorName(fileAuthorNameId);
+        return artworkFileLocator.resolveStoredFileBaseName(artwork, page);
     }
 
     private String resolveArtworkDirectory(ArtworkRecord artwork) {
-        if (artwork == null) {
-            return null;
-        }
-        if (StringUtils.hasText(artwork.moveFolder())) {
-            return artwork.moveFolder();
-        }
-        return artwork.folder();
+        return artworkFileLocator.resolveArtworkDirectory(artwork);
     }
 
     private void removeStaleArtworkRecord(ArtworkRecord artwork) {
@@ -1105,24 +1071,7 @@ public class DownloadService {
     }
 
     public static File findFileByName(String directoryPath, String fileName) {
-        File directory = new File(directoryPath);
-        if (!directory.exists() || !directory.isDirectory()) {
-            return null;
-        }
-        File[] files = directory.listFiles();
-        if (files != null) {
-            for (File file : files) {
-                if (file.isFile() && getBaseName(file.getName()).equals(fileName)) {
-                    return file;
-                }
-            }
-        }
-        return null;
-    }
-
-    private static String getBaseName(String fileName) {
-        int dotIndex = fileName.lastIndexOf('.');
-        return dotIndex > 0 ? fileName.substring(0, dotIndex) : fileName;
+        return ArtworkFileLocator.findFileByName(directoryPath, fileName);
     }
 
     public void recordStatistics(int count) {

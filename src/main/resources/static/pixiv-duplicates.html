@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixiv Duplicates</title>
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/css/lang-theme-switcher.css">
+    <link rel="stylesheet" href="/pixiv-duplicates/pixiv-duplicates.css">
+</head>
+<body>
+<main class="duplicate-shell">
+    <header class="page-topbar">
+        <div class="title-block">
+            <span class="eyebrow" data-i18n="page.eyebrow">管理员工具</span>
+            <h1 data-i18n="page.heading">疑似重复</h1>
+        </div>
+        <nav class="page-nav" data-i18n-aria-label="nav.label" aria-label="页面导航">
+            <a class="icon-link" href="/pixiv-gallery.html?view=all" data-i18n-title="nav.gallery" title="画廊">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                    <polyline points="21 15 16 10 5 21"></polyline>
+                </svg>
+                <span data-i18n="nav.gallery">画廊</span>
+            </a>
+            <a class="icon-link" href="/pixiv-stats.html" data-i18n-title="nav.stats" title="统计">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <line x1="18" y1="20" x2="18" y2="10"></line>
+                    <line x1="12" y1="20" x2="12" y2="4"></line>
+                    <line x1="6" y1="20" x2="6" y2="14"></line>
+                </svg>
+                <span data-i18n="nav.stats">统计</span>
+            </a>
+            <div class="switcher-anchor" id="langSwitcherAnchor"></div>
+        </nav>
+    </header>
+
+    <section class="tool-panel" data-i18n-aria-label="controls.label" aria-label="筛选控制">
+        <div class="control-grid">
+            <label class="metric-control">
+                <span data-i18n="controls.threshold" data-i18n-title="controls.threshold.title">dHash 阈值</span>
+                <div class="range-row">
+                    <input id="thresholdRange" type="range" min="0" max="32" value="0">
+                    <input id="thresholdInput" class="number-input" type="number" min="0" max="32" value="0">
+                </div>
+            </label>
+            <label class="metric-control">
+                <span data-i18n="controls.ahash-threshold" data-i18n-title="controls.ahash-threshold.title">aHash 阈值</span>
+                <div class="range-row">
+                    <input id="ahashRange" type="range" min="0" max="32" value="0">
+                    <input id="ahashInput" class="number-input" type="number" min="0" max="32" value="0">
+                </div>
+            </label>
+            <div class="scope-control">
+                <span data-i18n="controls.scope">范围</span>
+                <div class="segmented" role="tablist" data-i18n-aria-label="controls.scope" aria-label="范围">
+                    <button type="button" class="segment active" data-scope="cross-artwork" role="tab" aria-selected="true"
+                            data-i18n="scope.cross" data-i18n-title="scope.cross.title">跨作品</button>
+                    <button type="button" class="segment" data-scope="all" role="tab" aria-selected="false"
+                            data-i18n="scope.all" data-i18n-title="scope.all.title">全部</button>
+                </div>
+                <p class="scope-hint" id="scopeHint" data-i18n="scope.hint">只显示不同作品之间的重复；切到「全部」会额外包含同一作品内的相似页。</p>
+            </div>
+            <div class="action-row">
+                <button type="button" class="primary-button" id="scanButton">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <polyline points="1 20 1 14 7 14"></polyline>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"></path>
+                        <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"></path>
+                    </svg>
+                    <span data-i18n="actions.scan">立即扫描</span>
+                </button>
+                <button type="button" class="secondary-button" id="rescanButton">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <span data-i18n="actions.regroup">重新分组</span>
+                </button>
+            </div>
+        </div>
+        <p class="metric-hint" data-i18n="threshold.hint">两张图的 dHash 与 aHash 汉明距离都需 ≤ 各自阈值才判为「相似」。dHash 比较相邻像素亮度、反映图像结构（主判据）；aHash 比较像素与整体平均亮度、反映明暗分布（辅助确认）。阈值越小越严格——想减少误判（如同一作品的相邻页被合并）就调小 dHash 阈值。</p>
+        <div class="scan-line">
+            <div class="progress-track" aria-hidden="true">
+                <div class="progress-fill" id="scanProgress"></div>
+            </div>
+            <span class="scan-status" id="scanStatus" data-i18n="scan.idle">扫描空闲</span>
+        </div>
+    </section>
+
+    <section class="status-banner" id="statusBanner" data-i18n="status.loading">加载中...</section>
+    <div class="result-summary" id="resultSummary" hidden aria-live="polite"></div>
+    <section class="groups-grid" id="groupsGrid" hidden></section>
+    <nav class="pager" id="pager" hidden data-i18n-aria-label="pager.label" aria-label="分页">
+        <button type="button" class="secondary-button" id="prevPage">
+            <span data-i18n="pager.prev">上一页</span>
+        </button>
+        <span class="pager-info" id="pagerInfo"></span>
+        <button type="button" class="secondary-button" id="nextPage">
+            <span data-i18n="pager.next">下一页</span>
+        </button>
+    </nav>
+</main>
+<script src="/pixiv-duplicates/pixiv-duplicates.js"></script>
+</body>
+</html>

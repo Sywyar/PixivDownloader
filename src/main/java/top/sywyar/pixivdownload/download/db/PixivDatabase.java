@@ -43,6 +43,8 @@ public class PixivDatabase {
         pixivMapper.createTagsTable();
         pixivMapper.createArtworkTagsTable();
         pixivMapper.createArtworkTagsTagIndex();
+        pixivMapper.createArtworkImageHashesTable();
+        pixivMapper.createArtworkImageHashesDHashIndex();
         // 幂等迁移：为无 R18 列的旧库补列，已有数据行该列为 NULL
         addColumnIfMissing(pixivMapper::addR18Column);
         addColumnIfMissing(pixivMapper::addIsAiColumn);
@@ -261,6 +263,7 @@ public class PixivDatabase {
     }
 
     public void deleteArtwork(long artworkId) {
+        pixivMapper.deleteImageHashesByArtwork(artworkId);
         pixivMapper.deleteById(artworkId);
     }
 

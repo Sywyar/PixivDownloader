@@ -73,6 +73,19 @@ public interface PixivMapper {
     @Update("CREATE INDEX IF NOT EXISTS idx_artwork_tags_tag_id ON artwork_tags(tag_id)")
     void createArtworkTagsTagIndex();
 
+    @Update("CREATE TABLE IF NOT EXISTS artwork_image_hashes ("
+            + "artwork_id INTEGER NOT NULL,"
+            + "page INTEGER NOT NULL,"
+            + "ext TEXT NOT NULL,"
+            + "dhash INTEGER NOT NULL,"
+            + "ahash INTEGER,"
+            + "created_time INTEGER NOT NULL,"
+            + "PRIMARY KEY (artwork_id, page))")
+    void createArtworkImageHashesTable();
+
+    @Update("CREATE INDEX IF NOT EXISTS idx_artwork_image_hashes_dhash ON artwork_image_hashes(dhash)")
+    void createArtworkImageHashesDHashIndex();
+
     @Update("CREATE INDEX IF NOT EXISTS idx_artworks_author_time ON artworks(author_id, time)")
     void createArtworksAuthorTimeIndex();
 
@@ -206,6 +219,9 @@ public interface PixivMapper {
 
     @Delete("DELETE FROM artworks WHERE artwork_id = #{artworkId}")
     void deleteById(long artworkId);
+
+    @Delete("DELETE FROM artwork_image_hashes WHERE artwork_id = #{artworkId}")
+    void deleteImageHashesByArtwork(long artworkId);
 
     @Select("SELECT COUNT(*) FROM artworks WHERE artwork_id = #{artworkId}")
     int countById(long artworkId);
