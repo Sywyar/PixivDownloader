@@ -343,6 +343,29 @@ public final class ManagedDatabaseSchema {
                 List.of()
         ));
 
+        tables.put("scheduled_tasks", new TableSpec(
+                "scheduled_tasks",
+                List.of(
+                        column("id", "INTEGER", false, null, 1),
+                        column("name", "TEXT", true, null, 0),
+                        column("enabled", "INTEGER", true, "1", 0),
+                        column("type", "TEXT", true, null, 0),
+                        column("params_json", "TEXT", true, null, 0),
+                        column("trigger_kind", "TEXT", true, null, 0),
+                        column("interval_minutes", "INTEGER", false, null, 0),
+                        column("cron_expr", "TEXT", false, null, 0),
+                        column("cookie_mode", "TEXT", true, null, 0),
+                        column("cookie_snapshot", "TEXT", false, null, 0),
+                        column("next_run_time", "INTEGER", false, null, 0),
+                        column("last_run_time", "INTEGER", false, null, 0),
+                        column("last_status", "TEXT", false, null, 0),
+                        column("created_time", "INTEGER", true, null, 0)
+                ),
+                List.of(
+                        explicitIndex("idx_scheduled_tasks_next_run", false, "next_run_time")
+                )
+        ));
+
         return new DatabaseSchema(Map.copyOf(tables));
     }
 

@@ -28,6 +28,7 @@
 - Full-text "body" search in the novel gallery (backed by a local full-text index; combinable with age-rating / tag / author filters)
 - Statistics dashboard (admin): overview cards, downloads-by-month line chart, top authors by downloads, popular-tag cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection (admin): identifies substantially duplicate downloaded images via perceptual hashing (dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
+- Scheduled tasks (admin): automatically discover and download new artworks in the background on a fixed interval or cron schedule, with three source types (artist new works / saved search / manga series) and per-task authorization to use the admin's saved cookie
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
 - Animated image (Ugoira) auto-conversion to WebP
 - Custom file naming templates (11 variables)

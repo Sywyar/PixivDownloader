@@ -473,5 +473,49 @@ class DatabaseSchemaInspectorTest {
                 ds.destroy();
             }
         }
+
+        @Test
+        @DisplayName("ScheduledTaskDatabase.init() 后 scheduled_tasks 应与 SPEC 完全匹配")
+        void shouldMatchScheduledTaskProductionSchemaAfterInit() throws Exception {
+            org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
+                    new org.springframework.jdbc.datasource.SingleConnectionDataSource();
+            ds.setDriverClassName("org.sqlite.JDBC");
+            ds.setUrl("jdbc:sqlite::memory:");
+            ds.setSuppressClose(true);
+
+            org.apache.ibatis.mapping.Environment env = new org.apache.ibatis.mapping.Environment(
+                    "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
+            org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
+            config.setMapUnderscoreToCamelCase(true);
+            config.addMapper(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class);
+            org.apache.ibatis.session.SqlSessionFactory factory =
+                    new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
+
+            try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
+                top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper mapper =
+                        session.getMapper(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class);
+                top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase database =
+                        new top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase(mapper);
+                database.init();
+
+                Set<String> initManaged = Set.of("scheduled_tasks");
+                ManagedDatabaseSchema.DatabaseSchema sub = specSubset(initManaged);
+
+                try (Connection c = ds.getConnection()) {
+                    DatabaseSchemaInspector.SchemaComparison comparison =
+                            DatabaseSchemaInspector.compare(c, sub);
+
+                    java.util.List<DatabaseSchemaInspector.SchemaDifference> drift =
+                            comparison.details().stream()
+                                    .filter(d -> d.kind() != DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE)
+                                    .toList();
+                    assertThat(drift)
+                            .as("init() 创建的计划任务表与 SPEC 之间不应有漂移：%s", drift)
+                            .isEmpty();
+                }
+            } finally {
+                ds.destroy();
+            }
+        }
     }
 }

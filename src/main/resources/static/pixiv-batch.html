@@ -74,6 +74,7 @@
         <div class="tab" id="tab-user" onclick="switchMode('user')" data-i18n="mode.user">👤 User 模式</div>
         <div class="tab" id="tab-search" onclick="switchMode('search')" data-i18n="mode.search">🔍 Search 模式</div>
         <div class="tab" id="tab-series" onclick="switchMode('series')" data-i18n="mode.series">📚 系列下载</div>
+        <div class="tab" id="tab-schedule" style="display:none;" onclick="switchMode('schedule')" data-i18n="mode.schedule">⏰ 计划任务</div>
     </div>
 
     <!-- Single-work import panel -->
@@ -275,6 +276,71 @@
         <div class="search-pagination" id="series-pagination" style="display:none;"></div>
     </div>
 
+    <!-- Schedule panel (admin-only; auto-download on a timer / cron) -->
+    <div class="card mode-panel" id="panel-schedule">
+        <div class="card-title" data-i18n="schedule.title">计划任务</div>
+        <div class="schedule-intro" data-i18n="schedule.intro">后台按固定周期或 Cron 表达式自动发现并下载新作品。计划任务以管理员身份运行，仅管理员可见。</div>
+
+        <div class="schedule-form">
+            <div class="setting-item">
+                <label data-i18n="schedule.field.name">任务名称：</label>
+                <input type="text" id="sch-name" data-i18n-placeholder="schedule.field.name.placeholder" placeholder="为这个计划起个名字">
+            </div>
+            <div class="setting-item">
+                <label data-i18n="schedule.field.type">类型：</label>
+                <select id="sch-type" onchange="onScheduleTypeChange()">
+                    <option value="USER_NEW" data-i18n="schedule.type.user-new">画师新作</option>
+                    <option value="SEARCH" data-i18n="schedule.type.search">保存的搜索</option>
+                    <option value="SERIES" data-i18n="schedule.type.series">漫画系列</option>
+                </select>
+            </div>
+            <div class="setting-item sch-param sch-param-USER_NEW">
+                <label data-i18n="schedule.param.user-id">画师 ID：</label>
+                <input type="text" id="sch-user-id" placeholder="123456">
+            </div>
+            <div class="setting-item sch-param sch-param-SEARCH">
+                <label data-i18n="schedule.param.word">关键词：</label>
+                <input type="text" id="sch-word">
+            </div>
+            <div class="setting-item sch-param sch-param-SEARCH">
+                <label data-i18n="schedule.param.max-pages">抓取页数：</label>
+                <input type="number" id="sch-max-pages" min="1" value="3">
+            </div>
+            <div class="setting-item sch-param sch-param-SERIES">
+                <label data-i18n="schedule.param.series-id">系列 ID：</label>
+                <input type="text" id="sch-series-id" placeholder="123456">
+            </div>
+            <div class="setting-item">
+                <label data-i18n="schedule.field.trigger">触发方式：</label>
+                <select id="sch-trigger" onchange="onScheduleTriggerChange()">
+                    <option value="interval" data-i18n="schedule.trigger.interval">固定周期</option>
+                    <option value="cron" data-i18n="schedule.trigger.cron">Cron 表达式</option>
+                </select>
+            </div>
+            <div class="setting-item sch-trigger-field sch-trigger-interval">
+                <label data-i18n="schedule.field.interval">周期（分钟）：</label>
+                <input type="number" id="sch-interval" min="1" value="1440">
+            </div>
+            <div class="setting-item sch-trigger-field sch-trigger-cron">
+                <label data-i18n="schedule.field.cron">Cron 表达式：</label>
+                <input type="text" id="sch-cron" placeholder="0 0 3 * * *">
+            </div>
+            <div class="schedule-form-actions">
+                <button class="btn btn-green" id="sch-submit" onclick="submitScheduleTask()" data-i18n="schedule.action.create">➕ 创建任务</button>
+                <button class="btn btn-gray" id="sch-cancel" onclick="resetScheduleForm()" style="display:none;" data-i18n="schedule.action.cancel">取消编辑</button>
+            </div>
+            <div id="sch-form-status" class="schedule-status"></div>
+        </div>
+
+        <div class="schedule-list-title" data-i18n="schedule.list.title">已创建的计划任务</div>
+        <div id="schedule-list">
+            <div class="schedule-empty" data-i18n="schedule.list.empty">暂无计划任务</div>
+        </div>
+    </div>
+
+    <!-- Download workbench (shared settings/queue; hidden in schedule mode) -->
+    <div id="download-workbench">
+
     <!-- Settings -->
     <div class="card">
         <div class="card-title" data-i18n="card.settings">下载设置</div>
@@ -426,6 +492,8 @@
             <div class="queue-empty" data-i18n="status.queue-empty">队列为空</div>
         </div>
     </div>
+
+    </div><!-- /download-workbench -->
 
     <footer class="app-footer" aria-label="Project information">
         <div class="app-footer-meta">

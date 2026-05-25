@@ -133,6 +133,13 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages,
                 "update.check-nightly: " + top.sywyar.pixivdownload.update.UpdateConfig.isCurrentVersionNightly(),
                 "config.template.update.check-nightly.comment");
+        appendBlankLine(config);
+
+        appendSection(config, messages, "config.template.section.schedule");
+        appendSetting(config, messages, "schedule.enabled: true", "config.template.schedule.enabled.comment");
+        appendSetting(config, messages, "schedule.tick-interval-ms: 60000", "config.template.schedule.tick-interval-ms.comment");
+        appendSetting(config, messages, "schedule.max-tasks: 100", "config.template.schedule.max-tasks.comment");
+        appendSetting(config, messages, "schedule.fetch-delay-ms: 1000", "config.template.schedule.fetch-delay-ms.comment");
 
         return config.toString();
     }

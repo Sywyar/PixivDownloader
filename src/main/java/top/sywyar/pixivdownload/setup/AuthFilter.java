@@ -76,6 +76,7 @@ public class AuthFilter extends OncePerRequestFilter {
             "/api/gallery/",
             "/api/stats/",
             "/api/duplicates/",
+            "/api/schedule/",
             "/api/collections",
             "/api/admin/",
             "/api/tts/",

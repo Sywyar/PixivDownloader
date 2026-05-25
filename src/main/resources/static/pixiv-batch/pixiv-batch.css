@@ -1704,3 +1704,138 @@
             color: var(--muted-2) !important;
         }
     
+
+/* ── 计划任务（管理员专用） ───────────────────────────────────────────────── */
+.schedule-intro {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+
+.schedule-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-muted);
+}
+
+.schedule-form .setting-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.schedule-form .setting-item label {
+    min-width: 92px;
+    font-size: 13px;
+    color: var(--text);
+}
+
+.schedule-form input,
+.schedule-form select {
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-size: 13px;
+    background: var(--control-bg);
+    color: var(--text);
+}
+
+.schedule-form input[type="text"],
+.schedule-form input[type="number"] {
+    flex: 1;
+    min-width: 160px;
+}
+
+.schedule-form-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.schedule-status {
+    font-size: 13px;
+    min-height: 18px;
+}
+
+.schedule-list-title {
+    margin: 18px 0 8px;
+    font-weight: 700;
+    color: var(--heading);
+}
+
+.schedule-empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 24px 0;
+    font-size: 13px;
+}
+
+.schedule-card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    background: var(--surface);
+}
+
+.schedule-card-disabled {
+    opacity: 0.65;
+}
+
+.schedule-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.schedule-card-name {
+    font-weight: 700;
+    color: var(--heading);
+    font-size: 15px;
+}
+
+.schedule-badge {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--control-muted-bg);
+    color: var(--muted);
+}
+
+.schedule-badge-ok {
+    background: var(--brand);
+    color: var(--brand-text);
+}
+
+.schedule-card-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 10px;
+}
+
+.schedule-status-bad {
+    color: var(--warning-text);
+    font-weight: 600;
+}
+
+.schedule-card-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.schedule-card-actions .btn {
+    padding: 5px 12px;
+    font-size: 12px;
+}

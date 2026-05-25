@@ -42,7 +42,8 @@ public final class ConfigFieldRegistry {
                 message("gui.config.group.security"),
                 message("gui.config.group.maintenance"),
                 message("gui.config.group.https"),
-                message("gui.config.group.update")
+                message("gui.config.group.update"),
+                message("gui.config.group.schedule")
         );
     }
 
@@ -57,6 +58,7 @@ public final class ConfigFieldRegistry {
         String groupMaintenance = message("gui.config.group.maintenance");
         String groupHttps = message("gui.config.group.https");
         String groupUpdate = message("gui.config.group.update");
+        String groupSchedule = message("gui.config.group.schedule");
 
         return List.of(
 
@@ -507,6 +509,57 @@ public final class ConfigFieldRegistry {
                         .defaultValue(Boolean.toString(UpdateConfig.isCurrentVersionNightly()))
                         .help(message("gui.config.field.update.check-nightly.help"))
                         .enabledWhen(snap -> snap.isTrue("update.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── 计划任务（管理员） ──────────────────────────────────────────────
+                ConfigFieldSpec.builder("schedule.enabled", message("gui.config.field.schedule.enabled.label"), BOOL, groupSchedule)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.schedule.enabled.help"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("schedule.tick-interval-ms", message("gui.config.field.schedule.tick-interval-ms.label"), INT, groupSchedule)
+                        .defaultValue("60000")
+                        .help(message("gui.config.field.schedule.tick-interval-ms.help"))
+                        .enabledWhen(snap -> snap.isTrue("schedule.enabled"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 1000 ? null : message("gui.config.validation.schedule-tick-min");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .build(),
+
+                ConfigFieldSpec.builder("schedule.max-tasks", message("gui.config.field.schedule.max-tasks.label"), INT, groupSchedule)
+                        .defaultValue("100")
+                        .help(message("gui.config.field.schedule.max-tasks.help"))
+                        .enabledWhen(snap -> snap.isTrue("schedule.enabled"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 1 ? null : message("gui.config.validation.positive-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("schedule.fetch-delay-ms", message("gui.config.field.schedule.fetch-delay-ms.label"), INT, groupSchedule)
+                        .defaultValue("1000")
+                        .help(message("gui.config.field.schedule.fetch-delay-ms.help"))
+                        .enabledWhen(snap -> snap.isTrue("schedule.enabled"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 0 ? null : message("gui.config.validation.non-negative-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
                         .hotReloadable()
                         .build()
         );

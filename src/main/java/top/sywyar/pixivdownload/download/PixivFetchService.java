@@ -10,12 +10,15 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 服务端 Pixiv AJAX 抓取与作品发现服务。
@@ -136,6 +139,78 @@ public class PixivFetchService {
             delays.add(frame.path("delay").asInt(100));
         }
         return new UgoiraInfo(zipUrl, delays);
+    }
+
+    /**
+     * 按关键词搜索发现作品 ID（插画 + 漫画 + 动图），翻 {@code maxPages} 页去重后返回（按出现顺序）。
+     *
+     * <p>遵循「URL 编码只能做一次」约束：{@code word} 以未编码原始形态交给
+     * {@link UriComponentsBuilder} 统一编码。
+     *
+     * @param order Pixiv 排序（如 {@code date_d}）；{@code mode} 分级（如 {@code all}）；{@code sMode} 标签匹配（如 {@code s_tag}）
+     */
+    public List<String> discoverSearchArtworkIds(String word, String order, String mode,
+                                                 String sMode, int maxPages, String cookie) throws IOException {
+        LinkedHashMap<String, Boolean> ids = new LinkedHashMap<>();
+        int pages = Math.max(1, maxPages);
+        for (int p = 1; p <= pages; p++) {
+            URI uri = UriComponentsBuilder
+                    .fromUriString("https://www.pixiv.net/ajax/search/artworks/{word}")
+                    .queryParam("word", "{word}")
+                    .queryParam("order", order)
+                    .queryParam("mode", mode)
+                    .queryParam("type", "illust_and_ugoira")
+                    .queryParam("s_mode", sMode)
+                    .queryParam("p", p)
+                    .queryParam("lang", "zh")
+                    .buildAndExpand(Map.of("word", word))
+                    .encode()
+                    .toUri();
+            JsonNode body = requireBody(proxyGetUri(uri, cookie));
+            JsonNode data = body.path("illustManga").path("data");
+            if (!data.isArray() || data.isEmpty()) break;
+            int before = ids.size();
+            for (JsonNode item : data) {
+                String id = item.path("id").asText("");
+                if (!id.isEmpty()) ids.put(id, Boolean.TRUE);
+            }
+            int total = body.path("illustManga").path("total").asInt(0);
+            if (total > 0 && ids.size() >= total) break;
+            if (ids.size() == before) break;
+        }
+        return new ArrayList<>(ids.keySet());
+    }
+
+    /**
+     * 发现某漫画系列内的全部作品 ID，按系列内顺序（order 升序）。
+     *
+     * <p>逐页拉取 {@code /ajax/series/{id}?p=N}，从 {@code body.page.series[].workId} 收集成员
+     * （这是系列成员的权威列表，带 order），直到某页无成员为止。
+     */
+    public List<String> discoverSeriesArtworkIds(String seriesId, String cookie) throws IOException {
+        record Member(String id, int order) {}
+        List<Member> members = new ArrayList<>();
+        for (int p = 1; p <= 200; p++) {
+            URI uri = UriComponentsBuilder
+                    .fromUriString("https://www.pixiv.net/ajax/series/{seriesId}")
+                    .queryParam("p", p)
+                    .queryParam("lang", "zh")
+                    .buildAndExpand(Map.of("seriesId", seriesId))
+                    .encode()
+                    .toUri();
+            JsonNode body = requireBody(proxyGetUri(uri, cookie));
+            JsonNode arr = body.path("page").path("series");
+            if (!arr.isArray() || arr.isEmpty()) break;
+            for (JsonNode entry : arr) {
+                String id = entry.path("workId").asText("");
+                if (!id.isEmpty()) members.add(new Member(id, entry.path("order").asInt(0)));
+            }
+        }
+        LinkedHashMap<String, Boolean> ids = new LinkedHashMap<>();
+        members.stream()
+                .sorted((a, b) -> Integer.compare(a.order(), b.order()))
+                .forEach(m -> ids.put(m.id(), Boolean.TRUE));
+        return new ArrayList<>(ids.keySet());
     }
 
     /** 解析 Pixiv AJAX 响应、剥出 {@code body}；{@code error=true} 时抛 {@link PixivFetchException}。 */

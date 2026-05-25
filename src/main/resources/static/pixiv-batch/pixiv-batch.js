@@ -2509,14 +2509,26 @@
        UI
     ============================================================ */
     function switchMode(mode) {
-        const normalizedMode = normalizeImportMode(mode);
+        let normalizedMode = normalizeImportMode(mode);
+        // 计划任务仅管理员可进入；非管理员请求时回退到默认模式
+        if (normalizedMode === 'schedule' && !isAdmin) normalizedMode = SINGLE_IMPORT_MODE;
         state.mode = normalizedMode;
-        [SINGLE_IMPORT_MODE, 'user', 'search', 'series'].forEach(m => {
-            document.getElementById('tab-' + m).classList.toggle('active', m === normalizedMode);
-            document.getElementById('panel-' + m).classList.toggle('active', m === normalizedMode);
+        [SINGLE_IMPORT_MODE, 'user', 'search', 'series', 'schedule'].forEach(m => {
+            const tab = document.getElementById('tab-' + m);
+            const panel = document.getElementById('panel-' + m);
+            if (tab) tab.classList.toggle('active', m === normalizedMode);
+            if (panel) panel.classList.toggle('active', m === normalizedMode);
         });
+        // 计划任务模式下隐藏共享的下载设置 / 队列工作台
+        const workbench = document.getElementById('download-workbench');
+        if (workbench) workbench.style.display = (normalizedMode === 'schedule') ? 'none' : '';
         storeSet('pixiv_mode', normalizedMode);
         applyNovelSettingsVisibility();
+        if (normalizedMode === 'schedule') {
+            onScheduleTypeChange();
+            onScheduleTriggerChange();
+            loadScheduleTasks();
+        }
     }
 
     function applyNovelSettingsVisibility() {
@@ -2585,6 +2597,13 @@
     function updateAuthButtons() {
         document.getElementById('login-btn').style.display = isAdmin ? 'none' : 'block';
         document.getElementById('logout-btn').style.display = isAdmin ? 'block' : 'none';
+        // 计划任务为管理员专用：非管理员隐藏该 tab
+        const schedTab = document.getElementById('tab-schedule');
+        if (schedTab) {
+            schedTab.style.display = isAdmin ? '' : 'none';
+            // 非管理员若停留在 schedule 模式则退回默认模式
+            if (!isAdmin && state.mode === 'schedule') switchMode(SINGLE_IMPORT_MODE);
+        }
         updateBatchLimitNote();
     }
 
@@ -5223,4 +5242,257 @@
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;');
+    }
+
+    // ── 计划任务（管理员专用） ────────────────────────────────────────────────────
+    let scheduleEditingId = null;
+    let scheduleTasksCache = [];
+
+    function onScheduleTypeChange() {
+        const type = (document.getElementById('sch-type') || {}).value || 'USER_NEW';
+        document.querySelectorAll('#panel-schedule .sch-param').forEach(el => {
+            el.style.display = el.classList.contains('sch-param-' + type) ? '' : 'none';
+        });
+    }
+
+    function onScheduleTriggerChange() {
+        const trigger = (document.getElementById('sch-trigger') || {}).value || 'interval';
+        document.querySelectorAll('#panel-schedule .sch-trigger-field').forEach(el => {
+            const want = 'sch-trigger-' + trigger;
+            el.style.display = el.classList.contains(want) ? '' : 'none';
+        });
+    }
+
+    function setScheduleFormStatus(msg, type = 'info') {
+        const el = document.getElementById('sch-form-status');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.style.color = STATUS_COLORS[type] || '#666';
+    }
+
+    function buildScheduleParamsJson(type) {
+        if (type === 'USER_NEW') {
+            const userId = (document.getElementById('sch-user-id').value || '').trim();
+            if (!userId) throw new Error(bt('schedule.error.user-id', '请填写画师 ID'));
+            return JSON.stringify({userId});
+        }
+        if (type === 'SEARCH') {
+            const word = (document.getElementById('sch-word').value || '').trim();
+            if (!word) throw new Error(bt('schedule.error.word', '请填写搜索关键词'));
+            const maxPages = parseInt(document.getElementById('sch-max-pages').value, 10) || 3;
+            return JSON.stringify({word, order: 'date_d', mode: 'all', sMode: 's_tag', maxPages});
+        }
+        if (type === 'SERIES') {
+            const seriesId = (document.getElementById('sch-series-id').value || '').trim();
+            if (!seriesId) throw new Error(bt('schedule.error.series-id', '请填写系列 ID'));
+            return JSON.stringify({seriesId});
+        }
+        return '{}';
+    }
+
+    async function submitScheduleTask() {
+        const name = (document.getElementById('sch-name').value || '').trim();
+        const type = document.getElementById('sch-type').value;
+        const triggerKind = document.getElementById('sch-trigger').value;
+        if (!name) {
+            setScheduleFormStatus(bt('schedule.error.name', '请填写任务名称'), 'error');
+            return;
+        }
+        let paramsJson;
+        try {
+            paramsJson = buildScheduleParamsJson(type);
+        } catch (e) {
+            setScheduleFormStatus(e.message, 'error');
+            return;
+        }
+        const body = {name, type, paramsJson, triggerKind};
+        if (triggerKind === 'interval') {
+            body.intervalMinutes = parseInt(document.getElementById('sch-interval').value, 10) || 0;
+        } else {
+            body.cronExpr = (document.getElementById('sch-cron').value || '').trim();
+        }
+        const editing = scheduleEditingId != null;
+        const url = editing ? `${BASE}/api/schedule/tasks/${scheduleEditingId}` : `${BASE}/api/schedule/tasks`;
+        try {
+            const res = await fetch(url, {
+                method: editing ? 'PUT' : 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                setScheduleFormStatus(err.message || bt('schedule.error.save', '保存失败'), 'error');
+                return;
+            }
+            setScheduleFormStatus(bt('schedule.status.saved', '已保存'), 'success');
+            resetScheduleForm();
+            loadScheduleTasks();
+        } catch (e) {
+            setScheduleFormStatus(bt('schedule.error.save', '保存失败'), 'error');
+        }
+    }
+
+    function resetScheduleForm() {
+        scheduleEditingId = null;
+        document.getElementById('sch-name').value = '';
+        document.getElementById('sch-user-id').value = '';
+        document.getElementById('sch-word').value = '';
+        document.getElementById('sch-max-pages').value = '3';
+        document.getElementById('sch-series-id').value = '';
+        document.getElementById('sch-cron').value = '';
+        document.getElementById('sch-interval').value = '1440';
+        document.getElementById('sch-type').value = 'USER_NEW';
+        document.getElementById('sch-trigger').value = 'interval';
+        document.getElementById('sch-submit').textContent = bt('schedule.action.create', '➕ 创建任务');
+        document.getElementById('sch-cancel').style.display = 'none';
+        onScheduleTypeChange();
+        onScheduleTriggerChange();
+        setScheduleFormStatus('');
+    }
+
+    function startEditScheduleTask(id) {
+        const task = scheduleTasksCache.find(t => t.id === id);
+        if (!task) return;
+        scheduleEditingId = task.id;
+        document.getElementById('sch-name').value = task.name || '';
+        document.getElementById('sch-type').value = task.type;
+        document.getElementById('sch-trigger').value = task.triggerKind;
+        document.getElementById('sch-interval').value = task.intervalMinutes || 1440;
+        document.getElementById('sch-cron').value = task.cronExpr || '';
+        let params = {};
+        try { params = JSON.parse(task.paramsJson || '{}'); } catch (e) { params = {}; }
+        document.getElementById('sch-user-id').value = params.userId || '';
+        document.getElementById('sch-word').value = params.word || '';
+        document.getElementById('sch-max-pages').value = params.maxPages || 3;
+        document.getElementById('sch-series-id').value = params.seriesId || '';
+        document.getElementById('sch-submit').textContent = bt('schedule.action.save', '💾 保存修改');
+        document.getElementById('sch-cancel').style.display = '';
+        onScheduleTypeChange();
+        onScheduleTriggerChange();
+        document.getElementById('panel-schedule').scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+
+    function scheduleStatusLabel(code) {
+        if (!code) return bt('schedule.run-status.none', '尚未运行');
+        if (code === 'OK') return bt('schedule.run-status.ok', '正常');
+        if (code === 'AUTH_EXPIRED') return bt('schedule.run-status.auth-expired', '登录态失效，请重新授权 Cookie');
+        if (code === 'ERROR') return bt('schedule.run-status.error', '运行出错');
+        return code;
+    }
+
+    function fmtScheduleTime(ms) {
+        if (!ms) return '—';
+        try { return new Date(ms).toLocaleString(); } catch (e) { return '—'; }
+    }
+
+    async function loadScheduleTasks() {
+        const list = document.getElementById('schedule-list');
+        if (!list) return;
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks`, {credentials: 'same-origin'});
+            if (!res.ok) {
+                list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.load-failed', '加载失败'))}</div>`;
+                return;
+            }
+            const tasks = await res.json();
+            scheduleTasksCache = Array.isArray(tasks) ? tasks : [];
+            if (scheduleTasksCache.length === 0) {
+                list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.empty', '暂无计划任务'))}</div>`;
+                return;
+            }
+            list.innerHTML = scheduleTasksCache.map(renderScheduleTaskCard).join('');
+        } catch (e) {
+            list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.load-failed', '加载失败'))}</div>`;
+        }
+    }
+
+    function renderScheduleTaskCard(t) {
+        const typeLabel = {
+            USER_NEW: bt('schedule.type.user-new', '画师新作'),
+            SEARCH: bt('schedule.type.search', '保存的搜索'),
+            SERIES: bt('schedule.type.series', '漫画系列')
+        }[t.type] || t.type;
+        const triggerLabel = t.triggerKind === 'cron'
+            ? bt('schedule.trigger.cron', 'Cron 表达式') + ' ' + escHtml(t.cronExpr || '')
+            : bt('schedule.trigger.interval', '固定周期') + ' ' + (t.intervalMinutes || 0) + ' min';
+        const cookieLabel = t.cookieBound
+            ? bt('schedule.cookie.bound', '已绑定 Cookie')
+            : bt('schedule.cookie.restricted', '受限模式（无 Cookie）');
+        const enabledLabel = t.enabled ? bt('schedule.state.enabled', '已启用') : bt('schedule.state.disabled', '已停用');
+        const authExpired = t.lastStatus === 'AUTH_EXPIRED';
+        return `
+        <div class="schedule-card${t.enabled ? '' : ' schedule-card-disabled'}">
+            <div class="schedule-card-head">
+                <span class="schedule-card-name">${escHtml(t.name)}</span>
+                <span class="schedule-badge">${escHtml(typeLabel)}</span>
+                <span class="schedule-badge${t.cookieBound ? ' schedule-badge-ok' : ''}">${escHtml(cookieLabel)}</span>
+                <span class="schedule-badge${t.enabled ? ' schedule-badge-ok' : ''}">${escHtml(enabledLabel)}</span>
+            </div>
+            <div class="schedule-card-meta">
+                <div>${escHtml(bt('schedule.meta.trigger', '触发：'))}${triggerLabel}</div>
+                <div>${escHtml(bt('schedule.meta.next', '下次运行：'))}${escHtml(fmtScheduleTime(t.nextRunTime))}</div>
+                <div>${escHtml(bt('schedule.meta.last', '上次运行：'))}${escHtml(fmtScheduleTime(t.lastRunTime))}
+                    <span class="${authExpired ? 'schedule-status-bad' : ''}">${escHtml(scheduleStatusLabel(t.lastStatus))}</span></div>
+            </div>
+            <div class="schedule-card-actions">
+                <button class="btn btn-cyan" onclick="runScheduleTask(${t.id})">${escHtml(bt('schedule.action.run', '▶ 立即运行'))}</button>
+                <button class="btn btn-blue" onclick="authorizeScheduleCookie(${t.id})">${escHtml(bt('schedule.action.authorize', '🔑 授权 Cookie'))}</button>
+                <button class="btn btn-gray" onclick="toggleScheduleTask(${t.id}, ${t.enabled ? 'false' : 'true'})">${escHtml(t.enabled ? bt('schedule.action.disable', '⏸ 停用') : bt('schedule.action.enable', '✔ 启用'))}</button>
+                <button class="btn btn-yellow" onclick="startEditScheduleTask(${t.id})">${escHtml(bt('schedule.action.edit', '✏ 编辑'))}</button>
+                <button class="btn btn-gray" onclick="deleteScheduleTask(${t.id})">${escHtml(bt('schedule.action.delete', '🗑 删除'))}</button>
+            </div>
+        </div>`;
+    }
+
+    async function runScheduleTask(id) {
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/run`, {method: 'POST', credentials: 'same-origin'});
+            if (res.ok) setScheduleFormStatus(bt('schedule.status.run-started', '已开始后台运行'), 'success');
+        } catch (e) { /* ignore */ }
+    }
+
+    async function toggleScheduleTask(id, enabled) {
+        try {
+            await fetch(`${BASE}/api/schedule/tasks/${id}/enabled?enabled=${enabled}`,
+                {method: 'POST', credentials: 'same-origin'});
+            loadScheduleTasks();
+        } catch (e) { /* ignore */ }
+    }
+
+    async function deleteScheduleTask(id) {
+        if (!confirm(bt('schedule.confirm.delete', '确定删除这个计划任务吗？（绑定的 Cookie 也会被清除）'))) return;
+        try {
+            await fetch(`${BASE}/api/schedule/tasks/${id}`, {method: 'DELETE', credentials: 'same-origin'});
+            loadScheduleTasks();
+        } catch (e) { /* ignore */ }
+    }
+
+    async function authorizeScheduleCookie(id) {
+        const cookie = (storeGet('pixiv_cookie') || '').trim();
+        if (!cookie) {
+            setScheduleFormStatus(bt('schedule.error.no-cookie', '请先在上方 Cookie 卡片保存含 PHPSESSID 的 Cookie'), 'error');
+            return;
+        }
+        if (cookie.indexOf('PHPSESSID') === -1) {
+            setScheduleFormStatus(bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权'), 'error');
+            return;
+        }
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/authorize-cookie`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({cookie})
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                setScheduleFormStatus(err.message || bt('schedule.error.authorize', '授权失败'), 'error');
+                return;
+            }
+            setScheduleFormStatus(bt('schedule.status.authorized', 'Cookie 已授权绑定到该任务'), 'success');
+            loadScheduleTasks();
+        } catch (e) {
+            setScheduleFormStatus(bt('schedule.error.authorize', '授权失败'), 'error');
+        }
     }
