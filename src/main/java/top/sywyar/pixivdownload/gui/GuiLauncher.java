@@ -475,10 +475,24 @@ public class GuiLauncher {
 
     private static boolean supportsStartupAutoBackfill(DatabaseSchemaInspector.SchemaComparison comparison) {
         return !comparison.details().isEmpty()
-                && comparison.details().stream().allMatch(GuiLauncher::isSupportedStartupAutoBackfillDifference);
+                // 所有差异都不阻断（要么可回填，要么是后端自建表/自动迁移列这类首启自愈差异）。
+                && comparison.details().stream().allMatch(GuiLauncher::isNonBlockingStartupDifference)
+                // 且至少有一个差异是回填工具真正支持的列；否则差异全是自愈项，没有任何需要联网回填的内容，不启动回填工具。
+                && comparison.details().stream().anyMatch(GuiLauncher::isBackfillableDifference);
     }
 
-    private static boolean isSupportedStartupAutoBackfillDifference(
+    /** 该差异是否由回填工具实际填充——即差异的列在 {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 支持范围内。 */
+    private static boolean isBackfillableDifference(DatabaseSchemaInspector.SchemaDifference difference) {
+        return difference.hasColumn()
+                && ArtworksBackFill.supportsDatabaseColumn(difference.tableName(), difference.columnName());
+    }
+
+    /**
+     * 该差异是否不阻断启动期自动回填：要么可回填（见 {@link #isBackfillableDifference}），
+     * 要么是后端启动时会自愈的差异（缺表 / 自动迁移列）。仅"不阻断"不代表会触发回填——
+     * 是否启动回填还要求 {@link #supportsStartupAutoBackfill} 中至少存在一个可回填差异。
+     */
+    private static boolean isNonBlockingStartupDifference(
             DatabaseSchemaInspector.SchemaDifference difference) {
         if (difference.hasColumn()) {
             if (ArtworksBackFill.supportsDatabaseColumn(difference.tableName(), difference.columnName())) {
