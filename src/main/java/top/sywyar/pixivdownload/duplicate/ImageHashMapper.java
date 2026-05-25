@@ -35,6 +35,17 @@ public interface ImageHashMapper {
             + " ON CONFLICT(artwork_id, page) DO UPDATE SET created_time = excluded.created_time")
     void markNoHash(@Param("artworkId") long artworkId, @Param("createdTime") long createdTime);
 
+    /**
+     * 页级「已尝试但无结果」标记：用 {@code page = -sourcePage - 2} 表示对应页已经尝试过但不可哈希。
+     * {@link #findAll()} 只读取 {@code page >= 0}，因此这些哨兵行不会进入相似分组。
+     */
+    @Insert("INSERT INTO artwork_image_hashes(artwork_id, page, ext, dhash, ahash, created_time)"
+            + " VALUES(#{artworkId}, (0 - #{page} - 2), '', 0, NULL, #{createdTime})"
+            + " ON CONFLICT(artwork_id, page) DO UPDATE SET created_time = excluded.created_time")
+    void markPageNoHash(@Param("artworkId") long artworkId,
+                        @Param("page") int page,
+                        @Param("createdTime") long createdTime);
+
     @Select("SELECT h.artwork_id AS artworkId, h.page AS page, h.ext AS ext,"
             + " h.dhash AS dHash, h.ahash AS aHash, h.created_time AS createdTime,"
             + " a.title AS title, a.author_id AS authorId, au.name AS authorName,"
@@ -52,15 +63,32 @@ public interface ImageHashMapper {
     @Select("SELECT MAX(created_time) FROM artwork_image_hashes")
     Long maxCreatedTime();
 
-    @Select("SELECT COUNT(*) FROM artworks a"
-            + " LEFT JOIN (SELECT DISTINCT artwork_id FROM artwork_image_hashes) h ON h.artwork_id = a.artwork_id"
-            + " WHERE h.artwork_id IS NULL")
+    @Select("WITH RECURSIVE expected_pages(artwork_id, page, max_page) AS ("
+            + " SELECT artwork_id, 0, count - 1 FROM artworks WHERE count > 0"
+            + " UNION ALL"
+            + " SELECT artwork_id, page + 1, max_page FROM expected_pages WHERE page < max_page"
+            + ")"
+            + " SELECT COUNT(DISTINCT p.artwork_id) FROM expected_pages p"
+            + " WHERE NOT EXISTS ("
+            + " SELECT 1 FROM artwork_image_hashes h"
+            + " WHERE h.artwork_id = p.artwork_id"
+            + " AND (h.page = p.page OR h.page = -p.page - 2 OR h.page = -1)"
+            + ")")
     int countArtworksMissingHashes();
 
-    @Select("SELECT a.artwork_id FROM artworks a"
-            + " LEFT JOIN (SELECT DISTINCT artwork_id FROM artwork_image_hashes) h ON h.artwork_id = a.artwork_id"
-            + " WHERE h.artwork_id IS NULL"
-            + " ORDER BY a.time DESC"
+    @Select("WITH RECURSIVE expected_pages(artwork_id, page, max_page, time) AS ("
+            + " SELECT artwork_id, 0, count - 1, time FROM artworks WHERE count > 0"
+            + " UNION ALL"
+            + " SELECT artwork_id, page + 1, max_page, time FROM expected_pages WHERE page < max_page"
+            + ")"
+            + " SELECT p.artwork_id FROM expected_pages p"
+            + " WHERE NOT EXISTS ("
+            + " SELECT 1 FROM artwork_image_hashes h"
+            + " WHERE h.artwork_id = p.artwork_id"
+            + " AND (h.page = p.page OR h.page = -p.page - 2 OR h.page = -1)"
+            + ")"
+            + " GROUP BY p.artwork_id"
+            + " ORDER BY MAX(p.time) DESC"
             + " LIMIT #{limit}")
     List<Long> artworkIdsMissingHashes(@Param("limit") int limit);
 

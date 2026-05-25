@@ -102,6 +102,27 @@ class ImageHashMapperTest {
         assertThat(mapper.artworkIdsMissingHashes(10)).containsExactly(1002L);
     }
 
+    @Test
+    @DisplayName("缺哈希查询应按页判断并允许失败页哨兵跳过重试")
+    void shouldDetectMissingPagesAndRespectPageNoHashMarker() {
+        insertArtwork(1001L, "Artwork A", null, 0, 200L, 3);
+
+        mapper.upsert(1001L, 0, "jpg", 42L, null, 123L);
+
+        assertThat(mapper.countArtworksMissingHashes()).isEqualTo(1);
+        assertThat(mapper.artworkIdsMissingHashes(10)).containsExactly(1001L);
+
+        mapper.markPageNoHash(1001L, 1, 124L);
+        assertThat(mapper.countArtworksMissingHashes()).isEqualTo(1);
+        assertThat(mapper.artworkIdsMissingHashes(10)).containsExactly(1001L);
+
+        mapper.markPageNoHash(1001L, 2, 125L);
+        assertThat(mapper.countArtworksMissingHashes()).isZero();
+        assertThat(mapper.artworkIdsMissingHashes(10)).isEmpty();
+        assertThat(mapper.findAll()).singleElement()
+                .satisfies(row -> assertThat(row.page()).isZero());
+    }
+
     private void createTables() {
         jdbc.execute("""
                 CREATE TABLE artwork_image_hashes (
@@ -118,6 +139,7 @@ class ImageHashMapperTest {
                 CREATE TABLE artworks (
                     artwork_id INTEGER PRIMARY KEY,
                     title TEXT NOT NULL,
+                    count INTEGER NOT NULL,
                     time INTEGER NOT NULL,
                     author_id INTEGER,
                     "R18" INTEGER
@@ -138,7 +160,11 @@ class ImageHashMapperTest {
     }
 
     private void insertArtwork(long artworkId, String title, Long authorId, int xRestrict, long time) {
-        jdbc.update("INSERT INTO artworks(artwork_id, title, time, author_id, \"R18\") VALUES(?, ?, ?, ?, ?)",
-                artworkId, title, time, authorId, xRestrict);
+        insertArtwork(artworkId, title, authorId, xRestrict, time, 1);
+    }
+
+    private void insertArtwork(long artworkId, String title, Long authorId, int xRestrict, long time, int count) {
+        jdbc.update("INSERT INTO artworks(artwork_id, title, count, time, author_id, \"R18\") VALUES(?, ?, ?, ?, ?, ?)",
+                artworkId, title, count, time, authorId, xRestrict);
     }
 }

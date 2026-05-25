@@ -34,7 +34,7 @@ public class ImageHashService {
             for (int page = 0; page < pageCount; page++) {
                 written += recordPageHash(artwork, page);
             }
-            if (written == 0) {
+            if (pageCount == 0 || written == 0) {
                 // 没有任何可哈希的页（文件缺失 / 解码失败 / 不支持的格式）：写入「已尝试」哨兵行，
                 // 避免该作品在每次维护回填/扫描时被反复重试。
                 imageHashMapper.markNoHash(artwork.artworkId(), System.currentTimeMillis());
@@ -55,12 +55,14 @@ public class ImageHashService {
             ArtworkFileLocator.LocatedArtworkFile source = artworkFileLocator.resolveHashSourceFile(artwork, page);
             if (source == null) {
                 log.warn(messages.getForLog("duplicate.log.hash.source-missing", artwork.artworkId(), page));
+                imageHashMapper.markPageNoHash(artwork.artworkId(), page, System.currentTimeMillis());
                 return 0;
             }
             Optional<ImageHasher.Hashes> hashes = ImageHasher.hash(source.file().toPath());
             if (hashes.isEmpty()) {
                 log.warn(messages.getForLog("duplicate.log.hash.decode-failed",
                         artwork.artworkId(), page, source.file().getAbsolutePath()));
+                imageHashMapper.markPageNoHash(artwork.artworkId(), page, System.currentTimeMillis());
                 return 0;
             }
             ImageHasher.Hashes value = hashes.get();
@@ -70,6 +72,12 @@ public class ImageHashService {
         } catch (Exception e) {
             log.warn(messages.getForLog("duplicate.log.hash.page-failed",
                     artwork.artworkId(), page, e.getMessage()), e);
+            try {
+                imageHashMapper.markPageNoHash(artwork.artworkId(), page, System.currentTimeMillis());
+            } catch (Exception markerError) {
+                log.warn(messages.getForLog("duplicate.log.hash.page-failed",
+                        artwork.artworkId(), page, markerError.getMessage()), markerError);
+            }
             return 0;
         }
     }
