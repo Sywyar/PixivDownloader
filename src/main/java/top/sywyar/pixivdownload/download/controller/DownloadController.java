@@ -4,6 +4,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -39,6 +42,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 @RestController
 @RequestMapping("/api")
@@ -373,6 +377,25 @@ public class DownloadController {
         return image != null ? ResponseEntity.ok(image) : ResponseEntity.status(404).build();
     }
 
+    @GetMapping("/downloaded/thumbnail-file/{artworkId}/{page}")
+    public ResponseEntity<Resource> getThumbnailFile(
+            @PathVariable Long artworkId,
+            @PathVariable int page,
+            HttpServletRequest httpRequest) throws IOException {
+        guestAccessGuard.requireVisible(httpRequest, artworkId);
+        DownloadService.ThumbnailFile thumbnail = downloadService.getThumbnailFile(artworkId, page);
+        if (thumbnail == null || !Files.isRegularFile(thumbnail.path())) {
+            return ResponseEntity.notFound().build();
+        }
+        Resource resource = new FileSystemResource(thumbnail.path());
+        return ResponseEntity.ok()
+                .contentType(mediaTypeForImageExtension(thumbnail.extension()))
+                .contentLength(Files.size(thumbnail.path()))
+                .lastModified(Files.getLastModifiedTime(thumbnail.path()).toMillis())
+                .cacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePrivate())
+                .body(resource);
+    }
+
     @GetMapping("/downloaded/rawfile/{artworkId}/{page}")
     public ResponseEntity<byte[]> getRawFile(
             @PathVariable Long artworkId,
@@ -406,6 +429,16 @@ public class DownloadController {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
         ImageResponse image = downloadService.getImageResponse(artworkId, page, false);
         return image != null ? ResponseEntity.ok(image) : ResponseEntity.status(404).build();
+    }
+
+    private MediaType mediaTypeForImageExtension(String extension) {
+        String normalized = extension == null ? "" : extension.toLowerCase();
+        return switch (normalized) {
+            case "jpg", "jpeg" -> MediaType.IMAGE_JPEG;
+            case "gif" -> MediaType.IMAGE_GIF;
+            case "webp" -> MediaType.parseMediaType("image/webp");
+            default -> MediaType.IMAGE_PNG;
+        };
     }
 
     public DownloadedResponse getArtWorkDownloadedResponse(Long artworkId) {

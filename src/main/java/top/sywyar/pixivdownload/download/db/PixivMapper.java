@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.download.db;
 
 import org.apache.ibatis.annotations.*;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
@@ -120,6 +121,17 @@ public interface PixivMapper {
     @Select("SELECT template FROM file_name_templates WHERE id = #{id}")
     String findFileNameTemplateById(@Param("id") long id);
 
+    @Select({
+            "<script>",
+            "SELECT id, template FROM file_name_templates",
+            "WHERE id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>",
+            "#{id}",
+            "</foreach>",
+            "</script>"
+    })
+    List<FileNameTemplateRow> findFileNameTemplatesByIds(@Param("ids") Collection<Long> ids);
+
     // ── Author names ────────────────────────────────────────────────────────────
 
     @Insert("INSERT OR IGNORE INTO file_author_names(name) VALUES(#{name})")
@@ -135,6 +147,17 @@ public interface PixivMapper {
 
     @Select(SELECT_ARTWORK + " WHERE artwork_id = #{artworkId}")
     ArtworkRecord findById(long artworkId);
+
+    @Select({
+            "<script>",
+            SELECT_ARTWORK,
+            "WHERE artwork_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>",
+            "#{id}",
+            "</foreach>",
+            "</script>"
+    })
+    List<ArtworkRecord> findByIds(@Param("ids") Collection<Long> ids);
 
     @Insert("INSERT OR IGNORE INTO artworks"
             + " (artwork_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description, file_name, file_author_name_id,"
@@ -271,6 +294,20 @@ public interface PixivMapper {
             + " WHERE at.artwork_id = #{artworkId}"
             + " ORDER BY t.tag_id")
     List<TagDto> findTagsByArtworkId(@Param("artworkId") long artworkId);
+
+    @Select({
+            "<script>",
+            "SELECT at.artwork_id AS artworkId, t.tag_id AS tagId,",
+            "t.name AS name, t.translated_name AS translatedName",
+            "FROM artwork_tags at JOIN tags t ON t.tag_id = at.tag_id",
+            "WHERE at.artwork_id IN",
+            "<foreach item='id' collection='artworkIds' open='(' separator=',' close=')'>",
+            "#{id}",
+            "</foreach>",
+            "ORDER BY at.artwork_id, t.tag_id",
+            "</script>"
+    })
+    List<ArtworkTagRow> findTagsByArtworkIds(@Param("artworkIds") Collection<Long> artworkIds);
 
     @Select("SELECT 1 FROM artwork_tags WHERE artwork_id = #{artworkId} LIMIT 1")
     Integer existsTagsForArtwork(@Param("artworkId") long artworkId);

@@ -9,7 +9,10 @@ import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
@@ -145,6 +148,19 @@ public class PixivDatabase {
         return ArtworkFileNameFormatter.normalizeTemplate(template);
     }
 
+    public Map<Long, String> getFileNameTemplates(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> result = new HashMap<>();
+        for (FileNameTemplateRow row : pixivMapper.findFileNameTemplatesByIds(ids)) {
+            if (row.getId() != null) {
+                result.put(row.getId(), ArtworkFileNameFormatter.normalizeTemplate(row.getTemplate()));
+            }
+        }
+        return result;
+    }
+
     /**
      * 驻留下载时的合规化作者名，返回 ID。优先复用已有记录，不存在时新建。
      * {@code name} 必须已是 {@link ArtworkFileNameFormatter#sanitize sanitize} 后的值。
@@ -266,6 +282,15 @@ public class PixivDatabase {
         return resolveRecord(pixivMapper.findById(artworkId));
     }
 
+    public List<ArtworkRecord> getArtworks(Collection<Long> artworkIds) {
+        if (artworkIds == null || artworkIds.isEmpty()) {
+            return List.of();
+        }
+        return pixivMapper.findByIds(artworkIds).stream()
+                .map(this::resolveRecord)
+                .toList();
+    }
+
     public List<Long> getAllArtworkIds() {
         return pixivMapper.findAllIds();
     }
@@ -354,6 +379,19 @@ public class PixivDatabase {
 
     public List<TagDto> getArtworkTags(long artworkId) {
         return pixivMapper.findTagsByArtworkId(artworkId);
+    }
+
+    public Map<Long, List<TagDto>> getArtworkTags(Collection<Long> artworkIds) {
+        if (artworkIds == null || artworkIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<TagDto>> result = new HashMap<>();
+        for (ArtworkTagRow row : pixivMapper.findTagsByArtworkIds(artworkIds)) {
+            if (row.getArtworkId() == null) continue;
+            result.computeIfAbsent(row.getArtworkId(), ignored -> new java.util.ArrayList<>())
+                    .add(new TagDto(row.getTagId(), row.getName(), row.getTranslatedName()));
+        }
+        return result;
     }
 
     public boolean hasArtworkTags(long artworkId) {

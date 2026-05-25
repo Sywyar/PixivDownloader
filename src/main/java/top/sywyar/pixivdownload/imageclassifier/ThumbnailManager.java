@@ -107,6 +107,7 @@ public class ThumbnailManager {
 
     public static BufferedImage getThumbnail(File image, int thumbW, int thumbH) throws IOException {
         BufferedImage src = ImageIO.read(image);
+        if (src == null) throw new IOException("Cannot decode image: " + image);
 
         if (thumbW == -1) {
             thumbW = src.getWidth() / 3;

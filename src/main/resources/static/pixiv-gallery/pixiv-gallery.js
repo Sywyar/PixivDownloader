@@ -37,14 +37,17 @@
         totalElements: 0,
         collections: [],
         tags: [],
+        tagsLoaded: false,
         tagNames: new Map(),
         tagTranslatedNames: new Map(),
         tagFilterText: '',
         tagsExpanded: false,
         authorOptions: [],
+        authorOptionsLoaded: false,
         authorFilterText: '',
         authorsExpanded: false,
         seriesOptions: [],
+        seriesOptionsLoaded: false,
         seriesFilterText: '',
         seriesExpanded: false,
         activeArtworkId: null,
@@ -77,6 +80,8 @@
     const AUTHOR_CHIPS_COLLAPSED_MAX_HEIGHT = 64;
     const SERIES_FILTER_OPTIONS_SIZE = 200;
     const AUTHOR_FILTER_OPTIONS_SIZE = 200;
+    const THUMBNAIL_CONCURRENCY = 4;
+    const THUMBNAIL_ROOT_MARGIN = '500px 0px';
     const FILTER_MODE_META = {
         must: {label: '必须有', className: 'mode-must'},
         not: {label: '不能有', className: 'mode-not'},
@@ -106,6 +111,9 @@
     const GALLERY_R18_VALUES = new Set(['any', 'r18plus', 'r18', 'r18g', 'no']);
     const GALLERY_AI_VALUES = new Set(['any', 'yes', 'no']);
     const GALLERY_FORMAT_VALUES = new Set(['jpg', 'png', 'gif', 'webp']);
+    let tagOptionsPromise = null;
+    let authorOptionsPromise = null;
+    let seriesOptionsPromise = null;
 
     // ---------- Persistence ----------
     function storageGet(key) {
@@ -461,6 +469,75 @@
 
         return {get, put};
     })();
+
+    let thumbnailObserver = null;
+    const thumbnailQueue = [];
+    let activeThumbnailLoads = 0;
+
+    function getThumbnailObserver() {
+        if (!('IntersectionObserver' in window)) return null;
+        if (!thumbnailObserver) {
+            thumbnailObserver = new IntersectionObserver(entries => {
+                entries.forEach(entry => {
+                    if (!entry.isIntersecting) return;
+                    thumbnailObserver.unobserve(entry.target);
+                    enqueueThumbnail(entry.target);
+                });
+            }, {root: null, rootMargin: THUMBNAIL_ROOT_MARGIN, threshold: 0.01});
+        }
+        return thumbnailObserver;
+    }
+
+    function scheduleThumbnail(img) {
+        if (!img || !img.dataset.src || img.dataset.thumbScheduled === '1') return;
+        img.dataset.thumbScheduled = '1';
+        const observer = getThumbnailObserver();
+        if (observer) {
+            observer.observe(img);
+            return;
+        }
+        enqueueThumbnail(img);
+    }
+
+    function enqueueThumbnail(img) {
+        if (!img || !img.dataset.src || img.dataset.thumbQueued === '1') return;
+        img.dataset.thumbQueued = '1';
+        thumbnailQueue.push(img);
+        pumpThumbnailQueue();
+    }
+
+    function pumpThumbnailQueue() {
+        while (activeThumbnailLoads < THUMBNAIL_CONCURRENCY && thumbnailQueue.length) {
+            const img = thumbnailQueue.shift();
+            const url = img && img.dataset ? img.dataset.src : null;
+            if (!url) continue;
+            img.removeAttribute('data-src');
+            activeThumbnailLoads++;
+            setThumbnailState(img, 'loading');
+            const cleanup = () => {
+                img.removeEventListener('load', onLoad);
+                img.removeEventListener('error', onError);
+                activeThumbnailLoads = Math.max(0, activeThumbnailLoads - 1);
+                pumpThumbnailQueue();
+            };
+            const onLoad = () => {
+                setThumbnailState(img, 'loaded');
+                cleanup();
+            };
+            const onError = () => {
+                img.removeAttribute('src');
+                setThumbnailState(img, 'failed');
+                cleanup();
+            };
+            img.addEventListener('load', onLoad, {once: true});
+            img.addEventListener('error', onError, {once: true});
+            img.src = url;
+            if (img.complete) {
+                if (img.naturalWidth > 0) onLoad();
+                else onError();
+            }
+        }
+    }
 
     const HEART_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
     let pageI18n = null;
@@ -851,11 +928,20 @@
         return buildFilterSummarySegment(ids, label, modeClass, formatAuthorLabel);
     }
 
+    function ensureFilterOptionsLoaded() {
+        return Promise.all([
+            loadTagOptions(),
+            loadSeriesOptions(),
+            loadAuthorOptions(),
+        ]);
+    }
+
     function setFilterPanelOpen(open) {
         const panel = document.getElementById('filterPanel');
         document.getElementById('filterToggle').classList.toggle('active', open);
         panel.classList.toggle('open', open);
         if (open) {
+            ensureFilterOptionsLoaded();
             renderTagChips();
             renderSeriesFilterChips();
             renderAuthorChips();
@@ -1610,20 +1696,34 @@
 
     // ---------- Tag filter ----------
     async function loadTagOptions() {
-        try {
-            const resp = await api('/api/gallery/tags?limit=500');
-            state.tags = resp.tags || [];
-            state.tags.forEach(rememberTagOption);
-        } catch (e) {
-            console.error('load tags failed', e);
-            state.tags = [];
-        }
-        renderTagChips();
+        if (state.tagsLoaded) return state.tags;
+        if (tagOptionsPromise) return tagOptionsPromise;
+        tagOptionsPromise = (async () => {
+            try {
+                const resp = await api('/api/gallery/tags?limit=500');
+                state.tags = resp.tags || [];
+                state.tags.forEach(rememberTagOption);
+                state.tagsLoaded = true;
+            } catch (e) {
+                console.error('load tags failed', e);
+                state.tags = [];
+            }
+            renderTagChips();
+            return state.tags;
+        })().finally(() => {
+            tagOptionsPromise = null;
+        });
+        return tagOptionsPromise;
     }
 
     function renderTagChips() {
         const box = document.getElementById('filterTagChips');
         const toggleBtn = document.getElementById('tagExpandToggle');
+        if (!state.tagsLoaded && !state.tags.length) {
+            box.innerHTML = '<span class="chip-empty">' + escapeHtml(t('status.loading', 'Loading...')) + '</span>';
+            toggleBtn.style.display = 'none';
+            return;
+        }
         const kw = state.tagFilterText.trim().toLowerCase();
         let filtered = kw
             ? state.tags.filter(t =>
@@ -1734,26 +1834,40 @@
 
     // ---------- Series filter ----------
     async function loadSeriesOptions() {
-        try {
-            const params = new URLSearchParams();
-            params.set('page', 0);
-            params.set('size', SERIES_FILTER_OPTIONS_SIZE);
-            params.set('sort', 'artworks');
-            const resp = await api('/api/series/paged?' + params.toString());
-            state.seriesOptions = resp.content || [];
-            state.seriesOptions.forEach(rememberSeriesOption);
-        } catch (e) {
-            console.error('load series options failed', e);
-            state.seriesOptions = [];
-        }
-        renderSeriesFilterChips();
-        syncSeriesFilterBar();
+        if (state.seriesOptionsLoaded) return state.seriesOptions;
+        if (seriesOptionsPromise) return seriesOptionsPromise;
+        seriesOptionsPromise = (async () => {
+            try {
+                const params = new URLSearchParams();
+                params.set('page', 0);
+                params.set('size', SERIES_FILTER_OPTIONS_SIZE);
+                params.set('sort', 'artworks');
+                const resp = await api('/api/series/paged?' + params.toString());
+                state.seriesOptions = resp.content || [];
+                state.seriesOptions.forEach(rememberSeriesOption);
+                state.seriesOptionsLoaded = true;
+            } catch (e) {
+                console.error('load series options failed', e);
+                state.seriesOptions = [];
+            }
+            renderSeriesFilterChips();
+            syncSeriesFilterBar();
+            return state.seriesOptions;
+        })().finally(() => {
+            seriesOptionsPromise = null;
+        });
+        return seriesOptionsPromise;
     }
 
     function renderSeriesFilterChips() {
         const box = document.getElementById('filterSeriesChips');
         const toggleBtn = document.getElementById('seriesExpandToggle');
         if (!box || !toggleBtn) return;
+        if (!state.seriesOptionsLoaded && !state.seriesOptions.length && !state.seriesFilter.id) {
+            box.innerHTML = '<span class="chip-empty">' + escapeHtml(t('status.loading', 'Loading...')) + '</span>';
+            toggleBtn.style.display = 'none';
+            return;
+        }
         const kw = state.seriesFilterText.trim().toLowerCase();
         const selectedId = state.seriesFilter.id ? Number(state.seriesFilter.id) : null;
         let filtered = kw
@@ -1877,29 +1991,43 @@
 
     // ---------- Author filter ----------
     async function loadAuthorOptions() {
-        try {
-            const params = new URLSearchParams();
-            params.set('page', 0);
-            params.set('size', AUTHOR_FILTER_OPTIONS_SIZE);
-            params.set('sort', 'artworks');
-            const resp = await api('/api/authors/paged?' + params.toString());
-            state.authorOptions = resp.content || [];
-            state.authorOptions.forEach(author => {
-                if (author && author.authorId != null && author.name) {
-                    state.authorNames.set(author.authorId, author.name);
-                }
-            });
-        } catch (e) {
-            console.error('load author options failed', e);
-            state.authorOptions = [];
-        }
-        renderAuthorChips();
+        if (state.authorOptionsLoaded) return state.authorOptions;
+        if (authorOptionsPromise) return authorOptionsPromise;
+        authorOptionsPromise = (async () => {
+            try {
+                const params = new URLSearchParams();
+                params.set('page', 0);
+                params.set('size', AUTHOR_FILTER_OPTIONS_SIZE);
+                params.set('sort', 'artworks');
+                const resp = await api('/api/authors/paged?' + params.toString());
+                state.authorOptions = resp.content || [];
+                state.authorOptions.forEach(author => {
+                    if (author && author.authorId != null && author.name) {
+                        state.authorNames.set(author.authorId, author.name);
+                    }
+                });
+                state.authorOptionsLoaded = true;
+            } catch (e) {
+                console.error('load author options failed', e);
+                state.authorOptions = [];
+            }
+            renderAuthorChips();
+            return state.authorOptions;
+        })().finally(() => {
+            authorOptionsPromise = null;
+        });
+        return authorOptionsPromise;
     }
 
     function renderAuthorChips() {
         const box = document.getElementById('filterAuthorChips');
         const toggleBtn = document.getElementById('authorExpandToggle');
-        if (!state.authorOptions.length) {
+        if (!state.authorOptionsLoaded && !state.authorOptions.length && getFilterCount('author') === 0) {
+            box.innerHTML = '<span class="chip-empty">' + escapeHtml(t('status.loading', 'Loading...')) + '</span>';
+            toggleBtn.style.display = 'none';
+            return;
+        }
+        if (!state.authorOptions.length && getFilterCount('author') === 0) {
             box.innerHTML = '<span class="chip-empty">' + escapeHtml(t('status.no-authors', 'No authors')) + '</span>';
             toggleBtn.style.display = 'none';
             return;
@@ -2170,7 +2298,7 @@
             return `
                 <div class="work-card" data-id="${item.artworkId}">
                     <div class="work-thumb thumb-loading">
-                        <img data-src="/api/downloaded/thumbnail/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                        <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
                         <div class="thumb-veil"></div>
                         <div class="thumb-badges">
                             <div class="thumb-badge-group">
@@ -2202,7 +2330,7 @@
             });
         });
 
-        // Lazy-load thumbnails as JSON base64
+        // Lazy-load thumbnails through the binary thumbnail endpoint.
         grid.querySelectorAll('img[data-src]').forEach(img => {
             loadThumbnail(img);
         });
@@ -2272,29 +2400,8 @@
         }
     }
 
-    async function loadThumbnail(img) {
-        const url = img.dataset.src;
-        if (!url) return;
-        img.removeAttribute('data-src');
-        setThumbnailState(img, 'loading');
-        const cached = ImageCache.get(url);
-        if (cached) {
-            setThumbnailSource(img, cached);
-            return;
-        }
-        try {
-            const resp = await api(url);
-            if (resp && resp.success && resp.image) {
-                const ext = (resp.extension || 'jpg').toLowerCase();
-                const src = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${resp.image}`;
-                ImageCache.put(url, src);
-                setThumbnailSource(img, src);
-            } else {
-                setThumbnailState(img, 'failed');
-            }
-        } catch (e) {
-            setThumbnailState(img, 'failed');
-        }
+    function loadThumbnail(img) {
+        scheduleThumbnail(img);
     }
 
     function renderPagination() {
@@ -2660,7 +2767,7 @@
                 return `
                     <div class="author-work-card" data-id="${item.artworkId}">
                         <div class="author-work-thumb thumb-loading">
-                            <img data-src="/api/downloaded/thumbnail/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
                             ${pages > 1 ? `<div class="author-work-pages">${pages}P</div>` : ''}
                         </div>
                         <div class="author-work-title">${escapeHtml(item.title || t('status.untitled', 'Untitled'))}</div>
@@ -2812,7 +2919,7 @@
                 return `
                     <div class="author-work-card" data-id="${item.artworkId}">
                         <div class="author-work-thumb thumb-loading">
-                            <img data-src="/api/downloaded/thumbnail/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                            <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
                             ${order || (pages > 1 ? `<div class="author-work-pages">${pages}P</div>` : '')}
                         </div>
                         <div class="author-work-title">${escapeHtml(item.title || t('status.untitled', 'Untitled'))}</div>
@@ -2871,11 +2978,8 @@
             setupTour(true);
         }).catch(err => console.error('i18n 加载失败', err));
 
-        // 侧边栏与筛选选项数据请求并行触发
+        // Load the sidebar immediately; filter option lists load when the panel opens.
         loadCollections();
-        loadAuthorOptions();
-        loadSeriesOptions();
-        const tagsPromise = loadTagOptions();
 
         // 仅当 URL 携带过滤参数时才需要等 tag 选项就绪后解析过滤；常规进入直接放行
         const params = new URLSearchParams(location.search);
@@ -2891,7 +2995,6 @@
 
         let initialView = urlView;
         if (hasNavigationFilter) {
-            await tagsPromise;
             initialView = await applyNavigationFiltersFromQuery() || initialView;
         }
 

@@ -43,6 +43,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class AuthFilter extends OncePerRequestFilter {
 
+    private static final String DOWNLOADED_THUMBNAIL_PREFIX = "/api/downloaded/thumbnail/";
+    private static final String DOWNLOADED_THUMBNAIL_FILE_PREFIX = "/api/downloaded/thumbnail-file/";
+
     private static final Set<String> MONITOR_EXACT_PATHS = Set.of(
             "/monitor.html",
             "/pixiv-stats.html",
@@ -63,7 +66,8 @@ public class AuthFilter extends OncePerRequestFilter {
     );
 
     private static final List<String> MONITOR_PREFIX_PATHS = List.of(
-            "/api/downloaded/thumbnail/",
+            DOWNLOADED_THUMBNAIL_PREFIX,
+            DOWNLOADED_THUMBNAIL_FILE_PREFIX,
             "/api/downloaded/rawfile/",
             "/api/downloaded/image/",
             "/api/authors",
@@ -135,7 +139,8 @@ public class AuthFilter extends OncePerRequestFilter {
 
     /** 访客邀请会话被允许访问的前缀路径（仅 GET）。 */
     private static final List<String> GUEST_ALLOWED_PREFIX = List.of(
-            "/api/downloaded/thumbnail/",
+            DOWNLOADED_THUMBNAIL_PREFIX,
+            DOWNLOADED_THUMBNAIL_FILE_PREFIX,
             "/api/downloaded/rawfile/",
             "/api/downloaded/image/",
             "/api/download/status/",

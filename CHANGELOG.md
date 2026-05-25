@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [Unreleased]
 
 ### Changed
+- 优化漫画画廊冷启动加载：缩略图改为二进制响应并持久缓存到运行数据目录，首屏缩略图按可视区域懒加载且限制并发；画廊元数据、标签和文件名模板改为批量查询，筛选候选项延后到筛选面板打开时再加载。
 - 统一应用名称为 PixivDownloader，新增 AppInfo 类集中管理应用元数据，通过 LEGACY_ARTIFACT_NAME 保留文件路径与可执行文件名称的向后兼容。
 - 维护窗口拦截策略变更：页面请求重定向到新增的维护提示页（含 30 秒自动重试），API 请求返回 503；拦截范围扩大至包括本地管理员在内的所有请求，仅 `/actuator/health` 和 `/actuator/info` 不受影响。
 

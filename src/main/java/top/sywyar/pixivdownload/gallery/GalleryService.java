@@ -98,16 +98,38 @@ public class GalleryService {
     }
 
     private List<DownloadedResponse> toResponses(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        List<ArtworkRecord> fetched = pixivDatabase.getArtworks(ids);
+        Map<Long, ArtworkRecord> byId = new HashMap<>(fetched.size());
+        for (ArtworkRecord rec : fetched) {
+            byId.put(rec.artworkId(), rec);
+        }
         List<ArtworkRecord> records = new ArrayList<>(ids.size());
         for (Long id : ids) {
-            ArtworkRecord rec = downloadService.getDownloadedRecord(id);
+            ArtworkRecord rec = byId.get(id);
             if (rec != null) records.add(rec);
+        }
+        return toResponses(records);
+    }
+
+    private List<DownloadedResponse> toResponses(Collection<ArtworkRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return List.of();
         }
         Map<Long, String> authorNames = resolveAuthorNames(records);
         Map<Long, String> seriesTitles = resolveSeriesTitles(records);
+        List<Long> artworkIds = records.stream().map(ArtworkRecord::artworkId).toList();
+        Map<Long, List<TagDto>> tagsByArtwork = pixivDatabase.getArtworkTags(artworkIds);
+        Set<Long> templateIds = new HashSet<>();
+        for (ArtworkRecord rec : records) {
+            templateIds.add(rec.fileName() == null ? 1L : rec.fileName());
+        }
+        Map<Long, String> fileNameTemplates = pixivDatabase.getFileNameTemplates(templateIds);
         List<DownloadedResponse> out = new ArrayList<>(records.size());
         for (ArtworkRecord rec : records) {
-            out.add(toDownloadedResponse(rec, authorNames, seriesTitles));
+            out.add(toDownloadedResponse(rec, authorNames, seriesTitles, tagsByArtwork, fileNameTemplates));
         }
         return out;
     }
@@ -137,9 +159,32 @@ public class GalleryService {
 
     private DownloadedResponse toDownloadedResponse(ArtworkRecord artwork, Map<Long, String> authorNames,
                                                     Map<Long, String> seriesTitles) {
-        List<TagDto> tags = pixivDatabase.getArtworkTags(artwork.artworkId());
+        Long fileNameId = artwork.fileName() == null ? 1L : artwork.fileName();
+        Map<Long, String> fileNameTemplates = new HashMap<>();
+        String template = pixivDatabase.getFileNameTemplate(fileNameId);
+        if (template != null) {
+            fileNameTemplates.put(fileNameId, template);
+        }
+        return toDownloadedResponse(
+                artwork,
+                authorNames,
+                seriesTitles,
+                Map.of(artwork.artworkId(), pixivDatabase.getArtworkTags(artwork.artworkId())),
+                fileNameTemplates);
+    }
+
+    private DownloadedResponse toDownloadedResponse(ArtworkRecord artwork, Map<Long, String> authorNames,
+                                                    Map<Long, String> seriesTitles,
+                                                    Map<Long, List<TagDto>> tagsByArtwork,
+                                                    Map<Long, String> fileNameTemplates) {
+        List<TagDto> tags = tagsByArtwork.getOrDefault(artwork.artworkId(), List.of());
         Long seriesId = artwork.seriesId();
         String seriesTitle = seriesId != null && seriesId > 0 ? seriesTitles.get(seriesId) : null;
+        Long fileNameId = artwork.fileName() == null ? 1L : artwork.fileName();
+        String fileNameTemplate = fileNameTemplates.get(fileNameId);
+        if (fileNameTemplate == null) {
+            fileNameTemplate = pixivDatabase.getFileNameTemplate(fileNameId);
+        }
         return DownloadedResponse.builder()
                 .artworkId(artwork.artworkId())
                 .title(artwork.title())
@@ -156,7 +201,7 @@ public class GalleryService {
                 .authorName(artwork.authorId() == null ? null : authorNames.get(artwork.authorId()))
                 .description(artwork.description())
                 .fileName(artwork.fileName())
-                .fileNameTemplate(pixivDatabase.getFileNameTemplate(artwork.fileName() == null ? 1L : artwork.fileName()))
+                .fileNameTemplate(fileNameTemplate)
                 .tags(tags)
                 .seriesId(seriesId == null || seriesId <= 0 ? null : seriesId)
                 .seriesOrder(artwork.seriesOrder())
