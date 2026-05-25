@@ -44,7 +44,9 @@ build/
 /test/
 /config.yaml
 /log/
+# Legacy runtime folders migrated into /data/ or /state/ on startup.
 /collection_icons/
+/_collection_icons/
 /test-data/
 /_gui/
 /_tts/

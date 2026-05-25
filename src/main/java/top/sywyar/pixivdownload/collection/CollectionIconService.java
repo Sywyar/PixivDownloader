@@ -4,20 +4,20 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 import java.util.Set;
 
 /**
- * 收藏夹图标文件管理。图标存在工作目录下的 {@code ./collection_icons/{id}.{ext}}，
- * 与 {@code config.yaml} 同级。支持 png/jpg/jpeg/webp，最大 {@value #MAX_ICON_BYTES} 字节。
+ * 收藏夹图标文件管理。图标存在 {@code data/collection_icons/{id}.{ext}}。
+ * 支持 png/jpg/jpeg/webp，最大 {@value #MAX_ICON_BYTES} 字节。
  */
 @Slf4j
 @Service
@@ -27,17 +27,15 @@ public class CollectionIconService {
     public static final Set<String> ALLOWED_EXTENSIONS = Set.of("png", "jpg", "jpeg", "webp");
     public static final long MAX_ICON_BYTES = 1024L * 1024L;
 
-    private static final Path ICON_DIR = Paths.get("collection_icons");
-
     private final AppMessages messages;
 
     @PostConstruct
     public void init() throws IOException {
-        Files.createDirectories(ICON_DIR);
+        Files.createDirectories(iconDirectory());
     }
 
     public Path resolveIconPath(long collectionId, String ext) {
-        return ICON_DIR.resolve(collectionId + "." + ext);
+        return iconDirectory().resolve(collectionId + "." + ext);
     }
 
     public Path findExistingIcon(long collectionId, String ext) {
@@ -124,9 +122,14 @@ public class CollectionIconService {
      * 原子替换：在测试/重置时使用。
      */
     public void replaceAtomic(long collectionId, String ext, byte[] data) throws IOException {
-        Path tmp = Files.createTempFile(ICON_DIR, "icon", ".tmp");
+        Path iconDir = iconDirectory();
+        Path tmp = Files.createTempFile(iconDir, "icon", ".tmp");
         Files.write(tmp, data);
         Files.move(tmp, resolveIconPath(collectionId, ext), StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private Path iconDirectory() {
+        return RuntimeFiles.collectionIconsDirectory();
     }
 
     private String message(String code, Object... args) {

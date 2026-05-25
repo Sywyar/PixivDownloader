@@ -128,6 +128,55 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("应迁移旧辅助目录到 data 与 state 下的新目录")
+    void shouldMigrateLegacyAuxiliaryDirectories() throws IOException {
+        Path legacyCollectionIcons = tempDir.resolve(RuntimeFiles.COLLECTION_ICONS_DIR);
+        Path legacyUnderscoreCollectionIcons = tempDir.resolve("_collection_icons");
+        Path legacyGui = tempDir.resolve("_gui");
+        Path legacyTts = tempDir.resolve("_tts");
+        Files.createDirectories(legacyCollectionIcons);
+        Files.createDirectories(legacyUnderscoreCollectionIcons);
+        Files.createDirectories(legacyGui);
+        Files.createDirectories(legacyTts);
+        Files.writeString(legacyCollectionIcons.resolve("1.png"), "root-icon", StandardCharsets.UTF_8);
+        Files.writeString(legacyUnderscoreCollectionIcons.resolve("2.webp"), "old-icon", StandardCharsets.UTF_8);
+        Files.writeString(legacyGui.resolve("onboarding-seen"), "1", StandardCharsets.UTF_8);
+        Files.writeString(
+                legacyTts.resolve(RuntimeFiles.EDGE_TTS_CHROMIUM_VERSION),
+                "148.0.3967.70",
+                StandardCharsets.UTF_8);
+
+        Path collectionIcons = RuntimeFiles.collectionIconsDirectory();
+        Path guiState = RuntimeFiles.guiStateDirectory();
+        Path ttsVersion = RuntimeFiles.resolveEdgeTtsVersionPath();
+
+        assertThat(collectionIcons).isEqualTo(dataDir.resolve(RuntimeFiles.COLLECTION_ICONS_DIR));
+        assertThat(guiState).isEqualTo(stateDir.resolve(RuntimeFiles.GUI_STATE_DIR));
+        assertThat(ttsVersion)
+                .isEqualTo(dataDir.resolve(RuntimeFiles.TTS_DIR).resolve(RuntimeFiles.EDGE_TTS_CHROMIUM_VERSION));
+        assertThat(collectionIcons.resolve("1.png")).exists();
+        assertThat(collectionIcons.resolve("2.webp")).exists();
+        assertThat(guiState.resolve("onboarding-seen")).exists();
+        assertThat(ttsVersion).exists();
+        assertThat(legacyCollectionIcons).doesNotExist();
+        assertThat(legacyUnderscoreCollectionIcons).doesNotExist();
+        assertThat(legacyGui).doesNotExist();
+        assertThat(legacyTts).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("图库缩略图缓存目录应使用不带下划线的新 data 路径")
+    void shouldResolveGalleryThumbnailDirectoryWithoutLegacyMigration() throws IOException {
+        Path legacyGalleryThumbnails = dataDir.resolve("_gallery_thumbs");
+        Files.createDirectories(legacyGalleryThumbnails);
+
+        Path resolved = RuntimeFiles.galleryThumbnailDirectory();
+
+        assertThat(resolved).isEqualTo(dataDir.resolve(RuntimeFiles.GALLERY_THUMBNAILS_DIR));
+        assertThat(legacyGalleryThumbnails).exists();
+    }
+
+    @Test
     @DisplayName("should prefer explicitly configured single-instance directory")
     void shouldPreferConfiguredSingleInstanceDirectory() {
         Path instanceDir = tempDir.resolve("instance");

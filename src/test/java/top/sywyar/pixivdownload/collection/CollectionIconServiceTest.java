@@ -4,13 +4,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -18,7 +19,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("CollectionIconService 集成测试")
 class CollectionIconServiceTest {
 
-    /** {@link CollectionIconService#ICON_DIR} 是相对工作目录的常量，测试用极低概率冲突的 ID 占位。 */
+    /**
+     * 测试用极低概率冲突的 ID 占位。
+     */
     private static final long ID_PNG_BY_NAME = 9_900_001L;
     private static final long ID_JPEG_BY_NAME = 9_900_002L;
     private static final long ID_PNG_BY_MAGIC = 9_900_003L;
@@ -27,10 +30,17 @@ class CollectionIconServiceTest {
     private static final long ID_OVERWRITE = 9_900_006L;
     private static final long ID_INVALID = 9_900_007L;
 
+    @TempDir
+    Path tempDir;
+
+    private Path collectionIconsDir;
     private CollectionIconService iconService;
 
     @BeforeEach
     void setUp() throws IOException {
+        Path dataDir = tempDir.resolve("data");
+        System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, dataDir.toString());
+        collectionIconsDir = dataDir.resolve(RuntimeFiles.COLLECTION_ICONS_DIR);
         iconService = new CollectionIconService(TestI18nBeans.appMessages());
         iconService.init();
     }
@@ -41,6 +51,7 @@ class CollectionIconServiceTest {
                 ID_JPG_BY_MAGIC, ID_WEBP_BY_MAGIC, ID_OVERWRITE, ID_INVALID}) {
             iconService.deleteAll(id);
         }
+        System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
     }
 
     @Test
@@ -64,7 +75,10 @@ class CollectionIconServiceTest {
     @DisplayName("无文件名时应通过 magic-number 识别 png")
     void shouldDetectPngByMagicNumber() throws IOException {
         byte[] png = new byte[16];
-        png[0] = (byte) 0x89; png[1] = 'P'; png[2] = 'N'; png[3] = 'G';
+        png[0] = (byte) 0x89;
+        png[1] = 'P';
+        png[2] = 'N';
+        png[3] = 'G';
 
         String ext = iconService.saveIcon(ID_PNG_BY_MAGIC, null, png);
 
@@ -75,7 +89,8 @@ class CollectionIconServiceTest {
     @DisplayName("无文件名时应通过 magic-number 识别 jpg")
     void shouldDetectJpgByMagicNumber() throws IOException {
         byte[] jpg = new byte[16];
-        jpg[0] = (byte) 0xFF; jpg[1] = (byte) 0xD8;
+        jpg[0] = (byte) 0xFF;
+        jpg[1] = (byte) 0xD8;
 
         String ext = iconService.saveIcon(ID_JPG_BY_MAGIC, null, jpg);
 
@@ -86,8 +101,14 @@ class CollectionIconServiceTest {
     @DisplayName("无文件名时应通过 RIFF/WEBP magic-number 识别 webp")
     void shouldDetectWebpByMagicNumber() throws IOException {
         byte[] webp = new byte[16];
-        webp[0] = 'R'; webp[1] = 'I'; webp[2] = 'F'; webp[3] = 'F';
-        webp[8] = 'W'; webp[9] = 'E'; webp[10] = 'B'; webp[11] = 'P';
+        webp[0] = 'R';
+        webp[1] = 'I';
+        webp[2] = 'F';
+        webp[3] = 'F';
+        webp[8] = 'W';
+        webp[9] = 'E';
+        webp[10] = 'B';
+        webp[11] = 'P';
 
         String ext = iconService.saveIcon(ID_WEBP_BY_MAGIC, null, webp);
 
@@ -107,7 +128,6 @@ class CollectionIconServiceTest {
     @Test
     @DisplayName("再次保存图标时应清理旧扩展名的文件")
     void shouldOverwritePreviousExtensionWhenSavingAgain() throws IOException {
-        Path collectionIconsDir = Paths.get("collection_icons");
         // 先放一张 png
         iconService.saveIcon(ID_OVERWRITE, "icon.png", new byte[]{0, 0, 0, 0});
         Path pngPath = collectionIconsDir.resolve(ID_OVERWRITE + ".png");
@@ -115,8 +135,14 @@ class CollectionIconServiceTest {
 
         // 再换成 webp
         byte[] webp = new byte[16];
-        webp[0] = 'R'; webp[1] = 'I'; webp[2] = 'F'; webp[3] = 'F';
-        webp[8] = 'W'; webp[9] = 'E'; webp[10] = 'B'; webp[11] = 'P';
+        webp[0] = 'R';
+        webp[1] = 'I';
+        webp[2] = 'F';
+        webp[3] = 'F';
+        webp[8] = 'W';
+        webp[9] = 'E';
+        webp[10] = 'B';
+        webp[11] = 'P';
         iconService.saveIcon(ID_OVERWRITE, "icon.webp", webp);
 
         assertThat(Files.exists(pngPath)).as("旧 png 应已被清理").isFalse();

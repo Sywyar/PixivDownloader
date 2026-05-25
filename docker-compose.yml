@@ -28,22 +28,16 @@ services:
     volumes:
       # 运行时配置（首次启动自动生成 config/config.yaml）。
       - ./config:/app/config
-      # 登录态 / setup_config.json / 批量下载状态。
+      # 登录态 / setup_config.json / 批量下载状态 / GUI 引导状态。
       - ./state:/app/state
-      # SQLite 数据库（pixiv_download.db）。
+      # SQLite 数据库、收藏夹图标、图库缩略图缓存、TTS 缓存。
       - ./data:/app/data
       # 下载的作品文件（含 _archives 临时打包、小说、系列封面）。
       - ./pixiv-download:/app/pixiv-download
-      # 用户自定义收藏夹图标。
-      - ./collection_icons:/app/collection_icons
-      # GUI 引导「看过/完成」标记。
-      - ./_gui:/app/_gui
-      # Edge TTS 的 Chromium 版本号缓存（可选）。
-      - ./_tts:/app/_tts
       # 运行日志（可选，便于宿主侧查看）。
       - ./log:/app/log
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:6999/actuator/health"]
+      test: [ "CMD", "curl", "-fsS", "http://localhost:6999/actuator/health" ]
       interval: 30s
       timeout: 5s
       start_period: 40s

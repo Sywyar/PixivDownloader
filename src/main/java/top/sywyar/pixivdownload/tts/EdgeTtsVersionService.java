@@ -9,11 +9,11 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.regex.Pattern;
 
 /**
@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
  *
  * <p>微软会校验 {@code Sec-MS-GEC-Version} 的新鲜度，版本过旧会握手 403。版本号的来源与更新策略：
  * <ul>
- *   <li>启动时优先读取本地缓存文件 {@code ./_tts/chromium-version.txt}；无缓存则用内置默认值。</li>
+ *   <li>启动时优先读取本地缓存文件 {@code data/tts/chromium-version.txt}；无缓存则用内置默认值。</li>
  *   <li><b>不做周期性刷新</b>：仅当合成握手 403（{@link EdgeTtsClient} 调用 {@link #forceRefresh()}）时，
  *       才从微软官方 Edge 更新 API 拉取当前 Stable 版本，成功后写回缓存文件。</li>
  * </ul>
@@ -33,10 +33,10 @@ public class EdgeTtsVersionService {
 
     private static final String EDGE_UPDATES_API =
             "https://edgeupdates.microsoft.com/api/products?view=enterprise";
-    /** 内置默认版本（无本地缓存时使用）。 */
+    /**
+     * 内置默认版本（无本地缓存时使用）。
+     */
     static final String DEFAULT_FULL_VERSION = "148.0.3967.70";
-    /** 工作目录下的版本缓存文件（独立文件夹，遵循文件布局约定，不放 rootFolder）。 */
-    private static final Path VERSION_FILE = Paths.get("_tts", "chromium-version.txt");
     private static final Pattern VERSION_PATTERN = Pattern.compile("\\d+(\\.\\d+)+");
 
     private final RestTemplate restTemplate;
@@ -51,9 +51,10 @@ public class EdgeTtsVersionService {
 
     @PostConstruct
     void loadFromDisk() {
+        Path versionFile = versionFile();
         try {
-            if (Files.isRegularFile(VERSION_FILE)) {
-                String cached = Files.readString(VERSION_FILE, StandardCharsets.UTF_8).trim();
+            if (Files.isRegularFile(versionFile)) {
+                String cached = Files.readString(versionFile, StandardCharsets.UTF_8).trim();
                 if (isValidVersion(cached)) {
                     fullVersion = cached;
                     log.info("Edge TTS Chromium 版本从本地缓存载入: {}", cached);
@@ -64,17 +65,23 @@ public class EdgeTtsVersionService {
         }
     }
 
-    /** 当前 Chromium 完整版本，如 {@code 148.0.3967.70}。不触发网络请求。 */
+    /**
+     * 当前 Chromium 完整版本，如 {@code 148.0.3967.70}。不触发网络请求。
+     */
     public String chromiumFullVersion() {
         return fullVersion;
     }
 
-    /** {@code Sec-MS-GEC-Version} 查询参数值，如 {@code 1-148.0.3967.70}。 */
+    /**
+     * {@code Sec-MS-GEC-Version} 查询参数值，如 {@code 1-148.0.3967.70}。
+     */
     public String secMsGecVersion() {
         return "1-" + fullVersion;
     }
 
-    /** 与版本匹配的 Chrome/Edge User-Agent。 */
+    /**
+     * 与版本匹配的 Chrome/Edge User-Agent。
+     */
     public String userAgent() {
         String major = fullVersion.split("\\.", 2)[0];
         return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -111,22 +118,29 @@ public class EdgeTtsVersionService {
     }
 
     private static void persist(String version) {
+        Path versionFile = versionFile();
         try {
-            Path parent = VERSION_FILE.getParent();
+            Path parent = versionFile.getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
-            Files.writeString(VERSION_FILE, version, StandardCharsets.UTF_8);
+            Files.writeString(versionFile, version, StandardCharsets.UTF_8);
         } catch (Exception e) {
             log.warn("写入 Edge TTS 版本缓存失败: {}", e.getMessage());
         }
+    }
+
+    private static Path versionFile() {
+        return RuntimeFiles.resolveEdgeTtsVersionPath();
     }
 
     private static boolean isValidVersion(String v) {
         return v != null && VERSION_PATTERN.matcher(v).matches();
     }
 
-    /** 从 edgeupdates API 响应中取 Stable 频道 Windows x64 的最高 ProductVersion。 */
+    /**
+     * 从 edgeupdates API 响应中取 Stable 频道 Windows x64 的最高 ProductVersion。
+     */
     private static String parseStableWindowsVersion(JsonNode root) {
         if (!root.isArray()) {
             return null;
@@ -152,7 +166,9 @@ public class EdgeTtsVersionService {
         return best;
     }
 
-    /** 比较点分版本号：返回正数表示 a > b。 */
+    /**
+     * 比较点分版本号：返回正数表示 a > b。
+     */
     private static int compareVersions(String a, String b) {
         String[] pa = a.split("\\.");
         String[] pb = b.split("\\.");

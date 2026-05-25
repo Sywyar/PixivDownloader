@@ -11,7 +11,7 @@ import java.nio.file.Path;
 /**
  * 记录用户是否已经完成 GUI 引导首页。
  *
- * <p>“看过/完成引导” 标记文件落在工作目录下独立的 {@code ./_gui/} 文件夹，
+ * <p>“看过/完成引导” 标记文件落在 {@code state/gui/} 文件夹，
  * 遵循 “辅助数据不写入下载根目录” 的约定，仅在整套引导真正完成时写入。</p>
  *
  * <p>注意：该标记与 “首次安装是否完成”（{@code setup_config.json} 中的
@@ -22,19 +22,19 @@ import java.nio.file.Path;
 @Slf4j
 public final class OnboardingState {
 
-    private static final Path FLAG_FILE = Path.of("_gui", "onboarding-seen");
-    private static final Path PROXY_CONFIGURED_FILE = Path.of("_gui", "proxy-configured");
+    private static final String FLAG_FILE_NAME = "onboarding-seen";
+    private static final String PROXY_CONFIGURED_FILE_NAME = "proxy-configured";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private OnboardingState() {
     }
 
     public static boolean isSeen() {
-        return Files.exists(FLAG_FILE);
+        return Files.exists(flagFile());
     }
 
     public static boolean isProxyConfigured() {
-        return Files.exists(PROXY_CONFIGURED_FILE);
+        return Files.exists(proxyConfiguredFile());
     }
 
     /**
@@ -45,7 +45,9 @@ public final class OnboardingState {
         return isSeen() && isSetupComplete(rootFolder);
     }
 
-    /** 读取 {@code setup_config.json} 判断首次安装是否完成；读不到一律视为未完成。 */
+    /**
+     * 读取 {@code setup_config.json} 判断首次安装是否完成；读不到一律视为未完成。
+     */
     public static boolean isSetupComplete(String rootFolder) {
         Path path = RuntimeFiles.resolveSetupConfigPath(rootFolder);
         if (!Files.exists(path)) {
@@ -60,22 +62,24 @@ public final class OnboardingState {
         }
     }
 
-    /** 清除引导标记（用于发现残留的无效旧标记时复位）。 */
+    /**
+     * 清除引导标记（用于发现残留的无效旧标记时复位）。
+     */
     public static void clear() {
         try {
-            Files.deleteIfExists(FLAG_FILE);
-            Files.deleteIfExists(PROXY_CONFIGURED_FILE);
+            Files.deleteIfExists(flagFile());
+            Files.deleteIfExists(proxyConfiguredFile());
         } catch (Exception e) {
             log.debug("Failed to clear onboarding flag: {}", e.getMessage());
         }
     }
 
     public static void markSeen() {
-        mark(FLAG_FILE, "onboarding flag");
+        mark(flagFile(), "onboarding flag");
     }
 
     public static void markProxyConfigured() {
-        mark(PROXY_CONFIGURED_FILE, "proxy configured flag");
+        mark(proxyConfiguredFile(), "proxy configured flag");
     }
 
     private static void mark(Path flagFile, String label) {
@@ -89,5 +93,13 @@ public final class OnboardingState {
             // 写失败仅意味着下次仍会自动展示引导，不影响功能
             log.debug("Failed to persist {}: {}", label, e.getMessage());
         }
+    }
+
+    private static Path flagFile() {
+        return RuntimeFiles.guiStateDirectory().resolve(FLAG_FILE_NAME);
+    }
+
+    private static Path proxyConfiguredFile() {
+        return RuntimeFiles.guiStateDirectory().resolve(PROXY_CONFIGURED_FILE_NAME);
     }
 }

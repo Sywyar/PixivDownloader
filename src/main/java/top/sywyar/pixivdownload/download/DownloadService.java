@@ -53,7 +53,6 @@ import java.util.function.Consumer;
 @Service
 public class DownloadService {
     private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp");
-    private static final String GALLERY_THUMBNAIL_CACHE_DIR = "_gallery_thumbs";
 
     private final DownloadConfig downloadConfig;
     private final ApplicationEventPublisher eventPublisher;
@@ -782,8 +781,7 @@ public class DownloadService {
             return null;
         }
         int count = Collections.max(pageExt.keySet()) + 1;
-        LinkedHashSet<String> uniqueExts = new LinkedHashSet<>();
-        new java.util.TreeMap<>(pageExt).values().forEach(uniqueExts::add);
+        LinkedHashSet<String> uniqueExts = new LinkedHashSet<>(new TreeMap<>(pageExt).values());
         String extensions = String.join(",", uniqueExts);
         String absoluteFolder = flatDir.toAbsolutePath().toString();
         log.info(logMessage("download.log.stale-record.restored",
@@ -826,8 +824,7 @@ public class DownloadService {
         }
         int count = Collections.max(pageExt.keySet()) + 1;
         // 按页号升序收集，使 extensions 顺序稳定（便于排查与单测断言）
-        LinkedHashSet<String> uniqueExts = new LinkedHashSet<>();
-        new java.util.TreeMap<>(pageExt).values().forEach(uniqueExts::add);
+        LinkedHashSet<String> uniqueExts = new LinkedHashSet<>(new TreeMap<>(pageExt).values());
         String extensions = String.join(",", uniqueExts);
         String absoluteFolder = flatDir.toAbsolutePath().toString();
         log.info(logMessage("download.log.stale-record.restored",
@@ -984,8 +981,7 @@ public class DownloadService {
     }
 
     private Path thumbnailCachePath(Long artworkId, int page, String extension) {
-        return RuntimeFiles.dataDirectory()
-                .resolve(GALLERY_THUMBNAIL_CACHE_DIR)
+        return RuntimeFiles.galleryThumbnailDirectory()
                 .resolve(String.valueOf(artworkId))
                 .resolve("p" + page + "." + extension)
                 .toAbsolutePath()
@@ -1172,7 +1168,7 @@ public class DownloadService {
         try {
             URI uri = new URI(url);
             String scheme = uri.getScheme();
-            String host   = uri.getHost();
+            String host = uri.getHost();
             if (!"https".equalsIgnoreCase(scheme)) {
                 throw LocalizedException.badRequest(
                         "download.url.https-only",

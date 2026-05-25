@@ -10,9 +10,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * 管理运行期生成文件的目录，并兼容旧位置自动迁移。
@@ -39,9 +41,18 @@ public final class RuntimeFiles {
     public static final String SETUP_CONFIG_JSON = "setup_config.json";
     public static final String BATCH_STATE_JSON = "batch_state.json";
     public static final String PIXIV_DOWNLOAD_DB = "pixiv_download.db";
+    public static final String COLLECTION_ICONS_DIR = "collection_icons";
+    public static final String GALLERY_THUMBNAILS_DIR = "gallery_thumbs";
+    public static final String GUI_STATE_DIR = "gui";
+    public static final String TTS_DIR = "tts";
+    public static final String EDGE_TTS_CHROMIUM_VERSION = "chromium-version.txt";
+    private static final String LEGACY_COLLECTION_ICONS_DIR = "_collection_icons";
+    private static final String LEGACY_GUI_STATE_DIR = "_gui";
+    private static final String LEGACY_TTS_DIR = "_tts";
     private static final List<String> SQLITE_COMPANION_SUFFIXES = List.of("-wal", "-shm");
 
-    private RuntimeFiles() {}
+    private RuntimeFiles() {
+    }
 
     public static Path configDirectory() {
         return resolveDirectory(CONFIG_DIR_PROPERTY, DEFAULT_CONFIG_DIR);
@@ -53,6 +64,35 @@ public final class RuntimeFiles {
 
     public static Path dataDirectory() {
         return resolveDirectory(DATA_DIR_PROPERTY, DEFAULT_DATA_DIR);
+    }
+
+    public static Path collectionIconsDirectory() {
+        Path dataDir = dataDirectory();
+        Path target = dataDir.resolve(COLLECTION_ICONS_DIR);
+        return resolveManagedDirectory(target, List.of(
+                siblingOf(dataDir, COLLECTION_ICONS_DIR),
+                siblingOf(dataDir, LEGACY_COLLECTION_ICONS_DIR)
+        ));
+    }
+
+    public static Path galleryThumbnailDirectory() {
+        return dataDirectory().resolve(GALLERY_THUMBNAILS_DIR).normalize();
+    }
+
+    public static Path guiStateDirectory() {
+        Path stateDir = stateDirectory();
+        Path target = stateDir.resolve(GUI_STATE_DIR);
+        return resolveManagedDirectory(target, List.of(siblingOf(stateDir, LEGACY_GUI_STATE_DIR)));
+    }
+
+    public static Path ttsDataDirectory() {
+        Path dataDir = dataDirectory();
+        Path target = dataDir.resolve(TTS_DIR);
+        return resolveManagedDirectory(target, List.of(siblingOf(dataDir, LEGACY_TTS_DIR)));
+    }
+
+    public static Path resolveEdgeTtsVersionPath() {
+        return ttsDataDirectory().resolve(EDGE_TTS_CHROMIUM_VERSION).normalize();
     }
 
     public static Path singleInstanceDirectory() {
@@ -99,6 +139,9 @@ public final class RuntimeFiles {
         resolveSetupConfigPath(rootFolder);
         resolveBatchStatePath(rootFolder);
         resolveDatabasePath(rootFolder);
+        collectionIconsDirectory();
+        guiStateDirectory();
+        ttsDataDirectory();
     }
 
     public static String readDownloadRootFromConfig(Path configPath, String defaultRootFolder) {
@@ -159,6 +202,23 @@ public final class RuntimeFiles {
         return Path.of(configured);
     }
 
+    private static Path siblingOf(Path directory, String siblingName) {
+        Path parent = directory.getParent();
+        return parent == null ? Path.of(siblingName) : parent.resolve(siblingName);
+    }
+
+    private static Path resolveManagedDirectory(Path target, List<Path> legacyCandidates) {
+        try {
+            Files.createDirectories(target);
+            for (Path legacy : legacyCandidates) {
+                adoptLegacyDirectory(target, legacy);
+            }
+            return target.normalize();
+        } catch (IOException e) {
+            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
+        }
+    }
+
     private static Path resolveManagedFile(Path target, List<Path> legacyCandidates) {
         return resolveManagedFile(target, legacyCandidates, List.of());
     }
@@ -203,6 +263,51 @@ public final class RuntimeFiles {
         Files.deleteIfExists(legacy);
         deleteCompanionFiles(legacy, companionSuffixes);
         log.warn(message("runtime.log.legacy-authoritative.deleted", normalizedLegacy, normalizedTarget));
+    }
+
+    private static void adoptLegacyDirectory(Path target, Path legacy) throws IOException {
+        if (legacy == null) {
+            return;
+        }
+
+        Path normalizedTarget = target.toAbsolutePath().normalize();
+        Path normalizedLegacy = legacy.toAbsolutePath().normalize();
+        if (normalizedTarget.equals(normalizedLegacy) || !Files.exists(legacy)) {
+            return;
+        }
+        if (!Files.isDirectory(legacy)) {
+            log.warn(message("runtime.log.legacy-directory.not-directory", normalizedLegacy));
+            return;
+        }
+
+        try (Stream<Path> stream = Files.walk(legacy)) {
+            for (Path source : stream
+                    .sorted(Comparator.comparingInt(Path::getNameCount))
+                    .toList()) {
+                if (source.equals(legacy) || Files.isDirectory(source)) {
+                    continue;
+                }
+                Path targetFile = target.resolve(legacy.relativize(source));
+                Files.createDirectories(targetFile.getParent());
+                adoptLegacyFile(targetFile, source, List.of());
+            }
+        }
+
+        deleteDirectoryTree(legacy);
+        log.info(message("runtime.log.directory.migrated", normalizedLegacy, normalizedTarget));
+    }
+
+    private static void deleteDirectoryTree(Path directory) throws IOException {
+        if (!Files.exists(directory)) {
+            return;
+        }
+        try (Stream<Path> stream = Files.walk(directory)) {
+            for (Path path : stream
+                    .sorted(Comparator.comparingInt(Path::getNameCount).reversed())
+                    .toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
     }
 
     private static List<Path> rootAndDownloadLegacyCandidates(Path targetDirectory, String rootFolder, String fileName) {
