@@ -24,6 +24,8 @@
             --soft-bg: #f7fbff;
             --pink-soft-bg: #fff0f6;
             --scrollbar-thumb: #dddddd;
+            --thumb-loading-bg: #f5f8fb;
+            --thumb-spinner-track: #d8e7f3;
         }
 
         html[data-theme="dark"] {
@@ -49,6 +51,8 @@
             --soft-bg: rgba(75, 179, 255, 0.1);
             --pink-soft-bg: #3a2035;
             --scrollbar-thumb: #3b4352;
+            --thumb-loading-bg: #202633;
+            --thumb-spinner-track: #354154;
         }
 
         /* alias 给 invite-modals.js 用 */
@@ -1084,6 +1088,55 @@
             height: 100%;
             object-fit: cover;
             display: block;
+            opacity: 0;
+            transition: opacity 0.18s ease;
+        }
+
+        .work-thumb.thumb-loaded img,
+        .author-work-thumb.thumb-loaded img {
+            opacity: 1;
+        }
+
+        .work-thumb.thumb-loading,
+        .author-work-thumb.thumb-loading {
+            background: var(--thumb-loading-bg);
+        }
+
+        .work-thumb.thumb-loading::after,
+        .author-work-thumb.thumb-loading::after {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 3px solid var(--thumb-spinner-track);
+            border-top-color: var(--brand);
+            transform: translate(-50%, -50%) rotate(0deg);
+            animation: thumbSpin 0.75s linear infinite;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .thumb-veil,
+        .thumb-badges,
+        .thumb-heart,
+        .author-work-pages {
+            z-index: 2;
+        }
+
+        @keyframes thumbSpin {
+            to {
+                transform: translate(-50%, -50%) rotate(360deg);
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .work-thumb.thumb-loading::after,
+            .author-work-thumb.thumb-loading::after {
+                animation: none;
+            }
         }
 
         .thumb-veil {
@@ -1897,6 +1950,8 @@
             height: 100%;
             object-fit: cover;
             display: block;
+            opacity: 0;
+            transition: opacity 0.18s ease;
         }
 
         .author-work-card:hover .author-work-thumb {

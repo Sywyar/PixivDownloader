@@ -2169,7 +2169,7 @@
             const pages = item.count || 1;
             return `
                 <div class="work-card" data-id="${item.artworkId}">
-                    <div class="work-thumb">
+                    <div class="work-thumb thumb-loading">
                         <img data-src="/api/downloaded/thumbnail/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
                         <div class="thumb-veil"></div>
                         <div class="thumb-badges">
@@ -2241,12 +2241,45 @@
         });
     }
 
+    function setThumbnailState(img, stateName) {
+        const frame = img.closest('.work-thumb, .author-work-thumb');
+        if (!frame) return;
+        frame.classList.toggle('thumb-loading', stateName === 'loading');
+        frame.classList.toggle('thumb-loaded', stateName === 'loaded');
+        frame.classList.toggle('thumb-failed', stateName === 'failed');
+    }
+
+    function setThumbnailSource(img, src) {
+        const cleanup = () => {
+            img.removeEventListener('load', onLoad);
+            img.removeEventListener('error', onError);
+        };
+        const onLoad = () => {
+            cleanup();
+            setThumbnailState(img, 'loaded');
+        };
+        const onError = () => {
+            cleanup();
+            img.removeAttribute('src');
+            setThumbnailState(img, 'failed');
+        };
+        img.addEventListener('load', onLoad, {once: true});
+        img.addEventListener('error', onError, {once: true});
+        img.src = src;
+        if (img.complete) {
+            if (img.naturalWidth > 0) onLoad();
+            else onError();
+        }
+    }
+
     async function loadThumbnail(img) {
         const url = img.dataset.src;
+        if (!url) return;
         img.removeAttribute('data-src');
+        setThumbnailState(img, 'loading');
         const cached = ImageCache.get(url);
         if (cached) {
-            img.src = cached;
+            setThumbnailSource(img, cached);
             return;
         }
         try {
@@ -2254,11 +2287,13 @@
             if (resp && resp.success && resp.image) {
                 const ext = (resp.extension || 'jpg').toLowerCase();
                 const src = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${resp.image}`;
-                img.src = src;
                 ImageCache.put(url, src);
+                setThumbnailSource(img, src);
+            } else {
+                setThumbnailState(img, 'failed');
             }
         } catch (e) {
-            // Silently leave placeholder
+            setThumbnailState(img, 'failed');
         }
     }
 
@@ -2624,7 +2659,7 @@
                 const pages = item.count || 1;
                 return `
                     <div class="author-work-card" data-id="${item.artworkId}">
-                        <div class="author-work-thumb">
+                        <div class="author-work-thumb thumb-loading">
                             <img data-src="/api/downloaded/thumbnail/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
                             ${pages > 1 ? `<div class="author-work-pages">${pages}P</div>` : ''}
                         </div>
@@ -2776,7 +2811,7 @@
                 const order = item.seriesOrder ? `<div class="author-work-pages">#${escapeHtml(item.seriesOrder)}</div>` : '';
                 return `
                     <div class="author-work-card" data-id="${item.artworkId}">
-                        <div class="author-work-thumb">
+                        <div class="author-work-thumb thumb-loading">
                             <img data-src="/api/downloaded/thumbnail/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
                             ${order || (pages > 1 ? `<div class="author-work-pages">${pages}P</div>` : '')}
                         </div>
