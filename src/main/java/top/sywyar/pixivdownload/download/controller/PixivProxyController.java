@@ -357,7 +357,7 @@ public class PixivProxyController {
      * Pixiv 搜索结果 item 的 tags 为字符串数组（如 ["tag1","tag2"]）。
      * 解析为去空白、去重、保序的字符串列表，供前端做客户端标签精确/模糊筛选。
      */
-    private List<String> parseStringTags(JsonNode tagsNode) {
+    static List<String> parseStringTags(JsonNode tagsNode) {
         if (tagsNode == null || !tagsNode.isArray() || tagsNode.isEmpty()) {
             return List.of();
         }
@@ -370,6 +370,61 @@ public class PixivProxyController {
             }
         }
         return new ArrayList<>(tags);
+    }
+
+    /**
+     * 把 {@code /ajax/user/{id}/illusts?ids[]=...} 的 {@code body}（按作品 id 键控的对象）解析为
+     * 与搜索结果同形的卡片列表，并按 {@code ids} 请求顺序保序、跳过已删除（null/缺失）的作品。
+     * 纯函数：不触网、不依赖实例状态，便于单测。
+     */
+    static List<SearchResponse.SearchItem> parseUserIllustCards(JsonNode body, List<String> ids) {
+        List<SearchResponse.SearchItem> items = new ArrayList<>();
+        if (body == null || ids == null) return items;
+        for (String id : ids) {
+            JsonNode item = body.path(id);
+            if (item.isMissingNode() || item.isNull() || !item.isObject()) continue;
+            items.add(new SearchResponse.SearchItem(
+                    item.path("id").asText(id),
+                    item.path("title").asText(""),
+                    item.path("illustType").asInt(0),
+                    item.path("xRestrict").asInt(0),
+                    item.path("aiType").asInt(0),
+                    item.path("url").asText(""),
+                    item.path("pageCount").asInt(1),
+                    item.path("userId").asText(""),
+                    item.path("userName").asText(""),
+                    parseStringTags(item.path("tags"))
+            ));
+        }
+        return items;
+    }
+
+    /**
+     * 把 {@code /ajax/user/{id}/novels?ids[]=...} 的 {@code body} 解析为与小说搜索结果同形的卡片列表，
+     * 同样按 {@code ids} 请求顺序保序、跳过已删除的作品。纯函数。
+     */
+    static List<NovelSearchResponse.NovelSearchItem> parseUserNovelCards(JsonNode body, List<String> ids) {
+        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
+        if (body == null || ids == null) return items;
+        for (String id : ids) {
+            JsonNode item = body.path(id);
+            if (item.isMissingNode() || item.isNull() || !item.isObject()) continue;
+            items.add(new NovelSearchResponse.NovelSearchItem(
+                    item.path("id").asText(id),
+                    item.path("title").asText(""),
+                    item.path("xRestrict").asInt(0),
+                    item.path("aiType").asInt(0),
+                    item.path("bookmarkCount").asInt(-1),
+                    item.path("wordCount").asInt(0),
+                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
+                    item.path("userId").asText(""),
+                    item.path("userName").asText(""),
+                    extractNovelCoverUrl(item),
+                    item.path("isOriginal").asBoolean(false),
+                    parseStringTags(item.path("tags"))
+            ));
+        }
+        return items;
     }
 
     private SearchResponse fetchSearchPage(
@@ -687,7 +742,8 @@ public class PixivProxyController {
                         t.path("pageCount").asInt(1),
                         t.path("userId").asText(""),
                         t.path("userName").asText(""),
-                        seriesOrder
+                        seriesOrder,
+                        parseStringTags(t.path("tags"))
                 ));
             }
             // Filter to only series members and sort by series order ascending
@@ -1001,6 +1057,76 @@ public class PixivProxyController {
         b.path("novels").fieldNames().forEachRemaining(ids::add);
         ids.sort((a, c2) -> Long.compare(Long.parseLong(c2), Long.parseLong(a)));
         return ResponseEntity.ok(new UserArtworksResponse(ids));
+    }
+
+    /**
+     * 批量获取画师插画/漫画的卡片元数据（供 User 模式预览渲染与客户端附加筛选）。
+     * 经 {@code /ajax/user/{id}/illusts?ids[]=...} 拉取，返回与搜索结果同形的 {@link SearchResponse}，
+     * 并按请求传入的 ids 顺序保序（Pixiv 返回的是按 id 键控的对象，顺序不保证）。
+     */
+    @GetMapping("/user/{userId}/illust-cards")
+    public ResponseEntity<?> getUserIllustCards(
+            @PathVariable String userId,
+            @RequestParam List<String> ids,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        if (ids == null || ids.isEmpty()) {
+            return ResponseEntity.ok(new SearchResponse(List.of(), 0, 1));
+        }
+        UriComponentsBuilder builder = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/user/{userId}/illusts");
+        for (String id : ids) {
+            builder.queryParam("ids[]", id);
+        }
+        URI uri = builder
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("userId", userId))
+                .encode()
+                .toUri();
+        String body = proxyGetUri(uri, cookie);
+        JsonNode root = objectMapper.readTree(body);
+        if (root.path("error").asBoolean(false)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+        }
+        List<SearchResponse.SearchItem> items = parseUserIllustCards(root.path("body"), ids);
+        return ResponseEntity.ok(new SearchResponse(items, items.size(), 1));
+    }
+
+    /**
+     * 批量获取画师小说的卡片元数据（供 User 模式小说预览渲染与客户端附加筛选）。
+     * 经 {@code /ajax/user/{id}/novels?ids[]=...} 拉取，返回与小说搜索结果同形的 {@link NovelSearchResponse}，
+     * 并按请求传入的 ids 顺序保序。
+     */
+    @GetMapping("/user/{userId}/novel-cards")
+    public ResponseEntity<?> getUserNovelCards(
+            @PathVariable String userId,
+            @RequestParam List<String> ids,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        if (ids == null || ids.isEmpty()) {
+            return ResponseEntity.ok(new NovelSearchResponse(List.of(), 0, 1));
+        }
+        UriComponentsBuilder builder = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/user/{userId}/novels");
+        for (String id : ids) {
+            builder.queryParam("ids[]", id);
+        }
+        URI uri = builder
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("userId", userId))
+                .encode()
+                .toUri();
+        String body = proxyGetUri(uri, cookie);
+        JsonNode root = objectMapper.readTree(body);
+        if (root.path("error").asBoolean(false)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+        }
+        List<NovelSearchResponse.NovelSearchItem> items = parseUserNovelCards(root.path("body"), ids);
+        return ResponseEntity.ok(new NovelSearchResponse(items, items.size(), 1));
     }
 
     private static Integer countPages(String content) {

@@ -109,13 +109,18 @@
                 <span data-i18n="novel:batch.user.kind-novel">小说</span>
             </label>
         </div>
-        <div class="user-row">
-            <input type="text" id="user-id-input" data-i18n-placeholder="input.user-id.placeholder" placeholder="用户 ID（数字）">
-            <button class="btn btn-cyan" onclick="handleFetchAll()" data-i18n="button.fetch-all">📥 获取全部作品</button>
-            <button class="btn btn-orange" onclick="handleFetchAllFresh()" data-i18n="button.fetch-all-fresh">🗑 清除队列并重新获取</button>
-            <button class="btn btn-purple" onclick="handleFetchNew()" data-i18n="button.fetch-new">🆕 仅获取新作品并下载</button>
+        <div class="search-controls">
+            <input type="text" id="user-id-input" data-i18n-placeholder="input.user-id.placeholder" placeholder="用户 ID（数字）"
+                   onkeydown="if(event.key==='Enter')loadUserPreview()">
+            <button class="btn btn-blue" onclick="loadUserPreview()" data-i18n="button.user-preview">📥 解析并预览</button>
+            <button class="btn btn-cyan" id="btn-user-add-page" onclick="addCurrentUserPageToQueue()" disabled data-i18n="button.user-add-current-page">将当前页所有作品加入队列</button>
+            <button class="btn btn-green" id="btn-user-add-all" onclick="addAllUserResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
         </div>
-        <div id="user-info-display" style="margin-top:8px;">-</div>
+        <div id="user-info-display" style="margin:8px 0;font-size:13px;color:#666;">-</div>
+        <div id="user-results-area">
+            <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.user-empty">输入画师 ID 后点击「解析并预览」</div>
+        </div>
+        <div class="search-pagination" id="user-pagination" style="display:none;"></div>
     </div>
 
     <!-- Search panel -->

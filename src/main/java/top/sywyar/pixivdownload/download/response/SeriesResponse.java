@@ -32,6 +32,7 @@ public record SeriesResponse(
             int pageCount,
             String userId,
             String userName,
-            int seriesOrder
+            int seriesOrder,
+            List<String> tags
     ) {}
 }

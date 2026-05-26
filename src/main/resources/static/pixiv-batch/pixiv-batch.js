@@ -212,6 +212,10 @@
                     renderSeriesResults();
                     renderSeriesPagination();
                 }
+                if (userState.allIds.length) {
+                    renderUserResults();
+                    renderUserPagination();
+                }
                 updateBatchLimitNote();
                 await refreshBatchCollections();
                 if (_userscriptsLoaded) {
@@ -2341,6 +2345,8 @@
             });
         }
         syncSearchResultsQueueState();
+        syncSeriesResultsQueueState();
+        syncUserResultsQueueState();
         return added;
     }
 
@@ -2411,97 +2417,506 @@
         parseSingleImport();
     }
 
-    async function handleFetchAllFresh() {
-        stopAndClear();
-        await fetchUserArtworks(false);
+    /* ============================================================
+       User 模式预览（对齐 Search / 系列：先渲染预览网格 + 分页，
+       再由「将此页加入队列」「全部加入队列」入队；附加筛选实时过滤当前页）
+    ============================================================ */
+    const USER_PAGE_SIZE = 30;
+
+    let userState = {
+        kind: 'illust',
+        userId: '',
+        username: '',
+        allIds: [],
+        currentPage: 1,
+        totalPages: 1,
+        rawItems: [],   // 当前页未过滤的卡片
+        items: [],      // 当前页经附加筛选后的卡片（渲染 / 「加入此页」据此）
+        cardCache: new Map(), // kind+id -> 卡片元数据，翻页 / 改筛选时复用避免重复请求
+        filterSummary: {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false},
+        renderToken: 0,
+        activeBlobUrls: [],
+        filterSeq: 0
+    };
+
+    function userCardCacheKey(id) {
+        return (userState.kind === 'novel' ? 'n:' : 'i:') + String(id);
     }
 
-    async function handleFetchAll() {
-        await fetchUserArtworks(false);
+    function cleanupUserBlobUrls() {
+        userState.activeBlobUrls.forEach(u => {
+            try { URL.revokeObjectURL(u); } catch {}
+        });
+        userState.activeBlobUrls = [];
     }
 
-    async function handleFetchNew() {
-        await fetchUserArtworks(true);
+    function resetUserState(kind = 'illust') {
+        cleanupUserBlobUrls();
+        userState.kind = kind === 'novel' ? 'novel' : 'illust';
+        userState.allIds = [];
+        userState.currentPage = 1;
+        userState.totalPages = 1;
+        userState.rawItems = [];
+        userState.items = [];
+        userState.cardCache = new Map();
+        userState.filterSummary = {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false};
+        userState.renderToken += 1;
+        userState.filterSeq += 1;
+        updateUserQueueButtons();
+        renderUserPagination();
     }
 
-    async function fetchUserArtworks(onlyNew) {
+    function setUserLoading(message) {
+        const area = document.getElementById('user-results-area');
+        if (area) area.innerHTML = `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(message)}</div>`;
+        updateUserQueueButtons(true);
+    }
+
+    function clearUserPreview() {
+        cleanupUserBlobUrls();
+        userState.allIds = [];
+        userState.rawItems = [];
+        userState.items = [];
+        userState.currentPage = 1;
+        userState.totalPages = 1;
+        userState.renderToken += 1;
+        userState.filterSeq += 1;
+        const area = document.getElementById('user-results-area');
+        if (area) {
+            area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(bt('status.user-empty', '输入画师 ID 后点击「解析并预览」'))}</div>`;
+        }
+        renderUserPagination();
+        updateUserQueueButtons();
+    }
+
+    async function loadUserPreview() {
         const userId = document.getElementById('user-id-input').value.trim();
         if (!userId || !/^\d+$/.test(userId)) {
             uiAlertKey('alert.invalid-user-id', '请输入有效的用户 ID（纯数字）');
             return;
         }
-        state.userId = userId;
         const kind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
+        resetUserState(kind);
+        userState.userId = userId;
+        state.userId = userId;
         document.getElementById('user-info-display').textContent = bt('status.fetching-user-info', '正在获取用户信息...');
-        setStatus(bt('status.fetching-artwork-list', '正在获取作品列表...'), 'info');
-
+        setUserLoading(bt('status.fetching-artwork-list', '正在获取作品列表...'));
         try {
-            const name = await getUserMeta(userId);
-            state.username = name || userId;
-            document.getElementById('user-info-display').textContent =
-                bt('status.user-display', '用户：{name}（ID: {id}）', {name: state.username, id: userId});
-        } catch {
-            state.username = userId;
-            document.getElementById('user-info-display').textContent =
-                bt('status.user-display-fetch-failed', 'ID: {id}（获取用户名失败）', {id: userId});
+            let name = null;
+            try { name = await getUserMeta(userId); } catch { name = null; }
+            userState.username = name || userId;
+            state.username = userState.username;
+            document.getElementById('user-info-display').textContent = name
+                ? bt('status.user-display', '用户：{name}（ID: {id}）', {name: userState.username, id: userId})
+                : bt('status.user-display-fetch-failed', 'ID: {id}（获取用户名失败）', {id: userId});
+
+            const ids = kind === 'novel' ? await getUserNovels(userId) : await getUserArtworks(userId);
+            userState.allIds = Array.isArray(ids) ? ids.map(String) : [];
+            userState.totalPages = Math.max(1, Math.ceil(userState.allIds.length / USER_PAGE_SIZE));
+            if (!userState.allIds.length) {
+                setStatus(bt('status.user-no-artworks', '该用户暂无作品'), 'warning');
+                const area = document.getElementById('user-results-area');
+                if (area) area.innerHTML = `<div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;">${esc(bt('status.user-no-artworks', '该用户暂无作品'))}</div>`;
+                renderUserPagination();
+                updateUserQueueButtons();
+                return;
+            }
+            await loadUserPreviewPage(1);
+        } catch (e) {
+            const area = document.getElementById('user-results-area');
+            if (area) area.innerHTML = `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}))}</div>`;
+            setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+            updateUserQueueButtons();
+        }
+    }
+
+    // 批量获取一段 ID 的卡片元数据（命中缓存的不再请求），按请求顺序返回（跳过无卡片的已删除作品）。
+    async function ensureUserCards(ids) {
+        const missing = ids.filter(id => !userState.cardCache.has(userCardCacheKey(id)));
+        if (missing.length) {
+            const endpoint = userState.kind === 'novel'
+                ? `/api/pixiv/user/${encodeURIComponent(userState.userId)}/novel-cards`
+                : `/api/pixiv/user/${encodeURIComponent(userState.userId)}/illust-cards`;
+            const params = new URLSearchParams();
+            missing.forEach(id => params.append('ids', id));
+            const res = await fetch(`${BASE}${endpoint}?${params}`, {headers: pixivHeader()});
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                throw new Error(d.error || `HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            (data.items || []).forEach(it => userState.cardCache.set(userCardCacheKey(String(it.id)), it));
+        }
+        return ids.map(id => userState.cardCache.get(userCardCacheKey(id))).filter(Boolean);
+    }
+
+    async function loadUserPreviewPage(page) {
+        if (!userState.allIds.length) return;
+        let p = Number(page);
+        if (!Number.isFinite(p) || p < 1) p = 1;
+        if (p > userState.totalPages) p = userState.totalPages;
+        userState.currentPage = p;
+        cleanupUserBlobUrls();
+        const base = (p - 1) * USER_PAGE_SIZE;
+        const slice = userState.allIds.slice(base, base + USER_PAGE_SIZE);
+        setUserLoading(bt('status.series-page-loading', '正在加载第 {page} 页...', {page: p}));
+        try {
+            const cards = await ensureUserCards(slice);
+            userState.rawItems = cards;
+            await applyUserFilters({});
+            renderUserPagination();
+            updateUserQueueButtons();
+            setStatus(bt('status.user-preview-loaded', '画师预览已加载：{name}（第 {page} / {total} 页）', {
+                name: userState.username,
+                page: userState.currentPage,
+                total: userState.totalPages
+            }), 'success');
+        } catch (e) {
+            const area = document.getElementById('user-results-area');
+            if (area) area.innerHTML = `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}))}</div>`;
+            setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+            updateUserQueueButtons();
+        }
+    }
+
+    async function applyUserFilters(options = {}) {
+        const filters = normalizeSearchFilters(options.filters || getSearchFiltersFromUI());
+        searchState.currentFilters = filters;
+        saveSearchFilterPrefs(filters);
+        const kind = userState.kind;
+        const seq = ++userState.filterSeq;
+        const isStale = () => seq !== userState.filterSeq;
+
+        const bookmarkActive = hasBookmarkFilter(filters);
+        const needsBookmarkMeta = bookmarkActive && userState.rawItems.some(item => {
+            if (getInlineSearchBookmarkCount(item) !== null) return false;
+            const cached = getCachedSearchMeta(item.id, kind);
+            return !cached || !cached.bookmarkResolved;
+        });
+        if (bookmarkActive && needsBookmarkMeta && userState.rawItems.length) {
+            const area = document.getElementById('user-results-area');
+            if (area) area.innerHTML = `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.search-reading-bookmarks', '读取当前页收藏数中...'))}</div>`;
+            updateUserQueueButtons(true);
         }
 
-        try {
-            let added = 0;
-            let total = 0;
-            if (kind === 'novel') {
-                const ids = await getUserNovels(userId);
-                total = ids.length;
-                if (!total) {
-                    setStatus(bt('status.user-no-artworks', '该用户暂无作品'), 'warning');
-                    return;
+        const result = await computeFilteredItems(userState.rawItems, filters, kind, isStale);
+        if (!result) return null;
+        userState.items = result.filtered;
+        userState.filterSummary = result.stats;
+        renderUserResults();
+        updateUserQueueButtons();
+
+        if (options.setStatus) {
+            const parts = [bt('search.summary.current-page', '当前页 {count} 个', {count: result.stats.rawCount})];
+            if (hasExtraSearchFilter(filters)) {
+                parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: result.stats.filteredCount}));
+                if (result.stats.bookmarkMetaMissing > 0) {
+                    parts.push(bt('search.summary.bookmark-missing', '{count} 个收藏数不可用已排除', {count: result.stats.bookmarkMetaMissing}));
                 }
-                const items = ids.map(id => ({
-                    id: 'n' + id,
+            } else {
+                parts.push(bt('status.search-no-extra-filters', '未启用附加筛选'));
+            }
+            setStatus(bt('status.search-filters-applied', '已应用筛选：') + (uiLang() === 'en-US' ? ' ' : '') + summaryJoin(parts), 'success');
+        }
+        return result.stats;
+    }
+
+    function renderUserResults() {
+        const area = document.getElementById('user-results-area');
+        if (!area) return;
+        const renderToken = ++userState.renderToken;
+        if (!userState.rawItems.length) {
+            area.innerHTML = `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(bt('status.user-no-artworks', '该用户暂无作品'))}</div>`;
+            return;
+        }
+        const summary = [
+            bt('series.meta.total', '共 {count} 个作品', {count: userState.allIds.length.toLocaleString()}),
+            bt('search.summary.current-page-index', '当前第 {page} 页', {page: userState.currentPage}),
+            bt('search.summary.current-page', '当前页 {count} 个', {count: userState.rawItems.length})
+        ];
+        if (hasExtraSearchFilter()) {
+            summary.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: userState.items.length}));
+            if (userState.filterSummary.bookmarkMetaMissing > 0) {
+                summary.push(bt('search.summary.bookmark-missing', '{count} 个收藏数不可用已排除', {count: userState.filterSummary.bookmarkMetaMissing}));
+            }
+        }
+        const summaryHtml = `<div style="font-size:12px;color:#888;margin-bottom:10px;">${summary.map(s => `<span>${esc(s)}</span>`).join(summarySeparator())}</div>`;
+        if (!userState.items.length) {
+            area.innerHTML = summaryHtml + `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(bt('status.search-no-filtered-results', '附加筛选后无结果'))}</div>`;
+            return;
+        }
+        const inQueue = new Set(state.queue.map(q => q.id));
+        if (userState.kind === 'novel') {
+            const cards = userState.items.map((item, idx) => {
+                const xr = Number(item.xRestrict ?? 0);
+                const isAi = Number(item.aiType ?? 0) >= 2;
+                const wc = Number(item.wordCount ?? item.textLength ?? 0);
+                const bookmarkCount = getSearchBookmarkCount(item, 'novel');
+                const queueId = 'n' + String(item.id);
+                const inQueueClass = inQueue.has(queueId) ? ' in-queue' : '';
+                const meta = [];
+                if (xr === 1) meta.push('<span class="nsc-r18">R-18</span>');
+                else if (xr === 2) meta.push('<span class="nsc-r18g">R-18G</span>');
+                if (isAi) meta.push('<span class="nsc-ai">AI</span>');
+                if (item.isOriginal) meta.push(`<span class="nsc-original">${esc(bt('novel:batch.search.original', '原创'))}</span>`);
+                if (wc > 0) meta.push(`<span>${esc(bt('novel:batch.search.summary.novel-words', '{count} 字', {count: wc.toLocaleString()}))}</span>`);
+                if (bookmarkCount !== null) meta.push(`<span>${esc(bt('search.summary.bookmark-badge', '收藏 {count}', {count: bookmarkCount.toLocaleString()}))}</span>`);
+                const fallbackTitle = bt('queue.novel-fallback', '小说 {id}', {id: item.id});
+                const fallbackAuthor = userState.username || bt('novel:status.unknown-author', '未知');
+                const bookmarkTip = buildBookmarkTip(bookmarkCount);
+                const queueTip = buildQueueToggleTip(inQueue.has(queueId));
+                const cardTitle = `${item.title || fallbackTitle} (${item.userName || fallbackAuthor})${bookmarkTip}${queueTip}`;
+                return `<div class="novel-search-card${inQueueClass}" data-user-novel-idx="${idx}" id="user-novel-card-${idx}" title="${esc(cardTitle)}">
+        <div class="nsc-title">${esc(item.title || fallbackTitle)}</div>
+        <div class="nsc-author">${esc(item.userName || fallbackAuthor)}</div>
+        <div class="nsc-meta">${meta.join('')}</div>
+        <span class="nsc-in-queue-mark">✓</span>
+      </div>`;
+            }).join('');
+            area.innerHTML = summaryHtml + `<div class="novel-search-grid">${cards}</div>`;
+            area.querySelectorAll('.novel-search-card').forEach(card => {
+                card.addEventListener('click', () => addUserItemToQueue(Number(card.dataset.userNovelIdx)));
+            });
+            return;
+        }
+        area.innerHTML = summaryHtml + `<div class="search-grid">
+      ${userState.items.map((item, idx) => {
+            const xr = Number(item.xRestrict ?? 0);
+            const illustType = Number(item.illustType ?? 0);
+            const isAi = Number(item.aiType ?? 0) >= 2;
+            const r18Badge = xr === 2
+                ? '<span class="thumb-badge" style="background:#b91c1c;">R-18G</span>'
+                : xr === 1 ? '<span class="thumb-badge">R-18</span>' : '';
+            const aiBadge = isAi ? '<span class="thumb-badge thumb-badge-ai">AI</span>' : '';
+            const typeBadge = illustType === 2
+                ? `<span class="thumb-badge" style="background:#0ea5e9;">${esc(bt('search.type.ugoira', '动图'))}</span>`
+                : illustType === 1 ? `<span class="thumb-badge" style="background:#f59e0b;">${esc(bt('search.type.manga', '漫画'))}</span>` : '';
+            const pagesLabel = item.pageCount > 1 ? `<span class="thumb-pages">${item.pageCount}P</span>` : '';
+            const inQueueClass = inQueue.has(String(item.id)) ? ' in-queue' : '';
+            const queueTip = buildQueueToggleTip(inQueue.has(String(item.id)));
+            return `<div class="search-thumb${inQueueClass}" id="user-thumb-${idx}"
+                     onclick="addUserItemToQueue(${idx})" title="${esc(item.title)} (${esc(item.userName)})${queueTip}">
+          <img id="user-thumb-img-${idx}" src="" alt="${esc(item.title)}">
+          <div class="thumb-badge-stack">${r18Badge}${aiBadge}${typeBadge}</div>
+          ${pagesLabel}
+          <span class="thumb-in-queue-mark">✓</span>
+          <div class="thumb-title">${esc(item.title)}</div>
+        </div>`;
+        }).join('')}
+    </div>`;
+        loadUserThumbnailsBatched(userState.items, renderToken);
+    }
+
+    function renderUserPagination() {
+        const pag = document.getElementById('user-pagination');
+        if (!pag) return;
+        const totalPages = Math.max(1, Number(userState.totalPages || 1));
+        const cur = Math.min(Math.max(1, Number(userState.currentPage || 1)), totalPages);
+        if (!userState.allIds.length || totalPages <= 1) {
+            pag.style.display = 'none';
+            pag.innerHTML = '';
+            return;
+        }
+        pag.style.display = 'flex';
+        const radius = 3;
+        const pages = [];
+        for (let p = Math.max(1, cur - radius); p <= Math.min(totalPages, cur + radius); p++) {
+            pages.push(p);
+        }
+        pag.innerHTML =
+            `<button onclick="loadUserPreviewPage(1)" ${cur === 1 ? 'disabled' : ''}>&laquo;</button>` +
+            `<button onclick="loadUserPreviewPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>&lsaquo;</button>` +
+            pages.map(p =>
+                `<button onclick="${p === cur ? '' : `loadUserPreviewPage(${p})`}" ${p === cur ? 'class="pg-active" disabled' : ''}>${p}</button>`
+            ).join('') +
+            `<button onclick="loadUserPreviewPage(${cur + 1})" ${cur === totalPages ? 'disabled' : ''}>&rsaquo;</button>` +
+            `<button onclick="loadUserPreviewPage(${totalPages})" ${cur === totalPages ? 'disabled' : ''}>&raquo;</button>` +
+            `<span class="pg-info">${esc(bt('search.pagination.info', '第 {current} / {total} 页 · 共 {count} 个', {
+                current: cur,
+                total: totalPages,
+                count: userState.allIds.length.toLocaleString()
+            }))}</span>`;
+    }
+
+    async function loadUserThumbnailsBatched(items, renderToken) {
+        const BATCH = 10;
+        for (let i = 0; i < items.length; i += BATCH) {
+            if (renderToken !== userState.renderToken) return;
+            const batch = items.slice(i, i + BATCH);
+            await Promise.allSettled(batch.map((item, offset) => loadSingleUserThumbnail(item, i + offset, renderToken)));
+        }
+    }
+
+    async function loadSingleUserThumbnail(item, idx, renderToken) {
+        if (!item.thumbnailUrl) return;
+        const imgEl = document.getElementById(`user-thumb-img-${idx}`);
+        if (!imgEl) return;
+        const blobUrl = await fetchThumbnailBlobUrl(item.thumbnailUrl, userState.activeBlobUrls);
+        if (renderToken !== userState.renderToken) return;
+        if (blobUrl && imgEl.isConnected) imgEl.src = blobUrl;
+    }
+
+    function buildUserQueueMeta(item) {
+        if (userState.kind === 'novel') {
+            return {
+                title: item.title || bt('queue.novel-fallback', '小说 {id}', {id: item.id}),
+                novelId: String(item.id),
+                kind: 'novel',
+                authorId: item.userId ? Number(item.userId) : Number(userState.userId),
+                authorName: item.userName || userState.username || userState.userId,
+                isAi: Number(item.aiType ?? 0) >= 2,
+                xRestrict: Number(item.xRestrict ?? 0),
+                tags: Array.isArray(item.tags) ? item.tags : []
+            };
+        }
+        return {
+            title: item.title,
+            authorId: item.userId ? Number(item.userId) : Number(userState.userId),
+            authorName: item.userName || userState.username || userState.userId,
+            isAi: Number(item.aiType ?? 0) >= 2,
+            xRestrict: Number(item.xRestrict ?? 0)
+        };
+    }
+
+    function userQueueId(item) {
+        return userState.kind === 'novel' ? 'n' + String(item.id) : String(item.id);
+    }
+
+    function syncUserResultsQueueState() {
+        if (!userState.items.length) return;
+        const inQueue = new Set(state.queue.map(q => q.id));
+        userState.items.forEach((item, idx) => {
+            const el = document.getElementById(
+                userState.kind === 'novel' ? `user-novel-card-${idx}` : `user-thumb-${idx}`
+            );
+            if (!el) return;
+            el.classList.toggle('in-queue', inQueue.has(userQueueId(item)));
+        });
+    }
+
+    function updateUserQueueButtons(isLoading = false) {
+        const pageBtn = document.getElementById('btn-user-add-page');
+        const allBtn = document.getElementById('btn-user-add-all');
+        if (pageBtn) pageBtn.disabled = isLoading || userState.items.length === 0;
+        if (allBtn) allBtn.disabled = isLoading || userState.allIds.length === 0;
+    }
+
+    function addUserItemToQueue(idx) {
+        const item = userState.items[idx];
+        if (!item) return;
+        const queueId = userQueueId(item);
+        const alreadyInQueue = state.queue.find(q => q.id === queueId);
+        if (alreadyInQueue) {
+            const removed = removeFromQueue(queueId);
+            setStatus(removed
+                    ? bt('status.removed-from-queue', '已从队列移除：{title}', {title: item.title})
+                    : bt('status.cannot-remove-downloading', '无法移除（正在下载中）：{title}', {title: item.title}),
+                removed ? 'info' : 'warning');
+            return;
+        }
+        const added = addItemsToQueue(
+            [queueId],
+            [buildUserQueueMeta(item)],
+            'user',
+            userState.username || userState.userId,
+            userState.userId,
+            userState.username || userState.userId
+        );
+        setStatus(added > 0
+                ? bt('status.added-to-queue', '已加入队列：{title}', {title: item.title})
+                : bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}),
+            added > 0 ? 'success' : 'info');
+        syncUserResultsQueueState();
+    }
+
+    function addCurrentUserPageToQueue() {
+        if (!userState.items.length) return;
+        const isNovel = userState.kind === 'novel';
+        const ids = userState.items.map(item => isNovel ? 'n' + String(item.id) : String(item.id));
+        const metas = userState.items.map(buildUserQueueMeta);
+        const added = addItemsToQueue(
+            ids, metas, 'user',
+            userState.username || userState.userId, userState.userId, userState.username || userState.userId
+        );
+        setStatus(
+            bt('status.added-current-series-page-to-queue', '已将当前页 {added} 个作品加入队列（本页 {total} 个，{existing} 个已在队列中）',
+                {added, total: ids.length, existing: ids.length - added}),
+            added > 0 ? 'success' : 'info'
+        );
+        syncUserResultsQueueState();
+    }
+
+    async function addAllUserResultsToQueue() {
+        if (!userState.allIds.length) return;
+        const isNovel = userState.kind === 'novel';
+        const uiFilters = normalizeSearchFilters(getSearchFiltersFromUI());
+        // 无附加筛选：直接按全部 ID 入队（最省请求，等价于旧版「获取全部作品」）。
+        if (!hasExtraSearchFilter(uiFilters)) {
+            const ids = userState.allIds.map(id => isNovel ? 'n' + id : id);
+            const metas = userState.allIds.map(id => isNovel
+                ? {
+                    title: bt('queue.novel-fallback', '小说 {id}', {id}),
                     novelId: String(id),
                     kind: 'novel',
-                    title: bt('queue.novel-fallback', '小说 {id}', {id}),
-                    authorId: Number(state.userId),
-                    authorName: state.username || state.userId
-                }));
-                added = addItemsToQueue(
-                    items.map(x => x.id),
-                    items,
-                    'user',
-                    state.username || state.userId,
-                    state.userId,
-                    state.username || state.userId
-                );
-            } else {
-                const ids = await getUserArtworks(userId);
-                total = ids.length;
-                if (!total) {
-                    setStatus(bt('status.user-no-artworks', '该用户暂无作品'), 'warning');
-                    return;
+                    authorId: Number(userState.userId),
+                    authorName: userState.username || userState.userId
                 }
-                added = addItemsToQueue(
-                    ids,
-                    null,
-                    'user',
-                    state.username || state.userId,
-                    state.userId,
-                    state.username || state.userId
-                );
-            }
-            setStatus(
-                bt('status.fetch-success', '获取成功：共 {total} 个作品，新增 {added} 个', {total, added}),
-                'success'
+                : {
+                    authorId: Number(userState.userId),
+                    authorName: userState.username || userState.userId
+                });
+            const added = addItemsToQueue(
+                ids, metas, 'user',
+                userState.username || userState.userId, userState.userId, userState.username || userState.userId
             );
-
-            if (onlyNew) {
-                document.getElementById('s-skip').checked = true;
-                state.settings.skipHistory = true;
-                saveSettings();
-                syncSettings();
-                start();
+            setStatus(
+                bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
+                    {added, total: ids.length, existing: ids.length - added}),
+                added > 0 ? 'success' : 'info'
+            );
+            syncUserResultsQueueState();
+            return;
+        }
+        // 有附加筛选：必须逐页拉取卡片元数据做筛选，确认后继续。
+        if (!uiConfirmKey(
+            'dialog.user-add-all-warning',
+            '「全部加入队列」会按附加筛选逐页请求该画师的全部 {total} 个作品卡片，作品较多时会增加 Pixiv 请求量并耗时，确认继续？',
+            {total: userState.allIds.length}
+        )) {
+            return;
+        }
+        updateUserQueueButtons(true);
+        try {
+            const filters = uiFilters;
+            const kind = userState.kind;
+            const matched = [];
+            const total = userState.allIds.length;
+            for (let i = 0; i < userState.allIds.length; i += USER_PAGE_SIZE) {
+                const slice = userState.allIds.slice(i, i + USER_PAGE_SIZE);
+                setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...', {
+                    done: Math.min(i + USER_PAGE_SIZE, total),
+                    total
+                }), 'info');
+                const cards = await ensureUserCards(slice);
+                const result = await computeFilteredItems(cards, filters, kind, () => false);
+                if (result) matched.push(...result.filtered);
             }
+            const ids = matched.map(item => isNovel ? 'n' + String(item.id) : String(item.id));
+            const metas = matched.map(buildUserQueueMeta);
+            const added = addItemsToQueue(
+                ids, metas, 'user',
+                userState.username || userState.userId, userState.userId, userState.username || userState.userId
+            );
+            setStatus(
+                bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
+                    {added, total: ids.length, existing: ids.length - added}),
+                added > 0 ? 'success' : 'info'
+            );
+            syncUserResultsQueueState();
         } catch (e) {
             setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+        } finally {
+            updateUserQueueButtons();
         }
     }
 
@@ -2526,6 +2941,12 @@
         applyNovelSettingsVisibility();
         updateSaveScheduleCardVisibility();
         updateExtraFiltersCardVisibility();
+        // 进入带预览的模式时，按当前附加筛选输入重新过滤已加载的预览页（筛选可能在别的模式被改过）
+        if (normalizedMode === 'user' && userState.rawItems.length) {
+            applyUserFilters({});
+        } else if (normalizedMode === 'series' && seriesState.rawItems.length) {
+            applySeriesFilters({});
+        }
         if (normalizedMode === 'schedule') {
             loadScheduleTasks();
         }
@@ -2874,13 +3295,13 @@
         });
     }
 
-    // 共享「附加筛选」卡片：Search 模式恒显示（实时过滤当前页）；User/Series 模式仅管理员可见
-    // （这两种模式不做实时过滤，筛选只在「存为计划任务」时被快照、由后台逐作品执行）。
+    // 共享「附加筛选」卡片：Search / User / 系列三模式对所有用户显示并实时过滤当前预览页。
+    // 管理员另外可在 User/Search/系列模式下把同一份筛选条件快照进「存为计划任务」（后台逐作品执行）。
     function updateExtraFiltersCardVisibility() {
         const card = document.getElementById('extra-filters-card');
         if (!card) return;
         const mode = state.mode;
-        const visible = mode === 'search' || (isAdmin && (mode === 'user' || mode === 'series'));
+        const visible = mode === 'search' || mode === 'user' || mode === 'series';
         card.style.display = visible ? '' : 'none';
         if (visible) applySearchKindUI();
     }
@@ -3099,13 +3520,30 @@
             || hasBookmarkFilter(filters);
     }
 
+    // 作品标签词元：兼容字符串数组（搜索 / 画师卡片）与 TagDto 对象数组（小说系列）。
+    // 对象同时取原名与英文翻译作为可匹配词元（与计划任务后台逐作品筛选语义一致）。
+    function itemTagTokens(item) {
+        const out = [];
+        for (const t of (Array.isArray(item.tags) ? item.tags : [])) {
+            if (typeof t === 'string') {
+                if (t) out.push(t.toLowerCase());
+            } else if (t) {
+                const name = t.name || t.tag;
+                if (name) out.push(String(name).toLowerCase());
+                const tr = t.translatedName || t.translation;
+                if (tr) out.push(String(tr).toLowerCase());
+            }
+        }
+        return out;
+    }
+
     // 标签筛选：逗号分隔多标签全部命中(AND)；精确=与某个作品标签完全相等，
     // 模糊=被某个作品标签包含；两框都填则两者都需满足(AND)。大小写不敏感。
     function matchTagFilters(item, filters) {
         const exact = filters.tagsExact || [];
         const fuzzy = filters.tagsFuzzy || [];
         if (!exact.length && !fuzzy.length) return true;
-        const tags = (item.tags || []).map(t => String(t).toLowerCase());
+        const tags = itemTagTokens(item);
         for (const term of exact) {
             const t = term.toLowerCase();
             if (!tags.some(x => x === t)) return false;
@@ -3140,7 +3578,9 @@
         return getInlineSearchBookmarkCount(item);
     }
 
-    async function ensureSearchBookmarkMeta(items, requestSeq, kind = searchState.kind) {
+    // 按需补齐逐作品收藏数 meta（收藏数筛选用）。收藏数缓存按 kind+id 全局共享（searchState.metaCache），
+    // 故 Search / User / 系列三种预览可复用。isStale() 用于在新一轮筛选发起后提前放弃过期请求。
+    async function ensureBookmarkMeta(items, kind, isStale) {
         const missingIds = [];
         const seen = new Set();
         for (const item of items) {
@@ -3160,19 +3600,19 @@
         for (let i = 0; i < workerCount; i++) {
             workers.push((async () => {
                 while (cursor < missingIds.length) {
-                    if (requestSeq !== searchState.filterSeq) return;
+                    if (isStale()) return;
                     const id = missingIds[cursor++];
                     const cacheKey = searchMetaCacheKey(id, kind);
                     try {
                         const meta = await fetchMeta(id);
-                        if (requestSeq !== searchState.filterSeq) return;
+                        if (isStale()) return;
                         searchState.metaCache[cacheKey] = {
                             ...(searchState.metaCache[cacheKey] || {}),
                             bookmarkCount: Number(meta?.bookmarkCount ?? -1),
                             bookmarkResolved: true
                         };
                     } catch {
-                        if (requestSeq !== searchState.filterSeq) return;
+                        if (isStale()) return;
                         searchState.metaCache[cacheKey] = {
                             ...(searchState.metaCache[cacheKey] || {}),
                             bookmarkCount: -1,
@@ -3184,6 +3624,26 @@
             })());
         }
         await Promise.all(workers);
+    }
+
+    // 通用「逐作品附加筛选」：对任意作品数组应用同一套 matchSearchFilters。
+    // 返回 {filtered, stats}；当 isStale() 在 await 收藏数 meta 期间变 true 时返回 null（调用方应丢弃）。
+    async function computeFilteredItems(items, filters, kind, isStale) {
+        const source = Array.isArray(items) ? items : [];
+        const bookmarkFilterActive = hasBookmarkFilter(filters);
+        if (bookmarkFilterActive) {
+            await ensureBookmarkMeta(source, kind, isStale);
+            if (isStale()) return null;
+        }
+        const stats = {
+            rawCount: source.length,
+            filteredCount: 0,
+            bookmarkMetaMissing: 0,
+            bookmarkFilterActive
+        };
+        const filtered = source.filter(item => matchSearchFilters(item, filters, stats, kind));
+        stats.filteredCount = filtered.length;
+        return {filtered, stats};
     }
 
     function matchSearchFilters(item, filters, stats, kind = searchState.kind) {
@@ -3254,7 +3714,7 @@
         }
 
         if (bookmarkFilterActive) {
-            await ensureSearchBookmarkMeta(sourceItems, requestSeq, kind);
+            await ensureBookmarkMeta(sourceItems, kind, () => requestSeq !== searchState.filterSeq);
             if (requestSeq !== searchState.filterSeq) return null;
         }
 
@@ -3305,10 +3765,19 @@
         return stats;
     }
 
+    // 附加筛选卡片现为 Search / User / 系列三模式共享，实时过滤当前预览页：按当前模式分派。
     async function handleSearchFilterChange() {
         const filters = getSearchFiltersFromUI();
         searchState.currentFilters = filters;
         saveSearchFilterPrefs(filters);
+        if (state.mode === 'user') {
+            await applyUserFilters({setStatus: true});
+            return;
+        }
+        if (state.mode === 'series') {
+            await applySeriesFilters({setStatus: true});
+            return;
+        }
         if (!searchState.currentWord) return;
         if (searchState.submode === 'batch') searchState.localPage = 1;
         await applyCurrentSearchFilters({setStatus: true});
@@ -3319,6 +3788,14 @@
         searchState.currentFilters = filters;
         setSearchFiltersUI(filters);
         saveSearchFilterPrefs(filters);
+        if (state.mode === 'user') {
+            await applyUserFilters({setStatus: true});
+            return;
+        }
+        if (state.mode === 'series') {
+            await applySeriesFilters({setStatus: true});
+            return;
+        }
         if (!searchState.currentWord) return;
         if (searchState.submode === 'batch') searchState.localPage = 1;
         await applyCurrentSearchFilters({setStatus: true});
@@ -3628,6 +4105,22 @@
         });
     }
 
+    // 通用缩略图代理拉取：返回 blob URL（同时登记到 blobStore 供之后统一 revoke），失败返回 null。
+    async function fetchThumbnailBlobUrl(url, blobStore) {
+        if (!url) return null;
+        try {
+            const params = new URLSearchParams({url});
+            const res = await fetch(`${BASE}/api/pixiv/thumbnail-proxy?${params}`, {headers: pixivHeader()});
+            if (!res.ok) return null;
+            const blob = await res.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            if (Array.isArray(blobStore)) blobStore.push(blobUrl);
+            return blobUrl;
+        } catch {
+            return null;
+        }
+    }
+
     async function loadSingleThumbnail(item, idx) {
         if (!item.thumbnailUrl) return;
         const imgEl = document.getElementById(`thumb-img-${idx}`);
@@ -3688,6 +4181,7 @@
         renderQueue();
         syncSearchResultsQueueState();
         syncSeriesResultsQueueState();
+        syncUserResultsQueueState();
         return true;
     }
 
@@ -3742,9 +4236,12 @@
         currentPage: 1,
         totalPages: 1,
         isLastPage: true,
-        items: [],
+        rawItems: [],   // 当前页未过滤的成员（itemsByPage 缓存的也是原始未过滤数据）
+        items: [],      // 当前页经附加筛选后的成员（渲染 / 「加入当前页」据此）
         allItems: [],
         itemsByPage: new Map(),
+        filterSummary: {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false},
+        filterSeq: 0,
         renderToken: 0,
         activeBlobUrls: []
     };
@@ -3813,9 +4310,12 @@
         seriesState.currentPage = 1;
         seriesState.totalPages = 1;
         seriesState.isLastPage = true;
+        seriesState.rawItems = [];
         seriesState.items = [];
         seriesState.allItems = [];
         seriesState.itemsByPage = new Map();
+        seriesState.filterSummary = {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false};
+        seriesState.filterSeq += 1;
         seriesState.renderToken += 1;
         updateSeriesQueueButtons();
         renderSeriesPagination();
@@ -3896,7 +4396,7 @@
         if (activate) {
             seriesState.currentPage = page;
             seriesState.isLastPage = !!data.isLastPage;
-            seriesState.items = items;
+            seriesState.rawItems = items;
         }
         rebuildSeriesAllItems();
     }
@@ -3935,8 +4435,8 @@
         cleanupSeriesBlobUrls();
         if (seriesState.itemsByPage.has(safePage)) {
             seriesState.currentPage = safePage;
-            seriesState.items = seriesState.itemsByPage.get(safePage) || [];
-            renderSeriesResults();
+            seriesState.rawItems = seriesState.itemsByPage.get(safePage) || [];
+            await applySeriesFilters({});
             renderSeriesPagination();
             updateSeriesQueueButtons();
             return;
@@ -3945,7 +4445,7 @@
         try {
             const data = await fetchSeriesPage(safePage);
             cacheSeriesPageData(data, safePage);
-            renderSeriesResults();
+            await applySeriesFilters({});
             renderSeriesPagination();
             updateSeriesQueueButtons();
             setStatus(bt('status.series-page-load-success', '系列页已加载：{title}（第 {page} / {total} 页）', {
@@ -4001,11 +4501,54 @@
         }
     }
 
+    // 系列预览的实时附加筛选：对当前页 rawItems 套同一套 matchSearchFilters，结果写回 items 再渲染。
+    async function applySeriesFilters(options = {}) {
+        const filters = normalizeSearchFilters(options.filters || getSearchFiltersFromUI());
+        searchState.currentFilters = filters;
+        saveSearchFilterPrefs(filters);
+        const kind = seriesState.kind;
+        const seq = ++seriesState.filterSeq;
+        const isStale = () => seq !== seriesState.filterSeq;
+
+        const bookmarkActive = hasBookmarkFilter(filters);
+        const needsBookmarkMeta = bookmarkActive && (seriesState.rawItems || []).some(item => {
+            if (getInlineSearchBookmarkCount(item) !== null) return false;
+            const cached = getCachedSearchMeta(item.id, kind);
+            return !cached || !cached.bookmarkResolved;
+        });
+        if (bookmarkActive && needsBookmarkMeta && (seriesState.rawItems || []).length) {
+            const area = document.getElementById('series-results-area');
+            if (area) area.innerHTML = `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.search-reading-bookmarks', '读取当前页收藏数中...'))}</div>`;
+            updateSeriesQueueButtons(true);
+        }
+
+        const result = await computeFilteredItems(seriesState.rawItems, filters, kind, isStale);
+        if (!result) return null;
+        seriesState.items = result.filtered;
+        seriesState.filterSummary = result.stats;
+        renderSeriesResults();
+        updateSeriesQueueButtons();
+
+        if (options.setStatus) {
+            const parts = [bt('search.summary.current-page', '当前页 {count} 个', {count: result.stats.rawCount})];
+            if (hasExtraSearchFilter(filters)) {
+                parts.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: result.stats.filteredCount}));
+                if (result.stats.bookmarkMetaMissing > 0) {
+                    parts.push(bt('search.summary.bookmark-missing', '{count} 个收藏数不可用已排除', {count: result.stats.bookmarkMetaMissing}));
+                }
+            } else {
+                parts.push(bt('status.search-no-extra-filters', '未启用附加筛选'));
+            }
+            setStatus(bt('status.search-filters-applied', '已应用筛选：') + (uiLang() === 'en-US' ? ' ' : '') + summaryJoin(parts), 'success');
+        }
+        return result.stats;
+    }
+
     function renderSeriesResults() {
         const area = document.getElementById('series-results-area');
         const metaEl = document.getElementById('series-meta-display');
         const renderToken = ++seriesState.renderToken;
-        if (!seriesState.items.length) {
+        if (!seriesState.rawItems.length) {
             area.innerHTML = `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(bt('status.series-no-results', '该系列没有可用条目'))}</div>`;
             metaEl.textContent = '';
             renderSeriesPagination();
@@ -4031,9 +4574,21 @@
             `<strong>${esc(seriesState.seriesTitle)}</strong>`,
             esc(typePart),
             authorPart ? esc(authorPart) : '',
-            esc(bt('series.meta.total', '共 {count} 个作品', {count: seriesState.seriesTotal || seriesState.allItems.length || seriesState.items.length})),
+            esc(bt('series.meta.total', '共 {count} 个作品', {count: seriesState.seriesTotal || seriesState.allItems.length || seriesState.rawItems.length})),
             pagePart ? esc(pagePart) : ''
         ].filter(Boolean).join(' · ');
+        // 当前页原始非空、但附加筛选后为空：给出明确提示而非空白网格
+        if (!seriesState.items.length) {
+            const tips = [bt('search.summary.pixiv-current-page-results', 'Pixiv 当前页 {count} 个结果', {count: seriesState.rawItems.length})];
+            if (seriesState.filterSummary.bookmarkFilterActive && seriesState.filterSummary.bookmarkMetaMissing > 0) {
+                tips.push(bt('search.summary.bookmark-missing', '{count} 个收藏数不可用已排除', {count: seriesState.filterSummary.bookmarkMetaMissing}));
+            }
+            area.innerHTML = `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(bt('status.search-no-filtered-results', '附加筛选后无结果'))}<br><span style="font-size:12px;">${tips.map(t => `<span>${esc(t)}</span>`).join(summarySeparator())}</span></div>`;
+            renderSeriesPagination();
+            updateSeriesQueueButtons();
+            applyNovelSettingsVisibility();
+            return;
+        }
         if (isNovel) {
             area.innerHTML = `
     <div class="novel-series-list">
@@ -4347,7 +4902,7 @@
             }
             page += 1;
         }
-        seriesState.items = seriesState.itemsByPage.get(seriesState.currentPage) || seriesState.items;
+        seriesState.rawItems = seriesState.itemsByPage.get(seriesState.currentPage) || seriesState.rawItems;
     }
 
     async function addAllSeriesResultsToQueue() {
@@ -4363,8 +4918,15 @@
         updateSeriesQueueButtons(true);
         try {
             await ensureAllSeriesPagesLoaded();
-            const allItems = seriesState.allItems.length ? seriesState.allItems : seriesState.items;
-            const result = addSeriesItemsToQueue(allItems, 0);
+            const rawAll = seriesState.allItems.length ? seriesState.allItems : seriesState.rawItems;
+            // 附加筛选已开启时，全部入队也只入符合筛选条件的成员（与当前页预览的过滤口径一致）
+            let toAdd = rawAll;
+            if (hasExtraSearchFilter()) {
+                const filters = normalizeSearchFilters(getSearchFiltersFromUI());
+                const res = await computeFilteredItems(rawAll, filters, seriesState.kind, () => false);
+                if (res) toAdd = res.filtered;
+            }
+            const result = addSeriesItemsToQueue(toAdd, 0);
             setStatus(
                 bt(
                     'status.added-many-to-queue',
@@ -4937,6 +5499,8 @@
             applyNovelSettingsVisibility();
             // User 模式作品类型变化时，同步共享「附加筛选」里页数/字数字段的显隐
             applySearchKindUI();
+            // 切换插画/小说后旧预览结果不再适用，清空避免误导
+            clearUserPreview();
         });
         bindKindSwitcher('search-kind-switcher', 'searchKind', () => {
             applySearchKindUI();
