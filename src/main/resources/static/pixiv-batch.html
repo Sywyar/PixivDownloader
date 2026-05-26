@@ -180,74 +180,6 @@
                                                                           value="popular_d"> <span data-i18n="search.order.popular">热门 ⚠</span></label>
         </div>
         <div id="search-premium-tip" style="display:none;font-size:11px;color:#e6a700;margin-bottom:8px;" data-i18n="dialog.search-premium">⚠ 热门排序需要 Pixiv Premium 会员，未购买时 Pixiv 将自动按最新排序返回结果</div>
-        <div class="search-extra-filters">
-            <div class="search-extra-head">
-                <div class="search-extra-title" data-i18n="label.search-extra">附加筛选</div>
-                <div class="search-extra-note" data-i18n="label.search-extra-note">客户端过滤，仅作用当前页；收藏数会按需读取当前页作品元数据</div>
-            </div>
-            <div class="search-extra-grid">
-                <div class="search-extra-item">
-                    <label for="search-ai-filter" data-i18n="label.search-ai">AI 作品</label>
-                    <select id="search-ai-filter" onchange="handleSearchFilterChange()">
-                        <option value="all" data-i18n="search.filter.all">全部</option>
-                        <option value="exclude" data-i18n="search.filter.exclude-ai">排除 AI</option>
-                        <option value="only" data-i18n="search.filter.only-ai">仅 AI</option>
-                    </select>
-                </div>
-                <div class="search-extra-item">
-                    <label for="search-tags-exact" data-i18n="label.search-tags-exact">标签(精确匹配)</label>
-                    <input type="text" id="search-tags-exact" data-i18n-placeholder="search.tags.placeholder"
-                           placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
-                </div>
-                <div class="search-extra-item">
-                    <label for="search-tags-fuzzy" data-i18n="label.search-tags-fuzzy">标签(模糊匹配)</label>
-                    <input type="text" id="search-tags-fuzzy" data-i18n-placeholder="search.tags.placeholder"
-                           placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
-                </div>
-                <div class="search-extra-item search-illust-only">
-                    <label for="search-type-filter" data-i18n="label.search-type">作品类型</label>
-                    <select id="search-type-filter" onchange="handleSearchFilterChange()">
-                        <option value="all" data-i18n="search.filter.all">全部</option>
-                        <option value="illust" data-i18n="search.type.illust">插画</option>
-                        <option value="manga" data-i18n="search.type.manga">漫画</option>
-                        <option value="ugoira" data-i18n="search.type.ugoira">动图</option>
-                    </select>
-                </div>
-                <div class="search-extra-item search-illust-only">
-                    <label for="search-pages-min" data-i18n="label.search-pages-min">最少页数</label>
-                    <input type="number" id="search-pages-min" min="1" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                           onchange="handleSearchFilterChange()">
-                </div>
-                <div class="search-extra-item search-illust-only">
-                    <label for="search-pages-max" data-i18n="label.search-pages-max">最多页数</label>
-                    <input type="number" id="search-pages-max" min="1" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                           onchange="handleSearchFilterChange()">
-                </div>
-                <div class="search-extra-item search-novel-only" style="display:none;">
-                    <label for="search-words-min" data-i18n="novel:batch.search.words-min">最少字数</label>
-                    <input type="number" id="search-words-min" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                           onchange="handleSearchFilterChange()">
-                </div>
-                <div class="search-extra-item search-novel-only" style="display:none;">
-                    <label for="search-words-max" data-i18n="novel:batch.search.words-max">最多字数</label>
-                    <input type="number" id="search-words-max" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                           onchange="handleSearchFilterChange()">
-                </div>
-                <div class="search-extra-item">
-                    <label for="search-bookmarks-min" data-i18n="label.search-bookmarks-min">最少收藏</label>
-                    <input type="number" id="search-bookmarks-min" min="0" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                           onchange="handleSearchFilterChange()">
-                </div>
-                <div class="search-extra-item">
-                    <label for="search-bookmarks-max" data-i18n="label.search-bookmarks-max">最多收藏</label>
-                    <input type="number" id="search-bookmarks-max" min="0" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                           onchange="handleSearchFilterChange()">
-                </div>
-            </div>
-            <div class="search-extra-actions">
-                <button class="btn btn-red" style="padding:6px 10px;font-size:12px;" onclick="resetSearchFilters()" data-i18n="button.reset-search-filters">重置附加筛选</button>
-            </div>
-        </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
             <input type="checkbox" id="search-blur-r18" onchange="toggleBlurR18()">
             <label for="search-blur-r18" class="r18-blur-label" style="cursor:pointer;" data-i18n="search.blur-r18">模糊 R18 缩略图（悬停查看）</label>
@@ -276,65 +208,85 @@
         <div class="search-pagination" id="series-pagination" style="display:none;"></div>
     </div>
 
-    <!-- Schedule panel (admin-only; auto-download on a timer / cron) -->
+    <!-- Schedule panel (admin-only; manage the auto-download tasks) -->
     <div class="card mode-panel" id="panel-schedule">
-        <div class="card-title" data-i18n="schedule.title">计划任务</div>
-        <div class="schedule-intro" data-i18n="schedule.intro">后台按固定周期或 Cron 表达式自动发现并下载新作品。计划任务以管理员身份运行，仅管理员可见。</div>
-
-        <div class="schedule-form">
-            <div class="setting-item">
-                <label data-i18n="schedule.field.name">任务名称：</label>
-                <input type="text" id="sch-name" data-i18n-placeholder="schedule.field.name.placeholder" placeholder="为这个计划起个名字">
-            </div>
-            <div class="setting-item">
-                <label data-i18n="schedule.field.type">类型：</label>
-                <select id="sch-type" onchange="onScheduleTypeChange()">
-                    <option value="USER_NEW" data-i18n="schedule.type.user-new">画师新作</option>
-                    <option value="SEARCH" data-i18n="schedule.type.search">保存的搜索</option>
-                    <option value="SERIES" data-i18n="schedule.type.series">漫画系列</option>
-                </select>
-            </div>
-            <div class="setting-item sch-param sch-param-USER_NEW">
-                <label data-i18n="schedule.param.user-id">画师 ID：</label>
-                <input type="text" id="sch-user-id" placeholder="123456">
-            </div>
-            <div class="setting-item sch-param sch-param-SEARCH">
-                <label data-i18n="schedule.param.word">关键词：</label>
-                <input type="text" id="sch-word">
-            </div>
-            <div class="setting-item sch-param sch-param-SEARCH">
-                <label data-i18n="schedule.param.max-pages">抓取页数：</label>
-                <input type="number" id="sch-max-pages" min="1" value="3">
-            </div>
-            <div class="setting-item sch-param sch-param-SERIES">
-                <label data-i18n="schedule.param.series-id">系列 ID：</label>
-                <input type="text" id="sch-series-id" placeholder="123456">
-            </div>
-            <div class="setting-item">
-                <label data-i18n="schedule.field.trigger">触发方式：</label>
-                <select id="sch-trigger" onchange="onScheduleTriggerChange()">
-                    <option value="interval" data-i18n="schedule.trigger.interval">固定周期</option>
-                    <option value="cron" data-i18n="schedule.trigger.cron">Cron 表达式</option>
-                </select>
-            </div>
-            <div class="setting-item sch-trigger-field sch-trigger-interval">
-                <label data-i18n="schedule.field.interval">周期（分钟）：</label>
-                <input type="number" id="sch-interval" min="1" value="1440">
-            </div>
-            <div class="setting-item sch-trigger-field sch-trigger-cron">
-                <label data-i18n="schedule.field.cron">Cron 表达式：</label>
-                <input type="text" id="sch-cron" placeholder="0 0 3 * * *">
-            </div>
-            <div class="schedule-form-actions">
-                <button class="btn btn-green" id="sch-submit" onclick="submitScheduleTask()" data-i18n="schedule.action.create">➕ 创建任务</button>
-                <button class="btn btn-gray" id="sch-cancel" onclick="resetScheduleForm()" style="display:none;" data-i18n="schedule.action.cancel">取消编辑</button>
-            </div>
-            <div id="sch-form-status" class="schedule-status"></div>
-        </div>
+        <div class="card-title" data-i18n="schedule.title">计划任务管理</div>
+        <div class="schedule-intro" data-i18n="schedule.intro">后台按固定周期或 Cron 表达式自动发现并下载新作品。计划任务以管理员身份运行，仅管理员可见。要新建计划任务，请切换到 User / Search / 系列模式，配置好下载与筛选设置后，在下方「存为计划任务」中保存。</div>
 
         <div class="schedule-list-title" data-i18n="schedule.list.title">已创建的计划任务</div>
+        <div id="schedule-list-status" class="schedule-status" role="status" aria-live="polite"></div>
         <div id="schedule-list">
             <div class="schedule-empty" data-i18n="schedule.list.empty">暂无计划任务</div>
+        </div>
+    </div>
+
+    <!-- Shared extra-filters (live result filtering in Search; snapshotted into scheduled tasks in User/Search/Series) -->
+    <div class="search-extra-filters" id="extra-filters-card" style="display:none;">
+        <div class="search-extra-head">
+            <div class="search-extra-title" data-i18n="label.search-extra">附加筛选</div>
+            <div class="search-extra-note" data-i18n="label.search-extra-note">搜索模式下客户端实时过滤当前页；用于「存为计划任务」时按此条件在后台逐作品过滤</div>
+        </div>
+        <div class="search-extra-grid">
+            <div class="search-extra-item">
+                <label for="search-ai-filter" data-i18n="label.search-ai">AI 作品</label>
+                <select id="search-ai-filter" onchange="handleSearchFilterChange()">
+                    <option value="all" data-i18n="search.filter.all">全部</option>
+                    <option value="exclude" data-i18n="search.filter.exclude-ai">排除 AI</option>
+                    <option value="only" data-i18n="search.filter.only-ai">仅 AI</option>
+                </select>
+            </div>
+            <div class="search-extra-item">
+                <label for="search-tags-exact" data-i18n="label.search-tags-exact">标签(精确匹配)</label>
+                <input type="text" id="search-tags-exact" data-i18n-placeholder="search.tags.placeholder"
+                       placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
+            </div>
+            <div class="search-extra-item">
+                <label for="search-tags-fuzzy" data-i18n="label.search-tags-fuzzy">标签(模糊匹配)</label>
+                <input type="text" id="search-tags-fuzzy" data-i18n-placeholder="search.tags.placeholder"
+                       placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
+            </div>
+            <div class="search-extra-item search-illust-only">
+                <label for="search-type-filter" data-i18n="label.search-type">作品类型</label>
+                <select id="search-type-filter" onchange="handleSearchFilterChange()">
+                    <option value="all" data-i18n="search.filter.all">全部</option>
+                    <option value="illust" data-i18n="search.type.illust">插画</option>
+                    <option value="manga" data-i18n="search.type.manga">漫画</option>
+                    <option value="ugoira" data-i18n="search.type.ugoira">动图</option>
+                </select>
+            </div>
+            <div class="search-extra-item search-illust-only">
+                <label for="search-pages-min" data-i18n="label.search-pages-min">最少页数</label>
+                <input type="number" id="search-pages-min" min="1" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                       onchange="handleSearchFilterChange()">
+            </div>
+            <div class="search-extra-item search-illust-only">
+                <label for="search-pages-max" data-i18n="label.search-pages-max">最多页数</label>
+                <input type="number" id="search-pages-max" min="1" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                       onchange="handleSearchFilterChange()">
+            </div>
+            <div class="search-extra-item search-novel-only" style="display:none;">
+                <label for="search-words-min" data-i18n="novel:batch.search.words-min">最少字数</label>
+                <input type="number" id="search-words-min" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                       onchange="handleSearchFilterChange()">
+            </div>
+            <div class="search-extra-item search-novel-only" style="display:none;">
+                <label for="search-words-max" data-i18n="novel:batch.search.words-max">最多字数</label>
+                <input type="number" id="search-words-max" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                       onchange="handleSearchFilterChange()">
+            </div>
+            <div class="search-extra-item">
+                <label for="search-bookmarks-min" data-i18n="label.search-bookmarks-min">最少收藏</label>
+                <input type="number" id="search-bookmarks-min" min="0" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                       onchange="handleSearchFilterChange()">
+            </div>
+            <div class="search-extra-item">
+                <label for="search-bookmarks-max" data-i18n="label.search-bookmarks-max">最多收藏</label>
+                <input type="number" id="search-bookmarks-max" min="0" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                       onchange="handleSearchFilterChange()">
+            </div>
+        </div>
+        <div class="search-extra-actions">
+            <button class="btn btn-red" style="padding:6px 10px;font-size:12px;" onclick="resetSearchFilters()" data-i18n="button.reset-search-filters">重置附加筛选</button>
         </div>
     </div>
 
@@ -445,6 +397,39 @@
             <button class="btn btn-blue" id="btn-export" onclick="handleExport()" data-i18n="button.export-all">📤 导出全部</button>
             <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()" data-i18n="button.export-undownloaded">📋 导出未下载</button>
             <button class="btn btn-gray" id="btn-clear" onclick="handleClear()" data-i18n="button.clear-queue">🗑 清除队列</button>
+        </div>
+    </div>
+
+    <!-- Save-as-scheduled-task (admin-only; snapshots the current mode + all download/filter settings) -->
+    <div class="card" id="save-as-schedule-card" style="display:none;">
+        <div class="card-title" data-i18n="schedule.save.title">⏰ 存为计划任务</div>
+        <div class="schedule-intro" data-i18n="schedule.save.intro">按当前模式来源与上方全部下载 / 筛选设置创建一个后台自动下载的计划任务（仅管理员）。在 User / Search / 系列模式下配置好后保存即可。</div>
+        <div class="schedule-form">
+            <div class="setting-item">
+                <label data-i18n="schedule.field.name">任务名称：</label>
+                <input type="text" id="sch-name" data-i18n-placeholder="schedule.field.name.placeholder" placeholder="为这个计划起个名字">
+            </div>
+            <div class="setting-item">
+                <label data-i18n="schedule.field.trigger">触发方式：</label>
+                <select id="sch-trigger" onchange="onScheduleTriggerChange()">
+                    <option value="interval" data-i18n="schedule.trigger.interval">固定周期</option>
+                    <option value="cron" data-i18n="schedule.trigger.cron">Cron 表达式</option>
+                </select>
+            </div>
+            <div class="setting-item sch-trigger-field sch-trigger-interval">
+                <label data-i18n="schedule.field.interval">周期（分钟）：</label>
+                <input type="number" id="sch-interval" min="1" value="1440">
+            </div>
+            <div class="setting-item sch-trigger-field sch-trigger-cron">
+                <label data-i18n="schedule.field.cron">Cron 表达式：</label>
+                <input type="text" id="sch-cron" placeholder="0 0 3 * * *">
+            </div>
+            <div id="sch-edit-source" class="schedule-save-source" style="display:none;"></div>
+            <div class="schedule-form-actions">
+                <button class="btn btn-green" id="sch-submit" onclick="submitScheduleTask()" data-i18n="schedule.action.create">➕ 创建任务</button>
+                <button class="btn btn-gray" id="sch-cancel" onclick="resetScheduleForm()" style="display:none;" data-i18n="schedule.action.cancel">取消编辑</button>
+            </div>
+            <div id="sch-form-status" class="schedule-status"></div>
         </div>
     </div>
 

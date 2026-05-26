@@ -46,7 +46,7 @@ import java.util.function.LongConsumer;
 
 @Slf4j
 @Service
-public class NovelDownloadService {
+public class NovelDownloadService implements NovelDownloader {
 
     public enum NovelFormat {
         TXT("txt"), HTML("html"), EPUB("epub");
@@ -116,6 +116,7 @@ public class NovelDownloadService {
     }
 
     @Async("novelDownloadTaskExecutor")
+    @Override
     public void download(NovelDownloadRequest request, String userUuid) {
         Long novelId = request.getNovelId();
         NovelDownloadRequest.Other other = request.getOther() == null

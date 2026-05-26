@@ -2524,9 +2524,9 @@
         if (workbench) workbench.style.display = (normalizedMode === 'schedule') ? 'none' : '';
         storeSet('pixiv_mode', normalizedMode);
         applyNovelSettingsVisibility();
+        updateSaveScheduleCardVisibility();
+        updateExtraFiltersCardVisibility();
         if (normalizedMode === 'schedule') {
-            onScheduleTypeChange();
-            onScheduleTriggerChange();
             loadScheduleTasks();
         }
     }
@@ -2604,6 +2604,8 @@
             // 非管理员若停留在 schedule 模式则退回默认模式
             if (!isAdmin && state.mode === 'schedule') switchMode(SINGLE_IMPORT_MODE);
         }
+        updateSaveScheduleCardVisibility();
+        updateExtraFiltersCardVisibility();
         updateBatchLimitNote();
     }
 
@@ -2841,14 +2843,33 @@
         });
     }
 
+    // 当前模式对应的作品类型（插画/小说）——共享「附加筛选」里页数/字数字段的显隐据此切换
+    function currentModeKind() {
+        if (state.mode === 'user') return state.settings.userKind === 'novel' ? 'novel' : 'illust';
+        if (state.mode === 'search') return state.settings.searchKind === 'novel' ? 'novel' : 'illust';
+        if (state.mode === 'series') return seriesState.kind === 'novel' ? 'novel' : 'illust';
+        return 'illust';
+    }
+
     function applySearchKindUI() {
-        const isNovel = state.settings.searchKind === 'novel';
+        const isNovel = currentModeKind() === 'novel';
         document.querySelectorAll('.search-illust-only').forEach(el => {
             el.style.display = isNovel ? 'none' : '';
         });
         document.querySelectorAll('.search-novel-only').forEach(el => {
             el.style.display = isNovel ? '' : 'none';
         });
+    }
+
+    // 共享「附加筛选」卡片：Search 模式恒显示（实时过滤当前页）；User/Series 模式仅管理员可见
+    // （这两种模式不做实时过滤，筛选只在「存为计划任务」时被快照、由后台逐作品执行）。
+    function updateExtraFiltersCardVisibility() {
+        const card = document.getElementById('extra-filters-card');
+        if (!card) return;
+        const mode = state.mode;
+        const visible = mode === 'search' || (isAdmin && (mode === 'user' || mode === 'series'));
+        card.style.display = visible ? '' : 'none';
+        if (visible) applySearchKindUI();
     }
 
     function syncSettings() {
@@ -3956,6 +3977,8 @@
             seriesState.seriesTitle = String(seriesId);
             await loadSeriesPreviewPage(1);
             applyNovelSettingsVisibility();
+            // 系列类型确定后，刷新共享「附加筛选」里页数/字数字段的显隐
+            updateExtraFiltersCardVisibility();
         } catch (e) {
             document.getElementById('series-results-area').innerHTML =
                 `<div style="color:#dc3545;text-align:center;padding:24px 0;">${esc(bt('status.series-load-failed', '加载失败：{message}', {message: e.message}))}</div>`;
@@ -4890,6 +4913,8 @@
         // Kind switchers (User / Search)
         bindKindSwitcher('user-kind-switcher', 'userKind', () => {
             applyNovelSettingsVisibility();
+            // User 模式作品类型变化时，同步共享「附加筛选」里页数/字数字段的显隐
+            applySearchKindUI();
         });
         bindKindSwitcher('search-kind-switcher', 'searchKind', () => {
             applySearchKindUI();
@@ -5245,22 +5270,30 @@
     }
 
     // ── 计划任务（管理员专用） ────────────────────────────────────────────────────
+    // 方案：删除独立的「创建表单」，改为在 User / Search / 系列模式的工作区底部用
+    // 「存为计划任务」卡片，直接快照当前模式来源 + 上方全部下载 / 筛选设置；第 5 个
+    // Tab 仅做任务列表与管理（运行 / 授权 / 启停 / 编辑 / 删除）。
     let scheduleEditingId = null;
     let scheduleTasksCache = [];
 
-    function onScheduleTypeChange() {
-        const type = (document.getElementById('sch-type') || {}).value || 'USER_NEW';
-        document.querySelectorAll('#panel-schedule .sch-param').forEach(el => {
-            el.style.display = el.classList.contains('sch-param-' + type) ? '' : 'none';
-        });
-    }
+    // 哪些模式可以创建计划任务（单作品导入无对应来源类型）
+    const SCHEDULE_MODE_TYPE = {user: 'USER_NEW', search: 'SEARCH', series: 'SERIES'};
+    const SCHEDULE_TYPE_MODE = {USER_NEW: 'user', SEARCH: 'search', SERIES: 'series'};
 
     function onScheduleTriggerChange() {
         const trigger = (document.getElementById('sch-trigger') || {}).value || 'interval';
-        document.querySelectorAll('#panel-schedule .sch-trigger-field').forEach(el => {
-            const want = 'sch-trigger-' + trigger;
-            el.style.display = el.classList.contains(want) ? '' : 'none';
+        document.querySelectorAll('#save-as-schedule-card .sch-trigger-field').forEach(el => {
+            el.style.display = el.classList.contains('sch-trigger-' + trigger) ? '' : 'none';
         });
+    }
+
+    // 「存为计划任务」卡片仅在管理员 + 可创建模式下显示；离开时自动退出编辑态
+    function updateSaveScheduleCardVisibility() {
+        const card = document.getElementById('save-as-schedule-card');
+        if (!card) return;
+        const eligible = isAdmin && !!SCHEDULE_MODE_TYPE[state.mode];
+        card.style.display = eligible ? '' : 'none';
+        if (!eligible && scheduleEditingId != null) resetScheduleForm();
     }
 
     function setScheduleFormStatus(msg, type = 'info') {
@@ -5270,42 +5303,83 @@
         el.style.color = STATUS_COLORS[type] || '#666';
     }
 
-    function buildScheduleParamsJson(type) {
-        if (type === 'USER_NEW') {
-            const userId = (document.getElementById('sch-user-id').value || '').trim();
-            if (!userId) throw new Error(bt('schedule.error.user-id', '请填写画师 ID'));
-            return JSON.stringify({userId});
-        }
-        if (type === 'SEARCH') {
-            const word = (document.getElementById('sch-word').value || '').trim();
+    // 任务列表（第 5 Tab）内的操作反馈，与「存为计划任务」卡片的表单状态分开
+    function setScheduleListStatus(msg, type = 'info') {
+        const el = document.getElementById('schedule-list-status');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.style.color = STATUS_COLORS[type] || '#666';
+    }
+
+    // 按当前模式来源 + 上方全部下载 / 筛选设置，快照成 params v2。
+    // 附加筛选（AI / 标签 / 收藏 / 页数 / 字数 / 类型）现为 User / Search / Series 共享的卡片，
+    // 三种模式均携带；「仅下载 R18」是共享下载设置，也所有模式都携带。
+    function buildScheduleSnapshot() {
+        const mode = state.mode;
+        const type = SCHEDULE_MODE_TYPE[mode];
+        if (!type) throw new Error(bt('schedule.error.mode', '当前模式不支持创建计划任务'));
+        let kind, source;
+        if (mode === 'user') {
+            kind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
+            const userId = (document.getElementById('user-id-input').value || '').trim();
+            if (!/^\d+$/.test(userId)) throw new Error(bt('schedule.error.user-id', '请填写有效的画师 ID（纯数字）'));
+            source = {userId};
+        } else if (mode === 'search') {
+            kind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';
+            const word = (document.getElementById('search-word').value || '').trim();
             if (!word) throw new Error(bt('schedule.error.word', '请填写搜索关键词'));
-            const maxPages = parseInt(document.getElementById('sch-max-pages').value, 10) || 3;
-            return JSON.stringify({word, order: 'date_d', mode: 'all', sMode: 's_tag', maxPages});
+            const uiMode = (document.querySelector('input[name="search-mode"]:checked') || {}).value || 'all';
+            const sMode = (document.querySelector('input[name="search-smode"]:checked') || {}).value || 's_tag';
+            const order = (document.querySelector('input[name="search-order"]:checked') || {}).value || 'date_d';
+            const pixivMode = (uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus') ? 'r18' : uiMode;
+            const maxPages = Math.max(1, parseInt((document.getElementById('batch-end-page') || {}).value, 10) || 3);
+            source = {word, order, mode: pixivMode, sMode, maxPages};
+        } else {
+            kind = seriesState.kind === 'novel' ? 'novel' : 'illust';
+            if (!seriesState.seriesId) throw new Error(bt('schedule.error.series-id', '请先在上方解析并预览系列'));
+            source = {seriesId: String(seriesState.seriesId)};
         }
-        if (type === 'SERIES') {
-            const seriesId = (document.getElementById('sch-series-id').value || '').trim();
-            if (!seriesId) throw new Error(bt('schedule.error.series-id', '请填写系列 ID'));
-            return JSON.stringify({seriesId});
-        }
-        return '{}';
+        syncSettings();
+        const f = getSearchFiltersFromUI();
+        const filters = {
+            r18Only: document.getElementById('s-R18').checked,
+            aiFilter: f.ai,
+            tagsExact: f.tagsExact,
+            tagsFuzzy: f.tagsFuzzy,
+            typeFilter: f.type,
+            pagesMin: f.pageMin,
+            pagesMax: f.pageMax,
+            wordsMin: f.wordsMin,
+            wordsMax: f.wordsMax,
+            bookmarksMin: f.bookmarkMin,
+            bookmarksMax: f.bookmarkMax
+        };
+        const download = {
+            fileNameTemplate: state.settings.fileNameTemplate,
+            bookmark: !!state.settings.bookmark,
+            collectionId: state.settings.collectionId,
+            novelFormat: state.settings.novelFormat || 'txt',
+            novelMerge: !!state.settings.mergeNovelSeries,
+            novelMergeFormat: state.settings.mergeNovelFormat || 'epub'
+        };
+        return {type, kind, params: {kind, source, filters, download}};
     }
 
     async function submitScheduleTask() {
         const name = (document.getElementById('sch-name').value || '').trim();
-        const type = document.getElementById('sch-type').value;
-        const triggerKind = document.getElementById('sch-trigger').value;
         if (!name) {
             setScheduleFormStatus(bt('schedule.error.name', '请填写任务名称'), 'error');
             return;
         }
-        let paramsJson;
+        let snap;
         try {
-            paramsJson = buildScheduleParamsJson(type);
+            snap = buildScheduleSnapshot();
         } catch (e) {
             setScheduleFormStatus(e.message, 'error');
             return;
         }
-        const body = {name, type, paramsJson, triggerKind};
+        const triggerKind = document.getElementById('sch-trigger').value;
+        const body = {name, type: snap.type, paramsJson: JSON.stringify(snap.params), triggerKind};
         if (triggerKind === 'interval') {
             body.intervalMinutes = parseInt(document.getElementById('sch-interval').value, 10) || 0;
         } else {
@@ -5335,42 +5409,134 @@
 
     function resetScheduleForm() {
         scheduleEditingId = null;
-        document.getElementById('sch-name').value = '';
-        document.getElementById('sch-user-id').value = '';
-        document.getElementById('sch-word').value = '';
-        document.getElementById('sch-max-pages').value = '3';
-        document.getElementById('sch-series-id').value = '';
-        document.getElementById('sch-cron').value = '';
-        document.getElementById('sch-interval').value = '1440';
-        document.getElementById('sch-type').value = 'USER_NEW';
-        document.getElementById('sch-trigger').value = 'interval';
-        document.getElementById('sch-submit').textContent = bt('schedule.action.create', '➕ 创建任务');
-        document.getElementById('sch-cancel').style.display = 'none';
-        onScheduleTypeChange();
+        const nameEl = document.getElementById('sch-name');
+        if (nameEl) nameEl.value = '';
+        const cronEl = document.getElementById('sch-cron');
+        if (cronEl) cronEl.value = '';
+        const intEl = document.getElementById('sch-interval');
+        if (intEl) intEl.value = '1440';
+        const trgEl = document.getElementById('sch-trigger');
+        if (trgEl) trgEl.value = 'interval';
+        const subEl = document.getElementById('sch-submit');
+        if (subEl) subEl.textContent = bt('schedule.action.create', '➕ 创建任务');
+        const canEl = document.getElementById('sch-cancel');
+        if (canEl) canEl.style.display = 'none';
+        const srcEl = document.getElementById('sch-edit-source');
+        if (srcEl) {
+            srcEl.style.display = 'none';
+            srcEl.textContent = '';
+        }
         onScheduleTriggerChange();
         setScheduleFormStatus('');
     }
 
+    function setScheduleRadio(name, value) {
+        if (value == null) return;
+        const el = document.querySelector(`input[name="${name}"][value="${value}"]`);
+        if (el) el.checked = true;
+    }
+
+    function applyScheduleKind(modePrefix, kind) {
+        const k = kind === 'novel' ? 'novel' : 'illust';
+        if (modePrefix === 'user') state.settings.userKind = k;
+        else state.settings.searchKind = k;
+        const radio = document.querySelector(`input[name="${modePrefix}-kind"][value="${k}"]`);
+        if (radio) radio.checked = true;
+        applyKindSwitcherUI(`${modePrefix}-kind-switcher`, k);
+    }
+
+    // 编辑：切到对应模式，把快照回灌进该模式来源 + 共享下载 / 筛选设置，再进入编辑态。
     function startEditScheduleTask(id) {
         const task = scheduleTasksCache.find(t => t.id === id);
         if (!task) return;
-        scheduleEditingId = task.id;
-        document.getElementById('sch-name').value = task.name || '';
-        document.getElementById('sch-type').value = task.type;
-        document.getElementById('sch-trigger').value = task.triggerKind;
-        document.getElementById('sch-interval').value = task.intervalMinutes || 1440;
-        document.getElementById('sch-cron').value = task.cronExpr || '';
         let params = {};
         try { params = JSON.parse(task.paramsJson || '{}'); } catch (e) { params = {}; }
-        document.getElementById('sch-user-id').value = params.userId || '';
-        document.getElementById('sch-word').value = params.word || '';
-        document.getElementById('sch-max-pages').value = params.maxPages || 3;
-        document.getElementById('sch-series-id').value = params.seriesId || '';
+        const kind = params.kind === 'novel' ? 'novel' : 'illust';
+        const source = params.source || {};
+        const filters = params.filters || {};
+        const download = params.download || {};
+        const targetMode = SCHEDULE_TYPE_MODE[task.type] || 'user';
+
+        switchMode(targetMode);
+
+        // 1) 来源 + kind
+        if (task.type === 'USER_NEW') {
+            applyScheduleKind('user', kind);
+            const u = document.getElementById('user-id-input');
+            if (u) u.value = source.userId || '';
+        } else if (task.type === 'SEARCH') {
+            applyScheduleKind('search', kind);
+            const w = document.getElementById('search-word');
+            if (w) w.value = source.word || '';
+            setScheduleRadio('search-order', source.order || 'date_d');
+            setScheduleRadio('search-smode', source.sMode || 's_tag');
+            setScheduleRadio('search-mode', source.mode || 'all');
+            const endP = document.getElementById('batch-end-page');
+            if (endP && source.maxPages) endP.value = source.maxPages;
+        } else if (task.type === 'SERIES') {
+            // 回填系列 URL 并自动解析预览（loadSeriesPreview 会同步 seriesState.kind / seriesId）
+            const sid = source.seriesId || '';
+            const urlInput = document.getElementById('series-input-url');
+            if (urlInput) {
+                urlInput.value = sid
+                    ? (kind === 'novel' ? `https://www.pixiv.net/novel/series/${sid}` : String(sid))
+                    : '';
+            }
+            seriesState.kind = kind;
+            seriesState.seriesId = sid ? Number(sid) : null;
+            if (sid) loadSeriesPreview();
+        }
+
+        // 2) 共享下载设置 + 筛选回灌（附加筛选现为三种模式共享，统一回灌）
+        applyScheduleDownloadUI(download);
+        document.getElementById('s-R18').checked = !!filters.r18Only;
+        setSearchFiltersUI(normalizeSearchFilters({
+            ai: filters.aiFilter, type: filters.typeFilter,
+            pageMin: filters.pagesMin, pageMax: filters.pagesMax,
+            bookmarkMin: filters.bookmarksMin, bookmarkMax: filters.bookmarksMax,
+            wordsMin: filters.wordsMin, wordsMax: filters.wordsMax,
+            tagsExact: filters.tagsExact, tagsFuzzy: filters.tagsFuzzy
+        }));
+        syncSettings();
+        applyNovelSettingsVisibility();
+        updateExtraFiltersCardVisibility();
+
+        // 3) 触发 + 名称，进入编辑态
+        scheduleEditingId = task.id;
+        document.getElementById('sch-name').value = task.name || '';
+        document.getElementById('sch-trigger').value = task.triggerKind || 'interval';
+        document.getElementById('sch-interval').value = task.intervalMinutes || 1440;
+        document.getElementById('sch-cron').value = task.cronExpr || '';
         document.getElementById('sch-submit').textContent = bt('schedule.action.save', '💾 保存修改');
         document.getElementById('sch-cancel').style.display = '';
-        onScheduleTypeChange();
+        const srcEl = document.getElementById('sch-edit-source');
+        if (srcEl) {
+            srcEl.style.display = '';
+            srcEl.textContent = bt('schedule.save.editing', '正在编辑：{name}', {name: task.name || ''});
+        }
         onScheduleTriggerChange();
-        document.getElementById('panel-schedule').scrollIntoView({behavior: 'smooth', block: 'start'});
+        updateSaveScheduleCardVisibility();
+        const card = document.getElementById('save-as-schedule-card');
+        if (card) card.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+
+    // 把快照的下载设置写回共享控件（不含 r18Only，它在 filters 段）
+    function applyScheduleDownloadUI(d) {
+        if (!d) return;
+        if (typeof d.fileNameTemplate === 'string' && d.fileNameTemplate) {
+            document.getElementById('s-file-name-template').value = d.fileNameTemplate;
+        }
+        const bm = document.getElementById('s-bookmark');
+        if (bm) bm.checked = !!d.bookmark;
+        const col = document.getElementById('s-collection');
+        if (col) col.value = d.collectionId != null ? String(d.collectionId) : '';
+        const fmt = document.getElementById('s-novel-format');
+        if (fmt && d.novelFormat) fmt.value = d.novelFormat;
+        const mg = document.getElementById('s-novel-merge');
+        if (mg) mg.checked = !!d.novelMerge;
+        const mgf = document.getElementById('s-novel-merge-format');
+        if (mgf && d.novelMergeFormat) mgf.value = d.novelMergeFormat;
+        updateMergeFormatVisibility();
     }
 
     function scheduleStatusLabel(code) {
@@ -5411,8 +5577,13 @@
         const typeLabel = {
             USER_NEW: bt('schedule.type.user-new', '画师新作'),
             SEARCH: bt('schedule.type.search', '保存的搜索'),
-            SERIES: bt('schedule.type.series', '漫画系列')
+            SERIES: bt('schedule.type.series', '系列下载')
         }[t.type] || t.type;
+        let kind = 'illust';
+        try { kind = (JSON.parse(t.paramsJson || '{}').kind === 'novel') ? 'novel' : 'illust'; } catch (e) { /* ignore */ }
+        const kindLabel = kind === 'novel'
+            ? bt('schedule.kind.novel', '小说')
+            : bt('schedule.kind.illust', '插画');
         const triggerLabel = t.triggerKind === 'cron'
             ? bt('schedule.trigger.cron', 'Cron 表达式') + ' ' + escHtml(t.cronExpr || '')
             : bt('schedule.trigger.interval', '固定周期') + ' ' + (t.intervalMinutes || 0) + ' min';
@@ -5426,6 +5597,7 @@
             <div class="schedule-card-head">
                 <span class="schedule-card-name">${escHtml(t.name)}</span>
                 <span class="schedule-badge">${escHtml(typeLabel)}</span>
+                <span class="schedule-badge">${escHtml(kindLabel)}</span>
                 <span class="schedule-badge${t.cookieBound ? ' schedule-badge-ok' : ''}">${escHtml(cookieLabel)}</span>
                 <span class="schedule-badge${t.enabled ? ' schedule-badge-ok' : ''}">${escHtml(enabledLabel)}</span>
             </div>
@@ -5448,7 +5620,7 @@
     async function runScheduleTask(id) {
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks/${id}/run`, {method: 'POST', credentials: 'same-origin'});
-            if (res.ok) setScheduleFormStatus(bt('schedule.status.run-started', '已开始后台运行'), 'success');
+            if (res.ok) setScheduleListStatus(bt('schedule.status.run-started', '已开始后台运行'), 'success');
         } catch (e) { /* ignore */ }
     }
 
@@ -5471,11 +5643,11 @@
     async function authorizeScheduleCookie(id) {
         const cookie = (storeGet('pixiv_cookie') || '').trim();
         if (!cookie) {
-            setScheduleFormStatus(bt('schedule.error.no-cookie', '请先在上方 Cookie 卡片保存含 PHPSESSID 的 Cookie'), 'error');
+            setScheduleListStatus(bt('schedule.error.no-cookie', '请先在上方 Cookie 卡片保存含 PHPSESSID 的 Cookie'), 'error');
             return;
         }
         if (cookie.indexOf('PHPSESSID') === -1) {
-            setScheduleFormStatus(bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权'), 'error');
+            setScheduleListStatus(bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权'), 'error');
             return;
         }
         try {
@@ -5487,12 +5659,12 @@
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                setScheduleFormStatus(err.message || bt('schedule.error.authorize', '授权失败'), 'error');
+                setScheduleListStatus(err.message || bt('schedule.error.authorize', '授权失败'), 'error');
                 return;
             }
-            setScheduleFormStatus(bt('schedule.status.authorized', 'Cookie 已授权绑定到该任务'), 'success');
+            setScheduleListStatus(bt('schedule.status.authorized', 'Cookie 已授权绑定到该任务'), 'success');
             loadScheduleTasks();
         } catch (e) {
-            setScheduleFormStatus(bt('schedule.error.authorize', '授权失败'), 'error');
+            setScheduleListStatus(bt('schedule.error.authorize', '授权失败'), 'error');
         }
     }

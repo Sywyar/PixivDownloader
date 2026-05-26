@@ -1763,6 +1763,12 @@
     min-height: 18px;
 }
 
+.schedule-save-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-style: italic;
+}
+
 .schedule-list-title {
     margin: 18px 0 8px;
     font-weight: 700;
