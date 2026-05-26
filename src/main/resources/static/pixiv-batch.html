@@ -394,18 +394,6 @@
         </div>
     </div>
 
-    <!-- Buttons -->
-    <div class="card">
-        <div class="btn-grid">
-            <button class="btn btn-green" id="btn-start" onclick="handleStart()" data-i18n="button.start">🚀 开始下载</button>
-            <button class="btn btn-yellow" id="btn-pause" onclick="handlePause()" disabled data-i18n="button.pause">⏸ 暂停</button>
-            <button class="btn btn-cyan" id="btn-retry" onclick="handleRetry()" data-i18n="button.retry">🔁 重试失败</button>
-            <button class="btn btn-blue" id="btn-export" onclick="handleExport()" data-i18n="button.export-all">📤 导出全部</button>
-            <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()" data-i18n="button.export-undownloaded">📋 导出未下载</button>
-            <button class="btn btn-gray" id="btn-clear" onclick="handleClear()" data-i18n="button.clear-queue">🗑 清除队列</button>
-        </div>
-    </div>
-
     <!-- Save-as-scheduled-task (admin-only; snapshots the current mode + all download/filter settings) -->
     <div class="card" id="save-as-schedule-card" style="display:none;">
         <div class="card-title" data-i18n="schedule.save.title">⏰ 存为计划任务</div>
@@ -438,6 +426,18 @@
                 <button class="btn btn-gray" id="sch-cancel" onclick="resetScheduleForm()" style="display:none;" data-i18n="schedule.action.cancel">取消编辑</button>
             </div>
             <div id="sch-form-status" class="schedule-status"></div>
+        </div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="card">
+        <div class="btn-grid">
+            <button class="btn btn-green" id="btn-start" onclick="handleStart()" data-i18n="button.start">🚀 开始下载</button>
+            <button class="btn btn-yellow" id="btn-pause" onclick="handlePause()" disabled data-i18n="button.pause">⏸ 暂停</button>
+            <button class="btn btn-cyan" id="btn-retry" onclick="handleRetry()" data-i18n="button.retry">🔁 重试失败</button>
+            <button class="btn btn-blue" id="btn-export" onclick="handleExport()" data-i18n="button.export-all">📤 导出全部</button>
+            <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()" data-i18n="button.export-undownloaded">📋 导出未下载</button>
+            <button class="btn btn-gray" id="btn-clear" onclick="handleClear()" data-i18n="button.clear-queue">🗑 清除队列</button>
         </div>
     </div>
 
