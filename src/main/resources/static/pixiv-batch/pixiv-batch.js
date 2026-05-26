@@ -993,6 +993,7 @@
         ['header', 'json', 'netscape'].forEach(f => {
             document.getElementById('fmt-' + f).classList.toggle('active', f === fmt);
         });
+        applyCookieDependentUi();
     }
 
     function parseCookieToHeaderString(raw, fmt) {
@@ -1022,6 +1023,65 @@
     function getCookie() {
         const raw = storeGet('pixiv_cookie') || '';
         return parseCookieToHeaderString(raw, getCookieFmt());
+    }
+
+    function getCookieInputHeaderString() {
+        const input = document.getElementById('cookie-input');
+        const raw = input ? input.value.trim() : (storeGet('pixiv_cookie') || '');
+        return parseCookieToHeaderString(raw, getCookieFmt());
+    }
+
+    /** 当前输入框 Cookie 是否含 PHPSESSID（登录态）。先归一化为 header 串以兼容 JSON / Netscape 格式。 */
+    function cookieHasPhpsessid() {
+        return /(?:^|;\s*)PHPSESSID=/.test(getCookieInputHeaderString());
+    }
+
+    /**
+     * 根据是否有含 PHPSESSID 的有效登录 Cookie，启用/禁用依赖登录态才有意义的组件：
+     * 下载后自动收藏、内容分级里的 R-18+/R-18/R-18G 选项、计划列表的「授权 Cookie」按钮。
+     * 禁用时统一加悬停提示。Cookie 变化（保存/清除/导入）与列表重渲染后都应调用本函数。
+     */
+    function applyCookieDependentUi() {
+        const ok = cookieHasPhpsessid();
+        const title = ok ? '' : bt('cookie.requires-phpsessid', '无有效cookie(PHPSESSID)此功能不可用');
+        // 1) 下载后自动收藏。注意：「收藏到」是本地画廊收藏夹，不依赖 Pixiv Cookie。
+        ['s-bookmark'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.disabled = !ok;
+            el.title = title;
+            const container = el.closest('.setting-item');
+            if (container) container.title = title;
+            const label = container?.querySelector('label');
+            if (label) label.title = title;
+        });
+        // 2) 内容分级下拉里的 R18 档位（全部 / 全年龄保持可用）
+        const contentSel = document.getElementById('search-content-filter');
+        if (contentSel) {
+            const r18Values = ['r18plus', 'r18', 'r18g'];
+            r18Values.forEach(val => {
+                const opt = contentSel.querySelector(`option[value="${val}"]`);
+                if (!opt) return;
+                opt.disabled = !ok;
+                opt.title = title;
+            });
+            contentSel.title = title;
+            const container = contentSel.closest('.search-extra-item');
+            if (container) container.title = title;
+            const label = container?.querySelector('label');
+            if (label) label.title = title;
+            if (!ok && r18Values.includes(contentSel.value)) {
+                contentSel.value = 'all';
+                handleSearchFilterChange();
+            }
+        }
+        // 3) 计划列表里每个任务的「授权 Cookie」按钮（动态渲染，按 class 重扫）
+        document.querySelectorAll('.js-authorize-cookie-btn').forEach(btn => {
+            btn.disabled = !ok;
+            btn.title = title;
+            const wrapper = btn.closest('.cookie-dependent-action');
+            if (wrapper) wrapper.title = title;
+        });
     }
 
     function validateAndParseCookie(raw, fmt) {
@@ -5501,7 +5561,9 @@
 
         // Cookie
         const savedCookie = storeGet('pixiv_cookie') || '';
-        document.getElementById('cookie-input').value = savedCookie;
+        const cookieInput = document.getElementById('cookie-input');
+        cookieInput.value = savedCookie;
+        cookieInput.addEventListener('input', applyCookieDependentUi);
         setCookieFmt(getCookieFmt());
 
         document.getElementById('cookie-save').addEventListener('click', () => {
@@ -5523,6 +5585,7 @@
             } else {
                 setCookieStatus(bt('status.cookie-saved', 'Cookie 已保存，共 {count} 个字段', {count: result.count}), 'success');
             }
+            applyCookieDependentUi();
         });
 
         document.getElementById('cookie-toggle').addEventListener('click', () => {
@@ -5540,6 +5603,7 @@
             storeRemove('pixiv_cookie');
             document.getElementById('cookie-input').value = '';
             setCookieStatus(bt('status.cookie-cleared', 'Cookie 已清除'), 'success');
+            applyCookieDependentUi();
         });
 
         // 一键导入 Cookie：仅 solo 模式可用（依赖服务器端 /api/batch/state 中转）
@@ -5630,6 +5694,7 @@
         // Settings
         loadSettings();
         await refreshBatchCollections();
+        applyCookieDependentUi();
 
         // Queue
         loadQueueForMode();
@@ -5808,6 +5873,7 @@
         setCookieFmt(snapshot.fmt);
         const input = document.getElementById('cookie-input');
         if (input) input.value = snapshot.cookie;
+        applyCookieDependentUi();
         const hasPhp = /(?:^|;\s*)PHPSESSID=/.test(snapshot.cookie);
         if (hasPhp) {
             setCookieStatus(bt('status.cookie-imported', '已从 Pixiv 自动导入并保存 Cookie'), 'success');
@@ -6070,7 +6136,21 @@
                 setScheduleFormStatus(err.message || bt('schedule.error.save', '保存失败'), 'error');
                 return;
             }
-            setScheduleFormStatus(bt('schedule.status.saved', '已保存'), 'success');
+            // solo 模式下新建任务时，用当前输入框里的 Cookie 自动授权绑定，省去手动「授权 Cookie」一步。
+            let autoAuthResult = null;
+            if (!editing && appMode === 'solo') {
+                const created = await res.json().catch(() => null);
+                if (created && created.id != null) {
+                    autoAuthResult = await autoAuthorizeScheduleCookie(created.id);
+                }
+            }
+            if (autoAuthResult === 'authorized') {
+                setScheduleFormStatus(bt('schedule.status.saved-authorized', '已保存并自动授权 Cookie'), 'success');
+            } else if (autoAuthResult === 'no-cookie') {
+                setScheduleFormStatus(bt('schedule.status.saved-no-cookie', '已保存；当前无含 PHPSESSID 的 Cookie，任务将以受限模式运行，请在列表中「授权 Cookie」'), 'success');
+            } else {
+                setScheduleFormStatus(bt('schedule.status.saved', '已保存'), 'success');
+            }
             resetScheduleForm();
             loadScheduleTasks();
         } catch (e) {
@@ -6242,6 +6322,7 @@
                 return;
             }
             list.innerHTML = scheduleTasksCache.map(renderScheduleTaskCard).join('');
+            applyCookieDependentUi();
         } catch (e) {
             list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.load-failed', '加载失败'))}</div>`;
         }
@@ -6283,7 +6364,7 @@
             </div>
             <div class="schedule-card-actions">
                 <button class="btn btn-cyan" onclick="runScheduleTask(${t.id})">${escHtml(bt('schedule.action.run', '▶ 立即运行'))}</button>
-                <button class="btn btn-blue" onclick="authorizeScheduleCookie(${t.id})">${escHtml(bt('schedule.action.authorize', '🔑 授权 Cookie'))}</button>
+                <span class="cookie-dependent-action"><button class="btn btn-blue js-authorize-cookie-btn" onclick="authorizeScheduleCookie(${t.id})">${escHtml(bt('schedule.action.authorize', '🔑 授权 Cookie'))}</button></span>
                 <button class="btn btn-gray" onclick="toggleScheduleTask(${t.id}, ${t.enabled ? 'false' : 'true'})">${escHtml(t.enabled ? bt('schedule.action.disable', '⏸ 停用') : bt('schedule.action.enable', '✔ 启用'))}</button>
                 <button class="btn btn-yellow" onclick="startEditScheduleTask(${t.id})">${escHtml(bt('schedule.action.edit', '✏ 编辑'))}</button>
                 <button class="btn btn-gray" onclick="deleteScheduleTask(${t.id})">${escHtml(bt('schedule.action.delete', '🗑 删除'))}</button>
@@ -6315,12 +6396,12 @@
     }
 
     async function authorizeScheduleCookie(id) {
-        const cookie = (storeGet('pixiv_cookie') || '').trim();
+        const cookie = getCookieInputHeaderString().trim();
         if (!cookie) {
             setScheduleListStatus(bt('schedule.error.no-cookie', '请先在上方 Cookie 卡片保存含 PHPSESSID 的 Cookie'), 'error');
             return;
         }
-        if (cookie.indexOf('PHPSESSID') === -1) {
+        if (!/(?:^|;\s*)PHPSESSID=/.test(cookie)) {
             setScheduleListStatus(bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权'), 'error');
             return;
         }
@@ -6340,5 +6421,23 @@
             loadScheduleTasks();
         } catch (e) {
             setScheduleListStatus(bt('schedule.error.authorize', '授权失败'), 'error');
+        }
+    }
+
+    // solo 模式创建任务后自动用当前输入框里的 Cookie 绑定该任务；best-effort，不阻断创建流程。
+    // 返回值：'authorized' 成功 / 'no-cookie' 当前无可用含 PHPSESSID 的 Cookie / 'failed' 请求失败。
+    async function autoAuthorizeScheduleCookie(id) {
+        const cookie = getCookieInputHeaderString().trim();
+        if (!cookie || !/(?:^|;\s*)PHPSESSID=/.test(cookie)) return 'no-cookie';
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/authorize-cookie`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({cookie})
+            });
+            return res.ok ? 'authorized' : 'failed';
+        } catch (e) {
+            return 'failed';
         }
     }

@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [Unreleased]
 
 ### Changed
+- 批量下载页会在上方 Cookie 输入框缺少有效 PHPSESSID 时禁用依赖登录态的前端控件，并在悬停时提示该功能不可用，避免继续配置下载后收藏、R-18 内容分级或计划任务 Cookie 授权。
 - 优化漫画画廊冷启动加载：缩略图改为二进制响应并持久缓存到运行数据目录，首屏缩略图按可视区域懒加载且限制并发；画廊元数据、标签和文件名模板改为批量查询，筛选候选项延后到筛选面板打开时再加载。
 - 规范化应用运行期文件夹：收藏夹图标迁入 `data/collection_icons/`，GUI 引导状态迁入 `state/gui/`，Edge TTS 版本缓存迁入 `data/tts/`，并将图库缩略图缓存目录统一为 `data/gallery_thumbs/`；已发布版本使用过的旧目录会在启动时一次性迁移后删除。
 - 统一应用名称为 PixivDownloader，新增 AppInfo 类集中管理应用元数据，通过 LEGACY_ARTIFACT_NAME 保留文件路径与可执行文件名称的向后兼容。
