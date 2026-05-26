@@ -297,7 +297,6 @@
             concurrent: 1,
             skipHistory: false,
             verifyHistoryFiles: false,
-            R18Only: false,
             bookmark: false,
             collectionId: null,
             fileNameTemplate: DEFAULT_FILE_NAME_TEMPLATE,
@@ -1733,9 +1732,10 @@
 
             const xRestrict = Number(meta.xRestrict ?? meta.xrestrict ?? 0);
             const isAi = meta?.isAi === true || Number(meta?.aiType ?? 0) >= 2;
-            if (state.settings.R18Only && xRestrict < 1) {
+            const filterSkipReason = evaluateDownloadFilterSkip(meta, 'illust');
+            if (filterSkipReason) {
                 item.status = 'skipped';
-                item.lastMessage = bt('queue.message.skipped-not-r18', '跳过 — 非 R18 内容');
+                item.lastMessage = filterSkipReason;
                 item.endTime = new Date().toISOString();
                 updateStats();
                 saveQueue();
@@ -2084,9 +2084,10 @@
             item.novelText = null;
             renderQueue();
 
-            if (state.settings.R18Only && Number(meta.xRestrict || 0) < 1) {
+            const filterSkipReason = evaluateDownloadFilterSkip(meta, 'novel');
+            if (filterSkipReason) {
                 item.status = 'skipped';
-                item.lastMessage = bt('queue.message.skipped-not-r18', '跳过 — 非 R18 内容');
+                item.lastMessage = filterSkipReason;
                 item.endTime = new Date().toISOString();
                 updateStats();
                 saveQueue();
@@ -3220,7 +3221,6 @@
         document.getElementById('s-concurrent').value = state.settings.concurrent;
         document.getElementById('s-skip').checked = state.settings.skipHistory;
         document.getElementById('s-verify-files').checked = state.settings.verifyHistoryFiles ?? false;
-        document.getElementById('s-R18').checked = state.settings.R18Only;
         document.getElementById('s-bookmark').checked = state.settings.bookmark ?? false;
         document.getElementById('s-image-delay').value = state.settings.imageDelay ?? 0;
         state.settings.fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
@@ -3286,22 +3286,25 @@
     }
 
     function applySearchKindUI() {
+        // 批量导入单作品队列可同时含插画与小说，故显示全部专属字段（下载时按各作品类型分别套用）。
+        const showAll = state.mode === 'single-import';
         const isNovel = currentModeKind() === 'novel';
         document.querySelectorAll('.search-illust-only').forEach(el => {
-            el.style.display = isNovel ? 'none' : '';
+            el.style.display = showAll ? '' : (isNovel ? 'none' : '');
         });
         document.querySelectorAll('.search-novel-only').forEach(el => {
-            el.style.display = isNovel ? '' : 'none';
+            el.style.display = showAll ? '' : (isNovel ? '' : 'none');
         });
     }
 
-    // 共享「附加筛选」卡片：Search / User / 系列三模式对所有用户显示并实时过滤当前预览页。
+    // 共享「附加筛选」卡片：批量导入单作品 / Search / User / 系列四模式对所有用户显示。
+    // Search/User/系列：实时过滤当前预览页；所有模式：实际下载时按此条件逐作品过滤并跳过；
     // 管理员另外可在 User/Search/系列模式下把同一份筛选条件快照进「存为计划任务」（后台逐作品执行）。
     function updateExtraFiltersCardVisibility() {
         const card = document.getElementById('extra-filters-card');
         if (!card) return;
         const mode = state.mode;
-        const visible = mode === 'search' || mode === 'user' || mode === 'series';
+        const visible = mode === 'search' || mode === 'user' || mode === 'series' || mode === 'single-import';
         card.style.display = visible ? '' : 'none';
         if (visible) applySearchKindUI();
     }
@@ -3312,7 +3315,6 @@
         state.settings.concurrent = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
         state.settings.skipHistory = document.getElementById('s-skip').checked;
         state.settings.verifyHistoryFiles = document.getElementById('s-verify-files').checked;
-        state.settings.R18Only = document.getElementById('s-R18').checked;
         state.settings.bookmark = document.getElementById('s-bookmark').checked;
         state.settings.fileNameTemplate = normalizeFileNameTemplate(document.getElementById('s-file-name-template').value);
         const sel = document.getElementById('s-collection');
@@ -3351,6 +3353,7 @@
 
     function defaultSearchFilters() {
         return {
+            content: 'all',
             ai: 'all',
             type: 'all',
             pageMin: null,
@@ -3420,6 +3423,7 @@
 
     function normalizeSearchFilters(filters) {
         const out = defaultSearchFilters();
+        out.content = ['all', 'safe', 'r18plus', 'r18', 'r18g'].includes(filters?.content) ? filters.content : 'all';
         out.ai = ['all', 'exclude', 'only'].includes(filters?.ai) ? filters.ai : 'all';
         out.type = ['all', 'illust', 'manga', 'ugoira'].includes(filters?.type) ? filters.type : 'all';
         out.pageMin = parseSearchFilterNumber(filters?.pageMin, 1);
@@ -3443,6 +3447,8 @@
     }
 
     function setSearchFiltersUI(filters) {
+        const contentEl = document.getElementById('search-content-filter');
+        if (contentEl) contentEl.value = filters.content;
         document.getElementById('search-ai-filter').value = filters.ai;
         document.getElementById('search-type-filter').value = filters.type;
         document.getElementById('search-pages-min').value = filters.pageMin ?? '';
@@ -3463,6 +3469,7 @@
         const wMin = document.getElementById('search-words-min');
         const wMax = document.getElementById('search-words-max');
         return normalizeSearchFilters({
+            content: (document.getElementById('search-content-filter') || {}).value || 'all',
             ai: document.getElementById('search-ai-filter').value,
             type: document.getElementById('search-type-filter').value,
             pageMin: document.getElementById('search-pages-min').value,
@@ -3478,6 +3485,7 @@
 
     function saveSearchFilterPrefs(filters) {
         storeSet('pixiv_search_filters', JSON.stringify({
+            content: filters.content,
             ai: filters.ai,
             type: filters.type,
             pageMin: filters.pageMin,
@@ -3509,7 +3517,8 @@
     }
 
     function hasExtraSearchFilter(filters = searchState.currentFilters) {
-        return filters.ai !== 'all'
+        return filters.content !== 'all'
+            || filters.ai !== 'all'
             || filters.type !== 'all'
             || filters.pageMin !== null
             || filters.pageMax !== null
@@ -3646,7 +3655,21 @@
         return {filtered, stats};
     }
 
+    // 内容分级匹配：all=不限 / safe=仅全年龄 / r18plus=R-18+R-18G / r18=仅 R-18 / r18g=仅 R-18G。
+    function matchContentRating(xRestrict, content) {
+        const xr = Number(xRestrict ?? 0);
+        switch (content) {
+            case 'safe': return xr === 0;
+            case 'r18plus': return xr >= 1;
+            case 'r18': return xr === 1;
+            case 'r18g': return xr === 2;
+            default: return true; // all
+        }
+    }
+
     function matchSearchFilters(item, filters, stats, kind = searchState.kind) {
+        if (!matchContentRating(item.xRestrict, filters.content)) return false;
+
         const aiType = Number(item.aiType ?? 0);
         if (filters.ai === 'exclude' && aiType >= 2) return false;
         if (filters.ai === 'only' && aiType < 2) return false;
@@ -3689,6 +3712,56 @@
         }
 
         return true;
+    }
+
+    // 实际下载时的「附加筛选」判定：拉到作品 meta 后调用，返回 null=通过、否则返回本地化的跳过原因。
+    // 与预览用的 matchSearchFilters 同口径（内容分级 / AI / 标签 / 类型 / 页数 / 字数 / 收藏数），
+    // 取当前附加筛选 UI 为准；插画/小说按 kind 分别套用对应专属判定。
+    function evaluateDownloadFilterSkip(meta, kind) {
+        const filters = normalizeSearchFilters(getSearchFiltersFromUI());
+        const xr = Number(meta.xRestrict ?? meta.xrestrict ?? 0);
+        if (!matchContentRating(xr, filters.content)) {
+            return bt('queue.message.skipped-filter-content', '跳过 — 内容分级不符（要求 {label}）',
+                {label: bt('search.content.' + filters.content, filters.content)});
+        }
+        const isAi = meta?.isAi === true || Number(meta?.aiType ?? 0) >= 2;
+        if (filters.ai === 'exclude' && isAi) {
+            return bt('queue.message.skipped-filter-ai-exclude', '跳过 — AI 作品（附加筛选已设为排除 AI）');
+        }
+        if (filters.ai === 'only' && !isAi) {
+            return bt('queue.message.skipped-filter-ai-only', '跳过 — 非 AI 作品（附加筛选已设为仅 AI）');
+        }
+        if (!matchTagFilters({tags: Array.isArray(meta.tags) ? meta.tags : []}, filters)) {
+            return bt('queue.message.skipped-filter-tags', '跳过 — 标签不匹配附加筛选');
+        }
+        if (kind === 'novel') {
+            const wc = Number(meta.wordCount ?? 0);
+            if (wc > 0) {
+                if (filters.wordsMin !== null && wc < filters.wordsMin) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
+                if (filters.wordsMax !== null && wc > filters.wordsMax) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
+            }
+        } else {
+            const illustType = Number(meta.illustType ?? 0);
+            if ((filters.type === 'illust' && illustType !== 0)
+                || (filters.type === 'manga' && illustType !== 1)
+                || (filters.type === 'ugoira' && illustType !== 2)) {
+                return bt('queue.message.skipped-filter-type', '跳过 — 作品类型不符附加筛选');
+            }
+            const pageCount = Number(meta.pageCount ?? 0);
+            if (pageCount > 0) {
+                if (filters.pageMin !== null && pageCount < filters.pageMin) return bt('queue.message.skipped-filter-pages', '跳过 — 页数不符附加筛选');
+                if (filters.pageMax !== null && pageCount > filters.pageMax) return bt('queue.message.skipped-filter-pages', '跳过 — 页数不符附加筛选');
+            }
+        }
+        if (hasBookmarkFilter(filters)) {
+            const bc = Number(meta.bookmarkCount ?? -1);
+            if (!Number.isFinite(bc) || bc < 0) {
+                return bt('queue.message.skipped-filter-bookmarks-unavailable', '跳过 — 收藏数不可用（无法按附加筛选判定）');
+            }
+            if (filters.bookmarkMin !== null && bc < filters.bookmarkMin) return bt('queue.message.skipped-filter-bookmarks', '跳过 — 收藏数不符附加筛选');
+            if (filters.bookmarkMax !== null && bc > filters.bookmarkMax) return bt('queue.message.skipped-filter-bookmarks', '跳过 — 收藏数不符附加筛选');
+        }
+        return null;
     }
 
     async function applyCurrentSearchFilters(options = {}) {
@@ -3818,7 +3891,7 @@
             return;
         }
 
-        const uiMode = document.querySelector('input[name="search-mode"]:checked').value;
+        const uiMode = (document.getElementById('search-content-filter') || {}).value || 'all';
         const sMode = document.querySelector('input[name="search-smode"]:checked').value;
         const order = document.querySelector('input[name="search-order"]:checked').value;
         const r18Family = uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus';
@@ -5198,7 +5271,7 @@
         const {start, end} = getBatchRange();
         // 实时批量获取只翻固定页数：-1 哨仅对计划任务有意义，这里按单页（start）处理，绝不把 -1 发给后端。
         const effEnd = end === -1 ? start : end;
-        const uiMode = document.querySelector('input[name="search-mode"]:checked').value;
+        const uiMode = (document.getElementById('search-content-filter') || {}).value || 'all';
         const sMode = document.querySelector('input[name="search-smode"]:checked').value;
         const order = document.querySelector('input[name="search-order"]:checked').value;
         const r18Family = uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus';
@@ -5484,7 +5557,7 @@
         }
 
         // Settings change → auto-save
-        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-R18', 's-bookmark', 's-collection', 's-file-name-template', 's-novel-format', 's-novel-merge', 's-novel-merge-format'].forEach(id => {
+        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-bookmark', 's-collection', 's-file-name-template', 's-novel-format', 's-novel-merge', 's-novel-merge-format'].forEach(id => {
             const el = document.getElementById(id);
             if (!el) return;
             el.addEventListener('change', syncSettings);
@@ -5900,8 +5973,8 @@
     }
 
     // 按当前模式来源 + 上方全部下载 / 筛选设置，快照成 params v2。
-    // 附加筛选（AI / 标签 / 收藏 / 页数 / 字数 / 类型）现为 User / Search / Series 共享的卡片，
-    // 三种模式均携带；「仅下载 R18」是共享下载设置，也所有模式都携带。
+    // 附加筛选（内容分级 / AI / 标签 / 收藏 / 页数 / 字数 / 类型）现为 User / Search / Series 共享的卡片，
+    // 三种模式均携带；内容分级在 Search 还会派生出 Pixiv 查询的 source.mode。
     function buildScheduleSnapshot() {
         const mode = state.mode;
         const type = SCHEDULE_MODE_TYPE[mode];
@@ -5916,7 +5989,7 @@
             kind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';
             const word = (document.getElementById('search-word').value || '').trim();
             if (!word) throw new Error(bt('schedule.error.word', '请填写搜索关键词'));
-            const uiMode = (document.querySelector('input[name="search-mode"]:checked') || {}).value || 'all';
+            const uiMode = (document.getElementById('search-content-filter') || {}).value || 'all';
             const sMode = (document.querySelector('input[name="search-smode"]:checked') || {}).value || 's_tag';
             const order = (document.querySelector('input[name="search-order"]:checked') || {}).value || 'date_d';
             const pixivMode = (uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus') ? 'r18' : uiMode;
@@ -5940,7 +6013,7 @@
         syncSettings();
         const f = getSearchFiltersFromUI();
         const filters = {
-            r18Only: document.getElementById('s-R18').checked,
+            content: f.content,
             aiFilter: f.ai,
             tagsExact: f.tagsExact,
             tagsFuzzy: f.tagsFuzzy,
@@ -6068,7 +6141,7 @@
             if (w) w.value = source.word || '';
             setScheduleRadio('search-order', source.order || 'date_d');
             setScheduleRadio('search-smode', source.sMode || 's_tag');
-            setScheduleRadio('search-mode', source.mode || 'all');
+            // 内容分级回灌走下方 setSearchFiltersUI(filters.content)；source.mode 仅是据其派生的 Pixiv 查询档位。
             // maxPages=1 ↔ 🔍 搜索模式（只取第一页）；-1 或 >=2 ↔ 📦 作品批量获取模式（回填结束页，-1 为哨兵）
             const mp = source.maxPages;
             const batchSubmode = mp === -1 || (typeof mp === 'number' && mp >= 2);
@@ -6091,9 +6164,8 @@
 
         // 2) 共享下载设置 + 筛选回灌（附加筛选现为三种模式共享，统一回灌）
         applyScheduleDownloadUI(download);
-        document.getElementById('s-R18').checked = !!filters.r18Only;
         setSearchFiltersUI(normalizeSearchFilters({
-            ai: filters.aiFilter, type: filters.typeFilter,
+            content: filters.content, ai: filters.aiFilter, type: filters.typeFilter,
             pageMin: filters.pagesMin, pageMax: filters.pagesMax,
             bookmarkMin: filters.bookmarksMin, bookmarkMax: filters.bookmarksMax,
             wordsMin: filters.wordsMin, wordsMax: filters.wordsMax,
@@ -6122,7 +6194,7 @@
         if (card) card.scrollIntoView({behavior: 'smooth', block: 'center'});
     }
 
-    // 把快照的下载设置写回共享控件（不含 r18Only，它在 filters 段）
+    // 把快照的下载设置写回共享控件（不含内容分级等附加筛选，它们在 filters 段）
     function applyScheduleDownloadUI(d) {
         if (!d) return;
         if (typeof d.fileNameTemplate === 'string' && d.fileNameTemplate) {

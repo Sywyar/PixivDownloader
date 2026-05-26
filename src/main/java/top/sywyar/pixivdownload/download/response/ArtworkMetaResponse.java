@@ -17,6 +17,7 @@ public class ArtworkMetaResponse {
     @JsonProperty("isAi")
     private final boolean isAi;
     private final int bookmarkCount;
+    private final int pageCount;
     private final Long authorId;
     private final String authorName;
     private final String description;

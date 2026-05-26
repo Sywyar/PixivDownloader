@@ -37,7 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * <pre>{@code
  * { "kind": "illust"|"novel",
  *   "source":   {"userId"} | {"word","order","mode","sMode","maxPages"} | {"seriesId"},
- *   "filters":  {"r18Only","aiFilter","tagsExact":[],"tagsFuzzy":[],"typeFilter",
+ *   "filters":  {"content","aiFilter","tagsExact":[],"tagsFuzzy":[],"typeFilter",
  *                "pagesMin","pagesMax","wordsMin","wordsMax","bookmarksMin","bookmarksMax"},
  *   "download": {"fileNameTemplate","bookmark","collectionId",
  *                "novelFormat","novelMerge","novelMergeFormat"} }
@@ -366,7 +366,7 @@ public class ScheduleExecutor {
 
     // package-private + static：纯函数，便于单元测试直接调用（见 ScheduleExecutorFilterTest）
     static boolean artworkMatches(PixivFetchService.ArtworkMeta m, Filters f) {
-        if (f.r18Only() && m.xRestrict() < 1) return false;
+        if (!contentMatches(f.content(), m.xRestrict())) return false;
         if ("exclude".equals(f.aiFilter()) && m.ai()) return false;
         if ("only".equals(f.aiFilter()) && !m.ai()) return false;
         if (!typeMatches(f.typeFilter(), m.illustType())) return false;
@@ -383,7 +383,7 @@ public class ScheduleExecutor {
     }
 
     static boolean novelMatches(PixivFetchService.NovelDetail d, Filters f) {
-        if (f.r18Only() && d.xRestrict() < 1) return false;
+        if (!contentMatches(f.content(), d.xRestrict())) return false;
         if ("exclude".equals(f.aiFilter()) && d.ai()) return false;
         if ("only".equals(f.aiFilter()) && !d.ai()) return false;
         if (d.wordCount() != null && d.wordCount() > 0) {
@@ -397,6 +397,18 @@ public class ScheduleExecutor {
         List<String> tokens = tagTokens(d.tags());
         return tagsAllMatch(tokens, f.tagsExact(), false)
                 && tagsAllMatch(tokens, f.tagsFuzzy(), true);
+    }
+
+    /** 内容分级筛选：all=不限 / safe=仅全年龄 / r18plus=R-18+R-18G / r18=仅 R-18 / r18g=仅 R-18G。 */
+    private static boolean contentMatches(String content, int xRestrict) {
+        if (content == null) return true;
+        return switch (content) {
+            case "safe" -> xRestrict == 0;
+            case "r18plus" -> xRestrict >= 1;
+            case "r18" -> xRestrict == 1;
+            case "r18g" -> xRestrict == 2;
+            default -> true; // all
+        };
     }
 
     private static boolean typeMatches(String typeFilter, int illustType) {
@@ -443,7 +455,7 @@ public class ScheduleExecutor {
 
     static Filters parseFilters(JsonNode f) {
         return new Filters(
-                f.path("r18Only").asBoolean(false),
+                f.path("content").asText("all"),
                 f.path("aiFilter").asText("all"),
                 readLoweredList(f.path("tagsExact")),
                 readLoweredList(f.path("tagsFuzzy")),
@@ -508,7 +520,7 @@ public class ScheduleExecutor {
     }
 
     /** 任务快照的筛选条件（来自 params_json 的 {@code filters} 段）。 */
-    record Filters(boolean r18Only, String aiFilter, List<String> tagsExact, List<String> tagsFuzzy,
+    record Filters(String content, String aiFilter, List<String> tagsExact, List<String> tagsFuzzy,
                    String typeFilter, Integer pagesMin, Integer pagesMax,
                    Integer wordsMin, Integer wordsMax, Integer bookmarksMin, Integer bookmarksMax) {
     }

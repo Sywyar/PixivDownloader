@@ -182,6 +182,7 @@ public class PixivProxyController {
                 b.path("xRestrict").asInt(0),
                 b.path("aiType").asInt(0) >= 2,
                 b.path("bookmarkCount").asInt(-1),
+                b.path("pageCount").asInt(0),
                 parsePositiveLong(b.path("userId").asText(null)),
                 b.path("userName").asText(""),
                 PixivDescriptionHtml.normalizeLinks(b.path("description").asText("")),

@@ -170,13 +170,7 @@
             </span>
         </div>
         <div class="search-filter-row">
-            <span data-i18n="label.search-content">内容:</span>
-            <label><input type="radio" name="search-mode" value="all" checked> <span data-i18n="search.content.all">全部</span></label>
-            <label><input type="radio" name="search-mode" value="safe"> <span data-i18n="search.content.safe">全年龄</span></label>
-            <label data-i18n-title="dialog.search-mode-r18plus" title="Pixiv 原生的 R-18 搜索结果（包含 R-18G）"><input type="radio" name="search-mode" value="r18plus"> <span data-i18n="search.content.r18plus">R-18+</span></label>
-            <label data-i18n-title="dialog.search-mode-r18" title="R-18+ 结果中剔除 R-18G 后的纯 R-18（客户端过滤）"><input type="radio" name="search-mode" value="r18"> <span data-i18n="search.content.r18">R-18 ⚠</span></label>
-            <label data-i18n-title="dialog.search-mode-r18g" title="R-18+ 结果中仅保留 R-18G（客户端过滤）"><input type="radio" name="search-mode" value="r18g"> <span data-i18n="search.content.r18g">R-18G ⚠</span></label>
-            <span style="margin-left:12px;" data-i18n="label.search-mode">搜索方式:</span>
+            <span data-i18n="label.search-mode">搜索方式:</span>
             <label><input type="radio" name="search-smode" value="s_tag" checked> <span data-i18n="search.mode.tag">标签</span></label>
             <label><input type="radio" name="search-smode" value="s_tc"> <span data-i18n="search.mode.title-desc">标题/描述</span></label>
             <span style="margin-left:12px;" data-i18n="label.search-order">排序:</span>
@@ -230,9 +224,19 @@
     <div class="search-extra-filters" id="extra-filters-card" style="display:none;">
         <div class="search-extra-head">
             <div class="search-extra-title" data-i18n="label.search-extra">附加筛选</div>
-            <div class="search-extra-note" data-i18n="label.search-extra-note">搜索模式下客户端实时过滤当前页；用于「存为计划任务」时按此条件在后台逐作品过滤</div>
+            <div class="search-extra-note" data-i18n="label.search-extra-note">各模式预览时实时过滤当前页；实际下载时不符合条件的作品会被跳过并显示原因；管理员「存为计划任务」时按此条件在后台逐作品过滤</div>
         </div>
         <div class="search-extra-grid">
+            <div class="search-extra-item">
+                <label for="search-content-filter" data-i18n="label.search-content-rating">内容分级</label>
+                <select id="search-content-filter" onchange="handleSearchFilterChange()">
+                    <option value="all" data-i18n="search.content.all">全部</option>
+                    <option value="safe" data-i18n="search.content.safe">全年龄</option>
+                    <option value="r18plus" data-i18n="search.content.r18plus">R18+(R-18 + R-18G)</option>
+                    <option value="r18" data-i18n="search.content.r18">R-18</option>
+                    <option value="r18g" data-i18n="search.content.r18g">R-18G</option>
+                </select>
+            </div>
             <div class="search-extra-item">
                 <label for="search-ai-filter" data-i18n="label.search-ai">AI 作品</label>
                 <select id="search-ai-filter" onchange="handleSearchFilterChange()">
@@ -325,10 +329,6 @@
                 <input type="checkbox" id="s-verify-files">
                 <label for="s-verify-files" style="cursor:pointer;" data-i18n="label.settings.verify">实际目录检测</label>
                 <span class="setting-help-icon" data-i18n-title="dialog.verify-files" title="通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载">?</span>
-            </div>
-            <div class="setting-item">
-                <input type="checkbox" id="s-R18">
-                <label for="s-R18" class="R18-label" style="cursor:pointer;" data-i18n="label.settings.r18">仅下载 R18 作品</label>
             </div>
             <div class="setting-item">
                 <input type="checkbox" id="s-bookmark">
