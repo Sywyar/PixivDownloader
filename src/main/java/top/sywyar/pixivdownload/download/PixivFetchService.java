@@ -192,6 +192,36 @@ public class PixivFetchService {
     }
 
     /**
+     * 发现搜索结果<b>单页</b>的作品 ID（插画 + 漫画 + 动图），按页内顺序返回（不跨页去重）。
+     * 空列表表示该页无结果或越界。供计划任务「结束页 = -1（一直翻页直到命中已下载作品为止）」的
+     * 增量逐页发现复用；遵循「URL 编码只能做一次」约束，{@code word} 以原始未编码形态交给 builder。
+     */
+    public List<String> discoverSearchArtworkIdsPage(String word, String order, String mode,
+                                                     String sMode, int page, String cookie) throws IOException {
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/search/artworks/{word}")
+                .queryParam("word", "{word}")
+                .queryParam("order", order)
+                .queryParam("mode", mode)
+                .queryParam("type", "illust_and_ugoira")
+                .queryParam("s_mode", sMode)
+                .queryParam("p", page)
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("word", word))
+                .encode()
+                .toUri();
+        JsonNode data = requireBody(proxyGetUri(uri, cookie)).path("illustManga").path("data");
+        List<String> out = new ArrayList<>();
+        if (data.isArray()) {
+            for (JsonNode item : data) {
+                String id = item.path("id").asText("");
+                if (!id.isEmpty()) out.add(id);
+            }
+        }
+        return out;
+    }
+
+    /**
      * 发现某漫画系列内的全部作品 ID，按系列内顺序（order 升序）。
      *
      * <p>逐页拉取 {@code /ajax/series/{id}?p=N}，从 {@code body.page.series[].workId} 收集成员
@@ -262,6 +292,34 @@ public class PixivFetchService {
             if (ids.size() == before) break;
         }
         return new ArrayList<>(ids.keySet());
+    }
+
+    /**
+     * 发现搜索结果<b>单页</b>的小说 ID，按页内顺序返回（不跨页去重）。空列表表示该页无结果或越界。
+     * 供计划任务「结束页 = -1（一直翻页直到命中已下载作品为止）」的增量逐页发现复用。
+     */
+    public List<String> discoverSearchNovelIdsPage(String word, String order, String mode,
+                                                   String sMode, int page, String cookie) throws IOException {
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/search/novels/{word}")
+                .queryParam("word", "{word}")
+                .queryParam("order", order)
+                .queryParam("mode", mode)
+                .queryParam("s_mode", sMode)
+                .queryParam("p", page)
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("word", word))
+                .encode()
+                .toUri();
+        JsonNode data = requireBody(proxyGetUri(uri, cookie)).path("novel").path("data");
+        List<String> out = new ArrayList<>();
+        if (data.isArray()) {
+            for (JsonNode item : data) {
+                String id = item.path("id").asText("");
+                if (!id.isEmpty()) out.add(id);
+            }
+        }
+        return out;
     }
 
     /**

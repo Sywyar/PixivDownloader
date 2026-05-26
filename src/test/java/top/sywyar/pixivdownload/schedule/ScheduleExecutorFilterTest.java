@@ -8,10 +8,15 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.db.TagDto;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongPredicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * {@link ScheduleExecutor} 的服务端逐作品筛选与 params 解析（纯函数，无需 Spring 上下文）。
@@ -227,6 +232,102 @@ class ScheduleExecutorFilterTest {
             assertThat(d1.novelFormat()).isEqualTo("epub");
             assertThat(d1.novelMerge()).isTrue();
             assertThat(d1.novelMergeFormat()).isEqualTo("txt");
+        }
+    }
+
+    @Nested
+    @DisplayName("增量搜索 runIncrementalSearch（结束页=-1）")
+    class IncrementalSearch {
+
+        /** 把分页结果拼成 PageSupplier：第 N 页取 pages[N-1]，越界返回空列表。 */
+        private ScheduleExecutor.PageSupplier supplier(List<List<String>> pages, AtomicInteger calls) {
+            return page -> {
+                calls.incrementAndGet();
+                return page >= 1 && page <= pages.size() ? pages.get(page - 1) : List.of();
+            };
+        }
+
+        @Test
+        @DisplayName("命中第一个已下载作品即停止整轮（其前的新作派发、其后不再处理）")
+        void stopsOnFirstAlreadyDownloaded() throws Exception {
+            AtomicInteger calls = new AtomicInteger();
+            List<String> dispatched = new ArrayList<>();
+            // 第 1 页：1(新) 2(新) 3(已下载) 4(新) —— 命中 3 即停，4 不处理
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("1", "2", "3", "4")), calls);
+            LongPredicate already = id -> id == 3L;
+            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, already,
+                    (id, workId) -> { dispatched.add(id); return true; }, () -> {});
+            assertThat(count).isEqualTo(2);
+            assertThat(dispatched).containsExactly("1", "2");
+        }
+
+        @Test
+        @DisplayName("逐页翻进：跨多页累计派发，遇空页（无更多结果）停止")
+        void pagesUntilEmpty() throws Exception {
+            AtomicInteger calls = new AtomicInteger();
+            List<String> dispatched = new ArrayList<>();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("1", "2"), List.of("3"), List.of()), calls);
+            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, id -> false,
+                    (id, workId) -> { dispatched.add(id); return true; }, () -> {});
+            assertThat(count).isEqualTo(3);
+            assertThat(dispatched).containsExactly("1", "2", "3");
+            assertThat(calls.get()).isEqualTo(3); // 第 3 页为空触发停止
+        }
+
+        @Test
+        @DisplayName("筛选未命中（dispatcher 返回 false）不计数但继续后续作品")
+        void filteredOutNotCountedButContinues() throws Exception {
+            List<String> seen = new ArrayList<>();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("1", "2", "3"), List.of()), new AtomicInteger());
+            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, id -> false,
+                    (id, workId) -> { seen.add(id); return workId != 2L; }, () -> {});
+            assertThat(seen).containsExactly("1", "2", "3");
+            assertThat(count).isEqualTo(2); // 2 被筛掉
+        }
+
+        @Test
+        @DisplayName("单作品失败隔离：dispatcher 抛普通异常仅跳过该作品，继续后续")
+        void singleWorkFailureIsolated() throws Exception {
+            List<String> seen = new ArrayList<>();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("1", "2", "3"), List.of()), new AtomicInteger());
+            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, id -> false,
+                    (id, workId) -> {
+                        seen.add(id);
+                        if (workId == 2L) throw new IllegalStateException("boom");
+                        return true;
+                    }, () -> {});
+            assertThat(seen).containsExactly("1", "2", "3");
+            assertThat(count).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("鉴权失效（PixivFetchException）上抛、停止整轮")
+        void authExpiredPropagates() {
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("1", "2")), new AtomicInteger());
+            assertThatThrownBy(() -> ScheduleExecutor.runIncrementalSearch(1L, pages, id -> false,
+                    (id, workId) -> { throw new PixivFetchService.PixivFetchException("auth"); }, () -> {}))
+                    .isInstanceOf(PixivFetchService.PixivFetchException.class);
+        }
+
+        @Test
+        @DisplayName("安全上限：始终有新作时翻页不超过 SEARCH_INCREMENTAL_MAX_PAGES")
+        void respectsSafetyCap() throws Exception {
+            AtomicInteger calls = new AtomicInteger();
+            Set<Long> none = Set.of();
+            // 每页恒返回一个全新的 ID，永不命中已下载、永不空页 → 仅靠安全上限收敛
+            ScheduleExecutor.PageSupplier pages = page -> {
+                calls.incrementAndGet();
+                return List.of(String.valueOf(page));
+            };
+            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, none::contains,
+                    (id, workId) -> true, () -> {});
+            assertThat(calls.get()).isEqualTo(ScheduleExecutor.SEARCH_INCREMENTAL_MAX_PAGES);
+            assertThat(count).isEqualTo(ScheduleExecutor.SEARCH_INCREMENTAL_MAX_PAGES);
         }
     }
 }

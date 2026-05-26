@@ -2607,6 +2607,19 @@
         updateSaveScheduleCardVisibility();
         updateExtraFiltersCardVisibility();
         updateBatchLimitNote();
+        updateBatchEndPageAdminGate();
+    }
+
+    // 结束页 = -1（「直到已下载作品为止」哨兵）仅管理员可用：管理员放开输入下限到 -1 并显示提示，
+    // 非管理员保持 min=1（输入 -1 会被夹回）。该控件为普通「作品批量获取模式」共享，故仅做权限门控。
+    function updateBatchEndPageAdminGate() {
+        const endP = document.getElementById('batch-end-page');
+        if (endP) {
+            endP.min = isAdmin ? -1 : 1;
+            if (!isAdmin && parseInt(endP.value, 10) === -1) endP.value = 1;
+        }
+        const hint = document.getElementById('batch-end-page-hint');
+        if (hint) hint.style.display = isAdmin ? '' : 'none';
     }
 
     function updateAdminPackButton() {
@@ -4562,6 +4575,13 @@
         let start = parseInt(startEl.value, 10);
         let end = parseInt(endEl.value, 10);
         if (!Number.isFinite(start) || start < 1) start = 1;
+        // 管理员可把结束页设为 -1（「直到已下载作品为止」哨兵，仅用于计划任务快照）：保留在输入框，不夹取。
+        // 实时批量获取（runBatchFetch）会把 -1 当作单页处理，绝不真的把 -1 发给后端。
+        if (isAdmin && end === -1) {
+            startEl.value = start;
+            endEl.value = -1;
+            return {start, end: -1};
+        }
         if (!Number.isFinite(end) || end < 1) end = start;
         if (end < start) {
             const t = start;
@@ -4614,6 +4634,8 @@
             return;
         }
         const {start, end} = getBatchRange();
+        // 实时批量获取只翻固定页数：-1 哨仅对计划任务有意义，这里按单页（start）处理，绝不把 -1 发给后端。
+        const effEnd = end === -1 ? start : end;
         const uiMode = document.querySelector('input[name="search-mode"]:checked').value;
         const sMode = document.querySelector('input[name="search-smode"]:checked').value;
         const order = document.querySelector('input[name="search-order"]:checked').value;
@@ -4638,14 +4660,14 @@
         const btn = document.getElementById('btn-batch-fetch');
         btn.disabled = true;
         document.getElementById('search-results-area').innerHTML =
-            `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.batch-fetching', '批量获取第 {start}–{end} 页中...', {start, end}))}</div>`;
+            `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.batch-fetching', '批量获取第 {start}–{end} 页中...', {start, end: effEnd}))}</div>`;
         document.getElementById('search-pagination').style.display = 'none';
         document.getElementById('btn-batch-add-page').disabled = true;
         document.getElementById('btn-batch-add-all').disabled = true;
 
         try {
             const endpoint = kind === 'novel' ? '/api/pixiv/novel-search/range' : '/api/pixiv/search/range';
-            const params = new URLSearchParams({word, order, mode, sMode, startPage: start, endPage: end});
+            const params = new URLSearchParams({word, order, mode, sMode, startPage: start, endPage: effEnd});
             const res = await fetch(`${BASE}${endpoint}?${params}`, {headers: pixivHeader()});
             const data = await res.json();
             if (!res.ok) {
@@ -4963,6 +4985,8 @@
         }
         loadSearchFilterPrefs();
         loadSubmodePref();
+        // 初始化时按触发方式下拉框的当前选择只渲染对应输入框（否则周期与 Cron 两个输入框会同时出现）
+        onScheduleTriggerChange();
 
         switchMode(savedMode);
 
@@ -5332,7 +5356,17 @@
             const sMode = (document.querySelector('input[name="search-smode"]:checked') || {}).value || 's_tag';
             const order = (document.querySelector('input[name="search-order"]:checked') || {}).value || 'date_d';
             const pixivMode = (uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus') ? 'r18' : uiMode;
-            const maxPages = Math.max(1, parseInt((document.getElementById('batch-end-page') || {}).value, 10) || 3);
+            // 子模式语义：🔍 搜索模式 = 只取第一页（maxPages 恒为 1）；📦 作品批量获取模式 = 读结束页输入框。
+            // 结束页 = -1 是「直到已下载作品为止」哨兵，仅管理员可用（计划任务本就 admin-only）。
+            const batchSubmode = searchState.submode === 'batch'
+                || ((document.querySelector('input[name="search-submode"]:checked') || {}).value === 'batch');
+            let maxPages;
+            if (batchSubmode) {
+                const raw = parseInt((document.getElementById('batch-end-page') || {}).value, 10);
+                maxPages = (isAdmin && raw === -1) ? -1 : Math.max(1, Number.isFinite(raw) ? raw : 3);
+            } else {
+                maxPages = 1;
+            }
             source = {word, order, mode: pixivMode, sMode, maxPages};
         } else {
             kind = seriesState.kind === 'novel' ? 'novel' : 'illust';
@@ -5471,8 +5505,12 @@
             setScheduleRadio('search-order', source.order || 'date_d');
             setScheduleRadio('search-smode', source.sMode || 's_tag');
             setScheduleRadio('search-mode', source.mode || 'all');
+            // maxPages=1 ↔ 🔍 搜索模式（只取第一页）；-1 或 >=2 ↔ 📦 作品批量获取模式（回填结束页，-1 为哨兵）
+            const mp = source.maxPages;
+            const batchSubmode = mp === -1 || (typeof mp === 'number' && mp >= 2);
+            applySubmodeUI(batchSubmode ? 'batch' : 'search', {clear: false});
             const endP = document.getElementById('batch-end-page');
-            if (endP && source.maxPages) endP.value = source.maxPages;
+            if (endP && batchSubmode) endP.value = mp;
         } else if (task.type === 'SERIES') {
             // 回填系列 URL 并自动解析预览（loadSeriesPreview 会同步 seriesState.kind / seriesId）
             const sid = source.seriesId || '';

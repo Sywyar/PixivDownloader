@@ -127,31 +127,38 @@ public class ScheduleExecutor {
         Filters filters = parseFilters(root.path("filters"));
         Download download = parseDownload(root.path("download"));
 
-        List<String> ids = discoverIds(task.type(), novel, source, cookie);
-        int dispatched = 0;
-        for (String id : ids) {
-            long workId;
-            try {
-                workId = Long.parseLong(id);
-            } catch (NumberFormatException e) {
-                continue;
-            }
-            boolean already = novel ? novelDatabase.hasNovel(workId) : pixivDatabase.hasArtwork(workId);
-            if (already) {
-                continue;
-            }
-            try {
-                if (novel ? dispatchNovel(id, workId, cookie, filters, download)
-                          : dispatchArtwork(id, workId, cookie, filters, download)) {
-                    dispatched++;
+        int dispatched;
+        if (task.type() == ScheduledTaskType.SEARCH && source.path("maxPages").asInt(3) == -1) {
+            // 结束页 = -1（仅管理员，且计划任务本就 admin-only）：增量模式——逐页发现、逐作品处理，
+            // 命中第一个已下载作品即停（搜索按 date_d 最新在前 → 命中即代表后面都是旧作）。
+            dispatched = runIncrementalSearch(task, novel, source, cookie, filters, download);
+        } else {
+            List<String> ids = discoverIds(task.type(), novel, source, cookie);
+            dispatched = 0;
+            for (String id : ids) {
+                long workId;
+                try {
+                    workId = Long.parseLong(id);
+                } catch (NumberFormatException e) {
+                    continue;
                 }
-            } catch (PixivFetchService.PixivFetchException e) {
-                throw e; // 鉴权失效：让整轮停下
-            } catch (Exception e) {
-                // 单作品失败隔离：仅记日志，继续后续作品
-                log.warn("Scheduled task {} skip work {}: {}", task.id(), id, e.getMessage());
+                boolean already = novel ? novelDatabase.hasNovel(workId) : pixivDatabase.hasArtwork(workId);
+                if (already) {
+                    continue;
+                }
+                try {
+                    if (novel ? dispatchNovel(id, workId, cookie, filters, download)
+                              : dispatchArtwork(id, workId, cookie, filters, download)) {
+                        dispatched++;
+                    }
+                } catch (PixivFetchService.PixivFetchException e) {
+                    throw e; // 鉴权失效：让整轮停下
+                } catch (Exception e) {
+                    // 单作品失败隔离：仅记日志，继续后续作品
+                    log.warn("Scheduled task {} skip work {}: {}", task.id(), id, e.getMessage());
+                }
+                politeDelay();
             }
-            politeDelay();
         }
 
         // 小说系列合订：best-effort、幂等（按当前已落库章节重导），失败仅记日志。
@@ -198,6 +205,78 @@ public class ScheduleExecutor {
                             : pixivFetchService.discoverSeriesArtworkIds(seriesId, cookie);
             }
         };
+    }
+
+    /**
+     * SEARCH + {@code maxPages == -1} 的增量发现：把按页发现、按 ID 去重判定、单作品派发的
+     * 各依赖装配成函数后交给纯函数 {@link #runIncrementalSearch(long, PageSupplier, java.util.function.LongPredicate, WorkDispatcher, Runnable)}。
+     */
+    private int runIncrementalSearch(ScheduledTask task, boolean novel, JsonNode source, String cookie,
+                                     Filters filters, Download download) throws Exception {
+        String word = source.path("word").asText("");
+        String order = source.path("order").asText("date_d");
+        String mode = source.path("mode").asText("all");
+        String sMode = source.path("sMode").asText("s_tag");
+        PageSupplier pages = novel
+                ? p -> pixivFetchService.discoverSearchNovelIdsPage(word, order, mode, sMode, p, cookie)
+                : p -> pixivFetchService.discoverSearchArtworkIdsPage(word, order, mode, sMode, p, cookie);
+        java.util.function.LongPredicate already = novel ? novelDatabase::hasNovel : pixivDatabase::hasArtwork;
+        WorkDispatcher dispatcher = novel
+                ? (id, workId) -> dispatchNovel(id, workId, cookie, filters, download)
+                : (id, workId) -> dispatchArtwork(id, workId, cookie, filters, download);
+        return runIncrementalSearch(task.id(), pages, already, dispatcher, this::politeDelay);
+    }
+
+    /** 给定页码返回该页作品 ID（按页内顺序）；空 / null 表示无更多结果。 */
+    @FunctionalInterface
+    interface PageSupplier {
+        List<String> get(int page) throws Exception;
+    }
+
+    /** 处理单个未下载作品（取 meta → 筛选 → 派发），返回是否派发；鉴权失效时上抛 {@link PixivFetchService.PixivFetchException}。 */
+    @FunctionalInterface
+    interface WorkDispatcher {
+        boolean dispatch(String id, long workId) throws Exception;
+    }
+
+    /** 增量搜索的安全翻页上限，防止结果异常时无限翻页（与系列发现的 200 页上限一致）。 */
+    static final int SEARCH_INCREMENTAL_MAX_PAGES = 200;
+
+    /**
+     * 增量搜索的纯逻辑（package-private + static，便于单测）：逐页取 ID，命中第一个「已下载」即停止整轮翻页
+     * （搜索按 date_d 最新在前 → 命中即代表其后皆旧作）；某页为空 / null 视为无更多结果而停止；
+     * 单作品失败隔离（仅记日志、继续），鉴权失效上抛。返回派发的新下载数。
+     */
+    static int runIncrementalSearch(long taskId, PageSupplier pages,
+                                    java.util.function.LongPredicate alreadyDownloaded,
+                                    WorkDispatcher dispatcher, Runnable politeDelay) throws Exception {
+        int dispatched = 0;
+        for (int p = 1; p <= SEARCH_INCREMENTAL_MAX_PAGES; p++) {
+            List<String> ids = pages.get(p);
+            if (ids == null || ids.isEmpty()) break; // 无更多结果
+            for (String id : ids) {
+                long workId;
+                try {
+                    workId = Long.parseLong(id);
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+                if (alreadyDownloaded.test(workId)) {
+                    return dispatched; // 命中已下载 → 后面都是旧作，停止整轮
+                }
+                try {
+                    if (dispatcher.dispatch(id, workId)) {
+                        dispatched++;
+                    }
+                } catch (PixivFetchService.PixivFetchException e) {
+                    throw e; // 鉴权失效：让整轮停下
+                } catch (Exception e) {
+                    log.warn("Scheduled task {} skip work {}: {}", taskId, id, e.getMessage());
+                }
+                politeDelay.run();
+            }
+        }
+        return dispatched;
     }
 
     /** 抓取插画元数据、应用筛选，命中则派发下载。返回是否派发。 */

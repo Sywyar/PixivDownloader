@@ -161,6 +161,7 @@
                 <button class="btn btn-cyan" id="btn-batch-add-page" onclick="addCurrentBatchPageToQueue()" disabled data-i18n="button.batch-add-page">将此页内容加入队列</button>
                 <button class="btn btn-green" id="btn-batch-add-all" onclick="addAllSearchResultsToQueue()" disabled data-i18n="button.batch-add-all">➕ 将全部结果加入队列</button>
                 <span class="search-fill-note" id="batch-limit-note"></span>
+                <span class="search-fill-note" id="batch-end-page-hint" style="display:none;" data-i18n="search.batch.end-page-sentinel">结束页填 -1 = 一直翻页直到遇到已下载作品为止（仅管理员，用于计划任务）</span>
             </span>
         </div>
         <div class="search-filter-row">
@@ -419,10 +420,12 @@
             <div class="setting-item sch-trigger-field sch-trigger-interval">
                 <label data-i18n="schedule.field.interval">周期（分钟）：</label>
                 <input type="number" id="sch-interval" min="1" value="1440">
+                <div class="schedule-field-hint" data-i18n="schedule.field.interval.hint">从上次运行算起，每隔这么多分钟自动运行一次（例如 1440 = 每天一次，60 = 每小时一次）。</div>
             </div>
             <div class="setting-item sch-trigger-field sch-trigger-cron">
                 <label data-i18n="schedule.field.cron">Cron 表达式：</label>
                 <input type="text" id="sch-cron" placeholder="0 0 3 * * *">
+                <div class="schedule-field-hint" data-i18n="schedule.field.cron.hint">使用 Spring 的 6 位格式「秒 分 时 日 月 周」（含秒，比常见的 5 位 Unix Cron 多出最前面的秒位）。示例：0 0 3 * * * = 每天 03:00:00；0 0 */6 * * * = 每 6 小时；0 30 8 * * 1 = 每周一 08:30:00。</div>
             </div>
             <div id="sch-edit-source" class="schedule-save-source" style="display:none;"></div>
             <div class="schedule-form-actions">
