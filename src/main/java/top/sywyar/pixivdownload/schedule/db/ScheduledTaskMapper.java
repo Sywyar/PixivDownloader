@@ -28,7 +28,7 @@ public interface ScheduledTaskMapper {
             + " trigger_kind AS triggerKind, interval_minutes AS intervalMinutes,"
             + " cron_expr AS cronExpr, cookie_mode AS cookieMode,"
             + " next_run_time AS nextRunTime, last_run_time AS lastRunTime,"
-            + " last_status AS lastStatus, created_time AS createdTime"
+            + " last_status AS lastStatus, last_message AS lastMessage, created_time AS createdTime"
             + " FROM scheduled_tasks";
 
     // ── DDL ────────────────────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ public interface ScheduledTaskMapper {
             + "next_run_time INTEGER,"
             + "last_run_time INTEGER,"
             + "last_status TEXT,"
+            + "last_message TEXT,"
             + "created_time INTEGER NOT NULL)")
     void createScheduledTasksTable();
 
@@ -57,10 +58,10 @@ public interface ScheduledTaskMapper {
 
     @Insert("INSERT INTO scheduled_tasks(name, enabled, type, params_json, trigger_kind,"
             + " interval_minutes, cron_expr, cookie_mode, cookie_snapshot,"
-            + " next_run_time, last_run_time, last_status, created_time)"
+            + " next_run_time, last_run_time, last_status, last_message, created_time)"
             + " VALUES(#{name}, #{enabled}, #{type}, #{paramsJson}, #{triggerKind},"
             + " #{intervalMinutes}, #{cronExpr}, #{cookieMode}, #{cookieSnapshot},"
-            + " #{nextRunTime}, #{lastRunTime}, #{lastStatus}, #{createdTime})")
+            + " #{nextRunTime}, #{lastRunTime}, #{lastStatus}, #{lastMessage}, #{createdTime})")
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     void insert(ScheduledTaskInsert task);
 
@@ -87,10 +88,11 @@ public interface ScheduledTaskMapper {
                      @Param("cookieMode") String cookieMode);
 
     @Update("UPDATE scheduled_tasks SET last_run_time = #{lastRunTime}, last_status = #{lastStatus},"
-            + " next_run_time = #{nextRunTime} WHERE id = #{id}")
+            + " last_message = #{lastMessage}, next_run_time = #{nextRunTime} WHERE id = #{id}")
     int updateRunResult(@Param("id") long id,
                         @Param("lastRunTime") Long lastRunTime,
                         @Param("lastStatus") String lastStatus,
+                        @Param("lastMessage") String lastMessage,
                         @Param("nextRunTime") Long nextRunTime);
 
     @Delete("DELETE FROM scheduled_tasks WHERE id = #{id}")

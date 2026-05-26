@@ -19,6 +19,10 @@
             --brand-text: white;
             --danger-bg: #dc3545;
             --danger-text: white;
+            --status-gray: #9ca3af;
+            --status-green: #22a447;
+            --status-yellow: #e0a106;
+            --status-red: #dc3545;
             --modal-backdrop: rgba(0, 0, 0, .45);
             --modal-shadow: rgba(0, 0, 0, .28);
         }
@@ -44,6 +48,10 @@
             --brand-text: #f4f7fb;
             --danger-bg: #b91c1c;
             --danger-text: #fef2f2;
+            --status-gray: #6b7280;
+            --status-green: #34d399;
+            --status-yellow: #facc15;
+            --status-red: #f87171;
             --modal-backdrop: rgba(0, 0, 0, .62);
             --modal-shadow: rgba(0, 0, 0, .45);
         }
@@ -1811,10 +1819,97 @@
 
 .schedule-card-head {
     display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.schedule-card-head-main {
+    display: flex;
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
-    margin-bottom: 8px;
+    min-width: 0;
+}
+
+/* 右上角状态灯：彩色圆点 + 本地化说明文字 */
+.schedule-status-light {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 7px;
+    flex-shrink: 0;
+    max-width: 46%;
+    padding: 4px 11px;
+    border-radius: 12px;
+    background: var(--control-muted-bg);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.schedule-status-light .schedule-light-dot {
+    width: 9px;
+    height: 9px;
+    margin-top: 3px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--status-gray);
+}
+
+.schedule-status-light .schedule-light-text {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.schedule-status-light-gray {
+    color: var(--muted);
+}
+
+.schedule-status-light-gray .schedule-light-dot {
+    background: var(--status-gray);
+}
+
+.schedule-status-light-green {
+    color: var(--status-green);
+}
+
+.schedule-status-light-green .schedule-light-dot {
+    background: var(--status-green);
+}
+
+.schedule-status-light-yellow {
+    color: var(--status-yellow);
+}
+
+.schedule-status-light-yellow .schedule-light-dot {
+    background: var(--status-yellow);
+}
+
+.schedule-status-light-red {
+    color: var(--status-red);
+}
+
+.schedule-status-light-red .schedule-light-dot {
+    background: var(--status-red);
+}
+
+/* 瞬时活动态（正在运行 / 排队中）的灯做呼吸动画，与常亮的成功 / 失败灯区分 */
+.schedule-status-light-live .schedule-light-dot {
+    animation: schedule-light-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes schedule-light-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .schedule-status-light .schedule-light-dot {
+        animation: none;
+    }
 }
 
 .schedule-card-name {
@@ -1848,11 +1943,6 @@
     font-size: 12px;
     color: var(--muted);
     margin-bottom: 10px;
-}
-
-.schedule-status-bad {
-    color: var(--warning-text);
-    font-weight: 600;
 }
 
 .schedule-card-actions {

@@ -128,10 +128,11 @@ class ScheduledTaskMapperTest {
             assertThat(mapper.findCookieSnapshot(id)).isEqualTo("PHPSESSID=new");
             assertThat(mapper.findById(id).cookieMode()).isEqualTo(ScheduledTask.COOKIE_BOUND);
 
-            mapper.updateRunResult(id, 2000L, "OK", 8000L);
+            mapper.updateRunResult(id, 2000L, "ERROR", "no image urls resolved", 8000L);
             ScheduledTask read = mapper.findById(id);
             assertThat(read.lastRunTime()).isEqualTo(2000L);
-            assertThat(read.lastStatus()).isEqualTo("OK");
+            assertThat(read.lastStatus()).isEqualTo("ERROR");
+            assertThat(read.lastMessage()).isEqualTo("no image urls resolved");
             assertThat(read.nextRunTime()).isEqualTo(8000L);
         }
     }

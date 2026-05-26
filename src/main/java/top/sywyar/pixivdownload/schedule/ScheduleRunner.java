@@ -26,6 +26,7 @@ public class ScheduleRunner {
     private final ScheduledTaskDatabase database;
     private final ScheduleExecutor executor;
     private final ScheduleConfig config;
+    private final ScheduleRunState runState;
 
     /** 单飞：上一轮 tick 仍在跑（任务多 / 抓取慢）时直接跳过本轮，避免重入。 */
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -41,6 +42,10 @@ public class ScheduleRunner {
         }
         try {
             List<ScheduledTask> due = database.mapper().findDue(System.currentTimeMillis());
+            // 「同一时刻只跑一个」串行约束：本轮全部到期任务先标记排队中，再逐个转为运行中。
+            for (ScheduledTask task : due) {
+                runState.markQueued(task.id());
+            }
             for (ScheduledTask task : due) {
                 try {
                     executor.runTaskAndRecord(task);

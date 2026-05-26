@@ -25,5 +25,6 @@ public class ScheduledTaskInsert {
     private Long nextRunTime;
     private Long lastRunTime;
     private String lastStatus;
+    private String lastMessage;
     private long createdTime;
 }

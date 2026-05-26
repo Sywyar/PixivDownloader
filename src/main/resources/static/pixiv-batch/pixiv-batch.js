@@ -3018,6 +3018,9 @@
         }
         if (normalizedMode === 'schedule') {
             loadScheduleTasks();
+            startSchedulePolling();
+        } else {
+            stopSchedulePolling();
         }
     }
 
@@ -6010,6 +6013,25 @@
     // Tab 仅做任务列表与管理（运行 / 授权 / 启停 / 编辑 / 删除）。
     let scheduleEditingId = null;
     let scheduleTasksCache = [];
+    // 计划任务列表轮询：进入第 5 Tab 时定时刷新，让「正在运行 / 排队中」等瞬时状态灯能实时更新。
+    let schedulePollTimer = null;
+    const SCHEDULE_POLL_MS = 4000;
+
+    function startSchedulePolling() {
+        stopSchedulePolling();
+        schedulePollTimer = setInterval(() => {
+            if (state.mode === 'schedule' && document.visibilityState !== 'hidden') {
+                loadScheduleTasks();
+            }
+        }, SCHEDULE_POLL_MS);
+    }
+
+    function stopSchedulePolling() {
+        if (schedulePollTimer) {
+            clearInterval(schedulePollTimer);
+            schedulePollTimer = null;
+        }
+    }
 
     // 哪些模式可以创建计划任务（单作品导入无对应来源类型）
     const SCHEDULE_MODE_TYPE = {user: 'USER_NEW', search: 'SEARCH', series: 'SERIES'};
@@ -6307,6 +6329,40 @@
         if (code === 'AUTH_EXPIRED') return bt('schedule.run-status.auth-expired', '登录态失效，请重新授权 Cookie');
         if (code === 'ERROR') return bt('schedule.run-status.error', '运行出错');
         return code;
+    }
+
+    /**
+     * 计算任务卡片右上角「状态灯」：返回 {tone, text}。
+     * tone ∈ green / yellow / red / gray，决定灯色；text 为本地化的状态说明。
+     * 优先级：瞬时运行态（运行中 / 排队中）> 已停用 > 上一轮持久化结果（cookie 失效 / 失败 / 成功）> 首次未运行。
+     */
+    function scheduleStatusLight(t) {
+        if (t.runState === 'RUNNING') {
+            return {tone: 'green', live: true, text: bt('schedule.light.running', '正在运行')};
+        }
+        if (t.runState === 'QUEUED') {
+            return {tone: 'yellow', live: true, text: bt('schedule.light.queued', '排队中')};
+        }
+        if (!t.enabled) {
+            return {tone: 'gray', live: false, text: bt('schedule.light.disabled', '已停用，不会自动运行')};
+        }
+        if (t.lastStatus === 'AUTH_EXPIRED') {
+            return {tone: 'red', live: false, text: bt('schedule.light.auth-expired', '运行失败，Cookie 失效，请重新授权有效 Cookie')};
+        }
+        if (t.lastStatus === 'ERROR') {
+            const reason = (t.lastMessage || '').trim();
+            return {
+                tone: 'red',
+                live: false,
+                text: reason
+                    ? bt('schedule.light.error-reason', '运行失败，因为：{reason}', {reason})
+                    : bt('schedule.light.error', '运行失败')
+            };
+        }
+        if (t.lastStatus === 'OK') {
+            return {tone: 'green', live: false, text: bt('schedule.light.ok', '运行成功，等待下次运行')};
+        }
+        return {tone: 'gray', live: false, text: bt('schedule.light.never', '等待首次运行')};
     }
 
     function fmtScheduleTime(ms) {
@@ -6616,21 +6672,26 @@
             ? bt('schedule.cookie.bound', '已绑定 Cookie')
             : bt('schedule.cookie.restricted', '受限模式（无 Cookie）');
         const enabledLabel = t.enabled ? bt('schedule.state.enabled', '已启用') : bt('schedule.state.disabled', '已停用');
-        const authExpired = t.lastStatus === 'AUTH_EXPIRED';
+        const light = scheduleStatusLight(t);
         return `
         <div class="schedule-card${t.enabled ? '' : ' schedule-card-disabled'}">
             <div class="schedule-card-head">
-                <span class="schedule-card-name">${escHtml(t.name)}</span>
-                <span class="schedule-badge">${escHtml(typeLabel)}</span>
-                <span class="schedule-badge">${escHtml(kindLabel)}</span>
-                <span class="schedule-badge${t.cookieBound ? ' schedule-badge-ok' : ''}">${escHtml(cookieLabel)}</span>
-                <span class="schedule-badge${t.enabled ? ' schedule-badge-ok' : ' schedule-badge-disabled'}">${escHtml(enabledLabel)}</span>
+                <div class="schedule-card-head-main">
+                    <span class="schedule-card-name">${escHtml(t.name)}</span>
+                    <span class="schedule-badge">${escHtml(typeLabel)}</span>
+                    <span class="schedule-badge">${escHtml(kindLabel)}</span>
+                    <span class="schedule-badge${t.cookieBound ? ' schedule-badge-ok' : ''}">${escHtml(cookieLabel)}</span>
+                    <span class="schedule-badge${t.enabled ? ' schedule-badge-ok' : ' schedule-badge-disabled'}">${escHtml(enabledLabel)}</span>
+                </div>
+                <span class="schedule-status-light schedule-status-light-${light.tone}${light.live ? ' schedule-status-light-live' : ''}" title="${escHtml(light.text)}">
+                    <span class="schedule-light-dot" aria-hidden="true"></span>
+                    <span class="schedule-light-text">${escHtml(light.text)}</span>
+                </span>
             </div>
             <div class="schedule-card-meta">
                 <div>${escHtml(bt('schedule.meta.trigger', '触发：'))}${escHtml(triggerLabel)}</div>
                 <div>${escHtml(bt('schedule.meta.next', '下次运行：'))}${escHtml(fmtScheduleTime(t.nextRunTime))}</div>
-                <div>${escHtml(bt('schedule.meta.last', '上次运行：'))}${escHtml(fmtScheduleTime(t.lastRunTime))}
-                    <span class="${authExpired ? 'schedule-status-bad' : ''}">${escHtml(scheduleStatusLabel(t.lastStatus))}</span></div>
+                <div>${escHtml(bt('schedule.meta.last', '上次运行：'))}${escHtml(fmtScheduleTime(t.lastRunTime))}</div>
                 <div class="schedule-meta-actions">
                     <button type="button" class="btn btn-blue" onclick="showScheduleSnapshot(${t.id})">${escHtml(bt('schedule.snapshot.action.view', '查看任务快照信息'))}</button>
                 </div>

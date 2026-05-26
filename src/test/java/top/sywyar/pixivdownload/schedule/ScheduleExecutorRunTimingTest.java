@@ -58,7 +58,7 @@ class ScheduleExecutorRunTimingTest {
         config.setFetchDelayMs(0);
         executor = new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
                 artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
-                config, new ObjectMapper());
+                config, new ScheduleRunState(), new ObjectMapper());
         when(database.mapper()).thenReturn(mapper);
     }
 
@@ -69,7 +69,7 @@ class ScheduleExecutorRunTimingTest {
                 1L, "画师计划", true, ScheduledTaskType.USER_NEW,
                 "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, 0L);
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, 0L);
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("123"));
         when(pixivDatabase.hasArtwork(123L)).thenReturn(false);
         when(pixivFetchService.fetchArtworkMeta("123", null)).thenReturn(
@@ -93,7 +93,7 @@ class ScheduleExecutorRunTimingTest {
 
         ArgumentCaptor<Long> lastRun = ArgumentCaptor.forClass(Long.class);
         ArgumentCaptor<Long> nextRun = ArgumentCaptor.forClass(Long.class);
-        verify(mapper).updateRunResult(eq(1L), lastRun.capture(), eq(ScheduleExecutor.STATUS_OK), nextRun.capture());
+        verify(mapper).updateRunResult(eq(1L), lastRun.capture(), eq(ScheduleExecutor.STATUS_OK), isNull(), nextRun.capture());
         assertThat(lastRun.getValue()).isGreaterThanOrEqualTo(downloadCompletedAt.get());
         assertThat(nextRun.getValue()).isEqualTo(lastRun.getValue() + 60_000L);
     }

@@ -16,6 +16,7 @@ package top.sywyar.pixivdownload.schedule;
  * @param cronExpr        Spring Cron 表达式（{@code triggerKind=cron} 时有效）
  * @param cookieMode      {@code bound}（绑定管理员快照 Cookie）或 {@code restricted}（无 Cookie，仅匿名内容）
  * @param lastStatus      上轮运行结果标记（如 {@code OK} / {@code AUTH_EXPIRED} / {@code ERROR}）
+ * @param lastMessage     上轮失败原因摘要（仅 {@code ERROR} 时有值，已截断、绝不含 Cookie）；其余状态为 {@code null}
  */
 public record ScheduledTask(
         Long id,
@@ -30,6 +31,7 @@ public record ScheduledTask(
         Long nextRunTime,
         Long lastRunTime,
         String lastStatus,
+        String lastMessage,
         long createdTime
 ) {
     public static final String TRIGGER_INTERVAL = "interval";

@@ -68,7 +68,11 @@ public class ScheduleExecutor {
     private final NovelDatabase novelDatabase;
     private final NovelMergeService novelMergeService;
     private final ScheduleConfig scheduleConfig;
+    private final ScheduleRunState runState;
     private final ObjectMapper objectMapper;
+
+    /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
+    private static final int MAX_ERROR_MESSAGE_LENGTH = 300;
 
     /** 后台异步运行一次（供「立即运行」端点用，避免阻塞 HTTP 请求线程）。 */
     @Async
@@ -84,7 +88,10 @@ public class ScheduleExecutor {
      * 调度 tick 串行调用本方法；固定周期的下一次运行以本轮真实完成时间为基准。
      */
     public void runTaskAndRecord(ScheduledTask task) {
+        // 瞬时态：本任务进入执行 → RUNNING（覆盖 tick 预设的 QUEUED）；无论成败，结束后清除瞬时态。
+        runState.markRunning(task.id());
         String status;
+        String message = null;
         try {
             int completed = runTask(task);
             status = STATUS_OK;
@@ -95,12 +102,31 @@ public class ScheduleExecutor {
             log.warn("Scheduled task {} ({}) auth expired, awaiting re-authorization", task.id(), task.name());
         } catch (Exception e) {
             status = STATUS_ERROR;
+            message = summarizeError(e);
             log.error("Scheduled task {} ({}) failed: {}", task.id(), task.name(), e.getMessage(), e);
+        } finally {
+            runState.clear(task.id());
         }
         long completedAt = System.currentTimeMillis();
         Long nextRun = ScheduleTiming.computeNextRun(
                 task.triggerKind(), task.intervalMinutes(), task.cronExpr(), completedAt);
-        database.mapper().updateRunResult(task.id(), completedAt, status, nextRun);
+        database.mapper().updateRunResult(task.id(), completedAt, status, message, nextRun);
+    }
+
+    /**
+     * 把异常压缩成可安全展示的失败原因摘要：取 {@code getMessage()}（缺失时退化为异常简单类名），
+     * 折叠空白并截断到 {@link #MAX_ERROR_MESSAGE_LENGTH}。这些异常文本不含 Cookie / 凭证，可回显。
+     */
+    private static String summarizeError(Throwable e) {
+        String raw = e.getMessage();
+        if (raw == null || raw.isBlank()) {
+            raw = e.getClass().getSimpleName();
+        }
+        String collapsed = raw.replaceAll("\\s+", " ").trim();
+        if (collapsed.length() > MAX_ERROR_MESSAGE_LENGTH) {
+            collapsed = collapsed.substring(0, MAX_ERROR_MESSAGE_LENGTH) + "…";
+        }
+        return collapsed;
     }
 
     /**

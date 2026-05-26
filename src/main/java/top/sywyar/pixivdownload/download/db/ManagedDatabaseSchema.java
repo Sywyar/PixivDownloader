@@ -359,6 +359,7 @@ public final class ManagedDatabaseSchema {
                         column("next_run_time", "INTEGER", false, null, 0),
                         column("last_run_time", "INTEGER", false, null, 0),
                         column("last_status", "TEXT", false, null, 0),
+                        column("last_message", "TEXT", false, null, 0),
                         column("created_time", "INTEGER", true, null, 0)
                 ),
                 List.of(

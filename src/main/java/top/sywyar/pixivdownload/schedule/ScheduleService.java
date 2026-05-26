@@ -26,9 +26,12 @@ public class ScheduleService {
     private final ScheduledTaskDatabase database;
     private final ScheduleExecutor executor;
     private final ScheduleConfig config;
+    private final ScheduleRunState runState;
 
     public List<ScheduleTaskView> list() {
-        return database.mapper().findAll().stream().map(ScheduleTaskView::of).toList();
+        return database.mapper().findAll().stream()
+                .map(t -> ScheduleTaskView.of(t, runState.get(t.id())))
+                .toList();
     }
 
     public ScheduleTaskView get(long id) {
@@ -36,7 +39,7 @@ public class ScheduleService {
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
-        return ScheduleTaskView.of(task);
+        return ScheduleTaskView.of(task, runState.get(id));
     }
 
     @Transactional
@@ -63,6 +66,7 @@ public class ScheduleService {
                 triggerKind, req.getIntervalMinutes(), req.getCronExpr(), now));
         row.setLastRunTime(null);
         row.setLastStatus(null);
+        row.setLastMessage(null);
         row.setCreatedTime(now);
 
         database.mapper().insert(row);
