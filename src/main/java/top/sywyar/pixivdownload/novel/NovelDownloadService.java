@@ -118,6 +118,12 @@ public class NovelDownloadService implements NovelDownloader {
     @Async("novelDownloadTaskExecutor")
     @Override
     public void download(NovelDownloadRequest request, String userUuid) {
+        downloadBlocking(request, userUuid);
+    }
+
+    @Override
+    public boolean downloadBlocking(NovelDownloadRequest request, String userUuid) {
+        boolean succeeded = false;
         Long novelId = request.getNovelId();
         NovelDownloadRequest.Other other = request.getOther() == null
                 ? new NovelDownloadRequest.Other() : request.getOther();
@@ -261,6 +267,7 @@ public class NovelDownloadService implements NovelDownloader {
             status.setCompleted(true);
             status.setEndTime(java.time.LocalDateTime.now());
             log.info("novel download completed: id={}, format={}, path={}", novelId, ext, downloadPath);
+            succeeded = true;
         } catch (CancellationException e) {
             status.setCancelled(true);
             status.setCompleted(true);
@@ -278,6 +285,7 @@ public class NovelDownloadService implements NovelDownloader {
                     () -> statusMap.remove(statusKey),
                     Instant.now().plusSeconds(300));
         }
+        return succeeded;
     }
 
     public NovelDownloadStatus getStatus(Long novelId) {

@@ -112,6 +112,14 @@ public class DownloadService implements ArtworkDownloader {
     public void downloadImages(Long artworkId, String title, List<String> imageUrls,
                                String referer, DownloadRequest.Other other, String cookie,
                                String userUuid) {
+        downloadImagesBlocking(artworkId, title, imageUrls, referer, other, cookie, userUuid);
+    }
+
+    @Override
+    public boolean downloadImagesBlocking(Long artworkId, String title, List<String> imageUrls,
+                                          String referer, DownloadRequest.Other other, String cookie,
+                                          String userUuid) {
+        boolean succeeded = false;
         if (other == null) {
             other = new DownloadRequest.Other();
         }
@@ -260,6 +268,7 @@ public class DownloadService implements ArtworkDownloader {
 
             // 发送最终完成状态更新
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+            succeeded = true;
 
         } catch (CancellationException e) {
             status.setCancelled(true);
@@ -282,6 +291,7 @@ public class DownloadService implements ArtworkDownloader {
                     Instant.now().plusSeconds(300)
             );
         }
+        return succeeded;
     }
 
     private Path resolveEffectiveDownloadRoot(DownloadRequest.Other other) {

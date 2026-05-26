@@ -21,8 +21,6 @@ import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 计划任务的执行核心：按任务类型在服务端发现作品 ID、跳过已下载、逐个抓取元数据、
@@ -43,7 +41,8 @@ import java.util.concurrent.ConcurrentHashMap;
  *                "novelFormat","novelMerge","novelMergeFormat"} }
  * }</pre>
  * 客户端的「作品间隔 / 图片间隔 / 最大并发」是浏览器队列调度概念，服务端计划串行 + {@code schedule.fetch-delay-ms}，
- * 不在快照范围内；「跳过已下载」在计划侧恒为开（{@code hasArtwork} / {@code hasNovel}）。
+ * 不在快照范围内；计划任务使用同步下载入口，直到本轮真实下载与后置动作完成后才记录下次运行时间；
+ * 「跳过已下载」在计划侧恒为开（{@code hasArtwork} / {@code hasNovel}）。
  *
  * <p>健壮性：单个作品抓取 / 下载失败仅记日志、不挂整轮；捕获
  * {@link PixivFetchService.PixivFetchException}（鉴权失效）则立即停止本轮、标记
@@ -71,13 +70,6 @@ public class ScheduleExecutor {
     private final ScheduleConfig scheduleConfig;
     private final ObjectMapper objectMapper;
 
-    /**
-     * 小说系列「待合订」标记（按任务 id）。本轮有新派发→置位；下一轮无新增时（上一轮的异步下载
-     * 已有整个间隔落库）合订一次并清标记，避免每轮重复合订空转。纯内存、best-effort：进程重启
-     * 至多少触发一次自动合订，用户仍可在系列页手动合订。
-     */
-    private final Set<Long> pendingSeriesMerge = ConcurrentHashMap.newKeySet();
-
     /** 后台异步运行一次（供「立即运行」端点用，避免阻塞 HTTP 请求线程）。 */
     @Async
     public void runTaskAsync(long taskId) {
@@ -89,15 +81,14 @@ public class ScheduleExecutor {
 
     /**
      * 同步运行一个任务并把结果写回（last_run_time / last_status / next_run_time）。
-     * 调度 tick 串行调用本方法。
+     * 调度 tick 串行调用本方法；固定周期的下一次运行以本轮真实完成时间为基准。
      */
     public void runTaskAndRecord(ScheduledTask task) {
-        long now = System.currentTimeMillis();
         String status;
         try {
-            int dispatched = runTask(task);
+            int completed = runTask(task);
             status = STATUS_OK;
-            log.info("Scheduled task {} ({}) dispatched {} new download(s)", task.id(), task.name(), dispatched);
+            log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completed);
         } catch (PixivFetchService.PixivFetchException e) {
             // 鉴权失效：不写 cookie 到日志，仅记任务标识与提示
             status = STATUS_AUTH_EXPIRED;
@@ -106,13 +97,14 @@ public class ScheduleExecutor {
             status = STATUS_ERROR;
             log.error("Scheduled task {} ({}) failed: {}", task.id(), task.name(), e.getMessage(), e);
         }
+        long completedAt = System.currentTimeMillis();
         Long nextRun = ScheduleTiming.computeNextRun(
-                task.triggerKind(), task.intervalMinutes(), task.cronExpr(), now);
-        database.mapper().updateRunResult(task.id(), now, status, nextRun);
+                task.triggerKind(), task.intervalMinutes(), task.cronExpr(), completedAt);
+        database.mapper().updateRunResult(task.id(), completedAt, status, nextRun);
     }
 
     /**
-     * 发现 + 过滤 + 下载，返回派发的新下载数。
+     * 发现 + 过滤 + 同步下载，返回实际完成的新下载数。
      *
      * @throws PixivFetchService.PixivFetchException Cookie 失效 / 受限需登录时上抛，供 {@link #runTaskAndRecord} 标记鉴权失效
      */
@@ -127,14 +119,14 @@ public class ScheduleExecutor {
         Filters filters = parseFilters(root.path("filters"));
         Download download = parseDownload(root.path("download"));
 
-        int dispatched;
+        int completed;
         if (task.type() == ScheduledTaskType.SEARCH && source.path("maxPages").asInt(3) == -1) {
             // 结束页 = -1（仅管理员，且计划任务本就 admin-only）：增量模式——逐页发现、逐作品处理，
             // 命中第一个已下载作品即停（搜索按 date_d 最新在前 → 命中即代表后面都是旧作）。
-            dispatched = runIncrementalSearch(task, novel, source, cookie, filters, download);
+            completed = runIncrementalSearch(task, novel, source, cookie, filters, download);
         } else {
             List<String> ids = discoverIds(task.type(), novel, source, cookie);
-            dispatched = 0;
+            completed = 0;
             for (String id : ids) {
                 long workId;
                 try {
@@ -149,7 +141,7 @@ public class ScheduleExecutor {
                 try {
                     if (novel ? dispatchNovel(id, workId, cookie, filters, download)
                               : dispatchArtwork(id, workId, cookie, filters, download)) {
-                        dispatched++;
+                        completed++;
                     }
                 } catch (PixivFetchService.PixivFetchException e) {
                     throw e; // 鉴权失效：让整轮停下
@@ -161,25 +153,20 @@ public class ScheduleExecutor {
             }
         }
 
-        // 小说系列合订：best-effort、幂等（按当前已落库章节重导），失败仅记日志。
-        // 新派发的下载为异步、未必已落库：本轮有新增 → 仅置「待合订」标记、不立即合订；
-        // 下一轮无新增时（上一轮下载已有整个间隔落库）合订一次并清标记，避免每轮空合订。
-        if (novel && task.type() == ScheduledTaskType.SERIES && download.novelMerge()) {
+        // 小说系列合订：计划下载已同步完成并落库，因此本轮有新章节时可立即合订。
+        // best-effort、幂等（按当前已落库章节重导），失败仅记日志。
+        if (novel && task.type() == ScheduledTaskType.SERIES && download.novelMerge() && completed > 0) {
             long seriesId = source.path("seriesId").asLong(0);
             if (seriesId > 0) {
-                if (dispatched > 0) {
-                    pendingSeriesMerge.add(task.id());
-                } else if (pendingSeriesMerge.remove(task.id())) {
-                    try {
-                        novelMergeService.merge(seriesId,
-                                NovelDownloadService.NovelFormat.parse(download.novelMergeFormat()));
-                    } catch (Exception e) {
-                        log.warn("Scheduled task {} series merge failed: {}", task.id(), e.getMessage());
-                    }
+                try {
+                    novelMergeService.merge(seriesId,
+                            NovelDownloadService.NovelFormat.parse(download.novelMergeFormat()));
+                } catch (Exception e) {
+                    log.warn("Scheduled task {} series merge failed: {}", task.id(), e.getMessage());
                 }
             }
         }
-        return dispatched;
+        return completed;
     }
 
     private List<String> discoverIds(ScheduledTaskType type, boolean novel, JsonNode source, String cookie)
@@ -315,10 +302,9 @@ public class ScheduleExecutor {
             }
         }
 
-        artworkDownloader.downloadImages(
+        return artworkDownloader.downloadImagesBlocking(
                 artworkId, meta.title(), imageUrls,
                 PIXIV_REFERER + "artworks/" + id, other, cookie, null);
-        return true;
     }
 
     /** 抓取小说详情、应用筛选，命中则按快照设置组装并派发小说下载。返回是否派发。 */
@@ -358,8 +344,7 @@ public class ScheduleExecutor {
         o.setFormat(download.novelFormat());
         req.setOther(o);
 
-        novelDownloader.download(req, null);
-        return true;
+        return novelDownloader.downloadBlocking(req, null);
     }
 
     // ── 服务端筛选 ────────────────────────────────────────────────────────────────
