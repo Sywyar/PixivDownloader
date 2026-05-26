@@ -220,6 +220,24 @@
         </div>
     </div>
 
+    <div id="schedule-snapshot-modal" class="schedule-snapshot-modal" hidden
+         role="dialog" aria-modal="true" aria-labelledby="schedule-snapshot-title"
+         onclick="if(event.target===this) closeScheduleSnapshotModal()">
+        <div class="schedule-snapshot-dialog">
+            <div class="schedule-snapshot-head">
+                <div id="schedule-snapshot-title" class="schedule-snapshot-title" data-i18n="schedule.snapshot.title">任务快照信息</div>
+                <button type="button" class="schedule-snapshot-close"
+                        onclick="closeScheduleSnapshotModal()"
+                        data-i18n-title="common:button.close" title="关闭">×</button>
+            </div>
+            <div id="schedule-snapshot-body" class="schedule-snapshot-body"></div>
+            <div class="schedule-snapshot-footer">
+                <span data-i18n="schedule.snapshot.footer">编辑请使用功能区域的编辑按钮。</span>
+                <button type="button" class="btn btn-gray" onclick="closeScheduleSnapshotModal()" data-i18n="common:button.close">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Shared extra-filters (live result filtering in Search; snapshotted into scheduled tasks in User/Search/Series) -->
     <div class="search-extra-filters" id="extra-filters-card" style="display:none;">
         <div class="search-extra-head">

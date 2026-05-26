@@ -217,6 +217,14 @@
                     renderUserPagination();
                 }
                 updateBatchLimitNote();
+                const snapshotModal = document.getElementById('schedule-snapshot-modal');
+                const snapshotTaskId = snapshotModal && !snapshotModal.hidden ? snapshotModal.dataset.taskId : null;
+                if (state.mode === 'schedule') {
+                    await loadScheduleTasks();
+                }
+                if (snapshotTaskId) {
+                    showScheduleSnapshot(snapshotTaskId);
+                }
                 await refreshBatchCollections();
                 if (_userscriptsLoaded) {
                     loadUserscripts();
@@ -6306,6 +6314,276 @@
         try { return new Date(ms).toLocaleString(); } catch (e) { return '—'; }
     }
 
+    function parseScheduleParams(task) {
+        try {
+            const parsed = JSON.parse((task || {}).paramsJson || '{}');
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function scheduleTypeLabel(type) {
+        return {
+            USER_NEW: bt('mode.user', '👤 User 模式'),
+            SEARCH: bt('mode.search', '🔍 Search 模式'),
+            SERIES: bt('mode.series', '📚 系列下载')
+        }[type] || type || bt('schedule.snapshot.value.unknown', '未知');
+    }
+
+    function scheduleKindFromParams(params) {
+        if (!params || !params.kind) return null;
+        return params.kind === 'novel' ? 'novel' : 'illust';
+    }
+
+    function scheduleKindLabel(kind) {
+        if (kind === 'novel') return bt('schedule.kind.novel', '小说');
+        if (kind === 'illust') return bt('schedule.kind.illust', '插画');
+        return bt('schedule.snapshot.value.unknown', '未知');
+    }
+
+    function scheduleTriggerLabel(t) {
+        const minutes = t.intervalMinutes || 0;
+        return t.triggerKind === 'cron'
+            ? `${bt('schedule.trigger.cron', 'Cron 表达式')} ${t.cronExpr || ''}`
+            : `${bt('schedule.trigger.interval', '固定周期')} ${bt('schedule.time.minutes', '{count} 分钟', {count: minutes})}`;
+    }
+
+    function scheduleBoolLabel(value) {
+        return value
+            ? bt('schedule.snapshot.value.yes', '是')
+            : bt('schedule.snapshot.value.no', '否');
+    }
+
+    function scheduleUnsetLabel() {
+        return bt('schedule.snapshot.value.unset', '未设置');
+    }
+
+    function scheduleUnlimitedLabel() {
+        return bt('schedule.snapshot.value.unlimited', '不限');
+    }
+
+    function scheduleValueOrUnset(value) {
+        return value == null || value === '' ? scheduleUnsetLabel() : String(value);
+    }
+
+    function scheduleListValue(value) {
+        const list = Array.isArray(value)
+            ? value.map(v => String(v).trim()).filter(Boolean)
+            : String(value || '').split(',').map(v => v.trim()).filter(Boolean);
+        return list.length ? list.join(', ') : scheduleUnsetLabel();
+    }
+
+    function scheduleRangeValue(min, max) {
+        const hasMin = min != null && min !== '';
+        const hasMax = max != null && max !== '';
+        if (hasMin && hasMax) {
+            return bt('schedule.snapshot.value.range', '{min} - {max}', {min, max});
+        }
+        if (hasMin) {
+            return bt('schedule.snapshot.value.at-least', '≥ {value}', {value: min});
+        }
+        if (hasMax) {
+            return bt('schedule.snapshot.value.at-most', '≤ {value}', {value: max});
+        }
+        return scheduleUnlimitedLabel();
+    }
+
+    function scheduleContentLabel(value) {
+        const labels = {
+            all: bt('search.content.all', '全部'),
+            safe: bt('search.content.safe', '全年龄'),
+            r18plus: bt('search.content.r18plus', 'R18+(R-18 + R-18G)'),
+            r18: bt('search.content.r18', 'R-18'),
+            r18g: bt('search.content.r18g', 'R-18G')
+        };
+        return labels[value || 'all'] || scheduleValueOrUnset(value);
+    }
+
+    function scheduleAiLabel(value) {
+        const labels = {
+            all: bt('search.filter.all', '全部'),
+            exclude: bt('search.filter.exclude-ai', '排除 AI'),
+            only: bt('search.filter.only-ai', '仅 AI')
+        };
+        return labels[value || 'all'] || scheduleValueOrUnset(value);
+    }
+
+    function scheduleWorkTypeLabel(value) {
+        const labels = {
+            all: bt('search.filter.all', '全部'),
+            illust: bt('search.type.illust', '插画'),
+            manga: bt('search.type.manga', '漫画'),
+            ugoira: bt('search.type.ugoira', '动图')
+        };
+        return labels[value || 'all'] || scheduleValueOrUnset(value);
+    }
+
+    function scheduleSearchModeLabel(value) {
+        const labels = {
+            s_tag: bt('search.mode.tag', '标签'),
+            s_tc: bt('search.mode.title-desc', '标题/描述')
+        };
+        return labels[value || 's_tag'] || scheduleValueOrUnset(value);
+    }
+
+    function scheduleSearchOrderLabel(value) {
+        const labels = {
+            date_d: bt('search.order.latest', '最新'),
+            date: bt('search.order.oldest', '最旧'),
+            popular_d: bt('search.order.popular', '热门 ⚠')
+        };
+        return labels[value || 'date_d'] || scheduleValueOrUnset(value);
+    }
+
+    function scheduleNovelFormatLabel(value) {
+        const labels = {
+            txt: bt('novel:format.txt', '纯文本（TXT）'),
+            html: bt('novel:format.html', '网页（HTML）'),
+            epub: bt('novel:format.epub', '电子书（EPUB）')
+        };
+        return labels[value || 'txt'] || scheduleValueOrUnset(value);
+    }
+
+    function scheduleMaxPagesLabel(value) {
+        if (Number(value) === -1) {
+            return bt('schedule.snapshot.value.until-downloaded', '直到遇到已下载作品为止');
+        }
+        const parsed = Number(value);
+        const count = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+        return bt('schedule.snapshot.value.pages-count', '{count} 页', {count});
+    }
+
+    function scheduleCollectionLabel(collectionId) {
+        if (collectionId == null || collectionId === '') {
+            return bt('option.collection.none', '（不加入收藏夹）');
+        }
+        const id = String(collectionId);
+        const select = document.getElementById('s-collection');
+        let optionText = '';
+        if (select && select.options) {
+            const opt = Array.from(select.options).find(o => String(o.value) === id);
+            optionText = opt ? (opt.textContent || '').trim() : '';
+        }
+        const idText = bt('schedule.snapshot.value.id', 'ID');
+        return optionText ? `${optionText} (${idText} ${id})` : `${idText} ${id}`;
+    }
+
+    function scheduleSnapshotRow(label, value) {
+        return `<div class="schedule-snapshot-key">${escHtml(label)}</div>` +
+            `<div class="schedule-snapshot-value">${escHtml(value)}</div>`;
+    }
+
+    function scheduleSnapshotSection(title, rows) {
+        return `<section class="schedule-snapshot-section">` +
+            `<div class="schedule-snapshot-section-title">${escHtml(title)}</div>` +
+            `<div class="schedule-snapshot-grid">${rows.map(row => scheduleSnapshotRow(row[0], row[1])).join('')}</div>` +
+            `</section>`;
+    }
+
+    function buildScheduleSnapshotSourceRows(type, source) {
+        if (type === 'USER_NEW') {
+            return [[bt('schedule.snapshot.field.user-id', '画师 ID'), scheduleValueOrUnset(source.userId)]];
+        }
+        if (type === 'SEARCH') {
+            return [
+                [bt('schedule.snapshot.field.keyword', '搜索关键词'), scheduleValueOrUnset(source.word)],
+                [bt('schedule.snapshot.field.search-order', '排序'), scheduleSearchOrderLabel(source.order)],
+                [bt('schedule.snapshot.field.search-mode', '搜索方式'), scheduleSearchModeLabel(source.sMode)],
+                [bt('schedule.snapshot.field.pixiv-mode', 'Pixiv 内容范围'), scheduleContentLabel(source.mode)],
+                [bt('schedule.snapshot.field.max-pages', '发现页数'), scheduleMaxPagesLabel(source.maxPages)]
+            ];
+        }
+        if (type === 'SERIES') {
+            return [[bt('schedule.snapshot.field.series-id', '系列 ID'), scheduleValueOrUnset(source.seriesId)]];
+        }
+        return [[
+            bt('schedule.snapshot.field.source-json', '来源快照'),
+            JSON.stringify(source || {})
+        ]];
+    }
+
+    function renderScheduleSnapshotBody(t) {
+        const params = parseScheduleParams(t);
+        const kind = scheduleKindFromParams(params);
+        const basicRows = [
+            [bt('schedule.snapshot.field.name', '任务名称'), scheduleValueOrUnset(t.name)],
+            [bt('schedule.snapshot.field.type', '任务类型'), scheduleTypeLabel(t.type)],
+            [bt('schedule.snapshot.field.kind', '作品类型'), scheduleKindLabel(kind)],
+            [bt('schedule.snapshot.field.trigger', '触发方式'), scheduleTriggerLabel(t)],
+            [bt('schedule.snapshot.field.cookie', 'Cookie 模式'), t.cookieBound ? bt('schedule.cookie.bound', '已绑定 Cookie') : bt('schedule.cookie.restricted', '受限模式（无 Cookie）')],
+            [bt('schedule.snapshot.field.enabled', '启用状态'), t.enabled ? bt('schedule.state.enabled', '已启用') : bt('schedule.state.disabled', '已停用')],
+            [bt('schedule.snapshot.field.next-run', '下次运行'), fmtScheduleTime(t.nextRunTime)],
+            [bt('schedule.snapshot.field.last-run', '上次运行'), fmtScheduleTime(t.lastRunTime)],
+            [bt('schedule.snapshot.field.last-status', '运行状态'), scheduleStatusLabel(t.lastStatus)]
+        ];
+        const basicSection = scheduleSnapshotSection(bt('schedule.snapshot.section.basic', '基本信息'), basicRows);
+        if (!params) {
+            return basicSection +
+                `<div class="schedule-snapshot-empty">${escHtml(bt('schedule.snapshot.error.parse', '任务快照解析失败'))}</div>`;
+        }
+        const source = params.source || {};
+        const filters = params.filters || {};
+        const download = params.download || {};
+        const sourceSection = scheduleSnapshotSection(
+            bt('schedule.snapshot.section.source', '来源快照'),
+            buildScheduleSnapshotSourceRows(t.type, source)
+        );
+        const filterSection = scheduleSnapshotSection(
+            bt('schedule.snapshot.section.filters', '筛选快照'),
+            [
+                [bt('label.search-content-rating', '内容分级'), scheduleContentLabel(filters.content)],
+                [bt('label.search-ai', 'AI 作品'), scheduleAiLabel(filters.aiFilter)],
+                [bt('label.search-tags-exact', '标签(精确匹配)'), scheduleListValue(filters.tagsExact)],
+                [bt('label.search-tags-fuzzy', '标签(模糊匹配)'), scheduleListValue(filters.tagsFuzzy)],
+                [bt('label.search-type', '作品类型'), scheduleWorkTypeLabel(filters.typeFilter)],
+                [bt('schedule.snapshot.field.pages-range', '页数范围'), scheduleRangeValue(filters.pagesMin, filters.pagesMax)],
+                [bt('schedule.snapshot.field.words-range', '字数范围'), scheduleRangeValue(filters.wordsMin, filters.wordsMax)],
+                [bt('schedule.snapshot.field.bookmarks-range', '收藏数范围'), scheduleRangeValue(filters.bookmarksMin, filters.bookmarksMax)]
+            ]
+        );
+        const downloadSection = scheduleSnapshotSection(
+            bt('schedule.snapshot.section.download', '下载设置快照'),
+            [
+                [bt('label.settings.skip', '跳过已下载作品'), bt('schedule.snapshot.value.always-on', '始终开启')],
+                [bt('label.settings.filename-template', '文件名格式:'), scheduleValueOrUnset(download.fileNameTemplate)],
+                [bt('label.settings.bookmark', '下载后自动收藏'), scheduleBoolLabel(!!download.bookmark)],
+                [bt('label.settings.collection', '收藏到:'), scheduleCollectionLabel(download.collectionId)],
+                [bt('novel:batch.format-label', '小说格式'), scheduleNovelFormatLabel(download.novelFormat)],
+                [bt('novel:batch.merge-label', '系列下载完成后生成合订本'), scheduleBoolLabel(!!download.novelMerge)],
+                [bt('novel:batch.merge-format-label', '合订本格式'), scheduleNovelFormatLabel(download.novelMergeFormat || 'epub')]
+            ]
+        );
+        return basicSection + sourceSection + filterSection + downloadSection;
+    }
+
+    function showScheduleSnapshot(id) {
+        const modal = document.getElementById('schedule-snapshot-modal');
+        const body = document.getElementById('schedule-snapshot-body');
+        if (!modal || !body) return;
+        const task = scheduleTasksCache.find(t => Number(t.id) === Number(id));
+        body.innerHTML = task
+            ? renderScheduleSnapshotBody(task)
+            : `<div class="schedule-snapshot-empty">${escHtml(bt('schedule.snapshot.error.not-found', '未找到任务，请重新加载列表'))}</div>`;
+        modal.dataset.taskId = String(id);
+        modal.hidden = false;
+        document.body.classList.add('schedule-modal-open');
+        const closeBtn = modal.querySelector('.schedule-snapshot-close');
+        if (closeBtn) closeBtn.focus();
+    }
+
+    function closeScheduleSnapshotModal() {
+        const modal = document.getElementById('schedule-snapshot-modal');
+        if (!modal) return;
+        modal.hidden = true;
+        delete modal.dataset.taskId;
+        document.body.classList.remove('schedule-modal-open');
+    }
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeScheduleSnapshotModal();
+    });
+
     async function loadScheduleTasks() {
         const list = document.getElementById('schedule-list');
         if (!list) return;
@@ -6329,19 +6607,11 @@
     }
 
     function renderScheduleTaskCard(t) {
-        const typeLabel = {
-            USER_NEW: bt('schedule.type.user-new', '画师新作'),
-            SEARCH: bt('schedule.type.search', '保存的搜索'),
-            SERIES: bt('schedule.type.series', '系列下载')
-        }[t.type] || t.type;
-        let kind = 'illust';
-        try { kind = (JSON.parse(t.paramsJson || '{}').kind === 'novel') ? 'novel' : 'illust'; } catch (e) { /* ignore */ }
-        const kindLabel = kind === 'novel'
-            ? bt('schedule.kind.novel', '小说')
-            : bt('schedule.kind.illust', '插画');
-        const triggerLabel = t.triggerKind === 'cron'
-            ? bt('schedule.trigger.cron', 'Cron 表达式') + ' ' + escHtml(t.cronExpr || '')
-            : bt('schedule.trigger.interval', '固定周期') + ' ' + (t.intervalMinutes || 0) + ' min';
+        const params = parseScheduleParams(t);
+        const kind = scheduleKindFromParams(params);
+        const typeLabel = scheduleTypeLabel(t.type);
+        const kindLabel = scheduleKindLabel(kind);
+        const triggerLabel = scheduleTriggerLabel(t);
         const cookieLabel = t.cookieBound
             ? bt('schedule.cookie.bound', '已绑定 Cookie')
             : bt('schedule.cookie.restricted', '受限模式（无 Cookie）');
@@ -6354,13 +6624,16 @@
                 <span class="schedule-badge">${escHtml(typeLabel)}</span>
                 <span class="schedule-badge">${escHtml(kindLabel)}</span>
                 <span class="schedule-badge${t.cookieBound ? ' schedule-badge-ok' : ''}">${escHtml(cookieLabel)}</span>
-                <span class="schedule-badge${t.enabled ? ' schedule-badge-ok' : ''}">${escHtml(enabledLabel)}</span>
+                <span class="schedule-badge${t.enabled ? ' schedule-badge-ok' : ' schedule-badge-disabled'}">${escHtml(enabledLabel)}</span>
             </div>
             <div class="schedule-card-meta">
-                <div>${escHtml(bt('schedule.meta.trigger', '触发：'))}${triggerLabel}</div>
+                <div>${escHtml(bt('schedule.meta.trigger', '触发：'))}${escHtml(triggerLabel)}</div>
                 <div>${escHtml(bt('schedule.meta.next', '下次运行：'))}${escHtml(fmtScheduleTime(t.nextRunTime))}</div>
                 <div>${escHtml(bt('schedule.meta.last', '上次运行：'))}${escHtml(fmtScheduleTime(t.lastRunTime))}
                     <span class="${authExpired ? 'schedule-status-bad' : ''}">${escHtml(scheduleStatusLabel(t.lastStatus))}</span></div>
+                <div class="schedule-meta-actions">
+                    <button type="button" class="btn btn-blue" onclick="showScheduleSnapshot(${t.id})">${escHtml(bt('schedule.snapshot.action.view', '查看任务快照信息'))}</button>
+                </div>
             </div>
             <div class="schedule-card-actions">
                 <button class="btn btn-cyan" onclick="runScheduleTask(${t.id})">${escHtml(bt('schedule.action.run', '▶ 立即运行'))}</button>
