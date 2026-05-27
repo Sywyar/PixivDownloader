@@ -90,6 +90,9 @@ public class ScheduleExecutor {
     public void runTaskAndRecord(ScheduledTask task) {
         // 瞬时态：本任务进入执行 → RUNNING（覆盖 tick 预设的 QUEUED）；无论成败，结束后清除瞬时态。
         runState.markRunning(task.id());
+        // 落库本轮开始时刻：正常结束时 updateRunResult 会清为 NULL；进程被强杀（没走到 updateRunResult）则残留 →
+        // 即「上次运行被中断」信号，供前端中断红灯展示，重跑会刷新它并最终补齐后清除。
+        database.mapper().updateRunStarted(task.id(), System.currentTimeMillis());
         String status;
         String message = null;
         try {
@@ -146,10 +149,10 @@ public class ScheduleExecutor {
         Download download = parseDownload(root.path("download"));
 
         int completed;
-        if (task.type() == ScheduledTaskType.SEARCH && source.path("maxPages").asInt(3) == -1) {
-            // 结束页 = -1（仅管理员，且计划任务本就 admin-only）：增量模式——逐页发现、逐作品处理，
-            // 命中第一个已下载作品即停（搜索按 date_d 最新在前 → 命中即代表后面都是旧作）。
-            completed = runIncrementalSearch(task, novel, source, cookie, filters, download);
+        if (isWatermarkMode(task.type(), source)) {
+            // 水位线增量发现（仅 USER_NEW 与「date_d + 结束页 = -1」的增量 SEARCH，均最新在前 + 只追加）：
+            // 扫到上一轮水位线即停翻页，崩溃后水位线不更新 → 重跑靠去重补齐，不丢作品。
+            completed = runWatermarkMode(task, novel, source, cookie, filters, download);
         } else {
             List<String> ids = discoverIds(task.type(), novel, source, cookie);
             completed = 0;
@@ -221,23 +224,55 @@ public class ScheduleExecutor {
     }
 
     /**
-     * SEARCH + {@code maxPages == -1} 的增量发现：把按页发现、按 ID 去重判定、单作品派发的
-     * 各依赖装配成函数后交给纯函数 {@link #runIncrementalSearch(long, PageSupplier, java.util.function.LongPredicate, WorkDispatcher, Runnable)}。
+     * 判定任务是否走「水位线增量发现」：仅适用于「最新在前 + 只会追加」的两类来源——
+     * <ul>
+     *   <li>{@code USER_NEW}：{@code discoverUser*Ids} 一次性返回全部 ID（按 ID 降序 = 最新在前）；</li>
+     *   <li>增量 {@code SEARCH}：{@code maxPages == -1} 且 {@code order == date_d}（逐页发现、最新在前）。</li>
+     * </ul>
+     * SERIES / 非 date_d 的 SEARCH / 固定页数 SEARCH 不适用（作者可重排、order 因删除重排、workId 不对应顺序 → 锚点不可靠），
+     * 维持「全量发现 + 逐个 hasArtwork 跳过」的现状。
      */
-    private int runIncrementalSearch(ScheduledTask task, boolean novel, JsonNode source, String cookie,
-                                     Filters filters, Download download) throws Exception {
-        String word = source.path("word").asText("");
-        String order = source.path("order").asText("date_d");
-        String mode = source.path("mode").asText("all");
-        String sMode = source.path("sMode").asText("s_tag");
-        PageSupplier pages = novel
-                ? p -> pixivFetchService.discoverSearchNovelIdsPage(word, order, mode, sMode, p, cookie)
-                : p -> pixivFetchService.discoverSearchArtworkIdsPage(word, order, mode, sMode, p, cookie);
+    private static boolean isWatermarkMode(ScheduledTaskType type, JsonNode source) {
+        if (type == ScheduledTaskType.USER_NEW) return true;
+        return type == ScheduledTaskType.SEARCH
+                && source.path("maxPages").asInt(3) == -1
+                && "date_d".equals(source.path("order").asText("date_d"));
+    }
+
+    /**
+     * 水位线增量发现：把按页发现、按 ID 去重判定、单作品派发的各依赖装配成函数后交给纯函数
+     * {@link #runWatermarkScan}。USER_NEW 把全量 ID 当单页（{@code p==1} 返回全部、其余空）；
+     * 增量 SEARCH 用逐页 supplier。一轮<b>正常跑完</b>（无异常）后才把水位线更新为本轮发现的最新 ID。
+     */
+    private int runWatermarkMode(ScheduledTask task, boolean novel, JsonNode source, String cookie,
+                                 Filters filters, Download download) throws Exception {
+        PageSupplier pages;
+        if (task.type() == ScheduledTaskType.USER_NEW) {
+            String userId = source.path("userId").asText("");
+            List<String> all = novel ? pixivFetchService.discoverUserNovelIds(userId, cookie)
+                                     : pixivFetchService.discoverUserArtworkIds(userId, cookie);
+            pages = p -> p == 1 ? all : List.of();
+        } else {
+            String word = source.path("word").asText("");
+            String order = source.path("order").asText("date_d");
+            String mode = source.path("mode").asText("all");
+            String sMode = source.path("sMode").asText("s_tag");
+            pages = novel
+                    ? p -> pixivFetchService.discoverSearchNovelIdsPage(word, order, mode, sMode, p, cookie)
+                    : p -> pixivFetchService.discoverSearchArtworkIdsPage(word, order, mode, sMode, p, cookie);
+        }
         java.util.function.LongPredicate already = novel ? novelDatabase::hasNovel : pixivDatabase::hasArtwork;
         WorkDispatcher dispatcher = novel
                 ? (id, workId) -> dispatchNovel(id, workId, cookie, filters, download)
                 : (id, workId) -> dispatchArtwork(id, workId, cookie, filters, download);
-        return runIncrementalSearch(task.id(), pages, already, dispatcher, this::politeDelay);
+        long watermark = task.watermarkId() == null ? 0L : task.watermarkId();
+        WatermarkScanResult result = runWatermarkScan(
+                task.id(), pages, watermark, already, dispatcher, this::politeDelay);
+        // 一轮正常跑完（无异常）→ 把水位线推进到本轮发现的最新 ID；本轮无任何发现则保留旧值（不回退）。
+        if (result.newestSeen() > 0) {
+            database.mapper().updateWatermark(task.id(), result.newestSeen());
+        }
+        return result.dispatched();
     }
 
     /** 给定页码返回该页作品 ID（按页内顺序）；空 / null 表示无更多结果。 */
@@ -252,21 +287,30 @@ public class ScheduleExecutor {
         boolean dispatch(String id, long workId) throws Exception;
     }
 
-    /** 增量搜索的安全翻页上限，防止结果异常时无限翻页（与系列发现的 200 页上限一致）。 */
+    /** 水位线增量扫描的安全翻页上限，防止结果异常时无限翻页（与系列发现的 200 页上限一致）。 */
     static final int SEARCH_INCREMENTAL_MAX_PAGES = 200;
 
+    /** 水位线扫描结果：本轮派发的新下载数 + 本轮发现到的最新（最大）作品 ID。 */
+    record WatermarkScanResult(int dispatched, long newestSeen) {
+    }
+
     /**
-     * 增量搜索的纯逻辑（package-private + static，便于单测）：逐页取 ID，命中第一个「已下载」即停止整轮翻页
-     * （搜索按 date_d 最新在前 → 命中即代表其后皆旧作）；某页为空 / null 视为无更多结果而停止；
-     * 单作品失败隔离（仅记日志、继续），鉴权失效上抛。返回派发的新下载数。
+     * 水位线增量扫描的纯逻辑（package-private + static，便于单测）：逐页取 ID（最新在前），
+     * 累积 {@code newestSeen = max(所有发现到的 ID)}；命中 {@code watermark > 0 && id <= watermark}
+     * 即停止整轮翻页（上一轮已处理到这里，其后皆旧作）；已下载（去重命中）的跳过、不计 politeDelay；
+     * 连续<b>一整页全部已下载</b>则兜底停止（应对水位线作品被删 / 404 命中不到的情况）；
+     * 某页为空 / null 视为无更多结果而停止；带 {@link #SEARCH_INCREMENTAL_MAX_PAGES} 页安全上限。
+     * 单作品失败隔离（仅记日志、继续），鉴权失效上抛。
      */
-    static int runIncrementalSearch(long taskId, PageSupplier pages,
-                                    java.util.function.LongPredicate alreadyDownloaded,
-                                    WorkDispatcher dispatcher, Runnable politeDelay) throws Exception {
+    static WatermarkScanResult runWatermarkScan(long taskId, PageSupplier pages, long watermark,
+                                                java.util.function.LongPredicate alreadyDownloaded,
+                                                WorkDispatcher dispatcher, Runnable politeDelay) throws Exception {
         int dispatched = 0;
+        long newestSeen = 0L;
         for (int p = 1; p <= SEARCH_INCREMENTAL_MAX_PAGES; p++) {
             List<String> ids = pages.get(p);
             if (ids == null || ids.isEmpty()) break; // 无更多结果
+            boolean wholePageAlreadyDownloaded = true;
             for (String id : ids) {
                 long workId;
                 try {
@@ -274,9 +318,15 @@ public class ScheduleExecutor {
                 } catch (NumberFormatException e) {
                     continue;
                 }
-                if (alreadyDownloaded.test(workId)) {
-                    return dispatched; // 命中已下载 → 后面都是旧作，停止整轮
+                newestSeen = Math.max(newestSeen, workId);
+                if (watermark > 0 && workId <= watermark) {
+                    // 命中上一轮水位线 → 其后皆旧作，停止整轮翻页
+                    return new WatermarkScanResult(dispatched, newestSeen);
                 }
+                if (alreadyDownloaded.test(workId)) {
+                    continue; // 去重命中：跳过（不计 politeDelay），但本页仍可能有更新的新作
+                }
+                wholePageAlreadyDownloaded = false;
                 try {
                     if (dispatcher.dispatch(id, workId)) {
                         dispatched++;
@@ -288,8 +338,9 @@ public class ScheduleExecutor {
                 }
                 politeDelay.run();
             }
+            if (wholePageAlreadyDownloaded) break; // 兜底：整页全已下载 → 停
         }
-        return dispatched;
+        return new WatermarkScanResult(dispatched, newestSeen);
     }
 
     /** 抓取插画元数据、应用筛选，命中则派发下载。返回是否派发。 */

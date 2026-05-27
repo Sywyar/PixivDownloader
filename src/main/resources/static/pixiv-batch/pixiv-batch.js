@@ -6346,6 +6346,10 @@
         if (!t.enabled) {
             return {tone: 'gray', live: false, text: bt('schedule.light.disabled', '已停用，不会自动运行')};
         }
+        if (t.runStartedTime != null) {
+            // 残留的开始时刻 = 上次运行未走到结果落库（进程被强杀中断）；重跑会刷新并最终补齐后清除。
+            return {tone: 'red', live: false, text: bt('schedule.light.interrupted', '运行失败，上次运行被中断，已重新排期补齐')};
+        }
         if (t.lastStatus === 'AUTH_EXPIRED') {
             return {tone: 'red', live: false, text: bt('schedule.light.auth-expired', '运行失败，Cookie 失效，请重新授权有效 Cookie')};
         }

@@ -136,4 +136,40 @@ class ScheduledTaskMapperTest {
             assertThat(read.nextRunTime()).isEqualTo(8000L);
         }
     }
+
+    @Test
+    @DisplayName("updateRunStarted 落库开始时刻，updateRunResult 一并清空 run_started_time")
+    void shouldClearRunStartedOnRunResult() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            ScheduledTaskInsert row = sample("任务D", 1000L, null);
+            mapper.insert(row);
+            long id = row.getId();
+            // 创建时 run_started_time 为 null
+            assertThat(mapper.findById(id).runStartedTime()).isNull();
+
+            mapper.updateRunStarted(id, 3000L);
+            assertThat(mapper.findById(id).runStartedTime()).isEqualTo(3000L);
+
+            // 正常结束：updateRunResult 一并把 run_started_time 清为 null（中断信号清除）
+            mapper.updateRunResult(id, 4000L, "OK", null, 10000L);
+            assertThat(mapper.findById(id).runStartedTime()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("updateWatermark 推进水位线，findById 能读回")
+    void shouldUpdateWatermark() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            ScheduledTaskInsert row = sample("任务E", 1000L, null);
+            mapper.insert(row);
+            long id = row.getId();
+            // 创建时水位线为 null
+            assertThat(mapper.findById(id).watermarkId()).isNull();
+
+            mapper.updateWatermark(id, 123456L);
+            assertThat(mapper.findById(id).watermarkId()).isEqualTo(123456L);
+        }
+    }
 }

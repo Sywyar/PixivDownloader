@@ -26,5 +26,9 @@ public class ScheduledTaskInsert {
     private Long lastRunTime;
     private String lastStatus;
     private String lastMessage;
+    /** 水位线：上一轮完整跑完时发现到的最新作品 ID（创建时为 null）。 */
+    private Long watermarkId;
+    /** 本轮进入执行的时刻（毫秒）；创建时为 null。 */
+    private Long runStartedTime;
     private long createdTime;
 }

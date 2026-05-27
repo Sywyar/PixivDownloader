@@ -67,6 +67,8 @@ public class ScheduleService {
         row.setLastRunTime(null);
         row.setLastStatus(null);
         row.setLastMessage(null);
+        row.setWatermarkId(null);
+        row.setRunStartedTime(null);
         row.setCreatedTime(now);
 
         database.mapper().insert(row);

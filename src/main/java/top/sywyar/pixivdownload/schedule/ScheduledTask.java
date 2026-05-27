@@ -17,6 +17,8 @@ package top.sywyar.pixivdownload.schedule;
  * @param cookieMode      {@code bound}（绑定管理员快照 Cookie）或 {@code restricted}（无 Cookie，仅匿名内容）
  * @param lastStatus      上轮运行结果标记（如 {@code OK} / {@code AUTH_EXPIRED} / {@code ERROR}）
  * @param lastMessage     上轮失败原因摘要（仅 {@code ERROR} 时有值，已截断、绝不含 Cookie）；其余状态为 {@code null}
+ * @param watermarkId     水位线：上一轮完整跑完时发现到的最新作品 ID（仅 USER_NEW / 增量 SEARCH 用，全量跑完才更新）；首次为 {@code null}
+ * @param runStartedTime  本轮进入执行的时刻（毫秒）；正常结束即清为 {@code null}，残留则表示上次运行被进程强杀中断
  */
 public record ScheduledTask(
         Long id,
@@ -32,6 +34,8 @@ public record ScheduledTask(
         Long lastRunTime,
         String lastStatus,
         String lastMessage,
+        Long watermarkId,
+        Long runStartedTime,
         long createdTime
 ) {
     public static final String TRIGGER_INTERVAL = "interval";

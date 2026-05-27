@@ -12,6 +12,10 @@ import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
  * <p>{@code runState} 是<b>瞬时运行态</b>（{@code QUEUED} / {@code RUNNING} / {@code null}），来自内存中的
  * {@link top.sywyar.pixivdownload.schedule.ScheduleRunState}，不落库；前端据它与持久化的 {@code lastStatus} /
  * {@code enabled} 共同决定状态灯。{@code lastMessage} 仅在 {@code lastStatus=ERROR} 时有值（失败原因摘要）。
+ *
+ * <p>{@code runStartedTime} 非 {@code null} 表示上次运行进入执行后未走到结果落库（进程被强杀中断），
+ * 前端据此显示「上次运行被中断，已重新排期补齐」中断红灯；正常结束即清为 {@code null}。
+ * 水位线 {@code watermarkId} 是纯内部运行态，<b>不</b>暴露给前端。
  */
 public record ScheduleTaskView(
         Long id,
@@ -28,6 +32,7 @@ public record ScheduleTaskView(
         Long lastRunTime,
         String lastStatus,
         String lastMessage,
+        Long runStartedTime,
         String runState,
         long createdTime
 ) {
@@ -37,6 +42,6 @@ public record ScheduleTaskView(
                 t.triggerKind(), t.intervalMinutes(), t.cronExpr(), t.cookieMode(),
                 ScheduledTask.COOKIE_BOUND.equals(t.cookieMode()),
                 t.nextRunTime(), t.lastRunTime(), t.lastStatus(), t.lastMessage(),
-                runState, t.createdTime());
+                t.runStartedTime(), runState, t.createdTime());
     }
 }

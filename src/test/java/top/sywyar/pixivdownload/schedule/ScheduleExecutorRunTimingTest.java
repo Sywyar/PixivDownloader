@@ -24,8 +24,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -69,7 +71,7 @@ class ScheduleExecutorRunTimingTest {
                 1L, "画师计划", true, ScheduledTaskType.USER_NEW,
                 "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, 0L);
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("123"));
         when(pixivDatabase.hasArtwork(123L)).thenReturn(false);
         when(pixivFetchService.fetchArtworkMeta("123", null)).thenReturn(
@@ -96,5 +98,41 @@ class ScheduleExecutorRunTimingTest {
         verify(mapper).updateRunResult(eq(1L), lastRun.capture(), eq(ScheduleExecutor.STATUS_OK), isNull(), nextRun.capture());
         assertThat(lastRun.getValue()).isGreaterThanOrEqualTo(downloadCompletedAt.get());
         assertThat(nextRun.getValue()).isEqualTo(lastRun.getValue() + 60_000L);
+    }
+
+    @Test
+    @DisplayName("USER_NEW：进入即落库开始时刻，完整跑完把水位线推进到本轮发现的最新作品 ID")
+    void shouldWriteRunStartedAndAdvanceWatermark() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                1L, "画师计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+        // 发现两个作品（最新在前），均已下载 → 不取 meta、不下载，但水位线推进到本轮最新 ID 200
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("200", "150"));
+        when(pixivDatabase.hasArtwork(200L)).thenReturn(true);
+        when(pixivDatabase.hasArtwork(150L)).thenReturn(true);
+
+        executor.runTaskAndRecord(task);
+
+        verify(mapper).updateRunStarted(eq(1L), anyLong());
+        verify(mapper).updateWatermark(eq(1L), eq(200L));
+        verify(mapper).updateRunResult(eq(1L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
+    }
+
+    @Test
+    @DisplayName("SERIES 不走水位线：完整跑完不更新 watermark，但仍落库开始时刻")
+    void seriesDoesNotUseWatermark() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                2L, "系列计划", true, ScheduledTaskType.SERIES,
+                "{\"kind\":\"illust\",\"source\":{\"seriesId\":\"9\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+        when(pixivFetchService.discoverSeriesArtworkIds("9", null)).thenReturn(List.of());
+
+        executor.runTaskAndRecord(task);
+
+        verify(mapper, never()).updateWatermark(anyLong(), any());
+        verify(mapper).updateRunStarted(eq(2L), anyLong());
     }
 }

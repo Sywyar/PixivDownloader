@@ -253,8 +253,8 @@ class ScheduleExecutorFilterTest {
     }
 
     @Nested
-    @DisplayName("增量搜索 runIncrementalSearch（结束页=-1）")
-    class IncrementalSearch {
+    @DisplayName("水位线增量扫描 runWatermarkScan")
+    class WatermarkScan {
 
         /** 把分页结果拼成 PageSupplier：第 N 页取 pages[N-1]，越界返回空列表。 */
         private ScheduleExecutor.PageSupplier supplier(List<List<String>> pages, AtomicInteger calls) {
@@ -265,44 +265,47 @@ class ScheduleExecutorFilterTest {
         }
 
         @Test
-        @DisplayName("命中第一个已下载作品即停止整轮（其前的新作派发、其后不再处理）")
-        void stopsOnFirstAlreadyDownloaded() throws Exception {
-            AtomicInteger calls = new AtomicInteger();
+        @DisplayName("命中水位线（id<=watermark）即停整轮：其上的新作派发、命中及其后不再处理")
+        void stopsWhenReachingWatermark() throws Exception {
             List<String> dispatched = new ArrayList<>();
-            // 第 1 页：1(新) 2(新) 3(已下载) 4(新) —— 命中 3 即停，4 不处理
+            // 最新在前：100 99 98 97；水位线 98 → 100/99 派发，到 98 即停（97 不处理）
             ScheduleExecutor.PageSupplier pages = supplier(
-                    List.of(List.of("1", "2", "3", "4")), calls);
-            LongPredicate already = id -> id == 3L;
-            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, already,
+                    List.of(List.of("100", "99", "98", "97")), new AtomicInteger());
+            ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
+                    1L, pages, 98L, id -> false,
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {});
-            assertThat(count).isEqualTo(2);
-            assertThat(dispatched).containsExactly("1", "2");
+            assertThat(r.dispatched()).isEqualTo(2);
+            assertThat(dispatched).containsExactly("100", "99");
+            assertThat(r.newestSeen()).isEqualTo(100L);
         }
 
         @Test
-        @DisplayName("逐页翻进：跨多页累计派发，遇空页（无更多结果）停止")
-        void pagesUntilEmpty() throws Exception {
+        @DisplayName("兜底：连续一整页全部已下载即停（应对水位线作品被删/404 命中不到）")
+        void stopsWhenWholePageAlreadyDownloaded() throws Exception {
             AtomicInteger calls = new AtomicInteger();
             List<String> dispatched = new ArrayList<>();
+            // watermark=0（首轮，无锚点）；第 1 页全部已下载 → 兜底停，第 2 页不再请求
             ScheduleExecutor.PageSupplier pages = supplier(
-                    List.of(List.of("1", "2"), List.of("3"), List.of()), calls);
-            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, id -> false,
+                    List.of(List.of("100", "99"), List.of("98", "97")), calls);
+            ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
+                    1L, pages, 0L, id -> true,
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {});
-            assertThat(count).isEqualTo(3);
-            assertThat(dispatched).containsExactly("1", "2", "3");
-            assertThat(calls.get()).isEqualTo(3); // 第 3 页为空触发停止
+            assertThat(r.dispatched()).isZero();
+            assertThat(dispatched).isEmpty();
+            assertThat(calls.get()).isEqualTo(1); // 第 2 页未请求
+            assertThat(r.newestSeen()).isEqualTo(100L);
         }
 
         @Test
-        @DisplayName("筛选未命中（dispatcher 返回 false）不计数但继续后续作品")
-        void filteredOutNotCountedButContinues() throws Exception {
-            List<String> seen = new ArrayList<>();
+        @DisplayName("累积 newestSeen = 所有发现到的 ID 的最大值（跨页）")
+        void accumulatesNewestSeenAsMax() throws Exception {
             ScheduleExecutor.PageSupplier pages = supplier(
-                    List.of(List.of("1", "2", "3"), List.of()), new AtomicInteger());
-            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, id -> false,
-                    (id, workId) -> { seen.add(id); return workId != 2L; }, () -> {});
-            assertThat(seen).containsExactly("1", "2", "3");
-            assertThat(count).isEqualTo(2); // 2 被筛掉
+                    List.of(List.of("30", "20"), List.of("50", "10"), List.of()), new AtomicInteger());
+            ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
+                    1L, pages, 0L, id -> false,
+                    (id, workId) -> true, () -> {});
+            assertThat(r.dispatched()).isEqualTo(4);
+            assertThat(r.newestSeen()).isEqualTo(50L);
         }
 
         @Test
@@ -310,41 +313,43 @@ class ScheduleExecutorFilterTest {
         void singleWorkFailureIsolated() throws Exception {
             List<String> seen = new ArrayList<>();
             ScheduleExecutor.PageSupplier pages = supplier(
-                    List.of(List.of("1", "2", "3"), List.of()), new AtomicInteger());
-            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, id -> false,
+                    List.of(List.of("3", "2", "1"), List.of()), new AtomicInteger());
+            ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
+                    1L, pages, 0L, id -> false,
                     (id, workId) -> {
                         seen.add(id);
                         if (workId == 2L) throw new IllegalStateException("boom");
                         return true;
                     }, () -> {});
-            assertThat(seen).containsExactly("1", "2", "3");
-            assertThat(count).isEqualTo(2);
+            assertThat(seen).containsExactly("3", "2", "1");
+            assertThat(r.dispatched()).isEqualTo(2);
         }
 
         @Test
         @DisplayName("鉴权失效（PixivFetchException）上抛、停止整轮")
         void authExpiredPropagates() {
             ScheduleExecutor.PageSupplier pages = supplier(
-                    List.of(List.of("1", "2")), new AtomicInteger());
-            assertThatThrownBy(() -> ScheduleExecutor.runIncrementalSearch(1L, pages, id -> false,
+                    List.of(List.of("2", "1")), new AtomicInteger());
+            assertThatThrownBy(() -> ScheduleExecutor.runWatermarkScan(1L, pages, 0L, id -> false,
                     (id, workId) -> { throw new PixivFetchService.PixivFetchException("auth"); }, () -> {}))
                     .isInstanceOf(PixivFetchService.PixivFetchException.class);
         }
 
         @Test
-        @DisplayName("安全上限：始终有新作时翻页不超过 SEARCH_INCREMENTAL_MAX_PAGES")
+        @DisplayName("安全上限：始终有新作且无水位线时翻页不超过 SEARCH_INCREMENTAL_MAX_PAGES")
         void respectsSafetyCap() throws Exception {
             AtomicInteger calls = new AtomicInteger();
             Set<Long> none = Set.of();
-            // 每页恒返回一个全新的 ID，永不命中已下载、永不空页 → 仅靠安全上限收敛
+            // 每页恒返回一个递减的全新 ID（最新在前），永不命中水位线/已下载、永不空页 → 仅靠安全上限收敛
             ScheduleExecutor.PageSupplier pages = page -> {
                 calls.incrementAndGet();
-                return List.of(String.valueOf(page));
+                return List.of(String.valueOf(100000 - page));
             };
-            int count = ScheduleExecutor.runIncrementalSearch(1L, pages, none::contains,
+            ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
+                    1L, pages, 0L, none::contains,
                     (id, workId) -> true, () -> {});
             assertThat(calls.get()).isEqualTo(ScheduleExecutor.SEARCH_INCREMENTAL_MAX_PAGES);
-            assertThat(count).isEqualTo(ScheduleExecutor.SEARCH_INCREMENTAL_MAX_PAGES);
+            assertThat(r.dispatched()).isEqualTo(ScheduleExecutor.SEARCH_INCREMENTAL_MAX_PAGES);
         }
     }
 }

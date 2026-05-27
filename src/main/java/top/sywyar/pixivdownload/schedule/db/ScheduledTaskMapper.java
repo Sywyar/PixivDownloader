@@ -28,7 +28,9 @@ public interface ScheduledTaskMapper {
             + " trigger_kind AS triggerKind, interval_minutes AS intervalMinutes,"
             + " cron_expr AS cronExpr, cookie_mode AS cookieMode,"
             + " next_run_time AS nextRunTime, last_run_time AS lastRunTime,"
-            + " last_status AS lastStatus, last_message AS lastMessage, created_time AS createdTime"
+            + " last_status AS lastStatus, last_message AS lastMessage,"
+            + " watermark_id AS watermarkId, run_started_time AS runStartedTime,"
+            + " created_time AS createdTime"
             + " FROM scheduled_tasks";
 
     // ── DDL ────────────────────────────────────────────────────────────────────
@@ -48,6 +50,8 @@ public interface ScheduledTaskMapper {
             + "last_run_time INTEGER,"
             + "last_status TEXT,"
             + "last_message TEXT,"
+            + "watermark_id INTEGER,"
+            + "run_started_time INTEGER,"
             + "created_time INTEGER NOT NULL)")
     void createScheduledTasksTable();
 
@@ -58,10 +62,12 @@ public interface ScheduledTaskMapper {
 
     @Insert("INSERT INTO scheduled_tasks(name, enabled, type, params_json, trigger_kind,"
             + " interval_minutes, cron_expr, cookie_mode, cookie_snapshot,"
-            + " next_run_time, last_run_time, last_status, last_message, created_time)"
+            + " next_run_time, last_run_time, last_status, last_message,"
+            + " watermark_id, run_started_time, created_time)"
             + " VALUES(#{name}, #{enabled}, #{type}, #{paramsJson}, #{triggerKind},"
             + " #{intervalMinutes}, #{cronExpr}, #{cookieMode}, #{cookieSnapshot},"
-            + " #{nextRunTime}, #{lastRunTime}, #{lastStatus}, #{lastMessage}, #{createdTime})")
+            + " #{nextRunTime}, #{lastRunTime}, #{lastStatus}, #{lastMessage},"
+            + " #{watermarkId}, #{runStartedTime}, #{createdTime})")
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     void insert(ScheduledTaskInsert task);
 
@@ -88,12 +94,21 @@ public interface ScheduledTaskMapper {
                      @Param("cookieMode") String cookieMode);
 
     @Update("UPDATE scheduled_tasks SET last_run_time = #{lastRunTime}, last_status = #{lastStatus},"
-            + " last_message = #{lastMessage}, next_run_time = #{nextRunTime} WHERE id = #{id}")
+            + " last_message = #{lastMessage}, next_run_time = #{nextRunTime},"
+            + " run_started_time = NULL WHERE id = #{id}")
     int updateRunResult(@Param("id") long id,
                         @Param("lastRunTime") Long lastRunTime,
                         @Param("lastStatus") String lastStatus,
                         @Param("lastMessage") String lastMessage,
                         @Param("nextRunTime") Long nextRunTime);
+
+    /** 进入执行时落库本轮开始时刻；进程被强杀（未走到 {@link #updateRunResult}）即残留为「上次运行被中断」信号。 */
+    @Update("UPDATE scheduled_tasks SET run_started_time = #{runStartedTime} WHERE id = #{id}")
+    int updateRunStarted(@Param("id") long id, @Param("runStartedTime") Long runStartedTime);
+
+    /** 一轮完整跑完后更新水位线（本轮发现到的最新作品 ID）；异常 / 鉴权失效不更新。 */
+    @Update("UPDATE scheduled_tasks SET watermark_id = #{watermarkId} WHERE id = #{id}")
+    int updateWatermark(@Param("id") long id, @Param("watermarkId") Long watermarkId);
 
     @Delete("DELETE FROM scheduled_tasks WHERE id = #{id}")
     int delete(@Param("id") long id);
