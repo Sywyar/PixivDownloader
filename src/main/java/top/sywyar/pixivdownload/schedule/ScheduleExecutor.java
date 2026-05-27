@@ -415,6 +415,10 @@ public class ScheduleExecutor {
                 try {
                     if (dispatcher.dispatch(id, workId)) {
                         dispatched++;
+                    } else {
+                        // 下载器吞异常并返回 false：dispatch 内部已把状态标为 STATUS_FAILED，
+                        // 这里同步把整轮标为 incomplete，避免水位线越过这件未成功的作品。
+                        complete = false;
                     }
                 } catch (PixivFetchService.PixivFetchException e) {
                     throw e; // 鉴权失效：让整轮停下
@@ -516,8 +520,10 @@ public class ScheduleExecutor {
         boolean downloaded = artworkDownloader.downloadImagesBlocking(
                 artworkId, meta.title(), imageUrls,
                 PIXIV_REFERER + "artworks/" + id, other, cookie, null);
+        // downloadImagesBlocking 仅在成功跑完整条管线时返回 true；false 来自顶层异常或取消，
+        // 异常已在 DownloadService 内被吞掉并记日志，此处只能给出泛化失败说明（前端按 i18n 回退）。
         run.mark(id, downloaded ? ScheduleRunQueue.STATUS_DOWNLOADED
-                : ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+                : ScheduleRunQueue.STATUS_FAILED, null);
         return downloaded;
     }
 
@@ -561,8 +567,10 @@ public class ScheduleExecutor {
         req.setOther(o);
 
         boolean downloaded = novelDownloader.downloadBlocking(req, null);
+        // downloadBlocking 仅在成功跑完整条管线时返回 true；false 来自顶层异常或取消，
+        // 异常已在 NovelDownloadService 内被吞掉并记日志，此处只能给出泛化失败说明（前端按 i18n 回退）。
         run.mark(id, downloaded ? ScheduleRunQueue.STATUS_DOWNLOADED
-                : ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+                : ScheduleRunQueue.STATUS_FAILED, null);
         return downloaded;
     }
 

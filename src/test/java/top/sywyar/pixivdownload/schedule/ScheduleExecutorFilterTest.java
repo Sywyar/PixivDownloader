@@ -334,6 +334,24 @@ class ScheduleExecutorFilterTest {
         }
 
         @Test
+        @DisplayName("单作品下载吞异常返 false：不计派发数、整轮标 incomplete（避免水位线越过失败作品）")
+        void dispatcherReturningFalseMarksIncomplete() throws Exception {
+            List<String> seen = new ArrayList<>();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("3", "2", "1"), List.of()), new AtomicInteger());
+            ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
+                    1L, pages, 0L, id -> false,
+                    (id, workId) -> {
+                        seen.add(id);
+                        return workId != 2L; // workId=2 模拟下载器吞掉异常返 false
+                    }, () -> {}, () -> {},
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+            assertThat(seen).containsExactly("3", "2", "1");
+            assertThat(r.dispatched()).isEqualTo(2);
+            assertThat(r.complete()).isFalse();
+        }
+
+        @Test
         @DisplayName("鉴权失效（PixivFetchException）上抛、停止整轮")
         void authExpiredPropagates() {
             ScheduleExecutor.PageSupplier pages = supplier(

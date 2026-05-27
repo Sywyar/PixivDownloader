@@ -6697,14 +6697,14 @@
             // 队列正文仍由下方 refreshExpandedScheduleQueues（快照）与 SSE（逐图进度）单独刷新。
             if (signature !== scheduleListSignature) {
                 scheduleListSignature = signature;
+                // 不论列表是否为空：清理已不存在任务的 SSE 监听 / 模型 / 缓存，
+                // 否则旧 handler 残留在 state.sseListeners，可能消费同 artworkId 的事件、并阻止
+                // stopSchedulePolling 关闭共享 SSE 连接（条件含 sseListeners 为空）。
+                const liveIds = new Set(scheduleTasksCache.map(t => Number(t.id)));
+                releaseStaleScheduleQueueIds(liveIds);
                 if (scheduleTasksCache.length === 0) {
                     list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.empty', '暂无计划任务'))}</div>`;
                 } else {
-                    // 清理已不存在任务的展开态，避免集合无限增长
-                    const liveIds = new Set(scheduleTasksCache.map(t => Number(t.id)));
-                    for (const id of [...scheduleExpandedQueues]) {
-                        if (!liveIds.has(id)) scheduleExpandedQueues.delete(id);
-                    }
                     list.innerHTML = scheduleTasksCache.map(renderScheduleTaskCard).join('');
                     applyCookieDependentUi();
                 }
@@ -7067,6 +7067,31 @@
 
     function unsubscribeAllScheduleQueueSse() {
         Object.keys(scheduleSseHandlers).forEach(id => unsubscribeScheduleQueueSse(id));
+    }
+
+    // 计划任务列表刷新后，对已不在 liveIds 中的任务连带清理：解绑 SSE / 删除内存模型 / 撤掉展开态 /
+    // 移除本地缓存。覆盖 scheduleExpandedQueues、scheduleQueueModels、scheduleSseHandlers、
+    // scheduleQueueWasRunning 四张表，避免任一处残留导致旧 handler 继续消费事件或阻止
+    // stopSchedulePolling 关闭共享 SSE 连接。
+    function releaseStaleScheduleQueueIds(liveIds) {
+        const stale = new Set();
+        for (const id of scheduleExpandedQueues) if (!liveIds.has(id)) stale.add(id);
+        Object.keys(scheduleQueueModels).forEach(k => {
+            const id = Number(k);
+            if (!liveIds.has(id)) stale.add(id);
+        });
+        Object.keys(scheduleSseHandlers).forEach(k => {
+            const id = Number(k);
+            if (!liveIds.has(id)) stale.add(id);
+        });
+        for (const id of scheduleQueueWasRunning) if (!liveIds.has(id)) stale.add(id);
+        stale.forEach(id => {
+            unsubscribeScheduleQueueSse(id);
+            scheduleExpandedQueues.delete(id);
+            delete scheduleQueueModels[id];
+            scheduleQueueWasRunning.delete(id);
+            try { storeRemove(scheduleQueueCacheKey(id)); } catch (e) { /* 存储不可用：忽略 */ }
+        });
     }
 
     function applyScheduleQueueSse(id, qId, data) {
