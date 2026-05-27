@@ -11,6 +11,7 @@ import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.mail.MailConfig;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.SetupProperties;
@@ -39,6 +40,7 @@ public class RuntimeConfigReloadService {
     private final MaintenanceProperties maintenanceProperties;
     private final ProxyConfig proxyConfig;
     private final UpdateConfig updateConfig;
+    private final MailConfig mailConfig;
 
     public synchronized ReloadResult reloadHotConfig() throws IOException {
         Binder binder = loadBinder();
@@ -50,6 +52,7 @@ public class RuntimeConfigReloadService {
         MaintenanceProperties nextMaintenance = bind(binder, "maintenance", MaintenanceProperties::new, MaintenanceProperties.class);
         ProxyConfig nextProxy = bind(binder, "proxy", ProxyConfig::new, ProxyConfig.class);
         UpdateConfig nextUpdate = bind(binder, "update", UpdateConfig::new, UpdateConfig.class);
+        MailConfig nextMail = bind(binder, "mail", MailConfig::new, MailConfig.class);
 
         List<String> applied = new ArrayList<>();
         applyDownloadConfig(nextDownload, applied);
@@ -60,6 +63,7 @@ public class RuntimeConfigReloadService {
         applyMaintenanceConfig(nextMaintenance, applied);
         applyProxyConfig(nextProxy, applied);
         applyUpdateConfig(nextUpdate, applied);
+        applyMailConfig(nextMail, applied);
 
         if (!applied.isEmpty()) {
             log.info("Hot reloaded config keys: {}", applied);
@@ -236,6 +240,59 @@ public class RuntimeConfigReloadService {
                 proxyConfig.getPort(),
                 next.getPort(),
                 () -> proxyConfig.setPort(next.getPort()));
+    }
+
+    private void applyMailConfig(MailConfig next, List<String> applied) {
+        applyIfChanged(applied,
+                "mail.enabled",
+                mailConfig.isEnabled(),
+                next.isEnabled(),
+                () -> mailConfig.setEnabled(next.isEnabled()));
+        applyIfChanged(applied,
+                "mail.host",
+                mailConfig.getHost(),
+                next.getHost(),
+                () -> mailConfig.setHost(next.getHost()));
+        applyIfChanged(applied,
+                "mail.port",
+                mailConfig.getPort(),
+                next.getPort(),
+                () -> mailConfig.setPort(next.getPort()));
+        applyIfChanged(applied,
+                "mail.security",
+                mailConfig.getSecurity(),
+                next.getSecurity(),
+                () -> mailConfig.setSecurity(next.getSecurity()));
+        applyIfChanged(applied,
+                "mail.username",
+                mailConfig.getUsername(),
+                next.getUsername(),
+                () -> mailConfig.setUsername(next.getUsername()));
+        applyIfChanged(applied,
+                "mail.password",
+                mailConfig.getPassword(),
+                next.getPassword(),
+                () -> mailConfig.setPassword(next.getPassword()));
+        applyIfChanged(applied,
+                "mail.from",
+                mailConfig.getFrom(),
+                next.getFrom(),
+                () -> mailConfig.setFrom(next.getFrom()));
+        applyIfChanged(applied,
+                "mail.to",
+                mailConfig.getTo(),
+                next.getTo(),
+                () -> mailConfig.setTo(next.getTo()));
+        applyIfChanged(applied,
+                "mail.socks-proxy",
+                mailConfig.getSocksProxy(),
+                next.getSocksProxy(),
+                () -> mailConfig.setSocksProxy(next.getSocksProxy()));
+        applyIfChanged(applied,
+                "mail.subject-prefix",
+                mailConfig.getSubjectPrefix(),
+                next.getSubjectPrefix(),
+                () -> mailConfig.setSubjectPrefix(next.getSubjectPrefix()));
     }
 
     private void applyUpdateConfig(UpdateConfig next, List<String> applied) {

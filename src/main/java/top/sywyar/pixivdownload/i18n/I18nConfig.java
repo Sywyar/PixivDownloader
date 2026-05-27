@@ -32,7 +32,8 @@ public class I18nConfig implements WebMvcConfigurer {
         ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
         messageSource.setBasenames(
                 "classpath:i18n/messages",
-                "classpath:i18n/ValidationMessages"
+                "classpath:i18n/ValidationMessages",
+                "classpath:i18n/mail/messages"
         );
         messageSource.setDefaultEncoding(StandardCharsets.UTF_8.name());
         messageSource.setFallbackToSystemLocale(false);

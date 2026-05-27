@@ -31,6 +31,11 @@ public final class ConfigFieldRegistry {
         return message("gui.config.group.maintenance");
     }
 
+    /** 邮件配置分组名（按当前 locale）。 */
+    public static String groupMail() {
+        return message("gui.config.group.mail");
+    }
+
     /** 全部分组名（按当前 locale，保持顺序）。 */
     public static List<String> groups() {
         return List.of(
@@ -43,7 +48,8 @@ public final class ConfigFieldRegistry {
                 message("gui.config.group.maintenance"),
                 message("gui.config.group.https"),
                 message("gui.config.group.update"),
-                message("gui.config.group.schedule")
+                message("gui.config.group.schedule"),
+                message("gui.config.group.mail")
         );
     }
 
@@ -59,6 +65,7 @@ public final class ConfigFieldRegistry {
         String groupHttps = message("gui.config.group.https");
         String groupUpdate = message("gui.config.group.update");
         String groupSchedule = message("gui.config.group.schedule");
+        String groupMail = message("gui.config.group.mail");
 
         return List.of(
 
@@ -560,6 +567,85 @@ public final class ConfigFieldRegistry {
                                 return message("gui.config.validation.valid-int");
                             }
                         })
+                        .hotReloadable()
+                        .build(),
+
+                // ── 邮件 / SMTP ─────────────────────────────────────────────────────
+                ConfigFieldSpec.builder("mail.enabled", message("gui.config.field.mail.enabled.label"), BOOL, groupMail)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.mail.enabled.help"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("mail.host", message("gui.config.field.mail.host.label"), STRING, groupMail)
+                        .defaultValue("")
+                        .help(message("gui.config.field.mail.host.help"))
+                        .enabledWhen(snap -> snap.isTrue("mail.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("mail.port", message("gui.config.field.mail.port.label"), PORT, groupMail)
+                        .defaultValue("587")
+                        .help(message("gui.config.field.mail.port.help"))
+                        .enabledWhen(snap -> snap.isTrue("mail.enabled"))
+                        .validator(v -> {
+                            try {
+                                int p = Integer.parseInt(v);
+                                return (p >= 1 && p <= 65535) ? null : message("gui.config.validation.port-range");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-port");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("mail.security", message("gui.config.field.mail.security.label"), ENUM, groupMail)
+                        .defaultValue("starttls")
+                        .enumValues("none", "ssl", "starttls")
+                        .help(message("gui.config.field.mail.security.help"))
+                        .enabledWhen(snap -> snap.isTrue("mail.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("mail.username", message("gui.config.field.mail.username.label"), STRING, groupMail)
+                        .defaultValue("")
+                        .help(message("gui.config.field.mail.username.help"))
+                        .enabledWhen(snap -> snap.isTrue("mail.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("mail.password", message("gui.config.field.mail.password.label"), PASSWORD, groupMail)
+                        .defaultValue("")
+                        .help(message("gui.config.field.mail.password.help"))
+                        .enabledWhen(snap -> snap.isTrue("mail.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("mail.from", message("gui.config.field.mail.from.label"), STRING, groupMail)
+                        .defaultValue("")
+                        .help(message("gui.config.field.mail.from.help"))
+                        .enabledWhen(snap -> snap.isTrue("mail.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("mail.to", message("gui.config.field.mail.to.label"), STRING, groupMail)
+                        .defaultValue("")
+                        .help(message("gui.config.field.mail.to.help"))
+                        .enabledWhen(snap -> snap.isTrue("mail.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("mail.socks-proxy", message("gui.config.field.mail.socks-proxy.label"), STRING, groupMail)
+                        .defaultValue("")
+                        .help(message("gui.config.field.mail.socks-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("mail.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("mail.subject-prefix", message("gui.config.field.mail.subject-prefix.label"), STRING, groupMail)
+                        .defaultValue("[PixivDownloader]")
+                        .help(message("gui.config.field.mail.subject-prefix.help"))
+                        .enabledWhen(snap -> snap.isTrue("mail.enabled"))
                         .hotReloadable()
                         .build()
         );

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.AutoStartManager;
@@ -9,6 +10,8 @@ import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.*;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.mail.preset.MailPreset;
+import top.sywyar.pixivdownload.mail.preset.MailPresetRegistry;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -19,10 +22,15 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.awt.*;
 import java.awt.Desktop;
+import java.awt.event.HierarchyEvent;
+import java.awt.event.HierarchyListener;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.cert.X509Certificate;
@@ -55,6 +63,7 @@ public class ConfigPanel extends JPanel {
     private final String serverGroup;
     private final String multiModeGroup;
     private final String maintenanceGroup;
+    private final String mailGroup;
 
     /** key → 渲染后的字段（含取值/赋值方法） */
     private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
@@ -64,6 +73,17 @@ public class ConfigPanel extends JPanel {
     private JCheckBox autoStartCheckBox;
     private boolean autoStartSupported;
     private boolean updatingAutoStartCheckBox;
+
+    /** SMTP 预设注册中心（不可变；GUI 加载邮件分组时使用）。 */
+    private final MailPresetRegistry mailPresetRegistry = new MailPresetRegistry();
+    /** 服务商预设下拉。null 表示 mail 分组未渲染（如未来某模式隐藏邮件组时）。 */
+    private JComboBox<MailPreset> mailPresetCombo;
+    /** "发送测试邮件" 按钮，发送中暂时禁用。 */
+    private JButton mailTestButton;
+    /** 当前预设；非 custom 时锁定 host / port / security。 */
+    private MailPreset currentMailPreset;
+    /** 防止在程序性更新下拉时反向触发预设应用。 */
+    private boolean updatingMailPresetCombo;
 
     public ConfigPanel(Path configPath, int serverPort) {
         this.configPath = configPath;
@@ -75,6 +95,7 @@ public class ConfigPanel extends JPanel {
         this.serverGroup = groups.isEmpty() ? "" : groups.get(0);
         this.multiModeGroup = ConfigFieldRegistry.groupMultiMode();
         this.maintenanceGroup = ConfigFieldRegistry.groupMaintenance();
+        this.mailGroup = ConfigFieldRegistry.groupMail();
         buildUi();
         loadCurrentValues();
         checkFieldDrift();
@@ -107,6 +128,14 @@ public class ConfigPanel extends JPanel {
                 .filter(f -> group.equals(f.group()))
                 .toList();
 
+        // 服务商预设需要排在 mail.* 字段之前，先 append 即天然位于顶部
+        if (mailGroup.equals(group)) {
+            JPanel mailPresetPanel = buildMailPresetPanel();
+            mailPresetPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(mailPresetPanel);
+            content.add(Box.createVerticalStrut(2));
+        }
+
         for (ConfigFieldSpec spec : fields) {
             if (maintenanceGroup.equals(group) && isMaintenanceDayEnabledKey(spec.key())) {
                 continue;
@@ -129,11 +158,31 @@ public class ConfigPanel extends JPanel {
             content.add(autoStartPanel);
             content.add(Box.createVerticalStrut(2));
         }
+        if (mailGroup.equals(group)) {
+            JPanel mailTestPanel = buildMailTestPanel();
+            mailTestPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(mailTestPanel);
+            content.add(Box.createVerticalStrut(2));
+        }
         content.add(Box.createVerticalGlue());
 
         JScrollPane sp = new JScrollPane(content);
         sp.setBorder(null);
         sp.getVerticalScrollBar().setUnitIncrement(16);
+        // mail 分组在 init 阶段对预设 combo 的 setSelectedItem + 对 host/port/security 的
+        // setEnabled(false) 会让视口偏离 (0,0)；首次显示时强制回到顶部。
+        if (mailGroup.equals(group)) {
+            sp.addHierarchyListener(new HierarchyListener() {
+                @Override
+                public void hierarchyChanged(HierarchyEvent e) {
+                    if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0
+                            && sp.isShowing()) {
+                        SwingUtilities.invokeLater(() -> sp.getViewport().setViewPosition(new Point(0, 0)));
+                        sp.removeHierarchyListener(this);
+                    }
+                }
+            });
+        }
         return sp;
     }
 
@@ -222,6 +271,264 @@ public class ConfigPanel extends JPanel {
             setControlEnabled(panel, false);
         }
         return panel;
+    }
+
+    // ── 邮件分组特殊控件 ──────────────────────────────────────────────────────────
+
+    /**
+     * "服务商预设" 下拉：选中预设后自动填入并锁定 host / port / security 三项；
+     * 选中 "自定义" 解锁。预设本身不入 config.yaml，由 host 反查推断。
+     */
+    private JPanel buildMailPresetPanel() {
+        mailPresetCombo = new JComboBox<>(mailPresetRegistry.all().toArray(new MailPreset[0]));
+        mailPresetCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof MailPreset preset) {
+                    label.setText(message(preset.displayNameKey()));
+                }
+                return label;
+            }
+        });
+        mailPresetCombo.addActionListener(e -> {
+            if (updatingMailPresetCombo) {
+                return;
+            }
+            Object selected = mailPresetCombo.getSelectedItem();
+            if (selected instanceof MailPreset preset) {
+                applyMailPreset(preset, true);
+            }
+        });
+        return FieldRenderer.fieldPanel(
+                message("gui.config.mail.preset.label") + message("gui.punctuation.colon"),
+                mailPresetCombo,
+                null,
+                message("gui.config.mail.preset.help"));
+    }
+
+    /** "发送测试邮件" 按钮行。 */
+    private JPanel buildMailTestPanel() {
+        mailTestButton = new JButton(message("gui.config.mail.test-button.label"));
+        mailTestButton.addActionListener(e -> sendMailTest());
+        return FieldRenderer.fieldPanel(
+                message("gui.config.mail.test-button.label") + message("gui.punctuation.colon"),
+                mailTestButton,
+                null,
+                message("gui.config.mail.test-button.help"));
+    }
+
+    /**
+     * 应用选中的预设：写入 host / port / security 字段，按是否自定义切换锁定状态。
+     *
+     * @param userInitiated 由用户操作触发时为 true（会覆盖三项值）；初始化反查时为 false（只更新锁定状态）
+     */
+    private void applyMailPreset(MailPreset preset, boolean userInitiated) {
+        currentMailPreset = preset;
+        if (preset == null) {
+            return;
+        }
+        if (userInitiated && !preset.isCustom()) {
+            setRenderedFieldValue("mail.host", preset.host());
+            setRenderedFieldValue("mail.port", String.valueOf(preset.port()));
+            setRenderedFieldValue("mail.security", preset.security().value());
+        }
+        updateEnabledStates();
+    }
+
+    private void setRenderedFieldValue(String key, String value) {
+        FieldRenderer.RenderedField rf = renderedFields.get(key);
+        if (rf != null) {
+            rf.setValue().accept(value);
+        }
+    }
+
+    /**
+     * 在 {@link #updateEnabledStates()} 末尾叠加预设锁定：选中非自定义预设时，host / port / security
+     * 即便满足 {@code enabledWhen(mail.enabled)} 也保持禁用。
+     */
+    private void applyMailPresetLock() {
+        if (mailPresetCombo == null || currentMailPreset == null || currentMailPreset.isCustom()) {
+            return;
+        }
+        lockFieldByPreset("mail.host");
+        lockFieldByPreset("mail.port");
+        lockFieldByPreset("mail.security");
+    }
+
+    private void lockFieldByPreset(String key) {
+        FieldRenderer.RenderedField rf = renderedFields.get(key);
+        if (rf == null || !rf.panel().isVisible()) {
+            return;
+        }
+        setControlEnabled(rf.panel(), false);
+    }
+
+    /** 启动后按已有 host 反查预设；未命中落到 custom。 */
+    private void resolveMailPresetFromCurrentHost() {
+        if (mailPresetCombo == null) {
+            return;
+        }
+        FieldRenderer.RenderedField hostField = renderedFields.get("mail.host");
+        String host = hostField == null ? "" : hostField.getValue().get();
+        MailPreset preset = mailPresetRegistry.findByHost(host).orElseGet(mailPresetRegistry::custom);
+        updatingMailPresetCombo = true;
+        try {
+            mailPresetCombo.setSelectedItem(preset);
+        } finally {
+            updatingMailPresetCombo = false;
+        }
+        applyMailPreset(preset, false);
+    }
+
+    private void sendMailTest() {
+        if (mailTestButton == null) {
+            return;
+        }
+        mailTestButton.setEnabled(false);
+        showNotice(message("gui.config.mail.test.notice.sending"));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("host", currentFieldValue("mail.host"));
+        payload.put("port", parseIntOrZero(currentFieldValue("mail.port")));
+        payload.put("security", currentFieldValue("mail.security"));
+        payload.put("username", currentFieldValue("mail.username"));
+        payload.put("password", currentFieldValue("mail.password"));
+        payload.put("from", currentFieldValue("mail.from"));
+        payload.put("to", currentFieldValue("mail.to"));
+        payload.put("socksProxy", currentFieldValue("mail.socks-proxy"));
+        payload.put("subjectPrefix", currentFieldValue("mail.subject-prefix"));
+
+        SwingWorker<MailTestOutcome, Void> worker = new SwingWorker<>() {
+            @Override
+            protected MailTestOutcome doInBackground() {
+                return postMailTest(payload);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    MailTestOutcome outcome = get();
+                    if (outcome.reachable()) {
+                        if (outcome.success()) {
+                            showNotice(message("gui.config.mail.test.notice.success"));
+                        } else {
+                            showNotice(message("gui.config.mail.test.notice.failed",
+                                    outcome.error() == null ? "" : outcome.error()));
+                        }
+                    } else {
+                        showNotice(message("gui.config.mail.test.notice.unreachable"));
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    showNotice(message("gui.config.mail.test.notice.unreachable"));
+                } catch (ExecutionException ex) {
+                    log.warn(logMessage("gui.config.mail.test.notice.failed", safeMessage(ex.getCause())),
+                            ex.getCause());
+                    showNotice(message("gui.config.mail.test.notice.failed", safeMessage(ex.getCause())));
+                } finally {
+                    mailTestButton.setEnabled(true);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private String currentFieldValue(String key) {
+        FieldRenderer.RenderedField rf = renderedFields.get(key);
+        return rf == null ? "" : rf.getValue().get();
+    }
+
+    private static int parseIntOrZero(String s) {
+        if (s == null || s.isBlank()) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(s.trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /** 同时尝试 http / https，本地端点；连接不上返回 reachable=false。 */
+    private MailTestOutcome postMailTest(ObjectNode payload) {
+        byte[] body;
+        try {
+            body = MAPPER.writeValueAsBytes(payload);
+        } catch (Exception e) {
+            return new MailTestOutcome(true, false, e.getMessage());
+        }
+        String[] schemes = {"http", "https"};
+        for (String scheme : schemes) {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/mail-test").toURL();
+                conn = (HttpURLConnection) url.openConnection();
+                if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
+                    https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
+                    https.setHostnameVerifier((host, session) -> true);
+                }
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(30000);
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept-Language", GuiMessages.currentLocale().toLanguageTag());
+                String guiToken = GuiTokenHolder.get();
+                if (guiToken != null) {
+                    conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
+                }
+                conn.getOutputStream().write(body);
+                int status = conn.getResponseCode();
+                String responseBody = readResponseBody(conn, status);
+                if (status >= 200 && status < 300) {
+                    boolean success = true;
+                    String error = null;
+                    if (responseBody != null && !responseBody.isBlank()) {
+                        var node = MAPPER.readTree(responseBody);
+                        success = node.path("success").asBoolean(false);
+                        error = node.path("error").isMissingNode() || node.path("error").isNull()
+                                ? null : node.path("error").asText();
+                    }
+                    return new MailTestOutcome(true, success, error);
+                }
+                // 非 2xx 但已连通；把 body 内容作为错误摘要
+                return new MailTestOutcome(true, false,
+                        (responseBody == null || responseBody.isBlank())
+                                ? ("HTTP " + status)
+                                : responseBody);
+            } catch (Exception ignored) {
+                // try the other scheme
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+        return new MailTestOutcome(false, false, null);
+    }
+
+    private static String readResponseBody(HttpURLConnection conn, int status) {
+        try (var stream = (status >= 200 && status < 300) ? conn.getInputStream() : conn.getErrorStream()) {
+            if (stream == null) {
+                return "";
+            }
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                return sb.toString();
+            }
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    /** mail-test 异步结果。reachable=false 表示后端连接不上；success=true 仅当后端发信成功。 */
+    private record MailTestOutcome(boolean reachable, boolean success, String error) {
     }
 
     private boolean shouldHideGroup(String group) {
@@ -316,6 +623,7 @@ public class ConfigPanel extends JPanel {
                 }
             }
 
+            resolveMailPresetFromCurrentHost();
             updateEnabledStates();
         } catch (IOException e) {
             log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
@@ -344,6 +652,7 @@ public class ConfigPanel extends JPanel {
                 setControlEnabled(rf.panel(), spec.enabledWhen().test(snap));
             }
         }
+        applyMailPresetLock();
         if (layoutChanged) {
             revalidate();
             repaint();
@@ -538,6 +847,7 @@ public class ConfigPanel extends JPanel {
                 rf.setValidationError(null);
             }
         }
+        resolveMailPresetFromCurrentHost();
         updateEnabledStates();
     }
 

@@ -140,6 +140,19 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "schedule.tick-interval-ms: 60000", "config.template.schedule.tick-interval-ms.comment");
         appendSetting(config, messages, "schedule.max-tasks: 100", "config.template.schedule.max-tasks.comment");
         appendSetting(config, messages, "schedule.fetch-delay-ms: 1000", "config.template.schedule.fetch-delay-ms.comment");
+        appendBlankLine(config);
+
+        appendSection(config, messages, "config.template.section.mail");
+        appendSetting(config, messages, "mail.enabled: false", "config.template.mail.enabled.comment");
+        appendSetting(config, messages, "mail.host:", "config.template.mail.host.comment");
+        appendSetting(config, messages, "mail.port: 587", "config.template.mail.port.comment");
+        appendSetting(config, messages, "mail.security: starttls", "config.template.mail.security.comment");
+        appendSetting(config, messages, "mail.username:", "config.template.mail.username.comment");
+        appendSetting(config, messages, "mail.password:", "config.template.mail.password.comment");
+        appendSetting(config, messages, "mail.from:", "config.template.mail.from.comment");
+        appendSetting(config, messages, "mail.to:", "config.template.mail.to.comment");
+        appendSetting(config, messages, "mail.socks-proxy:", "config.template.mail.socks-proxy.comment");
+        appendSetting(config, messages, "mail.subject-prefix: \"[PixivDownloader]\"", "config.template.mail.subject-prefix.comment");
 
         return config.toString();
     }

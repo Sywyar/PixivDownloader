@@ -16,7 +16,11 @@ public final class TestI18nBeans {
 
     public static MessageSource messageSource() {
         ReloadableResourceBundleMessageSource messageSource = new ReloadableResourceBundleMessageSource();
-        messageSource.setBasenames("classpath:i18n/messages", "classpath:i18n/ValidationMessages");
+        messageSource.setBasenames(
+                "classpath:i18n/messages",
+                "classpath:i18n/ValidationMessages",
+                "classpath:i18n/mail/messages"
+        );
         messageSource.setDefaultEncoding(StandardCharsets.UTF_8.name());
         messageSource.setFallbackToSystemLocale(false);
         messageSource.setUseCodeAsDefaultMessage(true);
