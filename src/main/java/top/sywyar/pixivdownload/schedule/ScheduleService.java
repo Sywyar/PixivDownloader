@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 
@@ -27,6 +28,7 @@ public class ScheduleService {
     private final ScheduleExecutor executor;
     private final ScheduleConfig config;
     private final ScheduleRunState runState;
+    private final ScheduleRunQueue runQueue;
 
     public List<ScheduleTaskView> list() {
         return database.mapper().findAll().stream()
@@ -99,6 +101,26 @@ public class ScheduleService {
         requireExisting(id);
         // 任务删除即清 cookie 快照（行删除连带 cookie_snapshot 一并消失）
         database.mapper().delete(id);
+        // 连带清除内存中的本轮运行队列，避免删除后残留
+        runQueue.remove(id);
+    }
+
+    /**
+     * 取该任务最近一轮运行队列（管理员专用，供前端「本轮队列详情」展示）。
+     * 从未运行或进程重启后返回空队列（{@code startedTime=null}、{@code items} 为空）。
+     */
+    public ScheduleQueueView queue(long id) {
+        requireExisting(id);
+        ScheduleRunQueue.Run run = runQueue.get(id);
+        if (run == null) {
+            return new ScheduleQueueView(id, null, false, 0, List.of());
+        }
+        List<ScheduleQueueView.Item> items = run.snapshot().stream()
+                .map(it -> new ScheduleQueueView.Item(
+                        it.getId(), it.getTitle(), it.getKind(),
+                        it.getXRestrict(), it.getAi(), it.getStatus(), it.getMessage()))
+                .toList();
+        return new ScheduleQueueView(id, run.startedTime(), run.truncated(), items.size(), items);
     }
 
     /**

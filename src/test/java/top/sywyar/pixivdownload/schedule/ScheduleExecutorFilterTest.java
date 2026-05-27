@@ -273,7 +273,8 @@ class ScheduleExecutorFilterTest {
                     List.of(List.of("100", "99", "98", "97")), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     1L, pages, 98L, id -> false,
-                    (id, workId) -> { dispatched.add(id); return true; }, () -> {});
+                    (id, workId) -> { dispatched.add(id); return true; }, () -> {},
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(r.dispatched()).isEqualTo(2);
             assertThat(dispatched).containsExactly("100", "99");
             assertThat(r.newestSeen()).isEqualTo(100L);
@@ -289,7 +290,8 @@ class ScheduleExecutorFilterTest {
                     List.of(List.of("100", "99"), List.of("98", "97")), calls);
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     1L, pages, 0L, id -> true,
-                    (id, workId) -> { dispatched.add(id); return true; }, () -> {});
+                    (id, workId) -> { dispatched.add(id); return true; }, () -> {},
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(r.dispatched()).isZero();
             assertThat(dispatched).isEmpty();
             assertThat(calls.get()).isEqualTo(1); // 第 2 页未请求
@@ -303,7 +305,8 @@ class ScheduleExecutorFilterTest {
                     List.of(List.of("30", "20"), List.of("50", "10"), List.of()), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     1L, pages, 0L, id -> false,
-                    (id, workId) -> true, () -> {});
+                    (id, workId) -> true, () -> {},
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(r.dispatched()).isEqualTo(4);
             assertThat(r.newestSeen()).isEqualTo(50L);
         }
@@ -320,7 +323,8 @@ class ScheduleExecutorFilterTest {
                         seen.add(id);
                         if (workId == 2L) throw new IllegalStateException("boom");
                         return true;
-                    }, () -> {});
+                    }, () -> {},
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(seen).containsExactly("3", "2", "1");
             assertThat(r.dispatched()).isEqualTo(2);
         }
@@ -331,7 +335,8 @@ class ScheduleExecutorFilterTest {
             ScheduleExecutor.PageSupplier pages = supplier(
                     List.of(List.of("2", "1")), new AtomicInteger());
             assertThatThrownBy(() -> ScheduleExecutor.runWatermarkScan(1L, pages, 0L, id -> false,
-                    (id, workId) -> { throw new PixivFetchService.PixivFetchException("auth"); }, () -> {}))
+                    (id, workId) -> { throw new PixivFetchService.PixivFetchException("auth"); }, () -> {},
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST)))
                     .isInstanceOf(PixivFetchService.PixivFetchException.class);
         }
 
@@ -347,7 +352,8 @@ class ScheduleExecutorFilterTest {
             };
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     1L, pages, 0L, none::contains,
-                    (id, workId) -> true, () -> {});
+                    (id, workId) -> true, () -> {},
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(calls.get()).isEqualTo(ScheduleExecutor.SEARCH_INCREMENTAL_MAX_PAGES);
             assertThat(r.dispatched()).isEqualTo(ScheduleExecutor.SEARCH_INCREMENTAL_MAX_PAGES);
         }

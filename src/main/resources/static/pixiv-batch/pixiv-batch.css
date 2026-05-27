@@ -1545,6 +1545,7 @@
         html[data-theme="dark"] .cookie-hint,
         html[data-theme="dark"] .filename-help-note,
         html[data-theme="dark"] #status-bar,
+        html[data-theme="dark"] .schedule-queue-status,
         html[data-theme="dark"] .queue-item .q-meta,
         html[data-theme="dark"] .prog-label,
         html[data-theme="dark"] .search-extra-note,
@@ -1636,7 +1637,8 @@
             border-color: var(--line);
         }
 
-        html[data-theme="dark"] #current-card {
+        html[data-theme="dark"] #current-card,
+        html[data-theme="dark"] .schedule-queue-current {
             background: var(--current-bg);
         }
 
@@ -1967,6 +1969,78 @@
     padding: 5px 10px;
     font-size: 12px;
 }
+
+/* 卡片底部「本轮队列详情」可折叠区域 */
+.schedule-queue {
+    margin-top: 10px;
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+}
+
+.schedule-queue-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    padding: 2px 0;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.schedule-queue-toggle:hover {
+    color: var(--text);
+}
+
+.schedule-queue-caret {
+    display: inline-block;
+    width: 12px;
+    font-size: 11px;
+}
+
+.schedule-queue-body {
+    margin-top: 8px;
+}
+
+/* 顶部状态行 / 统计行：与工作区底部的 #status-bar / #stats-bar 完全一致 */
+.schedule-queue-status {
+    text-align: center;
+    font-size: 13px;
+    color: #666;
+    padding: 4px 0 2px;
+}
+
+.schedule-queue-stats {
+    text-align: center;
+    font-size: 12px;
+    color: #007bff;
+    font-weight: bold;
+    padding: 2px 0;
+}
+
+/* 当前下载卡：与 #current-card 完全一致 */
+.schedule-queue-current {
+    background: #f0f8ff;
+    border-left: 4px solid #007bff;
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    font-size: 12px;
+    margin: 8px 0;
+}
+
+.schedule-queue-current strong {
+    font-size: 13px;
+}
+
+/* 列表容器与 #queue-list 完全一致（同样的最大高度与滚动） */
+.schedule-queue-list {
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+/* 空态与队列项分别复用工作区的 .queue-empty / .queue-item 样式（含深色模式覆盖），保证两处完全一致 */
 
 body.schedule-modal-open {
     overflow: hidden;

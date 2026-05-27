@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
 import top.sywyar.pixivdownload.schedule.dto.CookieAuthorizeRequest;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 
@@ -42,6 +43,12 @@ public class ScheduleController {
     @GetMapping("/tasks/{id}")
     public ScheduleTaskView get(@PathVariable long id) {
         return scheduleService.get(id);
+    }
+
+    /** 最近一轮运行队列（本轮发现的每个作品及其处理结果），供前端卡片底部「本轮队列详情」展开展示。 */
+    @GetMapping("/tasks/{id}/queue")
+    public ScheduleQueueView queue(@PathVariable long id) {
+        return scheduleService.queue(id);
     }
 
     @PostMapping("/tasks")

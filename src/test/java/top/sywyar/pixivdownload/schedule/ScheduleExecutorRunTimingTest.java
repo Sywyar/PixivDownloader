@@ -60,7 +60,7 @@ class ScheduleExecutorRunTimingTest {
         config.setFetchDelayMs(0);
         executor = new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
                 artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
-                config, new ScheduleRunState(), new ObjectMapper());
+                config, new ScheduleRunState(), new ScheduleRunQueue(), new ObjectMapper());
         when(database.mapper()).thenReturn(mapper);
     }
 

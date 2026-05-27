@@ -69,6 +69,7 @@ public class ScheduleExecutor {
     private final NovelMergeService novelMergeService;
     private final ScheduleConfig scheduleConfig;
     private final ScheduleRunState runState;
+    private final ScheduleRunQueue runQueue;
     private final ObjectMapper objectMapper;
 
     /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
@@ -148,13 +149,19 @@ public class ScheduleExecutor {
         Filters filters = parseFilters(root.path("filters"));
         Download download = parseDownload(root.path("download"));
 
+        // 开新一轮的运行队列（整体替换上一轮），供前端「本轮队列详情」展示本轮每个作品的处理结果。
+        ScheduleRunQueue.Run run = runQueue.begin(task.id(),
+                novel ? ScheduleRunQueue.KIND_NOVEL : ScheduleRunQueue.KIND_ILLUST);
+
         int completed;
         if (isWatermarkMode(task.type(), source)) {
             // 水位线增量发现（仅 USER_NEW 与「date_d + 结束页 = -1」的增量 SEARCH，均最新在前 + 只追加）：
             // 扫到上一轮水位线即停翻页，崩溃后水位线不更新 → 重跑靠去重补齐，不丢作品。
-            completed = runWatermarkMode(task, novel, source, cookie, filters, download);
+            completed = runWatermarkMode(task, novel, source, cookie, filters, download, run);
         } else {
             List<String> ids = discoverIds(task.type(), novel, source, cookie);
+            // 先把本轮发现到的全部作品登记为「等待处理」，再逐个推进状态。
+            ids.forEach(run::discovered);
             completed = 0;
             for (String id : ids) {
                 long workId;
@@ -165,17 +172,19 @@ public class ScheduleExecutor {
                 }
                 boolean already = novel ? novelDatabase.hasNovel(workId) : pixivDatabase.hasArtwork(workId);
                 if (already) {
+                    run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
                     continue;
                 }
                 try {
-                    if (novel ? dispatchNovel(id, workId, cookie, filters, download)
-                              : dispatchArtwork(id, workId, cookie, filters, download)) {
+                    if (novel ? dispatchNovel(id, workId, cookie, filters, download, run)
+                              : dispatchArtwork(id, workId, cookie, filters, download, run)) {
                         completed++;
                     }
                 } catch (PixivFetchService.PixivFetchException e) {
                     throw e; // 鉴权失效：让整轮停下
                 } catch (Exception e) {
                     // 单作品失败隔离：仅记日志，继续后续作品
+                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, summarizeError(e));
                     log.warn("Scheduled task {} skip work {}: {}", task.id(), id, e.getMessage());
                 }
                 politeDelay();
@@ -245,7 +254,7 @@ public class ScheduleExecutor {
      * 增量 SEARCH 用逐页 supplier。一轮<b>正常跑完</b>（无异常）后才把水位线更新为本轮发现的最新 ID。
      */
     private int runWatermarkMode(ScheduledTask task, boolean novel, JsonNode source, String cookie,
-                                 Filters filters, Download download) throws Exception {
+                                 Filters filters, Download download, ScheduleRunQueue.Run run) throws Exception {
         PageSupplier pages;
         if (task.type() == ScheduledTaskType.USER_NEW) {
             String userId = source.path("userId").asText("");
@@ -263,11 +272,11 @@ public class ScheduleExecutor {
         }
         java.util.function.LongPredicate already = novel ? novelDatabase::hasNovel : pixivDatabase::hasArtwork;
         WorkDispatcher dispatcher = novel
-                ? (id, workId) -> dispatchNovel(id, workId, cookie, filters, download)
-                : (id, workId) -> dispatchArtwork(id, workId, cookie, filters, download);
+                ? (id, workId) -> dispatchNovel(id, workId, cookie, filters, download, run)
+                : (id, workId) -> dispatchArtwork(id, workId, cookie, filters, download, run);
         long watermark = task.watermarkId() == null ? 0L : task.watermarkId();
         WatermarkScanResult result = runWatermarkScan(
-                task.id(), pages, watermark, already, dispatcher, this::politeDelay);
+                task.id(), pages, watermark, already, dispatcher, this::politeDelay, run);
         // 一轮正常跑完（无异常）→ 把水位线推进到本轮发现的最新 ID；本轮无任何发现则保留旧值（不回退）。
         if (result.newestSeen() > 0) {
             database.mapper().updateWatermark(task.id(), result.newestSeen());
@@ -304,7 +313,8 @@ public class ScheduleExecutor {
      */
     static WatermarkScanResult runWatermarkScan(long taskId, PageSupplier pages, long watermark,
                                                 java.util.function.LongPredicate alreadyDownloaded,
-                                                WorkDispatcher dispatcher, Runnable politeDelay) throws Exception {
+                                                WorkDispatcher dispatcher, Runnable politeDelay,
+                                                ScheduleRunQueue.Run run) throws Exception {
         int dispatched = 0;
         long newestSeen = 0L;
         for (int p = 1; p <= SEARCH_INCREMENTAL_MAX_PAGES; p++) {
@@ -320,10 +330,12 @@ public class ScheduleExecutor {
                 }
                 newestSeen = Math.max(newestSeen, workId);
                 if (watermark > 0 && workId <= watermark) {
-                    // 命中上一轮水位线 → 其后皆旧作，停止整轮翻页
+                    // 命中上一轮水位线 → 其后皆旧作，停止整轮翻页（不登记进队列：本轮不再发现它）
                     return new WatermarkScanResult(dispatched, newestSeen);
                 }
+                run.discovered(id);
                 if (alreadyDownloaded.test(workId)) {
+                    run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
                     continue; // 去重命中：跳过（不计 politeDelay），但本页仍可能有更新的新作
                 }
                 wholePageAlreadyDownloaded = false;
@@ -334,6 +346,7 @@ public class ScheduleExecutor {
                 } catch (PixivFetchService.PixivFetchException e) {
                     throw e; // 鉴权失效：让整轮停下
                 } catch (Exception e) {
+                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, summarizeError(e));
                     log.warn("Scheduled task {} skip work {}: {}", taskId, id, e.getMessage());
                 }
                 politeDelay.run();
@@ -345,9 +358,11 @@ public class ScheduleExecutor {
 
     /** 抓取插画元数据、应用筛选，命中则派发下载。返回是否派发。 */
     private boolean dispatchArtwork(String id, long artworkId, String cookie,
-                                    Filters filters, Download download) throws Exception {
+                                    Filters filters, Download download, ScheduleRunQueue.Run run) throws Exception {
         PixivFetchService.ArtworkMeta meta = pixivFetchService.fetchArtworkMeta(id, cookie);
+        run.setMeta(id, meta.title(), meta.xRestrict(), meta.ai());
         if (!artworkMatches(meta, filters)) {
+            run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
             return false;
         }
         DownloadRequest.Other other = new DownloadRequest.Other();
@@ -379,16 +394,21 @@ public class ScheduleExecutor {
             }
         }
 
-        return artworkDownloader.downloadImagesBlocking(
+        boolean downloaded = artworkDownloader.downloadImagesBlocking(
                 artworkId, meta.title(), imageUrls,
                 PIXIV_REFERER + "artworks/" + id, other, cookie, null);
+        run.mark(id, downloaded ? ScheduleRunQueue.STATUS_DOWNLOADED
+                : ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+        return downloaded;
     }
 
     /** 抓取小说详情、应用筛选，命中则按快照设置组装并派发小说下载。返回是否派发。 */
     private boolean dispatchNovel(String id, long novelId, String cookie,
-                                  Filters filters, Download download) throws Exception {
+                                  Filters filters, Download download, ScheduleRunQueue.Run run) throws Exception {
         PixivFetchService.NovelDetail d = pixivFetchService.fetchNovelDetail(id, cookie);
+        run.setMeta(id, d.title(), d.xRestrict(), d.ai());
         if (!novelMatches(d, filters)) {
+            run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
             return false;
         }
         NovelDownloadRequest req = new NovelDownloadRequest();
@@ -421,7 +441,10 @@ public class ScheduleExecutor {
         o.setFormat(download.novelFormat());
         req.setOther(o);
 
-        return novelDownloader.downloadBlocking(req, null);
+        boolean downloaded = novelDownloader.downloadBlocking(req, null);
+        run.mark(id, downloaded ? ScheduleRunQueue.STATUS_DOWNLOADED
+                : ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+        return downloaded;
     }
 
     // ── 服务端筛选 ────────────────────────────────────────────────────────────────

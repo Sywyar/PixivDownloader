@@ -1585,6 +1585,16 @@
         state.sseListeners[key].push(fn);
     }
 
+    // 精确移除单个监听器（仅删除自己注册的那个回调，不影响同一 artworkId 上的其它监听）。
+    function removeSSEListener(artworkId, fn) {
+        const key = String(artworkId);
+        const arr = state.sseListeners[key];
+        if (!arr) return;
+        const idx = arr.indexOf(fn);
+        if (idx >= 0) arr.splice(idx, 1);
+        if (!arr.length) delete state.sseListeners[key];
+    }
+
     function waitForFinalStatusBySSE(artworkId, timeoutMs) {
         return new Promise(resolve => {
             let resolved = false;
@@ -3140,48 +3150,56 @@
             updateAdminPackButton();
             return;
         }
-        el.innerHTML = state.queue.map(q => {
-            const prog = q.totalImages > 0
-                ? `<div class="prog-wrap">
+        el.innerHTML = state.queue.map(q => buildQueueItemHtml(q, {removable: true})).join('');
+        updateAdminPackButton();
+    }
+
+    // 单个队列项的 HTML。下载工作区底部的「下载队列」与计划任务卡片底部的「本轮队列详情」共用此函数，
+    // 保证两处队列展示完全一致（进度条、来源/分级/AI 标记、小说进度等）。
+    // opts.removable=false 时不渲染移除按钮（计划任务为服务端队列，前端不可移除）。
+    function buildQueueItemHtml(q, opts) {
+        const removable = !opts || opts.removable !== false;
+        const prog = q.totalImages > 0
+            ? `<div class="prog-wrap">
           <div class="prog-label"><span>${esc(formatImageProgressText(q.downloadedCount || 0, q.totalImages))}</span><span>${pct(q)}%</span></div>
          <div class="prog-bg"><div class="prog-fill" style="width:${pct(q)}%;background:${statusColor(q.status)}"></div></div>
          </div>` : '';
-            const detailProg = formatImageDownloadProgressHtml(q.imageProgress, q.status)
-                + formatUgoiraProgressHtml(q.ugoiraProgress, q.status)
-                + formatNovelProgressHtml(q);
-            const desc = q.lastMessage || queueStatusText(q.status);
-            const descHtml = renderQueueMessageHtml(q, desc);
-            const sourceTone = q.source === 'user'
-                ? {label: queueSourceText('user'), bg: '#007bff'}
-                : q.source === 'search' || q.source === 'search-novel'
-                    ? {label: queueSourceText('search'), bg: '#28a745'}
-                    : q.source === 'series' || q.source === 'series-novel'
-                        ? {label: queueSourceText('series'), bg: '#6366f1'}
-                        : {label: queueSourceText(SINGLE_IMPORT_MODE), bg: '#6610f2'};
-            const srcLabel = `<span style="background:${sourceTone.bg};color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">${esc(sourceTone.label)}</span>`;
-            const R18Label = q.xRestrict == null
-                ? `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">${esc(bt('queue.unknown', '未知'))}</span>`
-                : q.xRestrict === 2
-                    ? `<span style="background:#b91c1c;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">R-18G</span>`
-                    : q.xRestrict === 1
-                        ? `<span style="background:#dc3545;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">R-18</span>`
-                        : `<span style="background:#198754;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">SFW</span>`;
-            const AILabel = q.isAi === true
-                ? `<span style="background:#d946ef;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">AI</span>`
-                : '';
-            const canRemove = q.status !== 'downloading';
-            const removeBtn = canRemove
-                ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="${esc(bt('queue.remove', '移除'))}" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
-                : '';
-            const isNovel = q.kind === 'novel';
-            const linkHref = isNovel
-                ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(q.novelId || String(q.id).replace(/^n/, ''))}`
-                : `https://www.pixiv.net/artworks/${q.id}`;
-            const linkBtn = `<a href="${linkHref}" target="_blank" onclick="event.stopPropagation();" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`;
-            const novelTag = isNovel
-                ? `<span style="background:#0d9488;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">📕 ${esc(bt('queue.novel', '小说'))}</span>`
-                : '';
-            return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
+        const detailProg = formatImageDownloadProgressHtml(q.imageProgress, q.status)
+            + formatUgoiraProgressHtml(q.ugoiraProgress, q.status)
+            + formatNovelProgressHtml(q);
+        const desc = q.lastMessage || queueStatusText(q.status);
+        const descHtml = renderQueueMessageHtml(q, desc);
+        const sourceTone = q.source === 'user'
+            ? {label: queueSourceText('user'), bg: '#007bff'}
+            : q.source === 'search' || q.source === 'search-novel'
+                ? {label: queueSourceText('search'), bg: '#28a745'}
+                : q.source === 'series' || q.source === 'series-novel'
+                    ? {label: queueSourceText('series'), bg: '#6366f1'}
+                    : {label: queueSourceText(SINGLE_IMPORT_MODE), bg: '#6610f2'};
+        const srcLabel = `<span style="background:${sourceTone.bg};color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">${esc(sourceTone.label)}</span>`;
+        const R18Label = q.xRestrict == null
+            ? `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">${esc(bt('queue.unknown', '未知'))}</span>`
+            : q.xRestrict === 2
+                ? `<span style="background:#b91c1c;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">R-18G</span>`
+                : q.xRestrict === 1
+                    ? `<span style="background:#dc3545;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">R-18</span>`
+                    : `<span style="background:#198754;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">SFW</span>`;
+        const AILabel = q.isAi === true
+            ? `<span style="background:#d946ef;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">AI</span>`
+            : '';
+        const canRemove = removable && q.status !== 'downloading';
+        const removeBtn = canRemove
+            ? `<button onclick="removeFromQueue('${q.id}');event.stopPropagation();" title="${esc(bt('queue.remove', '移除'))}" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;" onmouseover="this.style.color='#dc3545'" onmouseout="this.style.color='#aaa'">✕</button>`
+            : '';
+        const isNovel = q.kind === 'novel';
+        const linkHref = isNovel
+            ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(q.novelId || String(q.id).replace(/^n/, ''))}`
+            : `https://www.pixiv.net/artworks/${q.id}`;
+        const linkBtn = `<a href="${linkHref}" target="_blank" onclick="event.stopPropagation();" title="${esc(bt('queue.open-artwork', '打开作品页面'))}" style="color:#007bff;font-size:13px;padding:0 2px;text-decoration:none;line-height:1;">🔗</a>`;
+        const novelTag = isNovel
+            ? `<span style="background:#0d9488;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">📕 ${esc(bt('queue.novel', '小说'))}</span>`
+            : '';
+        return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
       <div class="q-title" style="display:flex;align-items:center;gap:2px;">
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(q.title)}${novelTag}${srcLabel}${R18Label}${AILabel}</span>
         ${linkBtn}${removeBtn}
@@ -3190,8 +3208,6 @@
       ${prog}
       ${detailProg}
     </div>`;
-        }).join('');
-        updateAdminPackButton();
     }
 
     function pct(q) {
@@ -6016,6 +6032,12 @@
     // 计划任务列表轮询：进入第 5 Tab 时定时刷新，让「正在运行 / 排队中」等瞬时状态灯能实时更新。
     let schedulePollTimer = null;
     const SCHEDULE_POLL_MS = 4000;
+    // 当前展开了「本轮队列详情」的任务 id 集合：列表重渲染会重建 DOM，据此恢复展开态。
+    // 未展开的任务不请求 / 不渲染队列；展开后从本地缓存即时渲染，再按需向后端拉取最新队列。
+    const scheduleExpandedQueues = new Set();
+    // 上一次整列渲染所依据的「卡片级数据」签名：4s 轮询时若卡片级数据（状态灯/时间/徽章/按钮）没变就跳过整列
+    // innerHTML 重建，从而不销毁展开的队列 DOM、不打断 SSE 平滑刷新、不重置滚动；队列正文照常由 SSE / 快照单独更新。
+    let scheduleListSignature = null;
 
     function startSchedulePolling() {
         stopSchedulePolling();
@@ -6030,6 +6052,11 @@
         if (schedulePollTimer) {
             clearInterval(schedulePollTimer);
             schedulePollTimer = null;
+        }
+        // 离开计划任务 Tab：解绑全部队列 SSE 监听；若工作区也未在下载且无其它监听，顺手关掉聚合连接。
+        unsubscribeAllScheduleQueueSse();
+        if (!state.isRunning && state.sharedSse && Object.keys(state.sseListeners).length === 0) {
+            closeSharedSSE();
         }
     }
 
@@ -6644,6 +6671,15 @@
         if (e.key === 'Escape') closeScheduleSnapshotModal();
     });
 
+    // 整列渲染所依据的卡片级数据签名：仅当这些字段变化时才需要重建整列 DOM。
+    // 不含队列正文 / 展开态——它们由 SSE / 快照单独更新、由用户操作单独切换，不应触发整列重建。
+    function scheduleListRenderSignature(tasks) {
+        return JSON.stringify(tasks.map(t => [
+            t.id, t.name, t.enabled, t.type, t.cookieBound, t.runState,
+            t.lastStatus, t.lastMessage, t.runStartedTime, t.nextRunTime, t.lastRunTime, t.paramsJson
+        ]));
+    }
+
     async function loadScheduleTasks() {
         const list = document.getElementById('schedule-list');
         if (!list) return;
@@ -6651,18 +6687,33 @@
             const res = await fetch(`${BASE}/api/schedule/tasks`, {credentials: 'same-origin'});
             if (!res.ok) {
                 list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.load-failed', '加载失败'))}</div>`;
+                scheduleListSignature = null;
                 return;
             }
             const tasks = await res.json();
             scheduleTasksCache = Array.isArray(tasks) ? tasks : [];
-            if (scheduleTasksCache.length === 0) {
-                list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.empty', '暂无计划任务'))}</div>`;
-                return;
+            const signature = scheduleListRenderSignature(scheduleTasksCache);
+            // 卡片级数据未变（如运行中状态灯稳定为 RUNNING）→ 跳过整列重建，保留展开的队列 DOM 与滚动位置；
+            // 队列正文仍由下方 refreshExpandedScheduleQueues（快照）与 SSE（逐图进度）单独刷新。
+            if (signature !== scheduleListSignature) {
+                scheduleListSignature = signature;
+                if (scheduleTasksCache.length === 0) {
+                    list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.empty', '暂无计划任务'))}</div>`;
+                } else {
+                    // 清理已不存在任务的展开态，避免集合无限增长
+                    const liveIds = new Set(scheduleTasksCache.map(t => Number(t.id)));
+                    for (const id of [...scheduleExpandedQueues]) {
+                        if (!liveIds.has(id)) scheduleExpandedQueues.delete(id);
+                    }
+                    list.innerHTML = scheduleTasksCache.map(renderScheduleTaskCard).join('');
+                    applyCookieDependentUi();
+                }
             }
-            list.innerHTML = scheduleTasksCache.map(renderScheduleTaskCard).join('');
-            applyCookieDependentUi();
+            // 无论是否重建整列：运行 / 排队中的展开卡片随本轮轮询拉取最新队列快照，非运行态保持缓存。
+            refreshExpandedScheduleQueues();
         } catch (e) {
             list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.load-failed', '加载失败'))}</div>`;
+            scheduleListSignature = null;
         }
     }
 
@@ -6707,7 +6758,335 @@
                 <button class="btn btn-yellow" onclick="startEditScheduleTask(${t.id})">${escHtml(bt('schedule.action.edit', '✏ 编辑'))}</button>
                 <button class="btn btn-gray" onclick="deleteScheduleTask(${t.id})">${escHtml(bt('schedule.action.delete', '🗑 删除'))}</button>
             </div>
+            ${renderScheduleQueueSection(t)}
         </div>`;
+    }
+
+    // 卡片底部「本轮队列详情」可折叠区域：默认折叠；展开态在列表重渲染后从 scheduleExpandedQueues 恢复，
+    // 并直接用本地缓存预填充内容（避免闪烁），随后 refreshExpandedScheduleQueues / 展开动作再拉取最新数据。
+    function renderScheduleQueueSection(t) {
+        const id = Number(t.id);
+        const expanded = scheduleExpandedQueues.has(id);
+        const title = escHtml(bt('schedule.queue.title', '本轮队列详情'));
+        const bodyHtml = expanded ? renderScheduleQueueBody(id) : '';
+        return `
+            <div class="schedule-queue" data-task-id="${id}">
+                <button type="button" class="schedule-queue-toggle" aria-expanded="${expanded}" onclick="toggleScheduleQueue(${id})">
+                    <span class="schedule-queue-caret" aria-hidden="true">${expanded ? '▾' : '▸'}</span>
+                    <span>${title}</span>
+                </button>
+                <div class="schedule-queue-body"${expanded ? '' : ' hidden'}>${bodyHtml}</div>
+            </div>`;
+    }
+
+    function scheduleQueueCacheKey(id) {
+        return 'pixiv_schedule_queue_' + Number(id);
+    }
+
+    function readScheduleQueueCache(id) {
+        try {
+            const raw = storeGet(scheduleQueueCacheKey(id));
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed && Array.isArray(parsed.items) ? parsed : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function writeScheduleQueueCache(id, data) {
+        try {
+            storeSet(scheduleQueueCacheKey(id), JSON.stringify(data));
+        } catch (e) { /* 存储不可用时忽略：内存渲染仍可工作 */ }
+    }
+
+    // 计划任务「本轮队列详情」的客户端模型：taskId → 队列项数组（与下载工作区 state.queue 同形，
+    // 直接喂给 buildQueueItemHtml 渲染，保证两处队列完全一致）。后端 4s 快照提供权威的发现/终态，
+    // SSE 提供运行中的逐图实时进度。
+    const scheduleQueueModels = {};
+    // 已登记的 SSE 监听器：taskId → { artworkIdKey: fn }，用于精确解绑、避免重复注册或误删工作区监听。
+    const scheduleSseHandlers = {};
+    // 上一轮轮询时仍在运行的展开任务：用于在运行结束的那一拍补拉一次最终终态快照。
+    const scheduleQueueWasRunning = new Set();
+
+    // 取某任务的队列模型：内存优先，缺失时从 localStorage 缓存恢复（支持刷新 / 服务重启后继续展示）。
+    function getScheduleQueueModel(id) {
+        id = Number(id);
+        if (scheduleQueueModels[id]) return scheduleQueueModels[id];
+        const cache = readScheduleQueueCache(id);
+        if (cache && Array.isArray(cache.items)) {
+            scheduleQueueModels[id] = cache.items;
+            return cache.items;
+        }
+        return null;
+    }
+
+    function getScheduleQueueMeta(id) {
+        const cache = readScheduleQueueCache(id);
+        return {
+            startedTime: cache ? cache.startedTime : null,
+            truncated: cache ? !!cache.truncated : false,
+            total: cache && typeof cache.total === 'number' ? cache.total : null
+        };
+    }
+
+    function scheduleTaskById(id) {
+        return scheduleTasksCache.find(t => Number(t.id) === Number(id)) || null;
+    }
+
+    // 任务类型 → 队列项来源标识，复用工作区队列项的来源色块（user / search / series）。
+    function scheduleSourceForType(type) {
+        if (type === 'SEARCH') return 'search';
+        if (type === 'SERIES') return 'series';
+        return 'user';
+    }
+
+    // 后端队列项状态 → 工作区队列状态 + 说明文案。
+    function scheduleStatusToQueue(it) {
+        switch (it.status) {
+            case 'downloaded':
+                return {status: 'completed', lastMessage: null};
+            case 'skipped-downloaded':
+                return {status: 'skipped', lastMessage: bt('schedule.queue.status.skipped-downloaded', '已存在，跳过')};
+            case 'skipped-filter':
+                return {status: 'skipped', lastMessage: bt('schedule.queue.status.skipped-filter', '被筛选条件跳过')};
+            case 'failed':
+                return {status: 'failed', lastMessage: it.message || bt('schedule.queue.status.failed', '失败')};
+            default:
+                return {status: 'pending', lastMessage: null};
+        }
+    }
+
+    // 后端队列项 → 工作区队列项（同 state.queue 形状），供 buildQueueItemHtml 渲染。
+    function scheduleItemToQueue(it, type) {
+        const isNovel = it.kind === 'novel';
+        const rawId = String(it.id == null ? '' : it.id);
+        const mapped = scheduleStatusToQueue(it);
+        return {
+            id: isNovel ? ('n' + rawId) : rawId,
+            novelId: isNovel ? rawId : undefined,
+            kind: isNovel ? 'novel' : 'illust',
+            title: it.title && String(it.title).trim() ? it.title : bt('schedule.queue.no-title', '（暂无标题信息）'),
+            source: scheduleSourceForType(type),
+            xRestrict: it.xRestrict == null ? null : it.xRestrict,
+            isAi: it.ai === true,
+            status: mapped.status,
+            lastMessage: mapped.lastMessage,
+            totalImages: 0,
+            downloadedCount: 0,
+            imageProgress: null,
+            ugoiraProgress: null
+        };
+    }
+
+    // 用后端快照重建模型，同时保留 SSE 实时进度：后端仍为 pending 而本地正在下载时沿用本地实时态，
+    // 避免每 4s 快照把进行中的进度条打回原形。
+    function mergeScheduleQueueModel(id, incoming, type) {
+        const prev = scheduleQueueModels[Number(id)] || [];
+        const prevById = {};
+        prev.forEach(q => { prevById[q.id] = q; });
+        return incoming.map(it => {
+            const q = scheduleItemToQueue(it, type);
+            const old = prevById[q.id];
+            if (old && q.status === 'pending' && old.status === 'downloading') {
+                q.status = 'downloading';
+                q.totalImages = old.totalImages || 0;
+                q.downloadedCount = old.downloadedCount || 0;
+                q.imageProgress = old.imageProgress || null;
+                q.ugoiraProgress = old.ugoiraProgress || null;
+            } else if (old) {
+                q.totalImages = q.totalImages || old.totalImages || 0;
+                q.downloadedCount = q.downloadedCount || old.downloadedCount || 0;
+            }
+            return q;
+        });
+    }
+
+    function renderScheduleQueueBodyInto(id) {
+        if (!scheduleExpandedQueues.has(Number(id))) return;
+        const wrap = document.querySelector(`.schedule-queue[data-task-id="${Number(id)}"]`);
+        if (!wrap) return;
+        const body = wrap.querySelector('.schedule-queue-body');
+        if (!body) return;
+        // 保留滚动位置：SSE / 快照刷新会替换正文 innerHTML，不保留则滚动条每次跳回顶部。
+        const prevList = body.querySelector('.schedule-queue-list');
+        const prevScroll = prevList ? prevList.scrollTop : 0;
+        body.innerHTML = renderScheduleQueueBody(id);
+        const newList = body.querySelector('.schedule-queue-list');
+        if (newList) newList.scrollTop = prevScroll;
+    }
+
+    // 展开某任务的队列：切换箭头，先用缓存模型即时渲染，再向后端拉取最新一轮队列；折叠则不请求并解绑 SSE。
+    function toggleScheduleQueue(id) {
+        id = Number(id);
+        const wrap = document.querySelector(`.schedule-queue[data-task-id="${id}"]`);
+        if (!wrap) return;
+        const body = wrap.querySelector('.schedule-queue-body');
+        const toggleBtn = wrap.querySelector('.schedule-queue-toggle');
+        const caret = wrap.querySelector('.schedule-queue-caret');
+        if (scheduleExpandedQueues.has(id)) {
+            scheduleExpandedQueues.delete(id);
+            unsubscribeScheduleQueueSse(id);
+            if (body) body.hidden = true;
+            if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+            if (caret) caret.textContent = '▸';
+            return;
+        }
+        scheduleExpandedQueues.add(id);
+        if (body) {
+            body.hidden = false;
+            body.innerHTML = renderScheduleQueueBody(id); // 缓存模型即时渲染（可能为空）
+        }
+        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+        if (caret) caret.textContent = '▾';
+        fetchScheduleQueue(id); // 访问即拉取最新
+    }
+
+    // 列表重渲染后：运行 / 排队中的展开卡片拉取最新队列（实现「运行中展开则自动刷新」），
+    // 运行刚结束的那一拍补拉一次终态快照，其余非运行态保持缓存渲染、撤掉 SSE 监听。
+    function refreshExpandedScheduleQueues() {
+        scheduleTasksCache.forEach(t => {
+            const id = Number(t.id);
+            const running = t.runState === 'RUNNING' || t.runState === 'QUEUED';
+            if (!scheduleExpandedQueues.has(id)) {
+                scheduleQueueWasRunning.delete(id);
+                return;
+            }
+            if (running) {
+                scheduleQueueWasRunning.add(id);
+                fetchScheduleQueue(id);
+            } else if (scheduleQueueWasRunning.has(id)) {
+                scheduleQueueWasRunning.delete(id);
+                fetchScheduleQueue(id); // 运行刚结束：拉取最终终态快照
+            } else {
+                unsubscribeScheduleQueueSse(id);
+            }
+        });
+    }
+
+    async function fetchScheduleQueue(id) {
+        id = Number(id);
+        const task = scheduleTaskById(id);
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/queue`, {credentials: 'same-origin'});
+            if (!res.ok) return; // 失败时保留已有模型渲染
+            const data = await res.json();
+            const incoming = Array.isArray(data.items) ? data.items : [];
+            const cached = readScheduleQueueCache(id);
+            // 后端无当轮队列（如进程重启后）而本地仍有缓存时，保留缓存继续展示，不被空队列覆盖。
+            const keepCache = incoming.length === 0 && data.startedTime == null
+                && cached && Array.isArray(cached.items) && cached.items.length > 0;
+            if (!keepCache) {
+                const model = mergeScheduleQueueModel(id, incoming, task ? task.type : null);
+                scheduleQueueModels[id] = model;
+                writeScheduleQueueCache(id, {
+                    startedTime: data.startedTime != null ? data.startedTime : null,
+                    truncated: !!data.truncated,
+                    total: typeof data.total === 'number' ? data.total : model.length,
+                    items: model,
+                    savedAt: Date.now()
+                });
+            }
+            renderScheduleQueueBodyInto(id);
+            // 运行中 + 展开：订阅 SSE 逐图实时进度；否则解绑。
+            if (scheduleExpandedQueues.has(id) && task && (task.runState === 'RUNNING' || task.runState === 'QUEUED')) {
+                subscribeScheduleQueueSse(id);
+            } else {
+                unsubscribeScheduleQueueSse(id);
+            }
+        } catch (e) { /* 网络异常：保留模型渲染 */ }
+    }
+
+    // 按工作区口径统计模型各状态计数（与 updateStats 同义）。
+    function computeScheduleQueueStats(model) {
+        const count = s => model.filter(q => q.status === s).length;
+        return {
+            success: count('completed'),
+            failed: count('failed'),
+            active: count('downloading'),
+            skipped: count('skipped'),
+            pending: model.filter(q => ['idle', 'pending', 'paused'].includes(q.status)).length
+        };
+    }
+
+    // 完整照搬下载工作区底部的「状态栏 + 统计栏 + 当前下载卡 + 下载队列」四段结构，
+    // 仅把数据源换成本任务的队列模型；各段分别复用 #status-bar / #stats-bar / #current-card / #queue-list 的样式与格式化函数。
+    function renderScheduleQueueBody(id) {
+        const model = getScheduleQueueModel(id) || [];
+        const task = scheduleTaskById(id);
+        const meta = getScheduleQueueMeta(id);
+
+        // 状态栏（对应 #status-bar）：任务运行状态文案 + 本轮开始时间 + 截断提示
+        let statusText = task ? scheduleStatusLight(task).text : bt('schedule.light.never', '等待首次运行');
+        if (meta.startedTime) {
+            statusText += ' · ' + bt('schedule.queue.started', '本轮开始：{time}', {time: fmtScheduleTime(meta.startedTime)});
+        }
+        if (meta.truncated) {
+            statusText += ' · ' + bt('schedule.queue.truncated', '作品过多，仅记录并展示前 {count} 项', {count: model.length});
+        }
+        const s = computeScheduleQueueStats(model);
+        const current = model.find(q => q.status === 'downloading') || null;
+
+        const statusLine = `<div class="schedule-queue-status">${escHtml(statusText)}</div>`;
+        const statsLine = `<div class="schedule-queue-stats">${escHtml(formatStatsText(s.pending, s.success, s.failed, s.active, s.skipped))}</div>`;
+        const currentCard = `<div class="schedule-queue-current">${formatCurrentCardHtml(current)}</div>`;
+        const listInner = model.length
+            ? model.map(q => buildQueueItemHtml(q, {removable: false})).join('')
+            : `<div class="queue-empty">${escHtml(bt('status.queue-empty', '队列为空'))}</div>`;
+        const listCard = `<div class="schedule-queue-list">${listInner}</div>`;
+        return statusLine + statsLine + currentCard + listCard;
+    }
+
+    // ── 计划任务队列的 SSE 实时进度同步（复用工作区的聚合 EventSource） ──────────────────────────
+    // 管理员的聚合 SSE 会收到全部下载进度事件（含计划任务后台下载，userUuid=null）。运行中展开队列时，
+    // 为每个插画项按 artworkId 注册监听，把逐图进度并入模型并重渲染；折叠 / 运行结束即解绑。
+    function subscribeScheduleQueueSse(id) {
+        id = Number(id);
+        const model = scheduleQueueModels[id];
+        if (!model) return;
+        ensureSharedSSE();
+        if (!scheduleSseHandlers[id]) scheduleSseHandlers[id] = {};
+        const handlers = scheduleSseHandlers[id];
+        model.forEach(q => {
+            if (q.kind === 'novel') return; // 小说无逐图 SSE，靠 4s 快照同步终态
+            const key = String(q.id);
+            if (handlers[key]) return; // 已注册
+            const fn = data => applyScheduleQueueSse(id, key, data);
+            handlers[key] = fn;
+            addSSEListener(key, fn);
+        });
+    }
+
+    function unsubscribeScheduleQueueSse(id) {
+        id = Number(id);
+        const handlers = scheduleSseHandlers[id];
+        if (!handlers) return;
+        Object.keys(handlers).forEach(key => removeSSEListener(key, handlers[key]));
+        delete scheduleSseHandlers[id];
+    }
+
+    function unsubscribeAllScheduleQueueSse() {
+        Object.keys(scheduleSseHandlers).forEach(id => unsubscribeScheduleQueueSse(id));
+    }
+
+    function applyScheduleQueueSse(id, qId, data) {
+        id = Number(id);
+        const model = scheduleQueueModels[id];
+        if (!model || !data) return;
+        const q = model.find(x => x.id === qId);
+        if (!q || data.cancelled) return;
+        if (data.completed) {
+            q.status = 'completed';
+        } else if (data.failed) {
+            q.status = 'failed';
+        } else if (data.downloadedCount !== undefined || data.totalImages !== undefined) {
+            q.status = 'downloading';
+            if (data.totalImages !== undefined) q.totalImages = data.totalImages;
+            if (data.downloadedCount !== undefined) q.downloadedCount = data.downloadedCount;
+            q.imageProgress = data.imageProgress || q.imageProgress || null;
+            q.ugoiraProgress = mergeUgoiraProgress(q.ugoiraProgress, data.ugoiraProgress);
+        }
+        renderScheduleQueueBodyInto(id);
     }
 
     async function runScheduleTask(id) {
