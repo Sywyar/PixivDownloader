@@ -135,4 +135,44 @@ class ScheduleExecutorRunTimingTest {
         verify(mapper, never()).updateWatermark(anyLong(), any());
         verify(mapper).updateRunStarted(eq(2L), anyLong());
     }
+
+    @Test
+    @DisplayName("失败原因：写入 last_message 前脱敏 Pixiv Cookie")
+    void shouldSanitizeCookieBeforePersistingFailureMessage() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                3L, "脱敏计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+        when(pixivFetchService.discoverUserArtworkIds("100", null))
+                .thenThrow(new IllegalStateException("request failed Cookie: PHPSESSID=secret; foo=bar"));
+
+        executor.runTaskAndRecord(task);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(mapper).updateRunResult(
+                eq(3L), anyLong(), eq(ScheduleExecutor.STATUS_ERROR), message.capture(), anyLong());
+        assertThat(message.getValue()).contains("[redacted]");
+        assertThat(message.getValue()).doesNotContain("secret").doesNotContain("foo=bar");
+    }
+
+    @Test
+    @DisplayName("失败原因：无 Cookie 前缀时也脱敏整段 Cookie 对")
+    void shouldSanitizeCookiePairsWithoutCookieHeader() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                4L, "脱敏计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+        when(pixivFetchService.discoverUserArtworkIds("100", null))
+                .thenThrow(new IllegalStateException("bad auth PHPSESSID=secret; foo=bar"));
+
+        executor.runTaskAndRecord(task);
+
+        ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
+        verify(mapper).updateRunResult(
+                eq(4L), anyLong(), eq(ScheduleExecutor.STATUS_ERROR), message.capture(), anyLong());
+        assertThat(message.getValue()).contains("PHPSESSID=[redacted]");
+        assertThat(message.getValue()).doesNotContain("secret").doesNotContain("foo=bar");
+    }
 }

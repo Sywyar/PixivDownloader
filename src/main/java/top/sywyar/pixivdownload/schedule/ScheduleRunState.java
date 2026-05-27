@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 计划任务的<b>运行期瞬时状态</b>登记（仅内存，不落库）。
@@ -17,8 +18,11 @@ import java.util.concurrent.ConcurrentMap;
  *   <li>{@link #RUNNING}：当前正在执行。</li>
  * </ul>
  *
+ * <p>每轮运行都必须先拿到一个 {@link Claim}。后续从 QUEUED 转 RUNNING、结束清理时都校验 claim，
+ * 避免同一任务被手动运行 / tick 重复触发后互相覆盖或误清对方状态。
+ *
  * <p>不落库是有意的：进程退出后这些瞬时态自然消失，不会出现「卡在 RUNNING」的脏状态；
- * 任务真正的结果始终以持久化的 {@code last_status} 为准。
+ * 任务真正的结果始终以持久化的 {@code last_status} / {@code run_started_time} 为准。
  */
 @Component
 public class ScheduleRunState {
@@ -26,22 +30,55 @@ public class ScheduleRunState {
     public static final String QUEUED = "QUEUED";
     public static final String RUNNING = "RUNNING";
 
-    private final ConcurrentMap<Long, String> states = new ConcurrentHashMap<>();
+    private final AtomicLong nextClaim = new AtomicLong();
+    private final ConcurrentMap<Long, Entry> states = new ConcurrentHashMap<>();
 
-    public void markQueued(long id) {
-        states.put(id, QUEUED);
+    public Claim tryMarkQueued(long id) {
+        return tryClaim(id, QUEUED);
     }
 
-    public void markRunning(long id) {
-        states.put(id, RUNNING);
+    public Claim tryMarkRunning(long id) {
+        return tryClaim(id, RUNNING);
     }
 
-    public void clear(long id) {
-        states.remove(id);
+    public boolean markRunning(Claim claim) {
+        if (claim == null) {
+            return false;
+        }
+        boolean[] updated = {false};
+        states.computeIfPresent(claim.taskId(), (id, current) -> {
+            if (current.claimId() != claim.claimId()) {
+                return current;
+            }
+            updated[0] = true;
+            return new Entry(RUNNING, claim.claimId());
+        });
+        return updated[0];
+    }
+
+    public void clear(Claim claim) {
+        if (claim == null) {
+            return;
+        }
+        states.computeIfPresent(claim.taskId(), (id, current) ->
+                current.claimId() == claim.claimId() ? null : current);
     }
 
     /** 返回该任务的瞬时运行态（{@link #QUEUED} / {@link #RUNNING}），无则返回 {@code null}。 */
     public String get(long id) {
-        return states.get(id);
+        Entry entry = states.get(id);
+        return entry == null ? null : entry.state();
+    }
+
+    private Claim tryClaim(long id, String state) {
+        long claimId = nextClaim.incrementAndGet();
+        Entry existing = states.putIfAbsent(id, new Entry(state, claimId));
+        return existing == null ? new Claim(id, claimId) : null;
+    }
+
+    public record Claim(long taskId, long claimId) {
+    }
+
+    private record Entry(String state, long claimId) {
     }
 }

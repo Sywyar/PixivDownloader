@@ -148,7 +148,17 @@ public class ScheduleService {
     /** 立即运行一次（后台异步执行，不阻塞调用方）。 */
     public void runOnce(long id) {
         requireExisting(id);
-        executor.runTaskAsync(id);
+        ScheduleRunState.Claim claim = runState.tryMarkQueued(id);
+        if (claim == null) {
+            log.debug("Scheduled task {} manual run ignored: already queued or running", id);
+            return;
+        }
+        try {
+            executor.runTaskAsync(id, claim);
+        } catch (RuntimeException e) {
+            runState.clear(claim);
+            throw e;
+        }
     }
 
     // ── 内部 ────────────────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * 计划任务的执行核心：按任务类型在服务端发现作品 ID、跳过已下载、逐个抓取元数据、
@@ -74,13 +75,35 @@ public class ScheduleExecutor {
 
     /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
     private static final int MAX_ERROR_MESSAGE_LENGTH = 300;
+    private static final Pattern COOKIE_HEADER_PATTERN = Pattern.compile("(?i)\\b(cookie\\s*[:=]\\s*)[^\\r\\n]+");
+    private static final Pattern PHPSESSID_PATTERN = Pattern.compile("(?i)\\b(PHPSESSID\\s*=\\s*)[^;\\s]+");
+    private static final Pattern COOKIE_PAIR_PATTERN = Pattern.compile("(?i)(^|[;\\s])([A-Za-z0-9_-]+\\s*=\\s*)[^;\\s]+");
 
     /** 后台异步运行一次（供「立即运行」端点用，避免阻塞 HTTP 请求线程）。 */
     @Async
     public void runTaskAsync(long taskId) {
-        ScheduledTask task = database.mapper().findById(taskId);
-        if (task != null) {
-            runTaskAndRecord(task);
+        ScheduleRunState.Claim claim = runState.tryMarkQueued(taskId);
+        if (claim == null) {
+            log.debug("Scheduled task {} async run skipped: already queued or running", taskId);
+            return;
+        }
+        runTaskAsync(taskId, claim);
+    }
+
+    /** 后台异步运行一个已经抢占瞬时态的任务。 */
+    @Async
+    public void runTaskAsync(long taskId, ScheduleRunState.Claim claim) {
+        boolean delegated = false;
+        try {
+            ScheduledTask task = database.mapper().findById(taskId);
+            if (task != null) {
+                delegated = true;
+                runTaskAndRecord(task, claim);
+            }
+        } finally {
+            if (!delegated) {
+                runState.clear(claim);
+            }
         }
     }
 
@@ -89,14 +112,25 @@ public class ScheduleExecutor {
      * 调度 tick 串行调用本方法；固定周期的下一次运行以本轮真实完成时间为基准。
      */
     public void runTaskAndRecord(ScheduledTask task) {
-        // 瞬时态：本任务进入执行 → RUNNING（覆盖 tick 预设的 QUEUED）；无论成败，结束后清除瞬时态。
-        runState.markRunning(task.id());
-        // 落库本轮开始时刻：正常结束时 updateRunResult 会清为 NULL；进程被强杀（没走到 updateRunResult）则残留 →
-        // 即「上次运行被中断」信号，供前端中断红灯展示，重跑会刷新它并最终补齐后清除。
-        database.mapper().updateRunStarted(task.id(), System.currentTimeMillis());
+        ScheduleRunState.Claim claim = runState.tryMarkRunning(task.id());
+        if (claim == null) {
+            log.debug("Scheduled task {} ({}) skipped: already queued or running", task.id(), task.name());
+            return;
+        }
+        runTaskAndRecord(task, claim);
+    }
+
+    void runTaskAndRecord(ScheduledTask task, ScheduleRunState.Claim claim) {
+        if (!runState.markRunning(claim)) {
+            log.debug("Scheduled task {} ({}) skipped: stale run claim", task.id(), task.name());
+            return;
+        }
         String status;
         String message = null;
         try {
+            // 落库本轮开始时刻：正常结束时 updateRunResult 会清为 NULL；进程被强杀（没走到 updateRunResult）则残留 →
+            // 即「上次运行被中断」信号，供前端中断红灯展示，重跑会刷新它并最终补齐后清除。
+            database.mapper().updateRunStarted(task.id(), System.currentTimeMillis());
             int completed = runTask(task);
             status = STATUS_OK;
             log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completed);
@@ -107,9 +141,10 @@ public class ScheduleExecutor {
         } catch (Exception e) {
             status = STATUS_ERROR;
             message = summarizeError(e);
-            log.error("Scheduled task {} ({}) failed: {}", task.id(), task.name(), e.getMessage(), e);
+            log.error("Scheduled task {} ({}) failed [{}]: {}",
+                    task.id(), task.name(), e.getClass().getSimpleName(), message);
         } finally {
-            runState.clear(task.id());
+            runState.clear(claim);
         }
         long completedAt = System.currentTimeMillis();
         Long nextRun = ScheduleTiming.computeNextRun(
@@ -119,7 +154,7 @@ public class ScheduleExecutor {
 
     /**
      * 把异常压缩成可安全展示的失败原因摘要：取 {@code getMessage()}（缺失时退化为异常简单类名），
-     * 折叠空白并截断到 {@link #MAX_ERROR_MESSAGE_LENGTH}。这些异常文本不含 Cookie / 凭证，可回显。
+     * 折叠空白、显式脱敏 Cookie 凭证，并截断到 {@link #MAX_ERROR_MESSAGE_LENGTH}。
      */
     private static String summarizeError(Throwable e) {
         String raw = e.getMessage();
@@ -127,6 +162,12 @@ public class ScheduleExecutor {
             raw = e.getClass().getSimpleName();
         }
         String collapsed = raw.replaceAll("\\s+", " ").trim();
+        collapsed = COOKIE_HEADER_PATTERN.matcher(collapsed).replaceAll("$1[redacted]");
+        if (collapsed.toLowerCase(Locale.ROOT).contains("phpsessid=")) {
+            collapsed = COOKIE_PAIR_PATTERN.matcher(collapsed).replaceAll("$1$2[redacted]");
+        } else {
+            collapsed = PHPSESSID_PATTERN.matcher(collapsed).replaceAll("$1[redacted]");
+        }
         if (collapsed.length() > MAX_ERROR_MESSAGE_LENGTH) {
             collapsed = collapsed.substring(0, MAX_ERROR_MESSAGE_LENGTH) + "…";
         }
@@ -184,8 +225,10 @@ public class ScheduleExecutor {
                     throw e; // 鉴权失效：让整轮停下
                 } catch (Exception e) {
                     // 单作品失败隔离：仅记日志，继续后续作品
-                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, summarizeError(e));
-                    log.warn("Scheduled task {} skip work {}: {}", task.id(), id, e.getMessage());
+                    String safeMessage = summarizeError(e);
+                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, safeMessage);
+                    log.warn("Scheduled task {} skip work {} [{}]: {}",
+                            task.id(), id, e.getClass().getSimpleName(), safeMessage);
                 }
                 politeDelay();
             }
@@ -200,7 +243,8 @@ public class ScheduleExecutor {
                     novelMergeService.merge(seriesId,
                             NovelDownloadService.NovelFormat.parse(download.novelMergeFormat()));
                 } catch (Exception e) {
-                    log.warn("Scheduled task {} series merge failed: {}", task.id(), e.getMessage());
+                    log.warn("Scheduled task {} series merge failed [{}]: {}",
+                            task.id(), e.getClass().getSimpleName(), summarizeError(e));
                 }
             }
         }
@@ -346,8 +390,10 @@ public class ScheduleExecutor {
                 } catch (PixivFetchService.PixivFetchException e) {
                     throw e; // 鉴权失效：让整轮停下
                 } catch (Exception e) {
-                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, summarizeError(e));
-                    log.warn("Scheduled task {} skip work {}: {}", taskId, id, e.getMessage());
+                    String safeMessage = summarizeError(e);
+                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, safeMessage);
+                    log.warn("Scheduled task {} skip work {} [{}]: {}",
+                            taskId, id, e.getClass().getSimpleName(), safeMessage);
                 }
                 politeDelay.run();
             }

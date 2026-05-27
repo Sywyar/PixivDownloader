@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -43,19 +44,28 @@ public class ScheduleRunner {
         try {
             List<ScheduledTask> due = database.mapper().findDue(System.currentTimeMillis());
             // 「同一时刻只跑一个」串行约束：本轮全部到期任务先标记排队中，再逐个转为运行中。
+            List<QueuedTask> queued = new ArrayList<>(due.size());
             for (ScheduledTask task : due) {
-                runState.markQueued(task.id());
+                ScheduleRunState.Claim claim = runState.tryMarkQueued(task.id());
+                if (claim == null) {
+                    log.debug("Scheduled task {} skipped by tick: already queued or running", task.id());
+                    continue;
+                }
+                queued.add(new QueuedTask(task, claim));
             }
-            for (ScheduledTask task : due) {
+            for (QueuedTask queuedTask : queued) {
                 try {
-                    executor.runTaskAndRecord(task);
+                    executor.runTaskAndRecord(queuedTask.task(), queuedTask.claim());
                 } catch (Exception e) {
                     // 单任务异常不应中断整轮（executor 内已尽量兜底，这里再保一层）
-                    log.error("Scheduled task {} unexpected failure: {}", task.id(), e.getMessage(), e);
+                    log.error("Scheduled task {} unexpected failure: {}", queuedTask.task().id(), e.getMessage(), e);
                 }
             }
         } finally {
             running.set(false);
         }
+    }
+
+    private record QueuedTask(ScheduledTask task, ScheduleRunState.Claim claim) {
     }
 }
