@@ -73,7 +73,7 @@ public interface ScheduledTaskMapper {
 
     @Update("UPDATE scheduled_tasks SET name = #{name}, type = #{type}, params_json = #{paramsJson},"
             + " trigger_kind = #{triggerKind}, interval_minutes = #{intervalMinutes},"
-            + " cron_expr = #{cronExpr}, next_run_time = #{nextRunTime}"
+            + " cron_expr = #{cronExpr}, next_run_time = #{nextRunTime}, watermark_id = NULL"
             + " WHERE id = #{id}")
     int updateDefinition(@Param("id") long id,
                          @Param("name") String name,

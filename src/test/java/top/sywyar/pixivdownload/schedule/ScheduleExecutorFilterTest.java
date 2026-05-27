@@ -273,11 +273,12 @@ class ScheduleExecutorFilterTest {
                     List.of(List.of("100", "99", "98", "97")), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     1L, pages, 98L, id -> false,
-                    (id, workId) -> { dispatched.add(id); return true; }, () -> {},
+                    (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(r.dispatched()).isEqualTo(2);
             assertThat(dispatched).containsExactly("100", "99");
             assertThat(r.newestSeen()).isEqualTo(100L);
+            assertThat(r.complete()).isTrue();
         }
 
         @Test
@@ -290,12 +291,13 @@ class ScheduleExecutorFilterTest {
                     List.of(List.of("100", "99"), List.of("98", "97")), calls);
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     1L, pages, 0L, id -> true,
-                    (id, workId) -> { dispatched.add(id); return true; }, () -> {},
+                    (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(r.dispatched()).isZero();
             assertThat(dispatched).isEmpty();
             assertThat(calls.get()).isEqualTo(1); // 第 2 页未请求
             assertThat(r.newestSeen()).isEqualTo(100L);
+            assertThat(r.complete()).isTrue();
         }
 
         @Test
@@ -305,10 +307,11 @@ class ScheduleExecutorFilterTest {
                     List.of(List.of("30", "20"), List.of("50", "10"), List.of()), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     1L, pages, 0L, id -> false,
-                    (id, workId) -> true, () -> {},
+                    (id, workId) -> true, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(r.dispatched()).isEqualTo(4);
             assertThat(r.newestSeen()).isEqualTo(50L);
+            assertThat(r.complete()).isTrue();
         }
 
         @Test
@@ -323,10 +326,11 @@ class ScheduleExecutorFilterTest {
                         seen.add(id);
                         if (workId == 2L) throw new IllegalStateException("boom");
                         return true;
-                    }, () -> {},
+                    }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(seen).containsExactly("3", "2", "1");
             assertThat(r.dispatched()).isEqualTo(2);
+            assertThat(r.complete()).isFalse();
         }
 
         @Test
@@ -335,27 +339,78 @@ class ScheduleExecutorFilterTest {
             ScheduleExecutor.PageSupplier pages = supplier(
                     List.of(List.of("2", "1")), new AtomicInteger());
             assertThatThrownBy(() -> ScheduleExecutor.runWatermarkScan(1L, pages, 0L, id -> false,
-                    (id, workId) -> { throw new PixivFetchService.PixivFetchException("auth"); }, () -> {},
+                    (id, workId) -> { throw new PixivFetchService.PixivFetchException("auth"); }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST)))
                     .isInstanceOf(PixivFetchService.PixivFetchException.class);
         }
 
         @Test
-        @DisplayName("安全上限：始终有新作且无水位线时翻页不超过 SEARCH_INCREMENTAL_MAX_PAGES")
-        void respectsSafetyCap() throws Exception {
+        @DisplayName("不设页数上限：一直翻到空页，非终止页之间执行页间延迟")
+        void scansUntilEmptyPageAndDelaysBetweenPages() throws Exception {
             AtomicInteger calls = new AtomicInteger();
+            AtomicInteger pageDelays = new AtomicInteger();
             Set<Long> none = Set.of();
-            // 每页恒返回一个递减的全新 ID（最新在前），永不命中水位线/已下载、永不空页 → 仅靠安全上限收敛
             ScheduleExecutor.PageSupplier pages = page -> {
                 calls.incrementAndGet();
-                return List.of(String.valueOf(100000 - page));
+                return page <= 3 ? List.of(String.valueOf(100000 - page)) : List.of();
             };
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     1L, pages, 0L, none::contains,
-                    (id, workId) -> true, () -> {},
+                    (id, workId) -> true, () -> {}, pageDelays::incrementAndGet,
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
-            assertThat(calls.get()).isEqualTo(ScheduleExecutor.SEARCH_INCREMENTAL_MAX_PAGES);
-            assertThat(r.dispatched()).isEqualTo(ScheduleExecutor.SEARCH_INCREMENTAL_MAX_PAGES);
+            assertThat(calls.get()).isEqualTo(4); // 第 4 页为空触发停止
+            assertThat(pageDelays.get()).isEqualTo(3); // 只在继续翻下一页前延迟
+            assertThat(r.dispatched()).isEqualTo(3);
+            assertThat(r.complete()).isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("已下载边界扫描 runDownloadedBoundaryScan")
+    class DownloadedBoundaryScan {
+
+        private ScheduleExecutor.PageSupplier supplier(List<List<String>> pages, AtomicInteger calls) {
+            return page -> {
+                calls.incrementAndGet();
+                return page >= 1 && page <= pages.size() ? pages.get(page - 1) : List.of();
+            };
+        }
+
+        @Test
+        @DisplayName("命中第一个已下载作品即停：边界前新作派发，边界及后续页不处理")
+        void stopsOnFirstDownloadedWork() throws Exception {
+            AtomicInteger calls = new AtomicInteger();
+            List<String> dispatched = new ArrayList<>();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("100", "99", "98"), List.of("97")), calls);
+
+            int count = ScheduleExecutor.runDownloadedBoundaryScan(
+                    1L, pages, id -> id == 99L,
+                    (id, workId) -> { dispatched.add(id); return true; },
+                    () -> {}, () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+
+            assertThat(count).isEqualTo(1);
+            assertThat(dispatched).containsExactly("100");
+            assertThat(calls.get()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("未命中已下载时一直翻到空页，并在继续翻下一页前执行页间延迟")
+        void scansUntilEmptyAndDelaysBetweenPages() throws Exception {
+            AtomicInteger calls = new AtomicInteger();
+            AtomicInteger pageDelays = new AtomicInteger();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("100"), List.of("99"), List.of()), calls);
+
+            int count = ScheduleExecutor.runDownloadedBoundaryScan(
+                    1L, pages, id -> false,
+                    (id, workId) -> true,
+                    () -> {}, pageDelays::incrementAndGet,
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+
+            assertThat(count).isEqualTo(2);
+            assertThat(calls.get()).isEqualTo(3);
+            assertThat(pageDelays.get()).isEqualTo(2);
         }
     }
 }

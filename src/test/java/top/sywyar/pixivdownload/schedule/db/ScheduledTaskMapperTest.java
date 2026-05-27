@@ -172,4 +172,26 @@ class ScheduledTaskMapperTest {
             assertThat(mapper.findById(id).watermarkId()).isEqualTo(123456L);
         }
     }
+
+    @Test
+    @DisplayName("updateDefinition 编辑任务定义时清空水位线，避免沿用旧来源锚点")
+    void shouldResetWatermarkWhenDefinitionChanges() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            ScheduledTaskInsert row = sample("任务F", 1000L, null);
+            mapper.insert(row);
+            long id = row.getId();
+            mapper.updateWatermark(id, 123456L);
+
+            mapper.updateDefinition(
+                    id, "任务F2", ScheduledTaskType.SEARCH,
+                    "{\"kind\":\"illust\",\"source\":{\"word\":\"tag\",\"maxPages\":-1}}",
+                    ScheduledTask.TRIGGER_INTERVAL, 30, null, 2000L);
+
+            ScheduledTask read = mapper.findById(id);
+            assertThat(read.name()).isEqualTo("任务F2");
+            assertThat(read.type()).isEqualTo(ScheduledTaskType.SEARCH);
+            assertThat(read.watermarkId()).isNull();
+        }
+    }
 }

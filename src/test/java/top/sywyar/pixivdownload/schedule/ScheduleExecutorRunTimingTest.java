@@ -137,6 +137,59 @@ class ScheduleExecutorRunTimingTest {
     }
 
     @Test
+    @DisplayName("SEARCH popular_d + maxPages=-1 逐页处理，直到命中已下载边界")
+    void popularIncrementalSearchUsesPagedWatermarkScan() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                5L, "热门计划", true, ScheduledTaskType.SEARCH,
+                "{\"kind\":\"illust\",\"source\":{\"word\":\"tag\",\"order\":\"popular_d\",\"mode\":\"all\",\"sMode\":\"s_tag\",\"maxPages\":-1}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+        when(pixivFetchService.discoverSearchArtworkIdsPage("tag", "popular_d", "all", "s_tag", 1, null))
+                .thenReturn(List.of("300", "200"));
+        when(pixivDatabase.hasArtwork(300L)).thenReturn(false);
+        when(pixivDatabase.hasArtwork(200L)).thenReturn(true);
+        when(pixivFetchService.fetchArtworkMeta("300", null)).thenReturn(
+                new PixivFetchService.ArtworkMeta(
+                        0, "热门新作", 0, false, 10L, "作者",
+                        null, null, -1, 1, List.of()));
+        when(pixivFetchService.resolveImageUrls("300", null)).thenReturn(
+                List.of("https://i.pximg.net/img-original/img/300.jpg"));
+        when(artworkDownloader.downloadImagesBlocking(
+                eq(300L), eq("热门新作"), anyList(), eq("https://www.pixiv.net/artworks/300"),
+                any(DownloadRequest.Other.class), isNull(), isNull()))
+                .thenReturn(true);
+
+        executor.runTaskAndRecord(task);
+
+        verify(pixivFetchService).discoverSearchArtworkIdsPage("tag", "popular_d", "all", "s_tag", 1, null);
+        verify(pixivFetchService, never()).discoverSearchArtworkIds(
+                eq("tag"), eq("popular_d"), eq("all"), eq("s_tag"), eq(-1), isNull());
+        verify(mapper, never()).updateWatermark(anyLong(), any());
+        verify(artworkDownloader).downloadImagesBlocking(
+                eq(300L), eq("热门新作"), anyList(), eq("https://www.pixiv.net/artworks/300"),
+                any(DownloadRequest.Other.class), isNull(), isNull());
+    }
+
+    @Test
+    @DisplayName("水位线扫描中单作品失败时不推进 watermark，留给下一轮重试补齐")
+    void shouldNotAdvanceWatermarkWhenSingleWorkFails() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                6L, "失败计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("200"));
+        when(pixivDatabase.hasArtwork(200L)).thenReturn(false);
+        when(pixivFetchService.fetchArtworkMeta("200", null))
+                .thenThrow(new IllegalStateException("temporary"));
+
+        executor.runTaskAndRecord(task);
+
+        verify(mapper, never()).updateWatermark(anyLong(), any());
+        verify(mapper).updateRunResult(eq(6L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
+    }
+
+    @Test
     @DisplayName("失败原因：写入 last_message 前脱敏 Pixiv Cookie")
     void shouldSanitizeCookieBeforePersistingFailureMessage() throws Exception {
         ScheduledTask task = new ScheduledTask(
