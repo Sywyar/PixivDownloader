@@ -84,9 +84,12 @@
                   data-i18n-placeholder="input.single-import.placeholder"
                   placeholder="粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式..."></textarea>
         <div class="import-format-box">
-            <div style="font-weight:700;"><span data-i18n="label.import-format">导入格式：</span><span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">url | title</span></div>
+            <div style="font-weight:700;"><span data-i18n="label.import-format">导入格式：</span><span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">url | title</span> <span data-i18n="label.import-format-or">或</span> <span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">id | title</span></div>
             <div><span data-i18n="label.import-example">每行一条，例如：</span><span data-i18n="label.import-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">https://www.pixiv.net/artworks/12345678 | 示例标题</span></div>
             <div><span data-i18n="label.import-novel-example">小说链接示例：</span><span data-i18n="label.import-novel-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">https://www.pixiv.net/novel/show.php?id=12345678 | 示例标题</span></div>
+            <div><span data-i18n="label.import-bare-id-example">仅 ID 示例：</span><span data-i18n="label.import-bare-id-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">12345678 | 示例标题</span></div>
+            <div data-i18n-html="hint.import-bare-id">仅写数字 ID 时默认按插画解析（等同于 https://www.pixiv.net/artworks/{id}）；若需要按小说解析，请在该行之前加一行 <code>novel:</code> 作为区段头。</div>
+            <div data-i18n-html="hint.import-section-header">区段头 <code>artwork:</code> / <code>novel:</code> 单独成行（大小写不敏感，全/半角冒号均可）；其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束。明确的链接始终按链接自身类型解析，与所在区段无关。</div>
             <div data-i18n="hint.import-title-optional">标题可留空；下载前会自动获取真实标题。兼容 One-Tab，N-Tab 等标签页管理插件导出格式。</div>
             <div data-i18n="hint.import-reimport">也兼容下方“导出全部”“导出未下载”按钮生成的作品列表，可直接重新导入。</div>
         </div>
@@ -110,7 +113,7 @@
             </label>
         </div>
         <div class="search-controls">
-            <input type="text" id="user-id-input" data-i18n-placeholder="input.user-id.placeholder" placeholder="用户 ID（数字）"
+            <input type="text" id="user-id-input" data-i18n-placeholder="input.user-id.placeholder" placeholder="用户 ID 或画师主页链接"
                    onkeydown="if(event.key==='Enter')loadUserPreview()">
             <button class="btn btn-blue" onclick="loadUserPreview()" data-i18n="button.user-preview">📥 解析并预览</button>
             <button class="btn btn-cyan" id="btn-user-add-page" onclick="addCurrentUserPageToQueue()" disabled data-i18n="button.user-add-current-page">将当前页所有作品加入队列</button>

@@ -2079,9 +2079,20 @@
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
         const illustRegex = /https?:\/\/www\.pixiv\.net\/artworks\/(\d+)/;
         const novelRegex = /https?:\/\/www\.pixiv\.net\/novel\/show\.php\?[^\s|]*?\bid=(\d+)/;
+        // 区段头：整行就是 `artwork:` 或 `novel:`，大小写不敏感、支持全/半角冒号；之后直到下一个区段头或结束，裸 ID 按此类型解析。
+        const sectionHeaderRegex = /^(artwork|novel)\s*[:：]\s*$/i;
+        // 裸 ID（可选 `| title`）。
+        const bareIdRegex = /^(\d+)\s*(?:\|\s*(.*))?$/;
         let illustItems = [];
         const novelItems = [];
+        let currentKind = 'illust';
         for (const ln of lines) {
+            const head = ln.match(sectionHeaderRegex);
+            if (head) {
+                currentKind = head[1].toLowerCase() === 'novel' ? 'novel' : 'illust';
+                continue;
+            }
+            // 显式 URL 始终按其自身类型解析，无视所在区段。
             const n = ln.match(novelRegex);
             if (n) {
                 const novelId = n[1];
@@ -2099,6 +2110,23 @@
                 const id = m[1];
                 const titleRaw = (ln.split('|')[1] || '').trim();
                 illustItems.push({id, title: titleRaw || bt('queue.artwork-fallback', '作品 {id}', {id})});
+                continue;
+            }
+            // 裸 ID / `id | title`：默认按当前区段（无区段头时为插画）解析。
+            const bare = ln.match(bareIdRegex);
+            if (bare) {
+                const id = bare[1];
+                const titleRaw = (bare[2] || '').trim();
+                if (currentKind === 'novel') {
+                    novelItems.push({
+                        id: 'n' + id,
+                        novelId: id,
+                        kind: 'novel',
+                        title: titleRaw || bt('queue.novel-fallback', '小说 {id}', {id})
+                    });
+                } else {
+                    illustItems.push({id, title: titleRaw || bt('queue.artwork-fallback', '作品 {id}', {id})});
+                }
             }
         }
         illustItems = dedupeQueueItems(illustItems);
@@ -2573,12 +2601,23 @@
         updateUserQueueButtons();
     }
 
+    // 接受纯数字 ID 或形如 https://www.pixiv.net/users/{id}[/...] 的画师主页 URL（含语言前缀变体）。
+    function parseUserIdInput(raw) {
+        const s = (raw || '').trim();
+        if (!s) return '';
+        if (/^\d+$/.test(s)) return s;
+        const m = s.match(/\/users\/(\d+)/);
+        return m ? m[1] : '';
+    }
+
     async function loadUserPreview() {
-        const userId = document.getElementById('user-id-input').value.trim();
-        if (!userId || !/^\d+$/.test(userId)) {
-            uiAlertKey('alert.invalid-user-id', '请输入有效的用户 ID（纯数字）');
+        const input = document.getElementById('user-id-input');
+        const userId = parseUserIdInput(input.value);
+        if (!userId) {
+            uiAlertKey('alert.invalid-user-id', '请输入有效的用户 ID 或画师主页链接');
             return;
         }
+        if (input.value.trim() !== userId) input.value = userId;
         const kind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
         resetUserState(kind);
         userState.userId = userId;
@@ -6127,8 +6166,8 @@
         let kind, source;
         if (mode === 'user') {
             kind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
-            const userId = (document.getElementById('user-id-input').value || '').trim();
-            if (!/^\d+$/.test(userId)) throw new Error(bt('schedule.error.user-id', '请填写有效的画师 ID（纯数字）'));
+            const userId = parseUserIdInput(document.getElementById('user-id-input').value);
+            if (!userId) throw new Error(bt('schedule.error.user-id', '请填写有效的画师 ID 或画师主页链接'));
             source = {userId};
         } else if (mode === 'search') {
             kind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';

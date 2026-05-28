@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- 批量下载页 User 模式的输入框现在同时支持画师 ID 与画师主页链接（例如 `https://www.pixiv.net/users/123456`，含 `/artworks`、`/illustrations`、`/novels`、带语言前缀等变体）：粘贴链接即可自动提取数字 ID 用于解析预览与「存为计划任务」。
+- 批量下载页「批量导入单作品」现在支持仅写作品数字 ID（可选 `id | title`）：默认按插画解析（等同于 `https://www.pixiv.net/artworks/{id}`）。同时支持以 `artwork:` 或 `novel:` 单独成行作为区段头（大小写不敏感、全/半角冒号均可），其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束；完整的 artworks / novel 链接始终按其自身类型解析，与所在区段无关。
+
 ## [v1.11.0] - 2026.5.28
 
 ### Changed
