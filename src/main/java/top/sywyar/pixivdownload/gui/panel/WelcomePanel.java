@@ -128,7 +128,23 @@ public class WelcomePanel extends JPanel {
         BackendLifecycleManager.addListener(backendListener);
         applyBackendState(BackendLifecycleManager.snapshot());
         startPulse();
-        startPolling();
+
+        // 恢复上次保存的页码。把 bootstrapped 置位并提前快照标志位，
+        // 这样首次 reconcile 不会再跳到 firstIncompleteStep —— 用户落在自己上次离开的那一页。
+        // 下限取 firstIncompleteStep()：避免持久数据被外部清掉（如 setup 重置）后还停在过远的步骤。
+        int saved = OnboardingState.loadProgress();
+        int starting = Math.max(saved, firstIncompleteStep());
+        if (starting < STEP_SERVICE) starting = STEP_SERVICE;
+        if (starting > STEP_DONE) starting = STEP_DONE;
+        currentStep = starting;
+        bootstrapped = true;
+        snapshotFlags();
+
+        // 已彻底完成的引导不再发任何轮询；同时 MainFrame 在该状态下不会创建本面板，
+        // 这里只是冗余防御。
+        if (!OnboardingState.isFinished()) {
+            startPolling();
+        }
 
         slider.show(buildStep(currentStep), 0, false);
     }
@@ -140,6 +156,13 @@ public class WelcomePanel extends JPanel {
         }
         int dir = target > currentStep ? 1 : -1;
         currentStep = target;
+        OnboardingState.saveProgress(target);
+        if (target == STEP_DONE) {
+            // 走到完成页：写入 finished 标记，下次启动起欢迎页就会被隐藏；同时停掉轮询，
+            // 不再向已成功一次的后端发请求。
+            OnboardingState.markFinished();
+            stopPolling();
+        }
         slider.show(buildStep(target), animated ? dir : 0, animated);
     }
 
@@ -670,7 +693,17 @@ public class WelcomePanel extends JPanel {
         pollTimer.start();
     }
 
+    private void stopPolling() {
+        if (pollTimer != null) {
+            pollTimer.stop();
+            pollTimer = null;
+        }
+    }
+
     private void pollOnboarding() {
+        if (pollTimer == null) {
+            return;
+        }
         Thread worker = new Thread(() -> {
             JsonNode node = getJson("/api/gui/onboarding");
             if (node == null) {
@@ -693,6 +726,11 @@ public class WelcomePanel extends JPanel {
             galleryGuideCompleted = true;
         }
         reconcile(true);
+        // 三个后端引导信号都已观测到之后，再轮询也只能拿到相同结果；停掉以免在后续步骤
+        // 或后端被工具栏关停时还持续刷 WARN 日志。
+        if (setupComplete && batchVisited && galleryGuideCompleted) {
+            stopPolling();
+        }
     }
 
     private void openUrl(String url) {
@@ -821,10 +859,7 @@ public class WelcomePanel extends JPanel {
             pulseTimer.stop();
             pulseTimer = null;
         }
-        if (pollTimer != null) {
-            pollTimer.stop();
-            pollTimer = null;
-        }
+        stopPolling();
         BackendLifecycleManager.removeListener(backendListener);
     }
 

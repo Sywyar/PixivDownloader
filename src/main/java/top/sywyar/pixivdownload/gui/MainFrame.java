@@ -67,31 +67,35 @@ public class MainFrame extends JFrame {
         setContentPane(buildTabs());
 
         // 引导未完成前每次启动都停留在引导首页（含未完成配置的情况）；
-        // “完成” = 首次安装已完成 且 整套引导已走完。任一不满足都停在首页。
-        // setup 未完成却存在 seen 标记 → 是旧版本残留的无效标记，复位掉。
-        if (OnboardingState.isComplete(rootFolder)) {
-            tabs.setSelectedIndex(STATUS_TAB_INDEX);
-        } else {
-            if (!OnboardingState.isSetupComplete(rootFolder)) {
-                OnboardingState.clear();
-            }
-            tabs.setSelectedIndex(0);
+        // “完成” = 首次安装已完成 且 整套引导已走到最后一页。任一不满足都还要展示引导。
+        // setup 未完成却存在残留的旧标记 → 复位，避免未配置用户被错误地带过引导。
+        // 整套引导已完成时 buildTabs() 不会再添加欢迎 tab，状态页位于第 0 个标签。
+        if (!OnboardingState.isComplete(rootFolder) && !OnboardingState.isSetupComplete(rootFolder)) {
+            OnboardingState.clear();
         }
+        tabs.setSelectedIndex(0);
     }
 
     private JTabbedPane buildTabs() {
         tabs = new JTabbedPane();
         statusPanel = new StatusPanel(serverPort, rootFolder, configPath, this::reloadLocale);
-        welcomePanel = new WelcomePanel(statusPanel, serverPort,
-                () -> {
-                    showWindow();
-                    if (tabs != null) {
-                        tabs.setSelectedIndex(0);
-                    }
-                },
-                () -> { if (tabs != null) tabs.setSelectedIndex(STATUS_TAB_INDEX); });
+
+        // 整套引导已走完后不再添加欢迎 tab，避免重复展示并消除针对后端的轮询请求。
+        if (!OnboardingState.isComplete(rootFolder)) {
+            welcomePanel = new WelcomePanel(statusPanel, serverPort,
+                    () -> {
+                        showWindow();
+                        if (tabs != null) {
+                            tabs.setSelectedIndex(0);
+                        }
+                    },
+                    () -> { if (tabs != null) tabs.setSelectedIndex(STATUS_TAB_INDEX); });
+            tabs.addTab(GuiMessages.get("gui.tab.welcome"), welcomePanel);
+        } else {
+            welcomePanel = null;
+        }
+
         toolsPanel = new ToolsPanel(configPath);
-        tabs.addTab(GuiMessages.get("gui.tab.welcome"), welcomePanel);
         tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
         tabs.addTab(GuiMessages.get("gui.tab.config"), new ConfigPanel(configPath, serverPort));
         tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);

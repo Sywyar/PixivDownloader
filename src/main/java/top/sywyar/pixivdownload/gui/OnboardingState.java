@@ -24,6 +24,8 @@ public final class OnboardingState {
 
     private static final String FLAG_FILE_NAME = "onboarding-seen";
     private static final String PROXY_CONFIGURED_FILE_NAME = "proxy-configured";
+    private static final String PROGRESS_FILE_NAME = "wizard-progress";
+    private static final String FINISHED_FILE_NAME = "wizard-finished";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private OnboardingState() {
@@ -39,10 +41,52 @@ public final class OnboardingState {
 
     /**
      * 引导是否真正全部完成：首次安装已完成（setup_config.json.setupComplete）
-     * 且引导标记已写入。两者缺一不可。
+     * 且向导已走到最后一页。两者缺一不可。
      */
     public static boolean isComplete(String rootFolder) {
-        return isSeen() && isSetupComplete(rootFolder);
+        return isFinished() && isSetupComplete(rootFolder);
+    }
+
+    /**
+     * 引导是否已经走到最后一页（“完成”页）。检查显式的 finished 标记，
+     * 同时兼容旧版本仅写入 {@code onboarding-seen}（在画廊页完成时落盘）的情况。
+     */
+    public static boolean isFinished() {
+        return Files.exists(finishedFile()) || Files.exists(flagFile());
+    }
+
+    /**
+     * 读取上次保存的向导页码（1..7）。文件缺失或解析失败返回 0，
+     * 调用方据此回退到默认起始页。
+     */
+    public static int loadProgress() {
+        Path p = progressFile();
+        if (!Files.exists(p)) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(Files.readString(p).trim());
+        } catch (Exception e) {
+            log.debug("Failed to read wizard progress: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * 保存向导当前页码（1..7）。写失败仅记日志，最差只是下次启动回退到首步。
+     */
+    public static void saveProgress(int step) {
+        Path p = progressFile();
+        try {
+            Files.createDirectories(p.getParent());
+            Files.writeString(p, Integer.toString(step));
+        } catch (Exception e) {
+            log.debug("Failed to persist wizard progress: {}", e.getMessage());
+        }
+    }
+
+    public static void markFinished() {
+        mark(finishedFile(), "wizard finished flag");
     }
 
     /**
@@ -69,6 +113,8 @@ public final class OnboardingState {
         try {
             Files.deleteIfExists(flagFile());
             Files.deleteIfExists(proxyConfiguredFile());
+            Files.deleteIfExists(progressFile());
+            Files.deleteIfExists(finishedFile());
         } catch (Exception e) {
             log.debug("Failed to clear onboarding flag: {}", e.getMessage());
         }
@@ -101,5 +147,13 @@ public final class OnboardingState {
 
     private static Path proxyConfiguredFile() {
         return RuntimeFiles.guiStateDirectory().resolve(PROXY_CONFIGURED_FILE_NAME);
+    }
+
+    private static Path progressFile() {
+        return RuntimeFiles.guiStateDirectory().resolve(PROGRESS_FILE_NAME);
+    }
+
+    private static Path finishedFile() {
+        return RuntimeFiles.guiStateDirectory().resolve(FINISHED_FILE_NAME);
     }
 }
