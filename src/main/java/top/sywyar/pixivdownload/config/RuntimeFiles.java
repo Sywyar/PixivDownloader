@@ -46,6 +46,8 @@ public final class RuntimeFiles {
     public static final String GUI_STATE_DIR = "gui";
     public static final String TTS_DIR = "tts";
     public static final String EDGE_TTS_CHROMIUM_VERSION = "chromium-version.txt";
+    public static final String BACKFILL_DIR = "backfill";
+    public static final String BACKFILL_UNREACHABLE_FILE = "unreachable.json";
     private static final String LEGACY_COLLECTION_ICONS_DIR = "_collection_icons";
     private static final String LEGACY_GUI_STATE_DIR = "_gui";
     private static final String LEGACY_TTS_DIR = "_tts";
@@ -93,6 +95,20 @@ public final class RuntimeFiles {
 
     public static Path resolveEdgeTtsVersionPath() {
         return ttsDataDirectory().resolve(EDGE_TTS_CHROMIUM_VERSION).normalize();
+    }
+
+    public static Path backfillDirectory() {
+        Path target = dataDirectory().resolve(BACKFILL_DIR);
+        try {
+            Files.createDirectories(target);
+        } catch (IOException e) {
+            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
+        }
+        return target.normalize();
+    }
+
+    public static Path resolveBackfillUnreachablePath() {
+        return backfillDirectory().resolve(BACKFILL_UNREACHABLE_FILE).normalize();
     }
 
     public static Path singleInstanceDirectory() {

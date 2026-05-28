@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
 import org.apache.hc.client5.http.config.RequestConfig;
@@ -15,14 +16,22 @@ import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -90,9 +99,10 @@ public class ArtworksBackFill {
         sqliteConfig.setBusyTimeout(5000);
         sqliteConfig.setJournalMode(SQLiteConfig.JournalMode.WAL);
 
+        UnreachableStore store = UnreachableStore.load(RuntimeFiles.resolveBackfillUnreachablePath(), new ObjectMapper());
         try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + options.dbPath(), sqliteConfig.toProperties())) {
             ensureSchema(conn);
-            return countCandidates(conn, options.limit());
+            return countCandidates(conn, options.limit(), store);
         }
     }
 
@@ -113,19 +123,28 @@ public class ArtworksBackFill {
         sqliteConfig.setBusyTimeout(5000);
         sqliteConfig.setJournalMode(SQLiteConfig.JournalMode.WAL);
 
+        ObjectMapper mapper = new ObjectMapper();
+        Path unreachablePath = RuntimeFiles.resolveBackfillUnreachablePath();
+        UnreachableStore unreachable = UnreachableStore.load(unreachablePath, mapper);
+        log.info(message("artworks-backfill.unreachable.loaded", unreachablePath, unreachable.size()));
+
         try (CloseableHttpClient http = buildHttpClient(options);
              Connection conn = DriverManager.getConnection("jdbc:sqlite:" + options.dbPath(), sqliteConfig.toProperties())) {
 
             ensureSchema(conn);
-            List<Candidate> candidates = findCandidates(conn, options.limit());
+            FilteredCandidates filtered = findCandidates(conn, options.limit(), unreachable);
+            List<Candidate> candidates = filtered.candidates();
+            int previouslyUnreachable = filtered.skippedUnreachable();
+            if (previouslyUnreachable > 0) {
+                log.info(message("artworks-backfill.unreachable.skipped-existing", previouslyUnreachable));
+            }
             log.info(message("artworks-backfill.log.candidates.count", candidates.size()));
             if (candidates.isEmpty()) {
-                Summary summary = new Summary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, options.dryRun(), false);
+                Summary summary = new Summary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, previouslyUnreachable, 0, options.dryRun(), false);
                 logSummary(summary);
                 return summary;
             }
 
-            ObjectMapper mapper = new ObjectMapper();
             int filledAuthor = 0;
             int filledR18 = 0;
             int filledAi = 0;
@@ -133,6 +152,7 @@ public class ArtworksBackFill {
             int filledTags = 0;
             int filledSeries = 0;
             int deletedCount = 0;
+            int newlyUnreachable = 0;
             int skipped = 0;
 
             for (int i = 0; i < candidates.size(); i++) {
@@ -201,6 +221,12 @@ public class ArtworksBackFill {
                     case DELETED -> {
                         log.info(message("artworks-backfill.log.deleted-skip", prefix, result.message));
                         deletedCount++;
+                        boolean alreadyKnown = unreachable.contains(candidate.artworkId);
+                        unreachable.record(candidate.artworkId, result.message);
+                        if (!alreadyKnown) {
+                            newlyUnreachable++;
+                        }
+                        persistUnreachable(unreachable, unreachablePath);
                     }
                     case SKIP -> {
                         log.info(message("artworks-backfill.log.skip", prefix, result.message));
@@ -215,6 +241,7 @@ public class ArtworksBackFill {
                         if (options.dryRun()) {
                             log.info(message("artworks-backfill.log.dry-run"));
                         }
+                        persistUnreachable(unreachable, unreachablePath);
                         Summary summary = new Summary(
                                 candidates.size(),
                                 i,
@@ -226,6 +253,8 @@ public class ArtworksBackFill {
                                 filledSeries,
                                 deletedCount,
                                 skipped,
+                                previouslyUnreachable,
+                                newlyUnreachable,
                                 options.dryRun(),
                                 true
                         );
@@ -239,6 +268,7 @@ public class ArtworksBackFill {
                 }
             }
 
+            persistUnreachable(unreachable, unreachablePath);
             Summary summary = new Summary(
                     candidates.size(),
                     candidates.size(),
@@ -250,11 +280,21 @@ public class ArtworksBackFill {
                     filledSeries,
                     deletedCount,
                     skipped,
+                    previouslyUnreachable,
+                    newlyUnreachable,
                     options.dryRun(),
                     false
             );
             logSummary(summary);
             return summary;
+        }
+    }
+
+    private static void persistUnreachable(UnreachableStore store, Path path) {
+        try {
+            store.save();
+        } catch (IOException e) {
+            log.warn(message("artworks-backfill.unreachable.save-failed", path, e.getMessage()));
         }
     }
 
@@ -285,7 +325,9 @@ public class ArtworksBackFill {
                 summary.filledTags(),
                 summary.filledSeries(),
                 summary.deletedCount(),
-                summary.skipped()
+                summary.skipped(),
+                summary.previouslyUnreachable(),
+                summary.newlyUnreachable()
         ));
         if (summary.dryRun()) {
             log.info(message("artworks-backfill.log.dry-run"));
@@ -357,21 +399,12 @@ public class ArtworksBackFill {
         }
     }
 
-    private static int countCandidates(Connection conn, int limit) throws SQLException {
-        String sql = "SELECT COUNT(*)"
-                + " FROM artworks a"
-                + " WHERE a.author_id IS NULL OR a.\"R18\" IS NULL OR a.is_ai IS NULL OR a.description IS NULL"
-                + " OR a.series_id IS NULL"
-                + " OR NOT EXISTS (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id)";
-
-        try (PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            int total = rs.next() ? rs.getInt(1) : 0;
-            return limit > 0 ? Math.min(total, limit) : total;
-        }
+    private static int countCandidates(Connection conn, int limit, UnreachableStore unreachable) throws SQLException {
+        return findCandidates(conn, limit, unreachable).candidates().size();
     }
 
-    private static List<Candidate> findCandidates(Connection conn, int limit) throws SQLException {
+    private static FilteredCandidates findCandidates(Connection conn, int limit, UnreachableStore unreachable) throws SQLException {
+        // 在内存中过滤已知不可达 ID，避免 SQL IN 受 SQLite 参数上限约束；为了在 limit 截断前剔除它们，这里不再下推 LIMIT。
         String sql = "SELECT a.artwork_id, a.author_id, a.\"R18\", a.is_ai, a.description,"
                 + " a.series_id,"
                 + " (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id LIMIT 1) AS has_tags"
@@ -380,30 +413,33 @@ public class ArtworksBackFill {
                 + " OR a.series_id IS NULL"
                 + " OR NOT EXISTS (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id)"
                 + " ORDER BY a.artwork_id";
-        if (limit > 0) {
-            sql += " LIMIT ?";
-        }
 
         List<Candidate> list = new ArrayList<>();
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            if (limit > 0) {
-                ps.setInt(1, limit);
-            }
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    long id = rs.getLong(1);
-                    boolean authorMissing = rs.getObject(2) == null;
-                    boolean r18Missing = rs.getObject(3) == null;
-                    boolean aiMissing = rs.getObject(4) == null;
-                    boolean descMissing = rs.getObject(5) == null;
-                    boolean seriesMissing = rs.getObject(6) == null;
-                    boolean tagsMissing = rs.getObject(7) == null;
-                    list.add(new Candidate(id, authorMissing, r18Missing, aiMissing, descMissing, tagsMissing, seriesMissing));
+        int skippedUnreachable = 0;
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                long id = rs.getLong(1);
+                if (unreachable.contains(id)) {
+                    skippedUnreachable++;
+                    continue;
+                }
+                boolean authorMissing = rs.getObject(2) == null;
+                boolean r18Missing = rs.getObject(3) == null;
+                boolean aiMissing = rs.getObject(4) == null;
+                boolean descMissing = rs.getObject(5) == null;
+                boolean seriesMissing = rs.getObject(6) == null;
+                boolean tagsMissing = rs.getObject(7) == null;
+                list.add(new Candidate(id, authorMissing, r18Missing, aiMissing, descMissing, tagsMissing, seriesMissing));
+                if (limit > 0 && list.size() >= limit) {
+                    break;
                 }
             }
         }
-        return list;
+        return new FilteredCandidates(list, skippedUnreachable);
     }
+
+    private record FilteredCandidates(List<Candidate> candidates, int skippedUnreachable) {}
 
     private static LookupResult queryPixiv(CloseableHttpClient http, ObjectMapper mapper, long artworkId) {
         HttpGet request = new HttpGet(PIXIV_AJAX + artworkId);
@@ -713,6 +749,8 @@ public class ArtworksBackFill {
                           int filledSeries,
                           int deletedCount,
                           int skipped,
+                          int previouslyUnreachable,
+                          int newlyUnreachable,
                           boolean dryRun,
                           boolean rateLimited) {}
 
@@ -815,4 +853,110 @@ public class ArtworksBackFill {
     private static String normalizeIdentifier(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
+
+    /**
+     * 本地不可达作品缓存：记录 Pixiv AJAX 返回 DELETED / 404 等已知不可达响应的作品 ID，
+     * 后续运行直接跳过，避免重复消耗请求量。文件位置由 {@link RuntimeFiles#resolveBackfillUnreachablePath()} 决定。
+     */
+    private static final class UnreachableStore {
+        private final Path path;
+        private final ObjectMapper mapper;
+        private final Map<Long, UnreachableEntry> entries = new LinkedHashMap<>();
+        private boolean dirty;
+
+        private UnreachableStore(Path path, ObjectMapper mapper) {
+            this.path = path;
+            this.mapper = mapper;
+        }
+
+        static UnreachableStore load(Path path, ObjectMapper mapper) {
+            UnreachableStore store = new UnreachableStore(path, mapper);
+            if (path == null || !Files.isRegularFile(path)) {
+                return store;
+            }
+            try {
+                byte[] bytes = Files.readAllBytes(path);
+                if (bytes.length == 0) {
+                    return store;
+                }
+                JsonNode root = mapper.readTree(bytes);
+                if (root == null || !root.isObject()) {
+                    return store;
+                }
+                Iterator<Map.Entry<String, JsonNode>> it = root.fields();
+                while (it.hasNext()) {
+                    Map.Entry<String, JsonNode> field = it.next();
+                    long id;
+                    try {
+                        id = Long.parseLong(field.getKey());
+                    } catch (NumberFormatException ignored) {
+                        continue;
+                    }
+                    JsonNode value = field.getValue();
+                    String reason = value.path("reason").asText("");
+                    long firstSeenAt = value.path("firstSeenAt").asLong(0L);
+                    long lastSeenAt = value.path("lastSeenAt").asLong(firstSeenAt);
+                    int attempts = value.path("attempts").asInt(1);
+                    store.entries.put(id, new UnreachableEntry(reason, firstSeenAt, lastSeenAt, attempts));
+                }
+            } catch (IOException e) {
+                log.warn(message("artworks-backfill.unreachable.load-failed", path, e.getMessage()));
+            }
+            return store;
+        }
+
+        boolean contains(long artworkId) {
+            return entries.containsKey(artworkId);
+        }
+
+        int size() {
+            return entries.size();
+        }
+
+        void record(long artworkId, String reason) {
+            long now = System.currentTimeMillis();
+            UnreachableEntry existing = entries.get(artworkId);
+            String effectiveReason = reason == null || reason.isBlank()
+                    ? (existing != null ? existing.reason() : "")
+                    : reason;
+            if (existing == null) {
+                entries.put(artworkId, new UnreachableEntry(effectiveReason, now, now, 1));
+            } else {
+                entries.put(artworkId, new UnreachableEntry(
+                        effectiveReason,
+                        existing.firstSeenAt() > 0 ? existing.firstSeenAt() : now,
+                        now,
+                        existing.attempts() + 1));
+            }
+            dirty = true;
+        }
+
+        void save() throws IOException {
+            if (!dirty) {
+                return;
+            }
+            Files.createDirectories(path.getParent());
+            ObjectNode root = mapper.createObjectNode();
+            List<Long> sortedIds = new ArrayList<>(entries.keySet());
+            Collections.sort(sortedIds);
+            for (Long id : sortedIds) {
+                UnreachableEntry entry = entries.get(id);
+                ObjectNode obj = root.putObject(String.valueOf(id));
+                obj.put("reason", entry.reason());
+                obj.put("firstSeenAt", entry.firstSeenAt());
+                obj.put("lastSeenAt", entry.lastSeenAt());
+                obj.put("attempts", entry.attempts());
+            }
+            Path tmp = path.resolveSibling(path.getFileName() + ".tmp");
+            mapper.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), root);
+            try {
+                Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicFailure) {
+                Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING);
+            }
+            dirty = false;
+        }
+    }
+
+    private record UnreachableEntry(String reason, long firstSeenAt, long lastSeenAt, int attempts) {}
 }
