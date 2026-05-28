@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.AppLocale;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.mail.MailService;
 import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
 import top.sywyar.pixivdownload.mail.template.RenderedMail;
@@ -39,7 +40,7 @@ import java.util.regex.Pattern;
  *
  * <p>调度以管理员身份运行（{@code userUuid=null}，不计配额 / 限流）。
  *
- * <p><b>过度访问暂停 + 鉴权失效自动挂起（二期）</b>：
+ * <p><b>过度访问暂停 + 鉴权失效自动挂起</b>：
  * <ul>
  *   <li><b>轮首检查点</b>（发现之前）：对 cookie-bound 任务读站内信（{@link OveruseWarningService}）——
  *       {@code COOKIE_DEAD} 时依赖型任务挂起 {@code AUTH_EXPIRED}（避免 watermark 越过当时不可见的 R-18 永久遗漏），
@@ -78,6 +79,7 @@ public class ScheduleExecutor {
     private final OveruseWarningService overuseWarningService;
     private final MailService mailService;
     private final MailTemplateRegistry mailTemplateRegistry;
+    private final AppMessages messages;
 
     /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
     private static final int MAX_ERROR_MESSAGE_LENGTH = 300;
@@ -200,6 +202,25 @@ public class ScheduleExecutor {
     }
 
     /**
+     * 单作品隔离表 {@code reason} 列入库专用：直接取 {@code e.getMessage()}（缺失退化为异常简单类名），
+     * 仅做 cookie 脱敏（项目红线，绝不入库），不折叠空白、不截断长度。
+     * 与 {@link #summarizeError} 区别：那是顶层任务级 {@code last_message} 的展示摘要，会做大量整形并截到 300。
+     */
+    private static String pendingReason(Throwable e) {
+        String raw = e.getMessage();
+        if (raw == null || raw.isBlank()) {
+            raw = e.getClass().getSimpleName();
+        }
+        String redacted = COOKIE_HEADER_PATTERN.matcher(raw).replaceAll("$1[redacted]");
+        if (redacted.toLowerCase(Locale.ROOT).contains("phpsessid=")) {
+            redacted = COOKIE_PAIR_PATTERN.matcher(redacted).replaceAll("$1$2[redacted]");
+        } else {
+            redacted = PHPSESSID_PATTERN.matcher(redacted).replaceAll("$1[redacted]");
+        }
+        return redacted;
+    }
+
+    /**
      * 发现 + 过滤 + 同步下载，返回实际完成的新下载数。
      *
      * @throws OveruseWarningException 检测到过度访问警告（轮首 / 轮内 N 检查点）
@@ -236,14 +257,12 @@ public class ScheduleExecutor {
         ScheduleRunQueue.Run run = runQueue.begin(task.id(),
                 novel ? ScheduleRunQueue.KIND_NOVEL : ScheduleRunQueue.KIND_ILLUST);
 
-        WorkRunner runner = new WorkRunner(task.id(), novel, cookie, filters, download, run);
+        WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run);
         int completed = 0;
 
-        // ── 管理员处理完异常后：先把隔离表入队重试（走正常 dispatch 路径，计入 N 检查点与过度访问风险）──
-        if (task.pendingRetryArmed() == 1) {
-            completed += retryPending(task.id(), runner);
-            database.mapper().clearRetryArmed(task.id());
-        }
+        // ── 每轮无条件先消费隔离表（不再依赖 pendingRetryArmed 武装位）：走正常 dispatch 路径，
+        //    计入 N 检查点与过度访问风险；单作品 attempts 自动 +1，达到上限时发邮件转人工。──
+        completed += retryPending(task.id(), runner);
 
         if (isWatermarkMode(task.type(), source)) {
             completed += runWatermarkMode(task, novel, source, cookie, runner, run);
@@ -614,6 +633,7 @@ public class ScheduleExecutor {
      */
     private final class WorkRunner {
         private final long taskId;
+        private final String taskName;
         private final boolean novel;
         private final String cookie;
         private final Filters filters;
@@ -623,9 +643,10 @@ public class ScheduleExecutor {
         private int consecutiveFailures = 0;
         private int dispatchedSinceCheck = 0;
 
-        WorkRunner(long taskId, boolean novel, String cookie, Filters filters, Download download,
+        WorkRunner(ScheduledTask task, boolean novel, String cookie, Filters filters, Download download,
                    ScheduleRunQueue.Run run) {
-            this.taskId = taskId;
+            this.taskId = task.id();
+            this.taskName = task.name();
             this.novel = novel;
             this.cookie = cookie;
             this.filters = filters;
@@ -665,7 +686,7 @@ public class ScheduleExecutor {
                 return false;
             } catch (PixivFetchService.PixivFetchException e) {
                 // 受限 / 需登录（可恢复）：隔离 + 连续失败计数；连续 M 次熔断
-                String reason = summarizeError(e);
+                String reason = pendingReason(e);
                 run.mark(id, ScheduleRunQueue.STATUS_FAILED, reason);
                 recordRecoverable(id, workId, isRetry, reason);
                 consecutiveFailures++;
@@ -678,7 +699,7 @@ public class ScheduleExecutor {
                 throw e;
             } catch (Exception e) {
                 // 瞬时 IO / 解析错误：隔离、不计熔断
-                String reason = summarizeError(e);
+                String reason = pendingReason(e);
                 run.mark(id, ScheduleRunQueue.STATUS_FAILED, reason);
                 recordRecoverable(id, workId, isRetry, reason);
                 return false;
@@ -708,9 +729,35 @@ public class ScheduleExecutor {
             long now = System.currentTimeMillis();
             if (isRetry) {
                 database.mapper().incPendingAttempts(taskId, workId, now);
+                log.warn("Scheduled task {} retry work {} failed: {}", taskId, workId, reason);
+                // 刚跨过自动重试上限：发邮件转人工。临界判断（== max）确保只在跨越那一次触发，
+                // 不会因为后续仍在表里的同行（attempts >= max 已被 retryPending 跳过）重复发。
+                int max = scheduleConfig.getPendingMaxAttempts();
+                Integer attempts = database.mapper().selectPendingAttempts(taskId, workId);
+                if (attempts != null && attempts == max) {
+                    notifyPendingExhausted(workId, attempts, reason);
+                }
             } else {
                 database.mapper().insertPending(taskId, workId, reason, now);
+                log.warn("Scheduled task {} isolated work {}: {}", taskId, workId, reason);
             }
+        }
+
+        /** attempts 刚到达 {@code schedule.pending-max-attempts} 时发邮件，best-effort、不影响调度。 */
+        private void notifyPendingExhausted(long workId, int attempts, String reason) {
+            Locale locale = AppLocale.normalize(Locale.getDefault());
+            String kindLabel = messages.get(locale, novel
+                    ? "mail.template.pending-exhausted.kind.novel"
+                    : "mail.template.pending-exhausted.kind.illust");
+            Map<String, String> ph = new LinkedHashMap<>();
+            ph.put("task_name", taskName == null ? "-" : taskName);
+            ph.put("task_id", String.valueOf(taskId));
+            ph.put("work_id", String.valueOf(workId));
+            ph.put("work_kind", kindLabel);
+            ph.put("attempts", String.valueOf(attempts));
+            ph.put("trigger_time", formatTime(System.currentTimeMillis()));
+            ph.put("last_error_excerpt", reason == null ? "" : reason);
+            sendNotification(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED, ph);
         }
 
         /** 成功派发后到 N 触发过度访问检查；{@code WARNED} 干净 unwind（COOKIE_DEAD 轮内不双重判定，交给熔断）。 */

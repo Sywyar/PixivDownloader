@@ -17,8 +17,10 @@ import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
 import top.sywyar.pixivdownload.novel.NovelDownloader;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.mail.template.RenderedMail;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper;
+import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -27,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -59,6 +62,8 @@ class ScheduleExecutorRunTimingTest {
     private MailService mailService;
     @Mock
     private MailTemplateRegistry mailTemplateRegistry;
+    @Mock
+    private top.sywyar.pixivdownload.i18n.AppMessages appMessages;
 
     private ScheduleExecutor executor;
     private ScheduleRunState runState;
@@ -71,7 +76,7 @@ class ScheduleExecutorRunTimingTest {
         executor = new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
                 artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
                 config, runState, new ScheduleRunQueue(), new ObjectMapper(),
-                overuseWarningService, mailService, mailTemplateRegistry);
+                overuseWarningService, mailService, mailTemplateRegistry, appMessages);
         when(database.mapper()).thenReturn(mapper);
     }
 
@@ -261,6 +266,70 @@ class ScheduleExecutorRunTimingTest {
         // 已派发的不回滚：本轮发现的 301 未进隔离表（dispatch 成功），watermark 不推进（unwind 路径）。
         verify(mapper, never()).insertPending(eq(7L), eq(301L), any(), anyLong());
         verify(mapper, never()).updateWatermark(eq(7L), anyLong());
+    }
+
+    @Test
+    @DisplayName("每轮无条件消费隔离表：pendingRetryArmed=0 也会先重试待重试作品")
+    void shouldConsumePendingEveryRun() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                8L, "自动重试计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null,
+                0, 0L);
+        // 武装位 = 0：仍应跑 retryPending（每轮无条件消费）
+        when(mapper.listPending(8L)).thenReturn(List.of(
+                new ScheduledTaskPending(8L, 555L, "previous failure", 2, 1000L, 2000L)));
+        // 发现阶段返回空，让本轮只跑 retryPending 路径
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of());
+        // 重试时再次成功下载：流程 deletePending → 入 retryPending completed 计数
+        // 注意：retryPending 不查 hasArtwork（直接 process），无需 stub
+        when(pixivFetchService.fetchArtworkMeta("555", null)).thenReturn(
+                new PixivFetchService.ArtworkMeta(
+                        0, "恢复成功", 0, false, 10L, "作者", null, null, -1, 1, List.of()));
+        when(pixivFetchService.resolveImageUrls("555", null)).thenReturn(
+                List.of("https://i.pximg.net/img-original/img/555.jpg"));
+        when(artworkDownloader.downloadImagesBlocking(
+                eq(555L), eq("恢复成功"), anyList(), eq("https://www.pixiv.net/artworks/555"),
+                any(DownloadRequest.Other.class), isNull(), isNull()))
+                .thenReturn(true);
+
+        executor.runTaskAndRecord(task);
+
+        // 重试成功：deletePending 出表（不再 inc）；不应触发 incPendingAttempts
+        verify(mapper).deletePending(8L, 555L);
+        verify(mapper, never()).incPendingAttempts(eq(8L), eq(555L), anyLong());
+        // 不再依赖武装位：mapper.clearRetryArmed 不应被本流程调用
+        verify(mapper, never()).clearRetryArmed(anyLong());
+    }
+
+    @Test
+    @DisplayName("重试失败刚跨过 pending-max-attempts 阈值时发送 pending-exhausted 邮件")
+    void shouldSendPendingExhaustedMailWhenAttemptsCrossLimit() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                9L, "重试达上限计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null,
+                0, 0L);
+        // 既有隔离条目：attempts=4，再失败 +1 = 5（默认 max=5）→ 触发邮件
+        when(mapper.listPending(9L)).thenReturn(List.of(
+                new ScheduledTaskPending(9L, 777L, "previous", 4, 1000L, 2000L)));
+        when(mapper.selectPendingAttempts(9L, 777L)).thenReturn(5);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of());
+        // retryPending 不查 hasArtwork（直接 process），无需 stub
+        // 模拟瞬时失败 → recordRecoverable 走 incPendingAttempts → 检查 attempts 是否到阈值
+        when(pixivFetchService.fetchArtworkMeta("777", null))
+                .thenThrow(new IllegalStateException("still failing"));
+        when(mailTemplateRegistry.render(eq(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED),
+                any(), any())).thenReturn(new RenderedMail("subject", "body"));
+
+        executor.runTaskAndRecord(task);
+
+        verify(mapper).incPendingAttempts(eq(9L), eq(777L), anyLong());
+        verify(mailTemplateRegistry).render(eq(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED),
+                any(), any());
+        verify(mailService).send(anyString(), anyString());
     }
 
     @Test

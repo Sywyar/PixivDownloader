@@ -109,6 +109,9 @@ public class ScheduleService {
     public void delete(long id) {
         requireExisting(id);
         requireNotBusy(id);
+        // 隔离表无 FK / 触发器，必须显式清理；否则同 task_id 在 AUTOINCREMENT 下虽不复用，
+        // 但残留行会成为孤儿数据。
+        database.mapper().deleteAllPending(id);
         // 任务删除即清 cookie 快照（行删除连带 cookie_snapshot 一并消失）
         database.mapper().delete(id);
         // 连带清除内存中的本轮运行队列，避免删除后残留
@@ -140,7 +143,8 @@ public class ScheduleService {
      * 为任务快照绑定 Cookie。校验含 {@code PHPSESSID} 后写入；cookie 绝不写日志 / 回显。
      *
      * <p>同时解析非敏感 {@code account_id}（PHPSESSID 下划线前缀 = Pixiv userId）写入；
-     * 并清挂起（解 AUTH_EXPIRED）、重算 next_run、武装隔离表重试——这是 {@code AUTH_EXPIRED} 的恢复入口。
+     * 并清挂起（解 AUTH_EXPIRED）、重算 next_run——这是 {@code AUTH_EXPIRED} 的恢复入口。
+     * 隔离表不再需要"武装"：{@link ScheduleExecutor#runTask} 每轮无条件先消费隔离表。
      */
     @Transactional
     public ScheduleTaskView authorizeCookie(long id, String cookie) {
@@ -154,7 +158,6 @@ public class ScheduleService {
         database.mapper().updateAccountId(id, parsePixivUserId(cookie));
         ScheduledTask task = database.mapper().findById(id);
         database.mapper().clearSuspend(id, nextRunFor(task));
-        database.mapper().armRetry(id);
         return get(id);
     }
 
@@ -222,7 +225,7 @@ public class ScheduleService {
         }
     }
 
-    // ── 暂停 / 恢复（二期） ───────────────────────────────────────────────────────
+    // ── 暂停 / 恢复 ───────────────────────────────────────────────────────────────
 
     /**
      * 手动暂停（任务级 PAUSED）：不冻账号、不发邮件；findDue 状态门挡住，不再到期触发。

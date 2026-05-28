@@ -246,6 +246,10 @@ public interface ScheduledTaskMapper {
     int incPendingAttempts(@Param("taskId") long taskId, @Param("workId") long workId,
                            @Param("now") long now);
 
+    /** 取单行 {@code attempts} 标量；不存在返回 {@code null}。用于在 {@link #incPendingAttempts} 后判断是否刚跨过上限。 */
+    @Select("SELECT attempts FROM scheduled_task_pending WHERE task_id = #{taskId} AND work_id = #{workId}")
+    Integer selectPendingAttempts(@Param("taskId") long taskId, @Param("workId") long workId);
+
     @Select("SELECT task_id AS taskId, work_id AS workId, reason, attempts,"
             + " first_seen_time AS firstSeenTime, last_attempt_time AS lastAttemptTime"
             + " FROM scheduled_task_pending WHERE task_id = #{taskId} ORDER BY first_seen_time")

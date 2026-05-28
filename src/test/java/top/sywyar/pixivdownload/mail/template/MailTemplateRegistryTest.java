@@ -110,12 +110,41 @@ class MailTemplateRegistryTest {
     }
 
     @Test
-    @DisplayName("二期 3 个通知模板均已登记")
-    void templatesShouldIncludePhase2() {
+    @DisplayName("三个调度器通知模板均已登记")
+    void templatesShouldIncludeSchedulerNotifications() {
         assertThat(registry.templates())
                 .containsKey(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED)
                 .containsKey(MailTemplateRegistry.TEMPLATE_AUTH_EXPIRED)
                 .containsKey(MailTemplateRegistry.TEMPLATE_CIRCUIT_BREAKER);
+    }
+
+    @Test
+    @DisplayName("pending-exhausted 已登记，中英渲染含作品信息且无裸 {{}}")
+    void pendingExhaustedRenders() throws Exception {
+        assertThat(registry.templates()).containsKey(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED);
+
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", "画师计划");
+        ph.put("task_id", "9");
+        ph.put("work_id", "123456");
+        ph.put("work_kind", "插画");
+        ph.put("attempts", "5");
+        ph.put("trigger_time", "2026-05-27 12:00:00");
+        ph.put("last_error_excerpt", "受限内容");
+
+        RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED,
+                Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(zh.subject()).contains("需人工处理");
+        assertThat(zh.htmlBody())
+                .contains("画师计划")
+                .contains("123456")
+                .contains("受限内容")
+                .doesNotContain("{{");
+
+        RenderedMail en = registry.render(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED,
+                Locale.US, ph);
+        assertThat(en.subject().toLowerCase()).contains("manual");
+        assertThat(en.htmlBody()).doesNotContain("{{");
     }
 
     @Test

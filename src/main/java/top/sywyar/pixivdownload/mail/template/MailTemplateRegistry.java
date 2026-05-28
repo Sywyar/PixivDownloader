@@ -49,6 +49,8 @@ public class MailTemplateRegistry {
     public static final String TEMPLATE_AUTH_EXPIRED = "auth-expired";
     /** 单作品连续失败熔断挂起通知。 */
     public static final String TEMPLATE_CIRCUIT_BREAKER = "circuit-breaker";
+    /** 单作品自动重试达到 {@code schedule.pending-max-attempts} 上限 → 需人工处理。 */
+    public static final String TEMPLATE_PENDING_EXHAUSTED = "pending-exhausted";
 
     private static final String I18N_PREFIX = "i18n:";
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*([a-zA-Z0-9_.\\-:]+)\\s*}}");
@@ -60,6 +62,7 @@ public class MailTemplateRegistry {
         put(TEMPLATE_OVERUSE_PAUSED, MailTemplate.of(TEMPLATE_OVERUSE_PAUSED));
         put(TEMPLATE_AUTH_EXPIRED, MailTemplate.of(TEMPLATE_AUTH_EXPIRED));
         put(TEMPLATE_CIRCUIT_BREAKER, MailTemplate.of(TEMPLATE_CIRCUIT_BREAKER));
+        put(TEMPLATE_PENDING_EXHAUSTED, MailTemplate.of(TEMPLATE_PENDING_EXHAUSTED));
     }};
 
     /**

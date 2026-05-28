@@ -163,6 +163,10 @@ public class MailTestController {
         // circuit-breaker
         placeholders.put("consecutive_failures", messages.get(locale, "mail.template.sample.consecutive-failures"));
         placeholders.put("last_error_excerpt", messages.get(locale, "mail.template.sample.last-error-excerpt"));
+        // pending-exhausted
+        placeholders.put("work_id", messages.get(locale, "mail.template.sample.work-id"));
+        placeholders.put("work_kind", messages.get(locale, "mail.template.pending-exhausted.kind.illust"));
+        placeholders.put("attempts", messages.get(locale, "mail.template.sample.attempts"));
         return placeholders;
     }
 
