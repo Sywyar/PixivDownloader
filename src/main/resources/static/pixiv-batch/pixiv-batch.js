@@ -6095,9 +6095,17 @@
         el.style.color = STATUS_COLORS[type] || '#666';
     }
 
-    // 任务列表（第 5 Tab）内的操作反馈，与「存为计划任务」卡片的表单状态分开
+    // 账号级 / 横幅级操作反馈（如过度访问账号恢复），与「存为计划任务」卡片的表单状态分开
     function setScheduleListStatus(msg, type = 'info') {
         const el = document.getElementById('schedule-list-status');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.style.color = STATUS_COLORS[type] || '#666';
+    }
+
+    // 单个任务卡片内的操作反馈：显示在该卡片顶部的 tips 区域，互不干扰
+    function setScheduleCardTip(id, msg, type = 'info') {
+        const el = document.getElementById(`schedule-card-tip-${id}`);
         if (!el) return;
         el.textContent = msg || '';
         el.style.color = STATUS_COLORS[type] || '#666';
@@ -6209,6 +6217,9 @@
                     autoAuthResult = await autoAuthorizeScheduleCookie(created.id);
                 }
             }
+            // 先重置表单（resetScheduleForm 末尾会清空状态），再写入成功提示，
+            // 否则成功提示会被 resetScheduleForm 的 setScheduleFormStatus('') 立刻清掉。
+            resetScheduleForm();
             if (autoAuthResult === 'authorized') {
                 setScheduleFormStatus(bt('schedule.status.saved-authorized', '已保存并自动授权 Cookie'), 'success');
             } else if (autoAuthResult === 'no-cookie') {
@@ -6216,7 +6227,6 @@
             } else {
                 setScheduleFormStatus(bt('schedule.status.saved', '已保存'), 'success');
             }
-            resetScheduleForm();
             loadScheduleTasks();
         } catch (e) {
             setScheduleFormStatus(bt('schedule.error.save', '保存失败'), 'error');
@@ -6265,6 +6275,8 @@
     function startEditScheduleTask(id) {
         const task = scheduleTasksCache.find(t => t.id === id);
         if (!task) return;
+        // 进入编辑态时清掉上一次创建 / 保存留下的成功或失败提示。
+        setScheduleFormStatus('');
         let params = {};
         try { params = JSON.parse(task.paramsJson || '{}'); } catch (e) { params = {}; }
         const kind = params.kind === 'novel' ? 'novel' : 'illust';
@@ -6831,6 +6843,9 @@
     function replaceScheduleCardPreservingInner(existingCard, t) {
         const oldQueueBody = existingCard.querySelector('.schedule-queue-body');
         const oldPending = existingCard.querySelector('.schedule-pending-panel');
+        // 卡片顶部 tips 区域：保留刚刚因操作写入的反馈，避免轮询重渲染把它清掉。
+        const oldTip = existingCard.querySelector('.schedule-card-tip');
+        const tipState = oldTip ? {text: oldTip.textContent, color: oldTip.style.color} : null;
         // 真正的滚动容器是 .schedule-queue-body 内部的 .schedule-queue-list（见 renderScheduleQueueBodyInto），
         // 因此 scrollTop 取内层 list 的值，替换后再写回新 list 上，避免队列滚动条跳回顶部。
         const oldQueueList = oldQueueBody ? oldQueueBody.querySelector('.schedule-queue-list') : null;
@@ -6863,6 +6878,11 @@
             newPending.innerHTML = pendingState.inner;
             if (pendingState.expanded) newPending.removeAttribute('hidden');
             else newPending.setAttribute('hidden', '');
+        }
+        const newTip = newCard.querySelector('.schedule-card-tip');
+        if (newTip && tipState && tipState.text) {
+            newTip.textContent = tipState.text;
+            newTip.style.color = tipState.color;
         }
 
         existingCard.replaceWith(newCard);
@@ -6903,6 +6923,7 @@
         const busyAttr = busy ? `disabled title="${escHtml(busyTip)}"` : '';
         return `
         <div class="schedule-card${t.enabled ? '' : ' schedule-card-disabled'}" data-task-id="${t.id}">
+            <div class="schedule-card-tip" id="schedule-card-tip-${t.id}" role="status" aria-live="polite"></div>
             <div class="schedule-card-head">
                 <div class="schedule-card-head-main">
                     <span class="schedule-card-name">${escHtml(t.name)}</span>
@@ -7296,13 +7317,13 @@
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks/${id}/run`, {method: 'POST', credentials: 'same-origin'});
             if (res.ok) {
-                setScheduleListStatus(bt('schedule.status.run-started', '已开始后台运行'), 'success');
+                setScheduleCardTip(id, bt('schedule.status.run-started', '已开始后台运行'), 'success');
                 // 立即刷新：后端 runOnce 同步阶段已把 runState 置为 QUEUED，刷新后状态灯立刻切到「排队中 → 运行中」，
                 // 不必等下一拍 4s 轮询。
                 await loadScheduleTasks();
             } else {
                 // 状态门拒绝（陈旧 UI / 竞态：点击瞬间任务刚进入运行 / 挂起态）。刷新让按钮回到正确禁用态。
-                setScheduleListStatus(bt('schedule.error.run', '当前状态不允许立即运行'), 'error');
+                setScheduleCardTip(id, bt('schedule.error.run', '当前状态不允许立即运行'), 'error');
                 await loadScheduleTasks();
             }
         } catch (e) { /* ignore */ }
@@ -7349,13 +7370,13 @@
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks/${id}/pause`, {method: 'POST', credentials: 'same-origin'});
             if (res.ok) {
-                setScheduleListStatus(bt('schedule.status.paused', '已暂停该任务'), 'success');
+                setScheduleCardTip(id, bt('schedule.status.paused', '已暂停该任务'), 'success');
                 loadScheduleTasks();
             } else {
-                setScheduleListStatus(bt('schedule.error.pause', '暂停失败'), 'error');
+                setScheduleCardTip(id, bt('schedule.error.pause', '暂停失败'), 'error');
             }
         } catch (e) {
-            setScheduleListStatus(bt('schedule.error.pause', '暂停失败'), 'error');
+            setScheduleCardTip(id, bt('schedule.error.pause', '暂停失败'), 'error');
         }
     }
 
@@ -7363,13 +7384,13 @@
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks/${id}/resume`, {method: 'POST', credentials: 'same-origin'});
             if (res.ok) {
-                setScheduleListStatus(bt('schedule.status.resumed', '已恢复该任务'), 'success');
+                setScheduleCardTip(id, bt('schedule.status.resumed', '已恢复该任务'), 'success');
                 loadScheduleTasks();
             } else {
-                setScheduleListStatus(bt('schedule.error.resume', '恢复失败'), 'error');
+                setScheduleCardTip(id, bt('schedule.error.resume', '恢复失败'), 'error');
             }
         } catch (e) {
-            setScheduleListStatus(bt('schedule.error.resume', '恢复失败'), 'error');
+            setScheduleCardTip(id, bt('schedule.error.resume', '恢复失败'), 'error');
         }
     }
 
@@ -7462,7 +7483,7 @@
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks/${id}/pending/${workId}`, {method: 'DELETE', credentials: 'same-origin'});
             if (res.ok) {
-                setScheduleListStatus(bt('schedule.status.pending-cleared', '已清除该条待重试记录'), 'success');
+                setScheduleCardTip(id, bt('schedule.status.pending-cleared', '已清除该条待重试记录'), 'success');
                 await loadPendingPanel(id);
             }
         } catch (e) { /* ignore */ }
@@ -7479,11 +7500,11 @@
     async function authorizeScheduleCookie(id) {
         const cookie = getCookieInputHeaderString().trim();
         if (!cookie) {
-            setScheduleListStatus(bt('schedule.error.no-cookie', '请先在上方 Cookie 卡片保存含 PHPSESSID 的 Cookie'), 'error');
+            setScheduleCardTip(id, bt('schedule.error.no-cookie', '请先在上方 Cookie 卡片保存含 PHPSESSID 的 Cookie'), 'error');
             return;
         }
         if (!/(?:^|;\s*)PHPSESSID=/.test(cookie)) {
-            setScheduleListStatus(bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权'), 'error');
+            setScheduleCardTip(id, bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权'), 'error');
             return;
         }
         try {
@@ -7495,13 +7516,13 @@
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                setScheduleListStatus(err.message || bt('schedule.error.authorize', '授权失败'), 'error');
+                setScheduleCardTip(id, err.message || bt('schedule.error.authorize', '授权失败'), 'error');
                 return;
             }
-            setScheduleListStatus(bt('schedule.status.authorized', 'Cookie 已授权绑定到该任务'), 'success');
+            setScheduleCardTip(id, bt('schedule.status.authorized', 'Cookie 已授权绑定到该任务'), 'success');
             loadScheduleTasks();
         } catch (e) {
-            setScheduleListStatus(bt('schedule.error.authorize', '授权失败'), 'error');
+            setScheduleCardTip(id, bt('schedule.error.authorize', '授权失败'), 'error');
         }
     }
 

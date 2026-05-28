@@ -1819,6 +1819,19 @@
     opacity: 0.65;
 }
 
+.schedule-card-tip {
+    font-size: 13px;
+    margin-bottom: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--control-muted-bg);
+    border: 1px solid var(--line);
+}
+
+.schedule-card-tip:empty {
+    display: none;
+}
+
 .schedule-card-head {
     display: flex;
     align-items: flex-start;
