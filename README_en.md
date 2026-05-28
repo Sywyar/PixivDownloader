@@ -11,7 +11,8 @@
 - Batch download works by user ID
 - Batch download works through the built-in search proxy
 - Batch download an entire series by entering a series link or a work link from that series
-- Use Tampermonkey userscripts to scrape illustrations, manga, ugoira, and novels from Pixiv pages, or download directly from single-work pages
+- Use Tampermonkey userscripts to scrape illustrations, manga, ugoira, and novels from Pixiv pages, or download directly
+  from single-work pages
 - Powerful artwork and novel galleries
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
@@ -25,15 +26,22 @@
 - Page batch download userscript — scrape works from search results, following feed, rankings, and more
 - Experience-enhancement toolbox (downloaded-work marking, one-click Cookie import)
 - Powerful artwork and novel galleries with search-scope selection, filtering, sorting, and collections
-- Full-text "body" search in the novel gallery (backed by a local full-text index; combinable with age-rating / tag / author filters)
-- Statistics dashboard (admin): overview cards, downloads-by-month line chart, top authors by downloads, popular-tag cloud; authors/tags are clickable and jump to a filtered gallery view
-- Suspected-duplicate detection (admin): identifies substantially duplicate downloaded images via perceptual hashing (dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- Scheduled tasks (admin): automatically discover and download new artworks in the background on a fixed interval or cron schedule, with three source types (artist new works / saved search / series — both illustrations and novels); save one with "Save as scheduled task" from User/Search/Series mode and it inherits all current download settings (including max concurrent / artwork interval / image interval / verify actual folder) and filter settings, applying them per-work in the background and downloading multiple works concurrently per the saved concurrency setting, with per-task authorization to use the admin's saved cookie; it auto-detects Pixiv "overuse" inbox warnings and pauses all tasks for that account (to avoid a ban), and suspends a task when the login session expires or a work fails repeatedly — all three auto-pauses send an email notification, and the management page offers manual pause/resume plus account-level "ignore the risk and continue / continue later"
-- Email notifications and SMTP config (GUI): built-in presets for common mail providers and a "send test email" button, used to receive scheduled-task overuse / auth-expired alerts that need manual attention (email bodies never contain cookies or passwords)
+- Full-text "body" search in the novel gallery (backed by a local full-text index; combinable with age-rating / tag /
+  author filters)
+- Statistics dashboard: overview cards, downloads-by-month line chart, top authors by downloads, popular-tag
+  cloud; authors/tags are clickable and jump to a filtered gallery view
+- Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
+  dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
+- Scheduled tasks: automatically discover and download new artworks in the background on a fixed interval or
+  cron schedule, with three source types (artist new works / saved search / series — both illustrations and novels)
+- Email notifications and SMTP config: used to receive scheduled-task overuse / auth-expired alerts that need manual
+  attention
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
 - Animated image (Ugoira) auto-conversion to WebP
 - Custom file naming templates (11 variables)
-- Downloaded-state verification: stale DB records (file deleted on disk) are auto-pruned; if files for an artwork already exist on disk under the default filename template but the DB record is missing, the record is reconstructed from disk and the redownload is skipped
+- Downloaded-state verification: stale DB records (file deleted on disk) are auto-pruned; if files for an artwork
+  already exist on disk under the default filename template but the DB record is missing, the record is reconstructed
+  from disk and the redownload is skipped
 - Quota and rate limiting for multi-user scenarios
 - Guest invite system (age-rating / tag / author whitelist)
 - Multiple languages / dark mode
@@ -45,6 +53,7 @@
 > Some screenshot devices have HDR enabled, so the color effect may differ.
 
 ### [Light Mode Screenshots](./en-US/md/light-screenshot.md)
+
 ### [Dark Mode Screenshots](./en-US/md/dark-screenshot.md)
 
 ## Quick Start
@@ -53,9 +62,9 @@
 
 Download the latest version from [Releases](../../releases):
 
-| Type | Description |
-|------|-------------|
-| `PixivDownload-vX.X.X.jar` | Universal JAR, requires Java 17+ |
+| Type                                | Description                                                         |
+|-------------------------------------|---------------------------------------------------------------------|
+| `PixivDownload-vX.X.X.jar`          | Universal JAR, requires Java 17+                                    |
 | `PixivDownload-*-win-x64-setup.exe` | Windows installer; repair/change/uninstall, optional FFmpeg install |
 
 ### Run
@@ -72,18 +81,22 @@ PixivDownload.exe
 --intro     # Open the product introduction page on startup
 ```
 
-After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start downloading.
+After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start
+downloading.
 
 > [!TIP]
-> **See the [Wiki](https://github.com/Sywyar/PixivDownloader/wiki/en-Home) for detailed installation, usage, configuration, and development guides.**
+> **See the [Wiki](https://github.com/Sywyar/PixivDownloader/wiki/en-Home) for detailed installation, usage,
+configuration, and development guides.**
 
 ---
 
 ## Disclaimer
 
 - This project is for personal learning and research only; do not use it for any commercial purposes.
-- Content downloaded using this tool is copyrighted by the original creators; please respect creators' rights and do not redistribute or use commercially.
-- This tool accesses Pixiv through user-provided cookies or, with user permission, by extracting cookies via Tampermonkey userscripts; users bear their own account risks.
+- Content downloaded using this tool is copyrighted by the original creators; please respect creators' rights and do not
+  redistribute or use commercially.
+- This tool accesses Pixiv through user-provided cookies or, with user permission, by extracting cookies via
+  Tampermonkey userscripts; users bear their own account risks.
 - This project has no affiliation with Pixiv; all consequences of using this tool are the user's responsibility.
 - Please set a reasonable download interval to avoid excessive load on Pixiv servers.
 
@@ -91,7 +104,10 @@ After first startup, follow the wizard to complete setup, then visit `http://loc
 
 ## Additional Notes
 
-Honestly, I don't really recommend the multi mode of this tool, because all requests go through the server's network IP. Even with different cookies, a large number of requests could lead to IP bans. I'm considering adding a login mechanism to multi mode, but that goes against the project's original intention of simplicity. For now, I'll just continue refining this project.
+Honestly, I don't really recommend the multi mode of this tool, because all requests go through the server's network IP.
+Even with different cookies, a large number of requests could lead to IP bans. I'm considering adding a login mechanism
+to multi mode, but that goes against the project's original intention of simplicity. For now, I'll just continue
+refining this project.
 
 ## Friend Links
 
@@ -101,7 +117,8 @@ If you prefer simplicity and don't want to rely on a backend program, give this 
 Features:
 
 - Many filtering options
-- Useful auxiliary features like ad removal, quick bookmark, image viewer mode, etc. `(can also serve as a Pixiv helper plugin?)`
+- Useful auxiliary features like ad removal, quick bookmark, image viewer mode, etc.
+  `(can also serve as a Pixiv helper plugin?)`
 - Download doesn't depend on third-party tools `(the biggest difference from this project! Easy installation!)`
 - Supports multiple languages
 

@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
-## [Unreleased]
+## [v1.11.0] - 2026.5.28
 
 ### Changed
 - 批量下载页会在上方 Cookie 输入框缺少有效 PHPSESSID 时禁用依赖登录态的前端控件，并在悬停时提示该功能不可用，避免继续配置下载后收藏、R-18 内容分级或计划任务 Cookie 授权。
