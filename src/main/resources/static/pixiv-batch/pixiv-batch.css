@@ -2298,3 +2298,330 @@ body.schedule-modal-open {
     padding: 2px 8px;
     font-size: 12px;
 }
+
+/* ===== Quick-fetch tab ===== */
+.quick-intro {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 10px;
+}
+
+.quick-account {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    padding: 6px 10px;
+    background: var(--surface-muted);
+    border: 1px solid var(--line, #e1e4e8);
+    border-radius: 6px;
+    margin-bottom: 12px;
+    color: var(--text);
+}
+
+.quick-account-uid {
+    font-family: monospace;
+    font-weight: 700;
+    color: var(--brand, #1a73e8);
+}
+
+.quick-account-hint {
+    font-size: 12px;
+    color: var(--danger-bg, #dc3545);
+}
+
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.quick-actions .quick-action {
+    padding: 8px 10px;
+    font-size: 13px;
+    text-align: left;
+}
+
+.quick-actions .quick-action.quick-active {
+    outline: 2px solid var(--brand, #1a73e8);
+    outline-offset: -2px;
+}
+
+.quick-actions .quick-action:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.quick-preview-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 8px 0;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--line, #e1e4e8);
+}
+
+.quick-preview-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--text);
+    flex: 1 1 auto;
+    min-width: 200px;
+}
+
+.quick-preview-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.quick-search-input {
+    padding: 4px 8px;
+    border: 1px solid var(--line, #ddd);
+    border-radius: 4px;
+    background: var(--surface, #fff);
+    color: var(--text);
+    font-size: 13px;
+    min-width: 200px;
+}
+
+.quick-kind-switcher {
+    display: inline-flex;
+    border: 1px solid var(--line, #ddd);
+    border-radius: 4px;
+    overflow: hidden;
+    font-size: 12px;
+}
+
+.quick-kind-switcher label {
+    padding: 4px 10px;
+    cursor: pointer;
+    background: var(--surface-muted, #fafafa);
+    color: var(--text);
+    user-select: none;
+}
+
+.quick-kind-switcher label:not(:first-child) {
+    border-left: 1px solid var(--line, #ddd);
+}
+
+.quick-kind-switcher label.quick-kind-active {
+    background: var(--brand, #1a73e8);
+    color: #fff;
+}
+
+.quick-kind-switcher input {
+    display: none;
+}
+
+.quick-preview {
+    min-height: 80px;
+}
+
+.quick-empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 24px 0;
+    font-size: 13px;
+}
+
+.quick-following-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+.quick-following-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border: 1px solid var(--line, #e1e4e8);
+    border-radius: 6px;
+    background: var(--surface, #fff);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.quick-following-card:hover {
+    background: var(--hover-bg, #f5f7fa);
+    transform: translateY(-1px);
+}
+
+.quick-following-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex: 0 0 40px;
+    background: var(--surface-muted, #eee);
+}
+
+.quick-following-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.quick-following-meta {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.quick-following-name {
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+}
+
+.quick-following-uid {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: monospace;
+}
+
+.quick-collection-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+}
+
+.quick-collection-card {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--line, #e1e4e8);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--surface, #fff);
+    color: var(--text);
+    cursor: pointer;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.quick-collection-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+}
+
+.quick-collection-cover {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: var(--surface-muted, #eee);
+    overflow: hidden;
+    position: relative;
+}
+
+/* 内层集内 / 关注用户作品：插画缩略图与小说卡片混排 */
+.quick-mixed-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-start;
+    margin-bottom: 14px;
+}
+
+.quick-mixed-grid .search-thumb {
+    width: 140px;
+}
+
+.quick-mixed-grid .novel-search-card {
+    width: 220px;
+}
+
+/* 加载态 */
+.quick-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 30px 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.quick-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--line, #ddd);
+    border-top-color: var(--brand, #1a73e8);
+    border-radius: 50%;
+    animation: quick-spin 0.8s linear infinite;
+    flex: 0 0 auto;
+}
+
+@keyframes quick-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 按钮加载态：禁用交互 + 末尾旋转图标 */
+.btn.is-loading {
+    pointer-events: none;
+    opacity: 0.75;
+}
+
+.btn.is-loading::after {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-left: 6px;
+    vertical-align: -1px;
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: quick-spin 0.8s linear infinite;
+}
+
+/* 快捷按钮加载态（浅底按钮上的深色 spinner） */
+.quick-action.is-loading::after {
+    border-color: var(--line, #ddd);
+    border-top-color: var(--brand, #1a73e8);
+}
+
+.quick-collection-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.quick-collection-meta {
+    padding: 6px 8px;
+}
+
+.quick-collection-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.quick-collection-count {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+/* 二层钻取区块：追加在外层列表下方 */
+.quick-inner-section {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 2px dashed var(--line, #e1e4e8);
+}
+
+/* 外层被点开的关注用户 / 珍藏集卡片高亮 */
+.quick-following-card.quick-selected,
+.quick-collection-card.quick-selected {
+    outline: 2px solid var(--brand, #1a73e8);
+    outline-offset: -2px;
+}

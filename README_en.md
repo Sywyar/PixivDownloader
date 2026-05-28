@@ -22,7 +22,8 @@
 
 ## Features
 
-- One-stop download web page: Bulk Import Single Works, User Mode, Search Mode, Series Mode
+- One-stop download web page: Quick Fetch, Bulk Import Single Works, User Mode, Search Mode, Series Mode
+- Quick Fetch: with the saved Cookie, one-click load your own bookmarks (illust/novel, incl. private), your own works (incl. private), following list, and collections; drill in and add to the download queue
 - Page batch download userscript — scrape works from search results, following feed, rankings, and more
 - Experience-enhancement toolbox (downloaded-work marking, one-click Cookie import)
 - Powerful artwork and novel galleries with search-scope selection, filtering, sorting, and collections

@@ -1162,7 +1162,10 @@ public class PixivProxyController {
             throw new SecurityException(messages.get("pixiv.proxy.thumbnail-url.invalid"));
         }
         String host = uri.getHost();
-        if (host == null || !host.endsWith(".pximg.net")) {
+        // pximg.net 子域服务作品缩略图；embed.pixiv.net 服务珍藏集封面缩略图。两者均为 Pixiv 固定 CDN。
+        boolean allowed = host != null
+                && (host.endsWith(".pximg.net") || host.equals("embed.pixiv.net"));
+        if (!allowed) {
             throw new SecurityException(messages.get("pixiv.proxy.thumbnail-url.host.invalid"));
         }
         byte[] bytes = proxyGetBytes(url, cookie);
@@ -1181,5 +1184,379 @@ public class PixivProxyController {
         HttpEntity<Void> entity = new HttpEntity<>(headers);
         ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
         return response.getBody() != null ? response.getBody() : new byte[0];
+    }
+
+    // ── /me 端点：基于 cookie 解析当前用户 uid，代理「我的」书签 / 关注 / 珍藏集 ─────────────
+
+    private static final Set<String> VALID_REST = Set.of("show", "hide");
+
+    /**
+     * 从 Pixiv cookie 串里抽出登录用户的 userId。
+     * <p>PHPSESSID 格式为 {@code {userId}_{随机后缀}}，下划线前缀即 userId。返回 null 表示
+     * cookie 缺失或不含合法 PHPSESSID（未登录 / 已过期 / 拼装错误）。
+     */
+    static String extractUidFromCookie(String cookie) {
+        if (cookie == null) return null;
+        for (String part : cookie.split(";")) {
+            String trimmed = part.trim();
+            if (!trimmed.regionMatches(true, 0, "PHPSESSID=", 0, "PHPSESSID=".length())) continue;
+            String value = trimmed.substring("PHPSESSID=".length());
+            int us = value.indexOf('_');
+            if (us <= 0) continue;
+            String uid = value.substring(0, us);
+            if (!uid.isEmpty() && uid.chars().allMatch(Character::isDigit)) return uid;
+        }
+        return null;
+    }
+
+    @GetMapping("/me/uid")
+    public ResponseEntity<?> getMeUid(
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        String uid = extractUidFromCookie(cookie);
+        if (uid == null) {
+            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
+        }
+        return ResponseEntity.ok(new MeUidResponse(uid));
+    }
+
+    @GetMapping("/me/illust-bookmarks")
+    public ResponseEntity<?> getMyIllustBookmarks(
+            @RequestParam(defaultValue = "show") String rest,
+            @RequestParam(required = false) String tag,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "48") int limit,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        if (!VALID_REST.contains(rest)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.me.rest.invalid", rest)));
+        }
+        int safeOffset = Math.max(0, offset);
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        String uid = extractUidFromCookie(cookie);
+        if (uid == null) {
+            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
+        }
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/user/{uid}/illusts/bookmarks")
+                .queryParam("tag", tag == null ? "" : tag)
+                .queryParam("offset", safeOffset)
+                .queryParam("limit", safeLimit)
+                .queryParam("rest", rest)
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("uid", uid))
+                .encode()
+                .toUri();
+        String body = proxyGetUri(uri, cookie);
+        JsonNode root = objectMapper.readTree(body);
+        if (root.path("error").asBoolean(false)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+        }
+        JsonNode b = root.path("body");
+        int total = b.path("total").asInt(0);
+        List<SearchResponse.SearchItem> items = new ArrayList<>();
+        for (JsonNode item : b.path("works")) {
+            // 私密 / 受限作品在 Pixiv 上以占位形式返回：isMasked=true，没有 title / illustType；前端按 xRestrict 高亮提示但仍可点入队列重试
+            items.add(new SearchResponse.SearchItem(
+                    item.path("id").asText(""),
+                    item.path("title").asText(""),
+                    item.path("illustType").asInt(0),
+                    item.path("xRestrict").asInt(0),
+                    item.path("aiType").asInt(0),
+                    item.path("url").asText(""),
+                    item.path("pageCount").asInt(1),
+                    item.path("userId").asText(""),
+                    item.path("userName").asText(""),
+                    parseStringTags(item.path("tags"))
+            ));
+        }
+        return ResponseEntity.ok(new SearchResponse(items, total, safeOffset / safeLimit + 1));
+    }
+
+    @GetMapping("/me/novel-bookmarks")
+    public ResponseEntity<?> getMyNovelBookmarks(
+            @RequestParam(defaultValue = "show") String rest,
+            @RequestParam(required = false) String tag,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "24") int limit,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        if (!VALID_REST.contains(rest)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.me.rest.invalid", rest)));
+        }
+        int safeOffset = Math.max(0, offset);
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        String uid = extractUidFromCookie(cookie);
+        if (uid == null) {
+            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
+        }
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/user/{uid}/novels/bookmarks")
+                .queryParam("tag", tag == null ? "" : tag)
+                .queryParam("offset", safeOffset)
+                .queryParam("limit", safeLimit)
+                .queryParam("rest", rest)
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("uid", uid))
+                .encode()
+                .toUri();
+        String body = proxyGetUri(uri, cookie);
+        JsonNode root = objectMapper.readTree(body);
+        if (root.path("error").asBoolean(false)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+        }
+        JsonNode b = root.path("body");
+        int total = b.path("total").asInt(0);
+        List<NovelSearchResponse.NovelSearchItem> items = new ArrayList<>();
+        for (JsonNode item : b.path("works")) {
+            items.add(new NovelSearchResponse.NovelSearchItem(
+                    item.path("id").asText(""),
+                    item.path("title").asText(""),
+                    item.path("xRestrict").asInt(0),
+                    item.path("aiType").asInt(0),
+                    item.path("bookmarkCount").asInt(-1),
+                    item.path("wordCount").asInt(0),
+                    item.path("textLength").asInt(item.path("characterCount").asInt(0)),
+                    item.path("userId").asText(""),
+                    item.path("userName").asText(""),
+                    extractNovelCoverUrl(item),
+                    item.path("isOriginal").asBoolean(false),
+                    parseStringTags(item.path("tags"))
+            ));
+        }
+        return ResponseEntity.ok(new NovelSearchResponse(items, total, safeOffset / safeLimit + 1));
+    }
+
+    @GetMapping("/me/following")
+    public ResponseEntity<?> getMyFollowing(
+            @RequestParam(defaultValue = "show") String rest,
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "24") int limit,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        if (!VALID_REST.contains(rest)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("pixiv.proxy.me.rest.invalid", rest)));
+        }
+        int safeOffset = Math.max(0, offset);
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        String uid = extractUidFromCookie(cookie);
+        if (uid == null) {
+            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
+        }
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/user/{uid}/following")
+                .queryParam("offset", safeOffset)
+                .queryParam("limit", safeLimit)
+                .queryParam("rest", rest)
+                .queryParam("tag", "")
+                .queryParam("acceptingRequests", 0)
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("uid", uid))
+                .encode()
+                .toUri();
+        String body = proxyGetUri(uri, cookie);
+        JsonNode root = objectMapper.readTree(body);
+        if (root.path("error").asBoolean(false)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+        }
+        JsonNode b = root.path("body");
+        int total = b.path("total").asInt(0);
+        List<FollowingPageResponse.FollowingUser> users = new ArrayList<>();
+        for (JsonNode u : b.path("users")) {
+            users.add(new FollowingPageResponse.FollowingUser(
+                    u.path("userId").asText(""),
+                    u.path("userName").asText(""),
+                    u.path("profileImageUrl").asText(""),
+                    u.path("userComment").asText(u.path("comment").asText(""))
+            ));
+        }
+        return ResponseEntity.ok(new FollowingPageResponse(users, total, safeOffset, safeLimit));
+    }
+
+    /**
+     * 当前用户的珍藏集（コレクション）列表。珍藏集不分公开/不公开、不分插画/小说。
+     * 两步：先从 {@code profile/all} 取 {@code collectionIds}，再分批 {@code profile/collections?ids[]=}
+     * 取封面元数据；Pixiv 无该列表的分页，一次性返回全部。
+     */
+    @GetMapping("/me/collections")
+    public ResponseEntity<?> getMyCollections(
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        String uid = extractUidFromCookie(cookie);
+        if (uid == null) {
+            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
+        }
+        // 1) profile/all → collectionIds
+        String allBody = proxyGet("https://www.pixiv.net/ajax/user/" + uid + "/profile/all?lang=zh", cookie);
+        JsonNode allRoot = objectMapper.readTree(allBody);
+        if (allRoot.path("error").asBoolean(false)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(allRoot.path("message").asText()));
+        }
+        List<String> ids = new ArrayList<>();
+        JsonNode idsNode = allRoot.path("body").path("collectionIds");
+        if (idsNode.isArray()) {
+            for (JsonNode n : idsNode) {
+                String id = n.asText("");
+                if (!id.isBlank()) ids.add(id);
+            }
+        }
+        // collectionIds 缺失时回退到 body.collections 对象的键集
+        if (ids.isEmpty()) {
+            JsonNode collMap = allRoot.path("body").path("collections");
+            if (collMap.isObject()) collMap.fieldNames().forEachRemaining(ids::add);
+        }
+        if (ids.isEmpty()) {
+            return ResponseEntity.ok(new CollectionPageResponse(List.of(), 0));
+        }
+        // 2) 分批 profile/collections?ids[]=（每批 48 个，避免 URL 过长）
+        List<CollectionPageResponse.CollectionItem> collections = new ArrayList<>();
+        final int batch = 48;
+        for (int i = 0; i < ids.size(); i += batch) {
+            List<String> slice = ids.subList(i, Math.min(i + batch, ids.size()));
+            UriComponentsBuilder builder = UriComponentsBuilder
+                    .fromUriString("https://www.pixiv.net/ajax/user/{uid}/profile/collections");
+            for (String id : slice) {
+                builder.queryParam("ids[]", id);
+            }
+            URI uri = builder.queryParam("lang", "zh")
+                    .buildAndExpand(Map.of("uid", uid))
+                    .encode()
+                    .toUri();
+            String body = proxyGetUri(uri, cookie);
+            JsonNode root = objectMapper.readTree(body);
+            if (root.path("error").asBoolean(false)) {
+                return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+            }
+            JsonNode works = root.path("body").path("works");
+            if (works.isArray()) {
+                for (JsonNode c : works) {
+                    collections.add(new CollectionPageResponse.CollectionItem(
+                            c.path("id").asText(""),
+                            c.path("title").asText(""),
+                            c.path("caption").asText(""),
+                            c.path("thumbnailImageUrl").asText(""),
+                            c.path("bookmarkCount").asInt(0),
+                            c.path("xRestrict").asInt(0),
+                            parseStringTags(c.path("tags"))
+                    ));
+                }
+            }
+        }
+        return ResponseEntity.ok(new CollectionPageResponse(collections, collections.size()));
+    }
+
+    /**
+     * 单个珍藏集内部的作品（插画 + 小说混合，按珍藏集布局顺序）。
+     * 走 {@code /ajax/collection/{collectionId}}：{@code data.detail.tiles[]} 给出顺序与 workType/workId，
+     * {@code thumbnails.illust[]} / {@code thumbnails.novel[]} 给出卡片详情。Pixiv 一次返回全部、无分页。
+     * 珍藏集 ID 是 20 位以上的数字串，超出 long，故按字符串处理（仅校验为纯数字以防注入）。
+     */
+    @GetMapping("/me/collection/{collectionId}/works")
+    public ResponseEntity<?> getMyCollectionWorks(
+            @PathVariable String collectionId,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        if (extractUidFromCookie(cookie) == null) {
+            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
+        }
+        if (collectionId == null || collectionId.isBlank() || !collectionId.chars().allMatch(Character::isDigit)) {
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponse(messages.get("pixiv.proxy.me.collection.id.invalid", collectionId)));
+        }
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/collection/{cid}")
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("cid", collectionId))
+                .encode()
+                .toUri();
+        String body = proxyGetUri(uri, cookie);
+        JsonNode root = objectMapper.readTree(body);
+        if (root.path("error").asBoolean(false)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+        }
+        List<CollectionWorksResponse.Work> works = parseCollectionWorks(root.path("body"));
+        return ResponseEntity.ok(new CollectionWorksResponse(works, works.size()));
+    }
+
+    /**
+     * 把 {@code /ajax/collection/{id}} 的 {@code body} 解析为按珍藏集布局顺序排列的混合作品列表。
+     * 顺序与 workType/workId 取自 {@code data.detail.tiles[]}，卡片详情取自 {@code thumbnails.illust[]} /
+     * {@code thumbnails.novel[]}（按 id 建索引）。仅保留 {@code type=Work} 且 {@code status=Active} 的 tile，
+     * 卡片缺失（已删除等）跳过。纯函数：不触网、不依赖实例状态，便于单测。
+     */
+    static List<CollectionWorksResponse.Work> parseCollectionWorks(JsonNode body) {
+        List<CollectionWorksResponse.Work> works = new ArrayList<>();
+        if (body == null) return works;
+        Map<String, JsonNode> illustById = new LinkedHashMap<>();
+        for (JsonNode it : body.path("thumbnails").path("illust")) {
+            illustById.put(it.path("id").asText(""), it);
+        }
+        Map<String, JsonNode> novelById = new LinkedHashMap<>();
+        for (JsonNode it : body.path("thumbnails").path("novel")) {
+            novelById.put(it.path("id").asText(""), it);
+        }
+        JsonNode tiles = body.path("data").path("detail").path("tiles");
+        if (!tiles.isArray()) return works;
+        for (JsonNode tile : tiles) {
+            if (!"Work".equals(tile.path("type").asText(""))) continue;
+            if (!"Active".equals(tile.path("status").asText("Active"))) continue;
+            String workType = tile.path("workType").asText("");
+            String workId = tile.path("workId").asText("");
+            if (workId.isBlank()) continue;
+            if ("novel".equals(workType)) {
+                JsonNode it = novelById.get(workId);
+                if (it == null) continue;
+                works.add(new CollectionWorksResponse.Work(
+                        "novel",
+                        workId,
+                        it.path("title").asText(""),
+                        0,
+                        it.path("xRestrict").asInt(0),
+                        it.path("aiType").asInt(0),
+                        extractNovelCoverUrl(it),
+                        1,
+                        it.path("userId").asText(""),
+                        it.path("userName").asText(""),
+                        parseStringTags(it.path("tags")),
+                        it.path("bookmarkCount").asInt(-1),
+                        it.path("wordCount").asInt(0),
+                        it.path("textLength").asInt(it.path("characterCount").asInt(0)),
+                        it.path("isOriginal").asBoolean(false)
+                ));
+            } else {
+                JsonNode it = illustById.get(workId);
+                if (it == null) continue;
+                works.add(new CollectionWorksResponse.Work(
+                        "illust",
+                        workId,
+                        it.path("title").asText(""),
+                        it.path("illustType").asInt(0),
+                        it.path("xRestrict").asInt(0),
+                        it.path("aiType").asInt(0),
+                        it.path("url").asText(""),
+                        it.path("pageCount").asInt(1),
+                        it.path("userId").asText(""),
+                        it.path("userName").asText(""),
+                        parseStringTags(it.path("tags")),
+                        it.path("bookmarkCount").asInt(-1),
+                        0,
+                        0,
+                        false
+                ));
+            }
+        }
+        return works;
     }
 }

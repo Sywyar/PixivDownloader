@@ -70,15 +70,69 @@
 
     <!-- Mode tabs -->
     <div class="tabs">
-        <div class="tab active" id="tab-single-import" onclick="switchMode('single-import')" data-i18n="mode.single-import">🎨 批量导入单作品</div>
+        <div class="tab active" id="tab-quick-fetch" onclick="switchMode('quick-fetch')" data-i18n="mode.quick-fetch">⭐ 快捷获取</div>
+        <div class="tab" id="tab-single-import" onclick="switchMode('single-import')" data-i18n="mode.single-import">🎨 批量导入单作品</div>
         <div class="tab" id="tab-user" onclick="switchMode('user')" data-i18n="mode.user">👤 User 模式</div>
         <div class="tab" id="tab-search" onclick="switchMode('search')" data-i18n="mode.search">🔍 Search 模式</div>
         <div class="tab" id="tab-series" onclick="switchMode('series')" data-i18n="mode.series">📚 系列下载</div>
         <div class="tab" id="tab-schedule" style="display:none;" onclick="switchMode('schedule')" data-i18n="mode.schedule">⏰ 计划任务</div>
     </div>
 
+    <!-- Quick-fetch panel：基于当前 Cookie 主人 uid 拉取「我的」收藏 / 关注 / 珍藏集 / 作品。
+         无 Cookie（缺 PHPSESSID）时禁用所有动作按钮并显示提示。 -->
+    <div class="card mode-panel active" id="panel-quick-fetch">
+        <div class="card-title" data-i18n="quick.title">快捷获取账户相关作品</div>
+        <div class="quick-intro" data-i18n="quick.intro">通过当前保存的 Cookie 自动识别账号（基于 PHPSESSID 前缀），一键查看你的收藏 / 关注 / 珍藏集 / 自己的作品，并可直接加入下载队列。包含 hide（不公开）数据。</div>
+        <div class="quick-account" id="quick-account-bar">
+            <span data-i18n="quick.account.label">当前账号：</span>
+            <span id="quick-account-uid" class="quick-account-uid">-</span>
+            <span id="quick-account-hint" class="quick-account-hint" data-i18n="quick.account.hint-no-cookie">未检测到登录 Cookie，请先在上方保存含 PHPSESSID 的 Cookie</span>
+        </div>
+        <div class="quick-actions">
+            <button class="btn btn-blue quick-action" data-quick="my-illust-bookmarks-show" onclick="quickLoad('my-illust-bookmarks-show')" data-i18n="quick.action.illust-bookmarks-show">📖 我的收藏（插画/漫画，公开）</button>
+            <button class="btn btn-purple quick-action" data-quick="my-illust-bookmarks-hide" onclick="quickLoad('my-illust-bookmarks-hide')" data-i18n="quick.action.illust-bookmarks-hide">🔒 我的收藏（插画/漫画，不公开）</button>
+            <button class="btn btn-blue quick-action" data-quick="my-novel-bookmarks-show" onclick="quickLoad('my-novel-bookmarks-show')" data-i18n="quick.action.novel-bookmarks-show">📚 我的收藏（小说，公开）</button>
+            <button class="btn btn-purple quick-action" data-quick="my-novel-bookmarks-hide" onclick="quickLoad('my-novel-bookmarks-hide')" data-i18n="quick.action.novel-bookmarks-hide">🔒 我的收藏（小说，不公开）</button>
+            <button class="btn btn-green quick-action" data-quick="my-illusts" onclick="quickLoad('my-illusts')" data-i18n="quick.action.my-illusts">🎨 我自己的作品（插画/漫画，含 hide）</button>
+            <button class="btn btn-green quick-action" data-quick="my-novels" onclick="quickLoad('my-novels')" data-i18n="quick.action.my-novels">✍ 我自己的作品（小说，含 hide）</button>
+            <button class="btn btn-cyan quick-action" data-quick="my-following-show" onclick="quickLoad('my-following-show')" data-i18n="quick.action.following-show">👥 我的关注（公开）</button>
+            <button class="btn btn-purple quick-action" data-quick="my-following-hide" onclick="quickLoad('my-following-hide')" data-i18n="quick.action.following-hide">🔒 我的关注（不公开）</button>
+            <button class="btn btn-yellow quick-action" data-quick="my-collections" onclick="quickLoad('my-collections')" data-i18n="quick.action.collections">🗂 我的珍藏集</button>
+        </div>
+        <div class="quick-preview-toolbar" id="quick-preview-toolbar" style="display:none;">
+            <div class="quick-preview-title" id="quick-preview-title"></div>
+            <div class="quick-preview-actions">
+                <input type="text" id="quick-following-search" class="quick-search-input" data-i18n-placeholder="quick.preview.search-following" placeholder="按用户名 / 用户 ID 过滤..." oninput="quickFilterFollowing()" style="display:none;">
+                <button class="btn btn-cyan" id="quick-add-page" style="display:none;" onclick="quickAddCurrentPageToQueue()" data-i18n="quick.preview.add-page">将当前页加入队列</button>
+                <button class="btn btn-green" id="quick-add-all" style="display:none;" onclick="quickAddAllToQueue()" data-i18n="quick.preview.add-all">➕ 全部加入队列</button>
+            </div>
+        </div>
+        <div class="quick-preview" id="quick-preview-area">
+            <div class="quick-empty" data-i18n="quick.preview.empty">点击上方按钮加载内容</div>
+        </div>
+        <div class="search-pagination" id="quick-pagination" style="display:none;"></div>
+
+        <!-- 二层：点击关注用户 / 珍藏集后在外层列表下方追加这块作品预览（非替换式） -->
+        <div class="quick-inner-section" id="quick-inner-section" style="display:none;">
+            <div class="quick-preview-toolbar">
+                <div class="quick-preview-title" id="quick-inner-title"></div>
+                <div class="quick-preview-actions">
+                    <span class="quick-kind-switcher" id="quick-inner-kind-switcher" role="radiogroup" style="display:none;">
+                        <label class="quick-kind-active" data-quick-kind="illust"><input type="radio" name="quick-inner-kind" value="illust" checked> <span data-i18n="quick.preview.kind-illust">插画</span></label>
+                        <label data-quick-kind="novel"><input type="radio" name="quick-inner-kind" value="novel"> <span data-i18n="quick.preview.kind-novel">小说</span></label>
+                    </span>
+                    <button class="btn btn-cyan" id="quick-inner-add-page" onclick="quickInnerAddCurrentPageToQueue()" data-i18n="quick.preview.add-page">将当前页加入队列</button>
+                    <button class="btn btn-green" id="quick-inner-add-all" onclick="quickInnerAddAllToQueue()" data-i18n="quick.preview.add-all">➕ 全部加入队列</button>
+                    <button class="btn btn-gray" id="quick-inner-close" onclick="quickCloseInner()" data-i18n="quick.preview.close">✕ 关闭</button>
+                </div>
+            </div>
+            <div class="quick-preview" id="quick-inner-area"></div>
+            <div class="search-pagination" id="quick-inner-pagination" style="display:none;"></div>
+        </div>
+    </div>
+
     <!-- Single-work import panel -->
-    <div class="card mode-panel active" id="panel-single-import">
+    <div class="card mode-panel" id="panel-single-import">
         <div class="card-title" data-i18n="card.import">批量导入单作品</div>
         <textarea id="single-import-textarea"
                   data-i18n-placeholder="input.single-import.placeholder"
