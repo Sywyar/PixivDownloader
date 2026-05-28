@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
-## [Unreleased]
+## [v1.11.1] - 2026.5.29
 
 ### Features
 - 批量下载页新增「快捷获取账户相关作品」Tab（现为首个 Tab、首次进入页面的默认 Tab）：基于当前保存的 Cookie 自动从 PHPSESSID 前缀解析出账号 uid，一键加载我的收藏（插画/漫画、小说，公开/不公开）、我自己的作品（插画/漫画、小说，含 hide）、我的关注列表（公开/不公开）以及我的珍藏集，并可直接把任意页或全部结果加入下载队列。关注列表支持按用户名 / 用户 ID 在前端实时过滤；点击关注用户或珍藏集会在当前列表下方展开二层预览面板钻取查看其作品（关注用户带插画/小说切换，珍藏集为插画+小说混合展示），不遮挡上层列表。加载数据与逐页批量入队时显示加载动画。Cookie 缺失或不含 PHPSESSID 时所有动作按钮自动禁用并提示原因。
