@@ -220,6 +220,8 @@
                 const snapshotModal = document.getElementById('schedule-snapshot-modal');
                 const snapshotTaskId = snapshotModal && !snapshotModal.hidden ? snapshotModal.dataset.taskId : null;
                 if (state.mode === 'schedule') {
+                    // 语言切换后的卡片 / 队列正文 / 待重试面板重渲染统一由 loadScheduleTasks 内的
+                    // scheduleLastRenderedLang 比对触发，覆盖「切走→切回」也能取到新语言。
                     await loadScheduleTasks();
                 }
                 if (snapshotTaskId) {
@@ -6046,6 +6048,10 @@
     // 初始为 true：静态 HTML 的 #schedule-list 自带 .schedule-empty 占位符，首次加载到任务时需要先清空它再 diff。
     let scheduleEmptyStateRendered = true;
     const scheduleCardSignatures = new Map();
+    // 上次成功 diff 渲染计划任务列表时的 UI 语言。卡片签名只看任务数据、不含语言，所以仅靠
+    // signature diff 无法在语言切换后重渲染卡片；loadScheduleTasks 用这个变量比对，当语言变化时
+    // 强制丢弃签名 / 已渲染态，让卡片走 replace 路径，再补刷展开的「本轮队列详情」与待重试面板。
+    let scheduleLastRenderedLang = null;
 
     function startSchedulePolling() {
         stopSchedulePolling();
@@ -6409,6 +6415,8 @@
         if (code === 'OK') return bt('schedule.run-status.ok', '正常');
         if (code === 'AUTH_EXPIRED') return bt('schedule.run-status.auth-expired', '登录态失效，请重新授权 Cookie');
         if (code === 'ERROR') return bt('schedule.run-status.error', '运行出错');
+        if (code === 'PAUSED') return bt('schedule.run-status.paused', '已手动暂停');
+        if (code === 'OVERUSE_PAUSED') return bt('schedule.run-status.overuse-paused', '已暂停：检测到过度访问警告');
         return code;
     }
 
@@ -6785,6 +6793,16 @@
     async function loadScheduleTasks() {
         const list = document.getElementById('schedule-list');
         if (!list) return;
+        // 语言切换路径：scheduleLastRenderedLang 与当前不一致时，先把签名清空，让本轮所有卡片
+        // 都通过 replaceScheduleCardPreservingInner 走 replace，确保头/徽章/状态灯/动作按钮换语言；
+        // 等列表渲染完，再为展开的「本轮队列详情」与「待重试」面板补一次重渲染（preserve-inner 会
+        // 把这两块的旧 innerHTML 搬到新卡片，不主动刷一次会停留在旧语言）。
+        const currentLang = uiLang();
+        const langChanged = scheduleLastRenderedLang != null && scheduleLastRenderedLang !== currentLang;
+        if (langChanged) {
+            scheduleCardSignatures.clear();
+            scheduleBannerSignature = null;
+        }
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks`, {credentials: 'same-origin'});
             if (!res.ok) {
@@ -6813,7 +6831,21 @@
                 renderScheduleBannersDiff(list);
                 renderScheduleCardsDiff(list);
                 applyCookieDependentUi();
+                if (langChanged) {
+                    // 展开的「本轮队列详情」：先用 localizer 即时重渲染（已含 rawStatus 的新模型立即切语言），
+                    // 再异步触发一次 fetchScheduleQueue 让后端有新数据时重建模型；旧版本 bake 过翻译的
+                    // 缓存项需要靠这次重建才能跟随语言变化。
+                    scheduleExpandedQueues.forEach(id => {
+                        renderScheduleQueueBodyInto(id);
+                        fetchScheduleQueue(id);
+                    });
+                    scheduleTasksCache.forEach(t => {
+                        const panel = document.getElementById(`schedule-pending-${t.id}`);
+                        if (panel && !panel.hidden) loadPendingPanel(t.id);
+                    });
+                }
             }
+            scheduleLastRenderedLang = currentLang;
             // 无论是否重建整列：运行 / 排队中的展开卡片随本轮轮询拉取最新队列快照，非运行态保持缓存。
             refreshExpandedScheduleQueues();
         } catch (e) {
@@ -7094,23 +7126,26 @@
         return 'user';
     }
 
-    // 后端队列项状态 → 工作区队列状态 + 说明文案。
+    // 后端队列项状态 → 工作区队列状态 + 原始状态码（未翻译，渲染时再 bt()）。
+    // 不在这里 bake bt() 结果：模型会落到 localStorage 与跨语言切换的渲染轮次，bake 后无法跟随语言变化。
     function scheduleStatusToQueue(it) {
         switch (it.status) {
             case 'downloaded':
-                return {status: 'completed', lastMessage: null};
+                return {status: 'completed', rawStatus: 'downloaded'};
             case 'skipped-downloaded':
-                return {status: 'skipped', lastMessage: bt('schedule.queue.status.skipped-downloaded', '已存在，跳过')};
+                return {status: 'skipped', rawStatus: 'skipped-downloaded'};
             case 'skipped-filter':
-                return {status: 'skipped', lastMessage: bt('schedule.queue.status.skipped-filter', '被筛选条件跳过')};
+                return {status: 'skipped', rawStatus: 'skipped-filter'};
             case 'failed':
-                return {status: 'failed', lastMessage: it.message || bt('schedule.queue.status.failed', '失败')};
+                return {status: 'failed', rawStatus: 'failed', failureMessage: it.message || null};
             default:
-                return {status: 'pending', lastMessage: null};
+                return {status: 'pending', rawStatus: 'pending'};
         }
     }
 
     // 后端队列项 → 工作区队列项（同 state.queue 形状），供 buildQueueItemHtml 渲染。
+    // 注意：title / lastMessage 不在这里写入；只存 rawTitle / rawStatus / failureMessage 这些与语言
+    // 无关的原始字段，渲染时由 localizeScheduleQueueItem 用当前 bt() 派生 title / lastMessage。
     function scheduleItemToQueue(it, type) {
         const isNovel = it.kind === 'novel';
         const rawId = String(it.id == null ? '' : it.id);
@@ -7119,17 +7154,50 @@
             id: isNovel ? ('n' + rawId) : rawId,
             novelId: isNovel ? rawId : undefined,
             kind: isNovel ? 'novel' : 'illust',
-            title: it.title && String(it.title).trim() ? it.title : bt('schedule.queue.no-title', '（暂无标题信息）'),
+            rawTitle: it.title && String(it.title).trim() ? String(it.title) : null,
             source: scheduleSourceForType(type),
             xRestrict: it.xRestrict == null ? null : it.xRestrict,
             isAi: it.ai === true,
             status: mapped.status,
-            lastMessage: mapped.lastMessage,
+            rawStatus: mapped.rawStatus,
+            failureMessage: mapped.failureMessage || null,
             totalImages: 0,
             downloadedCount: 0,
             imageProgress: null,
             ugoiraProgress: null
         };
+    }
+
+    // 渲染前根据当前 UI 语言派生显示字段。模型里禁止 bake i18n 字符串（会被持久化到 localStorage、
+    // 跨语言切换继续读到旧译文），所有翻译都集中在这里。
+    // 兼容旧缓存：若 rawTitle / rawStatus 不存在（旧版烤过 title / lastMessage 的缓存项），回退用旧字段，
+    // 这些条目要到下一次后端拉取重建模型后才会跟随语言切换。
+    function localizeScheduleQueueItem(q) {
+        const hasRawTitle = Object.prototype.hasOwnProperty.call(q, 'rawTitle');
+        const title = hasRawTitle
+            ? (q.rawTitle || bt('schedule.queue.no-title', '（暂无标题信息）'))
+            : q.title;
+        let lastMessage;
+        switch (q.rawStatus) {
+            case 'skipped-downloaded':
+                lastMessage = bt('schedule.queue.status.skipped-downloaded', '已存在，跳过');
+                break;
+            case 'skipped-filter':
+                lastMessage = bt('schedule.queue.status.skipped-filter', '被筛选条件跳过');
+                break;
+            case 'failed':
+                lastMessage = q.failureMessage || bt('schedule.queue.status.failed', '失败');
+                break;
+            case 'downloaded':
+            case 'pending':
+                lastMessage = null;
+                break;
+            default:
+                // 旧缓存或 SSE 中途置位（如 downloading / completed-from-pending）没有 rawStatus；
+                // lastMessage 留给共享渲染器用 queueStatusText(status) 兜底。
+                lastMessage = q.lastMessage != null ? q.lastMessage : null;
+        }
+        return Object.assign({}, q, {title, lastMessage});
     }
 
     // 用后端快照重建模型，同时保留 SSE 实时进度：后端仍为 pending 而本地正在下载时沿用本地实时态，
@@ -7278,13 +7346,16 @@
             statusText += ' · ' + bt('schedule.queue.truncated', '作品过多，仅记录并展示前 {count} 项', {count: model.length});
         }
         const s = computeScheduleQueueStats(model);
-        const current = model.find(q => q.status === 'downloading') || null;
+        // 渲染前用 localizeScheduleQueueItem 派生 title / lastMessage，确保跟随当前 UI 语言；
+        // 模型本身仍是 raw 字段，下次语言切换重渲染再次派生即可。
+        const localized = model.map(localizeScheduleQueueItem);
+        const current = localized.find(q => q.status === 'downloading') || null;
 
         const statusLine = `<div class="schedule-queue-status">${escHtml(statusText)}</div>`;
         const statsLine = `<div class="schedule-queue-stats">${escHtml(formatStatsText(s.pending, s.success, s.failed, s.active, s.skipped))}</div>`;
         const currentCard = `<div class="schedule-queue-current">${formatCurrentCardHtml(current)}</div>`;
-        const listInner = model.length
-            ? model.map(q => buildQueueItemHtml(q, {removable: false})).join('')
+        const listInner = localized.length
+            ? localized.map(q => buildQueueItemHtml(q, {removable: false})).join('')
             : `<div class="queue-empty">${escHtml(bt('status.queue-empty', '队列为空'))}</div>`;
         const listCard = `<div class="schedule-queue-list">${listInner}</div>`;
         return statusLine + statsLine + currentCard + listCard;
@@ -7353,12 +7424,18 @@
         if (!model || !data) return;
         const q = model.find(x => x.id === qId);
         if (!q || data.cancelled) return;
+        // SSE 同步对齐 rawStatus，让 localizeScheduleQueueItem 在渲染时派生出正确语言的 lastMessage；
+        // downloading 不对应后端 raw 状态，置为 'downloading' 与 q.status 同步，localizer 走默认分支
+        // 让共享渲染器用 queueStatusText(status) 兜底显示「下载中」。
         if (data.completed) {
             q.status = 'completed';
+            q.rawStatus = 'downloaded';
         } else if (data.failed) {
             q.status = 'failed';
+            q.rawStatus = 'failed';
         } else if (data.downloadedCount !== undefined || data.totalImages !== undefined) {
             q.status = 'downloading';
+            q.rawStatus = 'downloading';
             if (data.totalImages !== undefined) q.totalImages = data.totalImages;
             if (data.downloadedCount !== undefined) q.downloadedCount = data.downloadedCount;
             q.imageProgress = data.imageProgress || q.imageProgress || null;
