@@ -13,13 +13,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.LongPredicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * {@link ScheduleExecutor} 的服务端逐作品筛选与 params 解析（纯函数，无需 Spring 上下文）。
+ * {@link ScheduleExecutor} 的服务端逐作品筛选、params 解析、cookie 依赖判定与增量扫描（纯函数，无需 Spring 上下文）。
  */
 @DisplayName("ScheduleExecutor 服务端筛选与 params 解析")
 class ScheduleExecutorFilterTest {
@@ -253,6 +252,45 @@ class ScheduleExecutorFilterTest {
     }
 
     @Nested
+    @DisplayName("cookie 依赖型判定 isCookieDependent")
+    class CookieDependent {
+
+        private boolean dep(String json) throws Exception {
+            return ScheduleExecutor.isCookieDependent(MAPPER.readTree(json));
+        }
+
+        @Test
+        @DisplayName("filters.content != safe 即依赖（含 all）")
+        void contentNonSafeIsDependent() throws Exception {
+            assertThat(dep("{\"filters\":{\"content\":\"all\"}}")).isTrue();
+            assertThat(dep("{\"filters\":{\"content\":\"r18\"}}")).isTrue();
+            assertThat(dep("{\"filters\":{\"content\":\"r18plus\"}}")).isTrue();
+            assertThat(dep("{\"filters\":{\"content\":\"safe\"}}")).isFalse();
+        }
+
+        @Test
+        @DisplayName("source.mode == r18 即依赖")
+        void sourceModeR18IsDependent() throws Exception {
+            assertThat(dep("{\"filters\":{\"content\":\"safe\"},\"source\":{\"mode\":\"r18\"}}")).isTrue();
+            assertThat(dep("{\"filters\":{\"content\":\"safe\"},\"source\":{\"mode\":\"all\"}}")).isFalse();
+        }
+
+        @Test
+        @DisplayName("download.bookmark == true 即依赖")
+        void bookmarkIsDependent() throws Exception {
+            assertThat(dep("{\"filters\":{\"content\":\"safe\"},\"download\":{\"bookmark\":true}}")).isTrue();
+            assertThat(dep("{\"filters\":{\"content\":\"safe\"},\"download\":{\"bookmark\":false}}")).isFalse();
+        }
+
+        @Test
+        @DisplayName("纯全年龄 + 非 r18 来源 + 不收藏 → 非依赖")
+        void plainSafeIsNotDependent() throws Exception {
+            assertThat(dep("{\"filters\":{\"content\":\"safe\"},\"source\":{\"mode\":\"safe\"},\"download\":{\"bookmark\":false}}"))
+                    .isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("水位线增量扫描 runWatermarkScan")
     class WatermarkScan {
 
@@ -268,17 +306,15 @@ class ScheduleExecutorFilterTest {
         @DisplayName("命中水位线（id<=watermark）即停整轮：其上的新作派发、命中及其后不再处理")
         void stopsWhenReachingWatermark() throws Exception {
             List<String> dispatched = new ArrayList<>();
-            // 最新在前：100 99 98 97；水位线 98 → 100/99 派发，到 98 即停（97 不处理）
             ScheduleExecutor.PageSupplier pages = supplier(
                     List.of(List.of("100", "99", "98", "97")), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
-                    1L, pages, 98L, id -> false,
+                    pages, 98L, id -> false,
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(r.dispatched()).isEqualTo(2);
             assertThat(dispatched).containsExactly("100", "99");
             assertThat(r.newestSeen()).isEqualTo(100L);
-            assertThat(r.complete()).isTrue();
         }
 
         @Test
@@ -286,18 +322,16 @@ class ScheduleExecutorFilterTest {
         void stopsWhenWholePageAlreadyDownloaded() throws Exception {
             AtomicInteger calls = new AtomicInteger();
             List<String> dispatched = new ArrayList<>();
-            // watermark=0（首轮，无锚点）；第 1 页全部已下载 → 兜底停，第 2 页不再请求
             ScheduleExecutor.PageSupplier pages = supplier(
                     List.of(List.of("100", "99"), List.of("98", "97")), calls);
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
-                    1L, pages, 0L, id -> true,
+                    pages, 0L, id -> true,
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(r.dispatched()).isZero();
             assertThat(dispatched).isEmpty();
             assertThat(calls.get()).isEqualTo(1); // 第 2 页未请求
             assertThat(r.newestSeen()).isEqualTo(100L);
-            assertThat(r.complete()).isTrue();
         }
 
         @Test
@@ -306,60 +340,40 @@ class ScheduleExecutorFilterTest {
             ScheduleExecutor.PageSupplier pages = supplier(
                     List.of(List.of("30", "20"), List.of("50", "10"), List.of()), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
-                    1L, pages, 0L, id -> false,
+                    pages, 0L, id -> false,
                     (id, workId) -> true, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(r.dispatched()).isEqualTo(4);
             assertThat(r.newestSeen()).isEqualTo(50L);
-            assertThat(r.complete()).isTrue();
         }
 
         @Test
-        @DisplayName("单作品失败隔离：dispatcher 抛普通异常仅跳过该作品，继续后续")
-        void singleWorkFailureIsolated() throws Exception {
+        @DisplayName("单作品被隔离（dispatcher 返 false）不计派发数，但 watermark 仍可推进")
+        void isolatedWorkStillAdvancesWatermark() throws Exception {
             List<String> seen = new ArrayList<>();
             ScheduleExecutor.PageSupplier pages = supplier(
                     List.of(List.of("3", "2", "1"), List.of()), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
-                    1L, pages, 0L, id -> false,
+                    pages, 0L, id -> false,
                     (id, workId) -> {
                         seen.add(id);
-                        if (workId == 2L) throw new IllegalStateException("boom");
-                        return true;
+                        return workId != 2L; // workId=2 被 WorkRunner 隔离后返 false
                     }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(seen).containsExactly("3", "2", "1");
             assertThat(r.dispatched()).isEqualTo(2);
-            assertThat(r.complete()).isFalse();
+            assertThat(r.newestSeen()).isEqualTo(3L);
         }
 
         @Test
-        @DisplayName("单作品下载吞异常返 false：不计派发数、整轮标 incomplete（避免水位线越过失败作品）")
-        void dispatcherReturningFalseMarksIncomplete() throws Exception {
-            List<String> seen = new ArrayList<>();
-            ScheduleExecutor.PageSupplier pages = supplier(
-                    List.of(List.of("3", "2", "1"), List.of()), new AtomicInteger());
-            ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
-                    1L, pages, 0L, id -> false,
-                    (id, workId) -> {
-                        seen.add(id);
-                        return workId != 2L; // workId=2 模拟下载器吞掉异常返 false
-                    }, () -> {}, () -> {},
-                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
-            assertThat(seen).containsExactly("3", "2", "1");
-            assertThat(r.dispatched()).isEqualTo(2);
-            assertThat(r.complete()).isFalse();
-        }
-
-        @Test
-        @DisplayName("鉴权失效（PixivFetchException）上抛、停止整轮")
-        void authExpiredPropagates() {
+        @DisplayName("挂起信号（过度访问）上抛、停止整轮且不返回（不推进 watermark）")
+        void overuseWarningPropagates() {
             ScheduleExecutor.PageSupplier pages = supplier(
                     List.of(List.of("2", "1")), new AtomicInteger());
-            assertThatThrownBy(() -> ScheduleExecutor.runWatermarkScan(1L, pages, 0L, id -> false,
-                    (id, workId) -> { throw new PixivFetchService.PixivFetchException("auth"); }, () -> {}, () -> {},
+            assertThatThrownBy(() -> ScheduleExecutor.runWatermarkScan(pages, 0L, id -> false,
+                    (id, workId) -> { throw new OveruseWarningException(123L, ""); }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST)))
-                    .isInstanceOf(PixivFetchService.PixivFetchException.class);
+                    .isInstanceOf(OveruseWarningException.class);
         }
 
         @Test
@@ -373,13 +387,12 @@ class ScheduleExecutorFilterTest {
                 return page <= 3 ? List.of(String.valueOf(100000 - page)) : List.of();
             };
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
-                    1L, pages, 0L, none::contains,
+                    pages, 0L, none::contains,
                     (id, workId) -> true, () -> {}, pageDelays::incrementAndGet,
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
             assertThat(calls.get()).isEqualTo(4); // 第 4 页为空触发停止
             assertThat(pageDelays.get()).isEqualTo(3); // 只在继续翻下一页前延迟
             assertThat(r.dispatched()).isEqualTo(3);
-            assertThat(r.complete()).isTrue();
         }
     }
 
@@ -403,7 +416,7 @@ class ScheduleExecutorFilterTest {
                     List.of(List.of("100", "99", "98"), List.of("97")), calls);
 
             int count = ScheduleExecutor.runDownloadedBoundaryScan(
-                    1L, pages, id -> id == 99L,
+                    pages, id -> id == 99L,
                     (id, workId) -> { dispatched.add(id); return true; },
                     () -> {}, () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
 
@@ -421,7 +434,7 @@ class ScheduleExecutorFilterTest {
                     List.of(List.of("100"), List.of("99"), List.of()), calls);
 
             int count = ScheduleExecutor.runDownloadedBoundaryScan(
-                    1L, pages, id -> false,
+                    pages, id -> false,
                     (id, workId) -> true,
                     () -> {}, pageDelays::incrementAndGet,
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));

@@ -41,8 +41,14 @@ import java.util.regex.Pattern;
 @Slf4j
 public class MailTemplateRegistry {
 
-    /** 一期唯一模板：发送测试 / "邮件配置成功" 通知。 */
+    /** 发送测试 / "邮件配置成功" 通知。 */
     public static final String TEMPLATE_CONFIG_SUCCESS = "mail-config-success";
+    /** 过度访问警告 → 账号级暂停通知。 */
+    public static final String TEMPLATE_OVERUSE_PAUSED = "overuse-paused";
+    /** cookie 依赖型任务 dead cookie → 任务级挂起通知。 */
+    public static final String TEMPLATE_AUTH_EXPIRED = "auth-expired";
+    /** 单作品连续失败熔断挂起通知。 */
+    public static final String TEMPLATE_CIRCUIT_BREAKER = "circuit-breaker";
 
     private static final String I18N_PREFIX = "i18n:";
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*([a-zA-Z0-9_.\\-:]+)\\s*}}");
@@ -51,6 +57,9 @@ public class MailTemplateRegistry {
 
     private final Map<String, MailTemplate> templates = new LinkedHashMap<>() {{
         put(TEMPLATE_CONFIG_SUCCESS, MailTemplate.of(TEMPLATE_CONFIG_SUCCESS));
+        put(TEMPLATE_OVERUSE_PAUSED, MailTemplate.of(TEMPLATE_OVERUSE_PAUSED));
+        put(TEMPLATE_AUTH_EXPIRED, MailTemplate.of(TEMPLATE_AUTH_EXPIRED));
+        put(TEMPLATE_CIRCUIT_BREAKER, MailTemplate.of(TEMPLATE_CIRCUIT_BREAKER));
     }};
 
     /**

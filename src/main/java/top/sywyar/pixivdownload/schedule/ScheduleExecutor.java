@@ -6,48 +6,50 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
+import top.sywyar.pixivdownload.i18n.AppLocale;
+import top.sywyar.pixivdownload.mail.MailService;
+import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
+import top.sywyar.pixivdownload.mail.template.RenderedMail;
 import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.NovelDownloader;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
+import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
  * 计划任务的执行核心：按任务类型在服务端发现作品 ID、跳过已下载、逐个抓取元数据、
  * <b>按任务快照的筛选条件做服务端过滤</b>，再按快照的下载设置派发下载。
  *
- * <p>调度以管理员身份运行（{@code userUuid=null}，不计配额 / 限流）。本类只依赖 {@code download/} 的窄接缝
- * （{@link ArtworkDownloader} / {@link PixivFetchService} / {@link PixivDatabase}）、{@code novel/} 的窄接缝
- * （{@link NovelDownloader} / {@link NovelDatabase} / {@link NovelMergeService}）与本包的 {@code db/}，
- * 不反向依赖 {@link ScheduleService} / {@link ScheduleRunner}，因此调度包内无环。
+ * <p>调度以管理员身份运行（{@code userUuid=null}，不计配额 / 限流）。
  *
- * <p><b>params_json v2 约定</b>（由前端「存为计划任务」快照、本类解析）：
- * <pre>{@code
- * { "kind": "illust"|"novel",
- *   "source":   {"userId"} | {"word","order","mode","sMode","maxPages"} | {"seriesId"},
- *   "filters":  {"content","aiFilter","tagsExact":[],"tagsFuzzy":[],"typeFilter",
- *                "pagesMin","pagesMax","wordsMin","wordsMax","bookmarksMin","bookmarksMax"},
- *   "download": {"fileNameTemplate","bookmark","collectionId",
- *                "novelFormat","novelMerge","novelMergeFormat"} }
- * }</pre>
- * 客户端的「作品间隔 / 图片间隔 / 最大并发」是浏览器队列调度概念，服务端计划串行 + {@code schedule.fetch-delay-ms}，
- * 不在快照范围内；计划任务使用同步下载入口，直到本轮真实下载与后置动作完成后才记录下次运行时间；
- * 「跳过已下载」在计划侧恒为开（{@code hasArtwork} / {@code hasNovel}）。
- *
- * <p>健壮性：单个作品抓取 / 下载失败仅记日志、不挂整轮；捕获
- * {@link PixivFetchService.PixivFetchException}（鉴权失效）则立即停止本轮、标记
- * {@link #STATUS_AUTH_EXPIRED}，等待管理员重新授权，不空跑重试。
+ * <p><b>过度访问暂停 + 鉴权失效自动挂起（二期）</b>：
+ * <ul>
+ *   <li><b>轮首检查点</b>（发现之前）：对 cookie-bound 任务读站内信（{@link OveruseWarningService}）——
+ *       {@code COOKIE_DEAD} 时依赖型任务挂起 {@code AUTH_EXPIRED}（避免 watermark 越过当时不可见的 R-18 永久遗漏），
+ *       非依赖型降级匿名续跑；{@code WARNED} 抛 {@link OveruseWarningException} → 账号级冻结。</li>
+ *   <li><b>轮内 N 检查点</b>：每成功派发 N（{@code schedule.inbox-check-every}）个下载读一次站内信，{@code WARNED} 干净 unwind。</li>
+ *   <li><b>单作品异常分类</b>：404/403-gone 跳过不挡 watermark；可恢复 {@link PixivFetchService.PixivFetchException}
+ *       记隔离表 + 连续计数，连续 M（{@code schedule.auth-failure-circuit-breaker}）次熔断挂起。</li>
+ *   <li><b>watermark</b>：reached 边界且无挂起条件即推进（哪怕本轮有作品进隔离表）；挂起异常上抛时绝不推进。</li>
+ * </ul>
+ * 自动挂起均发通知邮件（best-effort）；手动 {@code PAUSED} 不发。
  */
 @Slf4j
 @Component
@@ -55,7 +57,8 @@ import java.util.regex.Pattern;
 public class ScheduleExecutor {
 
     public static final String STATUS_OK = "OK";
-    public static final String STATUS_AUTH_EXPIRED = "AUTH_EXPIRED";
+    public static final String STATUS_AUTH_EXPIRED = ScheduledTask.STATUS_AUTH_EXPIRED;
+    public static final String STATUS_OVERUSE_PAUSED = ScheduledTask.STATUS_OVERUSE_PAUSED;
     public static final String STATUS_ERROR = "ERROR";
 
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
@@ -72,6 +75,9 @@ public class ScheduleExecutor {
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
     private final ObjectMapper objectMapper;
+    private final OveruseWarningService overuseWarningService;
+    private final MailService mailService;
+    private final MailTemplateRegistry mailTemplateRegistry;
 
     /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
     private static final int MAX_ERROR_MESSAGE_LENGTH = 300;
@@ -128,15 +134,33 @@ public class ScheduleExecutor {
         String status;
         String message = null;
         try {
-            // 落库本轮开始时刻：正常结束时 updateRunResult 会清为 NULL；进程被强杀（没走到 updateRunResult）则残留 →
-            // 即「上次运行被中断」信号，供前端中断红灯展示，重跑会刷新它并最终补齐后清除。
+            // 落库本轮开始时刻：正常结束（含干净挂起）时 updateRunResult 会清为 NULL；进程被强杀则残留 → 中断红灯。
             database.mapper().updateRunStarted(task.id(), System.currentTimeMillis());
             int completed = runTask(task);
             status = STATUS_OK;
             log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completed);
-        } catch (PixivFetchService.PixivFetchException e) {
-            // 鉴权失效：不写 cookie 到日志，仅记任务标识与提示
+        } catch (OveruseWarningException e) {
+            // 过度访问警告：账号级暂停 + 冻结同账号 + 邮件；干净挂起（清 run_started_time）。
+            status = STATUS_OVERUSE_PAUSED;
+            message = String.valueOf(e.modifiedAt()); // 触发警告 modifiedAt：供卡片展示 + 账号级 ack 取用
+            handleOveruse(task, e);
+            log.warn("Scheduled task {} ({}) paused: overuse warning", task.id(), task.name());
+        } catch (ScheduleSuspendException e) {
+            // cookie 依赖型 dead cookie / 单作品连续失败熔断：任务级挂起 + 邮件。
             status = STATUS_AUTH_EXPIRED;
+            handleSuspend(task, e);
+            log.warn("Scheduled task {} ({}) suspended: {}", task.id(), task.name(), e.reason());
+        } catch (SchedulePauseException e) {
+            // 用户在本轮派发循环中按了「暂停」：DB 已被 ScheduleService.pause 写成 PAUSED，
+            // 此处仅记日志、不冻账号、不发邮件；下面的 updateRunResult 走 CASE 保留 PAUSED 状态。
+            // 已派发的下载继续在 @Async 池中跑完（取消点位于下个作品派发前，不打断进行中的下载），
+            // 未派发的作品本轮不再继续。
+            status = ScheduledTask.STATUS_PAUSED;
+            log.info("Scheduled task {} ({}) paused mid-run by user", task.id(), task.name());
+        } catch (PixivFetchService.PixivFetchException e) {
+            // 发现阶段鉴权失效（轮首/翻页）：不写 cookie 到日志，挂起并发邮件等管理员重授权。
+            status = STATUS_AUTH_EXPIRED;
+            handleSuspend(task, new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD));
             log.warn("Scheduled task {} ({}) auth expired, awaiting re-authorization", task.id(), task.name());
         } catch (Exception e) {
             status = STATUS_ERROR;
@@ -149,6 +173,7 @@ public class ScheduleExecutor {
         long completedAt = System.currentTimeMillis();
         Long nextRun = ScheduleTiming.computeNextRun(
                 task.triggerKind(), task.intervalMinutes(), task.cronExpr(), completedAt);
+        // 挂起态写未来 next_run 仅供展示；findDue 的 last_status 门控会挡住它，不会立即重跑。
         database.mapper().updateRunResult(task.id(), completedAt, status, message, nextRun);
     }
 
@@ -177,7 +202,9 @@ public class ScheduleExecutor {
     /**
      * 发现 + 过滤 + 同步下载，返回实际完成的新下载数。
      *
-     * @throws PixivFetchService.PixivFetchException Cookie 失效 / 受限需登录时上抛，供 {@link #runTaskAndRecord} 标记鉴权失效
+     * @throws OveruseWarningException 检测到过度访问警告（轮首 / 轮内 N 检查点）
+     * @throws ScheduleSuspendException cookie 依赖型 dead cookie / 单作品连续失败熔断
+     * @throws PixivFetchService.PixivFetchException 发现阶段鉴权失效
      */
     private int runTask(ScheduledTask task) throws Exception {
         String cookie = ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())
@@ -190,23 +217,41 @@ public class ScheduleExecutor {
         Filters filters = parseFilters(root.path("filters"));
         Download download = parseDownload(root.path("download"));
 
-        // 开新一轮的运行队列（整体替换上一轮），供前端「本轮队列详情」展示本轮每个作品的处理结果。
+        // ── 轮首检查点：cookie-bound 任务读站内信（过度访问判定 + cookie 存活探测）──────────────
+        if (ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())) {
+            OveruseWarningService.Result result =
+                    overuseWarningService.check(cookie, task.ackWarningTime(), System.currentTimeMillis());
+            if (result.isCookieDead()) {
+                if (isCookieDependent(root)) {
+                    throw new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD);
+                }
+                // 非依赖型：降级匿名续跑（全年龄作品照样抓全、不丢、不浪费）
+                cookie = null;
+            } else if (result.isWarned()) {
+                throw new OveruseWarningException(result.modifiedAt(), result.excerpt());
+            }
+        }
+
+        // 开新一轮的运行队列（整体替换上一轮）。
         ScheduleRunQueue.Run run = runQueue.begin(task.id(),
                 novel ? ScheduleRunQueue.KIND_NOVEL : ScheduleRunQueue.KIND_ILLUST);
 
-        int completed;
+        WorkRunner runner = new WorkRunner(task.id(), novel, cookie, filters, download, run);
+        int completed = 0;
+
+        // ── 管理员处理完异常后：先把隔离表入队重试（走正常 dispatch 路径，计入 N 检查点与过度访问风险）──
+        if (task.pendingRetryArmed() == 1) {
+            completed += retryPending(task.id(), runner);
+            database.mapper().clearRetryArmed(task.id());
+        }
+
         if (isWatermarkMode(task.type(), source)) {
-            // 水位线增量发现（USER_NEW 与「date_d + 结束页 = -1」的 SEARCH）：
-            // 扫到上一轮水位线即停翻页，崩溃后水位线不更新 → 重跑靠去重补齐，不丢作品。
-            completed = runWatermarkMode(task, novel, source, cookie, filters, download, run);
+            completed += runWatermarkMode(task, novel, source, cookie, runner, run);
         } else if (isDownloadedBoundarySearchMode(task.type(), source)) {
-            // 非 date_d 的「结束页 = -1」搜索没有可靠 ID 水位线，按用户语义逐页处理到命中已下载作品为止。
-            completed = runDownloadedBoundarySearch(task, novel, source, cookie, filters, download, run);
+            completed += runDownloadedBoundarySearch(novel, source, cookie, runner, run);
         } else {
             List<String> ids = discoverIds(task.type(), novel, source, cookie);
-            // 先把本轮发现到的全部作品登记为「等待处理」，再逐个推进状态。
             ids.forEach(run::discovered);
-            completed = 0;
             for (String id : ids) {
                 long workId;
                 try {
@@ -219,26 +264,14 @@ public class ScheduleExecutor {
                     run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
                     continue;
                 }
-                try {
-                    if (novel ? dispatchNovel(id, workId, cookie, filters, download, run)
-                              : dispatchArtwork(id, workId, cookie, filters, download, run)) {
-                        completed++;
-                    }
-                } catch (PixivFetchService.PixivFetchException e) {
-                    throw e; // 鉴权失效：让整轮停下
-                } catch (Exception e) {
-                    // 单作品失败隔离：仅记日志，继续后续作品
-                    String safeMessage = summarizeError(e);
-                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, safeMessage);
-                    log.warn("Scheduled task {} skip work {} [{}]: {}",
-                            task.id(), id, e.getClass().getSimpleName(), safeMessage);
+                if (runner.process(id, workId, false)) {
+                    completed++;
                 }
                 politeDelay();
             }
         }
 
-        // 小说系列合订：计划下载已同步完成并落库，因此本轮有新章节时可立即合订。
-        // best-effort、幂等（按当前已落库章节重导），失败仅记日志。
+        // 小说系列合订：best-effort、幂等；本轮有新章节时立即合订。
         if (novel && task.type() == ScheduledTaskType.SERIES && download.novelMerge() && completed > 0) {
             long seriesId = source.path("seriesId").asLong(0);
             if (seriesId > 0) {
@@ -250,6 +283,25 @@ public class ScheduleExecutor {
                             task.id(), e.getClass().getSimpleName(), summarizeError(e));
                 }
             }
+        }
+        return completed;
+    }
+
+    /** 重试隔离表中尚未达到上限的作品；成功 DELETE、失败 incPendingAttempts，全经正常分类路径。 */
+    private int retryPending(long taskId, WorkRunner runner)
+            throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException {
+        int max = scheduleConfig.getPendingMaxAttempts();
+        int completed = 0;
+        for (ScheduledTaskPending p : database.mapper().listPending(taskId)) {
+            if (p.attempts() >= max) {
+                continue; // 需人工，停止自动重试
+            }
+            String id = String.valueOf(p.workId());
+            runner.run().discovered(id);
+            if (runner.process(id, p.workId(), true)) {
+                completed++;
+            }
+            politeDelay();
         }
         return completed;
     }
@@ -279,15 +331,6 @@ public class ScheduleExecutor {
         };
     }
 
-    /**
-     * 判定任务是否走「水位线增量发现」：仅适用于「最新在前 + 只会追加」的两类来源——
-     * <ul>
-     *   <li>{@code USER_NEW}：{@code discoverUser*Ids} 一次性返回全部 ID（按 ID 降序 = 最新在前）；</li>
-     *   <li>增量 {@code SEARCH}：{@code maxPages == -1} 且 {@code order == date_d}（逐页发现、最新在前）。</li>
-     * </ul>
-     * SERIES / 非 date_d 的 SEARCH / 固定页数 SEARCH 不适用（作者可重排、order 因删除重排、workId 不对应顺序 → 锚点不可靠）。
-     * 非 date_d 且 {@code maxPages == -1} 的 SEARCH 走「命中已下载即停」的逐页模式。
-     */
     private static boolean isWatermarkMode(ScheduledTaskType type, JsonNode source) {
         if (type == ScheduledTaskType.USER_NEW) return true;
         return type == ScheduledTaskType.SEARCH
@@ -302,12 +345,28 @@ public class ScheduleExecutor {
     }
 
     /**
-     * 水位线增量发现：把按页发现、按 ID 去重判定、单作品派发的各依赖装配成函数后交给纯函数
-     * {@link #runWatermarkScan}。USER_NEW 把全量 ID 当单页（{@code p==1} 返回全部、其余空）；
-     * 增量 SEARCH 用逐页 supplier。一轮<b>正常跑完</b>（无异常）后才把水位线更新为本轮发现的最新 ID。
+     * 判定任务是否「cookie 依赖型」（满足任一）：
+     * <ul>
+     *   <li>{@code filters.content != "safe"}（注意 {@code "all"} 也算——匿名看不到 R-18，发现阶段静默缩水，
+     *       watermark 会越过当时不可见的 R-18 → 永久遗漏）；</li>
+     *   <li>{@code source.mode == "r18"}；</li>
+     *   <li>{@code download.bookmark == true}（收藏必须登录）。</li>
+     * </ul>
+     * 这类任务遇 dead bound cookie 必须立即挂起、绝不进入发现阶段。
      */
+    static boolean isCookieDependent(JsonNode root) {
+        String content = root.path("filters").path("content").asText("safe");
+        if (!"safe".equals(content)) {
+            return true;
+        }
+        if ("r18".equals(root.path("source").path("mode").asText(""))) {
+            return true;
+        }
+        return root.path("download").path("bookmark").asBoolean(false);
+    }
+
     private int runWatermarkMode(ScheduledTask task, boolean novel, JsonNode source, String cookie,
-                                 Filters filters, Download download, ScheduleRunQueue.Run run) throws Exception {
+                                 WorkRunner runner, ScheduleRunQueue.Run run) throws Exception {
         PageSupplier pages;
         if (task.type() == ScheduledTaskType.USER_NEW) {
             String userId = source.path("userId").asText("");
@@ -318,31 +377,25 @@ public class ScheduleExecutor {
             pages = searchPages(novel, source, cookie);
         }
         java.util.function.LongPredicate already = novel ? novelDatabase::hasNovel : pixivDatabase::hasArtwork;
-        WorkDispatcher dispatcher = novel
-                ? (id, workId) -> dispatchNovel(id, workId, cookie, filters, download, run)
-                : (id, workId) -> dispatchArtwork(id, workId, cookie, filters, download, run);
+        WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
         long watermark = task.watermarkId() == null ? 0L : task.watermarkId();
         Runnable pageDelay = task.type() == ScheduledTaskType.SEARCH ? this::watermarkPageDelay : () -> {};
         WatermarkScanResult result = runWatermarkScan(
-                task.id(), pages, watermark, already, dispatcher, this::politeDelay,
-                pageDelay, run);
-        // 只有完整追到边界且无单作品失败时才推进水位线；失败轮次保留旧水位，靠下轮去重重试补齐。
-        if (result.complete() && result.newestSeen() > 0) {
+                pages, watermark, already, dispatcher, this::politeDelay, pageDelay, run);
+        // reached 边界且无挂起条件即推进（哪怕本轮有作品进隔离表）；挂起异常上抛时本方法不会执行到这里。
+        if (result.newestSeen() > 0) {
             database.mapper().updateWatermark(task.id(), result.newestSeen());
         }
         return result.dispatched();
     }
 
-    private int runDownloadedBoundarySearch(ScheduledTask task, boolean novel, JsonNode source, String cookie,
-                                            Filters filters, Download download, ScheduleRunQueue.Run run)
-            throws Exception {
+    private int runDownloadedBoundarySearch(boolean novel, JsonNode source, String cookie,
+                                            WorkRunner runner, ScheduleRunQueue.Run run) throws Exception {
         PageSupplier pages = searchPages(novel, source, cookie);
         java.util.function.LongPredicate already = novel ? novelDatabase::hasNovel : pixivDatabase::hasArtwork;
-        WorkDispatcher dispatcher = novel
-                ? (id, workId) -> dispatchNovel(id, workId, cookie, filters, download, run)
-                : (id, workId) -> dispatchArtwork(id, workId, cookie, filters, download, run);
+        WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
         return runDownloadedBoundaryScan(
-                task.id(), pages, already, dispatcher, this::politeDelay, this::watermarkPageDelay, run);
+                pages, already, dispatcher, this::politeDelay, this::watermarkPageDelay, run);
     }
 
     private PageSupplier searchPages(boolean novel, JsonNode source, String cookie) {
@@ -361,38 +414,43 @@ public class ScheduleExecutor {
         List<String> get(int page) throws Exception;
     }
 
-    /** 处理单个未下载作品（取 meta → 筛选 → 派发），返回是否派发；鉴权失效时上抛 {@link PixivFetchService.PixivFetchException}。 */
+    /**
+     * 处理单个未下载作品（派发 + 异常分类 + 隔离/计数 + 到 N 过度访问检查）。
+     * 单作品级的可恢复失败由实现内部隔离、绝不上抛；只有挂起信号上抛。
+     *
+     * @return true 表示成功派发下载（计入 dispatched）。
+     * @throws OveruseWarningException 轮内 N 检查命中过度访问警告
+     * @throws ScheduleSuspendException 单作品连续失败熔断
+     */
     @FunctionalInterface
     interface WorkDispatcher {
-        boolean dispatch(String id, long workId) throws Exception;
+        boolean dispatch(String id, long workId)
+                throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException;
     }
 
-    /** 水位线 SEARCH 翻到下一页前的强制礼貌延迟，避免「直到命中历史」模式连续打 Pixiv 搜索页。 */
+    /** 水位线 SEARCH 翻到下一页前的强制礼貌延迟。 */
     static final long WATERMARK_PAGE_DELAY_MS = 10_000L;
 
-    /** 水位线扫描结果：派发数、发现到的最新 ID，以及本轮是否完整追到停止边界且无单作品失败。 */
-    record WatermarkScanResult(int dispatched, long newestSeen, boolean complete) {
+    /** 水位线扫描结果：派发数与发现到的最新 ID（正常返回即代表追到边界、可推进水位线）。 */
+    record WatermarkScanResult(int dispatched, long newestSeen) {
     }
 
     /**
      * 水位线增量扫描的纯逻辑（package-private + static，便于单测）：逐页取 ID（最新在前），
      * 累积 {@code newestSeen = max(所有发现到的 ID)}；命中 {@code watermark > 0 && id <= watermark}
-     * 即停止整轮翻页（上一轮已处理到这里，其后皆旧作）；已下载（去重命中）的跳过、不计 politeDelay；
-     * 连续<b>一整页全部已下载</b>则兜底停止（应对水位线作品被删 / 404 命中不到的情况）；
-     * 某页为空 / null 视为无更多结果而停止；不设页数上限。单作品失败隔离（仅记日志、继续），
-     * 但会把结果标记为 incomplete，避免推进水位线后漏掉失败作品；鉴权失效上抛。
+     * 即停止整轮翻页；已下载（去重命中）跳过；连续<b>一整页全部已下载</b>兜底停；空页停。
+     * 单作品的可恢复失败由 {@code dispatcher} 内部隔离、不影响 watermark 推进；
+     * 挂起信号（过度访问 / 熔断）与发现阶段鉴权失效上抛，本方法不返回 → 不推进 watermark。
      */
-    static WatermarkScanResult runWatermarkScan(long taskId, PageSupplier pages, long watermark,
+    static WatermarkScanResult runWatermarkScan(PageSupplier pages, long watermark,
                                                 java.util.function.LongPredicate alreadyDownloaded,
                                                 WorkDispatcher dispatcher, Runnable politeDelay,
-                                                Runnable pageDelay,
-                                                ScheduleRunQueue.Run run) throws Exception {
+                                                Runnable pageDelay, ScheduleRunQueue.Run run) throws Exception {
         int dispatched = 0;
         long newestSeen = 0L;
-        boolean complete = true;
         for (int p = 1; ; p++) {
             List<String> ids = pages.get(p);
-            if (ids == null || ids.isEmpty()) break; // 无更多结果
+            if (ids == null || ids.isEmpty()) break;
             boolean wholePageAlreadyDownloaded = true;
             for (String id : ids) {
                 long workId;
@@ -403,45 +461,29 @@ public class ScheduleExecutor {
                 }
                 newestSeen = Math.max(newestSeen, workId);
                 if (watermark > 0 && workId <= watermark) {
-                    // 命中上一轮水位线 → 其后皆旧作，停止整轮翻页（不登记进队列：本轮不再发现它）
-                    return new WatermarkScanResult(dispatched, newestSeen, complete);
+                    return new WatermarkScanResult(dispatched, newestSeen);
                 }
                 run.discovered(id);
                 if (alreadyDownloaded.test(workId)) {
                     run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
-                    continue; // 去重命中：跳过（不计 politeDelay），但本页仍可能有更新的新作
+                    continue;
                 }
                 wholePageAlreadyDownloaded = false;
-                try {
-                    if (dispatcher.dispatch(id, workId)) {
-                        dispatched++;
-                    } else {
-                        // 下载器吞异常并返回 false：dispatch 内部已把状态标为 STATUS_FAILED，
-                        // 这里同步把整轮标为 incomplete，避免水位线越过这件未成功的作品。
-                        complete = false;
-                    }
-                } catch (PixivFetchService.PixivFetchException e) {
-                    throw e; // 鉴权失效：让整轮停下
-                } catch (Exception e) {
-                    complete = false;
-                    String safeMessage = summarizeError(e);
-                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, safeMessage);
-                    log.warn("Scheduled task {} skip work {} [{}]: {}",
-                            taskId, id, e.getClass().getSimpleName(), safeMessage);
+                if (dispatcher.dispatch(id, workId)) {
+                    dispatched++;
                 }
                 politeDelay.run();
             }
-            if (wholePageAlreadyDownloaded) break; // 兜底：整页全已下载 → 停
+            if (wholePageAlreadyDownloaded) break;
             pageDelay.run();
         }
-        return new WatermarkScanResult(dispatched, newestSeen, complete);
+        return new WatermarkScanResult(dispatched, newestSeen);
     }
 
     /**
-     * 非 date_d 增量搜索的纯逻辑：排序不保证 ID 单调，不能使用 watermark，只按用户语义逐页处理，
-     * 命中第一个已下载作品即停止；页间同样执行 10 秒强制延迟。
+     * 非 date_d 增量搜索的纯逻辑：排序不保证 ID 单调，不用 watermark，逐页处理到命中第一个已下载作品即停。
      */
-    static int runDownloadedBoundaryScan(long taskId, PageSupplier pages,
+    static int runDownloadedBoundaryScan(PageSupplier pages,
                                          java.util.function.LongPredicate alreadyDownloaded,
                                          WorkDispatcher dispatcher, Runnable politeDelay,
                                          Runnable pageDelay, ScheduleRunQueue.Run run) throws Exception {
@@ -460,17 +502,8 @@ public class ScheduleExecutor {
                     return dispatched;
                 }
                 run.discovered(id);
-                try {
-                    if (dispatcher.dispatch(id, workId)) {
-                        dispatched++;
-                    }
-                } catch (PixivFetchService.PixivFetchException e) {
-                    throw e;
-                } catch (Exception e) {
-                    String safeMessage = summarizeError(e);
-                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, safeMessage);
-                    log.warn("Scheduled task {} skip work {} [{}]: {}",
-                            taskId, id, e.getClass().getSimpleName(), safeMessage);
+                if (dispatcher.dispatch(id, workId)) {
+                    dispatched++;
                 }
                 politeDelay.run();
             }
@@ -479,14 +512,18 @@ public class ScheduleExecutor {
         return dispatched;
     }
 
-    /** 抓取插画元数据、应用筛选，命中则派发下载。返回是否派发。 */
-    private boolean dispatchArtwork(String id, long artworkId, String cookie,
-                                    Filters filters, Download download, ScheduleRunQueue.Run run) throws Exception {
+    /** 单作品派发结果（区分过滤跳过、成功下载、下载失败），供 {@link WorkRunner} 分类。 */
+    enum DispatchOutcome {DOWNLOADED, FILTERED, DOWNLOAD_FAILED}
+
+    /** 抓取插画元数据、应用筛选，命中则派发下载。 */
+    private DispatchOutcome dispatchArtwork(String id, long artworkId, String cookie,
+                                            Filters filters, Download download, ScheduleRunQueue.Run run)
+            throws Exception {
         PixivFetchService.ArtworkMeta meta = pixivFetchService.fetchArtworkMeta(id, cookie);
         run.setMeta(id, meta.title(), meta.xRestrict(), meta.ai());
         if (!artworkMatches(meta, filters)) {
             run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
-            return false;
+            return DispatchOutcome.FILTERED;
         }
         DownloadRequest.Other other = new DownloadRequest.Other();
         other.setAuthorId(meta.authorId());
@@ -520,21 +557,20 @@ public class ScheduleExecutor {
         boolean downloaded = artworkDownloader.downloadImagesBlocking(
                 artworkId, meta.title(), imageUrls,
                 PIXIV_REFERER + "artworks/" + id, other, cookie, null);
-        // downloadImagesBlocking 仅在成功跑完整条管线时返回 true；false 来自顶层异常或取消，
-        // 异常已在 DownloadService 内被吞掉并记日志，此处只能给出泛化失败说明（前端按 i18n 回退）。
         run.mark(id, downloaded ? ScheduleRunQueue.STATUS_DOWNLOADED
                 : ScheduleRunQueue.STATUS_FAILED, null);
-        return downloaded;
+        return downloaded ? DispatchOutcome.DOWNLOADED : DispatchOutcome.DOWNLOAD_FAILED;
     }
 
-    /** 抓取小说详情、应用筛选，命中则按快照设置组装并派发小说下载。返回是否派发。 */
-    private boolean dispatchNovel(String id, long novelId, String cookie,
-                                  Filters filters, Download download, ScheduleRunQueue.Run run) throws Exception {
+    /** 抓取小说详情、应用筛选，命中则按快照设置组装并派发小说下载。 */
+    private DispatchOutcome dispatchNovel(String id, long novelId, String cookie,
+                                          Filters filters, Download download, ScheduleRunQueue.Run run)
+            throws Exception {
         PixivFetchService.NovelDetail d = pixivFetchService.fetchNovelDetail(id, cookie);
         run.setMeta(id, d.title(), d.xRestrict(), d.ai());
         if (!novelMatches(d, filters)) {
             run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
-            return false;
+            return DispatchOutcome.FILTERED;
         }
         NovelDownloadRequest req = new NovelDownloadRequest();
         req.setNovelId(d.novelId());
@@ -567,16 +603,189 @@ public class ScheduleExecutor {
         req.setOther(o);
 
         boolean downloaded = novelDownloader.downloadBlocking(req, null);
-        // downloadBlocking 仅在成功跑完整条管线时返回 true；false 来自顶层异常或取消，
-        // 异常已在 NovelDownloadService 内被吞掉并记日志，此处只能给出泛化失败说明（前端按 i18n 回退）。
         run.mark(id, downloaded ? ScheduleRunQueue.STATUS_DOWNLOADED
                 : ScheduleRunQueue.STATUS_FAILED, null);
-        return downloaded;
+        return downloaded ? DispatchOutcome.DOWNLOADED : DispatchOutcome.DOWNLOAD_FAILED;
+    }
+
+    /**
+     * 一轮运行内对单作品派发做异常分类、隔离表记账、连续失败熔断与到 N 过度访问检查的有状态封装。
+     * 连续失败计数与派发计数在整轮内跨页累积；任一成功派发即清零连续失败计数。
+     */
+    private final class WorkRunner {
+        private final long taskId;
+        private final boolean novel;
+        private final String cookie;
+        private final Filters filters;
+        private final Download download;
+        private final ScheduleRunQueue.Run run;
+
+        private int consecutiveFailures = 0;
+        private int dispatchedSinceCheck = 0;
+
+        WorkRunner(long taskId, boolean novel, String cookie, Filters filters, Download download,
+                   ScheduleRunQueue.Run run) {
+            this.taskId = taskId;
+            this.novel = novel;
+            this.cookie = cookie;
+            this.filters = filters;
+            this.download = download;
+            this.run = run;
+        }
+
+        ScheduleRunQueue.Run run() {
+            return run;
+        }
+
+        /**
+         * @param isRetry true 表示来自隔离表重试（失败 {@code incPendingAttempts}）；否则新失败 {@code insertPending}
+         * @return true 仅当成功派发下载
+         */
+        boolean process(String id, long workId, boolean isRetry)
+                throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException {
+            // 协作式取消：用户在运行中按下「暂停」后，下一个作品派发前抛 PauseException 干净 unwind。
+            // 已派发的作品在 @Async 下载池里继续跑完不打断；此后不再发起新的派发。
+            if (runState.isCancelRequested(taskId)) {
+                throw new SchedulePauseException();
+            }
+            DispatchOutcome outcome;
+            try {
+                outcome = novel
+                        ? dispatchNovel(id, workId, cookie, filters, download, run)
+                        : dispatchArtwork(id, workId, cookie, filters, download, run);
+            } catch (HttpClientErrorException e) {
+                int sc = e.getStatusCode().value();
+                if (sc == 404 || sc == 403) {
+                    // 真已删除 / 注销：跳过、不进隔离、不挡 watermark
+                    run.mark(id, ScheduleRunQueue.STATUS_FAILED, "gone " + sc);
+                    return false;
+                }
+                // 其它 4xx（含 429）：可恢复瞬时，隔离不计熔断
+                recordRecoverable(id, workId, isRetry, "http " + sc);
+                return false;
+            } catch (PixivFetchService.PixivFetchException e) {
+                // 受限 / 需登录（可恢复）：隔离 + 连续失败计数；连续 M 次熔断
+                String reason = summarizeError(e);
+                run.mark(id, ScheduleRunQueue.STATUS_FAILED, reason);
+                recordRecoverable(id, workId, isRetry, reason);
+                consecutiveFailures++;
+                if (consecutiveFailures >= scheduleConfig.getAuthFailureCircuitBreaker()) {
+                    throw new ScheduleSuspendException(
+                            ScheduleSuspendException.Reason.CIRCUIT_BREAKER, consecutiveFailures, reason);
+                }
+                return false;
+            } catch (OveruseWarningException | ScheduleSuspendException e) {
+                throw e;
+            } catch (Exception e) {
+                // 瞬时 IO / 解析错误：隔离、不计熔断
+                String reason = summarizeError(e);
+                run.mark(id, ScheduleRunQueue.STATUS_FAILED, reason);
+                recordRecoverable(id, workId, isRetry, reason);
+                return false;
+            }
+
+            switch (outcome) {
+                case DOWNLOADED -> {
+                    consecutiveFailures = 0;
+                    database.mapper().deletePending(taskId, workId);
+                    afterDispatchCheckpoint();
+                    return true;
+                }
+                case FILTERED -> {
+                    if (isRetry) {
+                        database.mapper().deletePending(taskId, workId);
+                    }
+                    return false;
+                }
+                default -> { // DOWNLOAD_FAILED（顶层异常被下载器吞掉返 false）：隔离、不计熔断
+                    recordRecoverable(id, workId, isRetry, "download failed");
+                    return false;
+                }
+            }
+        }
+
+        private void recordRecoverable(String id, long workId, boolean isRetry, String reason) {
+            long now = System.currentTimeMillis();
+            if (isRetry) {
+                database.mapper().incPendingAttempts(taskId, workId, now);
+            } else {
+                database.mapper().insertPending(taskId, workId, reason, now);
+            }
+        }
+
+        /** 成功派发后到 N 触发过度访问检查；{@code WARNED} 干净 unwind（COOKIE_DEAD 轮内不双重判定，交给熔断）。 */
+        private void afterDispatchCheckpoint() throws OveruseWarningException {
+            if (cookie == null) {
+                return; // 已降级匿名或本就无 cookie：读不到站内信
+            }
+            int n = scheduleConfig.getInboxCheckEvery();
+            dispatchedSinceCheck++;
+            if (n <= 0 || dispatchedSinceCheck % n != 0) {
+                return;
+            }
+            OveruseWarningService.Result r =
+                    overuseWarningService.check(cookie, null, System.currentTimeMillis());
+            if (r.isWarned()) {
+                throw new OveruseWarningException(r.modifiedAt(), r.excerpt());
+            }
+        }
+    }
+
+    // ── 自动挂起通知邮件（best-effort） ────────────────────────────────────────────
+
+    /** 过度访问：冻结同账号所有非挂起态任务 + 发 overuse-paused 邮件。 */
+    private void handleOveruse(ScheduledTask task, OveruseWarningException e) {
+        String accountId = task.accountId();
+        String message = String.valueOf(e.modifiedAt());
+        int frozen = 1;
+        if (accountId != null && !accountId.isBlank()) {
+            frozen = Math.max(1, database.mapper().freezeAccount(
+                    accountId, ScheduledTask.STATUS_OVERUSE_PAUSED, message));
+        }
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("account_id", accountId == null ? "-" : accountId);
+        ph.put("tasks_count", String.valueOf(frozen));
+        ph.put("warning_time", formatTime(e.modifiedAt()));
+        ph.put("trigger_time", formatTime(System.currentTimeMillis()));
+        ph.put("warning_excerpt", e.excerpt());
+        sendNotification(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED, ph);
+    }
+
+    /** 任务级挂起：发 auth-expired（dead cookie）或 circuit-breaker（熔断）邮件。 */
+    private void handleSuspend(ScheduledTask task, ScheduleSuspendException e) {
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", task.name() == null ? "-" : task.name());
+        ph.put("task_id", String.valueOf(task.id()));
+        ph.put("trigger_time", formatTime(System.currentTimeMillis()));
+        if (e.reason() == ScheduleSuspendException.Reason.CIRCUIT_BREAKER) {
+            ph.put("consecutive_failures", String.valueOf(e.consecutiveFailures()));
+            ph.put("last_error_excerpt", e.lastErrorExcerpt() == null ? "" : e.lastErrorExcerpt());
+            sendNotification(MailTemplateRegistry.TEMPLATE_CIRCUIT_BREAKER, ph);
+        } else {
+            // reason 文案走模板 i18n，运行期只给一个稳定的 key 标识
+            ph.put("reason", e.reason().name());
+            sendNotification(MailTemplateRegistry.TEMPLATE_AUTH_EXPIRED, ph);
+        }
+    }
+
+    /** 渲染模板并发信，全程 best-effort：渲染或发信失败仅记日志，绝不影响调度。 */
+    private void sendNotification(String templateId, Map<String, String> placeholders) {
+        try {
+            Locale locale = AppLocale.normalize(Locale.getDefault());
+            RenderedMail mail = mailTemplateRegistry.render(templateId, locale, placeholders);
+            mailService.send(mail.subject(), mail.htmlBody());
+        } catch (Exception ex) {
+            log.error("Schedule notification mail [{}] failed: {}", templateId, ex.getMessage());
+        }
+    }
+
+    private static String formatTime(long epochMs) {
+        if (epochMs <= 0) return "-";
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(new Date(epochMs));
     }
 
     // ── 服务端筛选 ────────────────────────────────────────────────────────────────
 
-    // package-private + static：纯函数，便于单元测试直接调用（见 ScheduleExecutorFilterTest）
     static boolean artworkMatches(PixivFetchService.ArtworkMeta m, Filters f) {
         if (!contentMatches(f.content(), m.xRestrict())) return false;
         if ("exclude".equals(f.aiFilter()) && m.ai()) return false;
@@ -611,7 +820,6 @@ public class ScheduleExecutor {
                 && tagsAllMatch(tokens, f.tagsFuzzy(), true);
     }
 
-    /** 内容分级筛选：all=不限 / safe=仅全年龄 / r18plus=R-18+R-18G / r18=仅 R-18 / r18g=仅 R-18G。 */
     private static boolean contentMatches(String content, int xRestrict) {
         if (content == null) return true;
         return switch (content) {
@@ -633,7 +841,6 @@ public class ScheduleExecutor {
         };
     }
 
-    /** {@code required} 中的每个关键词都必须命中 {@code tokens}（精确=相等 / 模糊=子串）；空筛选恒通过。 */
     private static boolean tagsAllMatch(List<String> tokens, List<String> required, boolean fuzzy) {
         if (required == null || required.isEmpty()) return true;
         for (String needle : required) {

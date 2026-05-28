@@ -1,0 +1,134 @@
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#ececec;padding:24px 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif;">
+    <tr>
+        <td align="center">
+
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.08);">
+
+                <tr>
+                    <td style="background:#28a745;padding:18px 28px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                            <tr>
+                                <td style="color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:.5px;line-height:1.2;">
+                                    {{i18n:mail.template.common.brand}}
+                                </td>
+                                <td align="right" style="color:rgba(255,255,255,.85);font-size:12px;font-weight:500;letter-spacing:.3px;text-transform:uppercase;">
+                                    <span style="display:inline-block;padding:2px 10px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.5);border-radius:3px;color:#ffffff;">{{i18n:mail.template.circuit-breaker.category}}</span>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:28px 28px 8px;">
+                        <div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px;">
+                            {{i18n:mail.template.circuit-breaker.eyebrow}}
+                        </div>
+                        <h1 style="margin:0;font-size:22px;font-weight:700;color:#333;line-height:1.35;">
+                            {{i18n:mail.template.circuit-breaker.heading}}
+                        </h1>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:14px 28px 0;font-size:14px;color:#333;line-height:1.7;">
+                        {{i18n:mail.template.common.greeting}}
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:14px 28px 0;font-size:14px;color:#333;line-height:1.75;">
+                        <p style="margin:0 0 12px;">{{i18n:mail.template.circuit-breaker.body-para1}}</p>
+                        <p style="margin:0 0 12px;">{{i18n:mail.template.circuit-breaker.body-para2}}</p>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:18px 28px 0;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f5f5f5;border:1px solid #e0e0e0;border-radius:6px;">
+                            <tr>
+                                <td style="padding:14px 18px;">
+                                    <div style="font-size:11px;font-weight:700;color:#888;letter-spacing:.4px;text-transform:uppercase;margin-bottom:8px;">
+                                        {{i18n:mail.template.circuit-breaker.info-card.label}}
+                                    </div>
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="font-size:13px;line-height:1.7;">
+                                        <tr>
+                                            <td width="140" style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.circuit-breaker.info-card.task}}</td>
+                                            <td style="color:#333;font-weight:600;padding:3px 0;">{{task_name}}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.circuit-breaker.info-card.task-id}}</td>
+                                            <td style="color:#333;font-weight:600;padding:3px 0;font-family:Consolas,Monaco,monospace;font-size:12px;">{{task_id}}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.circuit-breaker.info-card.failures}}</td>
+                                            <td style="color:#333;font-weight:600;padding:3px 0;">{{consecutive_failures}}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.circuit-breaker.info-card.trigger-time}}</td>
+                                            <td style="color:#333;font-weight:600;padding:3px 0;font-family:Consolas,Monaco,monospace;font-size:12px;">{{trigger_time}}</td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:20px 28px 0;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#fff8e1;border-left:4px solid #ffc107;border-radius:0 5px 5px 0;">
+                            <tr>
+                                <td style="padding:10px 14px;font-size:12px;color:#856404;line-height:1.65;">
+                                    <strong style="font-size:12px;">{{i18n:mail.template.circuit-breaker.note.label}}</strong>
+                                    {{i18n:mail.template.circuit-breaker.note.text}}
+                                    <div style="margin-top:8px;color:#7a6a3a;font-style:italic;">{{last_error_excerpt}}</div>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:24px 28px 0;">
+                        <div style="height:1px;background:#eeeeee;line-height:1px;font-size:1px;">&nbsp;</div>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:16px 28px 0;font-size:13px;color:#666;line-height:1.7;">
+                        {{i18n:mail.template.common.signature}}
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:18px 28px 24px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                            <tr>
+                                <td style="font-size:11px;color:#aaa;line-height:1.7;">
+                                    {{i18n:mail.template.common.footer.auto}}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding-top:10px;font-size:11px;color:#aaa;line-height:1.7;">
+                                    <a href="https://github.com/Sywyar/PixivDownloader" style="color:#888;text-decoration:none;">GitHub</a>
+                                    &nbsp;·&nbsp;
+                                    <a href="https://github.com/Sywyar/PixivDownloader/releases" style="color:#888;text-decoration:none;">Releases</a>
+                                    &nbsp;·&nbsp;
+                                    <a href="https://github.com/Sywyar/PixivDownloader/wiki" style="color:#888;text-decoration:none;">Wiki</a>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td style="padding-top:10px;font-size:10px;color:#bbb;letter-spacing:.3px;">
+                                    {{i18n:mail.template.common.footer.copyright}}
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+            </table>
+
+        </td>
+    </tr>
+</table>

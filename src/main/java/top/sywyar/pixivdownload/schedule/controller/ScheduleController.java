@@ -12,7 +12,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
+import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.CookieAuthorizeRequest;
+import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
@@ -85,7 +87,52 @@ public class ScheduleController {
 
     @PostMapping("/tasks/{id}/run")
     public Map<String, Object> runOnce(@PathVariable long id) {
-        scheduleService.runOnce(id);
+        scheduleService.manualRun(id);
+        return Map.of("success", true);
+    }
+
+    // ── 暂停 / 恢复（二期） ───────────────────────────────────────────────────────
+
+    /** 手动暂停（任务级 PAUSED，不冻账号、不发邮件）。 */
+    @PostMapping("/tasks/{id}/pause")
+    public ScheduleTaskView pause(@PathVariable long id) {
+        return scheduleService.pause(id);
+    }
+
+    /**
+     * 恢复手动暂停 / 单任务挂起并<b>立即继续</b>：先清挂起（事务提交后 {@code next_run_time=now}），
+     * 再触发一次后台运行立刻跑起来。{@code runOnce} 在 resume 事务提交后调用，异步执行线程读到的是已清挂起的状态；
+     * 即时触发若因竞态被跳过，调度 tick 也会兜底捡起。返回刷新后的视图以即时反映「排队中」运行态。
+     */
+    @PostMapping("/tasks/{id}/resume")
+    public ScheduleTaskView resume(@PathVariable long id) {
+        ScheduleTaskView view = scheduleService.resume(id);
+        // 仅对 enabled 任务即时触发后台运行；停用任务恢复后只清暂停态、不运行（停用 = 不执行）。
+        if (view.enabled()) {
+            scheduleService.runOnce(id);
+            return scheduleService.get(id);
+        }
+        return view;
+    }
+
+    /** 账号级（过度访问）恢复：同账号所有任务，{@code mode=ignore|defer}。 */
+    @PostMapping("/account/{accountId}/resume")
+    public Map<String, Object> resumeAccount(@PathVariable String accountId,
+                                             @RequestBody AccountResumeRequest req) {
+        scheduleService.resumeAccount(accountId, req);
+        return Map.of("success", true);
+    }
+
+    /** 隔离表（待重试）行列表。 */
+    @GetMapping("/tasks/{id}/pending")
+    public List<SchedulePendingView> pending(@PathVariable long id) {
+        return scheduleService.pending(id);
+    }
+
+    /** 手动清除隔离表中某个「需人工」条目。 */
+    @DeleteMapping("/tasks/{id}/pending/{workId}")
+    public Map<String, Object> clearPending(@PathVariable long id, @PathVariable long workId) {
+        scheduleService.clearPending(id, workId);
         return Map.of("success", true);
     }
 }

@@ -12,6 +12,8 @@ import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
+import top.sywyar.pixivdownload.mail.MailService;
+import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
 import top.sywyar.pixivdownload.novel.NovelDownloader;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -51,16 +53,25 @@ class ScheduleExecutorRunTimingTest {
     private NovelDatabase novelDatabase;
     @Mock
     private NovelMergeService novelMergeService;
+    @Mock
+    private OveruseWarningService overuseWarningService;
+    @Mock
+    private MailService mailService;
+    @Mock
+    private MailTemplateRegistry mailTemplateRegistry;
 
     private ScheduleExecutor executor;
+    private ScheduleRunState runState;
 
     @BeforeEach
     void setUp() {
         ScheduleConfig config = new ScheduleConfig();
         config.setFetchDelayMs(0);
+        runState = new ScheduleRunState();
         executor = new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
                 artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
-                config, new ScheduleRunState(), new ScheduleRunQueue(), new ObjectMapper());
+                config, runState, new ScheduleRunQueue(), new ObjectMapper(),
+                overuseWarningService, mailService, mailTemplateRegistry);
         when(database.mapper()).thenReturn(mapper);
     }
 
@@ -71,7 +82,7 @@ class ScheduleExecutorRunTimingTest {
                 1L, "画师计划", true, ScheduledTaskType.USER_NEW,
                 "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("123"));
         when(pixivDatabase.hasArtwork(123L)).thenReturn(false);
         when(pixivFetchService.fetchArtworkMeta("123", null)).thenReturn(
@@ -107,7 +118,7 @@ class ScheduleExecutorRunTimingTest {
                 1L, "画师计划", true, ScheduledTaskType.USER_NEW,
                 "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
         // 发现两个作品（最新在前），均已下载 → 不取 meta、不下载，但水位线推进到本轮最新 ID 200
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("200", "150"));
         when(pixivDatabase.hasArtwork(200L)).thenReturn(true);
@@ -127,7 +138,7 @@ class ScheduleExecutorRunTimingTest {
                 2L, "系列计划", true, ScheduledTaskType.SERIES,
                 "{\"kind\":\"illust\",\"source\":{\"seriesId\":\"9\"}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
         when(pixivFetchService.discoverSeriesArtworkIds("9", null)).thenReturn(List.of());
 
         executor.runTaskAndRecord(task);
@@ -143,7 +154,7 @@ class ScheduleExecutorRunTimingTest {
                 5L, "热门计划", true, ScheduledTaskType.SEARCH,
                 "{\"kind\":\"illust\",\"source\":{\"word\":\"tag\",\"order\":\"popular_d\",\"mode\":\"all\",\"sMode\":\"s_tag\",\"maxPages\":-1}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
         when(pixivFetchService.discoverSearchArtworkIdsPage("tag", "popular_d", "all", "s_tag", 1, null))
                 .thenReturn(List.of("300", "200"));
         when(pixivDatabase.hasArtwork(300L)).thenReturn(false);
@@ -171,13 +182,13 @@ class ScheduleExecutorRunTimingTest {
     }
 
     @Test
-    @DisplayName("水位线扫描中单作品失败时不推进 watermark，留给下一轮重试补齐")
-    void shouldNotAdvanceWatermarkWhenSingleWorkFails() throws Exception {
+    @DisplayName("水位线扫描中单作品可恢复失败进隔离表，watermark 仍照常推进")
+    void shouldAdvanceWatermarkWhenSingleWorkIsolated() throws Exception {
         ScheduledTask task = new ScheduledTask(
                 6L, "失败计划", true, ScheduledTaskType.USER_NEW,
                 "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("200"));
         when(pixivDatabase.hasArtwork(200L)).thenReturn(false);
         when(pixivFetchService.fetchArtworkMeta("200", null))
@@ -185,7 +196,9 @@ class ScheduleExecutorRunTimingTest {
 
         executor.runTaskAndRecord(task);
 
-        verify(mapper, never()).updateWatermark(anyLong(), any());
+        // 可恢复失败进隔离表（attempts 不计熔断），watermark 推进到本轮最新 ID 200
+        verify(mapper).insertPending(eq(6L), eq(200L), any(), anyLong());
+        verify(mapper).updateWatermark(eq(6L), eq(200L));
         verify(mapper).updateRunResult(eq(6L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
     }
 
@@ -196,7 +209,7 @@ class ScheduleExecutorRunTimingTest {
                 3L, "脱敏计划", true, ScheduledTaskType.USER_NEW,
                 "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
         when(pixivFetchService.discoverUserArtworkIds("100", null))
                 .thenThrow(new IllegalStateException("request failed Cookie: PHPSESSID=secret; foo=bar"));
 
@@ -210,13 +223,54 @@ class ScheduleExecutorRunTimingTest {
     }
 
     @Test
+    @DisplayName("运行中手动暂停：派发循环检测取消信号、干净 unwind、updateRunResult 写 PAUSED；已派发的不回滚")
+    void midRunPauseUnwindsCleanly() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                7L, "暂停计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
+        // 发现两个未下载作品：第 1 个派发后由模拟「下载器内部」请求取消，第 2 个 process() 入口应抛 Pause
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("301", "302"));
+        when(pixivDatabase.hasArtwork(301L)).thenReturn(false);
+        when(pixivDatabase.hasArtwork(302L)).thenReturn(false);
+        when(pixivFetchService.fetchArtworkMeta("301", null)).thenReturn(
+                new PixivFetchService.ArtworkMeta(
+                        0, "首件", 0, false, 10L, "作者", null, null, -1, 1, List.of()));
+        when(pixivFetchService.resolveImageUrls("301", null)).thenReturn(
+                List.of("https://i.pximg.net/img-original/img/301.jpg"));
+        when(artworkDownloader.downloadImagesBlocking(
+                eq(301L), eq("首件"), anyList(), eq("https://www.pixiv.net/artworks/301"),
+                any(DownloadRequest.Other.class), isNull(), isNull()))
+                .thenAnswer(inv -> {
+                    // 已下载提交 / 完成：在这一刻管理员按下暂停
+                    runState.requestCancel(7L);
+                    return true;
+                });
+
+        executor.runTaskAndRecord(task);
+
+        // 第 1 件已派发完成，第 2 件不应再请求 meta / 不应进入下载器
+        verify(pixivFetchService).fetchArtworkMeta("301", null);
+        verify(pixivFetchService, never()).fetchArtworkMeta(eq("302"), any());
+        verify(artworkDownloader, never()).downloadImagesBlocking(
+                eq(302L), any(), anyList(), any(), any(DownloadRequest.Other.class), any(), any());
+        // updateRunResult 收尾：状态写 PAUSED；CASE 会在 DB 已是 PAUSED 时再保留，这里直接验证传入参数。
+        verify(mapper).updateRunResult(
+                eq(7L), anyLong(), eq(ScheduledTask.STATUS_PAUSED), isNull(), anyLong());
+        // 已派发的不回滚：本轮发现的 301 未进隔离表（dispatch 成功），watermark 不推进（unwind 路径）。
+        verify(mapper, never()).insertPending(eq(7L), eq(301L), any(), anyLong());
+        verify(mapper, never()).updateWatermark(eq(7L), anyLong());
+    }
+
+    @Test
     @DisplayName("失败原因：无 Cookie 前缀时也脱敏整段 Cookie 对")
     void shouldSanitizeCookiePairsWithoutCookieHeader() throws Exception {
         ScheduledTask task = new ScheduledTask(
                 4L, "脱敏计划", true, ScheduledTaskType.USER_NEW,
                 "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
-                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, 0L);
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
         when(pixivFetchService.discoverUserArtworkIds("100", null))
                 .thenThrow(new IllegalStateException("bad auth PHPSESSID=secret; foo=bar"));
 

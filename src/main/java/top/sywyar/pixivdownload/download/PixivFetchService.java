@@ -9,6 +9,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 import top.sywyar.pixivdownload.download.db.TagDto;
@@ -520,6 +521,40 @@ public class PixivFetchService {
             out.put(e.getKey(), url);
         });
         return out;
+    }
+
+    /** 站内信线程 RPC：固定 URL，不接受用户传入参数。 */
+    private static final String MESSAGE_THREADS_URL =
+            "https://www.pixiv.net/rpc/index.php?mode=latest_message_threads2&num=3&offset=0";
+
+    /**
+     * 读取站内信线程（{@code latest_message_threads2}），供计划任务过度访问检测 + cookie 存活探测复用。
+     * 沿用 byte[].class + UTF-8 解析（不请求 {@code String.class}）。返回 {@code body} 节点。
+     *
+     * <p>上游 4xx（含 401/403）、登录重定向导致的非 JSON 回包、或 {@code error=true} 都视为
+     * 「cookie 已死」并上抛 {@link PixivFetchException}——调用方（{@code OveruseWarningService}）据此判定 COOKIE_DEAD。
+     */
+    public JsonNode fetchMessageThreads(String cookie) throws IOException {
+        String json;
+        try {
+            json = proxyGet(MESSAGE_THREADS_URL, cookie);
+        } catch (HttpClientErrorException e) {
+            throw new PixivFetchException("message threads http " + e.getStatusCode().value());
+        }
+        if (json == null || json.isBlank()) {
+            throw new PixivFetchException("empty message threads response");
+        }
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(json);
+        } catch (IOException e) {
+            // 非 JSON（登录重定向 HTML 等）= cookie 已死
+            throw new PixivFetchException("non-json message threads response");
+        }
+        if (root.path("error").asBoolean(false)) {
+            throw new PixivFetchException(root.path("message").asText(""));
+        }
+        return root.path("body");
     }
 
     /** 解析 Pixiv AJAX 响应、剥出 {@code body}；{@code error=true} 时抛 {@link PixivFetchException}。 */

@@ -570,6 +570,66 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
+                ConfigFieldSpec.builder("schedule.inbox-check-every", message("gui.config.field.schedule.inbox-check-every.label"), INT, groupSchedule)
+                        .defaultValue("500")
+                        .help(message("gui.config.field.schedule.inbox-check-every.help"))
+                        .enabledWhen(snap -> snap.isTrue("schedule.enabled"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 1 ? null : message("gui.config.validation.positive-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("schedule.auth-failure-circuit-breaker", message("gui.config.field.schedule.auth-failure-circuit-breaker.label"), INT, groupSchedule)
+                        .defaultValue("5")
+                        .help(message("gui.config.field.schedule.auth-failure-circuit-breaker.help"))
+                        .enabledWhen(snap -> snap.isTrue("schedule.enabled"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 1 ? null : message("gui.config.validation.positive-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("schedule.pending-max-attempts", message("gui.config.field.schedule.pending-max-attempts.label"), INT, groupSchedule)
+                        .defaultValue("5")
+                        .help(message("gui.config.field.schedule.pending-max-attempts.help"))
+                        .enabledWhen(snap -> snap.isTrue("schedule.enabled"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 1 ? null : message("gui.config.validation.positive-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("schedule.overuse-defer-default-minutes", message("gui.config.field.schedule.overuse-defer-default-minutes.label"), INT, groupSchedule)
+                        .defaultValue("60")
+                        .help(message("gui.config.field.schedule.overuse-defer-default-minutes.help"))
+                        .enabledWhen(snap -> snap.isTrue("schedule.enabled"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 60 ? null : message("gui.config.validation.schedule-defer-min");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
                 // ── 邮件 / SMTP ─────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("mail.enabled", message("gui.config.field.mail.enabled.label"), BOOL, groupMail)
                         .defaultValue("false")

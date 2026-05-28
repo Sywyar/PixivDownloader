@@ -109,6 +109,62 @@ class MailTemplateRegistryTest {
         assertThat(registry.templates()).containsKey(MailTemplateRegistry.TEMPLATE_CONFIG_SUCCESS);
     }
 
+    @Test
+    @DisplayName("二期 3 个通知模板均已登记")
+    void templatesShouldIncludePhase2() {
+        assertThat(registry.templates())
+                .containsKey(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED)
+                .containsKey(MailTemplateRegistry.TEMPLATE_AUTH_EXPIRED)
+                .containsKey(MailTemplateRegistry.TEMPLATE_CIRCUIT_BREAKER);
+    }
+
+    @Test
+    @DisplayName("overuse-paused 中英渲染：subject 走 i18n、运行期占位符全部替换、无裸 {{}}")
+    void overusePausedRenders() throws Exception {
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("account_id", "12345");
+        ph.put("tasks_count", "3");
+        ph.put("warning_time", "2026-05-27 12:00:00");
+        ph.put("trigger_time", "2026-05-27 12:01:00");
+        ph.put("warning_excerpt", "policies excerpt");
+
+        RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED, Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(zh.subject()).contains("过度访问");
+        assertThat(zh.htmlBody()).contains("12345").contains("policies excerpt").doesNotContain("{{");
+
+        RenderedMail en = registry.render(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED, Locale.US, ph);
+        assertThat(en.subject().toLowerCase()).contains("overuse");
+        assertThat(en.htmlBody()).doesNotContain("{{");
+    }
+
+    @Test
+    @DisplayName("circuit-breaker subject 含连续失败次数占位符替换")
+    void circuitBreakerSubjectFillsFailures() throws Exception {
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", "测试任务");
+        ph.put("task_id", "7");
+        ph.put("consecutive_failures", "5");
+        ph.put("trigger_time", "2026-05-27 12:00:00");
+        ph.put("last_error_excerpt", "限制级需登录");
+
+        RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_CIRCUIT_BREAKER, Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(zh.subject()).contains("5");
+        assertThat(zh.htmlBody()).contains("测试任务").contains("限制级需登录").doesNotContain("{{");
+    }
+
+    @Test
+    @DisplayName("auth-expired 渲染含任务信息、无裸占位符")
+    void authExpiredRenders() throws Exception {
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", "画师计划");
+        ph.put("task_id", "9");
+        ph.put("trigger_time", "2026-05-27 12:00:00");
+
+        RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_AUTH_EXPIRED, Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(zh.htmlBody()).contains("画师计划").doesNotContain("{{");
+        assertThat(zh.subject()).isNotBlank();
+    }
+
     private static Map<String, String> placeholders() {
         Map<String, String> map = new LinkedHashMap<>();
         map.put("app_name", "PixivDownloader");

@@ -30,5 +30,11 @@ public class ScheduledTaskInsert {
     private Long watermarkId;
     /** 本轮进入执行的时刻（毫秒）；创建时为 null。 */
     private Long runStartedTime;
+    /** 非敏感 Pixiv userId（PHPSESSID 下划线前缀）；创建时为 null，授权后写入。 */
+    private String accountId;
+    /** 管理员显式放行的最新警告 modifiedAt（毫秒）；创建时为 null。 */
+    private Long ackWarningTime;
+    /** 重试武装位；创建时为 0。 */
+    private int pendingRetryArmed;
     private long createdTime;
 }

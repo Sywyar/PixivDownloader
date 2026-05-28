@@ -498,7 +498,7 @@ class DatabaseSchemaInspectorTest {
                         new top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase(mapper);
                 database.init();
 
-                Set<String> initManaged = Set.of("scheduled_tasks");
+                Set<String> initManaged = Set.of("scheduled_tasks", "scheduled_task_pending");
                 ManagedDatabaseSchema.DatabaseSchema sub = specSubset(initManaged);
 
                 try (Connection c = ds.getConnection()) {

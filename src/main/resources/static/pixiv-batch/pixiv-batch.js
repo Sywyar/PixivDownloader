@@ -1083,12 +1083,15 @@
                 handleSearchFilterChange();
             }
         }
-        // 3) 计划列表里每个任务的「授权 Cookie」按钮（动态渲染，按 class 重扫）
+        // 3) 计划列表里每个任务的「授权 Cookie」按钮（动态渲染，按 class 重扫）。
+        //    禁用条件 = 无有效 Cookie 或任务运行 / 排队中（data-busy 由卡片渲染时写入）。
         document.querySelectorAll('.js-authorize-cookie-btn').forEach(btn => {
-            btn.disabled = !ok;
-            btn.title = title;
+            const busy = btn.dataset.busy === '1';
+            const reason = busy ? bt('schedule.disabled.busy', '任务运行 / 排队中，暂不可操作') : title;
+            btn.disabled = !ok || busy;
+            btn.title = reason;
             const wrapper = btn.closest('.cookie-dependent-action');
-            if (wrapper) wrapper.title = title;
+            if (wrapper) wrapper.title = reason;
         });
     }
 
@@ -6035,9 +6038,14 @@
     // 当前展开了「本轮队列详情」的任务 id 集合：列表重渲染会重建 DOM，据此恢复展开态。
     // 未展开的任务不请求 / 不渲染队列；展开后从本地缓存即时渲染，再按需向后端拉取最新队列。
     const scheduleExpandedQueues = new Set();
-    // 上一次整列渲染所依据的「卡片级数据」签名：4s 轮询时若卡片级数据（状态灯/时间/徽章/按钮）没变就跳过整列
-    // innerHTML 重建，从而不销毁展开的队列 DOM、不打断 SSE 平滑刷新、不重置滚动；队列正文照常由 SSE / 快照单独更新。
-    let scheduleListSignature = null;
+    // 上一次「整列空/非空 + 横幅」与「按卡片」的渲染签名。整列 innerHTML 重建会销毁展开的队列 DOM、
+    // 中断 SSE 平滑刷新、把队列正文滚回顶部；改成按卡片 diff —— 仅在「该卡片的卡片级数据」真正变化时替换
+    // 该卡片，并在替换前后保留其内部「队列正文/待重试面板」的 innerHTML / 滚动位置 / 展开折叠态。
+    // 队列正文照常由 SSE / 快照单独更新。
+    let scheduleBannerSignature = null;
+    // 初始为 true：静态 HTML 的 #schedule-list 自带 .schedule-empty 占位符，首次加载到任务时需要先清空它再 diff。
+    let scheduleEmptyStateRendered = true;
+    const scheduleCardSignatures = new Map();
 
     function startSchedulePolling() {
         stopSchedulePolling();
@@ -6373,12 +6381,20 @@
         if (!t.enabled) {
             return {tone: 'gray', live: false, text: bt('schedule.light.disabled', '已停用，不会自动运行')};
         }
-        if (t.runStartedTime != null) {
-            // 残留的开始时刻 = 上次运行未走到结果落库（进程被强杀中断）；重跑会刷新并最终补齐后清除。
-            return {tone: 'red', live: false, text: bt('schedule.light.interrupted', '运行失败，上次运行被中断，已重新排期补齐')};
+        // 挂起态优先于「中断」哨兵：挂起任务不会被自动重排，若残留 runStartedTime（暂停/挂起途中被强杀）
+        // 仍显示中断红灯「已重新排期补齐」会与事实矛盾，故先判挂起态。
+        if (t.lastStatus === 'OVERUSE_PAUSED') {
+            return {tone: 'red', live: false, text: bt('schedule.light.overuse-paused', '已暂停：检测到过度访问警告（账号级）')};
+        }
+        if (t.lastStatus === 'PAUSED') {
+            return {tone: 'gray', live: false, text: bt('schedule.light.paused', '已手动暂停')};
         }
         if (t.lastStatus === 'AUTH_EXPIRED') {
             return {tone: 'red', live: false, text: bt('schedule.light.auth-expired', '运行失败，Cookie 失效，请重新授权有效 Cookie')};
+        }
+        if (t.runStartedTime != null) {
+            // 残留的开始时刻 = 上次运行未走到结果落库（进程被强杀中断）；重跑会刷新并最终补齐后清除。
+            return {tone: 'red', live: false, text: bt('schedule.light.interrupted', '运行失败，上次运行被中断，已重新排期补齐')};
         }
         if (t.lastStatus === 'ERROR') {
             const reason = (t.lastMessage || '').trim();
@@ -6392,6 +6408,11 @@
         }
         if (t.lastStatus === 'OK') {
             return {tone: 'green', live: false, text: bt('schedule.light.ok', '运行成功，等待下次运行')};
+        }
+        // last_status 为空：恢复 / 账号级恢复后清空了上轮结果。已运行过则显示「等待下次运行」，
+        // 从未运行过才是「等待首次运行」，避免恢复一个跑过多次的任务后误显示成首次。
+        if (t.lastRunTime != null) {
+            return {tone: 'gray', live: false, text: bt('schedule.light.idle', '等待下次运行')};
         }
         return {tone: 'gray', live: false, text: bt('schedule.light.never', '等待首次运行')};
     }
@@ -6673,11 +6694,26 @@
 
     // 整列渲染所依据的卡片级数据签名：仅当这些字段变化时才需要重建整列 DOM。
     // 不含队列正文 / 展开态——它们由 SSE / 快照单独更新、由用户操作单独切换，不应触发整列重建。
-    function scheduleListRenderSignature(tasks) {
-        return JSON.stringify(tasks.map(t => [
-            t.id, t.name, t.enabled, t.type, t.cookieBound, t.runState,
-            t.lastStatus, t.lastMessage, t.runStartedTime, t.nextRunTime, t.lastRunTime, t.paramsJson
-        ]));
+    // 单卡片的渲染签名：仅当该任务的卡片级数据（状态灯/动作按钮/徽章/触发与时间/参数快照）变化时才需要替换 DOM。
+    // 不含队列正文 / 待重试面板内容——那两个面板的 DOM 在 diff 替换时被「内 HTML + 滚动位置」整体迁移到新卡片上。
+    function scheduleCardRenderSignature(t) {
+        return JSON.stringify([
+            t.name, t.enabled, t.type, t.cookieBound, t.runState,
+            t.lastStatus, t.lastMessage, t.runStartedTime, t.nextRunTime, t.lastRunTime, t.paramsJson,
+            t.accountId, t.ackWarningTime, t.pendingRetryArmed
+        ]);
+    }
+
+    // 过度访问横幅是一个独立区段（按 accountId 分组、行为是账号级，不绑定任何具体卡片）；
+    // 签名只看「哪些账号挂起 + 各账号挂起任务数」，签名相同就不重建横幅 DOM。
+    function scheduleBannerRenderSignature(tasks) {
+        const counts = new Map();
+        tasks.forEach(t => {
+            if (t.lastStatus === 'OVERUSE_PAUSED' && t.accountId) {
+                counts.set(t.accountId, (counts.get(t.accountId) || 0) + 1);
+            }
+        });
+        return JSON.stringify([...counts.entries()].sort());
     }
 
     async function loadScheduleTasks() {
@@ -6686,35 +6722,157 @@
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks`, {credentials: 'same-origin'});
             if (!res.ok) {
-                list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.load-failed', '加载失败'))}</div>`;
-                scheduleListSignature = null;
+                renderScheduleListPlaceholder(list, bt('schedule.list.load-failed', '加载失败'));
                 return;
             }
             const tasks = await res.json();
             scheduleTasksCache = Array.isArray(tasks) ? tasks : [];
-            const signature = scheduleListRenderSignature(scheduleTasksCache);
-            // 卡片级数据未变（如运行中状态灯稳定为 RUNNING）→ 跳过整列重建，保留展开的队列 DOM 与滚动位置；
-            // 队列正文仍由下方 refreshExpandedScheduleQueues（快照）与 SSE（逐图进度）单独刷新。
-            if (signature !== scheduleListSignature) {
-                scheduleListSignature = signature;
-                // 不论列表是否为空：清理已不存在任务的 SSE 监听 / 模型 / 缓存，
-                // 否则旧 handler 残留在 state.sseListeners，可能消费同 artworkId 的事件、并阻止
-                // stopSchedulePolling 关闭共享 SSE 连接（条件含 sseListeners 为空）。
-                const liveIds = new Set(scheduleTasksCache.map(t => Number(t.id)));
-                releaseStaleScheduleQueueIds(liveIds);
-                if (scheduleTasksCache.length === 0) {
-                    list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.empty', '暂无计划任务'))}</div>`;
-                } else {
-                    list.innerHTML = scheduleTasksCache.map(renderScheduleTaskCard).join('');
-                    applyCookieDependentUi();
+
+            // 不论列表是否为空：清理已不存在任务的 SSE 监听 / 模型 / 缓存，
+            // 否则旧 handler 残留在 state.sseListeners，可能消费同 artworkId 的事件、并阻止
+            // stopSchedulePolling 关闭共享 SSE 连接（条件含 sseListeners 为空）。
+            const liveIds = new Set(scheduleTasksCache.map(t => Number(t.id)));
+            releaseStaleScheduleQueueIds(liveIds);
+
+            if (scheduleTasksCache.length === 0) {
+                renderScheduleListPlaceholder(list, bt('schedule.list.empty', '暂无计划任务'));
+            } else {
+                if (scheduleEmptyStateRendered) {
+                    // 上一拍是空态占位符，清掉后才能开始按卡片 diff。
+                    list.innerHTML = '';
+                    scheduleEmptyStateRendered = false;
+                    scheduleBannerSignature = null;
+                    scheduleCardSignatures.clear();
                 }
+                renderScheduleBannersDiff(list);
+                renderScheduleCardsDiff(list);
+                applyCookieDependentUi();
             }
             // 无论是否重建整列：运行 / 排队中的展开卡片随本轮轮询拉取最新队列快照，非运行态保持缓存。
             refreshExpandedScheduleQueues();
         } catch (e) {
-            list.innerHTML = `<div class="schedule-empty">${escHtml(bt('schedule.list.load-failed', '加载失败'))}</div>`;
-            scheduleListSignature = null;
+            renderScheduleListPlaceholder(list, bt('schedule.list.load-failed', '加载失败'));
         }
+    }
+
+    function renderScheduleListPlaceholder(list, text) {
+        list.innerHTML = `<div class="schedule-empty">${escHtml(text)}</div>`;
+        scheduleEmptyStateRendered = true;
+        scheduleBannerSignature = null;
+        scheduleCardSignatures.clear();
+    }
+
+    // 横幅按 accountId 分组、与卡片解耦：签名只看挂起账号的集合与各账号挂起任务计数，签名不变就不动 DOM。
+    function renderScheduleBannersDiff(list) {
+        const sig = scheduleBannerRenderSignature(scheduleTasksCache);
+        if (sig === scheduleBannerSignature) return;
+        scheduleBannerSignature = sig;
+        const html = renderOveruseBanners(scheduleTasksCache);
+        let wrap = list.querySelector(':scope > .schedule-overuse-banners');
+        if (html) {
+            const wrapped = `<div class="schedule-overuse-banners">${html}</div>`;
+            if (wrap) {
+                wrap.outerHTML = wrapped;
+            } else {
+                list.insertAdjacentHTML('afterbegin', wrapped);
+            }
+        } else if (wrap) {
+            wrap.remove();
+        }
+    }
+
+    // 按卡片 diff：仅对签名变化的卡片做替换，替换时把内部「队列正文/待重试面板」的 innerHTML、scrollTop、
+    // 展开折叠态原样迁移到新卡片，避免「点暂停/恢复 → 整列 innerHTML 重建 → 展开的队列 DOM 被销毁 →
+    // 队列滚动条回到顶部」这条问题路径。
+    function renderScheduleCardsDiff(list) {
+        const existing = new Map();
+        list.querySelectorAll(':scope > .schedule-card').forEach(card => {
+            existing.set(Number(card.dataset.taskId), card);
+        });
+        const liveIds = new Set();
+        // 锚点：插入卡片的位置紧跟横幅之后（或在列表最前端，如无横幅）。
+        const banners = list.querySelector(':scope > .schedule-overuse-banners');
+        let prev = banners;
+        scheduleTasksCache.forEach(t => {
+            const id = Number(t.id);
+            liveIds.add(id);
+            const sig = scheduleCardRenderSignature(t);
+            let card = existing.get(id);
+            if (!card) {
+                card = buildScheduleCardElement(t);
+                scheduleCardSignatures.set(id, sig);
+            } else if (sig !== scheduleCardSignatures.get(id)) {
+                card = replaceScheduleCardPreservingInner(card, t);
+                scheduleCardSignatures.set(id, sig);
+            }
+            const expected = prev ? prev.nextElementSibling : list.firstElementChild;
+            if (expected !== card) {
+                if (prev) prev.insertAdjacentElement('afterend', card);
+                else list.insertAdjacentElement('afterbegin', card);
+            }
+            prev = card;
+        });
+        existing.forEach((card, id) => {
+            if (!liveIds.has(id)) {
+                card.remove();
+                scheduleCardSignatures.delete(id);
+            }
+        });
+    }
+
+    function buildScheduleCardElement(t) {
+        const temp = document.createElement('div');
+        temp.innerHTML = renderScheduleTaskCard(t).trim();
+        return temp.firstElementChild;
+    }
+
+    // 替换一张卡片但保留两个有状态子区块（队列正文 / 待重试面板）的 DOM 状态：内 HTML / 隐藏态 / 滚动位置。
+    // 队列正文的折叠 caret / aria-expanded 同步矫正为保留下来的展开态。
+    function replaceScheduleCardPreservingInner(existingCard, t) {
+        const oldQueueBody = existingCard.querySelector('.schedule-queue-body');
+        const oldPending = existingCard.querySelector('.schedule-pending-panel');
+        // 真正的滚动容器是 .schedule-queue-body 内部的 .schedule-queue-list（见 renderScheduleQueueBodyInto），
+        // 因此 scrollTop 取内层 list 的值，替换后再写回新 list 上，避免队列滚动条跳回顶部。
+        const oldQueueList = oldQueueBody ? oldQueueBody.querySelector('.schedule-queue-list') : null;
+        const queueState = oldQueueBody ? {
+            inner: oldQueueBody.innerHTML,
+            scrollTop: oldQueueList ? oldQueueList.scrollTop : 0,
+            expanded: !oldQueueBody.hasAttribute('hidden')
+        } : null;
+        const pendingState = oldPending ? {
+            inner: oldPending.innerHTML,
+            expanded: !oldPending.hasAttribute('hidden')
+        } : null;
+
+        const newCard = buildScheduleCardElement(t);
+
+        const newQueueBody = newCard.querySelector('.schedule-queue-body');
+        if (newQueueBody && queueState) {
+            newQueueBody.innerHTML = queueState.inner;
+            if (queueState.expanded) newQueueBody.removeAttribute('hidden');
+            else newQueueBody.setAttribute('hidden', '');
+            const toggle = newCard.querySelector('.schedule-queue-toggle');
+            if (toggle) {
+                toggle.setAttribute('aria-expanded', String(queueState.expanded));
+                const caret = toggle.querySelector('.schedule-queue-caret');
+                if (caret) caret.textContent = queueState.expanded ? '▾' : '▸';
+            }
+        }
+        const newPending = newCard.querySelector('.schedule-pending-panel');
+        if (newPending && pendingState) {
+            newPending.innerHTML = pendingState.inner;
+            if (pendingState.expanded) newPending.removeAttribute('hidden');
+            else newPending.setAttribute('hidden', '');
+        }
+
+        existingCard.replaceWith(newCard);
+
+        // scrollTop 必须在 element 已经在 document 中之后设置，否则浏览器会丢弃。
+        if (newQueueBody && queueState && queueState.scrollTop) {
+            const newQueueList = newQueueBody.querySelector('.schedule-queue-list');
+            if (newQueueList) newQueueList.scrollTop = queueState.scrollTop;
+        }
+        return newCard;
     }
 
     function renderScheduleTaskCard(t) {
@@ -6728,8 +6886,23 @@
             : bt('schedule.cookie.restricted', '受限模式（无 Cookie）');
         const enabledLabel = t.enabled ? bt('schedule.state.enabled', '已启用') : bt('schedule.state.disabled', '已停用');
         const light = scheduleStatusLight(t);
+
+        // 功能区按钮的状态门（与后端 ScheduleService 守卫一致）：
+        // busy=运行/排队中；suspended=暂停/过度访问/cookie 失效。
+        const busy = t.runState === 'RUNNING' || t.runState === 'QUEUED';
+        const paused = t.lastStatus === 'PAUSED';
+        const suspended = paused || t.lastStatus === 'OVERUSE_PAUSED' || t.lastStatus === 'AUTH_EXPIRED';
+        const busyTip = bt('schedule.disabled.busy', '任务运行 / 排队中，暂不可操作');
+        const runTip = busy ? busyTip
+            : (!t.enabled ? bt('schedule.disabled.run-disabled', '任务已停用，请先启用')
+                : bt('schedule.disabled.run-suspended', '任务暂停 / 挂起中，请先恢复或重新授权'));
+        const pauseTip = bt('schedule.disabled.pause-idle', '任务未在运行，无需暂停；如需停止自动运行请用「停用」');
+        const runAttr = (t.enabled && !busy && !suspended) ? '' : `disabled title="${escHtml(runTip)}"`;
+        const resumeAttr = !busy ? '' : `disabled title="${escHtml(busyTip)}"`;
+        const pauseAttr = busy ? '' : `disabled title="${escHtml(pauseTip)}"`;
+        const busyAttr = busy ? `disabled title="${escHtml(busyTip)}"` : '';
         return `
-        <div class="schedule-card${t.enabled ? '' : ' schedule-card-disabled'}">
+        <div class="schedule-card${t.enabled ? '' : ' schedule-card-disabled'}" data-task-id="${t.id}">
             <div class="schedule-card-head">
                 <div class="schedule-card-head-main">
                     <span class="schedule-card-name">${escHtml(t.name)}</span>
@@ -6752,12 +6925,17 @@
                 </div>
             </div>
             <div class="schedule-card-actions">
-                <button class="btn btn-cyan" onclick="runScheduleTask(${t.id})">${escHtml(bt('schedule.action.run', '▶ 立即运行'))}</button>
-                <span class="cookie-dependent-action"><button class="btn btn-blue js-authorize-cookie-btn" onclick="authorizeScheduleCookie(${t.id})">${escHtml(bt('schedule.action.authorize', '🔑 授权 Cookie'))}</button></span>
-                <button class="btn btn-gray" onclick="toggleScheduleTask(${t.id}, ${t.enabled ? 'false' : 'true'})">${escHtml(t.enabled ? bt('schedule.action.disable', '⏸ 停用') : bt('schedule.action.enable', '✔ 启用'))}</button>
-                <button class="btn btn-yellow" onclick="startEditScheduleTask(${t.id})">${escHtml(bt('schedule.action.edit', '✏ 编辑'))}</button>
-                <button class="btn btn-gray" onclick="deleteScheduleTask(${t.id})">${escHtml(bt('schedule.action.delete', '🗑 删除'))}</button>
+                <button class="btn btn-cyan" ${runAttr} onclick="runScheduleTask(${t.id})">${escHtml(bt('schedule.action.run', '▶ 立即运行'))}</button>
+                <span class="cookie-dependent-action"><button class="btn btn-blue js-authorize-cookie-btn" data-busy="${busy ? '1' : '0'}" onclick="authorizeScheduleCookie(${t.id})">${escHtml(bt('schedule.action.authorize', '🔑 授权 Cookie'))}</button></span>
+                ${paused
+                    ? `<button class="btn btn-green" ${resumeAttr} onclick="resumeScheduleTask(${t.id})">${escHtml(bt('schedule.action.resume', '▶ 恢复'))}</button>`
+                    : `<button class="btn btn-yellow" ${pauseAttr} onclick="pauseScheduleTask(${t.id})">${escHtml(bt('schedule.action.pause', '⏸ 暂停'))}</button>`}
+                <button class="btn ${t.enabled ? 'btn-red' : 'btn-green'}" ${busyAttr} onclick="toggleScheduleTask(${t.id}, ${t.enabled ? 'false' : 'true'})">${escHtml(t.enabled ? bt('schedule.action.disable', '⏸ 停用') : bt('schedule.action.enable', '✔ 启用'))}</button>
+                <button class="btn btn-purple" ${busyAttr} onclick="startEditScheduleTask(${t.id})">${escHtml(bt('schedule.action.edit', '✏ 编辑'))}</button>
+                <button class="btn btn-gray" onclick="togglePendingPanel(${t.id})">${escHtml(bt('schedule.action.pending', '🧩 待重试'))}</button>
+                <button class="btn btn-red" ${busyAttr} onclick="deleteScheduleTask(${t.id})">${escHtml(bt('schedule.action.delete', '🗑 删除'))}</button>
             </div>
+            <div class="schedule-pending-panel" id="schedule-pending-${t.id}" hidden></div>
             ${renderScheduleQueueSection(t)}
         </div>`;
     }
@@ -7117,7 +7295,16 @@
     async function runScheduleTask(id) {
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks/${id}/run`, {method: 'POST', credentials: 'same-origin'});
-            if (res.ok) setScheduleListStatus(bt('schedule.status.run-started', '已开始后台运行'), 'success');
+            if (res.ok) {
+                setScheduleListStatus(bt('schedule.status.run-started', '已开始后台运行'), 'success');
+                // 立即刷新：后端 runOnce 同步阶段已把 runState 置为 QUEUED，刷新后状态灯立刻切到「排队中 → 运行中」，
+                // 不必等下一拍 4s 轮询。
+                await loadScheduleTasks();
+            } else {
+                // 状态门拒绝（陈旧 UI / 竞态：点击瞬间任务刚进入运行 / 挂起态）。刷新让按钮回到正确禁用态。
+                setScheduleListStatus(bt('schedule.error.run', '当前状态不允许立即运行'), 'error');
+                await loadScheduleTasks();
+            }
         } catch (e) { /* ignore */ }
     }
 
@@ -7126,6 +7313,158 @@
             await fetch(`${BASE}/api/schedule/tasks/${id}/enabled?enabled=${enabled}`,
                 {method: 'POST', credentials: 'same-origin'});
             loadScheduleTasks();
+        } catch (e) { /* ignore */ }
+    }
+
+    // 过度访问账号级暂停横幅：把 OVERUSE_PAUSED 的任务按 accountId 分组，每组给两个账号级恢复按钮。
+    function renderOveruseBanners(tasks) {
+        const groups = new Map();
+        tasks.forEach(t => {
+            if (t.lastStatus !== 'OVERUSE_PAUSED' || !t.accountId) return;
+            const list = groups.get(t.accountId) || [];
+            list.push(t);
+            groups.set(t.accountId, list);
+        });
+        if (groups.size === 0) return '';
+        const defaultMinutes = 60;
+        let html = '';
+        groups.forEach((list, accountId) => {
+            const acc = encodeURIComponent(accountId);
+            html += `
+            <div class="schedule-overuse-banner">
+                <div class="schedule-overuse-title">${escHtml(bt('schedule.overuse.banner.title', '⚠️ 过度访问暂停'))}</div>
+                <div class="schedule-overuse-desc">${escHtml(bt('schedule.overuse.banner.desc',
+                    '账号 {account} 有 {count} 个计划任务因检测到 Pixiv 过度访问警告被暂停。',
+                    {account: accountId, count: list.length}))}</div>
+                <div class="schedule-overuse-actions">
+                    <button class="btn btn-red" onclick="resumeScheduleAccountIgnore('${acc}')">${escHtml(bt('schedule.overuse.action.ignore', '无视风险，继续下载！(可能会导致删号)'))}</button>
+                    <button class="btn btn-blue" onclick="resumeScheduleAccountDefer('${acc}')">${escHtml(bt('schedule.overuse.action.defer', '我已知晓，在 {minutes} 分钟后继续所有同账号任务', {minutes: defaultMinutes}))}</button>
+                </div>
+            </div>`;
+        });
+        return html;
+    }
+
+    async function pauseScheduleTask(id) {
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/pause`, {method: 'POST', credentials: 'same-origin'});
+            if (res.ok) {
+                setScheduleListStatus(bt('schedule.status.paused', '已暂停该任务'), 'success');
+                loadScheduleTasks();
+            } else {
+                setScheduleListStatus(bt('schedule.error.pause', '暂停失败'), 'error');
+            }
+        } catch (e) {
+            setScheduleListStatus(bt('schedule.error.pause', '暂停失败'), 'error');
+        }
+    }
+
+    async function resumeScheduleTask(id) {
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/resume`, {method: 'POST', credentials: 'same-origin'});
+            if (res.ok) {
+                setScheduleListStatus(bt('schedule.status.resumed', '已恢复该任务'), 'success');
+                loadScheduleTasks();
+            } else {
+                setScheduleListStatus(bt('schedule.error.resume', '恢复失败'), 'error');
+            }
+        } catch (e) {
+            setScheduleListStatus(bt('schedule.error.resume', '恢复失败'), 'error');
+        }
+    }
+
+    async function resumeScheduleAccount(accountId, mode, minutes) {
+        const body = {mode};
+        if (mode === 'defer') body.minutes = minutes;
+        try {
+            const res = await fetch(`${BASE}/api/schedule/account/${accountId}/resume`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            if (res.ok) {
+                setScheduleListStatus(bt('schedule.status.account-resumed', '已恢复该账号的所有任务'), 'success');
+                loadScheduleTasks();
+            } else {
+                const err = await res.json().catch(() => ({}));
+                setScheduleListStatus(err.message || bt('schedule.error.resume', '恢复失败'), 'error');
+            }
+        } catch (e) {
+            setScheduleListStatus(bt('schedule.error.resume', '恢复失败'), 'error');
+        }
+    }
+
+    function resumeScheduleAccountIgnore(accountId) {
+        if (!confirm(bt('schedule.overuse.confirm.ignore',
+            '确定无视过度访问警告并立即继续下载吗？短时间内继续大量下载可能导致账号被封禁。'))) return;
+        resumeScheduleAccount(accountId, 'ignore');
+    }
+
+    function resumeScheduleAccountDefer(accountId) {
+        const input = prompt(bt('schedule.overuse.prompt.minutes', '延迟多少分钟后继续？（最低 60）'), '60');
+        if (input == null) return;
+        let minutes = parseInt(input, 10);
+        if (!Number.isFinite(minutes) || minutes < 60) minutes = 60;
+        resumeScheduleAccount(accountId, 'defer', minutes);
+    }
+
+    async function togglePendingPanel(id) {
+        const panel = document.getElementById(`schedule-pending-${id}`);
+        if (!panel) return;
+        if (!panel.hidden) {
+            panel.hidden = true;
+            return;
+        }
+        panel.hidden = false;
+        await loadPendingPanel(id);
+    }
+
+    async function loadPendingPanel(id) {
+        const panel = document.getElementById(`schedule-pending-${id}`);
+        if (!panel) return;
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/pending`, {credentials: 'same-origin'});
+            if (!res.ok) {
+                panel.innerHTML = `<div class="schedule-pending-empty">${escHtml(bt('schedule.pending.load-failed', '加载待重试列表失败'))}</div>`;
+                return;
+            }
+            const items = await res.json();
+            if (!Array.isArray(items) || items.length === 0) {
+                panel.innerHTML = `<div class="schedule-pending-empty">${escHtml(bt('schedule.pending.empty', '暂无待重试作品'))}</div>`;
+                return;
+            }
+            const task = scheduleTaskById(id);
+            const busy = !!task && (task.runState === 'RUNNING' || task.runState === 'QUEUED');
+            const clearAttr = busy
+                ? `disabled title="${escHtml(bt('schedule.disabled.busy', '任务运行 / 排队中，暂不可操作'))}"`
+                : '';
+            const rows = items.map(p => {
+                const manual = p.needsManual ? bt('schedule.pending.needs-manual', '（需人工）') : '';
+                const line = escHtml(bt('schedule.pending.item', '作品 {workId}：已重试 {attempts} 次{manual}',
+                    {workId: p.workId, attempts: p.attempts, manual}));
+                const reason = p.reason
+                    ? `<div class="schedule-pending-reason">${escHtml(bt('schedule.pending.reason', '原因：{reason}', {reason: p.reason}))}</div>`
+                    : '';
+                return `<li class="schedule-pending-item${p.needsManual ? ' schedule-pending-manual' : ''}">
+                    <div class="schedule-pending-line">${line}
+                        <button class="btn btn-gray btn-xs" ${clearAttr} onclick="clearPendingItem(${id}, ${p.workId})">${escHtml(bt('schedule.pending.action.clear', '清除'))}</button>
+                    </div>${reason}
+                </li>`;
+            }).join('');
+            panel.innerHTML = `<div class="schedule-pending-head">${escHtml(bt('schedule.pending.title', '待重试 / 需人工'))}</div><ul class="schedule-pending-list">${rows}</ul>`;
+        } catch (e) {
+            panel.innerHTML = `<div class="schedule-pending-empty">${escHtml(bt('schedule.pending.load-failed', '加载待重试列表失败'))}</div>`;
+        }
+    }
+
+    async function clearPendingItem(id, workId) {
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/pending/${workId}`, {method: 'DELETE', credentials: 'same-origin'});
+            if (res.ok) {
+                setScheduleListStatus(bt('schedule.status.pending-cleared', '已清除该条待重试记录'), 'success');
+                await loadPendingPanel(id);
+            }
         } catch (e) { /* ignore */ }
     }
 

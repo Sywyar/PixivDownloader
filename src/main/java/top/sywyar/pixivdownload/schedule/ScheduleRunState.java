@@ -51,7 +51,7 @@ public class ScheduleRunState {
                 return current;
             }
             updated[0] = true;
-            return new Entry(RUNNING, claim.claimId());
+            return new Entry(RUNNING, claim.claimId(), current.cancelRequested());
         });
         return updated[0];
     }
@@ -70,15 +70,38 @@ public class ScheduleRunState {
         return entry == null ? null : entry.state();
     }
 
+    /**
+     * 请求协作式取消：仅当任务正在 {@link #QUEUED} / {@link #RUNNING} 时生效（绑定当前 Claim）。
+     *
+     * <p>用于手动「暂停」让运行中的任务在下一个安全检查点（{@code WorkRunner.process} 入口）干净 unwind。
+     * 标记位寄存在 {@link Entry} 上，{@link #clear(Claim)} 移除 Entry 时一并消失，下一轮运行自然清零。
+     * 任务空闲（无 Entry）时返回 {@code false}：DB 的 {@code last_status=PAUSED} 已足以让 {@code findDue} 把它挡住，
+     * 无需在内存里挂残留标记。
+     */
+    public boolean requestCancel(long taskId) {
+        boolean[] applied = {false};
+        states.computeIfPresent(taskId, (id, current) -> {
+            applied[0] = true;
+            return new Entry(current.state(), current.claimId(), true);
+        });
+        return applied[0];
+    }
+
+    /** 当前任务的运行是否被请求取消（手动暂停）；executor 在派发前轮询。 */
+    public boolean isCancelRequested(long taskId) {
+        Entry e = states.get(taskId);
+        return e != null && e.cancelRequested();
+    }
+
     private Claim tryClaim(long id, String state) {
         long claimId = nextClaim.incrementAndGet();
-        Entry existing = states.putIfAbsent(id, new Entry(state, claimId));
+        Entry existing = states.putIfAbsent(id, new Entry(state, claimId, false));
         return existing == null ? new Claim(id, claimId) : null;
     }
 
     public record Claim(long taskId, long claimId) {
     }
 
-    private record Entry(String state, long claimId) {
+    private record Entry(String state, long claimId, boolean cancelRequested) {
     }
 }

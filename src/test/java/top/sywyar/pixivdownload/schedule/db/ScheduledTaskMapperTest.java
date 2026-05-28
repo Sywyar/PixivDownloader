@@ -41,6 +41,8 @@ class ScheduledTaskMapperTest {
             ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
             mapper.createScheduledTasksTable();
             mapper.createScheduledTasksNextRunIndex();
+            mapper.createScheduledTasksAccountIndex();
+            mapper.createScheduledTaskPendingTable();
         }
     }
 
@@ -112,6 +114,27 @@ class ScheduledTaskMapperTest {
 
             List<ScheduledTask> due = mapper.findDue(1000L);
             assertThat(due).extracting(ScheduledTask::name).containsExactly("到期");
+        }
+    }
+
+    @Test
+    @DisplayName("findDue 把残留 run_started_time 的中断任务纳入（next_run 在未来也立即重跑），但挂起态仍被排除")
+    void findDueIncludesInterruptedRegardlessOfNextRun() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            // next_run 仍在未来（典型：立即运行触发、尚未到周期就被强杀），但残留 run_started_time → 应被捡起重跑
+            ScheduledTaskInsert interrupted = sample("中断未到期", 9000L, null);
+            interrupted.setRunStartedTime(1234L);
+            mapper.insert(interrupted);
+            // 中断 + 挂起态：状态门优先，仍不重跑
+            ScheduledTaskInsert pausedInterrupted = sample("中断且暂停", 9000L, null);
+            pausedInterrupted.setRunStartedTime(1234L);
+            pausedInterrupted.setLastStatus(ScheduledTask.STATUS_PAUSED);
+            mapper.insert(pausedInterrupted);
+
+            List<String> due = mapper.findDue(1000L).stream().map(ScheduledTask::name).toList();
+            assertThat(due).contains("中断未到期");
+            assertThat(due).doesNotContain("中断且暂停");
         }
     }
 
@@ -193,5 +216,135 @@ class ScheduledTaskMapperTest {
             assertThat(read.type()).isEqualTo(ScheduledTaskType.SEARCH);
             assertThat(read.watermarkId()).isNull();
         }
+    }
+
+    @Test
+    @DisplayName("findDue 排除挂起态（OVERUSE_PAUSED / AUTH_EXPIRED / PAUSED），仅返回可运行任务")
+    void findDueGatesSuspendedStatuses() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            long ok = insertWithStatus(mapper, "正常", null);
+            long overuse = insertWithStatus(mapper, "过度访问", ScheduledTask.STATUS_OVERUSE_PAUSED);
+            long auth = insertWithStatus(mapper, "鉴权失效", ScheduledTask.STATUS_AUTH_EXPIRED);
+            long paused = insertWithStatus(mapper, "手动暂停", ScheduledTask.STATUS_PAUSED);
+
+            List<Long> due = mapper.findDue(5000L).stream().map(ScheduledTask::id).toList();
+            assertThat(due).contains(ok);
+            assertThat(due).doesNotContain(overuse, auth, paused);
+        }
+    }
+
+    @Test
+    @DisplayName("freezeAccount 仅冻结同账号非挂起态任务；clearSuspendForAccount 清挂起并重置 next_run")
+    void freezeAndClearAccount() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            long a1 = insertWithStatus(mapper, "A1", null);
+            long a2 = insertWithStatus(mapper, "A2", null);
+            mapper.updateAccountId(a1, "12345");
+            mapper.updateAccountId(a2, "12345");
+
+            int frozen = mapper.freezeAccount("12345", ScheduledTask.STATUS_OVERUSE_PAUSED, "999");
+            assertThat(frozen).isEqualTo(2);
+            assertThat(mapper.findById(a1).lastStatus()).isEqualTo(ScheduledTask.STATUS_OVERUSE_PAUSED);
+            assertThat(mapper.findById(a1).lastMessage()).isEqualTo("999");
+
+            mapper.clearSuspendForAccount("12345", 8000L);
+            assertThat(mapper.findById(a1).lastStatus()).isNull();
+            assertThat(mapper.findById(a2).nextRunTime()).isEqualTo(8000L);
+            assertThat(mapper.findByAccountId("12345")).hasSize(2);
+        }
+    }
+
+    @Test
+    @DisplayName("updateAckWarning / armRetry / clearRetryArmed 写读一致")
+    void ackAndRetryArming() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            ScheduledTaskInsert row = sample("任务G", 1000L, null);
+            mapper.insert(row);
+            long id = row.getId();
+            mapper.updateAccountId(id, "777");
+
+            mapper.updateAckWarning("777", 1234L);
+            assertThat(mapper.findById(id).ackWarningTime()).isEqualTo(1234L);
+
+            mapper.armRetry(id);
+            assertThat(mapper.findById(id).pendingRetryArmed()).isEqualTo(1);
+            mapper.clearRetryArmed(id);
+            assertThat(mapper.findById(id).pendingRetryArmed()).isZero();
+        }
+    }
+
+    @Test
+    @DisplayName("隔离表：insertPending 冲突保留 first_seen，incPendingAttempts 累加，deletePending 移除")
+    void pendingTableCrud() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            mapper.insertPending(1L, 100L, "受限", 5000L);
+            mapper.insertPending(1L, 100L, "再次受限", 6000L); // 冲突：保留 first_seen、attempts 不变
+            List<ScheduledTaskPending> list = mapper.listPending(1L);
+            assertThat(list).hasSize(1);
+            assertThat(list.get(0).firstSeenTime()).isEqualTo(5000L);
+            assertThat(list.get(0).attempts()).isZero();
+            assertThat(list.get(0).reason()).isEqualTo("再次受限");
+
+            mapper.incPendingAttempts(1L, 100L, 7000L);
+            assertThat(mapper.listPending(1L).get(0).attempts()).isEqualTo(1);
+
+            mapper.deletePending(1L, 100L);
+            assertThat(mapper.listPending(1L)).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("updateRunResult 保留运行中被手动设置的 PAUSED：不覆盖 last_status / last_message / next_run_time")
+    void runResultPreservesManualPaused() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            ScheduledTaskInsert row = sample("任务H", 1000L, null);
+            mapper.insert(row);
+            long id = row.getId();
+            mapper.updateRunStarted(id, 3000L);
+
+            // 模拟用户在任务运行过程中手动点了「暂停」
+            mapper.setStatus(id, ScheduledTask.STATUS_PAUSED);
+
+            // 本轮跑完落库结果：CASE 应保留 PAUSED + 旧的 next_run_time，仅清 run_started_time、刷 last_run_time
+            mapper.updateRunResult(id, 4000L, "OK", null, 10000L);
+
+            ScheduledTask read = mapper.findById(id);
+            assertThat(read.lastStatus()).isEqualTo(ScheduledTask.STATUS_PAUSED);
+            assertThat(read.lastMessage()).isNull();
+            assertThat(read.nextRunTime()).isEqualTo(1000L); // 保留：不被 OK 路径的新值覆盖
+            assertThat(read.lastRunTime()).isEqualTo(4000L); // 仍刷新
+            assertThat(read.runStartedTime()).isNull();       // 仍清空
+        }
+    }
+
+    @Test
+    @DisplayName("updateRunResult 非 PAUSED 旧状态正常被新结果覆盖")
+    void runResultOverwritesNonPausedStatus() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            ScheduledTaskInsert row = sample("任务I", 1000L, null);
+            row.setLastStatus("OK");
+            mapper.insert(row);
+            long id = row.getId();
+
+            mapper.updateRunResult(id, 4000L, "ERROR", "boom", 20000L);
+
+            ScheduledTask read = mapper.findById(id);
+            assertThat(read.lastStatus()).isEqualTo("ERROR");
+            assertThat(read.lastMessage()).isEqualTo("boom");
+            assertThat(read.nextRunTime()).isEqualTo(20000L);
+        }
+    }
+
+    private long insertWithStatus(ScheduledTaskMapper mapper, String name, String status) {
+        ScheduledTaskInsert row = sample(name, 1000L, null);
+        row.setLastStatus(status);
+        mapper.insert(row);
+        return row.getId();
     }
 }

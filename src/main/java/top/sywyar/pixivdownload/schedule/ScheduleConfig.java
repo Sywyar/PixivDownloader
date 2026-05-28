@@ -25,4 +25,16 @@ public class ScheduleConfig {
 
     /** 抓取相邻作品间的礼貌延迟（毫秒），避免被 Pixiv 限流 */
     private volatile long fetchDelayMs = 1_000L;
+
+    /** 轮内过度访问检查点的派发间隔 N：每成功派发 N 个下载读一次站内信（跳过/过滤不计） */
+    private volatile int inboxCheckEvery = 500;
+
+    /** 单作品连续 PixivFetchException 熔断阈值 M：连续失败达到即挂起任务（AUTH_EXPIRED） */
+    private volatile int authFailureCircuitBreaker = 5;
+
+    /** 隔离表单作品最大自动重试次数：到上限标「需人工」、停止自动重试 */
+    private volatile int pendingMaxAttempts = 5;
+
+    /** 账号级 defer 恢复的默认延迟分钟数（最低 60） */
+    private volatile int overuseDeferDefaultMinutes = 60;
 }

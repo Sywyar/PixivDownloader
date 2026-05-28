@@ -362,11 +362,28 @@ public final class ManagedDatabaseSchema {
                         column("last_message", "TEXT", false, null, 0),
                         column("watermark_id", "INTEGER", false, null, 0),
                         column("run_started_time", "INTEGER", false, null, 0),
+                        column("account_id", "TEXT", false, null, 0),
+                        column("ack_warning_time", "INTEGER", false, null, 0),
+                        column("pending_retry_armed", "INTEGER", false, "0", 0),
                         column("created_time", "INTEGER", true, null, 0)
                 ),
                 List.of(
-                        explicitIndex("idx_scheduled_tasks_next_run", false, "next_run_time")
+                        explicitIndex("idx_scheduled_tasks_next_run", false, "next_run_time"),
+                        explicitIndex("idx_scheduled_tasks_account", false, "account_id")
                 )
+        ));
+
+        tables.put("scheduled_task_pending", new TableSpec(
+                "scheduled_task_pending",
+                List.of(
+                        column("task_id", "INTEGER", true, null, 1),
+                        column("work_id", "INTEGER", true, null, 2),
+                        column("reason", "TEXT", false, null, 0),
+                        column("attempts", "INTEGER", false, "0", 0),
+                        column("first_seen_time", "INTEGER", false, null, 0),
+                        column("last_attempt_time", "INTEGER", false, null, 0)
+                ),
+                List.of()
         ));
 
         return new DatabaseSchema(Map.copyOf(tables));

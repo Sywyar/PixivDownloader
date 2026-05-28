@@ -1845,9 +1845,11 @@
     padding: 4px 11px;
     border-radius: 12px;
     background: var(--control-muted-bg);
+    border: 1px solid transparent;
     font-size: 12px;
     font-weight: 600;
     line-height: 1.4;
+    transition: background .2s ease, border-color .2s ease;
 }
 
 .schedule-status-light .schedule-light-dot {
@@ -1857,6 +1859,7 @@
     border-radius: 50%;
     flex-shrink: 0;
     background: var(--status-gray);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-gray) 22%, transparent);
 }
 
 .schedule-status-light .schedule-light-text {
@@ -1868,34 +1871,46 @@
 
 .schedule-status-light-gray {
     color: var(--muted);
+    background: color-mix(in srgb, var(--status-gray) 12%, var(--surface));
+    border-color: color-mix(in srgb, var(--status-gray) 30%, transparent);
 }
 
 .schedule-status-light-gray .schedule-light-dot {
     background: var(--status-gray);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-gray) 20%, transparent);
 }
 
 .schedule-status-light-green {
     color: var(--status-green);
+    background: color-mix(in srgb, var(--status-green) 14%, var(--surface));
+    border-color: color-mix(in srgb, var(--status-green) 38%, transparent);
 }
 
 .schedule-status-light-green .schedule-light-dot {
     background: var(--status-green);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-green) 26%, transparent);
 }
 
 .schedule-status-light-yellow {
     color: var(--status-yellow);
+    background: color-mix(in srgb, var(--status-yellow) 16%, var(--surface));
+    border-color: color-mix(in srgb, var(--status-yellow) 40%, transparent);
 }
 
 .schedule-status-light-yellow .schedule-light-dot {
     background: var(--status-yellow);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-yellow) 28%, transparent);
 }
 
 .schedule-status-light-red {
     color: var(--status-red);
+    background: color-mix(in srgb, var(--status-red) 14%, var(--surface));
+    border-color: color-mix(in srgb, var(--status-red) 38%, transparent);
 }
 
 .schedule-status-light-red .schedule-light-dot {
     background: var(--status-red);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-red) 26%, transparent);
 }
 
 /* 瞬时活动态（正在运行 / 排队中）的灯做呼吸动画，与常亮的成功 / 失败灯区分 */
@@ -2179,4 +2194,94 @@ body.schedule-modal-open {
     .schedule-snapshot-value {
         margin-bottom: 6px;
     }
+}
+
+/* ── 过度访问账号级暂停横幅（二期） ───────────────────────────────── */
+.schedule-overuse-banner {
+    border: 1px solid var(--line-strong, #ccc);
+    border-left: 4px solid var(--danger-bg, #dc3545);
+    background: var(--warning-bg);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+}
+
+.schedule-overuse-title {
+    font-weight: 700;
+    color: var(--warning-text);
+    margin-bottom: 4px;
+}
+
+.schedule-overuse-desc {
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 10px;
+    line-height: 1.6;
+}
+
+.schedule-overuse-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* ── 待重试 / 需人工 面板（二期） ─────────────────────────────────── */
+.schedule-pending-panel {
+    border: 1px solid var(--line);
+    background: var(--surface-muted);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 8px 0 4px;
+}
+
+.schedule-pending-head {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text);
+    margin-bottom: 6px;
+}
+
+.schedule-pending-empty {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.schedule-pending-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.schedule-pending-item {
+    border-top: 1px solid var(--line);
+    padding: 6px 0;
+    font-size: 13px;
+    color: var(--text);
+}
+
+.schedule-pending-item:first-child {
+    border-top: none;
+}
+
+.schedule-pending-manual {
+    color: var(--danger-bg, #dc3545);
+}
+
+.schedule-pending-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.schedule-pending-reason {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+    word-break: break-all;
+}
+
+.btn-xs {
+    padding: 2px 8px;
+    font-size: 12px;
 }

@@ -8,11 +8,15 @@ import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
+import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
 
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 计划任务的增删改查、Cookie 授权与「立即运行」入口。
@@ -71,6 +75,9 @@ public class ScheduleService {
         row.setLastMessage(null);
         row.setWatermarkId(null);
         row.setRunStartedTime(null);
+        row.setAccountId(null);
+        row.setAckWarningTime(null);
+        row.setPendingRetryArmed(0);
         row.setCreatedTime(now);
 
         database.mapper().insert(row);
@@ -80,6 +87,7 @@ public class ScheduleService {
     @Transactional
     public ScheduleTaskView update(long id, ScheduleTaskRequest req) {
         requireExisting(id);
+        requireNotBusy(id);
         String triggerKind = validateTrigger(req);
         Long nextRun = ScheduleTiming.computeNextRun(
                 triggerKind, req.getIntervalMinutes(), req.getCronExpr(), System.currentTimeMillis());
@@ -92,6 +100,7 @@ public class ScheduleService {
     @Transactional
     public ScheduleTaskView setEnabled(long id, boolean enabled) {
         requireExisting(id);
+        requireNotBusy(id);
         database.mapper().updateEnabled(id, enabled);
         return get(id);
     }
@@ -99,6 +108,7 @@ public class ScheduleService {
     @Transactional
     public void delete(long id) {
         requireExisting(id);
+        requireNotBusy(id);
         // 任务删除即清 cookie 快照（行删除连带 cookie_snapshot 一并消失）
         database.mapper().delete(id);
         // 连带清除内存中的本轮运行队列，避免删除后残留
@@ -123,29 +133,80 @@ public class ScheduleService {
         return new ScheduleQueueView(id, run.startedTime(), run.truncated(), items.size(), items);
     }
 
+    /** PHPSESSID 形如 {@code {userId}_{session}}：下划线前缀即非敏感 Pixiv userId。 */
+    private static final Pattern PHPSESSID_PATTERN = Pattern.compile("PHPSESSID=([^;\\s]+)");
+
     /**
      * 为任务快照绑定 Cookie。校验含 {@code PHPSESSID} 后写入；cookie 绝不写日志 / 回显。
+     *
+     * <p>同时解析非敏感 {@code account_id}（PHPSESSID 下划线前缀 = Pixiv userId）写入；
+     * 并清挂起（解 AUTH_EXPIRED）、重算 next_run、武装隔离表重试——这是 {@code AUTH_EXPIRED} 的恢复入口。
      */
     @Transactional
     public ScheduleTaskView authorizeCookie(long id, String cookie) {
         requireExisting(id);
+        requireNotBusy(id);
         if (cookie == null || !cookie.contains("PHPSESSID")) {
             throw LocalizedException.badRequest(
                     "schedule.error.cookie-invalid", "Cookie 无效：缺少 PHPSESSID");
         }
         database.mapper().updateCookie(id, cookie.trim(), ScheduledTask.COOKIE_BOUND);
+        database.mapper().updateAccountId(id, parsePixivUserId(cookie));
+        ScheduledTask task = database.mapper().findById(id);
+        database.mapper().clearSuspend(id, nextRunFor(task));
+        database.mapper().armRetry(id);
         return get(id);
+    }
+
+    /**
+     * 从 Cookie 串解析非敏感 Pixiv userId（PHPSESSID 下划线前缀）。
+     * 无 PHPSESSID / 无下划线前缀 / 前缀非数字 → 返回 {@code null}（不阻断授权）。
+     */
+    static String parsePixivUserId(String cookie) {
+        if (cookie == null) return null;
+        Matcher m = PHPSESSID_PATTERN.matcher(cookie);
+        if (!m.find()) return null;
+        String value = m.group(1);
+        int underscore = value.indexOf('_');
+        if (underscore <= 0) return null;
+        String prefix = value.substring(0, underscore);
+        return prefix.chars().allMatch(Character::isDigit) ? prefix : null;
     }
 
     /** 解除 Cookie 授权：清空快照并回到受限模式。 */
     @Transactional
     public ScheduleTaskView revokeCookie(long id) {
         requireExisting(id);
+        requireNotBusy(id);
         database.mapper().updateCookie(id, null, ScheduledTask.COOKIE_RESTRICTED);
         return get(id);
     }
 
-    /** 立即运行一次（后台异步执行，不阻塞调用方）。 */
+    /**
+     * 「立即运行」端点入口：在 {@link #runOnce} 之上加状态门——任务必须 {@code enabled}、未在运行 / 排队、
+     * 且未处于暂停 / 挂起态才允许手动触发。前端会据此禁用按钮，这里是后端防护（防陈旧 UI / 直连 API）。
+     */
+    public void manualRun(long id) {
+        ScheduledTask task = database.mapper().findById(id);
+        if (task == null) {
+            throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
+        }
+        requireNotBusy(id);
+        if (!task.enabled()) {
+            throw LocalizedException.badRequest("schedule.error.run-disabled", "任务已停用，请先启用再运行");
+        }
+        if (isSuspended(task)) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.run-suspended", "任务处于暂停 / 挂起状态，请先恢复或重新授权再运行");
+        }
+        runOnce(id);
+    }
+
+    /**
+     * 立即运行一次（后台异步执行，不阻塞调用方）。<b>不含状态门</b>：供 {@link #manualRun} 与
+     * {@link ScheduleController#resume} 复用——前者已在外层校验状态，后者在 resume 事务提交、确认 enabled 后调用。
+     * 已在运行 / 排队（有 Claim）时静默跳过，靠 next_run 兜底由 tick 接管。
+     */
     public void runOnce(long id) {
         requireExisting(id);
         ScheduleRunState.Claim claim = runState.tryMarkQueued(id);
@@ -161,12 +222,153 @@ public class ScheduleService {
         }
     }
 
+    // ── 暂停 / 恢复（二期） ───────────────────────────────────────────────────────
+
+    /**
+     * 手动暂停（任务级 PAUSED）：不冻账号、不发邮件；findDue 状态门挡住，不再到期触发。
+     *
+     * <p><b>仅在任务正在运行 / 排队（busy）时可暂停</b>：暂停语义是「打断当前这一轮」，空闲任务没有可打断的运行，
+     * 应改用「停用」阻止自动调度。空闲时直接拒绝（前端也会禁用按钮，这里是后端防护）。
+     *
+     * <p>通过 {@link ScheduleRunState#requestCancel(long)} 给正在运行的本轮派发循环发协作式取消信号：
+     * executor 在下一个作品派发前抛 {@link SchedulePauseException} 干净 unwind 本轮，
+     * 这样「按下暂停立刻见效」，已下载的不回滚、未派发的不再继续，最终 {@code updateRunResult}
+     * 由 CASE 保留 PAUSED 状态。
+     */
+    @Transactional
+    public ScheduleTaskView pause(long id) {
+        requireExisting(id);
+        if (!isBusy(id)) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.pause-idle", "任务当前未在运行，无需暂停；如需阻止自动运行请使用「停用」");
+        }
+        database.mapper().setStatus(id, ScheduledTask.STATUS_PAUSED);
+        runState.requestCancel(id);
+        return get(id);
+    }
+
+    /**
+     * 恢复手动暂停 / 单任务挂起：清挂起，并把 {@code next_run_time} 置为<b>当前时刻</b>，使其立刻到期。
+     *
+     * <p>恢复语义是「立即继续这个任务」：调用方（{@link ScheduleController}）在本方法事务提交后会再触发一次
+     * 后台运行（{@code runOnce}）真正立刻跑起来；这里把 {@code next_run_time=now} 作为兜底——即便那次即时触发
+     * 因竞态被跳过，下一拍调度 tick 也会因「已到期」立即把它捡起来跑，绝不让恢复后白等一个完整周期。
+     */
+    @Transactional
+    public ScheduleTaskView resume(long id) {
+        ScheduledTask task = database.mapper().findById(id);
+        if (task == null) {
+            throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
+        }
+        if (!ScheduledTask.STATUS_PAUSED.equals(task.lastStatus())) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.resume-not-paused", "任务未处于手动暂停状态，无法恢复");
+        }
+        requireNotBusy(id);
+        database.mapper().clearSuspend(id, System.currentTimeMillis());
+        return get(id);
+    }
+
+    /**
+     * 账号级（过度访问）恢复，对同账号所有任务生效（{@link AccountResumeRequest}）。
+     */
+    @Transactional
+    public void resumeAccount(String accountId, AccountResumeRequest req) {
+        List<ScheduledTask> tasks = database.mapper().findByAccountId(accountId);
+        if (tasks.isEmpty()) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.account-not-found", "账号下无计划任务: {0}", accountId);
+        }
+        String mode = req.getMode() == null ? "" : req.getMode().trim();
+        Long ackTime = latestOveruseWarning(tasks);
+        long now = System.currentTimeMillis();
+        if (AccountResumeRequest.MODE_IGNORE.equals(mode)) {
+            if (ackTime != null) {
+                database.mapper().updateAckWarning(accountId, ackTime);
+            }
+            database.mapper().clearSuspendForAccount(accountId, now);
+        } else if (AccountResumeRequest.MODE_DEFER.equals(mode)) {
+            int minutes = req.getMinutes() == null
+                    ? config.getOveruseDeferDefaultMinutes() : req.getMinutes();
+            if (minutes < 60) {
+                throw LocalizedException.badRequest(
+                        "schedule.error.defer-minutes-min", "延迟分钟数最低为 60");
+            }
+            if (ackTime != null) {
+                database.mapper().updateAckWarning(accountId, ackTime); // 保险
+            }
+            database.mapper().clearSuspendForAccount(accountId, now + minutes * 60_000L);
+        } else {
+            throw LocalizedException.badRequest("schedule.error.resume-mode-invalid", "恢复方式无效");
+        }
+    }
+
+    /** 隔离表（待重试）行视图，供前端「待重试 / 需人工」面板展示。 */
+    public List<SchedulePendingView> pending(long id) {
+        requireExisting(id);
+        int max = config.getPendingMaxAttempts();
+        return database.mapper().listPending(id).stream()
+                .map(p -> SchedulePendingView.of(p, max))
+                .toList();
+    }
+
+    /** 手动清除隔离表中某个「需人工」条目（运行 / 排队中拒绝，避免与本轮的隔离表读写竞态）。 */
+    @Transactional
+    public void clearPending(long id, long workId) {
+        requireExisting(id);
+        requireNotBusy(id);
+        database.mapper().deletePending(id, workId);
+    }
+
+    /** 取同账号 OVERUSE_PAUSED 任务里 last_message 记录的最新触发警告 modifiedAt（毫秒）。 */
+    private static Long latestOveruseWarning(List<ScheduledTask> tasks) {
+        Long best = null;
+        for (ScheduledTask t : tasks) {
+            if (!ScheduledTask.STATUS_OVERUSE_PAUSED.equals(t.lastStatus())) continue;
+            String msg = t.lastMessage();
+            if (msg == null || msg.isBlank()) continue;
+            try {
+                long v = Long.parseLong(msg.trim());
+                if (best == null || v > best) best = v;
+            } catch (NumberFormatException ignored) {
+                // last_message 非纯数字（异常路径）：忽略
+            }
+        }
+        return best;
+    }
+
+    private static Long nextRunFor(ScheduledTask task) {
+        return ScheduleTiming.computeNextRun(
+                task.triggerKind(), task.intervalMinutes(), task.cronExpr(), System.currentTimeMillis());
+    }
+
     // ── 内部 ────────────────────────────────────────────────────────────────────
 
     private void requireExisting(long id) {
         if (database.mapper().findById(id) == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
+    }
+
+    /** 任务是否正处于瞬时运行态（QUEUED / RUNNING）。结构性操作在此期间应拒绝。 */
+    private boolean isBusy(long id) {
+        return runState.get(id) != null;
+    }
+
+    /** 运行 / 排队中拒绝结构性操作（编辑 / 启停 / 删除 / 授权 / 解绑 / 清待重试 / 恢复等）。 */
+    private void requireNotBusy(long id) {
+        if (isBusy(id)) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.busy", "任务正在运行或排队中，请等待本轮结束后再操作");
+        }
+    }
+
+    /** 是否处于暂停 / 挂起态（手动暂停 / 过度访问 / cookie 失效）。 */
+    private static boolean isSuspended(ScheduledTask t) {
+        String s = t.lastStatus();
+        return ScheduledTask.STATUS_PAUSED.equals(s)
+                || ScheduledTask.STATUS_OVERUSE_PAUSED.equals(s)
+                || ScheduledTask.STATUS_AUTH_EXPIRED.equals(s);
     }
 
     private String validateTrigger(ScheduleTaskRequest req) {

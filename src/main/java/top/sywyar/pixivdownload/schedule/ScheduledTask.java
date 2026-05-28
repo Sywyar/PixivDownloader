@@ -19,6 +19,9 @@ package top.sywyar.pixivdownload.schedule;
  * @param lastMessage     上轮失败原因摘要（仅 {@code ERROR} 时有值，已截断、绝不含 Cookie）；其余状态为 {@code null}
  * @param watermarkId     水位线：上一轮完整跑完时发现到的最新作品 ID（仅 USER_NEW / 增量 SEARCH 用，全量跑完才更新）；首次为 {@code null}
  * @param runStartedTime  本轮进入执行的时刻（毫秒）；正常结束即清为 {@code null}，残留则表示上次运行被进程强杀中断
+ * @param accountId        授权时从 PHPSESSID 下划线前缀解析出的非敏感 Pixiv userId；未授权 / 解析失败为 {@code null}。过度访问冻结按它判定「同账号」
+ * @param ackWarningTime   管理员「无视风险」显式放行过的最新警告 modifiedAt（毫秒）；不超过它的过度访问警告不再触发暂停
+ * @param pendingRetryArmed 管理员处理完异常后置 1：下一轮运行开始先把隔离表入队重试，重试后清 0
  */
 public record ScheduledTask(
         Long id,
@@ -36,10 +39,20 @@ public record ScheduledTask(
         String lastMessage,
         Long watermarkId,
         Long runStartedTime,
+        String accountId,
+        Long ackWarningTime,
+        int pendingRetryArmed,
         long createdTime
 ) {
     public static final String TRIGGER_INTERVAL = "interval";
     public static final String TRIGGER_CRON = "cron";
     public static final String COOKIE_BOUND = "bound";
     public static final String COOKIE_RESTRICTED = "restricted";
+
+    /** 上轮过度访问警告 → 账号级暂停（恢复入口为账号级两个按钮）。 */
+    public static final String STATUS_OVERUSE_PAUSED = "OVERUSE_PAUSED";
+    /** Cookie 失效 → 任务级挂起（恢复入口为重新授权 cookie）。 */
+    public static final String STATUS_AUTH_EXPIRED = "AUTH_EXPIRED";
+    /** 管理员手动暂停（任务级，不冻账号、不发邮件；恢复入口为「恢复」按钮）。 */
+    public static final String STATUS_PAUSED = "PAUSED";
 }
