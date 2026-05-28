@@ -26,7 +26,7 @@ import java.util.Properties;
  * <p>
  * 两个入口：
  * <ul>
- *   <li>{@link #send(String, String)} —— best-effort，失败仅 {@code log.error} 不抛；二期调度器调用</li>
+ *   <li>{@link #send(String, String)} —— best-effort，失败仅 {@code log.error} 不抛；调度器自发通知用</li>
  *   <li>{@link #sendTest(MailSenderSettings)} —— 抛 {@link MailSendException}，返回失败摘要给 GUI</li>
  * </ul>
  * 邮件正文以 HTML 形式发出，subject 加 {@link MailConfig#getSubjectPrefix()} 前缀。

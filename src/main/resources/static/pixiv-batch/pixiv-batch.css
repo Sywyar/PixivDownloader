@@ -2196,7 +2196,7 @@ body.schedule-modal-open {
     }
 }
 
-/* ── 过度访问账号级暂停横幅（二期） ───────────────────────────────── */
+/* ── 过度访问账号级暂停横幅 ─────────────────────────────────────── */
 .schedule-overuse-banner {
     border: 1px solid var(--line-strong, #ccc);
     border-left: 4px solid var(--danger-bg, #dc3545);
@@ -2225,7 +2225,7 @@ body.schedule-modal-open {
     gap: 8px;
 }
 
-/* ── 待重试 / 需人工 面板（二期） ─────────────────────────────────── */
+/* ── 待重试 / 需人工 面板 ────────────────────────────────────────── */
 .schedule-pending-panel {
     border: 1px solid var(--line);
     background: var(--surface-muted);

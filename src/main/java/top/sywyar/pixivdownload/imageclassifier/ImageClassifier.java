@@ -1263,7 +1263,7 @@ public class ImageClassifier extends JFrame {
             List<File[]> copyPairs         = new ArrayList<>();
 
             // ==========================================
-            // Phase 1：复制所有文件
+            // 步骤 1：复制所有文件
             // ==========================================
             try {
                 for (File image : currentImages) {
@@ -1289,7 +1289,7 @@ public class ImageClassifier extends JFrame {
             }
 
             // ==========================================
-            // Phase 2：删除源文件 (发生错误不回滚目标文件)
+            // 步骤 2：删除源文件 (发生错误不回滚目标文件)
             // ==========================================
             while (currentSubFolder.exists()) {
                 try {
