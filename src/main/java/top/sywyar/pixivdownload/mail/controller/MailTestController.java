@@ -21,9 +21,12 @@ import top.sywyar.pixivdownload.mail.template.RenderedMail;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * GUI 配置页"发送测试邮件"按钮对应的 REST 端点。
@@ -77,12 +80,89 @@ public class MailTestController {
         }
     }
 
+    /**
+     * GUI 配置页"发送所有邮件模板"按钮对应的端点。
+     * <p>
+     * 用 {@link #buildSamplePlaceholders} 生成的示例占位符遍历 {@link MailTemplateRegistry#templates()} 中的全部模板，
+     * 逐一以 {@link MailService#sendTest} 发送（失败仅记入 {@link MailTestAllResponse#failures}，不抛、不中断后续模板）。
+     * 失败摘要由 {@code MailService.safeMessage} 截断 + 异常链脱敏，绝不含密码。
+     */
+    @PostMapping("/mail-test-all")
+    public ResponseEntity<MailTestAllResponse> testAll(@RequestBody MailTestRequest body,
+                                                       HttpServletRequest request) {
+        if (!NetworkUtils.isTrustedLocalRequest(request)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        if (body == null) {
+            return ResponseEntity.badRequest().body(MailTestAllResponse.fail(
+                    messages.get("mail.error.settings-missing")));
+        }
+
+        Locale locale = LocaleContextHolder.getLocale();
+        MailSenderSettings settings = body.toSenderSettings();
+        Map<String, String> samplePlaceholders = buildSamplePlaceholders(settings, locale);
+
+        Set<String> templateIds = templateRegistry.templates().keySet();
+        int total = templateIds.size();
+        int succeeded = 0;
+        List<MailTestAllResponse.Failure> failures = new ArrayList<>();
+
+        for (String templateId : templateIds) {
+            try {
+                RenderedMail rendered = templateRegistry.render(templateId, locale, samplePlaceholders);
+                mailService.sendTest(settings, rendered.subject(), rendered.htmlBody());
+                succeeded++;
+            } catch (MailService.MailSendException e) {
+                failures.add(new MailTestAllResponse.Failure(templateId, e.getMessage()));
+            } catch (IOException e) {
+                log.warn(logMessage("mail.log.test.template-failed", e.getMessage()));
+                failures.add(new MailTestAllResponse.Failure(templateId,
+                        messages.get(locale, "mail.error.template-failed")));
+            }
+        }
+
+        if (succeeded == total) {
+            return ResponseEntity.ok(MailTestAllResponse.ok(total));
+        }
+        return ResponseEntity.ok(MailTestAllResponse.partial(total, succeeded, failures));
+    }
+
     private Map<String, String> buildPlaceholders(MailSenderSettings settings, Locale locale) {
         Map<String, String> placeholders = new LinkedHashMap<>();
         placeholders.put("app_name", AppInfo.NAME);
         placeholders.put("username", messages.get(locale, "mail.template.placeholder.administrator"));
         placeholders.put("smtp_host", settings.host() == null ? "" : settings.host());
         placeholders.put("time", LocalDateTime.now().format(TIME_FORMAT));
+        return placeholders;
+    }
+
+    /**
+     * 给 {@link #testAll} 用的示例占位符：合并了四个模板各自需要的所有 key（render 时多余 key 会被忽略），
+     * 用 i18n 取本地化的示例文本（任务名 / 站内信摘要 / 失败摘要等），保证两种 locale 下预览效果一致。
+     */
+    private Map<String, String> buildSamplePlaceholders(MailSenderSettings settings, Locale locale) {
+        LocalDateTime now = LocalDateTime.now();
+        String nowFormatted = now.format(TIME_FORMAT);
+        String earlierFormatted = now.minusMinutes(5).format(TIME_FORMAT);
+
+        Map<String, String> placeholders = new LinkedHashMap<>();
+        // mail-config-success
+        placeholders.put("app_name", AppInfo.NAME);
+        placeholders.put("username", messages.get(locale, "mail.template.placeholder.administrator"));
+        placeholders.put("smtp_host", settings.host() == null ? "" : settings.host());
+        placeholders.put("time", nowFormatted);
+        // overuse-paused
+        placeholders.put("account_id", messages.get(locale, "mail.template.sample.account-id"));
+        placeholders.put("tasks_count", messages.get(locale, "mail.template.sample.tasks-count"));
+        placeholders.put("warning_time", earlierFormatted);
+        placeholders.put("trigger_time", nowFormatted);
+        placeholders.put("warning_excerpt", messages.get(locale, "mail.template.sample.warning-excerpt"));
+        // auth-expired / circuit-breaker 公共
+        placeholders.put("task_name", messages.get(locale, "mail.template.sample.task-name"));
+        placeholders.put("task_id", messages.get(locale, "mail.template.sample.task-id"));
+        // circuit-breaker
+        placeholders.put("consecutive_failures", messages.get(locale, "mail.template.sample.consecutive-failures"));
+        placeholders.put("last_error_excerpt", messages.get(locale, "mail.template.sample.last-error-excerpt"));
         return placeholders;
     }
 

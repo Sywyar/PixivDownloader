@@ -80,6 +80,8 @@ public class ConfigPanel extends JPanel {
     private JComboBox<MailPreset> mailPresetCombo;
     /** "发送测试邮件" 按钮，发送中暂时禁用。 */
     private JButton mailTestButton;
+    /** "发送所有邮件模板" 按钮，发送中暂时禁用。 */
+    private JButton mailTestAllButton;
     /** 当前预设；非 custom 时锁定 host / port / security。 */
     private MailPreset currentMailPreset;
     /** 防止在程序性更新下拉时反向触发预设应用。 */
@@ -162,6 +164,10 @@ public class ConfigPanel extends JPanel {
             JPanel mailTestPanel = buildMailTestPanel();
             mailTestPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(mailTestPanel);
+            content.add(Box.createVerticalStrut(2));
+            JPanel mailTestAllPanel = buildMailTestAllPanel();
+            mailTestAllPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(mailTestAllPanel);
             content.add(Box.createVerticalStrut(2));
         }
         content.add(Box.createVerticalGlue());
@@ -317,6 +323,17 @@ public class ConfigPanel extends JPanel {
                 mailTestButton,
                 null,
                 message("gui.config.mail.test-button.help"));
+    }
+
+    /** "发送所有邮件模板" 按钮行：用示例数据遍历全部模板逐封发送。 */
+    private JPanel buildMailTestAllPanel() {
+        mailTestAllButton = new JButton(message("gui.config.mail.test-all.button.label"));
+        mailTestAllButton.addActionListener(e -> sendAllMailTemplates());
+        return FieldRenderer.fieldPanel(
+                message("gui.config.mail.test-all.button.label") + message("gui.punctuation.colon"),
+                mailTestAllButton,
+                null,
+                message("gui.config.mail.test-all.button.help"));
     }
 
     /**
@@ -529,6 +546,142 @@ public class ConfigPanel extends JPanel {
 
     /** mail-test 异步结果。reachable=false 表示后端连接不上；success=true 仅当后端发信成功。 */
     private record MailTestOutcome(boolean reachable, boolean success, String error) {
+    }
+
+    private void sendAllMailTemplates() {
+        if (mailTestAllButton == null) {
+            return;
+        }
+        mailTestAllButton.setEnabled(false);
+        showNotice(message("gui.config.mail.test-all.notice.sending"));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("host", currentFieldValue("mail.host"));
+        payload.put("port", parseIntOrZero(currentFieldValue("mail.port")));
+        payload.put("security", currentFieldValue("mail.security"));
+        payload.put("username", currentFieldValue("mail.username"));
+        payload.put("password", currentFieldValue("mail.password"));
+        payload.put("from", currentFieldValue("mail.from"));
+        payload.put("to", currentFieldValue("mail.to"));
+        payload.put("socksProxy", currentFieldValue("mail.socks-proxy"));
+        payload.put("subjectPrefix", currentFieldValue("mail.subject-prefix"));
+
+        SwingWorker<MailTestAllOutcome, Void> worker = new SwingWorker<>() {
+            @Override
+            protected MailTestAllOutcome doInBackground() {
+                return postMailTestAll(payload);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    MailTestAllOutcome outcome = get();
+                    if (!outcome.reachable()) {
+                        showNotice(message("gui.config.mail.test.notice.unreachable"));
+                    } else if (outcome.success()) {
+                        showNotice(message("gui.config.mail.test-all.notice.success",
+                                String.valueOf(outcome.total())));
+                    } else if (outcome.succeeded() > 0) {
+                        showNotice(message("gui.config.mail.test-all.notice.partial",
+                                String.valueOf(outcome.succeeded()),
+                                String.valueOf(outcome.total()),
+                                outcome.errorSummary() == null ? "" : outcome.errorSummary()));
+                    } else {
+                        showNotice(message("gui.config.mail.test.notice.failed",
+                                outcome.errorSummary() == null ? "" : outcome.errorSummary()));
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    showNotice(message("gui.config.mail.test.notice.unreachable"));
+                } catch (ExecutionException ex) {
+                    log.warn(logMessage("gui.config.mail.test.notice.failed", safeMessage(ex.getCause())),
+                            ex.getCause());
+                    showNotice(message("gui.config.mail.test.notice.failed", safeMessage(ex.getCause())));
+                } finally {
+                    mailTestAllButton.setEnabled(true);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    /**
+     * 调用 {@code /api/gui/mail-test-all}；同时尝试 http / https，本地端点；连接不上返回 reachable=false。
+     * 读超时放宽到 180s：服务端会串行发送 4 封邮件，最坏情况下每封 ~40s（SMTP 连接 / 读 / 写 timeout 之和）。
+     */
+    private MailTestAllOutcome postMailTestAll(ObjectNode payload) {
+        byte[] body;
+        try {
+            body = MAPPER.writeValueAsBytes(payload);
+        } catch (Exception e) {
+            return new MailTestAllOutcome(true, false, 0, 0, e.getMessage());
+        }
+        String[] schemes = {"http", "https"};
+        for (String scheme : schemes) {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/mail-test-all").toURL();
+                conn = (HttpURLConnection) url.openConnection();
+                if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
+                    https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
+                    https.setHostnameVerifier((host, session) -> true);
+                }
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(180_000);
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept-Language", GuiMessages.currentLocale().toLanguageTag());
+                String guiToken = GuiTokenHolder.get();
+                if (guiToken != null) {
+                    conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
+                }
+                conn.getOutputStream().write(body);
+                int status = conn.getResponseCode();
+                String responseBody = readResponseBody(conn, status);
+                if (status >= 200 && status < 300) {
+                    boolean success = false;
+                    int total = 0;
+                    int succeeded = 0;
+                    String errorSummary = null;
+                    if (responseBody != null && !responseBody.isBlank()) {
+                        var node = MAPPER.readTree(responseBody);
+                        success = node.path("success").asBoolean(false);
+                        total = node.path("total").asInt(0);
+                        succeeded = node.path("succeeded").asInt(0);
+                        var failures = node.path("failures");
+                        if (failures.isArray() && !failures.isEmpty()) {
+                            StringBuilder sb = new StringBuilder();
+                            for (int i = 0; i < failures.size(); i++) {
+                                var f = failures.get(i);
+                                if (sb.length() > 0) sb.append("; ");
+                                sb.append(f.path("templateId").asText("-"))
+                                        .append(": ")
+                                        .append(f.path("error").asText(""));
+                            }
+                            errorSummary = sb.toString();
+                        }
+                    }
+                    return new MailTestAllOutcome(true, success, total, succeeded, errorSummary);
+                }
+                return new MailTestAllOutcome(true, false, 0, 0,
+                        (responseBody == null || responseBody.isBlank())
+                                ? ("HTTP " + status)
+                                : responseBody);
+            } catch (Exception ignored) {
+                // try the other scheme
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+        return new MailTestAllOutcome(false, false, 0, 0, null);
+    }
+
+    /** mail-test-all 异步结果。reachable=false 表示后端连接不上；success=true 仅当全部模板都发信成功。 */
+    private record MailTestAllOutcome(boolean reachable, boolean success, int total, int succeeded,
+                                      String errorSummary) {
     }
 
     private boolean shouldHideGroup(String group) {
