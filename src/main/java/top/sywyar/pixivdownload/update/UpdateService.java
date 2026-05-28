@@ -31,9 +31,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * 在线更新核心服务。
@@ -194,6 +196,9 @@ public class UpdateService {
 
             lastResult = combined;
             lastSuccessfulCheckAt = combined.getCheckedAt();
+            if (!combined.isUpdateAvailable() && combined.getNightlyAlternative() == null) {
+                cleanupInstallerCache();
+            }
             return combined;
         } catch (RestClientException | IOException | IllegalStateException e) {
             log.warn(forLog("update.log.check.failed", e.getMessage()));
@@ -327,6 +332,31 @@ public class UpdateService {
             return true;
         }
         return last.plus(AUTO_CHECK_MIN_INTERVAL_MS, ChronoUnit.MILLIS).isBefore(Instant.now());
+    }
+
+    /**
+     * 当一次检查确认无新版本时，清理可能残留的 installer 缓存（来自历史下载或被中断的下载）。
+     * 进行中的下载受 {@link #downloadInProgress} 保护，不会被删除。
+     */
+    private void cleanupInstallerCache() {
+        if (downloadInProgress) {
+            return;
+        }
+        if (!Files.exists(INSTALLER_CACHE_DIR)) {
+            return;
+        }
+        try (Stream<Path> stream = Files.walk(INSTALLER_CACHE_DIR)) {
+            stream.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    log.warn(forLog("update.log.cache.cleanup-failed", p, e.getMessage()));
+                }
+            });
+            log.info(forLog("update.log.cache.cleanup-done", INSTALLER_CACHE_DIR));
+        } catch (IOException e) {
+            log.warn(forLog("update.log.cache.cleanup-failed", INSTALLER_CACHE_DIR, e.getMessage()));
+        }
     }
 
     private UpdateCheckResult handleManifest(String currentVersion, UpdateManifest manifest, boolean nightly) {

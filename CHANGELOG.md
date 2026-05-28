@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 批量下载页 User 模式的输入框现在同时支持画师 ID 与画师主页链接（例如 `https://www.pixiv.net/users/123456`，含 `/artworks`、`/illustrations`、`/novels`、带语言前缀等变体）：粘贴链接即可自动提取数字 ID 用于解析预览与「存为计划任务」。
 - 批量下载页「批量导入单作品」现在支持仅写作品数字 ID（可选 `id | title`）：默认按插画解析（等同于 `https://www.pixiv.net/artworks/{id}`）。同时支持以 `artwork:` 或 `novel:` 单独成行作为区段头（大小写不敏感、全/半角冒号均可），其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束；完整的 artworks / novel 链接始终按其自身类型解析，与所在区段无关。
 - ArtworksBackFill 元数据回填工具新增本地不可达作品记录（`data/backfill/unreachable.json`）：抓取到 Pixiv 404 / 已删除等明确不可达响应时会写入该文件，后续运行（含 GUI 启动时的自动回填判断）会先按此名单跳过、不再请求 Pixiv，避免反复消耗请求量；如需重新核查某个作品，删除该文件中对应条目（或整个文件）即可。
+- 在线更新检查在确认当前已是最新版本后会自动清理运行目录下的 `update-cache/` 缓存（来自历史下载或被中断的下载残留），释放磁盘空间；下载进行中不会清理。
 
 ## [v1.11.0] - 2026.5.28
 
