@@ -37,4 +37,14 @@ public interface ArtworkDownloader {
     boolean downloadImagesBlocking(Long artworkId, String title, List<String> imageUrls,
                                    String referer, DownloadRequest.Other other, String cookie,
                                    String userUuid);
+
+    /**
+     * 判定作品是否已下载（去重）。{@code verifyFiles=false} 时只查数据库记录；
+     * {@code verifyFiles=true} 时还会做「实际目录检测」：磁盘缺文件则删陈旧记录视为未下载，
+     * 数据库无记录但磁盘已有文件则补登记视为已下载（语义同
+     * {@link DownloadService#getDownloadedRecord(Long, boolean)}）。
+     *
+     * @return {@code true} 表示已下载、应跳过
+     */
+    boolean isArtworkDownloaded(long artworkId, boolean verifyFiles);
 }

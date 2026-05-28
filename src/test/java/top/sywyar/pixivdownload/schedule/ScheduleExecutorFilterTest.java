@@ -249,6 +249,28 @@ class ScheduleExecutorFilterTest {
             assertThat(d1.novelMerge()).isTrue();
             assertThat(d1.novelMergeFormat()).isEqualTo("txt");
         }
+
+        @Test
+        @DisplayName("parseDownload：队列调度项默认（并发 1 / 间隔 null / 图片间隔 null / 不校验目录），有值时按毫秒整数解析")
+        void parseDownloadQueueSettings() throws Exception {
+            ScheduleExecutor.Download d0 = ScheduleExecutor.parseDownload(MAPPER.readTree("{}"));
+            assertThat(d0.concurrent()).isEqualTo(1);
+            assertThat(d0.intervalMs()).isNull();
+            assertThat(d0.imageDelayMs()).isNull();
+            assertThat(d0.verifyFiles()).isFalse();
+
+            ScheduleExecutor.Download d1 = ScheduleExecutor.parseDownload(MAPPER.readTree("""
+                    {"concurrent":4,"intervalMs":2000,"imageDelayMs":"250","verifyFiles":true}
+                    """));
+            assertThat(d1.concurrent()).isEqualTo(4);
+            assertThat(d1.intervalMs()).isEqualTo(2000L);
+            assertThat(d1.imageDelayMs()).isEqualTo(250);
+            assertThat(d1.verifyFiles()).isTrue();
+
+            // 并发数下限为 1（0 / 负值归一为 1）
+            assertThat(ScheduleExecutor.parseDownload(MAPPER.readTree("{\"concurrent\":0}")).concurrent())
+                    .isEqualTo(1);
+        }
     }
 
     @Nested

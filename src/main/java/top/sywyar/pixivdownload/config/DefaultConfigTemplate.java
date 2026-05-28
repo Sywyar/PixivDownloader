@@ -139,7 +139,6 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "schedule.enabled: true", "config.template.schedule.enabled.comment");
         appendSetting(config, messages, "schedule.tick-interval-ms: 60000", "config.template.schedule.tick-interval-ms.comment");
         appendSetting(config, messages, "schedule.max-tasks: 100", "config.template.schedule.max-tasks.comment");
-        appendSetting(config, messages, "schedule.fetch-delay-ms: 1000", "config.template.schedule.fetch-delay-ms.comment");
         appendSetting(config, messages, "schedule.inbox-check-every: 500", "config.template.schedule.inbox-check-every.comment");
         appendSetting(config, messages, "schedule.auth-failure-circuit-breaker: 5", "config.template.schedule.auth-failure-circuit-breaker.comment");
         appendSetting(config, messages, "schedule.pending-max-attempts: 5", "config.template.schedule.pending-max-attempts.comment");

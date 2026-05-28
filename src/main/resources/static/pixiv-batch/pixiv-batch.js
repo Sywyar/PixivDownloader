@@ -6168,6 +6168,11 @@
             fileNameTemplate: state.settings.fileNameTemplate,
             bookmark: !!state.settings.bookmark,
             collectionId: state.settings.collectionId,
+            // 队列调度项也纳入快照（统一存毫秒整数，避免 s/ms 单位歧义）：
+            concurrent: Math.max(1, parseInt(state.settings.concurrent, 10) || 1),
+            intervalMs: getIntervalMs(),
+            imageDelayMs: getImageDelayMs(),
+            verifyFiles: !!state.settings.verifyHistoryFiles,
             novelFormat: state.settings.novelFormat || 'txt',
             novelMerge: !!state.settings.mergeNovelSeries,
             novelMergeFormat: state.settings.mergeNovelFormat || 'epub'
@@ -6367,6 +6372,35 @@
         if (mg) mg.checked = !!d.novelMerge;
         const mgf = document.getElementById('s-novel-merge-format');
         if (mgf && d.novelMergeFormat) mgf.value = d.novelMergeFormat;
+        // 队列调度项回灌：最大并发数 / 作品间隔 / 图片间隔（快照存毫秒，统一以 ms 单位回填并把单位按钮切到 ms）/ 实际目录检测。
+        const conc = document.getElementById('s-concurrent');
+        if (conc && Number.isFinite(d.concurrent) && d.concurrent >= 1) {
+            conc.value = d.concurrent;
+            state.settings.concurrent = d.concurrent;
+        }
+        if (Number.isFinite(d.intervalMs) && d.intervalMs >= 0) {
+            const iv = document.getElementById('s-interval');
+            const ivUnit = document.getElementById('s-interval-unit');
+            const ms = Math.round(d.intervalMs);
+            if (iv) iv.value = ms;
+            if (ivUnit) ivUnit.textContent = 'ms';
+            state.settings.intervalUnit = 'ms';
+            state.settings.interval = ms;
+        }
+        if (Number.isFinite(d.imageDelayMs) && d.imageDelayMs >= 0) {
+            const im = document.getElementById('s-image-delay');
+            const imUnit = document.getElementById('s-image-delay-unit');
+            const ms = Math.round(d.imageDelayMs);
+            if (im) im.value = ms;
+            if (imUnit) imUnit.textContent = 'ms';
+            state.settings.imageDelayUnit = 'ms';
+            state.settings.imageDelay = ms;
+        }
+        const vf = document.getElementById('s-verify-files');
+        if (vf) {
+            vf.checked = !!d.verifyFiles;
+            state.settings.verifyHistoryFiles = !!d.verifyFiles;
+        }
         updateMergeFormatVisibility();
     }
 
@@ -6623,6 +6657,18 @@
         ]];
     }
 
+    function scheduleConcurrentValue(n) {
+        return (typeof n === 'number' && n >= 1)
+            ? bt('schedule.snapshot.value.concurrent', '{n} 路并发', {n})
+            : bt('schedule.snapshot.value.unset', '未设置');
+    }
+
+    function scheduleMsValue(ms) {
+        return (typeof ms === 'number' && ms >= 0)
+            ? bt('schedule.snapshot.value.ms', '{ms} ms', {ms})
+            : bt('schedule.snapshot.value.unset', '未设置');
+    }
+
     function renderScheduleSnapshotBody(t) {
         const params = parseScheduleParams(t);
         const kind = scheduleKindFromParams(params);
@@ -6662,17 +6708,25 @@
                 [bt('schedule.snapshot.field.bookmarks-range', '收藏数范围'), scheduleRangeValue(filters.bookmarksMin, filters.bookmarksMax)]
             ]
         );
+        const downloadRows = [
+            [bt('label.settings.skip', '跳过已下载作品'), bt('schedule.snapshot.value.always-on', '始终开启')],
+            [bt('label.settings.filename-template', '文件名格式:'), scheduleValueOrUnset(download.fileNameTemplate)],
+            [bt('label.settings.bookmark', '下载后自动收藏'), scheduleBoolLabel(!!download.bookmark)],
+            [bt('label.settings.collection', '收藏到:'), scheduleCollectionLabel(download.collectionId)],
+            [bt('label.settings.concurrent', '最大并发数:'), scheduleConcurrentValue(download.concurrent)],
+            [bt('label.settings.interval', '作品间隔:'), scheduleMsValue(download.intervalMs)]
+        ];
+        // 图片间隔与实际目录检测仅对插画生效，小说快照不展示。
+        if (kind !== 'novel') {
+            downloadRows.push([bt('label.settings.image-delay', '图片间隔:'), scheduleMsValue(download.imageDelayMs)]);
+            downloadRows.push([bt('label.settings.verify', '实际目录检测'), scheduleBoolLabel(!!download.verifyFiles)]);
+        }
+        downloadRows.push([bt('novel:batch.format-label', '小说格式'), scheduleNovelFormatLabel(download.novelFormat)]);
+        downloadRows.push([bt('novel:batch.merge-label', '系列下载完成后生成合订本'), scheduleBoolLabel(!!download.novelMerge)]);
+        downloadRows.push([bt('novel:batch.merge-format-label', '合订本格式'), scheduleNovelFormatLabel(download.novelMergeFormat || 'epub')]);
         const downloadSection = scheduleSnapshotSection(
             bt('schedule.snapshot.section.download', '下载设置快照'),
-            [
-                [bt('label.settings.skip', '跳过已下载作品'), bt('schedule.snapshot.value.always-on', '始终开启')],
-                [bt('label.settings.filename-template', '文件名格式:'), scheduleValueOrUnset(download.fileNameTemplate)],
-                [bt('label.settings.bookmark', '下载后自动收藏'), scheduleBoolLabel(!!download.bookmark)],
-                [bt('label.settings.collection', '收藏到:'), scheduleCollectionLabel(download.collectionId)],
-                [bt('novel:batch.format-label', '小说格式'), scheduleNovelFormatLabel(download.novelFormat)],
-                [bt('novel:batch.merge-label', '系列下载完成后生成合订本'), scheduleBoolLabel(!!download.novelMerge)],
-                [bt('novel:batch.merge-format-label', '合订本格式'), scheduleNovelFormatLabel(download.novelMergeFormat || 'epub')]
-            ]
+            downloadRows
         );
         return basicSection + sourceSection + filterSection + downloadSection;
     }

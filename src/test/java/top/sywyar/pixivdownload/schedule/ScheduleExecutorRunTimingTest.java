@@ -8,6 +8,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
@@ -23,6 +24,7 @@ import top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,16 +70,23 @@ class ScheduleExecutorRunTimingTest {
     private ScheduleExecutor executor;
     private ScheduleRunState runState;
 
+    /** 同步执行器：把提交的下载就地跑完，让原本串行的计时断言保持稳定。 */
+    private static final TaskExecutor SYNC_EXECUTOR = Runnable::run;
+
     @BeforeEach
     void setUp() {
-        ScheduleConfig config = new ScheduleConfig();
-        config.setFetchDelayMs(0);
         runState = new ScheduleRunState();
-        executor = new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
-                artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
-                config, runState, new ScheduleRunQueue(), new ObjectMapper(),
-                overuseWarningService, mailService, mailTemplateRegistry, appMessages);
+        executor = newExecutor(SYNC_EXECUTOR, SYNC_EXECUTOR);
         when(database.mapper()).thenReturn(mapper);
+    }
+
+    /** 用指定下载池构造被测执行器（默认 DownloadConfig：图片/小说池各 10）。 */
+    private ScheduleExecutor newExecutor(TaskExecutor imagePool, TaskExecutor novelPool) {
+        return new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
+                artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
+                new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
+                overuseWarningService, mailService, mailTemplateRegistry, appMessages,
+                new top.sywyar.pixivdownload.download.config.DownloadConfig(), imagePool, novelPool);
     }
 
     @Test
@@ -350,5 +359,92 @@ class ScheduleExecutorRunTimingTest {
                 eq(4L), anyLong(), eq(ScheduleExecutor.STATUS_ERROR), message.capture(), anyLong());
         assertThat(message.getValue()).contains("PHPSESSID=[redacted]");
         assertThat(message.getValue()).doesNotContain("secret").doesNotContain("foo=bar");
+    }
+
+    @Test
+    @DisplayName("实际目录检测开启：去重改用 isArtworkDownloaded(verify) 而非裸 hasArtwork")
+    void verifyFilesUsesArtworkDownloaderDedup() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                10L, "目录检测计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},\"download\":{\"verifyFiles\":true}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("200"));
+        when(artworkDownloader.isArtworkDownloaded(200L, true)).thenReturn(true);
+
+        executor.runTaskAndRecord(task);
+
+        verify(artworkDownloader).isArtworkDownloaded(200L, true);
+        verify(pixivDatabase, never()).hasArtwork(anyLong());
+        verify(artworkDownloader, never()).downloadImagesBlocking(
+                anyLong(), any(), anyList(), any(), any(DownloadRequest.Other.class), any(), any());
+        // 已下载跳过，但本轮发现到的最新 ID 仍推进水位线
+        verify(mapper).updateWatermark(eq(10L), eq(200L));
+    }
+
+    @Test
+    @DisplayName("图片间隔写入下载请求 Other.delayMs（仅插画）")
+    void imageDelayPropagatesToDownloadRequest() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                11L, "图片间隔计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},\"download\":{\"imageDelayMs\":250}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("400"));
+        when(pixivDatabase.hasArtwork(400L)).thenReturn(false);
+        when(pixivFetchService.fetchArtworkMeta("400", null)).thenReturn(
+                new PixivFetchService.ArtworkMeta(
+                        0, "图", 0, false, 10L, "作者", null, null, -1, 1, List.of()));
+        when(pixivFetchService.resolveImageUrls("400", null)).thenReturn(
+                List.of("https://i.pximg.net/img-original/img/400.jpg"));
+        when(artworkDownloader.downloadImagesBlocking(
+                eq(400L), eq("图"), anyList(), eq("https://www.pixiv.net/artworks/400"),
+                any(DownloadRequest.Other.class), isNull(), isNull())).thenReturn(true);
+
+        executor.runTaskAndRecord(task);
+
+        ArgumentCaptor<DownloadRequest.Other> other = ArgumentCaptor.forClass(DownloadRequest.Other.class);
+        verify(artworkDownloader).downloadImagesBlocking(
+                eq(400L), eq("图"), anyList(), eq("https://www.pixiv.net/artworks/400"),
+                other.capture(), isNull(), isNull());
+        assertThat(other.getValue().getDelayMs()).isEqualTo(250);
+    }
+
+    @Test
+    @DisplayName("并发下载：runTask 返回前 join 所有在途下载，完成后才推进水位线")
+    void concurrentDownloadsAreJoinedBeforeRecording() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                12L, "并发计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"},\"download\":{\"concurrent\":2}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of("220", "210"));
+        when(pixivDatabase.hasArtwork(220L)).thenReturn(false);
+        when(pixivDatabase.hasArtwork(210L)).thenReturn(false);
+        when(pixivFetchService.fetchArtworkMeta(anyString(), isNull())).thenReturn(
+                new PixivFetchService.ArtworkMeta(
+                        0, "并发作品", 0, false, 10L, "作者", null, null, -1, 1, List.of()));
+        when(pixivFetchService.resolveImageUrls(anyString(), isNull())).thenReturn(
+                List.of("https://i.pximg.net/img-original/img/x.jpg"));
+        AtomicInteger finished = new AtomicInteger();
+        when(artworkDownloader.downloadImagesBlocking(
+                anyLong(), anyString(), anyList(), anyString(),
+                any(DownloadRequest.Other.class), isNull(), isNull()))
+                .thenAnswer(inv -> {
+                    Thread.sleep(40);
+                    finished.incrementAndGet();
+                    return true;
+                });
+
+        // 真异步：每个下载另起线程；Semaphore(min(2,10)) 控并发。
+        TaskExecutor async = r -> new Thread(r).start();
+        ScheduleExecutor asyncExecutor = newExecutor(async, async);
+        asyncExecutor.runTaskAndRecord(task);
+
+        // 返回时两个在途下载都应已完成（被 join），并据此推进水位线。
+        assertThat(finished.get()).isEqualTo(2);
+        verify(mapper).updateWatermark(eq(12L), eq(220L));
+        verify(mapper).updateRunResult(
+                eq(12L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
     }
 }

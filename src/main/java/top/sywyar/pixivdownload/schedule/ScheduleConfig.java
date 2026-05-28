@@ -23,9 +23,6 @@ public class ScheduleConfig {
     /** 单库最多可创建的计划任务数（防滥用） */
     private volatile int maxTasks = 100;
 
-    /** 抓取相邻作品间的礼貌延迟（毫秒），避免被 Pixiv 限流 */
-    private volatile long fetchDelayMs = 1_000L;
-
     /** 轮内过度访问检查点的派发间隔 N：每成功派发 N 个下载读一次站内信（跳过/过滤不计） */
     private volatile int inboxCheckEvery = 500;
 

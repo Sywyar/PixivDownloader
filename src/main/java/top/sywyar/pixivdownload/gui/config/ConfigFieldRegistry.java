@@ -555,21 +555,6 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("schedule.fetch-delay-ms", message("gui.config.field.schedule.fetch-delay-ms.label"), INT, groupSchedule)
-                        .defaultValue("1000")
-                        .help(message("gui.config.field.schedule.fetch-delay-ms.help"))
-                        .enabledWhen(snap -> snap.isTrue("schedule.enabled"))
-                        .validator(v -> {
-                            try {
-                                int n = Integer.parseInt(v);
-                                return n >= 0 ? null : message("gui.config.validation.non-negative-int");
-                            } catch (NumberFormatException e) {
-                                return message("gui.config.validation.valid-int");
-                            }
-                        })
-                        .hotReloadable()
-                        .build(),
-
                 ConfigFieldSpec.builder("schedule.inbox-check-every", message("gui.config.field.schedule.inbox-check-every.label"), INT, groupSchedule)
                         .defaultValue("500")
                         .help(message("gui.config.field.schedule.inbox-check-every.help"))

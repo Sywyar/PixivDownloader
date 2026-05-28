@@ -763,6 +763,11 @@ public class DownloadService implements ArtworkDownloader {
         return null;
     }
 
+    @Override
+    public boolean isArtworkDownloaded(long artworkId, boolean verifyFiles) {
+        return getDownloadedRecord(artworkId, verifyFiles) != null;
+    }
+
     /**
      * pixiv-batch 两阶段恢复入口：调用方已从 Pixiv 拉回元数据。
      * <ul>
