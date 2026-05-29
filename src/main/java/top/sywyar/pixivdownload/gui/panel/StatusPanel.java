@@ -704,22 +704,57 @@ public class StatusPanel extends JPanel {
     }
 
     private void renderMaintenanceBadge(MaintenanceStatusHolder.Snapshot maintenance) {
-        String text;
-        if (maintenance.index() <= 0 || maintenance.taskName() == null) {
-            text = message("gui.status.state.maintenance.preparing");
-        } else {
-            String taskLabel = maintenanceTaskLabel(maintenance.taskName());
-            long elapsedSeconds = elapsedSecondsSince(maintenance.taskStartedAt());
-            if (elapsedSeconds >= LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS) {
-                text = message("gui.status.state.maintenance.elapsed",
-                        taskLabel, maintenance.index(), maintenance.total(), elapsedSeconds);
-            } else {
-                text = message("gui.status.state.maintenance",
-                        taskLabel, maintenance.index(), maintenance.total());
-            }
-        }
-        statusBadge.setText(text);
         statusBadge.setForeground(new Color(180, 100, 0));
+        if (maintenance.index() <= 0 || maintenance.taskName() == null) {
+            statusBadge.setText(message("gui.status.state.maintenance.preparing"));
+            return;
+        }
+        String taskLabel = maintenanceTaskLabel(maintenance.taskName());
+        String header = message("gui.status.state.maintenance",
+                taskLabel, maintenance.index(), maintenance.total());
+
+        if (maintenance.unitsTotal() > 0) {
+            // 任务上报了进度：展示「已处理 X/Y，约剩 ETA」。ETA = 已用时 ÷ 已处理量 × 剩余量，
+            // 由每秒刷新的 liveStatusTimer 持续重算，越跑越准（自我修正）。
+            String progressLine;
+            if (maintenance.unitsDone() > 0 && maintenance.unitsDone() < maintenance.unitsTotal()) {
+                long elapsedSeconds = elapsedSecondsSince(maintenance.taskStartedAt());
+                long remaining = (long) maintenance.unitsTotal() - maintenance.unitsDone();
+                long etaSeconds = elapsedSeconds * remaining / maintenance.unitsDone();
+                progressLine = message("gui.status.state.maintenance.progress",
+                        String.valueOf(maintenance.unitsDone()), String.valueOf(maintenance.unitsTotal()),
+                        formatCompactDuration(etaSeconds));
+            } else {
+                progressLine = message("gui.status.state.maintenance.progress.eta-pending",
+                        String.valueOf(maintenance.unitsDone()), String.valueOf(maintenance.unitsTotal()));
+            }
+            statusBadge.setText(htmlLines(header + "\n" + progressLine));
+            return;
+        }
+
+        // 未上报进度的任务：沿用「(序号/总数) + 超过 30s 显示实时已运行秒数」。
+        long elapsedSeconds = elapsedSecondsSince(maintenance.taskStartedAt());
+        if (elapsedSeconds >= LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS) {
+            statusBadge.setText(message("gui.status.state.maintenance.elapsed",
+                    taskLabel, maintenance.index(), maintenance.total(), elapsedSeconds));
+        } else {
+            statusBadge.setText(header);
+        }
+    }
+
+    /** 把秒数格式化成紧凑时长：{@code 45s} / {@code 3m12s} / {@code 1h2m}。 */
+    private static String formatCompactDuration(long seconds) {
+        long safe = Math.max(0L, seconds);
+        if (safe < 60L) {
+            return safe + "s";
+        }
+        long hours = safe / 3600L;
+        long minutes = (safe % 3600L) / 60L;
+        long secs = safe % 60L;
+        if (hours > 0L) {
+            return minutes > 0L ? hours + "h" + minutes + "m" : hours + "h";
+        }
+        return secs > 0L ? minutes + "m" + secs + "s" : minutes + "m";
     }
 
     private static String maintenanceTaskLabel(String code) {

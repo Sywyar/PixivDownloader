@@ -1,23 +1,41 @@
 package top.sywyar.pixivdownload.duplicate;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ImageHashService {
 
     private final ImageHashMapper imageHashMapper;
     private final ArtworkFileLocator artworkFileLocator;
     private final DuplicateService duplicateService;
     private final AppMessages messages;
+    private final TransactionTemplate transactionTemplate;
+
+    public ImageHashService(ImageHashMapper imageHashMapper,
+                            ArtworkFileLocator artworkFileLocator,
+                            DuplicateService duplicateService,
+                            AppMessages messages,
+                            PlatformTransactionManager transactionManager) {
+        this.imageHashMapper = imageHashMapper;
+        this.artworkFileLocator = artworkFileLocator;
+        this.duplicateService = duplicateService;
+        this.messages = messages;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+    }
+
+    /** 单页哈希的计算结果。{@code hashes == null} 表示该页不可哈希（文件缺失 / 解码失败），落库时写页级哨兵。 */
+    private record PageHashResult(int page, String extension, ImageHasher.Hashes hashes) {}
 
     public int recordArtworkHashes(ArtworkRecord artwork) {
         return recordArtworkHashes(artwork, true);
@@ -29,16 +47,20 @@ public class ImageHashService {
         }
         int written = 0;
         try {
-            imageHashMapper.deleteByArtwork(artwork.artworkId());
+            // 解码 + 计算哈希在事务外完成（耗时部分），避免在 SQLite 单写者写锁内做图片解码、
+            // 长时间阻塞并发下载落库。
             int pageCount = Math.max(artwork.count(), 0);
+            List<PageHashResult> results = new ArrayList<>(pageCount);
             for (int page = 0; page < pageCount; page++) {
-                written += recordPageHash(artwork, page);
+                results.add(computePageHash(artwork, page));
             }
-            if (pageCount == 0 || written == 0) {
-                // 没有任何可哈希的页（文件缺失 / 解码失败 / 不支持的格式）：写入「已尝试」哨兵行，
-                // 避免该作品在每次维护回填/扫描时被反复重试。
-                imageHashMapper.markNoHash(artwork.artworkId(), System.currentTimeMillis());
-            }
+            // 落库放进一个短事务里整作品原子完成：删旧 + 写新（含逐页“无哈希”哨兵）。进程被强杀只会
+            // 整体回滚为旧状态，不会留下“删了旧的、新的只写一半”的中间态；因解码已在事务外完成，
+            // 写锁仅在这几条 SQL 期间短暂持有。
+            long now = System.currentTimeMillis();
+            Integer count = transactionTemplate.execute(status ->
+                    persistArtworkHashes(artwork.artworkId(), results, now));
+            written = count == null ? 0 : count;
         } catch (Exception e) {
             log.warn(messages.getForLog("duplicate.log.hash.artwork-failed",
                     artwork.artworkId(), e.getMessage()), e);
@@ -50,35 +72,44 @@ public class ImageHashService {
         return written;
     }
 
-    private int recordPageHash(ArtworkRecord artwork, int page) {
+    private int persistArtworkHashes(long artworkId, List<PageHashResult> results, long now) {
+        imageHashMapper.deleteByArtwork(artworkId);
+        int written = 0;
+        for (PageHashResult result : results) {
+            if (result.hashes() != null) {
+                imageHashMapper.upsert(artworkId, result.page(), result.extension(),
+                        result.hashes().dHash(), result.hashes().aHash(), now);
+                written++;
+            } else {
+                imageHashMapper.markPageNoHash(artworkId, result.page(), now);
+            }
+        }
+        if (results.isEmpty() || written == 0) {
+            // 没有任何可哈希的页（文件缺失 / 解码失败 / 不支持的格式）：写入「已尝试」哨兵行，
+            // 避免该作品在每次维护回填/扫描时被反复重试。
+            imageHashMapper.markNoHash(artworkId, now);
+        }
+        return written;
+    }
+
+    private PageHashResult computePageHash(ArtworkRecord artwork, int page) {
         try {
             ArtworkFileLocator.LocatedArtworkFile source = artworkFileLocator.resolveHashSourceFile(artwork, page);
             if (source == null) {
                 log.warn(messages.getForLog("duplicate.log.hash.source-missing", artwork.artworkId(), page));
-                imageHashMapper.markPageNoHash(artwork.artworkId(), page, System.currentTimeMillis());
-                return 0;
+                return new PageHashResult(page, null, null);
             }
             Optional<ImageHasher.Hashes> hashes = ImageHasher.hash(source.file().toPath());
             if (hashes.isEmpty()) {
                 log.warn(messages.getForLog("duplicate.log.hash.decode-failed",
                         artwork.artworkId(), page, source.file().getAbsolutePath()));
-                imageHashMapper.markPageNoHash(artwork.artworkId(), page, System.currentTimeMillis());
-                return 0;
+                return new PageHashResult(page, null, null);
             }
-            ImageHasher.Hashes value = hashes.get();
-            imageHashMapper.upsert(artwork.artworkId(), page, source.extension(),
-                    value.dHash(), value.aHash(), System.currentTimeMillis());
-            return 1;
+            return new PageHashResult(page, source.extension(), hashes.get());
         } catch (Exception e) {
             log.warn(messages.getForLog("duplicate.log.hash.page-failed",
                     artwork.artworkId(), page, e.getMessage()), e);
-            try {
-                imageHashMapper.markPageNoHash(artwork.artworkId(), page, System.currentTimeMillis());
-            } catch (Exception markerError) {
-                log.warn(messages.getForLog("duplicate.log.hash.page-failed",
-                        artwork.artworkId(), page, markerError.getMessage()), markerError);
-            }
-            return 0;
+            return new PageHashResult(page, null, null);
         }
     }
 }

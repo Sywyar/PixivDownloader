@@ -24,15 +24,15 @@ public final class ImageHasher {
         }
         try {
             BufferedImage image = ImageIO.read(imagePath.toFile());
-            if (image == null) {
+            if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
                 return Optional.empty();
             }
-            OptionalLong dHash = dHash(image);
-            if (dHash.isEmpty()) {
-                return Optional.empty();
-            }
-            OptionalLong aHash = aHash(image);
-            return Optional.of(new Hashes(dHash.getAsLong(), aHash.isPresent() ? aHash.getAsLong() : null));
+            // 全尺寸铺白副本只构建一次，dHash / aHash 共用它各自缩放，避免对大图重复分配整张画布。
+            // 缩放与采样步骤保持不变，因此与分别调用 dHash(image)/aHash(image) 的结果 bit 级一致。
+            BufferedImage opaque = toOpaque(image);
+            long dHash = dHashFromGray(scaleToGraySamples(opaque, 9, 8));
+            long aHash = aHashFromGray(scaleToGraySamples(opaque, 8, 8));
+            return Optional.of(new Hashes(dHash, aHash));
         } catch (IOException | RuntimeException e) {
             return Optional.empty();
         }
@@ -42,7 +42,17 @@ public final class ImageHasher {
         if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
             return OptionalLong.empty();
         }
-        int[][] gray = toGray(image, 9, 8);
+        return OptionalLong.of(dHashFromGray(toGray(image, 9, 8)));
+    }
+
+    public static OptionalLong aHash(BufferedImage image) {
+        if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
+            return OptionalLong.empty();
+        }
+        return OptionalLong.of(aHashFromGray(toGray(image, 8, 8)));
+    }
+
+    private static long dHashFromGray(int[][] gray) {
         long hash = 0L;
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 8; x++) {
@@ -52,14 +62,10 @@ public final class ImageHasher {
                 }
             }
         }
-        return OptionalLong.of(hash);
+        return hash;
     }
 
-    public static OptionalLong aHash(BufferedImage image) {
-        if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
-            return OptionalLong.empty();
-        }
-        int[][] gray = toGray(image, 8, 8);
+    private static long aHashFromGray(int[][] gray) {
         int sum = 0;
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 8; x++) {
@@ -76,7 +82,7 @@ public final class ImageHasher {
                 }
             }
         }
-        return OptionalLong.of(hash);
+        return hash;
     }
 
     public static int hamming(long a, long b) {
@@ -84,6 +90,11 @@ public final class ImageHasher {
     }
 
     private static int[][] toGray(BufferedImage source, int width, int height) {
+        return scaleToGraySamples(toOpaque(source), width, height);
+    }
+
+    /** 把可能带透明通道的原图铺到白底上，得到与原图同尺寸的不透明 RGB 副本。 */
+    private static BufferedImage toOpaque(BufferedImage source) {
         BufferedImage opaque = new BufferedImage(source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_RGB);
         Graphics2D baseGraphics = opaque.createGraphics();
         try {
@@ -93,7 +104,11 @@ public final class ImageHasher {
         } finally {
             baseGraphics.dispose();
         }
+        return opaque;
+    }
 
+    /** 把不透明副本双线性缩放到 width×height 的灰度图，并返回逐像素灰度采样。 */
+    private static int[][] scaleToGraySamples(BufferedImage opaque, int width, int height) {
         BufferedImage gray = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
         Graphics2D graphics = gray.createGraphics();
         try {
