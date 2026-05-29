@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.ExclusiveToolHolder;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
@@ -14,6 +15,7 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
+import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -44,6 +46,8 @@ public class StatusPanel extends JPanel {
     private static final int POLL_INTERVAL_MS = 3000;
     private static final int STARTUP_SLOW_THRESHOLD_SECONDS = 10;
     private static final int STARTUP_ELAPSED_INTERVAL_MS = 1000;
+    private static final int LIVE_STATUS_TICK_INTERVAL_MS = 1000;
+    private static final long LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS = 30L;
     private static final long PIXIV_CONNECTIVITY_AUTO_CHECK_INTERVAL_MS = 60_000L;
     private static final String BATCH_PAGE = "/pixiv-batch.html";
     private static final String MONITOR_PAGE = "/monitor.html";
@@ -91,6 +95,7 @@ public class StatusPanel extends JPanel {
     private volatile long lastPixivConnectivityCheckAtMillis;
     private Timer pollTimer;
     private Timer startupElapsedTimer;
+    private Timer liveStatusTimer;
     private long startupStartedAtMillis = -1L;
     private final BackendLifecycleManager.Listener backendListener = this::applyBackendSnapshot;
 
@@ -580,20 +585,33 @@ public class StatusPanel extends JPanel {
                         conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
                     }
 
-                    if (conn.getResponseCode() == 200) {
+                    // 只要拿到任意 HTTP 响应码（未抛连接级异常），就说明该 scheme 传输层可用：
+                    // 记下它并停止探测，绝不再向另一个 scheme 的端口发起连接。否则在后端可达但
+                    // 非 200 时（典型如维护窗口 AuthFilter 对 /api/gui/status 返回 503），循环会
+                    // 兜底尝试 https，把 TLS 握手字节发到 HTTP 端口，触发 Tomcat
+                    // “Invalid character found in method name” 解析错误。
+                    int code = conn.getResponseCode();
+                    currentScheme = scheme;
+                    if (code == 200) {
                         success = true;
-                        currentScheme = scheme;
                         try (InputStream is = conn.getInputStream()) {
                             JsonNode node = MAPPER.readTree(is);
                             SwingUtilities.invokeLater(() -> updateLabels(node));
                         }
-                        return;
                     }
+                    break;
                 } catch (Exception ignored) {
                 }
             }
             if (!success) {
-                SwingUtilities.invokeLater(() -> applyOfflineState(BackendLifecycleManager.snapshot()));
+                MaintenanceStatusHolder.Snapshot maintenance = MaintenanceStatusHolder.snapshot();
+                if (maintenance.active()) {
+                    // 维护期间后端仍在运行，只是 AuthFilter 把 /api/gui/status 以 503 短路。
+                    // 不当作离线/连接失败，改为展示维护进度（含 >30s 实时秒数）。
+                    SwingUtilities.invokeLater(() -> applyMaintenanceState(maintenance));
+                } else {
+                    SwingUtilities.invokeLater(() -> applyOfflineState(BackendLifecycleManager.snapshot()));
+                }
             }
         }, "gui-status-poll");
         worker.setDaemon(true);
@@ -602,6 +620,7 @@ public class StatusPanel extends JPanel {
 
     private void updateLabels(JsonNode node) {
         leaveStartingState();
+        stopLiveStatusTimer();
         statusBadge.setText(message("gui.backend.state.running"));
         statusBadge.setForeground(new Color(0, 140, 0));
 
@@ -632,18 +651,19 @@ public class StatusPanel extends JPanel {
             case STARTING -> enterStartingState();
             case STOPPING -> {
                 leaveStartingState();
-                statusBadge.setText(message("gui.backend.state.stopping"));
-                statusBadge.setForeground(new Color(180, 100, 0));
+                applyStoppingBadge();
             }
             case STOPPED -> applyOfflineState(snapshot);
             case FAILED -> {
                 leaveStartingState();
+                stopLiveStatusTimer();
                 statusBadge.setText(message("gui.backend.state.failed"));
                 statusBadge.setForeground(new Color(180, 60, 60));
                 clearStatusValues();
             }
             case RUNNING -> {
                 leaveStartingState();
+                stopLiveStatusTimer();
                 statusBadge.setText(message("gui.status.state.connecting"));
                 statusBadge.setForeground(new Color(180, 100, 0));
             }
@@ -653,27 +673,145 @@ public class StatusPanel extends JPanel {
     private void applyOfflineState(BackendLifecycleManager.Snapshot snapshot) {
         if (snapshot.state() == BackendLifecycleManager.State.RUNNING) {
             leaveStartingState();
+            stopLiveStatusTimer();
             statusBadge.setText(message("gui.status.state.connection-failed"));
             statusBadge.setForeground(new Color(180, 60, 60));
         } else if (snapshot.state() == BackendLifecycleManager.State.STOPPED) {
             leaveStartingState();
-            statusBadge.setText(message("gui.backend.state.stopped"));
-            statusBadge.setForeground(Color.GRAY);
+            applyStoppedBadge();
         } else if (snapshot.state() == BackendLifecycleManager.State.STOPPING) {
             leaveStartingState();
-            statusBadge.setText(message("gui.backend.state.stopping"));
-            statusBadge.setForeground(new Color(180, 100, 0));
+            applyStoppingBadge();
         } else if (snapshot.state() == BackendLifecycleManager.State.STARTING) {
             enterStartingState();
         } else {
             leaveStartingState();
+            stopLiveStatusTimer();
             statusBadge.setText(message("gui.backend.state.failed"));
             statusBadge.setForeground(new Color(180, 60, 60));
         }
         clearStatusValues();
     }
 
+    /**
+     * 维护窗口进度徽标：单个维护任务运行超过 {@link #LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS}s
+     * 时附带实时已运行秒数。由 1 秒一次的 {@link #liveStatusTimer} 持续刷新。
+     */
+    private void applyMaintenanceState(MaintenanceStatusHolder.Snapshot maintenance) {
+        leaveStartingState();
+        renderMaintenanceBadge(maintenance);
+        startLiveStatusTimer();
+    }
+
+    private void renderMaintenanceBadge(MaintenanceStatusHolder.Snapshot maintenance) {
+        String text;
+        if (maintenance.index() <= 0 || maintenance.taskName() == null) {
+            text = message("gui.status.state.maintenance.preparing");
+        } else {
+            String taskLabel = maintenanceTaskLabel(maintenance.taskName());
+            long elapsedSeconds = elapsedSecondsSince(maintenance.taskStartedAt());
+            if (elapsedSeconds >= LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS) {
+                text = message("gui.status.state.maintenance.elapsed",
+                        taskLabel, maintenance.index(), maintenance.total(), elapsedSeconds);
+            } else {
+                text = message("gui.status.state.maintenance",
+                        taskLabel, maintenance.index(), maintenance.total());
+            }
+        }
+        statusBadge.setText(text);
+        statusBadge.setForeground(new Color(180, 100, 0));
+    }
+
+    private static String maintenanceTaskLabel(String code) {
+        return switch (code) {
+            case "database-optimize" -> message("gui.maintenance.task.database-optimize");
+            case "guest-invite-cleanup" -> message("gui.maintenance.task.guest-invite-cleanup");
+            case "duplicate-hash-backfill" -> message("gui.maintenance.task.duplicate-hash-backfill");
+            default -> code;
+        };
+    }
+
+    /** 后端已停止徽标：被某工具独占时细化为「使用某工具导致后端停止」，>30s 附带实时秒数。 */
+    private void applyStoppedBadge() {
+        String tool = ExclusiveToolHolder.get();
+        if (tool != null && !tool.isBlank()) {
+            renderStoppedByToolBadge(tool);
+            startLiveStatusTimer();
+        } else {
+            stopLiveStatusTimer();
+            statusBadge.setText(message("gui.backend.state.stopped"));
+            statusBadge.setForeground(Color.GRAY);
+        }
+    }
+
+    private void renderStoppedByToolBadge(String tool) {
+        long elapsedSeconds = elapsedSecondsSince(ExclusiveToolHolder.startedAtMillis());
+        if (elapsedSeconds >= LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS) {
+            statusBadge.setText(message("gui.status.state.stopped-by-tool.elapsed", tool, elapsedSeconds));
+        } else {
+            statusBadge.setText(message("gui.status.state.stopped-by-tool", tool));
+        }
+        statusBadge.setForeground(new Color(70, 110, 180));
+    }
+
+    private void applyStoppingBadge() {
+        stopLiveStatusTimer();
+        String tool = ExclusiveToolHolder.get();
+        if (tool != null && !tool.isBlank()) {
+            statusBadge.setText(message("gui.status.state.stopping-for-tool", tool));
+        } else {
+            statusBadge.setText(message("gui.backend.state.stopping"));
+        }
+        statusBadge.setForeground(new Color(180, 100, 0));
+    }
+
+    private static long elapsedSecondsSince(long startedAtMillis) {
+        if (startedAtMillis <= 0L) {
+            return 0L;
+        }
+        return Math.max(0L, (System.currentTimeMillis() - startedAtMillis) / 1000L);
+    }
+
+    /**
+     * 1 秒一次刷新「长任务」徽标的实时秒数。复用于维护窗口与工具独占停止两种态：
+     * 每次 tick 重新判定当前应展示哪一种，长任务结束后自停并立即重新轮询真实状态。
+     */
+    private void startLiveStatusTimer() {
+        if (liveStatusTimer != null) {
+            return;
+        }
+        liveStatusTimer = new Timer(LIVE_STATUS_TICK_INTERVAL_MS, e -> liveStatusTick());
+        liveStatusTimer.setInitialDelay(LIVE_STATUS_TICK_INTERVAL_MS);
+        liveStatusTimer.start();
+    }
+
+    private void stopLiveStatusTimer() {
+        if (liveStatusTimer == null) {
+            return;
+        }
+        liveStatusTimer.stop();
+        liveStatusTimer = null;
+    }
+
+    private void liveStatusTick() {
+        MaintenanceStatusHolder.Snapshot maintenance = MaintenanceStatusHolder.snapshot();
+        if (maintenance.active()) {
+            renderMaintenanceBadge(maintenance);
+            return;
+        }
+        String tool = ExclusiveToolHolder.get();
+        if (tool != null && !tool.isBlank()
+                && BackendLifecycleManager.state() == BackendLifecycleManager.State.STOPPED) {
+            renderStoppedByToolBadge(tool);
+            return;
+        }
+        // 长任务已结束：停表并立刻刷新一次真实状态，避免徽标停留在旧文案上。
+        stopLiveStatusTimer();
+        fetchStatus();
+    }
+
     private void enterStartingState() {
+        stopLiveStatusTimer();
         if (startupStartedAtMillis < 0L) {
             startupStartedAtMillis = System.currentTimeMillis();
         }
@@ -1072,6 +1210,7 @@ public class StatusPanel extends JPanel {
         }
         stopStartupElapsedTimer();
         stopDownloadProgressTimer();
+        stopLiveStatusTimer();
         BackendLifecycleManager.removeListener(backendListener);
     }
 

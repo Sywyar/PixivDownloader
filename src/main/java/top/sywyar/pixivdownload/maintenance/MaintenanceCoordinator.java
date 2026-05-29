@@ -125,12 +125,16 @@ public class MaintenanceCoordinator {
         long started = System.currentTimeMillis();
         lastStartedAt = started;
         lastTriggeredBy = trigger;
+        MaintenanceStatusHolder.begin(trigger, tasks.size());
         log.info(MessageBundles.get("maintenance.log.window.opened", trigger, tasks.size()));
         try {
             MaintenanceContext ctx = new MaintenanceContext(trigger, started);
+            int index = 0;
             for (MaintenanceTask task : tasks) {
+                index++;
                 long taskStart = System.currentTimeMillis();
                 String name = task.name();
+                MaintenanceStatusHolder.enterTask(trigger, index, tasks.size(), name, taskStart);
                 try {
                     log.info(MessageBundles.get("maintenance.log.task.start", name));
                     task.execute(ctx);
@@ -145,6 +149,7 @@ public class MaintenanceCoordinator {
             long finished = System.currentTimeMillis();
             lastFinishedAt = finished;
             paused.set(false);
+            MaintenanceStatusHolder.clear();
             log.info(MessageBundles.get("maintenance.log.window.closed", finished - started));
         }
     }

@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.BackendLifecycleManager;
+import top.sywyar.pixivdownload.gui.ExclusiveToolHolder;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.ToolHtmlLogSession;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
@@ -882,6 +883,10 @@ public class ToolsPanel extends JPanel {
 
         exclusiveToolLabel.setText(message("gui.tools.exclusive-tool",
                 exclusiveToolName == null ? message("gui.value.none") : exclusiveToolName));
+
+        // 把独占工具名镜像到进程内持有者，供状态页把「已停止」细化为「使用某工具导致后端停止」。
+        // 每次工具状态变更都会走到这里，故此处是与状态页同步的单一事实源。
+        ExclusiveToolHolder.set(exclusiveToolName);
     }
 
     private void updateProxyFieldState() {

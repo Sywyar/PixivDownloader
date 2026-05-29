@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [Unreleased]
 
 ### Changed
+- GUI「状态」页在后端处于特殊状态时显示更具体的信息：维护窗口期间显示「维护中：<任务名>（当前序号/总数）」而非笼统的「连接失败」，且单个维护任务运行超过 30 秒时附带实时已运行秒数；因使用需要独占数据库的工具（目录有效性检查 / 数据回填 / JSON → SQLite 迁移）而停止后端时，显示「使用『<工具名>』工具，后端已停止」，同样在超过 30 秒时附带实时秒数。此外修复了维护期间 GUI 状态轮询回退到 HTTPS、向 HTTP 端口发送 TLS 握手，导致后端控制台打印 `Invalid character found in method name` 解析错误的问题。
 - 文档迁移到全新的在线文档站点 <https://sywyar.github.io/PixivDownloader/>（基于 docsify，支持中/英文切换与全文搜索）：产品介绍页的「阅读文档」按钮、README 的文档入口均改为指向该站点；原 GitHub Wiki 不再维护，仅保留跳转到新站点的占位页。
 
 ## [v1.11.1] - 2026.5.29
