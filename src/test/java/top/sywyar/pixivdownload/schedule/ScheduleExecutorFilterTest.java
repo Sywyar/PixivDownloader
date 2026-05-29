@@ -334,6 +334,38 @@ class ScheduleExecutorFilterTest {
     }
 
     @Nested
+    @DisplayName("水位线模式判定 isWatermarkMode")
+    class WatermarkModeDecision {
+
+        private boolean wm(ScheduledTaskType type, String sourceJson) throws Exception {
+            return ScheduleExecutor.isWatermarkMode(type, MAPPER.readTree(sourceJson));
+        }
+
+        @Test
+        @DisplayName("USER_NEW 与 FOLLOW_LATEST 恒走 ID 水位线（最新在前 + 只追加 + ID 单调）")
+        void userNewAndFollowLatestAlwaysWatermark() throws Exception {
+            assertThat(wm(ScheduledTaskType.USER_NEW, "{}")).isTrue();
+            assertThat(wm(ScheduledTaskType.FOLLOW_LATEST, "{}")).isTrue();
+        }
+
+        @Test
+        @DisplayName("SEARCH 仅 date_d + maxPages==-1 才走水位线")
+        void searchOnlyWhenIncrementalDateDesc() throws Exception {
+            assertThat(wm(ScheduledTaskType.SEARCH, "{\"order\":\"date_d\",\"maxPages\":-1}")).isTrue();
+            assertThat(wm(ScheduledTaskType.SEARCH, "{\"order\":\"popular_d\",\"maxPages\":-1}")).isFalse();
+            assertThat(wm(ScheduledTaskType.SEARCH, "{\"order\":\"date_d\",\"maxPages\":3}")).isFalse();
+        }
+
+        @Test
+        @DisplayName("SERIES / MY_BOOKMARKS / COLLECTION 不走水位线（顺序不单调或单次发现）")
+        void nonWatermarkTypes() throws Exception {
+            assertThat(wm(ScheduledTaskType.SERIES, "{}")).isFalse();
+            assertThat(wm(ScheduledTaskType.MY_BOOKMARKS, "{}")).isFalse();
+            assertThat(wm(ScheduledTaskType.COLLECTION, "{}")).isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("水位线增量扫描 runWatermarkScan")
     class WatermarkScan {
 

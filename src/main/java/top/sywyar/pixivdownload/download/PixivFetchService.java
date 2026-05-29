@@ -54,6 +54,8 @@ public class PixivFetchService {
     private static final Pattern PHPSESSID_PATTERN = Pattern.compile("PHPSESSID=([^;\\s]+)");
     /** 账号收藏分页每页条数（Pixiv 上限 100）。 */
     private static final int BOOKMARK_PAGE_LIMIT = 100;
+    /** 「已关注用户的新作」逐页安全上限（feed 窗口本就有限，仅作兜底防御）。 */
+    private static final int FOLLOW_LATEST_MAX_PAGES = 100;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -323,27 +325,40 @@ public class PixivFetchService {
      * 逐页拉 {@code /ajax/follow_latest/illust?mode=all&p=N}，{@code page.isLastPage} 或空页停（安全上限 100 页）。
      */
     public List<String> discoverFollowLatestIllustIds(String cookie) throws IOException {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        for (int p = 1; p <= FOLLOW_LATEST_MAX_PAGES; p++) {
+            FollowLatestPage page = fetchFollowLatestPage(p, cookie);
+            if (page.ids().isEmpty()) break;
+            ids.addAll(page.ids());
+            if (page.lastPage()) break;
+        }
+        return new ArrayList<>(ids);
+    }
+
+    /**
+     * 拉取「已关注用户的新作」<b>单页</b>（フォロー新着作品）：返回该页作品 ID（feed 顺序，最新在前）与是否末页。
+     * 供 FOLLOW_LATEST 计划任务的水位线增量发现逐页消费，同时被 {@link #discoverFollowLatestIllustIds} 复用。
+     * 缺少 / 非法 PHPSESSID 时抛 {@link PixivFetchException}（账号私有来源、无法匿名）。
+     */
+    public FollowLatestPage fetchFollowLatestPage(int p, String cookie) throws IOException {
         if (resolveOwnUid(cookie) == null) {
             throw new PixivFetchException("missing or invalid PHPSESSID for follow-latest discovery");
         }
-        LinkedHashSet<String> ids = new LinkedHashSet<>();
-        for (int p = 1; p <= 100; p++) {
-            URI uri = UriComponentsBuilder
-                    .fromUriString("https://www.pixiv.net/ajax/follow_latest/illust")
-                    .queryParam("mode", "all")
-                    .queryParam("p", p)
-                    .queryParam("lang", "zh")
-                    .build()
-                    .encode()
-                    .toUri();
-            JsonNode body = requireBody(proxyGetUri(uri, cookie));
-            List<String> pageIds = followLatestPageIds(body);
-            if (pageIds.isEmpty()) break;
-            ids.addAll(pageIds);
-            JsonNode isLast = body.path("page").path("isLastPage");
-            if (isLast.isBoolean() && isLast.asBoolean()) break;
-        }
-        return new ArrayList<>(ids);
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/follow_latest/illust")
+                .queryParam("mode", "all")
+                .queryParam("p", p)
+                .queryParam("lang", "zh")
+                .build()
+                .encode()
+                .toUri();
+        JsonNode body = requireBody(proxyGetUri(uri, cookie));
+        JsonNode isLast = body.path("page").path("isLastPage");
+        return new FollowLatestPage(followLatestPageIds(body), isLast.isBoolean() && isLast.asBoolean());
+    }
+
+    /** follow_latest 单页发现结果：当前页作品 ID（feed 顺序，最新在前）+ 是否末页。 */
+    public record FollowLatestPage(List<String> ids, boolean lastPage) {
     }
 
     /** 从 follow_latest 的 {@code body} 抽出当前页作品 ID（优先 {@code page.ids}，回退 {@code thumbnails.illust}）。纯函数，便于单测。 */

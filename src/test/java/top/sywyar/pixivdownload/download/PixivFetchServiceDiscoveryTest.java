@@ -126,6 +126,24 @@ class PixivFetchServiceDiscoveryTest {
         }
 
         @Test
+        @DisplayName("已关注用户的新作单页：透出 feed 顺序 ID 与 isLastPage（供水位线增量逐页消费）")
+        void fetchFollowLatestPage() throws Exception {
+            mockResponse("""
+                    {"error":false,"body":{"page":{"ids":["9","8","7"],"isLastPage":true}}}
+                    """);
+            PixivFetchService.FollowLatestPage page = service().fetchFollowLatestPage(1, COOKIE);
+            assertThat(page.ids()).containsExactly("9", "8", "7");
+            assertThat(page.lastPage()).isTrue();
+        }
+
+        @Test
+        @DisplayName("已关注用户的新作单页：缺少 PHPSESSID 直接抛 PixivFetchException（不触网）")
+        void fetchFollowLatestPageMissingPhpsessid() {
+            assertThatThrownBy(() -> service().fetchFollowLatestPage(1, "foo=bar"))
+                    .isInstanceOf(PixivFetchService.PixivFetchException.class);
+        }
+
+        @Test
         @DisplayName("珍藏集：返回插画 + 小说两份成员 ID")
         void collection() throws Exception {
             mockResponse("""

@@ -390,8 +390,17 @@ public class ScheduleExecutor {
         };
     }
 
-    private static boolean isWatermarkMode(ScheduledTaskType type, JsonNode source) {
+    /**
+     * 「最新在前 + 只追加 + ID 单调」的来源走 ID 水位线增量发现：
+     * <ul>
+     *   <li>USER_NEW —— 单画师全量发现（ID 降序）；</li>
+     *   <li>FOLLOW_LATEST —— 已关注用户的新作 feed（按发布时间倒序 ≈ ID 降序，仅头部追加）；</li>
+     *   <li>SEARCH —— 仅 {@code date_d + maxPages==-1} 的增量搜索（按时间倒序、逐页翻到追平历史）。</li>
+     * </ul>
+     */
+    static boolean isWatermarkMode(ScheduledTaskType type, JsonNode source) {
         if (type == ScheduledTaskType.USER_NEW) return true;
+        if (type == ScheduledTaskType.FOLLOW_LATEST) return true;
         return type == ScheduledTaskType.SEARCH
                 && source.path("maxPages").asInt(3) == -1
                 && "date_d".equals(source.path("order").asText("date_d"));
@@ -496,17 +505,22 @@ public class ScheduleExecutor {
                                   WorkRunner runner, ScheduleRunQueue.Run run,
                                   LongPredicate alreadyDownloaded, Runnable politeDelay) throws Exception {
         PageSupplier pages;
+        Runnable pageDelay;
         if (task.type() == ScheduledTaskType.USER_NEW) {
             String userId = source.path("userId").asText("");
             List<String> all = novel ? pixivFetchService.discoverUserNovelIds(userId, cookie)
                                      : pixivFetchService.discoverUserArtworkIds(userId, cookie);
             pages = p -> p == 1 ? all : List.of();
+            pageDelay = () -> {}; // 单次全量发现，无翻页
+        } else if (task.type() == ScheduledTaskType.FOLLOW_LATEST) {
+            pages = followLatestPages(cookie);
+            pageDelay = () -> {}; // 与既有 follow_latest 全量发现一致，页间不强制延迟
         } else {
             pages = searchPages(novel, source, cookie);
+            pageDelay = this::watermarkPageDelay; // SEARCH 翻页前强制 10s 礼貌延迟
         }
         WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
         long watermark = task.watermarkId() == null ? 0L : task.watermarkId();
-        Runnable pageDelay = task.type() == ScheduledTaskType.SEARCH ? this::watermarkPageDelay : () -> {};
         WatermarkScanResult result = runWatermarkScan(
                 pages, watermark, alreadyDownloaded, dispatcher, politeDelay, pageDelay, run);
         // 扫描正常返回（无挂起异常）后，先等本轮在途下载完成再推进水位线：确保失败者已入隔离表、
@@ -535,6 +549,24 @@ public class ScheduleExecutor {
         return novel
                 ? p -> pixivFetchService.discoverSearchNovelIdsPage(word, order, mode, sMode, p, cookie)
                 : p -> pixivFetchService.discoverSearchArtworkIdsPage(word, order, mode, sMode, p, cookie);
+    }
+
+    /**
+     * FOLLOW_LATEST 的逐页 supplier：依次拉 follow_latest 单页喂给水位线扫描。{@code isLastPage}
+     * 命中后下一次取页直接返回空 → 扫描自然停止（兼顾 Pixiv 偶发越界页不返回空数组的情形）。
+     */
+    private PageSupplier followLatestPages(String cookie) {
+        boolean[] reachedLast = {false};
+        return p -> {
+            if (reachedLast[0]) {
+                return List.of();
+            }
+            PixivFetchService.FollowLatestPage page = pixivFetchService.fetchFollowLatestPage(p, cookie);
+            if (page.lastPage()) {
+                reachedLast[0] = true;
+            }
+            return page.ids();
+        };
     }
 
     /** 给定页码返回该页作品 ID（按页内顺序）；空 / null 表示无更多结果。 */
