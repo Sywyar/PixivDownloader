@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>PixivDownloader</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <meta name="description" content="PixivDownloader - 本地 Pixiv 作品批量下载工具">
+  <link rel="icon" href="https://raw.githubusercontent.com/Sywyar/PixivDownload/master/image/icon.png">
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css">
+  <style>
+    :root {
+      --theme-color: #0066cc;
+    }
+    /* 提示/警告块美化 */
+    .tip {
+      border-left: 4px solid #0066cc;
+      background: #f0f7ff;
+      padding: 12px 16px;
+      border-radius: 0 4px 4px 0;
+      margin: 1em 0;
+    }
+    .warn {
+      border-left: 4px solid #e7a100;
+      background: #fff8e6;
+      padding: 12px 16px;
+      border-radius: 0 4px 4px 0;
+      margin: 1em 0;
+    }
+    /* 侧边栏分组标题加粗 */
+    .sidebar-nav > ul > li > strong {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--theme-color);
+      padding: 16px 0 4px 0;
+      margin-left: -4px;
+    }
+    /* 代码块复制按钮 */
+    .docsify-copy-code-button {
+      font-size: 0.75em !important;
+    }
+    nav.app-nav {
+      margin: 25px 60px 0 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script>
+    window.$docsify = {
+      name: 'PixivDownloader',
+      repo: 'https://github.com/Sywyar/PixivDownload',
+      logo: 'https://raw.githubusercontent.com/Sywyar/PixivDownload/master/image/icon.png',
+      loadSidebar: true,
+      subMaxLevel: 3,
+      auto2top: true,
+      themeColor: '#0066cc',
+
+      search: {
+        maxAge: 86400000,
+        paths: 'auto',
+        placeholder: {
+          '/zh-cn/': '搜索文档…',
+          '/': 'Search docs…',
+        },
+        noData: {
+          '/zh-cn/': '无结果',
+          '/': 'No results',
+        },
+        depth: 6,
+      },
+
+      locales: {
+        '/zh-cn/': {
+          lang: 'zh-CN',
+          title: 'PixivDownloader 文档',
+          description: '本地 Pixiv 作品批量下载工具',
+        },
+        '/en/': {
+          lang: 'en-US',
+          title: 'PixivDownloader Docs',
+          description: 'Local Pixiv artwork batch download tool',
+        },
+        '/': {
+          lang: 'zh-CN',
+          title: 'PixivDownloader',
+        },
+      },
+
+      alias: {
+        '/zh-cn/_sidebar.md': '/zh-cn/_sidebar.md',
+        '/en/_sidebar.md': '/en/_sidebar.md',
+        '/_sidebar.md': '/_sidebar.md',
+      },
+
+      pagination: {
+        previousText: '上一页',
+        nextText: '下一页',
+        crossChapter: true,
+      },
+
+      copyCode: {
+        buttonText: '复制',
+        errorText: '失败',
+        successText: '已复制',
+      },
+    };
+  </script>
+  <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/zoom-image.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify-copy-code@2/dist/docsify-copy-code.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/docsify-pagination/dist/docsify-pagination.min.js"></script>
+</body>
+</html>
