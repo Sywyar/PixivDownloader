@@ -77,7 +77,7 @@ PixivDownload.exe
 首次启动后按引导完成配置，即可访问 `http://localhost:6999/pixiv-batch.html` 开始下载。
 
 > [!TIP]
-> **详细安装步骤、使用指南、配置参考、开发指南等请查阅 [Wiki](https://github.com/Sywyar/PixivDownloader/wiki/zh-Home)**
+> **详细安装步骤、使用指南、配置参考、开发指南等请查阅 [在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/)**
 
 ---
 

@@ -17,7 +17,7 @@ public class AppInfo {
     public static final String GITHUB_REPOSITORY = "Sywyar/" + NAME;
     public static final String GITHUB_URL = "https://github.com/" + GITHUB_REPOSITORY;
     public static final String RELEASES_URL = GITHUB_URL + "/releases";
-    public static final String WIKI_URL = GITHUB_URL + "/wiki";
+    public static final String DOCS_URL = "https://sywyar.github.io/" + NAME + "/";
     public static final String LICENSE_URL = GITHUB_URL + "/blob/master/LICENSE";
     public static final String LATEST_RELEASE_DOWNLOAD_URL = RELEASES_URL + "/latest/download";
     public static final String NIGHTLY_RELEASE_DOWNLOAD_URL = RELEASES_URL + "/download/nightly";

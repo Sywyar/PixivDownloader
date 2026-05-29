@@ -86,7 +86,7 @@ After first startup, follow the wizard to complete setup, then visit `http://loc
 downloading.
 
 > [!TIP]
-> **See the [Wiki](https://github.com/Sywyar/PixivDownloader/wiki/en-Home) for detailed installation, usage,
+> **See the [online documentation](https://sywyar.github.io/PixivDownloader/#/en/) for detailed installation, usage,
 configuration, and development guides.**
 
 ---

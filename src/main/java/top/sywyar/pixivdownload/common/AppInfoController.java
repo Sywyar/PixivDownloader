@@ -13,7 +13,7 @@ public class AppInfoController {
                 AppVersion.getDisplayVersionOrDefault("unknown"),
                 AppInfo.GITHUB_URL,
                 AppInfo.RELEASES_URL,
-                AppInfo.WIKI_URL,
+                AppInfo.DOCS_URL,
                 AppInfo.LICENSE_URL
         );
     }
@@ -23,7 +23,7 @@ public class AppInfoController {
             String version,
             String githubUrl,
             String releasesUrl,
-            String wikiUrl,
+            String docsUrl,
             String licenseUrl) {
     }
 }

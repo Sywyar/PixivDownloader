@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- 文档迁移到全新的在线文档站点 <https://sywyar.github.io/PixivDownloader/>（基于 docsify，支持中/英文切换与全文搜索）：产品介绍页的「阅读文档」按钮、README 的文档入口均改为指向该站点；原 GitHub Wiki 不再维护，仅保留跳转到新站点的占位页。
+
 ## [v1.11.1] - 2026.5.29
 
 ### Features

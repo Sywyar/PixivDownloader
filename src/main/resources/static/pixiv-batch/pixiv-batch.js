@@ -49,7 +49,7 @@
         if (appInfo) {
             setFooterLink('app-github-link', appInfo.githubUrl);
             setFooterLink('app-releases-link', appInfo.releasesUrl);
-            setFooterLink('app-wiki-link', appInfo.wikiUrl);
+            setFooterLink('app-docs-link', appInfo.docsUrl);
             setFooterLink('app-license-link', appInfo.licenseUrl);
         }
     }
