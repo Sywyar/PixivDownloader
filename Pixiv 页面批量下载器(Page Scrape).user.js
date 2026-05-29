@@ -2088,7 +2088,6 @@
             this.closing = false;
         }
     }
-
     // <<< SHARED:sse-manager.js
     /* ========== 下载管理器 ========== */
     class DownloadManager {

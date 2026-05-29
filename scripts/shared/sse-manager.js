@@ -81,7 +81,10 @@ class SSEManager {
                     this._cleanup();
                     this._scheduleReconnect();
                 },
-                ontimeout: () => { this._cleanup(); this._scheduleReconnect(); }
+                ontimeout: () => {
+                    this._cleanup();
+                    this._scheduleReconnect();
+                }
             });
         } catch (err) {
             console.error('SSE open failed', err);
@@ -144,7 +147,8 @@ class SSEManager {
             if (!aid) return;
             const fns = this.listeners.get(aid);
             if (fns) fns.forEach(fn => fn(parsed));
-        } catch (e) { /* 握手 / 心跳等非 download-status JSON 忽略 */ }
+        } catch (e) { /* 握手 / 心跳等非 download-status JSON 忽略 */
+        }
     }
 
     _scheduleReconnect() {
@@ -168,12 +172,18 @@ class SSEManager {
     }
 
     _cancelDeferredClose() {
-        if (this._closeTimer) { clearTimeout(this._closeTimer); this._closeTimer = null; }
+        if (this._closeTimer) {
+            clearTimeout(this._closeTimer);
+            this._closeTimer = null;
+        }
     }
 
     _closeNow() {
         this._cancelDeferredClose();
-        if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+        if (this._reconnectTimer) {
+            clearTimeout(this._reconnectTimer);
+            this._reconnectTimer = null;
+        }
         if (!this.connected && !this.connecting && !this.handle && !this.reader) {
             this.connectionId = null;
             this.closing = false;
@@ -197,19 +207,35 @@ class SSEManager {
                 url: `${CONFIG.SSE_CLOSE_BASE}/${encodeURIComponent(connectionId)}`,
                 headers,
                 timeout: 2000,
-                onload: () => {},
-                onerror: () => {},
-                ontimeout: () => {}
+                onload: () => {
+                },
+                onerror: () => {
+                },
+                ontimeout: () => {
+                }
             });
-        } catch (e) {}
+        } catch (e) {
+        }
     }
 
     _cleanup() {
         this.connected = false;
         this.connecting = false;
         this.connectionId = null;
-        if (this.reader) { try { this.reader.cancel(); } catch (e) {} this.reader = null; }
-        if (this.handle) { try { this.handle.abort(); } catch (e) {} this.handle = null; }
+        if (this.reader) {
+            try {
+                this.reader.cancel();
+            } catch (e) {
+            }
+            this.reader = null;
+        }
+        if (this.handle) {
+            try {
+                this.handle.abort();
+            } catch (e) {
+            }
+            this.handle = null;
+        }
         this._buffer = '';
         this.closing = false;
     }
