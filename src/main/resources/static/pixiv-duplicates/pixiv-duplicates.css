@@ -434,6 +434,12 @@ input[type="range"] {
     font-size: 12px;
 }
 
+/* hidden 属性需显式覆盖 display:grid，否则等特异度下作者样式会胜过 UA 的 [hidden]{display:none}，
+   导致「无缩略图」占位层始终绝对定位盖在已加载的缩略图上方、一直显示不消失。 */
+.thumb-fallback[hidden] {
+    display: none;
+}
+
 .dup-page,
 .dup-restrict {
     position: absolute;
