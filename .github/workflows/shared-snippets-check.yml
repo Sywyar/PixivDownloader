@@ -1,0 +1,24 @@
+name: Shared Snippet Drift Check
+
+# 守卫 scripts/shared/*.js 与各 .user.js 中 // >>> SHARED 标记区的一致性：
+# 若有人改了某一侧而未重新同步（mvn 构建会在 generate-sources 阶段调用
+# sync-shared-snippets.ps1 写回脚本），这里会在推送 / PR 时以非零退出码失败。
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check-shared-snippets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fix Git UTF-8 filenames
+        run: git config --global core.quotepath false
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify .user.js shared snippets are in sync
+        shell: pwsh
+        run: ./scripts/sync-shared-snippets.ps1 -Check
