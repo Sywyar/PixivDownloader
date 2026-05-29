@@ -1382,6 +1382,95 @@ public class PixivProxyController {
     }
 
     /**
+     * 已关注的用户的新作（フォロー新着作品）。基于 cookie 主人的登录态，代理
+     * {@code /ajax/follow_latest/illust?mode=all&p=N}：返回当前页的插画/漫画/动图卡片，按
+     * {@code body.page.ids} 的顺序排列。Pixiv 该接口不给作品总数，故以 {@code hasNext} 表示是否还有下一页。
+     */
+    @GetMapping("/me/follow-latest")
+    public ResponseEntity<?> getMyFollowLatest(
+            @RequestParam(defaultValue = "1") int p,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        if (extractUidFromCookie(cookie) == null) {
+            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
+        }
+        int safePage = Math.max(1, p);
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/follow_latest/illust")
+                .queryParam("mode", "all")
+                .queryParam("p", safePage)
+                .queryParam("lang", "zh")
+                .build()
+                .encode()
+                .toUri();
+        String body = proxyGetUri(uri, cookie);
+        JsonNode root = objectMapper.readTree(body);
+        if (root.path("error").asBoolean(false)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(root.path("message").asText()));
+        }
+        JsonNode b = root.path("body");
+        List<SearchResponse.SearchItem> items = parseFollowLatestIllusts(b);
+        boolean hasNext = followLatestHasNext(b, items.size());
+        return ResponseEntity.ok(new FollowLatestResponse(items, safePage, hasNext));
+    }
+
+    /**
+     * 把 {@code /ajax/follow_latest/illust} 的 {@code body} 解析为按 {@code page.ids} 顺序排列的插画卡片列表。
+     * 卡片详情取自 {@code thumbnails.illust[]}（按 id 建索引）；{@code page.ids} 缺失时回退为 thumbnails 自身顺序，
+     * 命中不到卡片的 id（被屏蔽/已删除等）跳过。纯函数：不触网、不依赖实例状态，便于单测。
+     */
+    static List<SearchResponse.SearchItem> parseFollowLatestIllusts(JsonNode body) {
+        List<SearchResponse.SearchItem> items = new ArrayList<>();
+        if (body == null) return items;
+        Map<String, JsonNode> illustById = new LinkedHashMap<>();
+        for (JsonNode it : body.path("thumbnails").path("illust")) {
+            String id = it.path("id").asText("");
+            if (!id.isBlank()) illustById.put(id, it);
+        }
+        JsonNode ids = body.path("page").path("ids");
+        if (ids.isArray() && !ids.isEmpty()) {
+            for (JsonNode idNode : ids) {
+                JsonNode it = illustById.get(idNode.asText(""));
+                if (it != null) items.add(followLatestCardOf(it));
+            }
+        } else {
+            for (JsonNode it : illustById.values()) {
+                items.add(followLatestCardOf(it));
+            }
+        }
+        return items;
+    }
+
+    private static SearchResponse.SearchItem followLatestCardOf(JsonNode item) {
+        return new SearchResponse.SearchItem(
+                item.path("id").asText(""),
+                item.path("title").asText(""),
+                item.path("illustType").asInt(0),
+                item.path("xRestrict").asInt(0),
+                item.path("aiType").asInt(0),
+                item.path("url").asText(""),
+                item.path("pageCount").asInt(1),
+                item.path("userId").asText(""),
+                item.path("userName").asText(""),
+                parseStringTags(item.path("tags"))
+        );
+    }
+
+    /**
+     * 判断 follow_latest 是否还有下一页：优先用 Pixiv 自身的 {@code page.isLastPage}；缺失时退化为
+     * 「当前页解析出非空作品即可能还有下一页」（请求越界时 Pixiv 返回空页，从而停止）。纯函数。
+     */
+    static boolean followLatestHasNext(JsonNode body, int pageItemCount) {
+        if (body != null) {
+            JsonNode isLast = body.path("page").path("isLastPage");
+            if (isLast.isBoolean()) return !isLast.asBoolean();
+        }
+        return pageItemCount > 0;
+    }
+
+    /**
      * 当前用户的珍藏集（コレクション）列表。珍藏集不分公开/不公开、不分插画/小说。
      * 两步：先从 {@code profile/all} 取 {@code collectionIds}，再分批 {@code profile/collections?ids[]=}
      * 取封面元数据；Pixiv 无该列表的分页，一次性返回全部。

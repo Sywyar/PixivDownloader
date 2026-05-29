@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.response.CollectionWorksResponse;
+import top.sywyar.pixivdownload.download.response.SearchResponse;
 
 import java.util.List;
 
@@ -102,5 +103,55 @@ class PixivMeProxyParseTest {
     void collectionWorksHandlesNull() {
         assertThat(PixivProxyController.parseCollectionWorks(null)).isEmpty();
         assertThat(PixivProxyController.parseCollectionWorks(body("{}"))).isEmpty();
+    }
+
+    // ── parseFollowLatestIllusts / followLatestHasNext ──────────────────────
+
+    @Test
+    @DisplayName("已关注的用户的新作：按 page.ids 顺序输出，并从 thumbnails.illust 取卡片详情")
+    void followLatestInPageIdOrder() {
+        JsonNode b = body("{"
+                + "\"page\":{\"ids\":[222,111],\"isLastPage\":false},"
+                + "\"thumbnails\":{\"illust\":["
+                + "  {\"id\":\"111\",\"title\":\"a\",\"illustType\":0,\"xRestrict\":0,\"aiType\":1,"
+                + "   \"url\":\"https://i.pximg.net/a.jpg\",\"pageCount\":2,\"userId\":\"7\",\"userName\":\"u7\",\"tags\":[\"x\"]},"
+                + "  {\"id\":\"222\",\"title\":\"b\",\"illustType\":2,\"xRestrict\":1,\"aiType\":2,"
+                + "   \"url\":\"https://i.pximg.net/b.jpg\",\"pageCount\":1,\"userId\":\"8\",\"userName\":\"u8\",\"tags\":[]}"
+                + "]}}");
+        List<SearchResponse.SearchItem> items = PixivProxyController.parseFollowLatestIllusts(b);
+        assertThat(items).extracting(SearchResponse.SearchItem::getId).containsExactly("222", "111");
+        SearchResponse.SearchItem first = items.get(0);
+        assertThat(first.getTitle()).isEqualTo("b");
+        assertThat(first.getIllustType()).isEqualTo(2);
+        assertThat(first.getXRestrict()).isEqualTo(1);
+        assertThat(first.getThumbnailUrl()).isEqualTo("https://i.pximg.net/b.jpg");
+        assertThat(first.getUserName()).isEqualTo("u8");
+    }
+
+    @Test
+    @DisplayName("已关注的用户的新作：page.ids 命中不到的卡片跳过；ids 缺失时回退为 thumbnails 顺序；null 安全")
+    void followLatestSkipsMissingAndFallsBack() {
+        JsonNode withMissing = body("{"
+                + "\"page\":{\"ids\":[1,999]},"
+                + "\"thumbnails\":{\"illust\":[{\"id\":\"1\",\"title\":\"keep\"}]}}");
+        assertThat(PixivProxyController.parseFollowLatestIllusts(withMissing))
+                .extracting(SearchResponse.SearchItem::getId).containsExactly("1");
+
+        JsonNode noIds = body("{"
+                + "\"thumbnails\":{\"illust\":[{\"id\":\"5\",\"title\":\"x\"},{\"id\":\"6\",\"title\":\"y\"}]}}");
+        assertThat(PixivProxyController.parseFollowLatestIllusts(noIds))
+                .extracting(SearchResponse.SearchItem::getId).containsExactly("5", "6");
+
+        assertThat(PixivProxyController.parseFollowLatestIllusts(null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("已关注的用户的新作：hasNext 优先取 page.isLastPage，缺失时按本页是否有作品推断")
+    void followLatestHasNextSignal() {
+        assertThat(PixivProxyController.followLatestHasNext(body("{\"page\":{\"isLastPage\":false}}"), 0)).isTrue();
+        assertThat(PixivProxyController.followLatestHasNext(body("{\"page\":{\"isLastPage\":true}}"), 48)).isFalse();
+        assertThat(PixivProxyController.followLatestHasNext(body("{\"page\":{}}"), 48)).isTrue();
+        assertThat(PixivProxyController.followLatestHasNext(body("{\"page\":{}}"), 0)).isFalse();
+        assertThat(PixivProxyController.followLatestHasNext(null, 5)).isTrue();
     }
 }

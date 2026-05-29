@@ -7756,6 +7756,8 @@
         // following 客户端搜索
         followingFilter: '',
         followingAll: [],
+        // follow_latest（已关注的用户的新作）无总数，仅以 hasNext 驱动「下一页」
+        followHasNext: false,
         renderToken: 0,
         blobUrls: []
     };
@@ -7825,6 +7827,7 @@
         quickState.allIds = [];
         quickState.followingFilter = '';
         quickState.followingAll = [];
+        quickState.followHasNext = false;
         quickCloseInner();
     }
 
@@ -7917,6 +7920,12 @@
                 case 'my-following-hide':
                     quickState.viewType = 'following-list';
                     await loadQuickFollowing(action.endsWith('hide') ? 'hide' : 'show', 0);
+                    break;
+                case 'my-following-new':
+                    quickState.viewType = 'illust-list';
+                    quickState.kind = 'illust';
+                    quickState.pageSize = QUICK_PAGE_SIZE_ILLUST;
+                    await loadQuickFollowingNew(1);
                     break;
                 case 'my-collections':
                     quickState.viewType = 'collection-list';
@@ -8029,6 +8038,43 @@
         const totalPages = Math.max(1, Math.ceil(quickState.total / QUICK_FOLLOWING_PAGE_SIZE));
         renderQuickPagination(quickState.page, totalPages,
             p => loadQuickFollowing(rest, (p - 1) * QUICK_FOLLOWING_PAGE_SIZE));
+    }
+
+    // 已关注的用户的新作（フォロー新着作品）：插画/漫画/动图卡片，按页翻阅。
+    // Pixiv follow_latest 不返回总数，分页仅有 hasNext，故用专用的「上一页/下一页」翻页器。
+    async function loadQuickFollowingNew(page) {
+        const safePage = Math.max(1, page);
+        const params = new URLSearchParams({p: String(safePage)});
+        const data = await quickFetchJson(`${BASE}/api/pixiv/me/follow-latest?${params}`);
+        quickState.items = data.items || [];
+        quickState.followHasNext = !!data.hasNext;
+        quickState.page = safePage;
+        quickState.kind = 'illust';
+        quickState.viewType = 'illust-list';
+        quickState.pageSize = QUICK_PAGE_SIZE_ILLUST;
+        quickSetTitle(`${bt('quick.title.following-new', '已关注的用户的新作')} · ${bt('quick.title.page', '第 {page} 页', {page: safePage})}`);
+        quickShowToolbar({showBack: false, showAdd: quickState.items.length > 0, showSearch: false, showKindSwitcher: false});
+        renderQuickIllustGrid(quickState.items, 'quick');
+        renderQuickFollowNewPagination(safePage, quickState.followHasNext);
+    }
+
+    function renderQuickFollowNewPagination(currentPage, hasNext) {
+        const pag = document.getElementById('quick-pagination');
+        if (!pag) return;
+        const cur = Math.max(1, Number(currentPage || 1));
+        if (cur <= 1 && !hasNext) {
+            pag.style.display = 'none';
+            pag.innerHTML = '';
+            return;
+        }
+        pag.style.display = 'flex';
+        quickState._jumpFn = p => loadQuickFollowingNew(p);
+        pag.innerHTML =
+            `<button onclick="quickJumpPage(1)" ${cur === 1 ? 'disabled' : ''}>&laquo;</button>` +
+            `<button onclick="quickJumpPage(${cur - 1})" ${cur === 1 ? 'disabled' : ''}>&lsaquo;</button>` +
+            `<button class="pg-active" disabled>${cur}</button>` +
+            `<button onclick="quickJumpPage(${cur + 1})" ${hasNext ? '' : 'disabled'}>&rsaquo;</button>` +
+            `<span class="pg-info">${esc(bt('quick.title.page', '第 {page} 页', {page: cur}))}</span>`;
     }
 
     function quickFilterFollowing() {
@@ -8329,6 +8375,48 @@
 
     async function quickAddAllToQueue() {
         if (!quickState.items.length) return;
+        // 「已关注的用户的新作」无总数，从第 1 页逐页抓取直到 hasNext 为 false
+        if (quickState.action === 'my-following-new') {
+            if (!uiConfirmKey('quick.confirm.add-all-follow-new',
+                '将逐页抓取「已关注的用户的新作」直到没有更多并全部加入队列，请求较多，确认继续？')) return;
+            setQuickBtnLoading('quick-add-all', true);
+            const ids = [];
+            const metas = [];
+            const seen = new Set();
+            const acc = (items) => {
+                items.forEach(item => {
+                    const id = String(item.id);
+                    if (seen.has(id)) return;
+                    seen.add(id);
+                    ids.push(id);
+                    metas.push(buildQuickQueueMeta(item, 'illust'));
+                });
+            };
+            try {
+                let page = 1, hasNext = true, guard = 0;
+                while (hasNext && guard++ < 500) {
+                    setStatus(bt('quick.status.fetching-follow-new',
+                        '正在抓取已关注的用户的新作（第 {page} 页，已收集 {count} 个）…',
+                        {page, count: ids.length}), 'info');
+                    const data = await quickFetchJson(`${BASE}/api/pixiv/me/follow-latest?${new URLSearchParams({p: String(page)})}`);
+                    acc(data.items || []);
+                    hasNext = !!data.hasNext;
+                    page++;
+                }
+                const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
+                setStatus(
+                    bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
+                        {added, total: ids.length, existing: ids.length - added}),
+                    added > 0 ? 'success' : 'info'
+                );
+                syncQuickQueueState();
+            } catch (e) {
+                setStatus(bt('status.fetch-failed', '获取作品列表失败：{message}', {message: e.message}), 'error');
+            } finally {
+                setQuickBtnLoading('quick-add-all', false);
+            }
+            return;
+        }
         // 「我的作品」可直接按全量 ID 入队（无须逐页拉 cards）
         if (quickState.action === 'my-illusts' || quickState.action === 'my-novels') {
             if (!uiConfirmKey('quick.confirm.add-all-my-works',

@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+### Features
+- 批量下载页「快捷获取账户相关作品」Tab 新增「已关注的用户的新作」按钮：基于当前 Cookie 的登录态加载你关注的所有画师的最新插画/漫画/动图（Pixiv「フォロー新着作品」），可按页翻阅、把当前页或全部结果加入下载队列。
+
 ### Changed
 - GUI「状态」页在后端处于特殊状态时显示更具体的信息：维护窗口期间显示「维护中：<任务名>（当前序号/总数）」而非笼统的「连接失败」，且单个维护任务运行超过 30 秒时附带实时已运行秒数；因使用需要独占数据库的工具（目录有效性检查 / 数据回填 / JSON → SQLite 迁移）而停止后端时，显示「使用『<工具名>』工具，后端已停止」，同样在超过 30 秒时附带实时秒数。相似图哈希回填这类会上报进度的维护任务，状态页还会显示「已处理 X/总数」与按已用时自我修正的预计剩余时间（ETA）。此外修复了维护期间 GUI 状态轮询回退到 HTTPS、向 HTTP 端口发送 TLS 握手，导致后端控制台打印 `Invalid character found in method name` 解析错误的问题。
 - 文档迁移到全新的在线文档站点 <https://sywyar.github.io/PixivDownloader/>（基于 docsify，支持中/英文切换与全文搜索）：产品介绍页的「阅读文档」按钮、README 的文档入口均改为指向该站点；原 GitHub Wiki 不再维护，仅保留跳转到新站点的占位页。
