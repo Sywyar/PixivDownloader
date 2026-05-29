@@ -386,7 +386,7 @@ class ScheduleExecutorFilterTest {
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 98L, id -> false,
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
-                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
             assertThat(r.dispatched()).isEqualTo(2);
             assertThat(dispatched).containsExactly("100", "99");
             assertThat(r.newestSeen()).isEqualTo(100L);
@@ -402,7 +402,7 @@ class ScheduleExecutorFilterTest {
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 0L, id -> true,
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
-                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
             assertThat(r.dispatched()).isZero();
             assertThat(dispatched).isEmpty();
             assertThat(calls.get()).isEqualTo(1); // 第 2 页未请求
@@ -417,7 +417,7 @@ class ScheduleExecutorFilterTest {
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 0L, id -> false,
                     (id, workId) -> true, () -> {}, () -> {},
-                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
             assertThat(r.dispatched()).isEqualTo(4);
             assertThat(r.newestSeen()).isEqualTo(50L);
         }
@@ -434,7 +434,7 @@ class ScheduleExecutorFilterTest {
                         seen.add(id);
                         return workId != 2L; // workId=2 被 WorkRunner 隔离后返 false
                     }, () -> {}, () -> {},
-                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
             assertThat(seen).containsExactly("3", "2", "1");
             assertThat(r.dispatched()).isEqualTo(2);
             assertThat(r.newestSeen()).isEqualTo(3L);
@@ -447,7 +447,7 @@ class ScheduleExecutorFilterTest {
                     List.of(List.of("2", "1")), new AtomicInteger());
             assertThatThrownBy(() -> ScheduleExecutor.runWatermarkScan(pages, 0L, id -> false,
                     (id, workId) -> { throw new OveruseWarningException(123L, ""); }, () -> {}, () -> {},
-                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST)))
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0))
                     .isInstanceOf(OveruseWarningException.class);
         }
 
@@ -464,10 +464,40 @@ class ScheduleExecutorFilterTest {
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 0L, none::contains,
                     (id, workId) -> true, () -> {}, pageDelays::incrementAndGet,
-                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
             assertThat(calls.get()).isEqualTo(4); // 第 4 页为空触发停止
             assertThat(pageDelays.get()).isEqualTo(3); // 只在继续翻下一页前延迟
             assertThat(r.dispatched()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("首轮封顶（dispatchLimit>0）：派发数达上限即停，newestSeen 仍为最新 ID（水位线推进到最新）")
+        void firstRunLimitStopsAtCapButKeepsNewestSeen() throws Exception {
+            List<String> dispatched = new ArrayList<>();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("100", "99", "98", "97", "96")), new AtomicInteger());
+            ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
+                    pages, 0L, id -> false,
+                    (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 2);
+            assertThat(r.dispatched()).isEqualTo(2);
+            assertThat(dispatched).containsExactly("100", "99"); // 只下最新 2 个
+            assertThat(r.newestSeen()).isEqualTo(100L); // 水位线照常推进到最新，更老积压永久跳过
+        }
+
+        @Test
+        @DisplayName("首轮封顶不计已下载：跳过的不占额度，凑满上限个新下载才停")
+        void firstRunLimitCountsNewDispatchesOnly() throws Exception {
+            List<String> dispatched = new ArrayList<>();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("100", "99", "98", "97", "96")), new AtomicInteger());
+            ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
+                    pages, 0L, id -> id == 100L || id == 99L, // 最新两个已下载
+                    (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 2);
+            assertThat(r.dispatched()).isEqualTo(2);
+            assertThat(dispatched).containsExactly("98", "97"); // 已下载的不占额度
+            assertThat(r.newestSeen()).isEqualTo(100L);
         }
     }
 
@@ -493,7 +523,7 @@ class ScheduleExecutorFilterTest {
             int count = ScheduleExecutor.runDownloadedBoundaryScan(
                     pages, id -> id == 99L,
                     (id, workId) -> { dispatched.add(id); return true; },
-                    () -> {}, () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+                    () -> {}, () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
 
             assertThat(count).isEqualTo(1);
             assertThat(dispatched).containsExactly("100");
@@ -512,11 +542,29 @@ class ScheduleExecutorFilterTest {
                     pages, id -> false,
                     (id, workId) -> true,
                     () -> {}, pageDelays::incrementAndGet,
-                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST));
+                    ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
 
             assertThat(count).isEqualTo(2);
             assertThat(calls.get()).isEqualTo(3);
             assertThat(pageDelays.get()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("每轮上限（dispatchLimit>0）：派发数达上限即停本轮，剩余作品留待下一轮")
+        void perRunLimitStopsAtCap() throws Exception {
+            AtomicInteger calls = new AtomicInteger();
+            List<String> dispatched = new ArrayList<>();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("100", "99", "98"), List.of("97", "96")), calls);
+
+            int count = ScheduleExecutor.runDownloadedBoundaryScan(
+                    pages, id -> false,
+                    (id, workId) -> { dispatched.add(id); return true; },
+                    () -> {}, () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 2);
+
+            assertThat(count).isEqualTo(2);
+            assertThat(dispatched).containsExactly("100", "99");
+            assertThat(calls.get()).isEqualTo(1); // 第 1 页内就凑满上限，未翻第 2 页
         }
     }
 }

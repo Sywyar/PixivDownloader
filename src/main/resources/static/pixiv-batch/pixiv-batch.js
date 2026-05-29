@@ -5341,6 +5341,8 @@
             document.getElementById('btn-add-all').disabled = true;
             updateBatchQueueButtons();
         }
+        // 切换 🔍 搜索 / 📦 批量子模式会改变 maxPages 口径，刷新首次抓取上限字段显隐。
+        updateScheduleFetchLimitVisibility();
     }
 
     function bindSubmodeSwitcher() {
@@ -5406,6 +5408,8 @@
     function handleBatchRangeChange() {
         getBatchRange();
         updateBatchLimitNote();
+        // 结束页改成 / 离开 -1（翻页到底）会影响 SEARCH 是否支持首次抓取上限，刷新该字段显隐。
+        updateScheduleFetchLimitVisibility();
     }
 
     function updateBatchLimitNote() {
@@ -5768,6 +5772,9 @@
             updateBatchQueueButtons();
         });
         bindSubmodeSwitcher();
+        // 排序变化会影响「翻页到底 -1」搜索是首轮封顶（date_d）还是每轮上限（非 date_d），刷新首次抓取上限提示。
+        document.querySelectorAll('input[name="search-order"]').forEach(r =>
+            r.addEventListener('change', updateScheduleFetchLimitVisibility));
 
         // Mode
         const savedMode = normalizeImportMode(storeGet('pixiv_mode') || QUICK_FETCH_MODE);
@@ -6172,6 +6179,66 @@
         });
     }
 
+    // 「首次抓取上限」对某来源的封顶语义：
+    //   'watermark' = 首轮封顶（USER_NEW / FOLLOW_LATEST / date_d 翻页到底 SEARCH，有 ID 水位线，首轮抓最新 N 个后只追新）；
+    //   'per-run'   = 每轮上限（MY_BOOKMARKS / COLLECTION / 非 date_d 翻页到底 SEARCH，无水位线，每轮各抓 N 个新作抽干积压）；
+    //   null        = 不支持（SERIES / 固定页 SEARCH，前端隐藏该字段）。
+    function scheduleFetchLimitMode(type, source) {
+        if (type === 'USER_NEW' || type === 'FOLLOW_LATEST') return 'watermark';
+        if (type === 'MY_BOOKMARKS' || type === 'COLLECTION') return 'per-run';
+        if (type === 'SEARCH' && source && source.maxPages === -1) {
+            return (source.order || 'date_d') === 'date_d' ? 'watermark' : 'per-run';
+        }
+        return null; // SERIES / 固定页 SEARCH
+    }
+
+    function scheduleTypeSupportsFetchLimit(type, source) {
+        return scheduleFetchLimitMode(type, source) !== null;
+    }
+
+    // Search 模式当前 UI 折算出的 maxPages（与 buildScheduleSnapshot 同口径）：
+    // 🔍 搜索 = 1；📦 批量 = 结束页输入（管理员 -1 = 翻页到底哨兵）。
+    function currentScheduleSearchMaxPages() {
+        const batchSubmode = searchState.submode === 'batch'
+            || ((document.querySelector('input[name="search-submode"]:checked') || {}).value === 'batch');
+        if (!batchSubmode) return 1;
+        const raw = parseInt((document.getElementById('batch-end-page') || {}).value, 10);
+        return (isAdmin && raw === -1) ? -1 : Math.max(1, Number.isFinite(raw) ? raw : 3);
+    }
+
+    function currentScheduleSearchOrder() {
+        return (document.querySelector('input[name="search-order"]:checked') || {}).value || 'date_d';
+    }
+
+    // 当前模式 / 来源解析出的「将要保存的任务类型 + 来源」，用于决定首次抓取上限字段显隐与提示文案。
+    function currentScheduleLimitContext() {
+        if (state.mode === QUICK_FETCH_MODE) {
+            const qs = scheduleEditingQuickSource || quickScheduleSource();
+            return qs ? {type: qs.type, source: qs.source || {}} : null;
+        }
+        const type = SCHEDULE_MODE_TYPE[state.mode];
+        if (!type) return null;
+        if (type === 'SEARCH') {
+            return {type, source: {maxPages: currentScheduleSearchMaxPages(), order: currentScheduleSearchOrder()}};
+        }
+        return {type, source: {}};
+    }
+
+    // 首次抓取上限字段显隐 + 提示文案按情况切换：仅显示与当前来源封顶语义匹配的那一条提示，不全部堆出来。
+    function updateScheduleFetchLimitVisibility() {
+        const row = document.getElementById('sch-fetch-limit-row');
+        if (!row) return;
+        const card = document.getElementById('save-as-schedule-card');
+        const cardHidden = !card || card.style.display === 'none';
+        const ctx = cardHidden ? null : currentScheduleLimitContext();
+        const mode = ctx ? scheduleFetchLimitMode(ctx.type, ctx.source) : null;
+        row.style.display = mode ? '' : 'none';
+        const wm = document.getElementById('sch-fetch-limit-hint-watermark');
+        const pr = document.getElementById('sch-fetch-limit-hint-per-run');
+        if (wm) wm.style.display = mode === 'watermark' ? '' : 'none';
+        if (pr) pr.style.display = mode === 'per-run' ? '' : 'none';
+    }
+
     // 「存为计划任务」卡片显隐：非快捷模式沿用「管理员 + 可创建模式」；快捷获取下对管理员**常驻**，
     // 但仅当能解析出来源（已展开的收藏/我的作品/关注新作，或点进的画师/珍藏集；编辑时为锁定来源）才启用「创建」。
     function updateSaveScheduleCardVisibility() {
@@ -6186,6 +6253,7 @@
             const quickSrc = scheduleEditingQuickSource || quickScheduleSource();
             updateScheduleQuickSourceNote(quickSrc);
             if (submit) submit.disabled = isAdmin && !quickSrc;
+            updateScheduleFetchLimitVisibility();
             return;
         }
         const eligible = isAdmin && !!SCHEDULE_MODE_TYPE[state.mode];
@@ -6193,6 +6261,7 @@
         updateScheduleQuickSourceNote(null);
         if (submit) submit.disabled = false;
         if (!eligible && scheduleEditingId != null) resetScheduleForm();
+        updateScheduleFetchLimitVisibility();
     }
 
     // 快捷获取下「存为计划任务」卡片顶部的来源说明 / 提示：
@@ -6279,16 +6348,7 @@
             const pixivMode = (uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus') ? 'r18' : uiMode;
             // 子模式语义：🔍 搜索模式 = 只取第一页（maxPages 恒为 1）；📦 作品批量获取模式 = 读结束页输入框。
             // 结束页 = -1 是「直到已下载作品为止」哨兵，仅管理员可用（计划任务本就 admin-only）。
-            const batchSubmode = searchState.submode === 'batch'
-                || ((document.querySelector('input[name="search-submode"]:checked') || {}).value === 'batch');
-            let maxPages;
-            if (batchSubmode) {
-                const raw = parseInt((document.getElementById('batch-end-page') || {}).value, 10);
-                maxPages = (isAdmin && raw === -1) ? -1 : Math.max(1, Number.isFinite(raw) ? raw : 3);
-            } else {
-                maxPages = 1;
-            }
-            source = {word, order, mode: pixivMode, sMode, maxPages};
+            source = {word, order, mode: pixivMode, sMode, maxPages: currentScheduleSearchMaxPages()};
         } else {
             kind = seriesState.kind === 'novel' ? 'novel' : 'illust';
             if (!seriesState.seriesId) throw new Error(bt('schedule.error.series-id', '请先在上方解析并预览系列'));
@@ -6322,7 +6382,13 @@
             novelMerge: !!state.settings.mergeNovelSeries,
             novelMergeFormat: state.settings.mergeNovelFormat || 'epub'
         };
-        return {type, kind, params: {kind, source, filters, download}};
+        // 首次抓取上限：仅对支持封顶的来源类型携带（0 = 全量 / 不限；后端按来源是否水位线决定「首轮封顶」或「每轮上限」）。
+        let fetchLimit = 0;
+        if (scheduleTypeSupportsFetchLimit(type, source)) {
+            const rawLimit = parseInt((document.getElementById('sch-fetch-limit') || {}).value, 10);
+            fetchLimit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 0;
+        }
+        return {type, kind, params: {kind, source, filters, download, fetchLimit}};
     }
 
     async function submitScheduleTask() {
@@ -6336,6 +6402,13 @@
             snap = buildScheduleSnapshot();
         } catch (e) {
             setScheduleFormStatus(e.message, 'error');
+            return;
+        }
+        // N=0（全量）风险确认：仅对支持封顶的来源类型提示——首轮全量可能触发 Pixiv 过度访问警告甚至封号。
+        if (scheduleTypeSupportsFetchLimit(snap.type, snap.params.source)
+            && !(snap.params.fetchLimit > 0)
+            && !uiConfirmKey('schedule.confirm.full-fetch',
+                '「首次抓取上限」为 0 表示首次运行会尝试抓取该来源的全部历史作品。作品很多时可能触发 Pixiv 的过度访问警告甚至封号风险。确定要全量抓取吗？')) {
             return;
         }
         const triggerKind = document.getElementById('sch-trigger').value;
@@ -6392,6 +6465,8 @@
         if (cronEl) cronEl.value = '';
         const intEl = document.getElementById('sch-interval');
         if (intEl) intEl.value = '1440';
+        const flEl = document.getElementById('sch-fetch-limit');
+        if (flEl) flEl.value = '0';
         const trgEl = document.getElementById('sch-trigger');
         if (trgEl) trgEl.value = 'interval';
         const subEl = document.getElementById('sch-submit');
@@ -6499,6 +6574,8 @@
         document.getElementById('sch-trigger').value = task.triggerKind || 'interval';
         document.getElementById('sch-interval').value = task.intervalMinutes || 1440;
         document.getElementById('sch-cron').value = task.cronExpr || '';
+        const flEl = document.getElementById('sch-fetch-limit');
+        if (flEl) flEl.value = (Number.isFinite(params.fetchLimit) && params.fetchLimit > 0) ? params.fetchLimit : 0;
         document.getElementById('sch-submit').textContent = bt('schedule.action.save', '💾 保存修改');
         document.getElementById('sch-cancel').style.display = '';
         const srcEl = document.getElementById('sch-edit-source');
@@ -6858,6 +6935,12 @@
             : bt('schedule.snapshot.value.unset', '未设置');
     }
 
+    function scheduleFetchLimitValue(n) {
+        return (typeof n === 'number' && n > 0)
+            ? bt('schedule.snapshot.value.fetch-limit', '{n} 个作品', {n})
+            : bt('schedule.snapshot.value.fetch-limit-all', '全量（不限）');
+    }
+
     function scheduleMsValue(ms) {
         return (typeof ms === 'number' && ms >= 0)
             ? bt('schedule.snapshot.value.ms', '{ms} ms', {ms})
@@ -6886,9 +6969,17 @@
         const source = params.source || {};
         const filters = params.filters || {};
         const download = params.download || {};
+        const sourceRows = buildScheduleSnapshotSourceRows(t.type, source);
+        // 首次抓取上限：仅对支持封顶的来源类型展示（与表单显隐口径一致）。
+        if (scheduleTypeSupportsFetchLimit(t.type, source)) {
+            sourceRows.push([
+                bt('schedule.snapshot.field.fetch-limit', '首次抓取上限'),
+                scheduleFetchLimitValue(params.fetchLimit)
+            ]);
+        }
         const sourceSection = scheduleSnapshotSection(
             bt('schedule.snapshot.section.source', '来源快照'),
-            buildScheduleSnapshotSourceRows(t.type, source)
+            sourceRows
         );
         const filterSection = scheduleSnapshotSection(
             bt('schedule.snapshot.section.filters', '筛选快照'),
