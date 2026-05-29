@@ -2,8 +2,8 @@
 
 PixivDownloader 是一款**本地 Pixiv 作品批量下载工具**，基于 Spring Boot 3.5.7 / Java 17 构建，支持桌面 GUI（Swing + FlatLaf）、Web 界面和 Tampermonkey 油猴脚本三种交互方式。
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/Sywyar/PixivDownload/blob/master/LICENSE)
-[![GitHub Release](https://img.shields.io/github/v/release/Sywyar/PixivDownload)](https://github.com/Sywyar/PixivDownload/releases)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/releases)
 
 ?> 本文档中「作品」涵盖插画、漫画、动图（Ugoira）和小说。
 
@@ -61,7 +61,7 @@ PixivDownloader 是一款**本地 Pixiv 作品批量下载工具**，基于 Spri
 | 项目 | 详情 |
 |------|------|
 | **作者** | [Sywyar](https://github.com/Sywyar) |
-| **许可证** | [GNU AGPL v3](https://github.com/Sywyar/PixivDownload/blob/master/LICENSE) |
+| **许可证** | [GNU AGPL v3](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE) |
 | **语言** | 中文 / English |
 | **Java 版本** | 17 |
 | **框架** | Spring Boot 3.5.7 |

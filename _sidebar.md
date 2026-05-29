@@ -3,5 +3,5 @@
 
 ---
 
-- [GitHub](https://github.com/Sywyar/PixivDownload)
-- [Releases](https://github.com/Sywyar/PixivDownload/releases)
+- [GitHub](https://github.com/Sywyar/PixivDownloader)
+- [Releases](https://github.com/Sywyar/PixivDownloader/releases)

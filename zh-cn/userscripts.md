@@ -41,7 +41,7 @@
 
 ### 方式二：从 Release 下载
 
-1. 前往 [Releases](https://github.com/Sywyar/PixivDownload/releases) 下载脚本文件（`.user.js`）
+1. 前往 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载脚本文件（`.user.js`）
 2. 将文件拖入 Tampermonkey 管理面板，点「安装」
 
 ---

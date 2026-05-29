@@ -22,7 +22,7 @@
 ---
 
 - [🇺🇸 English](/en/)
-- [GitHub](https://github.com/Sywyar/PixivDownload)
-- [Releases](https://github.com/Sywyar/PixivDownload/releases)
-- [Issues](https://github.com/Sywyar/PixivDownload/issues)
-- [Changelog](https://github.com/Sywyar/PixivDownload/blob/master/CHANGELOG.md)
+- [GitHub](https://github.com/Sywyar/PixivDownloader)
+- [Releases](https://github.com/Sywyar/PixivDownloader/releases)
+- [Issues](https://github.com/Sywyar/PixivDownloader/issues)
+- [Changelog](https://github.com/Sywyar/PixivDownloader/blob/master/CHANGELOG.md)
