@@ -3081,6 +3081,8 @@
         }
         if (normalizedMode === QUICK_FETCH_MODE) {
             updateQuickAccountBar();
+            // 重新按当前附加筛选过滤已加载的快捷获取预览（筛选可能在别的模式被改过）
+            if (quickHasWorksGrid()) quickReapplyFilters();
         }
         if (normalizedMode === 'schedule') {
             loadScheduleTasks();
@@ -3103,6 +3105,11 @@
             visible = state.settings.searchKind === 'novel';
         } else if (mode === 'series') {
             visible = true;
+        } else if (mode === QUICK_FETCH_MODE) {
+            // 快捷获取在展示小说网格（含珍藏集内混合作品）或编辑小说/混合类 quick 任务时显示小说设置，
+            // 供其格式 / 合订设置生效并被计划任务快照采用。
+            const qk = scheduleEditingQuickSource ? scheduleEditingQuickSource.kind : quickCurrentKind();
+            visible = qk === 'novel' || qk === 'mixed';
         } else {
             visible = false;
         }
@@ -3430,8 +3437,16 @@
 
     function applySearchKindUI() {
         // 批量导入单作品队列可同时含插画与小说，故显示全部专属字段（下载时按各作品类型分别套用）。
-        const showAll = state.mode === 'single-import';
-        const isNovel = currentModeKind() === 'novel';
+        let showAll = state.mode === 'single-import';
+        let isNovel;
+        if (state.mode === QUICK_FETCH_MODE) {
+            // 快捷获取按当前作品网格 kind 切换；编辑 quick 类任务时按锁定来源 kind；混合（珍藏集）显示全部字段。
+            const qk = scheduleEditingQuickSource ? scheduleEditingQuickSource.kind : quickCurrentKind();
+            if (qk === 'mixed') showAll = true;
+            isNovel = qk === 'novel';
+        } else {
+            isNovel = currentModeKind() === 'novel';
+        }
         document.querySelectorAll('.search-illust-only').forEach(el => {
             el.style.display = showAll ? '' : (isNovel ? 'none' : '');
         });
@@ -3447,8 +3462,13 @@
         const card = document.getElementById('extra-filters-card');
         if (!card) return;
         const mode = state.mode;
-        const visible = mode === 'search' || mode === 'user' || mode === 'series' || mode === 'single-import';
+        // 快捷获取下附加筛选卡片**常驻**；未展开作品网格时给出提示（筛选仍会在下载 / 计划任务时生效，
+        // 只是无可实时预览过滤的列表）。其它模式沿用原显隐规则。
+        const visible = mode === 'search' || mode === 'user' || mode === 'series'
+            || mode === 'single-import' || mode === QUICK_FETCH_MODE;
         card.style.display = visible ? '' : 'none';
+        const hint = document.getElementById('extra-filters-quick-hint');
+        if (hint) hint.style.display = (mode === QUICK_FETCH_MODE && !quickHasWorksGrid()) ? '' : 'none';
         if (visible) applySearchKindUI();
     }
 
@@ -3986,6 +4006,10 @@
         const filters = getSearchFiltersFromUI();
         searchState.currentFilters = filters;
         saveSearchFilterPrefs(filters);
+        if (state.mode === QUICK_FETCH_MODE) {
+            await quickReapplyFilters();
+            return;
+        }
         if (state.mode === 'user') {
             await applyUserFilters({setStatus: true});
             return;
@@ -4004,6 +4028,10 @@
         searchState.currentFilters = filters;
         setSearchFiltersUI(filters);
         saveSearchFilterPrefs(filters);
+        if (state.mode === QUICK_FETCH_MODE) {
+            await quickReapplyFilters();
+            return;
+        }
         if (state.mode === 'user') {
             await applyUserFilters({setStatus: true});
             return;
@@ -6084,6 +6112,9 @@
     // 「存为计划任务」卡片，直接快照当前模式来源 + 上方全部下载 / 筛选设置；第 5 个
     // Tab 仅做任务列表与管理（运行 / 授权 / 启停 / 编辑 / 删除）。
     let scheduleEditingId = null;
+    // 编辑「快捷获取来源」类任务（收藏 / 关注新作 / 珍藏集）时锁定的来源 {type, source, kind, label}：
+    // 这类任务无专属模式标签页，编辑时来源只读（换来源请删除重建），保存快照取此值而非当前 quick 视图。
+    let scheduleEditingQuickSource = null;
     let scheduleTasksCache = [];
     // 计划任务列表轮询：进入第 5 Tab 时定时刷新，让「正在运行 / 排队中」等瞬时状态灯能实时更新。
     let schedulePollTimer = null;
@@ -6127,7 +6158,12 @@
 
     // 哪些模式可以创建计划任务（单作品导入无对应来源类型）
     const SCHEDULE_MODE_TYPE = {user: 'USER_NEW', search: 'SEARCH', series: 'SERIES'};
-    const SCHEDULE_TYPE_MODE = {USER_NEW: 'user', SEARCH: 'search', SERIES: 'series'};
+    // 编辑回灌时的目标模式：USER_NEW/SEARCH/SERIES 有专属标签页；收藏 / 关注新作 / 珍藏集这三类
+    // 无专属标签页，回到「快捷获取」并锁定来源（scheduleEditingQuickSource）。
+    const SCHEDULE_TYPE_MODE = {
+        USER_NEW: 'user', SEARCH: 'search', SERIES: 'series',
+        MY_BOOKMARKS: QUICK_FETCH_MODE, FOLLOW_LATEST: QUICK_FETCH_MODE, COLLECTION: QUICK_FETCH_MODE
+    };
 
     function onScheduleTriggerChange() {
         const trigger = (document.getElementById('sch-trigger') || {}).value || 'interval';
@@ -6136,13 +6172,52 @@
         });
     }
 
-    // 「存为计划任务」卡片仅在管理员 + 可创建模式下显示；离开时自动退出编辑态
+    // 「存为计划任务」卡片显隐：非快捷模式沿用「管理员 + 可创建模式」；快捷获取下对管理员**常驻**，
+    // 但仅当能解析出来源（已展开的收藏/我的作品/关注新作，或点进的画师/珍藏集；编辑时为锁定来源）才启用「创建」。
     function updateSaveScheduleCardVisibility() {
         const card = document.getElementById('save-as-schedule-card');
         if (!card) return;
+        const inQuick = state.mode === QUICK_FETCH_MODE;
+        // 在快捷获取里若残留「非快捷来源」的编辑态（编辑从 user/search/series 发起后切到了快捷获取），先退出编辑。
+        if (inQuick && scheduleEditingId != null && !scheduleEditingQuickSource) resetScheduleForm();
+        const submit = document.getElementById('sch-submit');
+        if (inQuick) {
+            card.style.display = isAdmin ? '' : 'none';
+            const quickSrc = scheduleEditingQuickSource || quickScheduleSource();
+            updateScheduleQuickSourceNote(quickSrc);
+            if (submit) submit.disabled = isAdmin && !quickSrc;
+            return;
+        }
         const eligible = isAdmin && !!SCHEDULE_MODE_TYPE[state.mode];
         card.style.display = eligible ? '' : 'none';
+        updateScheduleQuickSourceNote(null);
+        if (submit) submit.disabled = false;
         if (!eligible && scheduleEditingId != null) resetScheduleForm();
+    }
+
+    // 快捷获取下「存为计划任务」卡片顶部的来源说明 / 提示：
+    // 有来源 → 说明将创建的任务类型与来源（编辑态额外标注只读）；无来源 → 提示先展开具体作品列表。
+    function updateScheduleQuickSourceNote(quickSrc) {
+        const el = document.getElementById('sch-quick-source');
+        if (!el) return;
+        if (state.mode !== QUICK_FETCH_MODE || !isAdmin) {
+            el.textContent = '';
+            el.style.display = 'none';
+            return;
+        }
+        if (!quickSrc) {
+            el.textContent = bt('schedule.save.quick-hint',
+                '请先展开具体的作品列表（点开收藏 / 我的作品 / 关注新作，或点进某个画师 / 珍藏集）后再创建计划任务');
+            el.style.display = '';
+            return;
+        }
+        const typeLabel = scheduleTypeLabel(quickSrc.type);
+        el.textContent = scheduleEditingQuickSource
+            ? bt('schedule.save.quick-source-editing', '编辑中（来源只读，换来源请删除重建）：{type} · {label}',
+                {type: typeLabel, label: quickSrc.label})
+            : bt('schedule.save.quick-source', '将创建计划任务：{type} · {label}',
+                {type: typeLabel, label: quickSrc.label});
+        el.style.display = '';
     }
 
     function setScheduleFormStatus(msg, type = 'info') {
@@ -6173,10 +6248,23 @@
     // 三种模式均携带；内容分级在 Search 还会派生出 Pixiv 查询的 source.mode。
     function buildScheduleSnapshot() {
         const mode = state.mode;
-        const type = SCHEDULE_MODE_TYPE[mode];
-        if (!type) throw new Error(bt('schedule.error.mode', '当前模式不支持创建计划任务'));
+        let type = SCHEDULE_MODE_TYPE[mode];
         let kind, source;
-        if (mode === 'user') {
+        if (mode === QUICK_FETCH_MODE) {
+            // 快捷获取：编辑这类无专属标签页的任务时来源已锁定（scheduleEditingQuickSource）；
+            // 新建时按当前已展开的来源解析（收藏 / 我的作品 / 关注新作，或点进的画师 / 珍藏集）。
+            const qs = scheduleEditingQuickSource || quickScheduleSource();
+            if (!qs || !qs.type) {
+                throw new Error(bt('schedule.error.quick-source',
+                    '请先展开具体的作品列表（点开收藏 / 我的作品 / 关注新作，或点进某个画师 / 珍藏集）后再存为计划任务'));
+            }
+            type = qs.type;
+            // COLLECTION 为插画+小说混合，kind 记 "mixed"，后端按 type 特判分别下两类。
+            kind = qs.kind === 'novel' ? 'novel' : (qs.kind === 'mixed' ? 'mixed' : 'illust');
+            source = qs.source || {};
+        } else if (!type) {
+            throw new Error(bt('schedule.error.mode', '当前模式不支持创建计划任务'));
+        } else if (mode === 'user') {
             kind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
             const userId = parseUserIdInput(document.getElementById('user-id-input').value);
             if (!userId) throw new Error(bt('schedule.error.user-id', '请填写有效的画师 ID 或画师主页链接'));
@@ -6297,6 +6385,7 @@
 
     function resetScheduleForm() {
         scheduleEditingId = null;
+        scheduleEditingQuickSource = null;
         const nameEl = document.getElementById('sch-name');
         if (nameEl) nameEl.value = '';
         const cronEl = document.getElementById('sch-cron');
@@ -6316,6 +6405,8 @@
         }
         onScheduleTriggerChange();
         setScheduleFormStatus('');
+        // 退出编辑后刷新卡片显隐 / 来源提示 / 创建按钮禁用态（scheduleEditingId 已置空，不会重入本函数）。
+        updateSaveScheduleCardVisibility();
     }
 
     function setScheduleRadio(name, value) {
@@ -6341,12 +6432,14 @@
         setScheduleFormStatus('');
         let params = {};
         try { params = JSON.parse(task.paramsJson || '{}'); } catch (e) { params = {}; }
-        const kind = params.kind === 'novel' ? 'novel' : 'illust';
+        const kind = scheduleKindFromParams(params) || 'illust'; // 'illust' | 'novel' | 'mixed'
         const source = params.source || {};
         const filters = params.filters || {};
         const download = params.download || {};
         const targetMode = SCHEDULE_TYPE_MODE[task.type] || 'user';
 
+        // 默认清掉「快捷来源锁定」；仅 quick-fetch 类型（收藏/关注新作/珍藏集）在下方重新设置。
+        scheduleEditingQuickSource = null;
         switchMode(targetMode);
 
         // 1) 来源 + kind
@@ -6379,6 +6472,12 @@
             seriesState.kind = kind;
             seriesState.seriesId = sid ? Number(sid) : null;
             if (sid) loadSeriesPreview();
+        } else if (targetMode === QUICK_FETCH_MODE) {
+            // 收藏 / 关注新作 / 珍藏集：无专属模式标签页，回到快捷获取并锁定来源（只读，换来源请删除重建）。
+            scheduleEditingQuickSource = {
+                type: task.type, source, kind,
+                label: scheduleQuickSourceLabel(task.type, source, kind)
+            };
         }
 
         // 2) 共享下载设置 + 筛选回灌（附加筛选现为三种模式共享，统一回灌）
@@ -6540,19 +6639,44 @@
         return {
             USER_NEW: bt('mode.user', '👤 User 模式'),
             SEARCH: bt('mode.search', '🔍 Search 模式'),
-            SERIES: bt('mode.series', '📚 系列下载')
+            SERIES: bt('mode.series', '📚 系列下载'),
+            MY_BOOKMARKS: bt('schedule.type.my-bookmarks', '⭐ 我的收藏'),
+            FOLLOW_LATEST: bt('schedule.type.follow-latest', '📰 已关注用户的新作'),
+            COLLECTION: bt('schedule.type.collection', '🗂 珍藏集')
         }[type] || type || bt('schedule.snapshot.value.unknown', '未知');
     }
 
     function scheduleKindFromParams(params) {
         if (!params || !params.kind) return null;
-        return params.kind === 'novel' ? 'novel' : 'illust';
+        if (params.kind === 'novel') return 'novel';
+        if (params.kind === 'mixed') return 'mixed';
+        return 'illust';
     }
 
     function scheduleKindLabel(kind) {
         if (kind === 'novel') return bt('schedule.kind.novel', '小说');
         if (kind === 'illust') return bt('schedule.kind.illust', '插画');
+        if (kind === 'mixed') return bt('schedule.kind.mixed', '插画+小说');
         return bt('schedule.snapshot.value.unknown', '未知');
+    }
+
+    // 由快照来源（编辑 quick-fetch 类任务时）派生只读来源说明文案。
+    function scheduleQuickSourceLabel(type, source, kind) {
+        if (type === 'MY_BOOKMARKS') {
+            const kindLabel = kind === 'novel' ? bt('schedule.kind.novel', '小说') : bt('schedule.kind.illust', '插画');
+            const restLabel = source.rest === 'hide'
+                ? bt('quick.schedule.rest.hide', '不公开') : bt('quick.schedule.rest.show', '公开');
+            return bt('quick.schedule.source.bookmarks', '我的收藏（{kind}，{rest}）',
+                {kind: kindLabel, rest: restLabel});
+        }
+        if (type === 'FOLLOW_LATEST') {
+            return bt('quick.title.following-new', '已关注的用户的新作');
+        }
+        if (type === 'COLLECTION') {
+            return bt('quick.schedule.source.collection', '珍藏集 {name}（ID {id}）',
+                {name: source.collectionId, id: source.collectionId});
+        }
+        return '';
     }
 
     function scheduleTriggerLabel(t) {
@@ -6709,6 +6833,18 @@
         }
         if (type === 'SERIES') {
             return [[bt('schedule.snapshot.field.series-id', '系列 ID'), scheduleValueOrUnset(source.seriesId)]];
+        }
+        if (type === 'MY_BOOKMARKS') {
+            const rest = source.rest === 'hide'
+                ? bt('quick.schedule.rest.hide', '不公开') : bt('quick.schedule.rest.show', '公开');
+            return [[bt('schedule.snapshot.field.bookmark-visibility', '收藏可见性'), rest]];
+        }
+        if (type === 'FOLLOW_LATEST') {
+            return [[bt('schedule.snapshot.field.source', '来源'),
+                bt('schedule.type.follow-latest', '📰 已关注用户的新作')]];
+        }
+        if (type === 'COLLECTION') {
+            return [[bt('schedule.snapshot.field.collection-id', '珍藏集 ID'), scheduleValueOrUnset(source.collectionId)]];
         }
         return [[
             bt('schedule.snapshot.field.source-json', '来源快照'),
@@ -7746,7 +7882,8 @@
         uid: null,
         viewType: null,   // 'illust-list' | 'novel-list' | 'following-list' | 'collection-list'
         kind: 'illust',   // 当前作品列表的 kind（用于队列归类与渲染）
-        items: [],        // outer：当前页的卡片 / 用户 / 珍藏集
+        rawItems: [],     // outer：当前页未经附加筛选的原始作品卡片（live 预览过滤的事实源）
+        items: [],        // outer：附加筛选后用于渲染 / 入队的卡片 / 用户 / 珍藏集
         total: 0,
         offset: 0,
         page: 1,
@@ -7759,6 +7896,9 @@
         // follow_latest（已关注的用户的新作）无总数，仅以 hasNext 驱动「下一页」
         followHasNext: false,
         renderToken: 0,
+        // 附加筛选竞态序号 + 最近一次过滤统计（与 userState 同形）
+        filterSeq: 0,
+        filterSummary: {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false},
         blobUrls: []
     };
 
@@ -7775,14 +7915,183 @@
         allIllustIds: [],  // following-user：该用户全部插画/漫画 ID
         allNovelIds: [],   // following-user：该用户全部小说 ID
         allIds: [],        // 当前 kind 对应的全部 ID（following-user 用）
-        items: [],
+        rawItems: [],      // 当前页未经附加筛选的原始作品（live 预览过滤的事实源）
+        items: [],         // 附加筛选后用于渲染 / 入队的作品
         total: 0,
         page: 1,
         pageSize: QUICK_PAGE_SIZE_ILLUST,
         renderToken: 0,
+        // 附加筛选竞态序号 + 最近一次过滤统计
+        filterSeq: 0,
+        filterSummary: {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false},
         blobUrls: [],
         _jumpFn: null
     };
+
+    // 当前快捷获取「作品网格」对应的作品类型；纯选择页（关注用户列表 / 珍藏集列表）返回 null。
+    // 'mixed' = 珍藏集内可同时含插画与小说，附加筛选时按每件作品自身 kind 判定。
+    function quickCurrentKind() {
+        if (quickInner.open) {
+            if (quickInner.type === 'collection') return 'mixed';
+            return quickInner.kind === 'novel' ? 'novel' : 'illust';
+        }
+        if (quickState.viewType === 'novel-list') return 'novel';
+        if (quickState.viewType === 'illust-list') return 'illust';
+        return null;
+    }
+
+    // 当前快捷获取视图是否在展示「作品网格」（决定附加筛选卡片是否显示）。
+    function quickHasWorksGrid() {
+        if (state.mode !== QUICK_FETCH_MODE) return false;
+        if (quickInner.open) return true;
+        return quickState.viewType === 'illust-list' || quickState.viewType === 'novel-list';
+    }
+
+    // 解析当前快捷获取视图能映射成的计划任务来源 {type, source, kind, label}；不能则返回 null。
+    // 单层来源（收藏 / 我的作品 / 关注新作）展开即可解析；双层来源（关注 / 珍藏集）需先点进具体画师 / 珍藏集。
+    function quickScheduleSource() {
+        if (state.mode !== QUICK_FETCH_MODE) return null;
+        // 二层钻取：关注画师 → USER_NEW；珍藏集 → COLLECTION（插画+小说都下）
+        if (quickInner.open) {
+            if (quickInner.type === 'following-user' && quickInner.userId) {
+                return {
+                    type: 'USER_NEW',
+                    source: {userId: String(quickInner.userId)},
+                    kind: quickInner.kind === 'novel' ? 'novel' : 'illust',
+                    label: bt('quick.schedule.source.user', '画师 {name}（ID {id}）',
+                        {name: quickInner.name || quickInner.userId, id: quickInner.userId})
+                };
+            }
+            if (quickInner.type === 'collection' && quickInner.id) {
+                return {
+                    type: 'COLLECTION',
+                    source: {collectionId: String(quickInner.id)},
+                    kind: 'mixed',
+                    label: bt('quick.schedule.source.collection', '珍藏集 {name}（ID {id}）',
+                        {name: quickInner.name || quickInner.id, id: quickInner.id})
+                };
+            }
+            return null;
+        }
+        const action = quickState.action;
+        // 我的收藏（插画/小说，公开/不公开）→ MY_BOOKMARKS
+        if (action === 'my-illust-bookmarks-show' || action === 'my-illust-bookmarks-hide'
+            || action === 'my-novel-bookmarks-show' || action === 'my-novel-bookmarks-hide') {
+            const kind = action.startsWith('my-novel') ? 'novel' : 'illust';
+            const rest = action.endsWith('hide') ? 'hide' : 'show';
+            const kindLabel = kind === 'novel' ? bt('schedule.kind.novel', '小说') : bt('schedule.kind.illust', '插画');
+            const restLabel = rest === 'hide'
+                ? bt('quick.schedule.rest.hide', '不公开') : bt('quick.schedule.rest.show', '公开');
+            return {
+                type: 'MY_BOOKMARKS',
+                source: {rest},
+                kind,
+                label: bt('quick.schedule.source.bookmarks', '我的收藏（{kind}，{rest}）',
+                    {kind: kindLabel, rest: restLabel})
+            };
+        }
+        // 我自己的作品 → USER_NEW（账号自身 uid）
+        if ((action === 'my-illusts' || action === 'my-novels') && quickState.uid) {
+            return {
+                type: 'USER_NEW',
+                source: {userId: String(quickState.uid)},
+                kind: action === 'my-novels' ? 'novel' : 'illust',
+                label: bt('quick.schedule.source.self', '我自己（账号 {uid}）', {uid: quickState.uid})
+            };
+        }
+        // 已关注用户的新作 → FOLLOW_LATEST（Pixiv 仅插画/漫画/动图）
+        if (action === 'my-following-new') {
+            return {
+                type: 'FOLLOW_LATEST',
+                source: {},
+                kind: 'illust',
+                label: bt('quick.title.following-new', '已关注的用户的新作')
+            };
+        }
+        return null;
+    }
+
+    // 附加筛选预览统计行（与 User 模式同口径）：仅在启用了任一附加筛选时显示「当前页 X / 筛选后 Y / N 个收藏数不可用已排除」。
+    function quickFilterSummaryHtml(stats) {
+        if (!hasExtraSearchFilter(normalizeSearchFilters(getSearchFiltersFromUI()))) return '';
+        const parts = [
+            bt('search.summary.current-page', '当前页 {count} 个', {count: stats.rawCount}),
+            bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: stats.filteredCount})
+        ];
+        if (stats.bookmarkMetaMissing > 0) {
+            parts.push(bt('search.summary.bookmark-missing', '{count} 个收藏数不可用已排除', {count: stats.bookmarkMetaMissing}));
+        }
+        return `<div class="quick-filter-summary" style="font-size:12px;color:var(--muted,#888);margin-bottom:10px;">`
+            + parts.map(p => `<span>${esc(p)}</span>`).join(summarySeparator()) + `</div>`;
+    }
+
+    // 混合（珍藏集内插画+小说）作品的附加筛选：按各作品自身 kind 逐件判定；收藏数筛选时分 kind 补 meta。
+    async function quickComputeFilteredMixed(items, filters, isStale) {
+        const source = Array.isArray(items) ? items : [];
+        const bookmarkFilterActive = hasBookmarkFilter(filters);
+        if (bookmarkFilterActive) {
+            await ensureBookmarkMeta(source.filter(it => (it.kind || 'illust') !== 'novel'), 'illust', isStale);
+            if (isStale()) return null;
+            await ensureBookmarkMeta(source.filter(it => (it.kind || 'illust') === 'novel'), 'novel', isStale);
+            if (isStale()) return null;
+        }
+        const stats = {rawCount: source.length, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive};
+        const filtered = source.filter(item => matchSearchFilters(item, filters, stats, item.kind || 'illust'));
+        stats.filteredCount = filtered.length;
+        return {filtered, stats};
+    }
+
+    // 外层作品网格（收藏 / 我的作品 / 关注新作）：按当前附加筛选过滤 rawItems 后渲染。
+    async function quickRenderOuterWorks() {
+        const kind = quickState.kind === 'novel' ? 'novel' : 'illust';
+        const seq = ++quickState.filterSeq;
+        const isStale = () => seq !== quickState.filterSeq;
+        const filters = normalizeSearchFilters(getSearchFiltersFromUI());
+        if (hasBookmarkFilter(filters) && quickState.rawItems.length) {
+            const needsMeta = quickState.rawItems.some(it =>
+                getInlineSearchBookmarkCount(it) === null && !(getCachedSearchMeta(it.id, kind) || {}).bookmarkResolved);
+            if (needsMeta) {
+                const area = document.getElementById('quick-preview-area');
+                if (area) area.innerHTML = `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.search-reading-bookmarks', '读取当前页收藏数中...'))}</div>`;
+            }
+        }
+        const result = await computeFilteredItems(quickState.rawItems, filters, kind, isStale);
+        if (!result) return;
+        quickState.items = result.filtered;
+        quickState.filterSummary = result.stats;
+        const summaryHtml = quickFilterSummaryHtml(result.stats);
+        if (kind === 'novel') renderQuickNovelGrid(quickState.items, 'quick', summaryHtml);
+        else renderQuickIllustGrid(quickState.items, 'quick', summaryHtml);
+    }
+
+    // 内层作品网格（关注画师作品 / 珍藏集内作品）：按当前附加筛选过滤 rawItems 后渲染。
+    async function quickApplyInnerFilters() {
+        const seq = ++quickInner.filterSeq;
+        const isStale = () => seq !== quickInner.filterSeq;
+        const filters = normalizeSearchFilters(getSearchFiltersFromUI());
+        const mixed = quickInner.type === 'collection';
+        if (hasBookmarkFilter(filters) && quickInner.rawItems.length) {
+            const area = document.getElementById('quick-inner-area');
+            if (area) area.innerHTML = `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.search-reading-bookmarks', '读取当前页收藏数中...'))}</div>`;
+        }
+        const result = mixed
+            ? await quickComputeFilteredMixed(quickInner.rawItems, filters, isStale)
+            : await computeFilteredItems(quickInner.rawItems, filters, quickInner.kind === 'novel' ? 'novel' : 'illust', isStale);
+        if (!result) return;
+        quickInner.items = result.filtered;
+        quickInner.filterSummary = result.stats;
+        renderQuickInnerGrid(quickInner.items, quickFilterSummaryHtml(result.stats));
+    }
+
+    // 切换 / 重置附加筛选时，对当前展示的快捷获取作品网格实时重过滤（外层 + 二层钻取都可能在场）。
+    async function quickReapplyFilters() {
+        if (quickState.viewType === 'illust-list' || quickState.viewType === 'novel-list') {
+            await quickRenderOuterWorks();
+        }
+        if (quickInner.open) {
+            await quickApplyInnerFilters();
+        }
+    }
 
     function quickHasCookie() {
         return cookieHasPhpsessid();
@@ -7820,6 +8129,8 @@
     function quickResetView() {
         cleanupQuickBlobUrls();
         quickState.renderToken++;
+        quickState.viewType = null;
+        quickState.rawItems = [];
         quickState.items = [];
         quickState.total = 0;
         quickState.offset = 0;
@@ -7953,34 +8264,40 @@
         const offset = (page - 1) * QUICK_PAGE_SIZE_ILLUST;
         const params = new URLSearchParams({rest, offset: String(offset), limit: String(QUICK_PAGE_SIZE_ILLUST)});
         const data = await quickFetchJson(`${BASE}/api/pixiv/me/illust-bookmarks?${params}`);
-        quickState.items = data.items || [];
+        quickState.rawItems = data.items || [];
         quickState.total = data.total || 0;
         quickState.offset = offset;
         quickState.page = page;
         const titleKey = rest === 'hide' ? 'quick.title.illust-bookmarks-hide' : 'quick.title.illust-bookmarks-show';
         const titleFallback = rest === 'hide' ? '我的收藏（插画/漫画，不公开）' : '我的收藏（插画/漫画，公开）';
         quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: quickState.total.toLocaleString()})}`);
-        quickShowToolbar({showBack: false, showAdd: quickState.items.length > 0, showSearch: false, showKindSwitcher: false});
-        renderQuickIllustGrid(quickState.items, 'quick');
+        quickShowToolbar({showBack: false, showAdd: quickState.rawItems.length > 0, showSearch: false, showKindSwitcher: false});
+        await quickRenderOuterWorks();
         renderQuickPagination(page, Math.max(1, Math.ceil(quickState.total / QUICK_PAGE_SIZE_ILLUST)),
             p => loadQuickIllustBookmarks(rest, p));
+        updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
+        applyNovelSettingsVisibility();
     }
 
     async function loadQuickNovelBookmarks(rest, page) {
         const offset = (page - 1) * QUICK_PAGE_SIZE_NOVEL;
         const params = new URLSearchParams({rest, offset: String(offset), limit: String(QUICK_PAGE_SIZE_NOVEL)});
         const data = await quickFetchJson(`${BASE}/api/pixiv/me/novel-bookmarks?${params}`);
-        quickState.items = data.items || [];
+        quickState.rawItems = data.items || [];
         quickState.total = data.total || 0;
         quickState.offset = offset;
         quickState.page = page;
         const titleKey = rest === 'hide' ? 'quick.title.novel-bookmarks-hide' : 'quick.title.novel-bookmarks-show';
         const titleFallback = rest === 'hide' ? '我的收藏（小说，不公开）' : '我的收藏（小说，公开）';
         quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: quickState.total.toLocaleString()})}`);
-        quickShowToolbar({showBack: false, showAdd: quickState.items.length > 0, showSearch: false, showKindSwitcher: false});
-        renderQuickNovelGrid(quickState.items, 'quick');
+        quickShowToolbar({showBack: false, showAdd: quickState.rawItems.length > 0, showSearch: false, showKindSwitcher: false});
+        await quickRenderOuterWorks();
         renderQuickPagination(page, Math.max(1, Math.ceil(quickState.total / QUICK_PAGE_SIZE_NOVEL)),
             p => loadQuickNovelBookmarks(rest, p));
+        updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
+        applyNovelSettingsVisibility();
     }
 
     async function loadQuickMyWorks(kind, page) {
@@ -8009,7 +8326,8 @@
             const data = await quickFetchJson(`${BASE}/api/pixiv/user/${uid}/${endpoint}?${idsQuery}`);
             items = data.items || [];
         }
-        quickState.items = items;
+        quickState.kind = kind === 'novel' ? 'novel' : 'illust';
+        quickState.rawItems = items;
         quickState.total = total;
         quickState.page = safePage;
         quickState.pageSize = pageSize;
@@ -8017,9 +8335,11 @@
         const titleFallback = kind === 'novel' ? '我自己的作品（小说，含 hide）' : '我自己的作品（插画/漫画，含 hide）';
         quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: total.toLocaleString()})}`);
         quickShowToolbar({showBack: false, showAdd: items.length > 0, showSearch: false, showKindSwitcher: false});
-        if (kind === 'novel') renderQuickNovelGrid(items, 'quick');
-        else renderQuickIllustGrid(items, 'quick');
+        await quickRenderOuterWorks();
         renderQuickPagination(safePage, totalPages, p => loadQuickMyWorks(kind, p));
+        updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
+        applyNovelSettingsVisibility();
     }
 
     async function loadQuickFollowing(rest, offset) {
@@ -8038,6 +8358,10 @@
         const totalPages = Math.max(1, Math.ceil(quickState.total / QUICK_FOLLOWING_PAGE_SIZE));
         renderQuickPagination(quickState.page, totalPages,
             p => loadQuickFollowing(rest, (p - 1) * QUICK_FOLLOWING_PAGE_SIZE));
+        // 关注用户列表是纯选择页（无作品卡片）：隐藏附加筛选 / 存为计划任务，待点进某画师后再显示。
+        updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
+        applyNovelSettingsVisibility();
     }
 
     // 已关注的用户的新作（フォロー新着作品）：插画/漫画/动图卡片，按页翻阅。
@@ -8046,16 +8370,19 @@
         const safePage = Math.max(1, page);
         const params = new URLSearchParams({p: String(safePage)});
         const data = await quickFetchJson(`${BASE}/api/pixiv/me/follow-latest?${params}`);
-        quickState.items = data.items || [];
+        quickState.rawItems = data.items || [];
         quickState.followHasNext = !!data.hasNext;
         quickState.page = safePage;
         quickState.kind = 'illust';
         quickState.viewType = 'illust-list';
         quickState.pageSize = QUICK_PAGE_SIZE_ILLUST;
         quickSetTitle(`${bt('quick.title.following-new', '已关注的用户的新作')} · ${bt('quick.title.page', '第 {page} 页', {page: safePage})}`);
-        quickShowToolbar({showBack: false, showAdd: quickState.items.length > 0, showSearch: false, showKindSwitcher: false});
-        renderQuickIllustGrid(quickState.items, 'quick');
+        quickShowToolbar({showBack: false, showAdd: quickState.rawItems.length > 0, showSearch: false, showKindSwitcher: false});
+        await quickRenderOuterWorks();
         renderQuickFollowNewPagination(safePage, quickState.followHasNext);
+        updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
+        applyNovelSettingsVisibility();
     }
 
     function renderQuickFollowNewPagination(currentPage, hasNext) {
@@ -8096,18 +8423,25 @@
         quickShowToolbar({showAdd: false, showSearch: false});
         renderQuickCollectionGrid(quickState.items);
         renderQuickPagination(1, 1, () => {});
+        // 珍藏集列表是纯选择页（无作品卡片）：隐藏附加筛选 / 存为计划任务，待点进某珍藏集后再显示。
+        updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
+        applyNovelSettingsVisibility();
     }
 
-    function renderQuickIllustGrid(items, idPrefix) {
+    function renderQuickIllustGrid(items, idPrefix, summaryHtml = '') {
         const area = document.getElementById('quick-preview-area');
         if (!area) return;
         const renderToken = ++quickState.renderToken;
         if (!items.length) {
-            area.innerHTML = `<div class="quick-empty">${esc(bt('quick.empty.no-items', '该范围内没有作品'))}</div>`;
+            const emptyMsg = summaryHtml
+                ? bt('status.search-no-filtered-results', '附加筛选后无结果')
+                : bt('quick.empty.no-items', '该范围内没有作品');
+            area.innerHTML = summaryHtml + `<div class="quick-empty">${esc(emptyMsg)}</div>`;
             return;
         }
         const inQueue = new Set(state.queue.map(q => q.id));
-        area.innerHTML = `<div class="search-grid">${items.map((item, idx) => {
+        area.innerHTML = summaryHtml + `<div class="search-grid">${items.map((item, idx) => {
             const xr = Number(item.xRestrict ?? 0);
             const illustType = Number(item.illustType ?? 0);
             const isAi = Number(item.aiType ?? 0) >= 2;
@@ -8132,15 +8466,18 @@
         loadQuickThumbnailsBatched(items, idPrefix, renderToken);
     }
 
-    function renderQuickNovelGrid(items, idPrefix) {
+    function renderQuickNovelGrid(items, idPrefix, summaryHtml = '') {
         const area = document.getElementById('quick-preview-area');
         if (!area) return;
         if (!items.length) {
-            area.innerHTML = `<div class="quick-empty">${esc(bt('quick.empty.no-items', '该范围内没有作品'))}</div>`;
+            const emptyMsg = summaryHtml
+                ? bt('status.search-no-filtered-results', '附加筛选后无结果')
+                : bt('quick.empty.no-items', '该范围内没有作品');
+            area.innerHTML = summaryHtml + `<div class="quick-empty">${esc(emptyMsg)}</div>`;
             return;
         }
         const inQueue = new Set(state.queue.map(q => q.id));
-        area.innerHTML = `<div class="novel-search-grid">${items.map((item, idx) => {
+        area.innerHTML = summaryHtml + `<div class="novel-search-grid">${items.map((item, idx) => {
             const xr = Number(item.xRestrict ?? 0);
             const isAi = Number(item.aiType ?? 0) >= 2;
             const wc = Number(item.wordCount ?? item.textLength ?? 0);
@@ -8374,7 +8711,8 @@
     }
 
     async function quickAddAllToQueue() {
-        if (!quickState.items.length) return;
+        // 用 rawItems 判空：附加筛选可能把当前页全部过滤掉（items 为空），但仍有全量作品可入队。
+        if (!quickState.rawItems.length && !quickState.allIds.length) return;
         // 「已关注的用户的新作」无总数，从第 1 页逐页抓取直到 hasNext 为 false
         if (quickState.action === 'my-following-new') {
             if (!uiConfirmKey('quick.confirm.add-all-follow-new',
@@ -8454,7 +8792,8 @@
                 metas.push(buildQuickQueueMeta(item));
             });
         };
-        acc(quickState.items);
+        // 「全部加入队列」入队全量（未过滤）作品，实际不符合附加筛选者在下载时逐作品跳过；预览筛选只影响「当前页加入队列」。
+        acc(quickState.rawItems);
         setQuickBtnLoading('quick-add-all', true);
         try {
             for (let p = quickState.page + 1; p <= totalPages; p++) {
@@ -8518,12 +8857,17 @@
         quickInner.open = false;
         quickInner.renderToken++;
         quickInner.items = [];
+        quickInner.rawItems = [];
         quickCleanupInnerBlobUrls();
         const section = document.getElementById('quick-inner-section');
         if (section) section.style.display = 'none';
         // 取消外层卡片的选中高亮
         document.querySelectorAll('#quick-preview-area .quick-selected')
             .forEach(el => el.classList.remove('quick-selected'));
+        // 关闭二层钻取后外层若是纯选择页（关注 / 珍藏集列表），附加筛选 / 存为计划任务应随之隐藏。
+        updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
+        applyNovelSettingsVisibility();
     }
 
     function quickHighlightOuterCard(selector) {
@@ -8562,16 +8906,19 @@
 
     // 内层作品网格渲染：混合插画+小说，按每项自身 kind 渲染对应卡片。
     // 卡片统一 id quick-inner-card-{idx}（队列高亮用），插画缩略图 id quick-inner-img-{idx}；点击走 quickInnerToggleQueue。
-    function renderQuickInnerGrid(items) {
+    function renderQuickInnerGrid(items, summaryHtml = '') {
         const area = document.getElementById('quick-inner-area');
         if (!area) return;
         const renderToken = ++quickInner.renderToken;
         if (!items.length) {
-            area.innerHTML = `<div class="quick-empty">${esc(bt('quick.empty.no-items', '该范围内没有作品'))}</div>`;
+            const emptyMsg = summaryHtml
+                ? bt('status.search-no-filtered-results', '附加筛选后无结果')
+                : bt('quick.empty.no-items', '该范围内没有作品');
+            area.innerHTML = summaryHtml + `<div class="quick-empty">${esc(emptyMsg)}</div>`;
             return;
         }
         const inQueue = new Set(state.queue.map(q => q.id));
-        area.innerHTML = `<div class="quick-mixed-grid">${items.map((item, idx) => {
+        area.innerHTML = summaryHtml + `<div class="quick-mixed-grid">${items.map((item, idx) => {
             const k = item.kind || 'illust';
             const title = item.title || bt(k === 'novel' ? 'queue.novel-fallback' : 'queue.artwork-fallback',
                 k === 'novel' ? '小说 {id}' : '作品 {id}', {id: item.id});
@@ -8680,12 +9027,16 @@
         quickShowInnerToolbar({showAdd: false, showKindSwitcher: false});
         try {
             const data = await quickFetchJson(`${BASE}/api/pixiv/me/collection/${cid}/works`);
-            quickInner.items = data.works || [];
-            quickInner.total = data.total || quickInner.items.length;
-            quickShowInnerToolbar({showAdd: quickInner.items.length > 0, showKindSwitcher: false});
+            quickInner.rawItems = data.works || [];
+            quickInner.total = data.total || quickInner.rawItems.length;
+            quickShowInnerToolbar({showAdd: quickInner.rawItems.length > 0, showKindSwitcher: false});
             quickSetInnerTitle(`${bt('quick.title.collections', '我的珍藏集')} › ${quickInner.name} · ${bt('quick.title.count', '{count} 件', {count: quickInner.total.toLocaleString()})}`);
-            renderQuickInnerGrid(quickInner.items);
+            await quickApplyInnerFilters();
             renderQuickInnerPagination(1, 1, () => {});
+            // 珍藏集内为混合作品（无单画师来源）：显示附加筛选与小说设置，但不提供「存为计划任务」。
+            updateExtraFiltersCardVisibility();
+            updateSaveScheduleCardVisibility();
+            applyNovelSettingsVisibility();
         } catch (e) {
             document.getElementById('quick-inner-area').innerHTML =
                 `<div class="quick-empty">${esc(bt('quick.error.load-failed', '加载失败：{message}', {message: e.message || String(e)}))}</div>`;
@@ -8737,14 +9088,18 @@
             items = data.items || [];
         }
         items.forEach(it => { it.kind = kind; });
-        quickInner.items = items;
+        quickInner.rawItems = items;
         quickInner.total = allIds.length;
         quickInner.page = safePage;
         quickInner.pageSize = limit;
         quickShowInnerToolbar({showAdd: items.length > 0, showKindSwitcher: true, kind});
         quickSetInnerTitle(`${bt('quick.preview.parent.following', '我的关注')} › ${quickInner.name} · ${bt('quick.title.count', '{count} 件', {count: allIds.length.toLocaleString()})}`);
-        renderQuickInnerGrid(items);
+        await quickApplyInnerFilters();
         renderQuickInnerPagination(safePage, totalPages, p => loadQuickInnerFollowingUserWorks(kind, p));
+        // 已预览到某关注画师的作品：显示附加筛选与「存为计划任务」（USER_NEW，来源锁定为该画师）。
+        updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
+        applyNovelSettingsVisibility();
     }
 
     function quickInnerQueueId(item) {
@@ -8788,11 +9143,13 @@
     }
 
     async function quickInnerAddAllToQueue() {
-        if (!quickInner.items.length) return;
+        // 用 rawItems 判空：附加筛选可能把当前页全部过滤掉（items 为空），但仍有全量作品可入队。
+        if (!quickInner.rawItems.length) return;
         // 珍藏集集内作品一次性全部返回，直接整集入队；关注用户作品按页抓取
         if (quickInner.type === 'collection') {
-            const ids = quickInner.items.map(quickInnerQueueId);
-            const metas = quickInner.items.map(item => buildQuickQueueMeta(item, item.kind || 'illust'));
+            // 整集入队全量（未过滤）作品，附加筛选不符者在下载时逐作品跳过。
+            const ids = quickInner.rawItems.map(quickInnerQueueId);
+            const metas = quickInner.rawItems.map(item => buildQuickQueueMeta(item, item.kind || 'illust'));
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
             setStatus(
                 bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
@@ -8820,7 +9177,8 @@
                 metas.push(buildQuickQueueMeta(item, kind));
             });
         };
-        acc(quickInner.items);
+        // 「全部加入队列」入队全量（未过滤）作品，附加筛选不符者在下载时逐作品跳过；预览筛选只影响「当前页加入队列」。
+        acc(quickInner.rawItems);
         setQuickBtnLoading('quick-inner-add-all', true);
         try {
             for (let p = quickInner.page + 1; p <= totalPages; p++) {

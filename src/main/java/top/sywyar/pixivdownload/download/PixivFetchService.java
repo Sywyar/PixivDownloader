@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 服务端 Pixiv AJAX 抓取与作品发现服务。
@@ -47,6 +49,11 @@ public class PixivFetchService {
 
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+
+    /** PHPSESSID 形如 {@code {userId}_{session}}：下划线前缀即非敏感 Pixiv userId（账号私有来源发现需要它取 uid）。 */
+    private static final Pattern PHPSESSID_PATTERN = Pattern.compile("PHPSESSID=([^;\\s]+)");
+    /** 账号收藏分页每页条数（Pixiv 上限 100）。 */
+    private static final int BOOKMARK_PAGE_LIMIT = 100;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -252,6 +259,153 @@ public class PixivFetchService {
                 .sorted((a, b) -> Integer.compare(a.order(), b.order()))
                 .forEach(m -> ids.put(m.id(), Boolean.TRUE));
         return new ArrayList<>(ids.keySet());
+    }
+
+    // ---- 账号私有来源发现（收藏 / 已关注用户的新作 / 珍藏集，均需含 PHPSESSID 的 cookie） ----
+
+    /** 从 cookie 的 PHPSESSID 下划线前缀解析本账号 uid；缺失 / 非法返回 {@code null}。 */
+    static String resolveOwnUid(String cookie) {
+        if (cookie == null) return null;
+        Matcher m = PHPSESSID_PATTERN.matcher(cookie);
+        if (!m.find()) return null;
+        String value = m.group(1);
+        int underscore = value.indexOf('_');
+        if (underscore <= 0) return null;
+        String prefix = value.substring(0, underscore);
+        return prefix.chars().allMatch(Character::isDigit) ? prefix : null;
+    }
+
+    /** 发现账号收藏的全部插画/漫画 ID（{@code rest=show|hide}），按收藏顺序去重返回。 */
+    public List<String> discoverMyIllustBookmarkIds(String rest, String cookie) throws IOException {
+        return discoverMyBookmarkIds("illusts", rest, cookie);
+    }
+
+    /** 发现账号收藏的全部小说 ID（{@code rest=show|hide}），按收藏顺序去重返回。 */
+    public List<String> discoverMyNovelBookmarkIds(String rest, String cookie) throws IOException {
+        return discoverMyBookmarkIds("novels", rest, cookie);
+    }
+
+    private List<String> discoverMyBookmarkIds(String kind, String rest, String cookie) throws IOException {
+        String uid = resolveOwnUid(cookie);
+        if (uid == null) {
+            throw new PixivFetchException("missing or invalid PHPSESSID for bookmarks discovery");
+        }
+        String safeRest = "hide".equals(rest) ? "hide" : "show";
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        int offset = 0;
+        for (int guard = 0; guard < 1000; guard++) {
+            URI uri = UriComponentsBuilder
+                    .fromUriString("https://www.pixiv.net/ajax/user/{uid}/{kind}/bookmarks")
+                    .queryParam("tag", "")
+                    .queryParam("offset", offset)
+                    .queryParam("limit", BOOKMARK_PAGE_LIMIT)
+                    .queryParam("rest", safeRest)
+                    .queryParam("lang", "zh")
+                    .buildAndExpand(Map.of("uid", uid, "kind", kind))
+                    .encode()
+                    .toUri();
+            JsonNode body = requireBody(proxyGetUri(uri, cookie));
+            JsonNode works = body.path("works");
+            if (!works.isArray() || works.isEmpty()) break;
+            for (JsonNode w : works) {
+                String id = w.path("id").asText("");
+                if (!id.isBlank()) ids.add(id);
+            }
+            int total = body.path("total").asInt(0);
+            offset += BOOKMARK_PAGE_LIMIT;
+            if (total > 0 && offset >= total) break;
+        }
+        return new ArrayList<>(ids);
+    }
+
+    /**
+     * 发现「已关注用户的新作」（フォロー新着作品，仅插画/漫画/动图）的全部作品 ID，按 feed 顺序去重返回。
+     * 逐页拉 {@code /ajax/follow_latest/illust?mode=all&p=N}，{@code page.isLastPage} 或空页停（安全上限 100 页）。
+     */
+    public List<String> discoverFollowLatestIllustIds(String cookie) throws IOException {
+        if (resolveOwnUid(cookie) == null) {
+            throw new PixivFetchException("missing or invalid PHPSESSID for follow-latest discovery");
+        }
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        for (int p = 1; p <= 100; p++) {
+            URI uri = UriComponentsBuilder
+                    .fromUriString("https://www.pixiv.net/ajax/follow_latest/illust")
+                    .queryParam("mode", "all")
+                    .queryParam("p", p)
+                    .queryParam("lang", "zh")
+                    .build()
+                    .encode()
+                    .toUri();
+            JsonNode body = requireBody(proxyGetUri(uri, cookie));
+            List<String> pageIds = followLatestPageIds(body);
+            if (pageIds.isEmpty()) break;
+            ids.addAll(pageIds);
+            JsonNode isLast = body.path("page").path("isLastPage");
+            if (isLast.isBoolean() && isLast.asBoolean()) break;
+        }
+        return new ArrayList<>(ids);
+    }
+
+    /** 从 follow_latest 的 {@code body} 抽出当前页作品 ID（优先 {@code page.ids}，回退 {@code thumbnails.illust}）。纯函数，便于单测。 */
+    static List<String> followLatestPageIds(JsonNode body) {
+        List<String> out = new ArrayList<>();
+        if (body == null) return out;
+        JsonNode ids = body.path("page").path("ids");
+        if (ids.isArray() && !ids.isEmpty()) {
+            for (JsonNode n : ids) {
+                String s = n.asText("");
+                if (!s.isBlank()) out.add(s);
+            }
+            return out;
+        }
+        for (JsonNode it : body.path("thumbnails").path("illust")) {
+            String s = it.path("id").asText("");
+            if (!s.isBlank()) out.add(s);
+        }
+        return out;
+    }
+
+    /** 发现某珍藏集内的插画与小说成员 ID（混合，按珍藏集布局顺序），分别返回。 */
+    public CollectionWorkIds discoverCollectionWorkIds(String collectionId, String cookie) throws IOException {
+        if (resolveOwnUid(cookie) == null) {
+            throw new PixivFetchException("missing or invalid PHPSESSID for collection discovery");
+        }
+        URI uri = UriComponentsBuilder
+                .fromUriString("https://www.pixiv.net/ajax/collection/{cid}")
+                .queryParam("lang", "zh")
+                .buildAndExpand(Map.of("cid", collectionId))
+                .encode()
+                .toUri();
+        return parseCollectionWorkIds(requireBody(proxyGetUri(uri, cookie)));
+    }
+
+    /**
+     * 把 {@code /ajax/collection/{id}} 的 {@code body} 解析为插画 / 小说成员 ID 两份列表：
+     * 顺序与 workType/workId 取自 {@code data.detail.tiles[]}（仅 {@code type=Work} 且 {@code status=Active}）。纯函数，便于单测。
+     */
+    static CollectionWorkIds parseCollectionWorkIds(JsonNode body) {
+        List<String> illustIds = new ArrayList<>();
+        List<String> novelIds = new ArrayList<>();
+        if (body == null) return new CollectionWorkIds(illustIds, novelIds);
+        JsonNode tiles = body.path("data").path("detail").path("tiles");
+        if (tiles.isArray()) {
+            for (JsonNode tile : tiles) {
+                if (!"Work".equals(tile.path("type").asText(""))) continue;
+                if (!"Active".equals(tile.path("status").asText("Active"))) continue;
+                String workId = tile.path("workId").asText("");
+                if (workId.isBlank()) continue;
+                if ("novel".equals(tile.path("workType").asText(""))) {
+                    novelIds.add(workId);
+                } else {
+                    illustIds.add(workId);
+                }
+            }
+        }
+        return new CollectionWorkIds(illustIds, novelIds);
+    }
+
+    /** 珍藏集内拆分后的成员 ID（插画/漫画/动图 与 小说分开），供 COLLECTION 计划任务分别走对应下载管线。 */
+    public record CollectionWorkIds(List<String> illustIds, List<String> novelIds) {
     }
 
     // ---- 小说发现 / 解析（供后台调度的小说计划复用） ----------------------------

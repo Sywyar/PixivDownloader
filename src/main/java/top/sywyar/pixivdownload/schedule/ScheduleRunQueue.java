@@ -80,6 +80,14 @@ public class ScheduleRunQueue {
 
         /** 发现一个作品（按发现顺序追加，重复 ID 幂等）；超过上限只置 truncated、不再记录。 */
         public synchronized void discovered(String id) {
+            discovered(id, kind);
+        }
+
+        /**
+         * 发现一个作品并指定其类型（插画/小说）。用于珍藏集等<b>混合</b>来源：同一轮内不同成员可有各自的 kind，
+         * 不再统一沿用 run 级 kind。{@code itemKind} 为 {@code null} 时回退到 run 级 kind。
+         */
+        public synchronized void discovered(String id, String itemKind) {
             if (id == null || byId.containsKey(id)) {
                 return;
             }
@@ -87,7 +95,7 @@ public class ScheduleRunQueue {
                 truncated = true;
                 return;
             }
-            Item item = new Item(id, kind);
+            Item item = new Item(id, itemKind == null ? kind : itemKind);
             order.add(item);
             byId.put(id, item);
         }

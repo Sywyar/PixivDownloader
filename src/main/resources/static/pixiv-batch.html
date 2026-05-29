@@ -302,6 +302,7 @@
             <div class="search-extra-title" data-i18n="label.search-extra">附加筛选</div>
             <div class="search-extra-note" data-i18n="label.search-extra-note">各模式预览时实时过滤当前页；实际下载时不符合条件的作品会被跳过并显示原因；管理员「存为计划任务」时按此条件在后台逐作品过滤</div>
         </div>
+        <div class="search-extra-note" id="extra-filters-quick-hint" style="display:none;color:var(--brand);" data-i18n="label.search-extra-quick-hint">展开具体作品列表（点开收藏 / 我的作品 / 关注新作，或点进某个画师 / 珍藏集）后即可实时预览过滤；当前筛选仍会在下载与计划任务时生效。</div>
         <div class="search-extra-grid">
             <div class="search-extra-item">
                 <label for="search-content-filter" data-i18n="label.search-content-rating">内容分级</label>
@@ -496,6 +497,7 @@
                 <input type="text" id="sch-cron" placeholder="0 0 3 * * *">
                 <div class="schedule-field-hint" data-i18n="schedule.field.cron.hint">使用 Spring 的 6 位格式「秒 分 时 日 月 周」（含秒，比常见的 5 位 Unix Cron 多出最前面的秒位）。示例：0 0 3 * * * = 每天 03:00:00；0 0 */6 * * * = 每 6 小时；0 30 8 * * 1 = 每周一 08:30:00。</div>
             </div>
+            <div id="sch-quick-source" class="schedule-save-source" style="display:none;"></div>
             <div id="sch-edit-source" class="schedule-save-source" style="display:none;"></div>
             <div class="schedule-form-actions">
                 <button class="btn btn-green" id="sch-submit" onclick="submitScheduleTask()" data-i18n="schedule.action.create">➕ 创建任务</button>

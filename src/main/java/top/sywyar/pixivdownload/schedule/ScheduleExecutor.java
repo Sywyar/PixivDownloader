@@ -30,10 +30,12 @@ import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -261,7 +263,8 @@ public class ScheduleExecutor {
             OveruseWarningService.Result result =
                     overuseWarningService.check(cookie, task.ackWarningTime(), System.currentTimeMillis());
             if (result.isCookieDead()) {
-                if (isCookieDependent(root)) {
+                if (isCookieDependent(root) || isAccountScopedType(task.type())) {
+                    // 账号私有来源（收藏 / 关注新作 / 珍藏集）无法匿名续跑，dead cookie 一律挂起。
                     throw new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD);
                 }
                 // 非依赖型：降级匿名续跑（全年龄作品照样抓全、不丢、不浪费）
@@ -269,6 +272,11 @@ public class ScheduleExecutor {
             } else if (result.isWarned()) {
                 throw new OveruseWarningException(result.modifiedAt(), result.excerpt());
             }
+        }
+
+        // COLLECTION 是插画+小说混合来源，分两遍各自走对应下载管线，单独处理。
+        if (task.type() == ScheduledTaskType.COLLECTION) {
+            return runCollectionTask(task, source, cookie, filters, download);
         }
 
         // 开新一轮的运行队列（整体替换上一轮）。
@@ -371,6 +379,14 @@ public class ScheduleExecutor {
                 yield novel ? pixivFetchService.discoverNovelSeriesIds(seriesId, cookie)
                             : pixivFetchService.discoverSeriesArtworkIds(seriesId, cookie);
             }
+            case MY_BOOKMARKS -> {
+                String rest = source.path("rest").asText("show");
+                yield novel ? pixivFetchService.discoverMyNovelBookmarkIds(rest, cookie)
+                            : pixivFetchService.discoverMyIllustBookmarkIds(rest, cookie);
+            }
+            case FOLLOW_LATEST -> pixivFetchService.discoverFollowLatestIllustIds(cookie);
+            // COLLECTION 是混合（插画+小说）来源，由 runCollectionTask 单独处理，不经此单 kind 入口。
+            case COLLECTION -> throw new IllegalStateException("COLLECTION handled by runCollectionTask");
         };
     }
 
@@ -406,6 +422,74 @@ public class ScheduleExecutor {
             return true;
         }
         return root.path("download").path("bookmark").asBoolean(false);
+    }
+
+    /**
+     * 账号私有来源类型：收藏 / 已关注用户的新作 / 珍藏集。这类发现接口必须用账号 cookie，
+     * 无法匿名续跑，因此 dead / 缺失 cookie 时一律挂起 {@code AUTH_EXPIRED}（与 {@link #isCookieDependent} 合并判定）。
+     */
+    static boolean isAccountScopedType(ScheduledTaskType type) {
+        return type == ScheduledTaskType.MY_BOOKMARKS
+                || type == ScheduledTaskType.FOLLOW_LATEST
+                || type == ScheduledTaskType.COLLECTION;
+    }
+
+    /**
+     * 珍藏集（插画+小说混合）专用：发现成员后分两遍各自走对应下载管线（插画用 {@code downloadTaskExecutor}、
+     * 小说用 {@code novelDownloadTaskExecutor}），完成数相加。两遍共用同一轮运行队列（按成员自身 kind 登记）。
+     * 隔离表重试按「成员是否仍在珍藏集内」的成员关系判定：仍在则本轮以 retry 语义重派，已被移出的孤儿条目本轮跳过。
+     */
+    private int runCollectionTask(ScheduledTask task, JsonNode source, String cookie,
+                                  Filters filters, Download download) throws Exception {
+        String collectionId = source.path("collectionId").asText("");
+        PixivFetchService.CollectionWorkIds ids = pixivFetchService.discoverCollectionWorkIds(collectionId, cookie);
+
+        ScheduleRunQueue.Run run = runQueue.begin(task.id(), ScheduleRunQueue.KIND_ILLUST);
+        Runnable politeDelay = politeDelayFor(download);
+
+        // 隔离表中尚未达上限的待重试成员（混合来源不记 kind，靠本轮发现的成员关系区分插画/小说）。
+        int max = scheduleConfig.getPendingMaxAttempts();
+        Set<Long> pending = new HashSet<>();
+        for (ScheduledTaskPending p : database.mapper().listPending(task.id())) {
+            if (p.attempts() < max) pending.add(p.workId());
+        }
+
+        int completed = 0;
+        completed += runCollectionPass(task, false, cookie, filters, download, run, ids.illustIds(), pending, politeDelay);
+        completed += runCollectionPass(task, true, cookie, filters, download, run, ids.novelIds(), pending, politeDelay);
+        return completed;
+    }
+
+    /** 珍藏集单 kind 一遍：跳过已下载 → 派发（命中隔离表则按 retry 语义），结束前 join 本遍在途下载。 */
+    private int runCollectionPass(ScheduledTask task, boolean novel, String cookie, Filters filters,
+                                  Download download, ScheduleRunQueue.Run run, List<String> ids,
+                                  Set<Long> pending, Runnable politeDelay) throws Exception {
+        LongPredicate alreadyDownloaded = alreadyDownloadedPredicate(novel, download);
+        TaskExecutor pool = novel ? novelDownloadTaskExecutor : downloadTaskExecutor;
+        int concurrency = effectiveConcurrency(novel, download.concurrent());
+        WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool);
+        String itemKind = novel ? ScheduleRunQueue.KIND_NOVEL : ScheduleRunQueue.KIND_ILLUST;
+        try {
+            for (String id : ids) {
+                long workId;
+                try {
+                    workId = Long.parseLong(id);
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+                run.discovered(id, itemKind);
+                boolean isRetry = pending.contains(workId);
+                if (!isRetry && alreadyDownloaded.test(workId)) {
+                    run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+                    continue;
+                }
+                runner.process(id, workId, isRetry);
+                politeDelay.run();
+            }
+        } finally {
+            runner.awaitAll();
+        }
+        return runner.completed();
     }
 
     private void runWatermarkMode(ScheduledTask task, boolean novel, JsonNode source, String cookie,

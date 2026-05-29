@@ -313,6 +313,27 @@ class ScheduleExecutorFilterTest {
     }
 
     @Nested
+    @DisplayName("账号私有来源类型 isAccountScopedType")
+    class AccountScopedType {
+
+        @Test
+        @DisplayName("收藏 / 关注新作 / 珍藏集为账号私有（dead cookie 一律挂起）")
+        void accountScopedTypes() {
+            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.MY_BOOKMARKS)).isTrue();
+            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.FOLLOW_LATEST)).isTrue();
+            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.COLLECTION)).isTrue();
+        }
+
+        @Test
+        @DisplayName("画师 / 搜索 / 系列非账号私有")
+        void nonAccountScopedTypes() {
+            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.USER_NEW)).isFalse();
+            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.SEARCH)).isFalse();
+            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.SERIES)).isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("水位线增量扫描 runWatermarkScan")
     class WatermarkScan {
 
