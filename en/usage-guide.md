@@ -273,6 +273,17 @@ A scheduled task is **not created from a separate form** — it snapshots your c
 
 In all cases each round is "discover → skip already-downloaded → filter per work → download". **"Skip already-downloaded" is always on**.
 
+#### First-run fetch limit
+
+For sources that could pull a large backlog at once, the "**⏰ Save as scheduled task**" card offers a **first-run fetch limit** to cap how many works are fetched and reduce the risk of triggering Pixiv's "over-access" warning. `0` means a full fetch (no cap). The behavior splits by whether the source has a reliable "newest" ordering (the on-page hint shows only the matching one):
+
+- **First-run cap** (artist new works / followed-users' latest / "newest sort + end page -1" search): **only the first run** fetches at most the newest N works; the watermark then advances to the newest, and later rounds only pick up newly posted works incrementally (older backlog is not back-filled). Use it when you only want the most recent N and then keep tracking new posts.
+- **Per-run cap** (my bookmarks / collections / non-newest "end page -1" search): these sources have no reliable "newest" ordering, so the limit acts as a **per-run cap** — each run fetches at most N new works, draining the backlog over successive runs. **Set the limit to `0` if you want it to eventually fetch every work in full** (no per-run cap).
+
+Series and fixed-page search are inherently bounded, so the field is hidden for them.
+
+> Setting the limit to `0` (full) means the first run may pull the source's entire backlog at once; for large sources this can still trigger an over-access warning, so the page asks you to confirm on save.
+
 #### Trigger and running
 
 - **Trigger**: fixed interval (minutes) or a cron expression. Cron uses Spring's **6-field format** "second minute hour day month weekday" (note the leading seconds field — one more than the common 5-field Unix cron), e.g. `0 0 3 * * *` = 03:00:00 daily, `0 0 */6 * * *` = every 6 hours, `0 30 8 * * 1` = 08:30:00 every Monday.
