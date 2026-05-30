@@ -148,26 +148,55 @@ proxy.port: 7890
 
 Search mode, R-18/R-18G artwork downloads, and auto-bookmark require Pixiv cookies.
 
-### Steps
+Pick any one of the methods below — all of them yield a usable cookie. Log in to [Pixiv](https://www.pixiv.net/) first in your browser regardless of which you choose.
 
-1. Install [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm) browser extension
-2. Log in to [Pixiv](https://www.pixiv.net/)
-3. Click Cookie-Editor icon → bottom right **Export** → select **Netscape** format
-4. Copy all content
-5. On `pixiv-batch.html`, switch format to **Netscape**, paste and save
+> Only `PHPSESSID` is actually required by the backend (a normal logged-in Pixiv `PHPSESSID` looks like `12345678_xxxxxxxx`). A full cookie works too, but `PHPSESSID` alone is enough.
 
-### One-Click Cookie Import (Solo Mode)
+#### Method 1: Cookie-Editor extension (simplest)
 
-If the "Enhancement Toolbox" userscript is installed:
+1. Install the [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm) browser extension
+2. Click the Cookie-Editor icon → bottom right **Export** → select **Netscape** format
+3. Copy all content
+4. When pasting, choose the **Netscape** format
+
+#### Method 2: DevTools → Application → Cookies
+
+1. On a Pixiv page press **F12** to open DevTools
+2. Go to the **Application** panel → left sidebar Storage → **Cookies** → select `https://www.pixiv.net`
+3. Find the row whose **Name** is `PHPSESSID` and copy its **Value**
+4. Assemble one line as `PHPSESSID=<the value>` (e.g. `PHPSESSID=12345678_xxxxxxxx`)
+5. When pasting, choose the **Header String** format
+
+> To bring more cookies at once, join multiple rows as `name=value; name2=value2` and still use the **Header String** format. `PHPSESSID` is an HttpOnly cookie, but the Application panel still shows its value, so this method needs no userscript permission changes.
+
+#### Method 3: DevTools → Network request header
+
+1. On a Pixiv page press **F12** → open the **Network** panel
+2. Refresh the page, then click any request to `www.pixiv.net` in the list (e.g. the top document request or an ajax request)
+3. Under **Headers** find **Request Headers → `Cookie`** and copy its full value
+4. When pasting, choose the **Header String** format
+
+> The request-header `Cookie` is already in `name=value; name2=value2` form and contains `PHPSESSID`, so just paste the whole string.
+
+#### Method 4: One-Click Cookie Import (Enhancement Toolbox)
+
+Requires the "**Enhancement Toolbox**" userscript:
 1. On `pixiv-batch.html`, click "One-Click Import Cookie"
-2. Auto-opens Pixiv page to read cookies
-3. Auto-sends back to server, no manual copy-paste needed
+2. The script auto-opens a Pixiv page to read cookies and sends them back to the server — no manual copy-paste or format selection needed
 
-> ⚠️ **This feature needs Tampermonkey to grant HttpOnly cookie access.** Pixiv's login token `PHPSESSID` is an HttpOnly cookie that userscripts cannot read by default, so "One-Click Import" will fail with a "PHPSESSID not detected" message.
+> ⚠️ **This method needs Tampermonkey to grant HttpOnly cookie access.** Pixiv's login token `PHPSESSID` is an HttpOnly cookie that userscripts cannot read by default, so "One-Click Import" will fail with a "PHPSESSID not detected" message.
 >
 > To enable it, go to **Tampermonkey → Settings → set Config mode to `Advanced` → Security → set "Allow scripts to access cookies" to `All`**.
 >
-> **Keeping this on permanently is NOT recommended**: once on, **any other userscript you have installed can also read your login credentials**, risking account theft. Unless you trust every userscript you have installed, **only set it to `All` temporarily while using "One-Click Import", then change it back to `All except HttpOnly` right after a successful fetch**. **Prefer the first method in the Steps above** (manual export/paste via Cookie-Editor) — it is safe and a one-time setup that lasts.
+> **Keeping this on permanently is NOT recommended**: once on, **any other userscript you have installed can also read your login credentials**, risking account theft. Unless you trust every userscript you have installed, **only set it to `All` temporarily while using "One-Click Import", then change it back to `All except HttpOnly` right after a successful fetch**. **Prefer Method 2 or 3 above** (DevTools) — they also obtain the HttpOnly `PHPSESSID` and require no userscript permission changes.
+
+### Pasting the Cookie
+
+The manual paste steps apply to Methods 1/2/3 (Method 4 sends it back automatically):
+
+1. On `pixiv-batch.html`, expand the "**Cookie**" card at the top
+2. Switch the format to match how you obtained it: **Netscape** for Method 1 (Cookie-Editor export); **Header String** for Methods 2 and 3 (DevTools)
+3. Paste the copied content and save
 
 ---
 

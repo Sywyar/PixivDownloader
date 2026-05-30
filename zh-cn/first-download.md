@@ -35,19 +35,56 @@ Cookie 是你的 Pixiv 登录凭证，配置后可以：
 
 ### 获取步骤
 
+下面任选一种方式获取 Cookie，得到的内容都能用，按自己熟悉程度选一个即可。无论哪种方式，都请先在浏览器中登录 [Pixiv](https://www.pixiv.net/)。
+
+?> 后端真正需要的只有 `PHPSESSID` 这一项（你正常登录后 Pixiv 下发的 `PHPSESSID` 形如 `12345678_xxxxxxxx`）。带上完整 Cookie 也可以，但只填 `PHPSESSID` 同样能用。
+
+#### 方式一：Cookie-Editor 扩展（最简单）
+
 1. 安装 [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm) 浏览器扩展（Chrome/Edge 均可）
-2. 在浏览器中登录 [Pixiv](https://www.pixiv.net/)
-3. 点击 Cookie-Editor 扩展图标
-4. 右下角点 **Export** → 选择 **Netscape** 格式
-5. 点「Copy Export」复制全部内容
+2. 点击 Cookie-Editor 扩展图标
+3. 右下角点 **Export** → 选择 **Netscape** 格式
+4. 点「Copy Export」复制全部内容
+5. 填入时格式选 **Netscape**
+
+#### 方式二：开发者工具 → Application → Cookies
+
+1. 在 Pixiv 页面按 **F12** 打开开发者工具
+2. 切到 **Application（应用）** 面板 → 左侧 Storage → **Cookies** → 选中 `https://www.pixiv.net`
+3. 在右侧列表里找到 **Name** 为 `PHPSESSID` 的那一行，复制它的 **Value**
+4. 拼成 `PHPSESSID=刚复制的值` 一行（例如 `PHPSESSID=12345678_xxxxxxxx`）
+5. 填入时格式选 **Header String**
+
+?> 想一次带上更多 Cookie 时，可把列表里多行拼成 `名字=值; 名字2=值2` 的形式，同样用 **Header String** 格式。`PHPSESSID` 是 HttpOnly Cookie，但 Application 面板能正常显示它的值，所以这种方式无需调整任何油猴权限。
+
+#### 方式三：开发者工具 → Network 抓请求头
+
+1. 在 Pixiv 页面按 **F12** 打开开发者工具 → 切到 **Network（网络）** 面板
+2. 刷新一下页面，在请求列表里点任意一条发往 `www.pixiv.net` 的请求（如顶部的 document 文档请求或某个 ajax 请求）
+3. 在 **Headers（标头）** 里找到 **Request Headers（请求标头）→ `Cookie`** 这一项，复制它的完整值
+4. 填入时格式选 **Header String**
+
+?> 请求头里的 `Cookie` 已经是 `名字=值; 名字2=值2` 的格式，里面就包含 `PHPSESSID`，直接整段粘贴即可。
+
+#### 方式四：油猴「一键导入 Cookie」（无需手动复制）
+
+需先安装「**体验增强工具箱 (Toolbox)**」油猴脚本：
+
+1. 在 `pixiv-batch.html` 的 Cookie 卡片里点「**一键导入 Cookie**」
+2. 脚本会自动打开 Pixiv 页面读取 Cookie，并直接回传给后端，无需手动复制粘贴、也无需选格式
+
+!> **此方式需要油猴授予 HttpOnly Cookie 读取权限。** Pixiv 的登录凭证 `PHPSESSID` 是 HttpOnly Cookie，油猴脚本默认读不到，因此一键导入会提示「未检测到 PHPSESSID」而失败。需到 **Tampermonkey（油猴）→ 设置 → 把配置模式设为 `高级` → 安全 → 将「允许脚本访问 Cookie」设为 `全部 / All`** 后再使用。
+
+!> **不建议长期保持该设置为 `全部`**：一旦开启，你安装的**其它任何油猴脚本也能读取到你的登录凭证**，存在账号被盗风险。除非你信任已安装的全部脚本，否则建议**仅在使用一键导入时临时设为 `全部`，成功获取后立即改回 `除 HttpOnly 之外的全部 / All except HttpOnly`**。若不想动这个权限，优先用上面的方式二、方式三（开发者工具）——它们同样能拿到 HttpOnly 的 `PHPSESSID`，且无需改任何油猴权限。
 
 ### 填入 Cookie
 
-1. 在 `pixiv-batch.html` 页面找到顶部的「**Cookie**」卡片（灰色折叠卡片）
-2. 点击展开
-3. 将格式切换为 **Netscape**
-4. 把刚才复制的内容粘贴进去
-5. 点「**保存 Cookie**」
+> 以下手动粘贴步骤适用于方式一 / 二 / 三；方式四（一键导入）会自动回传，无需手动填入。
+
+1. 在 `pixiv-batch.html` 页面找到顶部的「**Cookie**」卡片（灰色折叠卡片），点击展开
+2. 把格式切换为与获取方式对应的项：方式一（Cookie-Editor 导出）选 **Netscape**；方式二、方式三（开发者工具）选 **Header String**
+3. 把复制的内容粘贴进去
+4. 点「**保存 Cookie**」
 
 ?> Cookie 有效期较长，通常几个月才需要重新获取一次。Pixiv 重新登录或修改密码后 Cookie 会立即失效。
 
