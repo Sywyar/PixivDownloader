@@ -38,6 +38,8 @@
 - Email notifications and SMTP config: used to receive scheduled-task overuse / auth-expired alerts that need manual
   attention
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
+- Novel AI translation (requires an LLM configured): translate a novel or a whole series into a chosen language and store it locally, with a content-language switch between the original and translations
+
 - Animated image (Ugoira) auto-conversion to WebP
 - Custom file naming templates (11 variables)
 - Downloaded-state verification: stale DB records (file deleted on disk) are auto-pruned; if files for an artwork

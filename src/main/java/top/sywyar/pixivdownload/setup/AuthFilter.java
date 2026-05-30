@@ -113,11 +113,13 @@ public class AuthFilter extends OncePerRequestFilter {
     private static final Set<String> GUEST_ALLOWED_STATIC_EXACT = Set.of(
             "/css/admin-visibility.css",
             "/css/lang-theme-switcher.css",
+            "/css/pixiv-translate.css",
             "/js/invite-modals.js",
             "/js/pixiv-i18n.js",
             "/js/pixiv-lang-switcher.js",
             "/js/pixiv-novel-render.js",
-            "/js/pixiv-theme.js"
+            "/js/pixiv-theme.js",
+            "/js/pixiv-translate.js"
     );
 
     /** 访客邀请会话被允许访问的精确路径。 */

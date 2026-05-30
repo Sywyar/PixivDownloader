@@ -41,7 +41,43 @@ public class NovelMergeService {
 
     public record MergeResult(boolean success, String message, String mergedPath, int chapterCount) {}
 
+    /**
+     * 合订整个系列：先生成原文基准合订本 {@code {title}.{ext}}，再为该系列已存在译文的每种语言重新生成
+     * 语言变体合订本（best-effort）。译文章节会被替换，未翻译章节仍以原文出现。返回原文基准合订本的结果。
+     */
     public MergeResult merge(long seriesId, NovelDownloadService.NovelFormat format) throws IOException {
+        MergeResult base = writeMerge(seriesId, format, null);
+        if (base.success()) {
+            for (String lang : novelDatabase.getSeriesTranslatedLangs(seriesId)) {
+                try {
+                    writeMerge(seriesId, format, lang);
+                } catch (Exception e) {
+                    log.warn("novel series variant merge failed: seriesId={}, lang={}, err={}",
+                            seriesId, lang, e.getMessage());
+                }
+            }
+        }
+        return base;
+    }
+
+    /**
+     * 仅生成某语言变体合订本 {@code {title}_{lang}.{ext}}（用于「翻译整个系列」完成后重生该语言）。
+     * {@code langCode} 为空时退化为 {@link #merge}（原文基准 + 全部变体）。
+     */
+    public MergeResult mergeVariant(long seriesId, NovelDownloadService.NovelFormat format,
+                                    String langCode) throws IOException {
+        if (langCode == null || langCode.isBlank()) {
+            return merge(seriesId, format);
+        }
+        return writeMerge(seriesId, format, langCode.trim());
+    }
+
+    /**
+     * 写出一份合订本。{@code langCode} 为 {@code null} 时是原文基准合订本（文件名 {@code {title}.{ext}}）；
+     * 非空时是语言变体合订本（文件名 {@code {title}_{lang}.{ext}}），逐章优先取该语言译文、缺失回退原文。
+     */
+    private MergeResult writeMerge(long seriesId, NovelDownloadService.NovelFormat format,
+                                   String langCode) throws IOException {
         if (seriesId <= 0) {
             return new MergeResult(false, messages.get("novel.merge.invalid-series-id"), null, 0);
         }
@@ -53,24 +89,63 @@ public class NovelMergeService {
         NovelSeries series = novelDatabase.getSeries(seriesId);
         String seriesTitle = series == null || series.title() == null || series.title().isBlank()
                 ? String.valueOf(seriesId) : series.title();
-        String safeTitle = ArtworkFileNameFormatter.normalizeBaseName(
-                seriesTitle + "_" + messages.get("novel.merge.suffix"), String.valueOf(seriesId));
+        boolean variant = langCode != null && !langCode.isBlank();
+        String nameSeed = variant ? seriesTitle + "_" + langCode : seriesTitle;
+        String fallback = variant ? seriesId + "_" + langCode : String.valueOf(seriesId);
+        String safeTitle = ArtworkFileNameFormatter.normalizeBaseName(nameSeed, fallback);
         Path outDir = Paths.get(downloadConfig.getRootFolder())
                 .resolve("novel-series-" + seriesId);
         Files.createDirectories(outDir);
         Path outFile = outDir.resolve(safeTitle + "." + format.ext());
 
         switch (format) {
-            case TXT -> writeTxt(outFile, seriesTitle, chapters);
-            case HTML -> writeHtml(outFile, seriesTitle, chapters);
-            case EPUB -> writeEpub(outFile, seriesId, seriesTitle, chapters, series);
+            case TXT -> writeTxt(outFile, seriesTitle, chapters, langCode);
+            case HTML -> writeHtml(outFile, seriesTitle, chapters, langCode);
+            case EPUB -> writeEpub(outFile, seriesId, seriesTitle, chapters, series, langCode);
         }
-        log.info("novel series merged: seriesId={}, format={}, file={}",
-                seriesId, format.ext(), outFile);
+        if (!variant) {
+            cleanupLegacyMerge(outDir, seriesTitle, seriesId, format.ext(), outFile);
+        }
+        log.info("novel series merged: seriesId={}, format={}, lang={}, file={}",
+                seriesId, format.ext(), langCode == null ? "-" : langCode, outFile);
         return new MergeResult(true, messages.get("novel.merge.success"), outFile.toString(), chapters.size());
     }
 
-    private void writeTxt(Path file, String seriesTitle, List<NovelRecord> chapters) throws IOException {
+    /** 逐章取用的正文：变体取该语言译文（缺失回退原文），原文基准直接取 {@code raw_content}。 */
+    private String contentOf(NovelRecord r, String langCode) {
+        if (langCode != null && !langCode.isBlank()) {
+            String translated = novelDatabase.getTranslationContent(r.novelId(), langCode);
+            if (translated != null && !translated.isBlank()) {
+                return translated;
+            }
+        }
+        return r.rawContent() == null ? "" : r.rawContent();
+    }
+
+    /**
+     * 兼容旧版命名：早期原文基准合订本带「合订 / merged」后缀（{@code {title}_合订.{ext}}）。
+     * 新版去掉该后缀（{@code {title}.{ext}}），写出新文件后删除遗留的旧后缀文件，避免重复留存。
+     */
+    private void cleanupLegacyMerge(Path outDir, String seriesTitle, long seriesId,
+                                    String ext, Path newFile) {
+        for (String suffix : List.of(messages.get("novel.merge.suffix"), "合订", "merged")) {
+            if (suffix == null || suffix.isBlank()) continue;
+            String legacyName = ArtworkFileNameFormatter.normalizeBaseName(
+                    seriesTitle + "_" + suffix, String.valueOf(seriesId));
+            Path legacy = outDir.resolve(legacyName + "." + ext);
+            if (legacy.equals(newFile)) continue;
+            try {
+                if (Files.deleteIfExists(legacy)) {
+                    log.info("removed legacy merged file: {}", legacy);
+                }
+            } catch (IOException e) {
+                log.warn("failed to remove legacy merged file {}: {}", legacy, e.getMessage());
+            }
+        }
+    }
+
+    private void writeTxt(Path file, String seriesTitle, List<NovelRecord> chapters,
+                          String langCode) throws IOException {
         StringBuilder sb = new StringBuilder();
         sb.append("# ").append(seriesTitle).append("\n\n");
         for (NovelRecord r : chapters) {
@@ -78,7 +153,7 @@ public class NovelMergeService {
                     ? "#" + r.novelId() : r.title();
             sb.append("\n\n=== ").append(chapterTitle).append(" ===\n\n");
             String body = NovelMarkupParser.render(
-                    r.rawContent() == null ? "" : r.rawContent(),
+                    contentOf(r, langCode),
                     NovelMarkupParser.Format.TXT,
                     imageLabels());
             sb.append(body);
@@ -86,7 +161,8 @@ public class NovelMergeService {
         Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
     }
 
-    private void writeHtml(Path file, String seriesTitle, List<NovelRecord> chapters) throws IOException {
+    private void writeHtml(Path file, String seriesTitle, List<NovelRecord> chapters,
+                           String langCode) throws IOException {
         StringBuilder sb = new StringBuilder();
         sb.append("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"UTF-8\">\n<title>")
                 .append(escapeHtml(seriesTitle)).append("</title>\n<style>\n")
@@ -100,7 +176,7 @@ public class NovelMergeService {
                     ? "#" + r.novelId() : r.title();
             sb.append("<h2>").append(escapeHtml(chapterTitle)).append("</h2>\n");
             sb.append(NovelMarkupParser.render(
-                    r.rawContent() == null ? "" : r.rawContent(),
+                    contentOf(r, langCode),
                     NovelMarkupParser.Format.HTML,
                     imageLabels()));
         }
@@ -109,7 +185,8 @@ public class NovelMergeService {
     }
 
     private void writeEpub(Path file, long seriesId, String seriesTitle,
-                           List<NovelRecord> chapters, NovelSeries series) throws IOException {
+                           List<NovelRecord> chapters, NovelSeries series,
+                           String langCode) throws IOException {
         List<NovelEpubWriter.Chapter> epubChapters = new ArrayList<>();
         List<NovelEpubWriter.NavEntry> nav = new ArrayList<>();
         // Pixiv uploadedimage id 全局唯一，跨章节用同一张 OEBPS/images/embed_{id}.{ext}
@@ -121,7 +198,7 @@ public class NovelMergeService {
             collectChapterImages(r, imagesById);
             // 每本小说内部再按 [chapter:] 拆分，形成「小说 → 章节」两级目录
             List<NovelMarkupParser.Segment> segments = NovelMarkupParser.splitChapters(
-                    r.rawContent() == null ? "" : r.rawContent());
+                    contentOf(r, langCode));
             int firstIndex = epubChapters.size();
             List<NovelEpubWriter.NavEntry> children = new ArrayList<>();
             for (NovelMarkupParser.Segment seg : segments) {
@@ -144,8 +221,14 @@ public class NovelMergeService {
                 firstLang = r.xLanguage();
             }
         }
-        byte[] epub = NovelEpubWriter.write(seriesTitle, resolveSeriesAuthor(series, chapters), firstLang,
-                "urn:pixiv:novel-series:" + seriesId, epubChapters, nav,
+        // 变体合订本以译文语言作为 EPUB 语言；标识符附加语言代码，区别于原文基准合订本
+        boolean variant = langCode != null && !langCode.isBlank();
+        String epubLang = variant ? langCode : firstLang;
+        String identifier = variant
+                ? "urn:pixiv:novel-series:" + seriesId + ":" + langCode
+                : "urn:pixiv:novel-series:" + seriesId;
+        byte[] epub = NovelEpubWriter.write(seriesTitle, resolveSeriesAuthor(series, chapters), epubLang,
+                identifier, epubChapters, nav,
                 new ArrayList<>(imagesById.values()),
                 readSeriesCover(series), buildSeriesMetadata(seriesId, seriesTitle, series),
                 epubLabels());

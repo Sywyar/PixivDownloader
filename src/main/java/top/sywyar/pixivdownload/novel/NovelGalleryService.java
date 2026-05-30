@@ -281,7 +281,8 @@ public class NovelGalleryService {
                 r.xLanguage(),
                 tags,
                 r.coverExt(),
-                novelDatabase.getNovelImageIds(r.novelId())
+                novelDatabase.getNovelImageIds(r.novelId()),
+                novelDatabase.getTranslationLangs(r.novelId())
         );
     }
 
@@ -654,7 +655,8 @@ public class NovelGalleryService {
             String xLanguage,
             List<TagDto> tags,
             String coverExt,
-            List<String> embeddedImageIds
+            List<String> embeddedImageIds,
+            List<String> translatedLanguages
     ) {}
 
     public record SeriesNeighbors(Long seriesId, String seriesTitle, Long currentOrder,

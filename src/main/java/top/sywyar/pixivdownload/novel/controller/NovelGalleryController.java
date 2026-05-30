@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
+import top.sywyar.pixivdownload.novel.NovelTranslationService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
@@ -42,6 +43,7 @@ public class NovelGalleryController {
     private final NovelGalleryService novelGalleryService;
     private final NovelMergeService novelMergeService;
     private final NovelSeriesService novelSeriesService;
+    private final NovelTranslationService novelTranslationService;
     private final NovelDatabase novelDatabase;
     private final NovelGalleryRepository novelGalleryRepository;
     private final PixivDatabase pixivDatabase;
@@ -237,18 +239,68 @@ public class NovelGalleryController {
     /**
      * 本地小说正文（原始 Pixiv markup，来自 {@code novels.raw_content}）。
      * 详情页据此在不访问 Pixiv 的前提下渲染正文；本地不存在该小说时 404。
+     * 传入 {@code lang} 时返回该语言的 AI 译文（缺失则回退原文），供详情页内容语言切换使用。
      */
     @GetMapping("/novel/{novelId}/content")
-    public ResponseEntity<NovelContentResponse> getNovelContent(@PathVariable long novelId,
-                                                                HttpServletRequest httpRequest) {
+    public ResponseEntity<NovelContentResponse> getNovelContent(
+            @PathVariable long novelId,
+            @RequestParam(required = false) String lang,
+            HttpServletRequest httpRequest) {
         guestAccessGuard.requireNovelVisible(httpRequest, novelId);
         NovelRecord rec = novelDatabase.getNovel(novelId);
         if (rec == null) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(new NovelContentResponse(
-                rec.rawContent() == null ? "" : rec.rawContent()));
+        String original = rec.rawContent() == null ? "" : rec.rawContent();
+        if (lang != null && !lang.isBlank()) {
+            String translated = novelDatabase.getTranslationContent(novelId, lang.trim());
+            if (translated != null && !translated.isBlank()) {
+                return ResponseEntity.ok(new NovelContentResponse(translated, lang.trim(), true));
+            }
+        }
+        return ResponseEntity.ok(new NovelContentResponse(original, null, false));
     }
+
+    /**
+     * 翻译单本小说为目标语言（AI）。仅管理员可用：{@code /api/gallery/} 受 monitor 语义保护，
+     * POST 不在访客白名单内。译文保存到本地（{@code novel_translations}），供后续直接渲染、不重复请求 AI。
+     */
+    @PostMapping("/novel/{novelId}/translate")
+    public ResponseEntity<TranslateResponse> translateNovel(@PathVariable long novelId,
+                                                            @RequestBody TranslateRequest request) {
+        if (request == null || request.targetLanguage() == null || request.targetLanguage().isBlank()) {
+            return ResponseEntity.badRequest().body(new TranslateResponse(
+                    NovelTranslationService.Status.ERROR.name(), null,
+                    messages.get("novel.translate.missing-language"), false));
+        }
+        int segmentSize = request.segmentSize() == null ? 0 : Math.max(0, request.segmentSize());
+        boolean overwrite = Boolean.TRUE.equals(request.overwrite());
+        NovelTranslationService.Result result = novelTranslationService.translateChapter(
+                novelId, request.targetLanguage(), segmentSize, overwrite, request.langHint());
+        return ResponseEntity.ok(new TranslateResponse(
+                result.status().name(), result.langCode(), result.message(), result.truncated()));
+    }
+
+    /** 系列内全部章节的 novel_id（按 series_order 升序），供「翻译整个系列」前端逐章循环。 */
+    @GetMapping("/novel/series/{seriesId}/novel-ids")
+    public ResponseEntity<NovelSeriesChapterIdsResponse> seriesNovelIds(@PathVariable long seriesId,
+                                                                        HttpServletRequest httpRequest) {
+        Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
+        if (filter != null && !filter.contains(seriesId)) {
+            return ResponseEntity.notFound().build();
+        }
+        List<Long> ids = novelDatabase.getNovelsBySeriesId(seriesId).stream()
+                .map(NovelRecord::novelId)
+                .toList();
+        return ResponseEntity.ok(new NovelSeriesChapterIdsResponse(ids));
+    }
+
+    public record TranslateRequest(String targetLanguage, Integer segmentSize,
+                                   Boolean overwrite, String langHint) {}
+
+    public record TranslateResponse(String status, String langCode, String message, boolean truncated) {}
+
+    public record NovelSeriesChapterIdsResponse(List<Long> novelIds) {}
 
     /**
      * 内嵌图片字节流，路径: {novelFolder}/embed_{imageId}.{ext}。
@@ -353,13 +405,17 @@ public class NovelGalleryController {
     @PostMapping("/novel/series/{seriesId}/merge")
     public ResponseEntity<MergeResponse> mergeSeries(
             @PathVariable long seriesId,
-            @RequestParam(required = false) String format) throws IOException {
+            @RequestParam(required = false) String format,
+            @RequestParam(required = false) String lang) throws IOException {
         // 合订本默认且推荐 EPUB（内嵌封面/插图、多级目录、系列元数据）；
         // 显式传入 txt/html 时按指定格式合订。
         NovelDownloadService.NovelFormat fmt = (format == null || format.isBlank())
                 ? NovelDownloadService.NovelFormat.EPUB
                 : NovelDownloadService.NovelFormat.parse(format);
-        NovelMergeService.MergeResult result = novelMergeService.merge(seriesId, fmt);
+        // lang 为空：生成原文基准合订本 + 重生全部语言变体；指定 lang：仅重生该语言变体合订本。
+        NovelMergeService.MergeResult result = (lang == null || lang.isBlank())
+                ? novelMergeService.merge(seriesId, fmt)
+                : novelMergeService.mergeVariant(seriesId, fmt, lang.trim());
         return ResponseEntity.ok(new MergeResponse(
                 result.success(), result.message(),
                 result.mergedPath(), result.chapterCount(), fmt.ext()));
@@ -376,7 +432,7 @@ public class NovelGalleryController {
 
     public record NovelDownloadedBatchResponse(List<Long> novelIds) {}
 
-    public record NovelContentResponse(String content) {}
+    public record NovelContentResponse(String content, String lang, boolean translated) {}
 
     public record NovelSeriesNavResponse(Long seriesId, String seriesTitle, Long currentOrder,
                                          NeighborView prev, NeighborView next) {}
@@ -388,7 +444,7 @@ public class NovelGalleryController {
 
     public record NovelSeriesDetailResponse(long seriesId, String title, Long authorId, long updatedTime,
                                             String description, String coverExt, String coverFolder,
-                                            List<TagDto> tags) {}
+                                            List<TagDto> tags, List<String> translatedLanguages) {}
 
     private NovelSeriesDetailResponse toDetailResponse(NovelSeries series) {
         return new NovelSeriesDetailResponse(
@@ -399,6 +455,7 @@ public class NovelGalleryController {
                 series.description(),
                 series.coverExt(),
                 series.coverFolder(),
-                novelDatabase.getNovelSeriesTags(series.seriesId()));
+                novelDatabase.getNovelSeriesTags(series.seriesId()),
+                novelDatabase.getSeriesTranslatedLangs(series.seriesId()));
     }
 }

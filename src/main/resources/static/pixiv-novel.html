@@ -10,6 +10,7 @@
     <script src="/js/pixiv-novel-render.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
+    <link rel="stylesheet" href="/css/pixiv-translate.css">
     <link rel="stylesheet" href="/pixiv-novel/pixiv-novel.css">
 </head>
 <body>
@@ -18,6 +19,8 @@
     <a class="btn" href="/pixiv-novel-gallery.html?view=all" data-i18n="button.gallery">画廊</a>
     <div class="topbar-actions">
         <span id="langSwitcherAnchor"></span>
+        <span id="contentLangAnchor"></span>
+        <button class="btn" id="aiTranslateBtn" type="button" style="display:none" data-i18n="translate:button.translate">AI 翻译</button>
         <button class="btn" id="ttsToggle" type="button" style="display:none" data-i18n="tts.listen">🎧 听书</button>
         <button class="heart-btn" id="heartBtn" type="button" style="display:none">
             <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
@@ -130,6 +133,7 @@
 
 <div class="toast-container" id="toastContainer"></div>
 
+<script src="/js/pixiv-translate.js"></script>
 <script src="/pixiv-novel/pixiv-novel-tts.js"></script>
 <script src="/pixiv-novel/pixiv-novel.js"></script>
 </body>

@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="/css/admin-visibility.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
+    <link rel="stylesheet" href="/css/pixiv-translate.css">
     <link rel="stylesheet" href="/pixiv-series/pixiv-series.css">
 </head>
 <body>
@@ -208,6 +209,9 @@
                     </a>
                 </div>
                 <div class="series-actions">
+                    <span id="contentLangAnchor"></span>
+                    <button class="btn" id="translateSeriesBtn" type="button" style="display:none"
+                            data-i18n="translate:button.translate-series">翻译整个系列</button>
                     <a class="btn" id="backToArtworkBtn" href="#" style="display:none">
                         <svg viewBox="0 0 24 24">
                             <polyline points="15 18 9 12 15 6"/>
@@ -236,6 +240,7 @@
     </main>
 </div>
 
+<script src="/js/pixiv-translate.js"></script>
 <script src="/pixiv-series/pixiv-series.js"></script>
 </body>
 </html>

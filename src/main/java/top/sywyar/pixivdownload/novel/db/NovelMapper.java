@@ -127,6 +127,45 @@ public interface NovelMapper {
             + "PRIMARY KEY (novel_id, image_id))")
     void createNovelImagesTable();
 
+    // ── AI translations ───────────────────────────────────────────────────────────
+    // 每本小说每种语言一行的 AI 译文：raw_content 保留翻译后的原始 Pixiv markup，
+    // 供详情页按语言渲染、系列合订生成语言变体，避免重复请求 AI。
+
+    @Update("CREATE TABLE IF NOT EXISTS novel_translations ("
+            + "novel_id INTEGER NOT NULL,"
+            + "lang_code TEXT NOT NULL,"
+            + "raw_content TEXT NOT NULL,"
+            + "created_time INTEGER NOT NULL,"
+            + "PRIMARY KEY (novel_id, lang_code))")
+    void createNovelTranslationsTable();
+
+    @Insert("INSERT OR REPLACE INTO novel_translations(novel_id, lang_code, raw_content, created_time)"
+            + " VALUES(#{novelId}, #{langCode}, #{rawContent}, #{createdTime})")
+    void insertOrReplaceTranslation(@Param("novelId") long novelId,
+                                    @Param("langCode") String langCode,
+                                    @Param("rawContent") String rawContent,
+                                    @Param("createdTime") long createdTime);
+
+    @Select("SELECT raw_content FROM novel_translations"
+            + " WHERE novel_id = #{novelId} AND lang_code = #{langCode}")
+    String findTranslationContent(@Param("novelId") long novelId, @Param("langCode") String langCode);
+
+    @Select("SELECT COUNT(*) FROM novel_translations"
+            + " WHERE novel_id = #{novelId} AND lang_code = #{langCode}")
+    int countTranslation(@Param("novelId") long novelId, @Param("langCode") String langCode);
+
+    @Select("SELECT lang_code FROM novel_translations WHERE novel_id = #{novelId} ORDER BY lang_code")
+    List<String> findTranslationLangs(@Param("novelId") long novelId);
+
+    @Select("SELECT DISTINCT t.lang_code FROM novel_translations t"
+            + " JOIN novels n ON n.novel_id = t.novel_id"
+            + " WHERE n.series_id = #{seriesId} AND n.series_id > 0"
+            + " ORDER BY t.lang_code")
+    List<String> findSeriesTranslatedLangs(@Param("seriesId") long seriesId);
+
+    @Delete("DELETE FROM novel_translations WHERE novel_id = #{novelId}")
+    void deleteTranslations(@Param("novelId") long novelId);
+
     // ── Full-text search (FTS5) ──────────────────────────────────────────────────
     // novels_fts 是对 novels.raw_content 的辅助全文索引（同库虚拟表，不落到 rootFolder）。
     // trigram 分词器对中日英混排正文都按 3-gram 子串匹配，rowid 复用 novel_id。

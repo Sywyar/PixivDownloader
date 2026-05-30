@@ -18,6 +18,10 @@
 
     let pageI18n = null;
     let searchTimer = null;
+    let isAdmin = false;
+    let activeContentLang = '';
+    let seriesTranslatedLangs = [];
+    let contentLangCtl = null;
 
     const ImageCache = (() => {
         const PREFIX = 'pxImg:';
@@ -80,6 +84,11 @@
         return interpolate(fallback != null ? fallback : key, vars);
     }
 
+    // translate: 命名空间快捷取词（AI 翻译共享文案）
+    function tx(key, fallback, vars) {
+        return pageText('translate:' + key, fallback, vars);
+    }
+
     function applyStaticPageTranslations() {
         document.title = state.detail && state.detail.title
             ? modeText('page.title-with-name', '{title} - Manga Series', '{title} - Novel Series', {title: state.detail.title})
@@ -135,13 +144,14 @@
     }
 
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: ['series', 'gallery', 'novel', 'common']});
+        pageI18n = await PixivI18n.create({namespaces: ['series', 'gallery', 'novel', 'common', 'translate']});
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
             onChange: function (nextClient) {
                 pageI18n = nextClient;
                 applyStaticPageTranslations();
+                if (contentLangCtl) contentLangCtl.relabel(pageI18n);
             }
         });
         PixivTheme.mount({
@@ -195,9 +205,134 @@
     async function setupAdminMode() {
         try {
             const res = await fetch('/api/admin/invites/access-check', {credentials: 'same-origin'});
-            if (res.ok) document.body.classList.add('admin-mode');
+            if (res.ok) {
+                document.body.classList.add('admin-mode');
+                isAdmin = true;
+                refreshTranslateSeriesBtn();
+            }
         } catch (_) {
         }
+    }
+
+    // 「翻译整个系列」仅小说系列 + 管理员可见
+    function refreshTranslateSeriesBtn() {
+        const btn = document.getElementById('translateSeriesBtn');
+        if (!btn) return;
+        btn.style.display = (isAdmin && isNovelMode()) ? '' : 'none';
+    }
+
+    // 章节卡片链接：选定内容语言时附带 ?lang，使点开的小说详情页默认显示该语言译文。
+    function novelChapterHref(novelId) {
+        let href = `/pixiv-novel.html?id=${novelId}`;
+        if (activeContentLang) href += `&lang=${encodeURIComponent(activeContentLang)}`;
+        return href;
+    }
+
+    // 内容显示语言（独立于界面语言）：?lang 优先，其次全局记忆，且都需存在于本系列已有译文中。
+    function resolveInitialContentLang(langs) {
+        const params = new URLSearchParams(location.search);
+        const urlLang = params.get('lang');
+        if (urlLang && langs.indexOf(urlLang) !== -1) return urlLang;
+        if (window.PixivContentLang) {
+            const stored = PixivContentLang.getStored();
+            if (stored && langs.indexOf(stored) !== -1) return stored;
+        }
+        return '';
+    }
+
+    // 装配小说系列专属控件：内容语言切换器 + 「翻译整个系列」按钮可见性。
+    function setupNovelContentControls(langs) {
+        seriesTranslatedLangs = Array.isArray(langs) ? langs : [];
+        activeContentLang = resolveInitialContentLang(seriesTranslatedLangs);
+        refreshTranslateSeriesBtn();
+        const anchor = document.getElementById('contentLangAnchor');
+        if (!anchor || !window.PixivContentLang) return;
+        if (contentLangCtl) {
+            contentLangCtl.setLanguages(seriesTranslatedLangs, activeContentLang);
+            return;
+        }
+        contentLangCtl = PixivContentLang.mount({
+            mountPoint: anchor,
+            i18n: pageI18n,
+            languages: seriesTranslatedLangs,
+            current: activeContentLang,
+            onChange: (lang) => {
+                activeContentLang = lang || '';
+                renderGrid(state.items);
+            }
+        });
+    }
+
+    function setSeriesMessage(text) {
+        const el = document.getElementById('seriesStatus');
+        if (el) el.textContent = text;
+    }
+
+    // 翻译整个系列：前端逐章循环调用单作品翻译接口（与批量点击单作品 AI 翻译一致），完成后重生该语言变体合订本。
+    async function translateSeries() {
+        if (!window.PixivTranslate || !state.seriesId || !isNovelMode()) return;
+        const choice = await PixivTranslate.openDialog({i18n: pageI18n, series: true});
+        if (!choice) return;
+        const btn = document.getElementById('translateSeriesBtn');
+        const original = btn.textContent;
+        let ids;
+        try {
+            ids = await PixivTranslate.fetchSeriesNovelIds(state.seriesId);
+        } catch (e) {
+            setSeriesMessage(tx('toast.failed', '翻译失败：{message}', {message: String(e.message || e)}));
+            return;
+        }
+        if (!ids.length) {
+            setSeriesMessage(tx('toast.no-chapters', '该系列暂无可翻译章节'));
+            return;
+        }
+        btn.disabled = true;
+        let ok = 0, skipped = 0, failed = 0, langCode = null, invalid = false;
+        for (let i = 0; i < ids.length; i++) {
+            btn.textContent = tx('status.translating-progress', 'Translating {done}/{total}',
+                {done: i + 1, total: ids.length});
+            try {
+                const resp = await PixivTranslate.translateNovel(ids[i],
+                    Object.assign({}, choice, {langHint: langCode}));
+                if (resp.status === PixivTranslate.STATUS_INVALID_LANGUAGE) {
+                    invalid = true;
+                    break;
+                }
+                if (resp.langCode && !langCode) langCode = resp.langCode;
+                if (resp.status === PixivTranslate.STATUS_OK) ok++;
+                else if (resp.status === PixivTranslate.STATUS_SKIPPED) skipped++;
+                else failed++;
+            } catch (_) {
+                failed++;
+            }
+        }
+        btn.disabled = false;
+        btn.textContent = original;
+        if (invalid) {
+            setSeriesMessage(tx('toast.invalid-language', 'AI 判定该语言不存在或无法识别'));
+            return;
+        }
+        // 重生该语言变体合订本（仅当有成功翻译的章节）
+        if (langCode && (ok > 0 || skipped > 0)) {
+            btn.textContent = tx('status.merging', '正在生成该语言合订本…');
+            try {
+                await PixivTranslate.mergeSeriesLang(state.seriesId, langCode, 'epub');
+            } catch (e) {
+                setSeriesMessage(tx('toast.merge-failed', '合订本生成失败：{message}', {message: String(e.message || e)}));
+            }
+            btn.textContent = original;
+            // 把新语言并入切换器并默认切到该语言
+            if (langCode && seriesTranslatedLangs.indexOf(langCode) === -1) {
+                seriesTranslatedLangs = seriesTranslatedLangs.concat([langCode]);
+            }
+            activeContentLang = langCode;
+            if (window.PixivContentLang) PixivContentLang.setStored(langCode);
+            if (contentLangCtl) contentLangCtl.setLanguages(seriesTranslatedLangs, langCode);
+            else setupNovelContentControls(seriesTranslatedLangs);
+            renderGrid(state.items);
+        }
+        setSeriesMessage(tx('toast.series-done', '系列翻译完成：成功 {ok}，跳过 {skipped}，失败 {failed}',
+            {ok: ok, skipped: skipped, failed: failed}));
     }
 
     async function loadCollections() {
@@ -260,6 +395,7 @@
         renderLoading();
         if (isNovelMode()) {
             state.detail = buildNovelDetail();
+            let detailLangs = [];
             // 同步拉取小说系列封面/简介（标题/作者由章节列表回填）。
             try {
                 const series = await api(`/api/gallery/novel/series/${state.seriesId}`);
@@ -271,10 +407,12 @@
                         coverExt: series.coverExt,
                         tags: Array.isArray(series.tags) ? series.tags : state.detail.tags,
                     });
+                    detailLangs = Array.isArray(series.translatedLanguages) ? series.translatedLanguages : [];
                 }
             } catch (_) {
                 // 404 表示尚未观测过该系列：保留章节回填出的字段即可。
             }
+            setupNovelContentControls(detailLangs);
             renderSeriesHeader();
             renderMeta();
             await loadArtworks();
@@ -649,7 +787,7 @@
                 ? `<img src="/api/gallery/novel/${item.novelId}/cover" alt="${escapeHtml(title)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'chapter-cover-placeholder',textContent:this.alt}))">`
                 : `<div class="chapter-cover-placeholder">${escapeHtml(title)}</div>`;
             return `
-                <a class="chapter-card novel ${isCurrent ? 'current' : ''}" href="/pixiv-novel.html?id=${item.novelId}" data-id="${item.novelId}">
+                <a class="chapter-card novel ${isCurrent ? 'current' : ''}" href="${escapeHtml(novelChapterHref(item.novelId))}" data-id="${item.novelId}">
                     <div class="chapter-thumb">
                         ${cover}
                         <div class="thumb-veil"></div>
@@ -873,6 +1011,7 @@
     document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
     document.getElementById('mobileMenuBtn').addEventListener('click', openMobileSidebar);
     document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
+    document.getElementById('translateSeriesBtn').addEventListener('click', translateSeries);
     document.getElementById('searchInput').addEventListener('input', e => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {

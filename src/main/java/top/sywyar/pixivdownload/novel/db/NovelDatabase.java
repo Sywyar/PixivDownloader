@@ -44,6 +44,7 @@ public class NovelDatabase {
         novelMapper.createNovelCollectionsTable();
         novelMapper.createNovelCollectionsNovelIndex();
         novelMapper.createNovelImagesTable();
+        novelMapper.createNovelTranslationsTable();
         novelMapper.createNovelFtsTable();
         // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
         try { novelMapper.backfillNovelFts(); } catch (Exception e) {
@@ -219,10 +220,44 @@ public class NovelDatabase {
         novelMapper.deleteNovelTags(novelId);
         novelMapper.deleteAllNovelCollections(novelId);
         novelMapper.deleteNovelImages(novelId);
+        novelMapper.deleteTranslations(novelId);
         novelMapper.deleteById(novelId);
         try { novelMapper.deleteNovelFts(novelId); } catch (Exception e) {
             log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
         }
+    }
+
+    // ── AI translations ──────────────────────────────────────────────────────────
+
+    /** 保存（覆盖）某本小说在某语言下的 AI 译文（翻译后的原始 Pixiv markup）。 */
+    public void saveTranslation(long novelId, String langCode, String rawContent) {
+        if (langCode == null || langCode.isBlank()) return;
+        novelMapper.insertOrReplaceTranslation(novelId, langCode.trim(),
+                rawContent == null ? "" : rawContent, TimestampUtils.nowMillis());
+    }
+
+    /** 读取某本小说某语言的译文 markup；不存在返回 {@code null}。 */
+    public String getTranslationContent(long novelId, String langCode) {
+        if (langCode == null || langCode.isBlank()) return null;
+        return novelMapper.findTranslationContent(novelId, langCode.trim());
+    }
+
+    public boolean hasTranslation(long novelId, String langCode) {
+        if (langCode == null || langCode.isBlank()) return false;
+        return novelMapper.countTranslation(novelId, langCode.trim()) > 0;
+    }
+
+    /** 某本小说已有译文的全部语言代码。 */
+    public List<String> getTranslationLangs(long novelId) {
+        List<String> langs = novelMapper.findTranslationLangs(novelId);
+        return langs == null ? Collections.emptyList() : langs;
+    }
+
+    /** 某系列下「至少有一章存在译文」的全部语言代码（变体合订需要逐一重生）。 */
+    public List<String> getSeriesTranslatedLangs(long seriesId) {
+        if (seriesId <= 0) return Collections.emptyList();
+        List<String> langs = novelMapper.findSeriesTranslatedLangs(seriesId);
+        return langs == null ? Collections.emptyList() : langs;
     }
 
     // ── Embedded images ────────────────────────────────────────────────────────

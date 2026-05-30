@@ -3,6 +3,10 @@ const novelId = params.get('id');
 let pageI18n;
 let rerenderPayload = null;
 let cachedSeriesNav = null;
+let novelView = null;
+let availableContentLangs = [];
+let activeContentLang = '';
+let contentLangCtl = null;
 
 const HEART_DEFAULT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
 
@@ -12,7 +16,7 @@ const collectionState = {
 };
 
 async function loadAll() {
-    pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common'] });
+    pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common', 'translate'] });
     pageI18n.apply();
     await PixivLangSwitcher.mount({
         mountPoint: document.getElementById('langSwitcherAnchor'),
@@ -21,6 +25,7 @@ async function loadAll() {
             pageI18n = next;
             pageI18n.apply();
             rerenderDynamic();
+            if (contentLangCtl) contentLangCtl.relabel(pageI18n);
             if (window.PixivNovelTts) PixivNovelTts.setI18n(next);
         }
     });
@@ -97,6 +102,9 @@ function rerenderDynamic() {
 
 async function renderLocal(view) {
     rerenderPayload = { kind: 'local', data: view };
+    novelView = view;
+    availableContentLangs = Array.isArray(view.translatedLanguages) ? view.translatedLanguages : [];
+    activeContentLang = resolveInitialContentLang(availableContentLangs);
     if (view.coverExt) showCover();
     document.getElementById('novel-title').textContent = view.title || '';
     document.getElementById('novel-author').innerHTML = view.authorId
@@ -112,10 +120,47 @@ async function renderLocal(view) {
     });
     renderDescription(view.description);
     renderTags(view.tags || []);
-    // 正文取自本地权威源 novels.raw_content；内嵌图只用本地落盘的，缺失的静默不显示，全程不访问 Pixiv。
-    const localIds = new Set(view.embeddedImageIds || []);
+    mountContentLangSwitcher();
+    await loadContent(activeContentLang);
+}
+
+// 内容显示语言（独立于界面语言）：?lang 参数优先，其次全局记忆的内容语言，且都必须存在于本作品已有译文中。
+function resolveInitialContentLang(langs) {
+    const urlLang = params.get('lang');
+    if (urlLang && langs.indexOf(urlLang) !== -1) return urlLang;
+    if (window.PixivContentLang) {
+        const stored = PixivContentLang.getStored();
+        if (stored && langs.indexOf(stored) !== -1) return stored;
+    }
+    return '';
+}
+
+function mountContentLangSwitcher() {
+    const anchor = document.getElementById('contentLangAnchor');
+    if (!anchor || !window.PixivContentLang) return;
+    contentLangCtl = PixivContentLang.mount({
+        mountPoint: anchor,
+        i18n: pageI18n,
+        languages: availableContentLangs,
+        current: activeContentLang,
+        onChange: (lang) => switchContentLang(lang)
+    });
+}
+
+// 切换内容语言：带 ?lang 参数整页重载，使正文与听书都在该语言下重新初始化（界面语言不受影响）。
+function switchContentLang(lang) {
+    const p = new URLSearchParams(location.search);
+    if (lang) p.set('lang', lang); else p.delete('lang');
+    location.search = p.toString();
+}
+
+// 正文取自本地权威源 novels.raw_content（或所选语言的 AI 译文）；内嵌图只用本地落盘的，缺失静默不显示，全程不访问 Pixiv。
+async function loadContent(lang) {
+    const localIds = new Set((novelView && novelView.embeddedImageIds) || []);
+    const url = `/api/gallery/novel/${encodeURIComponent(novelId)}/content`
+        + (lang ? `?lang=${encodeURIComponent(lang)}` : '');
     try {
-        const r = await fetch(`/api/gallery/novel/${encodeURIComponent(novelId)}/content`);
+        const r = await fetch(url);
         if (r.ok) {
             const data = await r.json();
             renderContent(data.content || '', buildImageResolver({ local: localIds, hideMissing: true }));
@@ -321,7 +366,8 @@ function setupTts() {
     if (!hasReadable) return; // 正文加载失败 / 无可朗读内容时不显示听书入口
     document.getElementById('ttsToggle').style.display = '';
     const data = rerenderPayload ? rerenderPayload.data : null;
-    const language = data ? (data.language || data.xLanguage || '') : '';
+    // 听书语言：显示译文时用所选内容语言，否则用作品原始语言
+    const language = activeContentLang || (data ? (data.language || data.xLanguage || '') : '');
     PixivNovelTts.attach({ i18n: pageI18n, contentEl, toast, language, novelId });
 }
 
@@ -477,7 +523,7 @@ function toast(msg, type) {
     setTimeout(() => el.remove(), 2800);
 }
 
-// ---------- Delete (admin only) ----------
+// ---------- Admin only (delete + AI translate) ----------
 async function setupAdminMode() {
     try {
         const res = await fetch('/api/admin/invites/access-check', { credentials: 'same-origin' });
@@ -485,7 +531,46 @@ async function setupAdminMode() {
         document.body.classList.add('admin-mode');
         const btn = document.getElementById('deleteNovelBtn');
         if (btn) btn.style.display = '';
+        const translateBtn = document.getElementById('aiTranslateBtn');
+        if (translateBtn) {
+            translateBtn.style.display = '';
+            translateBtn.addEventListener('click', openTranslateDialog);
+        }
     } catch (_) { /* not admin */ }
+}
+
+// ---------- AI translate (admin only) ----------
+async function openTranslateDialog() {
+    if (!window.PixivTranslate || !novelId) return;
+    const choice = await PixivTranslate.openDialog({ i18n: pageI18n, series: false });
+    if (!choice) return;
+    const btn = document.getElementById('aiTranslateBtn');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = pageI18n.t('translate:status.translating', '翻译中…');
+    try {
+        const resp = await PixivTranslate.translateNovel(novelId, choice);
+        if (resp.status === PixivTranslate.STATUS_INVALID_LANGUAGE) {
+            toast(resp.message || pageI18n.t('translate:toast.invalid-language', '该语言不存在或无法识别'), 'error');
+        } else if (resp.status === PixivTranslate.STATUS_OK || resp.status === PixivTranslate.STATUS_SKIPPED) {
+            toast(resp.message || pageI18n.t('translate:toast.success', '翻译完成'), 'success');
+            if (resp.langCode) {
+                if (window.PixivContentLang) PixivContentLang.setStored(resp.langCode);
+                // 重载并显示该语言译文
+                const p = new URLSearchParams(location.search);
+                p.set('lang', resp.langCode);
+                location.search = p.toString();
+                return;
+            }
+        } else {
+            toast(resp.message || pageI18n.t('translate:toast.failed', '翻译失败：{message}', { message: '' }), 'error');
+        }
+    } catch (e) {
+        toast(pageI18n.t('translate:toast.failed', '翻译失败：{message}', { message: String(e && e.message ? e.message : e) }), 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+    }
 }
 
 function openDeleteNovelModal() {
