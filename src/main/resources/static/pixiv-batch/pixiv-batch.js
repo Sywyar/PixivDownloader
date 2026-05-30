@@ -1672,8 +1672,6 @@
 
         await refreshBatchCollections();
 
-        const {concurrent} = state.settings;
-        const intervalMs = getIntervalMs();
         state.queue.forEach(q => {
             if (['idle', 'failed', 'paused'].includes(q.status)) {
                 q.status = 'pending';
@@ -1691,39 +1689,51 @@
         saveQueue();
         renderQueue();
         setStatus(
-            bt('status.start-download', '开始下载 (并发:{concurrent}, 间隔:{intervalMs}ms)', {concurrent, intervalMs}),
+            bt('status.start-download', '开始下载 (并发:{concurrent}, 间隔:{intervalMs}ms)',
+                {concurrent: desiredConcurrency(), intervalMs: getIntervalMs()}),
             'info'
         );
 
-        ensureSharedSSE();
-        try {
-            const workers = [];
-            for (let i = 0; i < Math.max(1, concurrent); i++) {
-                workers.push(workerLoop(intervalMs));
-            }
-            await Promise.all(workers);
-        } finally {
-            closeAllSSE();
-        }
+        // 并发数与作品间隔实时生效：worker 池按当前目标并发动态伸缩，间隔在每次作品之间实时读取。
+        ensureWorkers();
+    }
 
+    // 当前目标并发数（最少 1）；下载设置实时同步到 state.settings.concurrent。
+    function desiredConcurrency() {
+        return Math.max(1, parseInt(state.settings.concurrent, 10) || 1);
+    }
+
+    // 将运行中的 worker 数量补足到当前目标并发：用于启动、运行中追加队列、运行中调高并发数。
+    // 调低并发数由各 worker 在 workerLoop 顶部自行退出，不在此处理。
+    function ensureWorkers() {
+        if (!state.isRunning || state.stopRequested) return;
+        ensureSharedSSE();
+        while (state.activeWorkers < desiredConcurrency()) {
+            workerLoop().finally(handleWorkerExit);
+        }
+    }
+
+    // 最后一个 worker 退出（队列已抽干）时统一收尾；调低并发数导致的多余 worker 退出不触发收尾。
+    function handleWorkerExit() {
+        if (!state.isRunning || state.activeWorkers > 0) return;
+        closeAllSSE();
         state.isRunning = false;
         saveQueue();
         setStatus(bt('status.batch-finished', '批量下载结束'), 'info');
         updateButtonsState();
-
         // 多人模式：队列完成后自动打包已下载文件（配额超限时已在 handleQuotaExceeded 中触发打包，不重复）
         if (quotaInfo.enabled) {
             const completed = state.queue.filter(q => q.status === 'completed').length;
-            if (completed > 0) {
-                autoPackAfterQueue();
-            }
+            if (completed > 0) autoPackAfterQueue();
         }
     }
 
-    async function workerLoop(intervalMs) { // intervalMs already in ms
+    async function workerLoop() {
         state.activeWorkers++;
         try {
             while (state.isRunning && !state.stopRequested) {
+                // 并发数实时调低时，多余的 worker 在处理完当前作品后退出（不中断在途下载）。
+                if (state.activeWorkers > desiredConcurrency()) break;
                 if (state.isPaused) {
                     await sleep(500);
                     continue;
@@ -1740,7 +1750,8 @@
                 } catch (e) {
                     console.error(e);
                 } finally {
-                    await sleep(intervalMs);
+                    // 作品间隔实时生效：每次作品之间按当前设置读取间隔。
+                    await sleep(getIntervalMs());
                 }
             }
         } finally {
@@ -2324,7 +2335,8 @@
                     updateStats();
                     saveQueue();
                     renderQueue();
-                    if (item.status === 'completed' && item.mergeAfterSeriesId) {
+                    // 「生成合订本」实时生效：系列下载完成时按当前设置决定是否合订（而非入队时的设置）
+                    if (item.status === 'completed' && item.mergeAfterSeriesId && state.settings.mergeNovelSeries) {
                         await maybeTriggerSeriesMerge(item.mergeAfterSeriesId);
                     }
                     return;
@@ -2445,25 +2457,9 @@
         updateStats();
         saveQueue();
         renderQueue();
-        // 下载进行中但 workers 已全部退出时，重启 workers 处理新加入的任务
-        if (state.isRunning && added > 0 && state.activeWorkers === 0) {
-            const concurrent = Math.max(1, state.settings.concurrent);
-            const intervalMs = getIntervalMs();
-            ensureSharedSSE();
-            const workers = [];
-            for (let i = 0; i < concurrent; i++) workers.push(workerLoop(intervalMs));
-            Promise.all(workers).finally(() => {
-                closeAllSSE();
-            }).then(() => {
-                state.isRunning = false;
-                saveQueue();
-                setStatus(bt('status.batch-finished', '批量下载结束'), 'info');
-                updateButtonsState();
-                if (quotaInfo.enabled) {
-                    const completed = state.queue.filter(q => q.status === 'completed').length;
-                    if (completed > 0) autoPackAfterQueue();
-                }
-            });
+        // 下载进行中追加新任务时补足 worker：worker 曾被抽干（全部退出）则重启，未满目标并发则补齐。
+        if (state.isRunning && added > 0) {
+            ensureWorkers();
         }
         syncSearchResultsQueueState();
         syncSeriesResultsQueueState();
@@ -3491,6 +3487,8 @@
         updateMergeFormatVisibility();
         toggleSkipHistoryOptions();
         saveSettings();
+        // 下载设置实时生效：运行中调高并发数时立即补足 worker（调低由 workerLoop 自行收敛）。
+        if (state.isRunning) ensureWorkers();
     }
 
     // 合订本格式选择仅在勾选「生成合订本」时可见
@@ -5057,7 +5055,8 @@
                 seriesId: seriesState.seriesId,
                 seriesOrder,
                 seriesTitle: seriesState.seriesTitle,
-                mergeAfterSeriesId: !!state.settings.mergeNovelSeries ? Number(seriesState.seriesId) : null
+                // 始终记录所属系列（合订资格）；是否真正生成合订本，由系列下载完成时的实时「生成合订本」设置决定
+                mergeAfterSeriesId: Number(seriesState.seriesId)
             };
         }
         return {

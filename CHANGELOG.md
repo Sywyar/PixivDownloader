@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- 批量下载页的下载设置现在在下载过程中修改即时生效，无需重启整批：「作品间隔」「最大并发数」此前在点击「开始下载」时固定，现在新开始下载的作品即按最新值执行（调高并发数立即增开并行下载，调低则在当前作品下载完成后逐步减少、不中断进行中的下载）；小说「系列下载完成后生成合订本」也改为在系列全部下载完成时按当前勾选状态决定，而非加入队列时的状态。
+
 ## [v1.11.2] - 2026.5.30
 
 ### Features
