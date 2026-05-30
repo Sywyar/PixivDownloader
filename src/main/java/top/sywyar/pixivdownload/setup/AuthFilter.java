@@ -670,6 +670,7 @@ public class AuthFilter extends OncePerRequestFilter {
                 .maxAge(Duration.ofDays(30))
                 .sameSite("Strict")
                 .httpOnly(true)
+                .secure(sslEnabled)
                 .build();
         res.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
