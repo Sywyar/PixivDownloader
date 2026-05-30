@@ -204,6 +204,19 @@ The manual paste steps apply to Methods 1/2/3 (Method 4 sends it back automatica
 
 Visit `http://localhost:6999/pixiv-batch.html`.
 
+### 🧭 New-user Onboarding
+
+The first time you open the download page as an admin (solo mode / a logged-in admin in multi mode), an interactive **cross-page onboarding** starts automatically and walks you through the whole flow, from downloading to browsing:
+
+1. It first asks for a **name** and checks **connectivity** from the backend to Pixiv (shows the round-trip latency; if unreachable it suggests checking the proxy / network).
+2. It introduces the download page region by region — the **Cookie area / userscripts area / download modes (tabs)** — using "Batch Import Single Artworks" as the example.
+3. It guides you to **paste the example link → add to the queue → review the extra filters and download settings → start downloading**, highlighting the status bar and download queue so you can watch progress live.
+4. When the download finishes it jumps to the **gallery** (walking through views / search / filter / the work grid), then into the **artwork detail page** (images / actions / description / author / series & related).
+
+You can **skip** the guide at any time, or replay it via the **"Guide"** button at the bottom-right of the download page (when a name is already set, it skips the name step and starts from the connectivity check). Guests in multi mode never trigger it.
+
+> The **name** you enter in the guide is saved and used for the user card at the bottom of the gallery / novel-gallery sidebar, and for the greeting in system emails (scheduled-task notifications, mail tests); when left empty it falls back to "administrator".
+
 ### ⭐ Quick Fetch
 
 The first tab, shown by default. Using the saved Cookie it auto-detects the current account (via PHPSESSID) and one-clicks your account-related data into the download queue:
