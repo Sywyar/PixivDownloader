@@ -187,6 +187,13 @@
                 <a class="gallery-type-option" href="/pixiv-gallery.html?view=all" role="tab" aria-selected="false" data-i18n="nav.type-illust">漫画</a>
                 <button type="button" class="gallery-type-option active" data-view="all" id="navViewAll" role="tab" aria-selected="true" data-i18n="nav.type-novel">小说</button>
             </div>
+            <button class="filter-btn batch-manage-btn" id="batchManageBtn" type="button" style="display:none">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9 11 12 14 22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                </svg>
+                <span data-i18n="novel:manage.button">批量管理</span>
+            </button>
             <div class="topbar-actions" id="langSwitcherAnchor"></div>
 
             <div class="filter-panel" id="filterPanel">
@@ -372,6 +379,30 @@
         </div>
         <div class="modal-foot">
             <button class="btn" id="addToCollectionDone" data-i18n="common:button.done" type="button">完成</button>
+        </div>
+    </div>
+</div>
+
+<div class="batch-action-bar" id="batchActionBar">
+    <span class="batch-count" id="batchCount"></span>
+    <button class="btn" id="batchSelectAll" type="button" data-i18n="novel:manage.select-all">全选本页</button>
+    <button class="btn" id="batchClear" type="button" data-i18n="novel:manage.clear">清除选择</button>
+    <button class="btn btn-danger" id="batchDelete" type="button" data-i18n="novel:manage.delete">删除选中</button>
+    <button class="btn" id="batchExit" type="button" data-i18n="novel:manage.exit">退出管理</button>
+</div>
+
+<div class="modal-backdrop" id="modalBatchDelete">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title" data-i18n="novel:manage.confirm-title">删除选中的小说</span>
+            <button class="modal-close" id="batchDeleteClose" type="button">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="delete-modal-text" id="batchDeleteMessage"></p>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" id="batchDeleteCancel" type="button" data-i18n="novel:manage.confirm-cancel">取消</button>
+            <button class="btn btn-danger" id="batchDeleteConfirm" type="button" data-i18n="novel:manage.confirm-delete">删除</button>
         </div>
     </div>
 </div>

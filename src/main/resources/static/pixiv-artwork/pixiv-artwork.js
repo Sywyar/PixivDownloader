@@ -32,6 +32,15 @@
             : wt('page.title', 'Artwork Detail - Pixiv Gallery');
         document.getElementById('backBtnLabel').textContent = wt('button.back', 'Back');
         document.getElementById('galleryBtnLabel').textContent = wt('button.gallery', 'Gallery');
+        const deleteBtn = document.getElementById('deleteArtworkBtn');
+        if (deleteBtn) {
+            document.getElementById('deleteBtnLabel').textContent = wt('button.delete', 'Delete');
+            deleteBtn.title = wt('button.delete', 'Delete');
+        }
+        document.getElementById('deleteArtworkTitle').textContent = wt('delete.title', 'Delete Artwork');
+        document.getElementById('deleteArtworkMessage').textContent = wt('delete.message', 'Delete this artwork? Its image files and download record will be permanently removed and cannot be recovered.');
+        document.getElementById('deleteArtworkCancel').textContent = wt('delete.cancel', 'Cancel');
+        document.getElementById('deleteArtworkConfirm').textContent = wt('delete.confirm', 'Delete');
         document.getElementById('viewerLoading').textContent = wt('status.loading', 'Loading...');
         document.getElementById('mainImage').setAttribute('data-loading-text', wt('status.loading', 'Loading...'));
         document.getElementById('pixivArtworkLinkLabel').textContent = wt('button.pixiv-artwork', 'Open Original on Pixiv');
@@ -838,7 +847,52 @@
         if (backdrop) e.target.classList.remove('open');
     });
 
+    // ---------- Delete (admin only) ----------
+    async function setupAdminMode() {
+        try {
+            const res = await fetch('/api/admin/invites/access-check', {credentials: 'same-origin'});
+            if (!res.ok) return;
+            document.body.classList.add('admin-mode');
+            const btn = document.getElementById('deleteArtworkBtn');
+            if (btn) btn.style.display = '';
+        } catch (_) { /* not admin */ }
+    }
+
+    function openDeleteModal() {
+        document.getElementById('modalDeleteArtwork').classList.add('open');
+    }
+
+    function closeDeleteModal() {
+        document.getElementById('modalDeleteArtwork').classList.remove('open');
+    }
+
+    async function confirmDelete() {
+        const btn = document.getElementById('deleteArtworkConfirm');
+        if (state.artworkId == null) return;
+        btn.disabled = true;
+        try {
+            await api(`/api/gallery/artwork/${state.artworkId}`, {method: 'DELETE'});
+            toast(wt('delete.success', 'Deleted'), 'success');
+            setTimeout(() => {
+                window.location.href = '/pixiv-gallery.html?view=all';
+            }, 600);
+        } catch (e) {
+            btn.disabled = false;
+            closeDeleteModal();
+            toast(e.message || wt('delete.failed', 'Delete failed'), 'error');
+        }
+    }
+
+    (function wireDelete() {
+        const btn = document.getElementById('deleteArtworkBtn');
+        if (btn) btn.addEventListener('click', openDeleteModal);
+        document.getElementById('deleteArtworkClose').addEventListener('click', closeDeleteModal);
+        document.getElementById('deleteArtworkCancel').addEventListener('click', closeDeleteModal);
+        document.getElementById('deleteArtworkConfirm').addEventListener('click', confirmDelete);
+    })();
+
     (async function initArtworkPage() {
         await initPageI18n();
+        setupAdminMode();
         loadArtwork();
     })();

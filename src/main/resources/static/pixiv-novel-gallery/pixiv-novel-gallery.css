@@ -982,6 +982,53 @@
             border-color: var(--brand);
         }
         .btn-primary:hover:not(:disabled) { color: #fff; opacity: .9; }
+        .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+        .btn-danger:hover:not(:disabled) { filter: brightness(0.92); color: #fff; border-color: var(--danger); }
+
+        /* ---------- 批量管理 / 多选删除 ---------- */
+        .batch-manage-btn.active {
+            border-color: var(--danger);
+            color: var(--danger);
+            background: rgba(220, 38, 38, 0.08);
+        }
+        .card .card-select {
+            position: absolute;
+            top: 10px; left: 10px;
+            z-index: 3;
+            display: none;
+            width: 24px; height: 24px;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            background: rgba(0, 0, 0, 0.45);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+            align-items: center; justify-content: center;
+            color: #fff;
+        }
+        .card .card-select svg { width: 14px; height: 14px; opacity: 0; }
+        body.select-mode .card .card-select { display: inline-flex; }
+        body.select-mode .card .thumb-heart { display: none !important; }
+        .card.selected { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand); }
+        .card.selected .card-select { background: var(--brand); border-color: var(--brand); }
+        .card.selected .card-select svg { opacity: 1; }
+        .batch-action-bar {
+            position: fixed;
+            left: 50%; bottom: 24px;
+            transform: translateX(-50%) translateY(140%);
+            z-index: 200;
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: var(--surface);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
+            transition: transform 0.22s ease;
+            max-width: calc(100vw - 32px);
+            flex-wrap: wrap; justify-content: center;
+        }
+        .batch-action-bar.open { transform: translateX(-50%) translateY(0); }
+        .batch-count { font-size: 13px; font-weight: 600; color: var(--text); margin-right: 4px; }
+        .delete-modal-text { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+
         .collection-list {
             display: flex; flex-direction: column;
             gap: 4px;

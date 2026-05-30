@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
+import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
@@ -25,6 +26,7 @@ public class GalleryService {
     private final DownloadService downloadService;
     private final AuthorService authorService;
     private final MangaSeriesService mangaSeriesService;
+    private final ArtworkFileLocator artworkFileLocator;
 
     public PagedHistoryResponse query(GalleryQuery query) {
         GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(query);
@@ -90,6 +92,38 @@ public class GalleryService {
 
     public GalleryRepository.SeriesNeighbors seriesNeighbors(long artworkId) {
         return galleryRepository.findSeriesNeighbors(artworkId);
+    }
+
+    /**
+     * 删除单个作品：先删磁盘文件（图片 / 缩略图 / 图库缓存 / 空目录），再删全部 DB 留存数据。
+     * 作品不存在时返回 {@code false}。文件删除为 best-effort，不会阻断 DB 清理。
+     */
+    public boolean deleteArtwork(long artworkId) {
+        ArtworkRecord record = pixivDatabase.getArtwork(artworkId);
+        if (record == null) {
+            return false;
+        }
+        artworkFileLocator.deleteArtworkFiles(record);
+        pixivDatabase.deleteArtwork(artworkId);
+        log.info("已删除作品 {} 及其全部留存数据", artworkId);
+        return true;
+    }
+
+    /** 批量删除作品，返回实际删除的数量。 */
+    public int deleteArtworks(Collection<Long> artworkIds) {
+        if (artworkIds == null || artworkIds.isEmpty()) {
+            return 0;
+        }
+        int deleted = 0;
+        for (Long id : new LinkedHashSet<>(artworkIds)) {
+            if (id == null) continue;
+            try {
+                if (deleteArtwork(id)) deleted++;
+            } catch (Exception e) {
+                log.warn("删除作品 {} 失败: {}", id, e.getMessage());
+            }
+        }
+        return deleted;
     }
 
     private int clampLimit(int limit) {

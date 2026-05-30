@@ -1551,14 +1551,109 @@
         }
 
         .btn-danger {
-            color: var(--danger);
-            border-color: #fca5a5;
-        }
-
-        .btn-danger:hover:not(:disabled) {
             background: var(--danger);
             color: #fff;
             border-color: var(--danger);
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            filter: brightness(0.92);
+            color: #fff;
+            border-color: var(--danger);
+        }
+
+        /* ---------- 批量管理 / 多选删除 ---------- */
+        .batch-manage-btn.active {
+            border-color: var(--danger);
+            color: var(--danger);
+            background: rgba(220, 38, 38, 0.08);
+        }
+
+        .work-card .card-select {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            z-index: 3;
+            display: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            background: rgba(0, 0, 0, 0.45);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+
+        .work-card .card-select svg {
+            width: 14px;
+            height: 14px;
+            opacity: 0;
+        }
+
+        body.select-mode .work-card .card-select {
+            display: inline-flex;
+        }
+
+        body.select-mode .work-card {
+            cursor: pointer;
+        }
+
+        body.select-mode .work-card .thumb-heart {
+            display: none !important;
+        }
+
+        .work-card.selected .card-select {
+            background: var(--brand);
+            border-color: var(--brand);
+        }
+
+        .work-card.selected .card-select svg {
+            opacity: 1;
+        }
+
+        .work-card.selected .work-thumb {
+            outline: 3px solid var(--brand);
+            outline-offset: -3px;
+        }
+
+        .batch-action-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 24px;
+            transform: translateX(-50%) translateY(140%);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: var(--surface);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.22);
+            transition: transform 0.22s ease;
+            max-width: calc(100vw - 32px);
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .batch-action-bar.open {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .batch-count {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            margin-right: 4px;
+        }
+
+        .delete-modal-text {
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text-secondary);
         }
 
         .collection-list {

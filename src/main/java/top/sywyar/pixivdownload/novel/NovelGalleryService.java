@@ -15,7 +15,12 @@ import top.sywyar.pixivdownload.novel.db.NovelSeriesSummary;
 import top.sywyar.pixivdownload.novel.db.NovelTagOption;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -138,6 +143,71 @@ public class NovelGalleryService {
     public NovelView find(long novelId) {
         NovelRecord r = novelDatabase.getNovel(novelId);
         return r == null ? null : toView(r);
+    }
+
+    /**
+     * 删除单本小说：先删磁盘文件（正文 TXT/HTML/EPUB、封面、内嵌图、独占目录），再删全部 DB 留存数据
+     * （{@code novel_tags} / {@code novel_collections} / {@code novel_images} / 主行 / FTS，见
+     * {@link NovelDatabase#deleteNovel}）。系列封面与合订文件属于系列、不在此删除。小说不存在返回 {@code false}。
+     * 文件删除为 best-effort，不阻断 DB 清理。
+     */
+    public boolean deleteNovel(long novelId) {
+        NovelRecord record = novelDatabase.getNovel(novelId);
+        if (record == null) {
+            return false;
+        }
+        deleteNovelFiles(record);
+        novelDatabase.deleteNovel(novelId);
+        log.info("已删除小说 {} 及其全部留存数据", novelId);
+        return true;
+    }
+
+    /** 批量删除小说，返回实际删除的数量。 */
+    public int deleteNovels(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) {
+            return 0;
+        }
+        int deleted = 0;
+        for (Long id : new LinkedHashSet<>(novelIds)) {
+            if (id == null) continue;
+            try {
+                if (deleteNovel(id)) deleted++;
+            } catch (Exception e) {
+                log.warn("删除小说 {} 失败: {}", id, e.getMessage());
+            }
+        }
+        return deleted;
+    }
+
+    /**
+     * 删除小说磁盘文件：每本小说独占 {@code {rootFolder}/novel-{novelId}/} 目录（小说无重定位语义），
+     * 因此目录名匹配 {@code novel-{novelId}} 时直接整目录删除；否则保守地只删该目录下的全部常规文件并尝试移除空目录。
+     */
+    private void deleteNovelFiles(NovelRecord record) {
+        String folder = record.folder();
+        if (folder == null || folder.isBlank()) {
+            return;
+        }
+        Path dir = Paths.get(folder);
+        if (!Files.isDirectory(dir)) {
+            return;
+        }
+        Path name = dir.getFileName();
+        boolean ownedDir = name != null && name.toString().equals("novel-" + record.novelId());
+        try (var stream = Files.walk(dir)) {
+            stream.sorted(Comparator.reverseOrder()).forEach(p -> {
+                if (!ownedDir && p.equals(dir)) {
+                    return; // 非独占目录：保留目录本身（仅删文件）
+                }
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException e) {
+                    log.warn("删除小说文件失败: {}", p);
+                }
+            });
+        } catch (IOException e) {
+            log.warn("清理小说 {} 目录失败: {}", record.novelId(), folder);
+        }
     }
 
     public List<NovelView> bySeries(long seriesId, int limit) {

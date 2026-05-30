@@ -169,6 +169,31 @@ public class GalleryController {
         public record NeighborView(long artworkId, String title, long seriesOrder) {}
     }
 
+    /**
+     * 删除单个作品（含磁盘文件与全部 DB 留存数据）。仅管理员可用：{@code /api/gallery/} 由
+     * {@code AuthFilter} 按 monitor 语义保护，访客邀请白名单只放行 GET，DELETE 永远命中管理员校验。
+     */
+    @DeleteMapping("/artwork/{artworkId}")
+    public ResponseEntity<DeleteResponse> deleteArtwork(@PathVariable long artworkId) {
+        boolean deleted = galleryService.deleteArtwork(artworkId);
+        if (!deleted) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(new DeleteResponse(1));
+    }
+
+    /** 批量删除作品。POST 不在访客白名单内，仅管理员可用。 */
+    @PostMapping("/artworks/delete")
+    public ResponseEntity<DeleteResponse> deleteArtworks(@RequestBody DeleteRequest request) {
+        int deleted = galleryService.deleteArtworks(
+                request == null ? null : request.ids());
+        return ResponseEntity.ok(new DeleteResponse(deleted));
+    }
+
+    public record DeleteRequest(List<Long> ids) {}
+
+    public record DeleteResponse(int deleted) {}
+
     private List<DownloadedResponse> filterForGuest(List<DownloadedResponse> items, GuestInviteSession session) {
         if (session == null || items == null || items.isEmpty()) return items;
         List<DownloadedResponse> out = new ArrayList<>(items.size());

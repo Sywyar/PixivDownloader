@@ -41,6 +41,18 @@ class PixivDatabaseTest {
 
         pixivDatabase = new PixivDatabase(mapper, TestI18nBeans.appMessages(), codec);
         pixivDatabase.init();
+
+        // artwork_collections 由 CollectionMapper 建表，不在 PixivMapper.init() 范围内；
+        // deleteArtwork 会清理该表，故测试库需手动补建，模拟生产环境的完整 schema。
+        try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
+            st.execute("CREATE TABLE IF NOT EXISTS artwork_collections ("
+                    + "collection_id INTEGER NOT NULL,"
+                    + "artwork_id INTEGER NOT NULL,"
+                    + "added_time INTEGER NOT NULL,"
+                    + "PRIMARY KEY (collection_id, artwork_id))");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @AfterEach
@@ -200,6 +212,25 @@ class PixivDatabaseTest {
 
         pixivDatabase.deleteArtwork(12345L);
         assertThat(pixivDatabase.hasArtwork(12345L)).isFalse();
+    }
+
+    @Test
+    @DisplayName("删除作品应一并清理标签关联与收藏夹关联")
+    void shouldDeleteArtworkSatelliteRows() throws Exception {
+        pixivDatabase.insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
+        pixivDatabase.saveArtworkTags(12345L, List.of(new TagDto(null, "tag-a", null)));
+        try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
+            st.execute("INSERT INTO artwork_collections(collection_id, artwork_id, added_time) VALUES (1, 12345, 0)");
+        }
+
+        pixivDatabase.deleteArtwork(12345L);
+
+        assertThat(pixivDatabase.getArtworkTags(12345L)).isEmpty();
+        try (var conn = dataSource.getConnection(); var st = conn.createStatement();
+             var rs = st.executeQuery("SELECT COUNT(*) FROM artwork_collections WHERE artwork_id = 12345")) {
+            rs.next();
+            assertThat(rs.getInt(1)).isZero();
+        }
     }
 
     // ========== getAllArtworkIds ==========

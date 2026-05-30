@@ -138,6 +138,30 @@ public class NovelGalleryController {
         return view == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(view);
     }
 
+    /**
+     * 删除单本小说（含磁盘文件与全部 DB 留存数据）。仅管理员可用：{@code /api/gallery/} 由
+     * {@code AuthFilter} 按 monitor 语义保护，访客邀请白名单只放行 GET，DELETE 永远命中管理员校验。
+     */
+    @DeleteMapping("/novel/{novelId}")
+    public ResponseEntity<DeleteResponse> deleteNovel(@PathVariable long novelId) {
+        boolean deleted = novelGalleryService.deleteNovel(novelId);
+        if (!deleted) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(new DeleteResponse(1));
+    }
+
+    /** 批量删除小说。POST 不在访客白名单内，仅管理员可用。 */
+    @PostMapping("/novels/delete")
+    public ResponseEntity<DeleteResponse> deleteNovels(@RequestBody DeleteRequest request) {
+        int deleted = novelGalleryService.deleteNovels(request == null ? null : request.ids());
+        return ResponseEntity.ok(new DeleteResponse(deleted));
+    }
+
+    public record DeleteRequest(List<Long> ids) {}
+
+    public record DeleteResponse(int deleted) {}
+
     @GetMapping("/novel/{novelId}/by-series")
     public ResponseEntity<List<NovelGalleryService.NovelView>> bySeries(
             @PathVariable long novelId,

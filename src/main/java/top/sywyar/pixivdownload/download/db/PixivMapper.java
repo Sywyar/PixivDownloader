@@ -223,6 +223,9 @@ public interface PixivMapper {
     @Delete("DELETE FROM artwork_image_hashes WHERE artwork_id = #{artworkId}")
     void deleteImageHashesByArtwork(long artworkId);
 
+    @Delete("DELETE FROM artwork_collections WHERE artwork_id = #{artworkId}")
+    void deleteArtworkCollections(long artworkId);
+
     @Select("SELECT COUNT(*) FROM artworks WHERE artwork_id = #{artworkId}")
     int countById(long artworkId);
 

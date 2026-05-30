@@ -73,6 +73,13 @@
         seriesNames: new Map(),
     };
 
+    // 批量管理（多选删除）：仅作用于「全部图片」主网格，选择集随翻页 / 切换视图清空。
+    const batch = {
+        active: false,
+        selected: new Set(),
+    };
+    let isGalleryAdmin = false;
+
     const AUTHOR_WORKS_PER_ROW = 30;
 
     const TAG_COLLAPSED_MAX_HEIGHT = 64;
@@ -409,6 +416,9 @@
         if (status) status.style.display = showAll ? '' : 'none';
         if (authorView) authorView.classList.toggle('active', !showAll);
         if (authorPagination) authorPagination.style.display = showAll ? 'none' : '';
+        // 批量管理仅适用于「全部图片」主网格：切到作者/系列视图时隐藏入口并退出选择模式。
+        if (!showAll && batch.active) exitBatchMode();
+        updateBatchButtonVisibility();
         updateSearchPlaceholder();
     }
 
@@ -419,6 +429,121 @@
             });
         });
     }
+
+    // ---------- 批量管理（多选删除，仅管理员、仅「全部图片」视图） ----------
+    function updateBatchButtonVisibility() {
+        const btn = document.getElementById('batchManageBtn');
+        if (!btn) return;
+        btn.style.display = (isGalleryAdmin && state.view === 'all') ? 'inline-flex' : 'none';
+    }
+
+    function toggleBatchMode() {
+        if (batch.active) {
+            exitBatchMode();
+            return;
+        }
+        batch.active = true;
+        batch.selected.clear();
+        document.body.classList.add('select-mode');
+        const btn = document.getElementById('batchManageBtn');
+        if (btn) btn.classList.add('active');
+        updateBatchBar();
+    }
+
+    function exitBatchMode() {
+        batch.active = false;
+        batch.selected.clear();
+        document.body.classList.remove('select-mode');
+        const btn = document.getElementById('batchManageBtn');
+        if (btn) btn.classList.remove('active');
+        document.querySelectorAll('.work-card.selected').forEach(c => c.classList.remove('selected'));
+        updateBatchBar();
+    }
+
+    function toggleCardSelection(id, card) {
+        if (batch.selected.has(id)) {
+            batch.selected.delete(id);
+            card.classList.remove('selected');
+        } else {
+            batch.selected.add(id);
+            card.classList.add('selected');
+        }
+        updateBatchBar();
+    }
+
+    function selectAllOnPage() {
+        document.querySelectorAll('#galleryGrid .work-card[data-id]').forEach(card => {
+            batch.selected.add(Number(card.dataset.id));
+            card.classList.add('selected');
+        });
+        updateBatchBar();
+    }
+
+    function clearBatchSelection() {
+        batch.selected.clear();
+        document.querySelectorAll('.work-card.selected').forEach(c => c.classList.remove('selected'));
+        updateBatchBar();
+    }
+
+    function updateBatchBar() {
+        const bar = document.getElementById('batchActionBar');
+        if (!bar) return;
+        bar.classList.toggle('open', batch.active);
+        const count = batch.selected.size;
+        document.getElementById('batchCount').textContent = t('manage.selected-count', '已选 {count} 项', {count});
+        document.getElementById('batchDelete').disabled = count === 0;
+    }
+
+    function openBatchDeleteModal() {
+        if (batch.selected.size === 0) return;
+        document.getElementById('batchDeleteMessage').textContent = t('manage.confirm-message',
+            '确定要删除选中的 {count} 个作品吗？这些作品的图片文件与下载记录都会被永久删除，且无法恢复。',
+            {count: batch.selected.size});
+        document.getElementById('modalBatchDelete').classList.add('open');
+    }
+
+    function closeBatchDeleteModal() {
+        document.getElementById('modalBatchDelete').classList.remove('open');
+    }
+
+    async function confirmBatchDelete() {
+        const ids = [...batch.selected];
+        if (!ids.length) return;
+        const confirmBtn = document.getElementById('batchDeleteConfirm');
+        confirmBtn.disabled = true;
+        try {
+            const res = await api('/api/gallery/artworks/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ids}),
+            });
+            const deleted = res && typeof res.deleted === 'number' ? res.deleted : ids.length;
+            toast(t('manage.delete-success', '已删除 {count} 个作品', {count: deleted}), 'success');
+            closeBatchDeleteModal();
+            exitBatchMode();
+            loadGallery();
+        } catch (e) {
+            toast(e.message || t('manage.delete-failed', '删除失败'), 'error');
+        } finally {
+            confirmBtn.disabled = false;
+        }
+    }
+
+    function wireBatchManage() {
+        const manageBtn = document.getElementById('batchManageBtn');
+        if (manageBtn) manageBtn.addEventListener('click', toggleBatchMode);
+        document.getElementById('batchSelectAll').addEventListener('click', selectAllOnPage);
+        document.getElementById('batchClear').addEventListener('click', clearBatchSelection);
+        document.getElementById('batchExit').addEventListener('click', exitBatchMode);
+        document.getElementById('batchDelete').addEventListener('click', openBatchDeleteModal);
+        document.getElementById('batchDeleteClose').addEventListener('click', closeBatchDeleteModal);
+        document.getElementById('batchDeleteCancel').addEventListener('click', closeBatchDeleteModal);
+        document.getElementById('batchDeleteConfirm').addEventListener('click', confirmBatchDelete);
+        document.getElementById('modalBatchDelete').addEventListener('click', e => {
+            if (e.target.id === 'modalBatchDelete') closeBatchDeleteModal();
+        });
+    }
+    wireBatchManage();
 
     // ---------- Image cache (in-memory + sessionStorage for thumbs) ----------
     const ImageCache = (() => {
@@ -2221,6 +2346,8 @@
     // ---------- Gallery ----------
     async function loadGallery() {
         persistGalleryState();
+        // 选择集按页有效：换页 / 改筛选时清空，避免误删非当前页作品。
+        if (batch.active) batch.selected.clear();
         const params = new URLSearchParams();
         params.set('page', state.page);
         params.set('size', state.size);
@@ -2299,6 +2426,9 @@
                 <div class="work-card" data-id="${item.artworkId}">
                     <div class="work-thumb thumb-loading">
                         <img data-src="/api/downloaded/thumbnail-file/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">
+                        <span class="card-select" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        </span>
                         <div class="thumb-veil"></div>
                         <div class="thumb-badges">
                             <div class="thumb-badge-group">
@@ -2320,7 +2450,15 @@
 
         grid.querySelectorAll('.work-card').forEach(card => {
             const id = card.dataset.id;
+            if (batch.active && batch.selected.has(Number(id))) {
+                card.classList.add('selected');
+            }
             card.addEventListener('click', e => {
+                if (batch.active) {
+                    e.preventDefault();
+                    toggleCardSelection(Number(id), card);
+                    return;
+                }
                 if (e.target.closest('.thumb-heart')) return;
                 window.location.href = `/pixiv-artwork.html?id=${id}`;
             });
@@ -2336,6 +2474,7 @@
         });
 
         loadMembershipsForCurrentPage(items.map(i => i.artworkId));
+        if (batch.active) updateBatchBar();
     }
 
     async function loadMembershipsForCurrentPage(artworkIds) {
@@ -3027,6 +3166,8 @@
             if (!ok.ok) return;
         } catch (_) { return; }
         document.body.classList.add('admin-mode');
+        isGalleryAdmin = true;
+        updateBatchButtonVisibility();
 
         const btn = document.getElementById('btnInviteGuest');
         if (!btn) return;

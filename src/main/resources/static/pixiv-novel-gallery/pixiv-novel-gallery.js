@@ -101,6 +101,13 @@ const state = {
     pendingIconClear: false
 };
 
+// 批量管理（多选删除）：仅作用于「全部小说」主网格，选择集随翻页 / 切换视图清空。
+const batch = {
+    active: false,
+    selected: new Set(),
+};
+let isNovelAdmin = false;
+
 // ---------- Persistence ----------
 function storageGet(key) {
     try { return localStorage.getItem(key); } catch (_) { return null; }
@@ -478,6 +485,7 @@ async function init() {
     PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') });
     setupEventHandlers();
     setupAdminMode();
+    wireBatchManage();
 
     // 在拉取列表数据前恢复持久化的状态（搜索文字会影响 loadTags / loadAuthors / loadSeries 请求）
     const params = new URLSearchParams(location.search);
@@ -815,8 +823,126 @@ function closeMobileSidebar() {
 async function setupAdminMode() {
     try {
         const ok = await fetch('/api/admin/invites/access-check', { credentials: 'same-origin' });
-        if (ok.ok) document.body.classList.add('admin-mode');
+        if (ok.ok) {
+            document.body.classList.add('admin-mode');
+            isNovelAdmin = true;
+            updateBatchButtonVisibility();
+        }
     } catch (_) { /* not admin */ }
+}
+
+// ---------- 批量管理（多选删除，仅管理员、仅「全部小说」视图） ----------
+function updateBatchButtonVisibility() {
+    const btn = document.getElementById('batchManageBtn');
+    if (!btn) return;
+    btn.style.display = (isNovelAdmin && state.view === 'all') ? 'inline-flex' : 'none';
+}
+
+function toggleBatchMode() {
+    if (batch.active) { exitBatchMode(); return; }
+    batch.active = true;
+    batch.selected.clear();
+    document.body.classList.add('select-mode');
+    const btn = document.getElementById('batchManageBtn');
+    if (btn) btn.classList.add('active');
+    updateBatchBar();
+}
+
+function exitBatchMode() {
+    batch.active = false;
+    batch.selected.clear();
+    document.body.classList.remove('select-mode');
+    const btn = document.getElementById('batchManageBtn');
+    if (btn) btn.classList.remove('active');
+    document.querySelectorAll('.card.selected').forEach(c => c.classList.remove('selected'));
+    updateBatchBar();
+}
+
+function toggleCardSelection(id, card) {
+    if (batch.selected.has(id)) {
+        batch.selected.delete(id);
+        card.classList.remove('selected');
+    } else {
+        batch.selected.add(id);
+        card.classList.add('selected');
+    }
+    updateBatchBar();
+}
+
+function selectAllOnPage() {
+    document.querySelectorAll('#grid .card[data-novel-id]').forEach(card => {
+        batch.selected.add(Number(card.dataset.novelId));
+        card.classList.add('selected');
+    });
+    updateBatchBar();
+}
+
+function clearBatchSelection() {
+    batch.selected.clear();
+    document.querySelectorAll('.card.selected').forEach(c => c.classList.remove('selected'));
+    updateBatchBar();
+}
+
+function updateBatchBar() {
+    const bar = document.getElementById('batchActionBar');
+    if (!bar) return;
+    bar.classList.toggle('open', batch.active);
+    const count = batch.selected.size;
+    document.getElementById('batchCount').textContent = pageI18n.t('novel:manage.selected-count', '已选 {count} 项', { count });
+    document.getElementById('batchDelete').disabled = count === 0;
+}
+
+function openBatchDeleteModal() {
+    if (batch.selected.size === 0) return;
+    document.getElementById('batchDeleteMessage').textContent = pageI18n.t('novel:manage.confirm-message',
+        '确定要删除选中的 {count} 本小说吗？这些小说的正文、封面等文件与下载记录都会被永久删除，且无法恢复。',
+        { count: batch.selected.size });
+    document.getElementById('modalBatchDelete').classList.add('open');
+}
+
+function closeBatchDeleteModal() {
+    document.getElementById('modalBatchDelete').classList.remove('open');
+}
+
+async function confirmBatchDelete() {
+    const ids = [...batch.selected];
+    if (!ids.length) return;
+    const confirmBtn = document.getElementById('batchDeleteConfirm');
+    confirmBtn.disabled = true;
+    try {
+        const r = await fetch('/api/gallery/novels/delete', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids })
+        });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        const deleted = data && typeof data.deleted === 'number' ? data.deleted : ids.length;
+        toast(pageI18n.t('novel:manage.delete-success', '已删除 {count} 本小说', { count: deleted }), 'success');
+        closeBatchDeleteModal();
+        exitBatchMode();
+        reloadNovels();
+    } catch (e) {
+        toast(pageI18n.t('novel:manage.delete-failed', '删除失败'), 'error');
+    } finally {
+        confirmBtn.disabled = false;
+    }
+}
+
+function wireBatchManage() {
+    const manageBtn = document.getElementById('batchManageBtn');
+    if (manageBtn) manageBtn.addEventListener('click', toggleBatchMode);
+    document.getElementById('batchSelectAll').addEventListener('click', selectAllOnPage);
+    document.getElementById('batchClear').addEventListener('click', clearBatchSelection);
+    document.getElementById('batchExit').addEventListener('click', exitBatchMode);
+    document.getElementById('batchDelete').addEventListener('click', openBatchDeleteModal);
+    document.getElementById('batchDeleteClose').addEventListener('click', closeBatchDeleteModal);
+    document.getElementById('batchDeleteCancel').addEventListener('click', closeBatchDeleteModal);
+    document.getElementById('batchDeleteConfirm').addEventListener('click', confirmBatchDelete);
+    document.getElementById('modalBatchDelete').addEventListener('click', e => {
+        if (e.target.id === 'modalBatchDelete') closeBatchDeleteModal();
+    });
 }
 
 // ---------- Collection CRUD ----------
@@ -1360,6 +1486,9 @@ function setActiveViewNav() {
     pag.style.display = (isAuthors || isSeries) ? 'none' : '';
     av.classList.toggle('active', isAuthors);
     sv.classList.toggle('active', isSeries);
+    // 批量管理仅适用于「全部小说」主网格：切到作者/系列视图时隐藏入口并退出选择模式。
+    if (state.view !== 'all' && batch.active) exitBatchMode();
+    updateBatchButtonVisibility();
     updateSearchPlaceholder();
 }
 
@@ -1373,6 +1502,8 @@ function reloadCurrentView() {
 // ---------- Novels list ----------
 async function reloadNovels() {
     persistNovelGalleryState();
+    // 选择集按页有效：换页 / 改筛选时清空，避免误删非当前页小说。
+    if (batch.active) batch.selected.clear();
     const params = new URLSearchParams({
         page: String(state.page), size: String(PAGE_SIZE),
         sort: state.sort, order: state.order, r18: state.r18, ai: state.ai
@@ -1474,6 +1605,9 @@ function renderGrid(items) {
             ? `<div class="card-cover"><img loading="lazy" src="/api/gallery/novel/${item.novelId}/cover" alt="" onerror="this.parentElement.style.display='none'"></div>`
             : '';
         return `<div class="card" data-novel-id="${item.novelId}">
+            <span class="card-select" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </span>
             ${cover}
             <div class="card-title">${esc(item.title || '')}</div>
             <div class="card-author">${esc(item.authorName || pageI18n.t('novel:status.unknown-author', '未知作者'))}</div>
@@ -1490,7 +1624,15 @@ function renderGrid(items) {
 
     grid.querySelectorAll('.card').forEach(card => {
         const id = card.dataset.novelId;
+        if (batch.active && batch.selected.has(Number(id))) {
+            card.classList.add('selected');
+        }
         card.addEventListener('click', e => {
+            if (batch.active) {
+                e.preventDefault();
+                toggleCardSelection(Number(id), card);
+                return;
+            }
             if (e.target.closest('.thumb-heart')) return;
             window.location.href = `/pixiv-novel.html?id=${id}`;
         });
@@ -1505,6 +1647,7 @@ function renderGrid(items) {
     });
 
     loadMembershipsForNovels(items.map(i => Number(i.novelId)));
+    if (batch.active) updateBatchBar();
 }
 
 async function loadMembershipsForNovels(novelIds) {

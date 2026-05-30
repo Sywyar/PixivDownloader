@@ -832,6 +832,40 @@
             cursor: not-allowed;
         }
 
+        .btn-danger {
+            border-color: var(--danger);
+            color: #fff;
+            background: var(--danger);
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            border-color: var(--danger);
+            color: #fff;
+            filter: brightness(0.92);
+        }
+
+        .delete-btn {
+            background: var(--danger);
+            border-color: var(--danger);
+            color: #fff;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .delete-btn:hover {
+            background: var(--danger);
+            border-color: var(--danger);
+            color: #fff;
+            filter: brightness(0.92);
+        }
+
+        .delete-modal-text {
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text-secondary);
+        }
+
         .collection-list {
             display: flex;
             flex-direction: column;
@@ -944,6 +978,14 @@
         html[data-theme="dark"] .btn {
             background: var(--control-bg);
             color: var(--text-secondary);
+        }
+
+        /* 删除按钮在暗色模式下保持实心红，覆盖上面 .expand-btn / .btn 的暗色背景 */
+        html[data-theme="dark"] .delete-btn,
+        html[data-theme="dark"] .btn-danger {
+            background: var(--danger);
+            border-color: var(--danger);
+            color: #fff;
         }
 
         html[data-theme="dark"] .viewer-image,

@@ -24,6 +24,7 @@
             <span id="heartLabel" data-i18n="button.favorite">收藏</span>
         </button>
         <a class="btn" id="btn-pixiv" href="#" target="_blank" rel="noopener" data-i18n="button.pixiv-novel">Pixiv 原小说链接</a>
+        <button class="btn btn-danger" id="deleteNovelBtn" type="button" style="display:none" data-i18n="button.delete" data-i18n-title="button.delete">删除</button>
     </div>
 </div>
 
@@ -108,6 +109,22 @@
             <span class="tts-rate-value" id="ttsRateValue">0%</span>
         </div>
         <div class="tts-hint" id="ttsEngineHint"></div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="modalDeleteNovel">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title" data-i18n="delete.title">删除小说</span>
+            <button class="modal-close" id="deleteNovelClose" type="button">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="delete-modal-text" data-i18n="delete.message">确定要删除这本小说吗？小说正文、封面等文件与下载记录都会被永久删除，且无法恢复。</p>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" id="deleteNovelCancel" type="button" data-i18n="delete.cancel">取消</button>
+            <button class="btn btn-danger" id="deleteNovelConfirm" type="button" data-i18n="delete.confirm">删除</button>
+        </div>
     </div>
 </div>
 

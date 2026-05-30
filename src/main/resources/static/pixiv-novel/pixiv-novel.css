@@ -79,11 +79,23 @@
             white-space: nowrap;
         }
         .btn:hover { border-color: var(--brand); color: var(--brand); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn.btn-brand {
             background: var(--brand);
             color: #fff;
             border-color: var(--brand);
         }
+        .btn.btn-danger {
+            background: var(--danger);
+            color: #fff;
+            border-color: var(--danger);
+        }
+        .btn.btn-danger:hover:not(:disabled) {
+            border-color: var(--danger);
+            color: #fff;
+            filter: brightness(0.92);
+        }
+        .delete-modal-text { margin: 0; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
         .btn.btn-brand:hover { opacity: .9; }
         .btn[disabled] { opacity: .5; cursor: not-allowed; }
 
