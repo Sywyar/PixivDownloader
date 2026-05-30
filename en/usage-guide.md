@@ -367,6 +367,10 @@ Click a card to enter `pixiv-artwork.html?id=<artworkId>`:
 
 Enter `pixiv-showcase.html` from detail page for immersive browsing.
 
+### Delete (admin only)
+
+Admins can delete downloaded artworks. On the detail page, click the red **Delete** button and confirm. In the gallery, click **Manage** in the top toolbar to enter multi-select mode, tick the artworks to remove, then **Delete selected** in the bottom bar. Deletion removes the local files and the database record (tags, collection links and thumbnail cache included) and **cannot be undone**.
+
 ---
 
 ## Statistics Dashboard
@@ -409,6 +413,8 @@ Supports English/Chinese and dark mode, with the same sidebar as the gallery.
 Visit `http://localhost:6999/pixiv-novel-gallery.html`.
 
 Supports search, filter, and sort with a similar interaction pattern to the artwork gallery. In addition to the artwork gallery's search scopes, it offers a **"Body text"** scope: full-text search over downloaded novel bodies (backed by a local full-text index), combinable with age-rating / AI / tag / author / series filters.
+
+Novels can be deleted the same way as artworks (admin only): a **Delete** button on the novel page, and **Manage** multi-select in the gallery. Deletion removes the local files (body / cover / etc.) and the database record, and **cannot be undone**.
 
 ### Novel Reading
 
