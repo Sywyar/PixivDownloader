@@ -767,7 +767,6 @@
                     renderAddToCollectionList();
                 }
                 reloadCurrentView();
-                setupTour(false);
             }
         });
         PixivTheme.mount({
@@ -776,40 +775,50 @@
         applyStaticPageTranslations();
     }
 
-    // 首次进入画廊页时自动展示操作指引；语言切换时刷新文案。
-    function setupTour(auto) {
-        if (typeof PixivTour === 'undefined') {
-            return;
+    // 个性化称呼：拉取后端保存的称呼，写入侧边栏底部用户卡片（替换占位 “Pixiv User”）。
+    // 同时作为新手向导的资格闸：/api/onboarding/profile 仅对「全局可见」范围（solo / 已登录管理员）放行，
+    // 403 即视为不参与跨页向导（如多人模式访客）。返回 { eligible, displayName }。
+    async function loadOnboardingProfile() {
+        try {
+            const res = await fetch('/api/onboarding/profile', {credentials: 'same-origin'});
+            if (!res.ok) return {eligible: false, displayName: null};
+            const data = await res.json();
+            return {eligible: true, displayName: data && data.displayName ? data.displayName : null};
+        } catch (_) {
+            return {eligible: false, displayName: null};
         }
-        PixivTour.init({
-            pageKey: 'gallery',
-            i18n: pageI18n,
-            auto: auto,
-            onComplete: function () {
-                // 通知后端：画廊操作指引已完成，GUI 会据此把窗口带到前台继续引导
-                fetch('/api/onboarding/gallery-guide-done', {
-                    method: 'POST',
-                    credentials: 'same-origin'
-                }).catch(function () { /* best-effort */ });
-            },
-            steps: [
-                {target: '.search-box', titleKey: 'tour:gallery.search.title', bodyKey: 'tour:gallery.search.body'},
-                {target: '#filterToggle', titleKey: 'tour:gallery.filter.title', bodyKey: 'tour:gallery.filter.body'},
-                {
-                    target: '.nav-item[data-view="all"]',
-                    titleKey: 'tour:gallery.views.title',
-                    bodyKey: 'tour:gallery.views.body'
-                },
-                {target: '#galleryGrid', titleKey: 'tour:gallery.grid.title', bodyKey: 'tour:gallery.grid.body'},
-                {
-                    target: 'a.nav-item[href="/pixiv-batch.html"]',
-                    titleKey: 'tour:gallery.download.title',
-                    bodyKey: 'tour:gallery.download.body'
-                }
-            ]
-        });
     }
 
+    function applyDisplayName(name) {
+        const nameEl = document.getElementById('userName');
+        const avatarEl = document.getElementById('userAvatar');
+        const shown = (name && name.trim()) ? name.trim()
+            : (typeof PixivOnboarding !== 'undefined' ? PixivOnboarding.getName() : '');
+        if (nameEl && shown) nameEl.textContent = shown;
+        if (avatarEl && shown) avatarEl.textContent = shown.charAt(0).toUpperCase();
+    }
+
+    async function setupGalleryOnboarding() {
+        const profile = await loadOnboardingProfile();
+        applyDisplayName(profile.displayName);
+        if (typeof PixivOnboarding === 'undefined') return;
+        PixivOnboarding.boot({
+            page: 'gallery',
+            i18n: pageI18n,
+            eligible: profile.eligible,
+            sel: {
+                grid: '#galleryGrid',
+                viewNav: '#galleryViewNav',
+                searchBox: '.search-box',
+                filterToggle: '#filterToggle'
+            },
+            hooks: {
+                // 刚下载的示例作品卡片（按时间倒序通常在首位，按 data-id 精确定位）
+                getExampleCard: (id) => document.querySelector(`#galleryGrid .work-card[data-id="${id}"]`),
+                getExampleCardSelector: (id) => `#galleryGrid .work-card[data-id="${id}"]`
+            }
+        });
+    }
 
     // ---------- API helpers ----------
     async function api(url, options = {}) {
@@ -3114,7 +3123,8 @@
             if (state.seriesOptions.length) renderSeriesFilterChips();
             if (state.authorOptions.length) renderAuthorChips();
             applyGalleryStateToUi();
-            setupTour(true);
+            // 画廊不再注册旧版 💡 操作指引 FAB；新手向导（含画廊逐区域讲解）由 setupGalleryOnboarding 接管
+            setupGalleryOnboarding();
         }).catch(err => console.error('i18n 加载失败', err));
 
         // Load the sidebar immediately; filter option lists load when the panel opens.

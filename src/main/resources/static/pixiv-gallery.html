@@ -8,9 +8,9 @@
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
     <script src="/js/invite-modals.js"></script>
-    <script src="/js/pixiv-tour.js"></script>
+    <script src="/js/pixiv-onboarding.js"></script>
     <link rel="stylesheet" href="/css/admin-visibility.css">
-    <link rel="stylesheet" href="/css/pixiv-tour.css">
+    <link rel="stylesheet" href="/css/pixiv-onboarding.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
     <link rel="stylesheet" href="/pixiv-gallery/pixiv-gallery.css">
@@ -35,7 +35,7 @@
         <div class="section-header">
             <span class="section-title" data-i18n="section.view">视图</span>
         </div>
-        <nav class="sidebar-nav">
+        <nav class="sidebar-nav" id="galleryViewNav">
             <a class="nav-item active" data-view="all" href="/pixiv-gallery.html?view=all">
                 <div class="nav-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -174,9 +174,9 @@
                 <span class="nav-label" data-i18n="nav.invite-guest">邀请访客</span>
             </button>
             <div class="user-card">
-                <div class="user-avatar">P</div>
+                <div class="user-avatar" id="userAvatar">P</div>
                 <div class="user-info">
-                    <div class="user-name">Pixiv User</div>
+                    <div class="user-name" id="userName">Pixiv User</div>
                     <div class="user-status" data-i18n="status.online">在线</div>
                 </div>
             </div>

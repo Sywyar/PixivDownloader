@@ -41,6 +41,8 @@ public class SetupService {
     @Getter
     private final boolean introMode;  // --intro 启动参数
     private volatile String username = null;
+    @Getter
+    private volatile String displayName = null;  // 用户自定义称呼（个性化问候），独立于登录用 username
     private volatile String passwordHash = null;
     private volatile String salt     = null;  // 仅旧 SHA-256 哈希需要（向后兼容用）
 
@@ -83,6 +85,7 @@ public class SetupService {
             this.setupComplete = config.isSetupComplete();
             this.mode          = config.getMode();
             this.username      = config.getUsername();
+            this.displayName   = config.getDisplayName();
             this.passwordHash  = config.getPasswordHash();
             this.salt          = config.getSalt();
 
@@ -113,6 +116,7 @@ public class SetupService {
         config.setSetupComplete(setupComplete);
         config.setMode(mode);
         config.setUsername(username);
+        config.setDisplayName(displayName);
         config.setPasswordHash(passwordHash);
         config.setSalt(salt);
 
@@ -163,6 +167,18 @@ public class SetupService {
         persistentSessions.clear();
         save();
         log.info(message("setup.log.password.changed"));
+    }
+
+    // ---- 称呼（个性化问候） --------------------------------------------
+
+    /**
+     * 更新用户自定义称呼并落盘。传入空白会清空称呼（回退到各处的默认问候）。
+     * 与登录用 {@link #username} 无关，仅用于个性化展示。
+     */
+    public synchronized void updateDisplayName(String name) throws IOException {
+        String trimmed = name == null ? null : name.trim();
+        this.displayName = (trimmed == null || trimmed.isEmpty()) ? null : trimmed;
+        save();
     }
 
     // ---- 登录验证 -------------------------------------------------------

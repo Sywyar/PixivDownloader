@@ -8,9 +8,11 @@
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
     <script src="/js/pixiv-tour.js"></script>
+    <script src="/js/pixiv-onboarding.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="/css/pixiv-tour.css">
+    <link rel="stylesheet" href="/css/pixiv-onboarding.css">
     <link rel="stylesheet" href="/pixiv-batch/pixiv-batch.css">
 </head>
 <body>
@@ -36,7 +38,7 @@
 <div class="page">
 
     <!-- Cookie -->
-    <div class="card">
+    <div class="card" id="cookie-card">
         <div class="card-title" data-i18n="cookie.title">Pixiv Cookie</div>
         <div class="cookie-fmt">
             <button id="fmt-header" class="active" onclick="setCookieFmt('header')" data-i18n="cookie.format.header">Header String</button>
@@ -149,7 +151,7 @@
             <div data-i18n="hint.import-reimport">也兼容下方“导出全部”“导出未下载”按钮生成的作品列表，可直接重新导入。</div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:0;">
-            <button class="btn btn-blue" onclick="parseSingleImport()" data-i18n="button.import">📋 导入并加入队列</button>
+            <button class="btn btn-blue" id="btn-single-import" onclick="parseSingleImport()" data-i18n="button.import">📋 导入并加入队列</button>
             <button class="btn btn-orange" onclick="parseSingleImportFresh()" data-i18n="button.import-fresh">🗑 清空队列后重新导入</button>
         </div>
     </div>
@@ -381,7 +383,7 @@
     <div id="download-workbench">
 
     <!-- Settings -->
-    <div class="card">
+    <div class="card" id="download-settings-card">
         <div class="card-title" data-i18n="card.settings">下载设置</div>
         <div class="settings-grid">
             <div class="setting-item">
@@ -549,6 +551,9 @@
         </div>
     </div>
 
+    <!-- Download progress (status + current + queue)：新手向导「正在下载示例作品」步会高亮此区域 -->
+    <div id="download-progress-area">
+
     <!-- Status -->
     <div class="card" style="padding:12px 16px;">
         <div id="status-bar" data-i18n="status.ready">准备就绪</div>
@@ -569,6 +574,8 @@
             <div class="queue-empty" data-i18n="status.queue-empty">队列为空</div>
         </div>
     </div>
+
+    </div><!-- /download-progress-area -->
 
     </div><!-- /download-workbench -->
 

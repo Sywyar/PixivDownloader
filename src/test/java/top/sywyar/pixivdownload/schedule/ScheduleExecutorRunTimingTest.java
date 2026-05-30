@@ -66,6 +66,8 @@ class ScheduleExecutorRunTimingTest {
     private MailTemplateRegistry mailTemplateRegistry;
     @Mock
     private top.sywyar.pixivdownload.i18n.AppMessages appMessages;
+    @Mock
+    private top.sywyar.pixivdownload.setup.SetupService setupService;
 
     private ScheduleExecutor executor;
     private ScheduleRunState runState;
@@ -85,7 +87,7 @@ class ScheduleExecutorRunTimingTest {
         return new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
                 artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
-                overuseWarningService, mailService, mailTemplateRegistry, appMessages,
+                overuseWarningService, mailService, mailTemplateRegistry, appMessages, setupService,
                 new top.sywyar.pixivdownload.download.config.DownloadConfig(), imagePool, novelPool);
     }
 

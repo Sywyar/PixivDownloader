@@ -506,6 +506,23 @@ async function init() {
     syncViewParamInUrl();
     setupNovelCrossPageHandoff();
     reloadCurrentView();
+    applyOnboardingDisplayName();
+}
+
+// 个性化称呼：拉取后端保存的称呼填入侧边栏底部用户卡片（替换占位 “Pixiv User”）。
+// 仅对「全局可见」范围（solo / 已登录管理员）放行；其余情况静默保留占位。
+async function applyOnboardingDisplayName() {
+    try {
+        const res = await fetch('/api/onboarding/profile', {credentials: 'same-origin'});
+        if (!res.ok) return;
+        const data = await res.json();
+        const name = data && data.displayName ? data.displayName.trim() : '';
+        if (!name) return;
+        const nameEl = document.getElementById('userName');
+        const avatarEl = document.getElementById('userAvatar');
+        if (nameEl) nameEl.textContent = name;
+        if (avatarEl) avatarEl.textContent = name.charAt(0).toUpperCase();
+    } catch (_) { /* 非管理员 / 网络异常：保留占位 */ }
 }
 
 function applyInitialUrlState() {

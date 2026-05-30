@@ -1,0 +1,297 @@
+/* 新用户引导（跨页持续指引）。自包含 CSS 变量 + 深色模式覆盖，不依赖各页面的变量集，
+   可被任意页面安全引入。视觉语言与 pixiv-tour.css 保持一致，但支持富 HTML 气泡内容
+   （称呼输入、网络检测、代码块复制、输入校验等）。 */
+:root {
+    --po-pop-bg: #ffffff;
+    --po-pop-text: #1f2328;
+    --po-pop-muted: #6a737d;
+    --po-pop-line: #e1e4e8;
+    --po-brand: #28a745;
+    --po-brand-text: #ffffff;
+    --po-btn-bg: #f3f4f6;
+    --po-btn-text: #1f2328;
+    --po-code-bg: #f6f8fa;
+    --po-code-text: #1f2328;
+    --po-input-bg: #ffffff;
+    --po-shadow: rgba(0, 0, 0, 0.22);
+    --po-mask: rgba(17, 22, 28, 0.62);
+    --po-ok: #1a7f37;
+    --po-err: #cf222e;
+}
+
+html[data-theme="dark"] {
+    --po-pop-bg: #1f242b;
+    --po-pop-text: #e6e6e6;
+    --po-pop-muted: #9aa4af;
+    --po-pop-line: #353b44;
+    --po-brand: #2ea043;
+    --po-brand-text: #ffffff;
+    --po-btn-bg: #2b313a;
+    --po-btn-text: #e6e6e6;
+    --po-code-bg: #161b22;
+    --po-code-text: #e6e6e6;
+    --po-input-bg: #11161d;
+    --po-shadow: rgba(0, 0, 0, 0.55);
+    --po-mask: rgba(0, 0, 0, 0.7);
+    --po-ok: #3fb950;
+    --po-err: #f85149;
+}
+
+.po-root {
+    position: fixed;
+    inset: 0;
+    z-index: 2147482900;
+    font-family: inherit;
+}
+
+.po-backdrop {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    pointer-events: auto;
+}
+
+/* 用大范围 box-shadow 制造“聚光”洞口，目标区域保持清晰 */
+.po-spot {
+    position: fixed;
+    border-radius: 10px;
+    box-shadow: 0 0 0 9999px var(--po-mask);
+    transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+}
+
+/* 无目标时（居中模态）整屏压暗，无洞口 */
+.po-root.po-centered .po-spot {
+    box-shadow: 0 0 0 9999px var(--po-mask);
+    width: 0 !important;
+    height: 0 !important;
+    left: 50% !important;
+    top: 50% !important;
+}
+
+.po-pop {
+    position: fixed;
+    max-width: 380px;
+    min-width: 260px;
+    background: var(--po-pop-bg);
+    color: var(--po-pop-text);
+    border: 1px solid var(--po-pop-line);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px var(--po-shadow);
+    padding: 18px 20px;
+    pointer-events: auto;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.22s ease, transform 0.22s ease;
+    box-sizing: border-box;
+}
+
+.po-pop.po-in {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* 居中模态：固定屏幕中央，稍宽 */
+.po-pop.po-modal {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -46%);
+    max-width: 440px;
+    width: calc(100vw - 40px);
+}
+
+.po-pop.po-modal.po-in {
+    transform: translate(-50%, -50%);
+}
+
+.po-pop-title {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    line-height: 1.35;
+}
+
+.po-pop-body {
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--po-pop-text);
+    margin: 0 0 14px;
+}
+
+.po-pop-body p {
+    margin: 0 0 10px;
+}
+
+.po-pop-body p:last-child {
+    margin-bottom: 0;
+}
+
+.po-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.po-progress {
+    font-size: 12px;
+    color: var(--po-pop-muted);
+    margin-right: auto;
+}
+
+.po-btn {
+    appearance: none;
+    border: 1px solid var(--po-pop-line);
+    background: var(--po-btn-bg);
+    color: var(--po-btn-text);
+    font-size: 13px;
+    padding: 7px 16px;
+    border-radius: 7px;
+    cursor: pointer;
+    line-height: 1.2;
+}
+
+.po-btn:hover {
+    filter: brightness(0.97);
+}
+
+.po-btn-primary {
+    background: var(--po-brand);
+    border-color: var(--po-brand);
+    color: var(--po-brand-text);
+    font-weight: 600;
+}
+
+.po-btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--po-pop-muted);
+    padding: 7px 8px;
+}
+
+.po-btn:disabled,
+.po-btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+    filter: none;
+}
+
+/* 称呼输入框 */
+.po-input {
+    width: 100%;
+    box-sizing: border-box;
+    font-size: 14px;
+    padding: 9px 12px;
+    border: 1px solid var(--po-pop-line);
+    border-radius: 8px;
+    background: var(--po-input-bg);
+    color: var(--po-pop-text);
+    margin: 4px 0 6px;
+}
+
+.po-input:focus {
+    outline: none;
+    border-color: var(--po-brand);
+}
+
+/* 代码块 + 复制按钮 */
+.po-codeblock {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin: 10px 0;
+}
+
+.po-code {
+    flex: 1;
+    min-width: 0;
+    background: var(--po-code-bg);
+    color: var(--po-code-text);
+    border: 1px solid var(--po-pop-line);
+    border-radius: 7px;
+    padding: 9px 12px;
+    font-family: Consolas, Monaco, "Courier New", monospace;
+    font-size: 12.5px;
+    word-break: break-all;
+    line-height: 1.5;
+}
+
+.po-copy-btn {
+    flex: none;
+    align-self: stretch;
+    white-space: nowrap;
+}
+
+.po-copy-btn.po-copied {
+    background: var(--po-brand);
+    border-color: var(--po-brand);
+    color: var(--po-brand-text);
+}
+
+/* 网络检测状态行 */
+.po-net {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    margin: 10px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--po-pop-line);
+    border-radius: 8px;
+    background: var(--po-code-bg);
+}
+
+.po-net-ok {
+    color: var(--po-ok);
+    font-weight: 600;
+}
+
+.po-net-fail {
+    color: var(--po-err);
+    font-weight: 600;
+}
+
+.po-spinner {
+    width: 15px;
+    height: 15px;
+    border: 2px solid var(--po-pop-line);
+    border-top-color: var(--po-brand);
+    border-radius: 50%;
+    animation: po-spin 0.8s linear infinite;
+    flex: none;
+}
+
+@keyframes po-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 校验 / 提示文字 */
+.po-hint {
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 6px 0 0;
+    min-height: 1em;
+}
+
+.po-hint-error {
+    color: var(--po-err);
+}
+
+.po-hint-ok {
+    color: var(--po-ok);
+}
+
+/* 引导期间唯一可交互的页面元素：抬到遮罩之上 */
+.po-interactive {
+    position: relative !important;
+    z-index: 2147483400 !important;
+    pointer-events: auto !important;
+}
+
+@media (max-width: 600px) {
+    .po-pop {
+        max-width: calc(100vw - 28px);
+    }
+}

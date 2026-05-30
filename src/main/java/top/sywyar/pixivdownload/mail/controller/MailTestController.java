@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.mail.MailSenderSettings;
 import top.sywyar.pixivdownload.mail.MailService;
 import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
 import top.sywyar.pixivdownload.mail.template.RenderedMail;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -49,6 +50,7 @@ public class MailTestController {
     private final MailService mailService;
     private final MailTemplateRegistry templateRegistry;
     private final AppMessages messages;
+    private final SetupService setupService;
 
     @PostMapping("/mail-test")
     public ResponseEntity<MailTestResponse> test(@RequestBody MailTestRequest body,
@@ -130,10 +132,19 @@ public class MailTestController {
     private Map<String, String> buildPlaceholders(MailSenderSettings settings, Locale locale) {
         Map<String, String> placeholders = new LinkedHashMap<>();
         placeholders.put("app_name", AppInfo.NAME);
-        placeholders.put("username", messages.get(locale, "mail.template.placeholder.administrator"));
+        placeholders.put("username", greetingName(locale));
         placeholders.put("smtp_host", settings.host() == null ? "" : settings.host());
         placeholders.put("time", LocalDateTime.now().format(TIME_FORMAT));
         return placeholders;
+    }
+
+    /** 邮件问候称呼：用户自定义称呼优先，否则回退本地化默认「管理员 / administrator」。 */
+    private String greetingName(Locale locale) {
+        String displayName = setupService.getDisplayName();
+        if (displayName != null && !displayName.isBlank()) {
+            return displayName;
+        }
+        return messages.get(locale, "mail.template.placeholder.administrator");
     }
 
     /**
@@ -148,7 +159,7 @@ public class MailTestController {
         Map<String, String> placeholders = new LinkedHashMap<>();
         // mail-config-success
         placeholders.put("app_name", AppInfo.NAME);
-        placeholders.put("username", messages.get(locale, "mail.template.placeholder.administrator"));
+        placeholders.put("username", greetingName(locale));
         placeholders.put("smtp_host", settings.host() == null ? "" : settings.host());
         placeholders.put("time", nowFormatted);
         // overuse-paused

@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.mail.MailSenderSettings;
 import top.sywyar.pixivdownload.mail.MailService;
 import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
+import top.sywyar.pixivdownload.setup.SetupService;
 import top.sywyar.pixivdownload.mail.template.RenderedMail;
 
 import java.util.ArrayList;
@@ -33,13 +34,15 @@ class MailTestControllerTest {
     private MailTemplateRegistry templateRegistry;
     private MailService mailService;
     private MailTestController controller;
+    private SetupService setupService;
 
     @BeforeEach
     void setUp() {
         messages = TestI18nBeans.appMessages();
         templateRegistry = new MailTemplateRegistry(messages);
         mailService = mock(MailService.class);
-        controller = new MailTestController(mailService, templateRegistry, messages);
+        setupService = mock(SetupService.class);
+        controller = new MailTestController(mailService, templateRegistry, messages, setupService);
     }
 
     @Test

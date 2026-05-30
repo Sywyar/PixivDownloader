@@ -26,6 +26,7 @@ import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
+import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -96,6 +97,7 @@ public class ScheduleExecutor {
     private final MailService mailService;
     private final MailTemplateRegistry mailTemplateRegistry;
     private final AppMessages messages;
+    private final SetupService setupService;
     private final DownloadConfig downloadConfig;
     // 字段名与 bean 名一致，借此按名解析到对应下载池（避免 @Primary 的 applicationTaskExecutor）。
     private final TaskExecutor downloadTaskExecutor;
@@ -1101,11 +1103,22 @@ public class ScheduleExecutor {
     private void sendNotification(String templateId, Map<String, String> placeholders) {
         try {
             Locale locale = AppLocale.normalize(Locale.getDefault());
+            // 问候语称呼：用户设了称呼用称呼，否则回退本地化的「管理员」。所有模板共用，统一在此补齐。
+            placeholders.putIfAbsent("username", greetingName(locale));
             RenderedMail mail = mailTemplateRegistry.render(templateId, locale, placeholders);
             mailService.send(mail.subject(), mail.htmlBody());
         } catch (Exception ex) {
             log.error("Schedule notification mail [{}] failed: {}", templateId, ex.getMessage());
         }
+    }
+
+    /** 邮件问候称呼：用户自定义称呼优先，否则回退本地化默认「管理员 / administrator」。 */
+    private String greetingName(Locale locale) {
+        String displayName = setupService.getDisplayName();
+        if (displayName != null && !displayName.isBlank()) {
+            return displayName;
+        }
+        return messages.get(locale, "mail.template.placeholder.administrator");
     }
 
     private static String formatTime(long epochMs) {

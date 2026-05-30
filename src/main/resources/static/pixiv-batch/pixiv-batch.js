@@ -231,7 +231,7 @@
                 if (_userscriptsLoaded) {
                     loadUserscripts();
                 }
-                setupTour(false);
+                refreshGuideFab();
             }
         });
         PixivTheme.mount({
@@ -5823,9 +5823,73 @@
     document.addEventListener('DOMContentLoaded', async () => {
         await initPageI18n();
         loadAppInfo();
-        init();
-        setupTour(true);
+        await init();
+        setupOnboardingOrTour();
     });
+
+    // 有「全局可见」权限（solo / 已登录管理员）的用户走新用户跨页向导：首次自动跑，右下角 💡「操作指引」
+    // FAB 由向导自身注册（点击重跑，已保存称呼则直接跳到连通性检测）。多人模式访客仍保留旧版 PixivTour
+    // 的首次自动指引与 💡 FAB。
+    async function setupOnboardingOrTour() {
+        const eligible = (appMode === 'solo') || isAdmin;
+        if (eligible && typeof PixivOnboarding !== 'undefined') {
+            // 读取已保存的称呼（服务端权威值），供向导决定是否跳过称呼步
+            let savedName = '';
+            try {
+                const res = await fetch('/api/onboarding/profile', {credentials: 'same-origin'});
+                if (res.ok) {
+                    const data = await res.json();
+                    savedName = (data && data.displayName) || '';
+                }
+            } catch (_) { /* best-effort */ }
+            PixivOnboarding.boot(buildOnboardingConfig(savedName));
+        } else {
+            setupTour(false); // 访客：仅注册旧版 💡 FAB，不自动弹
+            if (typeof PixivTour !== 'undefined') {
+                const ctrl = PixivTour.get('batch');
+                if (ctrl) ctrl.start(false); // 访客：旧版首次自动指引（尊重已看标记）
+            }
+        }
+    }
+
+    // 语言切换后刷新右下角指引 FAB 文案：有资格用户刷新新手向导 FAB，访客刷新旧版 PixivTour FAB。
+    function refreshGuideFab() {
+        const eligible = (appMode === 'solo') || isAdmin;
+        if (eligible && typeof PixivOnboarding !== 'undefined') {
+            PixivOnboarding.refreshFab(pageI18n);
+        } else if (typeof PixivTour !== 'undefined') {
+            setupTour(false);
+        }
+    }
+
+    function buildOnboardingConfig(savedName) {
+        return {
+            page: 'batch',
+            i18n: pageI18n,
+            eligible: true,
+            savedName: savedName || '',
+            sel: {
+                cookieCard: '#cookie-card',
+                scriptsCard: '#userscripts-card',
+                tabs: '.tabs',
+                singleImportTab: '#tab-single-import',
+                importTextarea: '#single-import-textarea',
+                importButton: '#btn-single-import',
+                filtersCard: '#extra-filters-card',
+                settingsCard: '#download-settings-card',
+                startButton: '#btn-start',
+                progressArea: '#download-progress-area',
+                galleryNav: 'a.app-nav-link[href*="pixiv-gallery"]'
+            },
+            hooks: {
+                switchToSingleImport: () => switchMode(SINGLE_IMPORT_MODE),
+                hasLoginCookie: () => cookieHasPhpsessid(),
+                isExampleQueued: (id) => state.queue.some(q => String(q.id) === String(id)),
+                isRunning: () => state.isRunning,
+                applyName: () => { /* 下载页暂无称呼占位，称呼已持久化到服务端 */ }
+            }
+        };
+    }
 
     /* ============================================================
        油猴脚本安装面板
