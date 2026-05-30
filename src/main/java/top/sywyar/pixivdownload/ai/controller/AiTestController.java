@@ -11,12 +11,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.ai.AiClientSettings;
 import top.sywyar.pixivdownload.ai.AiService;
-import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
+import top.sywyar.pixivdownload.ai.probe.ConnectivityProbeRequest;
 import top.sywyar.pixivdownload.common.NetworkUtils;
-
-import java.util.List;
 
 /**
  * GUI 配置页"测试 AI 连接"按钮对应的 REST 端点。
@@ -33,10 +31,8 @@ import java.util.List;
 @Slf4j
 public class AiTestController {
 
-    /** 连通性探测 prompt：要求模型只回一个词，尽量少消耗 token。 */
-    private static final List<AiChatMessage> PROBE_MESSAGES = List.of(
-            AiChatMessage.system("You are a connectivity probe."),
-            AiChatMessage.user("Reply with the single word: OK"));
+    /** 连通性探测请求实体：固定提示词，要求模型只回一个词，尽量少消耗 token。 */
+    private static final ConnectivityProbeRequest PROBE = new ConnectivityProbeRequest();
 
     /** 回显给 GUI 的模型回复最多保留的字符数。 */
     private static final int MAX_REPLY_LENGTH = 200;
@@ -55,7 +51,7 @@ public class AiTestController {
 
         AiClientSettings settings = body.toClientSettings();
         try {
-            AiChatResult result = aiService.chatTest(settings, PROBE_MESSAGES, AiChatOptions.defaults());
+            AiChatResult result = aiService.chatTest(settings, PROBE.toMessages(), AiChatOptions.defaults());
             return ResponseEntity.ok(AiTestResponse.ok(truncate(result.content())));
         } catch (AiService.AiException e) {
             return ResponseEntity.ok(AiTestResponse.fail(e.getMessage()));
