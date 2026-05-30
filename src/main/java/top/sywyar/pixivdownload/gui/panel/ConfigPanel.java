@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.gui.AutoStartManager;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.*;
+import top.sywyar.pixivdownload.ai.preset.AiPreset;
+import top.sywyar.pixivdownload.ai.preset.AiPresetRegistry;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.mail.preset.MailPreset;
@@ -64,6 +66,7 @@ public class ConfigPanel extends JPanel {
     private final String multiModeGroup;
     private final String maintenanceGroup;
     private final String mailGroup;
+    private final String aiGroup;
 
     /** key → 渲染后的字段（含取值/赋值方法） */
     private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
@@ -87,6 +90,17 @@ public class ConfigPanel extends JPanel {
     /** 防止在程序性更新下拉时反向触发预设应用。 */
     private boolean updatingMailPresetCombo;
 
+    /** AI 服务商预设注册中心（不可变；GUI 加载 AI 分组时使用）。 */
+    private final AiPresetRegistry aiPresetRegistry = new AiPresetRegistry();
+    /** AI 服务商预设下拉。null 表示 AI 分组未渲染。 */
+    private JComboBox<AiPreset> aiPresetCombo;
+    /** "测试 AI 连接" 按钮，测试中暂时禁用。 */
+    private JButton aiTestButton;
+    /** 当前 AI 预设；非 custom 时锁定 base-url。 */
+    private AiPreset currentAiPreset;
+    /** 防止在程序性更新下拉时反向触发预设应用。 */
+    private boolean updatingAiPresetCombo;
+
     public ConfigPanel(Path configPath, int serverPort) {
         this.configPath = configPath;
         this.serverPort = serverPort;
@@ -98,6 +112,7 @@ public class ConfigPanel extends JPanel {
         this.multiModeGroup = ConfigFieldRegistry.groupMultiMode();
         this.maintenanceGroup = ConfigFieldRegistry.groupMaintenance();
         this.mailGroup = ConfigFieldRegistry.groupMail();
+        this.aiGroup = ConfigFieldRegistry.groupAi();
         buildUi();
         loadCurrentValues();
         checkFieldDrift();
@@ -138,6 +153,14 @@ public class ConfigPanel extends JPanel {
             content.add(Box.createVerticalStrut(2));
         }
 
+        // AI 服务商预设排在 ai.* 字段之前
+        if (aiGroup.equals(group)) {
+            JPanel aiPresetPanel = buildAiPresetPanel();
+            aiPresetPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(aiPresetPanel);
+            content.add(Box.createVerticalStrut(2));
+        }
+
         for (ConfigFieldSpec spec : fields) {
             if (maintenanceGroup.equals(group) && isMaintenanceDayEnabledKey(spec.key())) {
                 continue;
@@ -170,14 +193,20 @@ public class ConfigPanel extends JPanel {
             content.add(mailTestAllPanel);
             content.add(Box.createVerticalStrut(2));
         }
+        if (aiGroup.equals(group)) {
+            JPanel aiTestPanel = buildAiTestPanel();
+            aiTestPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(aiTestPanel);
+            content.add(Box.createVerticalStrut(2));
+        }
         content.add(Box.createVerticalGlue());
 
         JScrollPane sp = new JScrollPane(content);
         sp.setBorder(null);
         sp.getVerticalScrollBar().setUnitIncrement(16);
         // mail 分组在 init 阶段对预设 combo 的 setSelectedItem + 对 host/port/security 的
-        // setEnabled(false) 会让视口偏离 (0,0)；首次显示时强制回到顶部。
-        if (mailGroup.equals(group)) {
+        // setEnabled(false) 会让视口偏离 (0,0)；首次显示时强制回到顶部。AI 分组同理（锁定 base-url）。
+        if (mailGroup.equals(group) || aiGroup.equals(group)) {
             sp.addHierarchyListener(new HierarchyListener() {
                 @Override
                 public void hierarchyChanged(HierarchyEvent e) {
@@ -684,6 +713,211 @@ public class ConfigPanel extends JPanel {
                                       String errorSummary) {
     }
 
+    // ── AI 分组特殊控件 ──────────────────────────────────────────────────────────
+
+    /**
+     * "服务商预设" 下拉：选中预设后自动填入 base-url（锁定）/ 模型 / 是否走代理；选中 "自定义" 解锁。
+     * 预设本身不入 config.yaml，由 base-url 反查推断。
+     */
+    private JPanel buildAiPresetPanel() {
+        aiPresetCombo = new JComboBox<>(aiPresetRegistry.all().toArray(new AiPreset[0]));
+        aiPresetCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof AiPreset preset) {
+                    label.setText(message(preset.displayNameKey()));
+                }
+                return label;
+            }
+        });
+        aiPresetCombo.addActionListener(e -> {
+            if (updatingAiPresetCombo) {
+                return;
+            }
+            Object selected = aiPresetCombo.getSelectedItem();
+            if (selected instanceof AiPreset preset) {
+                applyAiPreset(preset, true);
+            }
+        });
+        return FieldRenderer.fieldPanel(
+                message("gui.config.ai.preset.label") + message("gui.punctuation.colon"),
+                aiPresetCombo,
+                null,
+                message("gui.config.ai.preset.help"));
+    }
+
+    /** "测试 AI 连接" 按钮行。 */
+    private JPanel buildAiTestPanel() {
+        aiTestButton = new JButton(message("gui.config.ai.test-button.label"));
+        aiTestButton.addActionListener(e -> sendAiTest());
+        return FieldRenderer.fieldPanel(
+                message("gui.config.ai.test-button.label") + message("gui.punctuation.colon"),
+                aiTestButton,
+                null,
+                message("gui.config.ai.test-button.help"));
+    }
+
+    /**
+     * 应用选中的 AI 预设：base-url 写入并锁定；模型 / 是否走代理仅作为建议默认值回填（不锁定，用户可改）。
+     *
+     * @param userInitiated 由用户操作触发时为 true（会覆盖回填值）；初始化反查时为 false（只更新锁定状态）
+     */
+    private void applyAiPreset(AiPreset preset, boolean userInitiated) {
+        currentAiPreset = preset;
+        if (preset == null) {
+            return;
+        }
+        if (userInitiated && !preset.isCustom()) {
+            setRenderedFieldValue("ai.base-url", preset.baseUrl());
+            setRenderedFieldValue("ai.model", preset.defaultModel());
+            setRenderedFieldValue("ai.use-proxy", Boolean.toString(preset.defaultUseProxy()));
+        }
+        updateEnabledStates();
+    }
+
+    /**
+     * 在 {@link #updateEnabledStates()} 末尾叠加预设锁定：选中非自定义预设时 base-url 保持禁用。
+     */
+    private void applyAiPresetLock() {
+        if (aiPresetCombo == null || currentAiPreset == null || currentAiPreset.isCustom()) {
+            return;
+        }
+        lockFieldByPreset("ai.base-url");
+    }
+
+    /** 启动后按已有 base-url 反查预设；未命中落到 custom。 */
+    private void resolveAiPresetFromCurrentBaseUrl() {
+        if (aiPresetCombo == null) {
+            return;
+        }
+        FieldRenderer.RenderedField baseUrlField = renderedFields.get("ai.base-url");
+        String baseUrl = baseUrlField == null ? "" : baseUrlField.getValue().get();
+        AiPreset preset = aiPresetRegistry.findByBaseUrl(baseUrl).orElseGet(aiPresetRegistry::custom);
+        updatingAiPresetCombo = true;
+        try {
+            aiPresetCombo.setSelectedItem(preset);
+        } finally {
+            updatingAiPresetCombo = false;
+        }
+        applyAiPreset(preset, false);
+    }
+
+    private void sendAiTest() {
+        if (aiTestButton == null) {
+            return;
+        }
+        aiTestButton.setEnabled(false);
+        showNotice(message("gui.config.ai.test.notice.sending"));
+
+        ObjectNode payload = MAPPER.createObjectNode();
+        payload.put("baseUrl", currentFieldValue("ai.base-url"));
+        payload.put("apiKey", currentFieldValue("ai.api-key"));
+        payload.put("model", currentFieldValue("ai.model"));
+        payload.put("useProxy", Boolean.parseBoolean(currentFieldValue("ai.use-proxy")));
+
+        SwingWorker<AiTestOutcome, Void> worker = new SwingWorker<>() {
+            @Override
+            protected AiTestOutcome doInBackground() {
+                return postAiTest(payload);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    AiTestOutcome outcome = get();
+                    if (!outcome.reachable()) {
+                        showNotice(message("gui.config.ai.test.notice.unreachable"));
+                    } else if (outcome.success()) {
+                        showNotice(message("gui.config.ai.test.notice.success",
+                                outcome.reply() == null ? "" : outcome.reply()));
+                    } else {
+                        showNotice(message("gui.config.ai.test.notice.failed",
+                                outcome.error() == null ? "" : outcome.error()));
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    showNotice(message("gui.config.ai.test.notice.unreachable"));
+                } catch (ExecutionException ex) {
+                    log.warn(logMessage("gui.config.ai.test.notice.failed", safeMessage(ex.getCause())),
+                            ex.getCause());
+                    showNotice(message("gui.config.ai.test.notice.failed", safeMessage(ex.getCause())));
+                } finally {
+                    aiTestButton.setEnabled(true);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    /**
+     * 调用 {@code /api/gui/ai-test}；同时尝试 http / https，本地端点；连接不上返回 reachable=false。
+     * 读超时放宽到 120s：大模型尤其是推理模型响应可能较慢。
+     */
+    private AiTestOutcome postAiTest(ObjectNode payload) {
+        byte[] body;
+        try {
+            body = MAPPER.writeValueAsBytes(payload);
+        } catch (Exception e) {
+            return new AiTestOutcome(true, false, e.getMessage(), null);
+        }
+        String[] schemes = {"http", "https"};
+        for (String scheme : schemes) {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/ai-test").toURL();
+                conn = (HttpURLConnection) url.openConnection();
+                if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
+                    https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
+                    https.setHostnameVerifier((host, session) -> true);
+                }
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(120_000);
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept-Language", GuiMessages.currentLocale().toLanguageTag());
+                String guiToken = GuiTokenHolder.get();
+                if (guiToken != null) {
+                    conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
+                }
+                conn.getOutputStream().write(body);
+                int status = conn.getResponseCode();
+                String responseBody = readResponseBody(conn, status);
+                if (status >= 200 && status < 300) {
+                    boolean success = false;
+                    String error = null;
+                    String reply = null;
+                    if (responseBody != null && !responseBody.isBlank()) {
+                        var node = MAPPER.readTree(responseBody);
+                        success = node.path("success").asBoolean(false);
+                        error = node.path("error").isMissingNode() || node.path("error").isNull()
+                                ? null : node.path("error").asText();
+                        reply = node.path("reply").isMissingNode() || node.path("reply").isNull()
+                                ? null : node.path("reply").asText();
+                    }
+                    return new AiTestOutcome(true, success, error, reply);
+                }
+                return new AiTestOutcome(true, false,
+                        (responseBody == null || responseBody.isBlank())
+                                ? ("HTTP " + status)
+                                : responseBody, null);
+            } catch (Exception ignored) {
+                // try the other scheme
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+        return new AiTestOutcome(false, false, null, null);
+    }
+
+    /** ai-test 异步结果。reachable=false 表示后端连接不上；success=true 仅当成功拿到模型回复。 */
+    private record AiTestOutcome(boolean reachable, boolean success, String error, String reply) {
+    }
+
     private boolean shouldHideGroup(String group) {
         return SOLO_MODE.equalsIgnoreCase(currentMode) && multiModeGroup.equals(group);
     }
@@ -777,6 +1011,7 @@ public class ConfigPanel extends JPanel {
             }
 
             resolveMailPresetFromCurrentHost();
+            resolveAiPresetFromCurrentBaseUrl();
             updateEnabledStates();
         } catch (IOException e) {
             log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
@@ -806,6 +1041,7 @@ public class ConfigPanel extends JPanel {
             }
         }
         applyMailPresetLock();
+        applyAiPresetLock();
         if (layoutChanged) {
             revalidate();
             repaint();
@@ -1001,6 +1237,7 @@ public class ConfigPanel extends JPanel {
             }
         }
         resolveMailPresetFromCurrentHost();
+        resolveAiPresetFromCurrentBaseUrl();
         updateEnabledStates();
     }
 

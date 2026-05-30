@@ -36,6 +36,11 @@ public final class ConfigFieldRegistry {
         return message("gui.config.group.mail");
     }
 
+    /** AI 配置分组名（按当前 locale）。 */
+    public static String groupAi() {
+        return message("gui.config.group.ai");
+    }
+
     /** 全部分组名（按当前 locale，保持顺序）。 */
     public static List<String> groups() {
         return List.of(
@@ -49,7 +54,8 @@ public final class ConfigFieldRegistry {
                 message("gui.config.group.https"),
                 message("gui.config.group.update"),
                 message("gui.config.group.schedule"),
-                message("gui.config.group.mail")
+                message("gui.config.group.mail"),
+                message("gui.config.group.ai")
         );
     }
 
@@ -66,6 +72,7 @@ public final class ConfigFieldRegistry {
         String groupUpdate = message("gui.config.group.update");
         String groupSchedule = message("gui.config.group.schedule");
         String groupMail = message("gui.config.group.mail");
+        String groupAi = message("gui.config.group.ai");
 
         return List.of(
 
@@ -691,6 +698,41 @@ public final class ConfigFieldRegistry {
                         .defaultValue("[PixivDownloader]")
                         .help(message("gui.config.field.mail.subject-prefix.help"))
                         .enabledWhen(snap -> snap.isTrue("mail.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── AI / 大语言模型 ─────────────────────────────────────────────────
+                ConfigFieldSpec.builder("ai.enabled", message("gui.config.field.ai.enabled.label"), BOOL, groupAi)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.ai.enabled.help"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("ai.base-url", message("gui.config.field.ai.base-url.label"), STRING, groupAi)
+                        .defaultValue("")
+                        .help(message("gui.config.field.ai.base-url.help"))
+                        .enabledWhen(snap -> snap.isTrue("ai.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("ai.api-key", message("gui.config.field.ai.api-key.label"), PASSWORD, groupAi)
+                        .defaultValue("")
+                        .help(message("gui.config.field.ai.api-key.help"))
+                        .enabledWhen(snap -> snap.isTrue("ai.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("ai.model", message("gui.config.field.ai.model.label"), STRING, groupAi)
+                        .defaultValue("")
+                        .help(message("gui.config.field.ai.model.help"))
+                        .enabledWhen(snap -> snap.isTrue("ai.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("ai.use-proxy", message("gui.config.field.ai.use-proxy.label"), BOOL, groupAi)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.ai.use-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("ai.enabled"))
                         .hotReloadable()
                         .build()
         );

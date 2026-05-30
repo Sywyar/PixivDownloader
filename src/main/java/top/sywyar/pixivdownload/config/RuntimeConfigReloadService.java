@@ -10,6 +10,7 @@ import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.ai.AiConfig;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.mail.MailConfig;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
@@ -41,6 +42,7 @@ public class RuntimeConfigReloadService {
     private final ProxyConfig proxyConfig;
     private final UpdateConfig updateConfig;
     private final MailConfig mailConfig;
+    private final AiConfig aiConfig;
 
     public synchronized ReloadResult reloadHotConfig() throws IOException {
         Binder binder = loadBinder();
@@ -53,6 +55,7 @@ public class RuntimeConfigReloadService {
         ProxyConfig nextProxy = bind(binder, "proxy", ProxyConfig::new, ProxyConfig.class);
         UpdateConfig nextUpdate = bind(binder, "update", UpdateConfig::new, UpdateConfig.class);
         MailConfig nextMail = bind(binder, "mail", MailConfig::new, MailConfig.class);
+        AiConfig nextAi = bind(binder, "ai", AiConfig::new, AiConfig.class);
 
         List<String> applied = new ArrayList<>();
         applyDownloadConfig(nextDownload, applied);
@@ -64,6 +67,7 @@ public class RuntimeConfigReloadService {
         applyProxyConfig(nextProxy, applied);
         applyUpdateConfig(nextUpdate, applied);
         applyMailConfig(nextMail, applied);
+        applyAiConfig(nextAi, applied);
 
         if (!applied.isEmpty()) {
             log.info("Hot reloaded config keys: {}", applied);
@@ -293,6 +297,34 @@ public class RuntimeConfigReloadService {
                 mailConfig.getSubjectPrefix(),
                 next.getSubjectPrefix(),
                 () -> mailConfig.setSubjectPrefix(next.getSubjectPrefix()));
+    }
+
+    private void applyAiConfig(AiConfig next, List<String> applied) {
+        applyIfChanged(applied,
+                "ai.enabled",
+                aiConfig.isEnabled(),
+                next.isEnabled(),
+                () -> aiConfig.setEnabled(next.isEnabled()));
+        applyIfChanged(applied,
+                "ai.base-url",
+                aiConfig.getBaseUrl(),
+                next.getBaseUrl(),
+                () -> aiConfig.setBaseUrl(next.getBaseUrl()));
+        applyIfChanged(applied,
+                "ai.api-key",
+                aiConfig.getApiKey(),
+                next.getApiKey(),
+                () -> aiConfig.setApiKey(next.getApiKey()));
+        applyIfChanged(applied,
+                "ai.model",
+                aiConfig.getModel(),
+                next.getModel(),
+                () -> aiConfig.setModel(next.getModel()));
+        applyIfChanged(applied,
+                "ai.use-proxy",
+                aiConfig.isUseProxy(),
+                next.isUseProxy(),
+                () -> aiConfig.setUseProxy(next.isUseProxy()));
     }
 
     private void applyUpdateConfig(UpdateConfig next, List<String> applied) {

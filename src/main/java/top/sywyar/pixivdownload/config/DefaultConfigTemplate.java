@@ -156,6 +156,14 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "mail.to:", "config.template.mail.to.comment");
         appendSetting(config, messages, "mail.socks-proxy:", "config.template.mail.socks-proxy.comment");
         appendSetting(config, messages, "mail.subject-prefix: \"[PixivDownloader]\"", "config.template.mail.subject-prefix.comment");
+        appendBlankLine(config);
+
+        appendSection(config, messages, "config.template.section.ai");
+        appendSetting(config, messages, "ai.enabled: false", "config.template.ai.enabled.comment");
+        appendSetting(config, messages, "ai.base-url:", "config.template.ai.base-url.comment");
+        appendSetting(config, messages, "ai.api-key:", "config.template.ai.api-key.comment");
+        appendSetting(config, messages, "ai.model:", "config.template.ai.model.comment");
+        appendSetting(config, messages, "ai.use-proxy: false", "config.template.ai.use-proxy.comment");
 
         return config.toString();
     }

@@ -7,6 +7,7 @@ import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.routing.DefaultRoutePlanner;
+import org.apache.hc.client5.http.routing.HttpRoutePlanner;
 import org.apache.hc.core5.http.HttpException;
 import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.protocol.HttpContext;
@@ -36,10 +37,33 @@ public class RestTemplateConfig {
      */
     @Bean("downloadRestTemplate")
     public RestTemplate downloadRestTemplate() {
-        return buildRestTemplate(30_000, 60_000);
+        return buildRestTemplate(30_000, 60_000, new DynamicProxyRoutePlanner(proxyConfig));
+    }
+
+    /**
+     * AI 调用专用 RestTemplate（直连，不走代理）。读超时放宽到 120s：大模型尤其是推理模型可能很慢。
+     * {@link top.sywyar.pixivdownload.ai.AiService} 在 {@code ai.use-proxy=false} 时使用本 bean。
+     */
+    @Bean("aiRestTemplate")
+    public RestTemplate aiRestTemplate() {
+        return buildRestTemplate(30_000, 120_000, null);
+    }
+
+    /**
+     * AI 调用专用 RestTemplate（经 {@link ProxyConfig} 的 host:port 出站）。
+     * {@link top.sywyar.pixivdownload.ai.AiService} 在 {@code ai.use-proxy=true} 时使用本 bean——AI 是否走代理
+     * 由各配置自己的开关决定，独立于全局 {@code proxy.enabled}，因此此处的路由规划器不检查 {@code proxy.enabled}。
+     */
+    @Bean("aiProxyRestTemplate")
+    public RestTemplate aiProxyRestTemplate() {
+        return buildRestTemplate(30_000, 120_000, new FixedProxyRoutePlanner(proxyConfig));
     }
 
     private RestTemplate buildRestTemplate(int connectTimeoutMs, int socketTimeoutMs) {
+        return buildRestTemplate(connectTimeoutMs, socketTimeoutMs, new DynamicProxyRoutePlanner(proxyConfig));
+    }
+
+    private RestTemplate buildRestTemplate(int connectTimeoutMs, int socketTimeoutMs, HttpRoutePlanner routePlanner) {
         ConnectionConfig connectionConfig = ConnectionConfig.custom()
                 .setConnectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .setSocketTimeout(socketTimeoutMs, TimeUnit.MILLISECONDS)
@@ -54,11 +78,13 @@ public class RestTemplateConfig {
                 .setConnectionRequestTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
                 .build();
 
-        HttpClient httpClient = HttpClients.custom()
+        var httpClientBuilder = HttpClients.custom()
                 .setConnectionManager(connectionManager)
-                .setDefaultRequestConfig(requestConfig)
-                .setRoutePlanner(new DynamicProxyRoutePlanner(proxyConfig))
-                .build();
+                .setDefaultRequestConfig(requestConfig);
+        if (routePlanner != null) {
+            httpClientBuilder.setRoutePlanner(routePlanner);
+        }
+        HttpClient httpClient = httpClientBuilder.build();
 
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
         return new RestTemplate(factory);
@@ -84,6 +110,33 @@ public class RestTemplateConfig {
             if (!proxyConfig.isEnabled()) {
                 return null;
             }
+            String host = proxyConfig.getHost();
+            int port = proxyConfig.getPort();
+            if (host == null || host.isBlank() || port <= 0) {
+                return null;
+            }
+            return new HttpHost("http", host, port);
+        }
+    }
+
+    /**
+     * 路由规划器：每次确定路由时实时读取 {@link ProxyConfig} 的 host:port，但<b>不检查</b> {@code proxy.enabled}。
+     * <p>
+     * 专供 {@code aiProxyRestTemplate} 使用——AI 是否走代理由 {@code ai.use-proxy} 决定（由
+     * {@link top.sywyar.pixivdownload.ai.AiService} 选择本 bean 来体现），与全局代理开关相互独立。
+     * host / port 缺失或非法时回退直连。
+     */
+    private static final class FixedProxyRoutePlanner extends DefaultRoutePlanner {
+
+        private final ProxyConfig proxyConfig;
+
+        FixedProxyRoutePlanner(ProxyConfig proxyConfig) {
+            super(null); // null → DefaultSchemePortResolver
+            this.proxyConfig = proxyConfig;
+        }
+
+        @Override
+        protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
             String host = proxyConfig.getHost();
             int port = proxyConfig.getPort();
             if (host == null || host.isBlank() || port <= 0) {
