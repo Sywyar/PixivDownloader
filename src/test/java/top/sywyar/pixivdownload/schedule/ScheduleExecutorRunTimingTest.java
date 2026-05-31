@@ -104,7 +104,7 @@ class ScheduleExecutorRunTimingTest {
         when(pixivFetchService.fetchArtworkMeta("123", null)).thenReturn(
                 new PixivFetchService.ArtworkMeta(
                         0, "标题", 0, false, 10L, "作者",
-                        null, null, -1, 1, List.of()));
+                        null, null, -1, 1, List.of(), "", null));
         when(pixivFetchService.resolveImageUrls("123", null)).thenReturn(
                 List.of("https://i.pximg.net/img-original/img/123.jpg"));
 
@@ -178,7 +178,7 @@ class ScheduleExecutorRunTimingTest {
         when(pixivFetchService.fetchArtworkMeta("300", null)).thenReturn(
                 new PixivFetchService.ArtworkMeta(
                         0, "热门新作", 0, false, 10L, "作者",
-                        null, null, -1, 1, List.of()));
+                        null, null, -1, 1, List.of(), "", null));
         when(pixivFetchService.resolveImageUrls("300", null)).thenReturn(
                 List.of("https://i.pximg.net/img-original/img/300.jpg"));
         when(artworkDownloader.downloadImagesBlocking(
@@ -252,7 +252,7 @@ class ScheduleExecutorRunTimingTest {
         when(pixivDatabase.hasArtwork(302L)).thenReturn(false);
         when(pixivFetchService.fetchArtworkMeta("301", null)).thenReturn(
                 new PixivFetchService.ArtworkMeta(
-                        0, "首件", 0, false, 10L, "作者", null, null, -1, 1, List.of()));
+                        0, "首件", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null));
         when(pixivFetchService.resolveImageUrls("301", null)).thenReturn(
                 List.of("https://i.pximg.net/img-original/img/301.jpg"));
         when(artworkDownloader.downloadImagesBlocking(
@@ -297,7 +297,7 @@ class ScheduleExecutorRunTimingTest {
         // 注意：retryPending 不查 hasArtwork（直接 process），无需 stub
         when(pixivFetchService.fetchArtworkMeta("555", null)).thenReturn(
                 new PixivFetchService.ArtworkMeta(
-                        0, "恢复成功", 0, false, 10L, "作者", null, null, -1, 1, List.of()));
+                        0, "恢复成功", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null));
         when(pixivFetchService.resolveImageUrls("555", null)).thenReturn(
                 List.of("https://i.pximg.net/img-original/img/555.jpg"));
         when(artworkDownloader.downloadImagesBlocking(
@@ -396,7 +396,7 @@ class ScheduleExecutorRunTimingTest {
         when(pixivDatabase.hasArtwork(400L)).thenReturn(false);
         when(pixivFetchService.fetchArtworkMeta("400", null)).thenReturn(
                 new PixivFetchService.ArtworkMeta(
-                        0, "图", 0, false, 10L, "作者", null, null, -1, 1, List.of()));
+                        0, "图", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null));
         when(pixivFetchService.resolveImageUrls("400", null)).thenReturn(
                 List.of("https://i.pximg.net/img-original/img/400.jpg"));
         when(artworkDownloader.downloadImagesBlocking(
@@ -425,7 +425,7 @@ class ScheduleExecutorRunTimingTest {
         when(pixivDatabase.hasArtwork(210L)).thenReturn(false);
         when(pixivFetchService.fetchArtworkMeta(anyString(), isNull())).thenReturn(
                 new PixivFetchService.ArtworkMeta(
-                        0, "并发作品", 0, false, 10L, "作者", null, null, -1, 1, List.of()));
+                        0, "并发作品", 0, false, 10L, "作者", null, null, -1, 1, List.of(), "", null));
         when(pixivFetchService.resolveImageUrls(anyString(), isNull())).thenReturn(
                 List.of("https://i.pximg.net/img-original/img/x.jpg"));
         AtomicInteger finished = new AtomicInteger();

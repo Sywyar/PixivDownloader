@@ -31,6 +31,7 @@ import top.sywyar.pixivdownload.setup.SetupService;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -748,7 +749,8 @@ public class ScheduleExecutor {
      * 取 meta / 解析 URL 的异常向上抛出，由 {@link WorkRunner#process} 串行分类（隔离 / 熔断）。
      */
     private DownloadJob prepareArtwork(String id, long artworkId, String cookie,
-                                       Filters filters, Download download, ScheduleRunQueue.Run run)
+                                       Filters filters, Download download, ScheduleRunQueue.Run run,
+                                       Map<Long, PixivFetchService.IllustSeriesMeta> seriesCache)
             throws Exception {
         PixivFetchService.ArtworkMeta meta = pixivFetchService.fetchArtworkMeta(id, cookie);
         run.setMeta(id, meta.title(), meta.xRestrict(), meta.ai());
@@ -761,6 +763,8 @@ public class ScheduleExecutor {
         other.setAuthorName(meta.authorName());
         other.setXRestrict(meta.xRestrict());
         other.setAi(meta.ai());
+        other.setDescription(meta.description());
+        other.setTags(meta.tags());
         other.setSeriesId(meta.seriesId());
         other.setSeriesOrder(meta.seriesOrder());
         other.setIllustType(meta.illustType());
@@ -769,6 +773,15 @@ public class ScheduleExecutor {
         other.setCollectionId(download.collectionId());
         // 图片间隔仅对多图插画有意义（下载器在相邻图片间 sleep）；小说不涉及。
         other.setDelayMs(download.imageDelayMs() == null ? 0 : Math.max(0, download.imageDelayMs()));
+        // 系列富信息（标题 + 简介 + 封面）：与 web 链路一致，本轮按 seriesId 缓存、best-effort，失败不挡下载。
+        if (meta.seriesId() != null && meta.seriesId() > 0) {
+            other.setSeriesTitle(meta.seriesTitle());
+            PixivFetchService.IllustSeriesMeta sm = resolveIllustSeriesMeta(meta.seriesId(), cookie, seriesCache);
+            if (sm != null) {
+                if (sm.caption() != null && !sm.caption().isBlank()) other.setSeriesDescription(sm.caption());
+                if (sm.coverUrl() != null && !sm.coverUrl().isBlank()) other.setSeriesCoverUrl(sm.coverUrl());
+            }
+        }
 
         List<String> imageUrls;
         if (meta.isUgoira()) {
@@ -796,7 +809,8 @@ public class ScheduleExecutor {
 
     /** 抓取小说详情、应用筛选；命中则组装请求并返回待提交线程池的下载任务，被筛选跳过返回 {@code null}。 */
     private DownloadJob prepareNovel(String id, long novelId, String cookie,
-                                     Filters filters, Download download, ScheduleRunQueue.Run run)
+                                     Filters filters, Download download, ScheduleRunQueue.Run run,
+                                     Map<Long, PixivFetchService.NovelSeriesMeta> seriesCache)
             throws Exception {
         PixivFetchService.NovelDetail d = pixivFetchService.fetchNovelDetail(id, cookie);
         run.setMeta(id, d.title(), d.xRestrict(), d.ai());
@@ -832,8 +846,58 @@ public class ScheduleExecutor {
         o.setBookmark(download.bookmark());
         o.setCollectionId(download.collectionId());
         o.setFormat(download.novelFormat());
+        // 系列富信息（简介 + 封面 + 系列标签）：与 web 链路一致，本轮按 seriesId 缓存、best-effort，失败不挡下载。
+        if (d.seriesId() != null && d.seriesId() > 0) {
+            PixivFetchService.NovelSeriesMeta sm = resolveNovelSeriesMeta(d.seriesId(), cookie, seriesCache);
+            if (sm != null) {
+                if (sm.caption() != null && !sm.caption().isBlank()) o.setSeriesDescription(sm.caption());
+                if (sm.coverUrl() != null && !sm.coverUrl().isBlank()) o.setSeriesCoverUrl(sm.coverUrl());
+                if (sm.tags() != null && !sm.tags().isEmpty()) o.setSeriesTags(sm.tags());
+            }
+        }
         req.setOther(o);
         return () -> novelDownloader.downloadBlocking(req, null);
+    }
+
+    /**
+     * 解析插画 / 漫画系列富信息（简介 + 封面），按 {@code seriesId} 在本轮内缓存（含失败的空结果），
+     * 仅在调度主线程串行调用。系列补信息是 best-effort：抓取失败只记 debug、返回空，绝不让作品下载失败。
+     */
+    private PixivFetchService.IllustSeriesMeta resolveIllustSeriesMeta(
+            long seriesId, String cookie, Map<Long, PixivFetchService.IllustSeriesMeta> cache) {
+        PixivFetchService.IllustSeriesMeta cached = cache.get(seriesId);
+        if (cached != null) {
+            return cached;
+        }
+        PixivFetchService.IllustSeriesMeta meta;
+        try {
+            meta = pixivFetchService.fetchIllustSeriesMeta(seriesId, cookie);
+        } catch (Exception e) {
+            log.debug("Scheduled illust series {} enrichment skipped: {}", seriesId, e.getMessage());
+            meta = new PixivFetchService.IllustSeriesMeta("", "");
+        }
+        cache.put(seriesId, meta);
+        return meta;
+    }
+
+    /**
+     * 解析小说系列富信息（简介 + 封面 + 系列标签），语义同 {@link #resolveIllustSeriesMeta}：本轮缓存、best-effort。
+     */
+    private PixivFetchService.NovelSeriesMeta resolveNovelSeriesMeta(
+            long seriesId, String cookie, Map<Long, PixivFetchService.NovelSeriesMeta> cache) {
+        PixivFetchService.NovelSeriesMeta cached = cache.get(seriesId);
+        if (cached != null) {
+            return cached;
+        }
+        PixivFetchService.NovelSeriesMeta meta;
+        try {
+            meta = pixivFetchService.fetchNovelSeriesMeta(seriesId, cookie);
+        } catch (Exception e) {
+            log.debug("Scheduled novel series {} enrichment skipped: {}", seriesId, e.getMessage());
+            meta = new PixivFetchService.NovelSeriesMeta("", "", List.of());
+        }
+        cache.put(seriesId, meta);
+        return meta;
     }
 
     /**
@@ -859,6 +923,9 @@ public class ScheduleExecutor {
         private final TaskExecutor pool;
         // 仅调度主线程顺序追加 / 读取（process 与 awaitAll 都在主线程），无需并发容器。
         private final List<CompletableFuture<Void>> inflight = new ArrayList<>();
+        // 本轮系列富信息缓存（按 seriesId）：同一系列的多个章节只查一次 Pixiv 系列 AJAX，仅主线程访问。
+        private final Map<Long, PixivFetchService.IllustSeriesMeta> illustSeriesCache = new HashMap<>();
+        private final Map<Long, PixivFetchService.NovelSeriesMeta> novelSeriesCache = new HashMap<>();
         private final Object pendingLock = new Object();
         private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
         private final AtomicInteger completedDownloads = new AtomicInteger(0);
@@ -910,8 +977,8 @@ public class ScheduleExecutor {
             DownloadJob job;
             try {
                 job = novel
-                        ? prepareNovel(id, workId, cookie, filters, download, run)
-                        : prepareArtwork(id, workId, cookie, filters, download, run);
+                        ? prepareNovel(id, workId, cookie, filters, download, run, novelSeriesCache)
+                        : prepareArtwork(id, workId, cookie, filters, download, run, illustSeriesCache);
             } catch (HttpClientErrorException e) {
                 int sc = e.getStatusCode().value();
                 if (sc == 404 || sc == 403) {
@@ -1141,8 +1208,9 @@ public class ScheduleExecutor {
             if (f.bookmarksMin() != null && m.bookmarkCount() < f.bookmarksMin()) return false;
             if (f.bookmarksMax() != null && m.bookmarkCount() > f.bookmarksMax()) return false;
         }
-        return tagsAllMatch(m.tags(), f.tagsExact(), false)
-                && tagsAllMatch(m.tags(), f.tagsFuzzy(), true);
+        List<String> tokens = tagTokens(m.tags());
+        return tagsAllMatch(tokens, f.tagsExact(), false)
+                && tagsAllMatch(tokens, f.tagsFuzzy(), true);
     }
 
     static boolean novelMatches(PixivFetchService.NovelDetail d, Filters f) {

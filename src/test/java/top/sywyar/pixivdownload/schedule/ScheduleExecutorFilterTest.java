@@ -29,8 +29,9 @@ class ScheduleExecutorFilterTest {
 
     private static PixivFetchService.ArtworkMeta artwork(int illustType, int xRestrict, boolean ai,
                                                          int bookmarkCount, int pageCount, List<String> tags) {
+        List<TagDto> tagDtos = tags.stream().map(t -> new TagDto(t, null)).toList();
         return new PixivFetchService.ArtworkMeta(illustType, "t", xRestrict, ai, 1L, "a", null, null,
-                bookmarkCount, pageCount, tags);
+                bookmarkCount, pageCount, tagDtos, "", null);
     }
 
     private static PixivFetchService.NovelDetail novel(int xRestrict, boolean ai, int bookmarkCount,

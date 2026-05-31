@@ -21,9 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -113,12 +111,14 @@ public class PixivFetchService {
                 "https://www.pixiv.net/ajax/illust/" + artworkId, cookie));
         Long seriesId = null;
         Long seriesOrder = null;
+        String seriesTitle = null;
         JsonNode nav = b.path("seriesNavData");
         if (nav.isObject()) {
             long sid = nav.path("seriesId").asLong(0);
             if (sid > 0) {
                 seriesId = sid;
                 seriesOrder = nav.path("order").asLong(0);
+                seriesTitle = nav.path("title").asText("");
             }
         }
         return new ArtworkMeta(
@@ -132,8 +132,35 @@ public class PixivFetchService {
                 seriesOrder,
                 b.path("bookmarkCount").asInt(-1),
                 b.path("pageCount").asInt(0),
-                extractTagTokens(b)
+                extractTags(b),
+                b.path("description").asText(""),
+                seriesTitle
         );
+    }
+
+    /**
+     * 拉取插画 / 漫画系列的富信息（简介 + 封面 URL），供计划任务下载时与 web 链路一致地补齐系列元数据。
+     * 简介取 {@code body.illustSeries[0].caption}、封面取 {@code cover.urls} 最优尺寸。
+     */
+    public IllustSeriesMeta fetchIllustSeriesMeta(long seriesId, String cookie) throws IOException {
+        JsonNode b = requireBody(proxyGet(
+                "https://www.pixiv.net/ajax/series/" + seriesId + "?p=1&lang=zh", cookie));
+        JsonNode arr = b.path("illustSeries");
+        if (arr.isArray() && !arr.isEmpty()) {
+            JsonNode s = arr.get(0);
+            return new IllustSeriesMeta(s.path("caption").asText(""), extractSeriesCoverUrl(s));
+        }
+        return new IllustSeriesMeta("", "");
+    }
+
+    /**
+     * 拉取小说系列的富信息（简介 + 封面 URL + 系列标签），供计划任务下载时与 web 链路一致地补齐系列元数据。
+     * 取 {@code /ajax/novel/series/{id}} 的 {@code body.caption} / 封面 / tags。
+     */
+    public NovelSeriesMeta fetchNovelSeriesMeta(long seriesId, String cookie) throws IOException {
+        JsonNode b = requireBody(proxyGet(
+                "https://www.pixiv.net/ajax/novel/series/" + seriesId + "?lang=zh", cookie));
+        return new NovelSeriesMeta(b.path("caption").asText(""), extractSeriesCoverUrl(b), extractTags(b));
     }
 
     /** 解析单作品的原图 URL 列表（插画 / 漫画）。 */
@@ -582,17 +609,20 @@ public class PixivFetchService {
     // ---- 解析辅助（与 PixivProxyController 同源，供服务端发现路径复用） ----------
 
     /** 标签词元（原名 + 英文翻译，已小写去重），供标签筛选的不区分大小写匹配。 */
-    private static List<String> extractTagTokens(JsonNode body) {
-        Set<String> tokens = new LinkedHashSet<>();
-        for (TagDto tag : extractTags(body)) {
-            if (tag.getName() != null && !tag.getName().isBlank()) {
-                tokens.add(tag.getName().toLowerCase(Locale.ROOT));
-            }
-            if (tag.getTranslatedName() != null && !tag.getTranslatedName().isBlank()) {
-                tokens.add(tag.getTranslatedName().toLowerCase(Locale.ROOT));
+    /** 从系列记录节点解析封面 URL：优先 {@code cover.urls} 最优尺寸，回退到常见单值字段。 */
+    private static String extractSeriesCoverUrl(JsonNode meta) {
+        JsonNode urls = meta.path("cover").path("urls");
+        if (urls.isObject()) {
+            for (String key : List.of("original", "1200x1200", "720x720", "480mw", "240mw")) {
+                String value = urls.path(key).asText("");
+                if (!value.isBlank()) return value;
             }
         }
-        return new ArrayList<>(tokens);
+        for (String key : List.of("coverImageUrl", "coverImage", "thumbnailUrl")) {
+            String value = meta.path(key).asText("");
+            if (!value.isBlank()) return value;
+        }
+        return "";
     }
 
     private static List<TagDto> extractTags(JsonNode body) {
@@ -750,15 +780,26 @@ public class PixivFetchService {
      *
      * @param bookmarkCount 收藏数（Pixiv 未返回时为 -1）
      * @param pageCount     页数（插画 / 漫画）
-     * @param tags          标签词元（原名 + 英文翻译，用于计划任务服务端标签筛选；已小写）
+     * @param tags          标签（原名 + 英文翻译），同时供落库与计划任务服务端标签筛选
+     * @param description   作品简介（原始 markup，落库前再统一规整链接）
+     * @param seriesTitle   所属系列标题（无系列时为 {@code null}）
      */
     public record ArtworkMeta(int illustType, String title, int xRestrict, boolean ai,
                               Long authorId, String authorName, Long seriesId, Long seriesOrder,
-                              int bookmarkCount, int pageCount, List<String> tags) {
+                              int bookmarkCount, int pageCount, List<TagDto> tags,
+                              String description, String seriesTitle) {
         /** illustType==2 为动图（ugoira）。 */
         public boolean isUgoira() {
             return illustType == 2;
         }
+    }
+
+    /** 插画 / 漫画系列富信息（简介 + 封面 URL）。 */
+    public record IllustSeriesMeta(String caption, String coverUrl) {
+    }
+
+    /** 小说系列富信息（简介 + 封面 URL + 系列标签）。 */
+    public record NovelSeriesMeta(String caption, String coverUrl, List<TagDto> tags) {
     }
 
     /** 动图帧信息。 */
