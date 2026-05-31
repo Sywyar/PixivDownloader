@@ -441,6 +441,56 @@ public class NovelGalleryController {
                 result.mergedPath(), result.chapterCount(), fmt.ext()));
     }
 
+    /**
+     * 浏览器下载系列合订本。每次都按当前数据库状态重新生成（原文基准 / 指定语言变体），
+     * 然后把生成的文件作为附件回传。{@code lang} 为空 → 生成原文基准合订本；
+     * 非空 → 仅生成该语言变体合订本，未翻译的章节回退到原文（与 {@link NovelMergeService} 既有语义一致）。
+     */
+    @GetMapping("/novel/series/{seriesId}/merged")
+    public ResponseEntity<byte[]> downloadMergedSeries(
+            @PathVariable long seriesId,
+            @RequestParam(required = false) String format,
+            @RequestParam(required = false) String lang,
+            HttpServletRequest httpRequest) throws IOException {
+        Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
+        if (filter != null && !filter.contains(seriesId)) {
+            return ResponseEntity.notFound().build();
+        }
+        NovelDownloadService.NovelFormat fmt = (format == null || format.isBlank())
+                ? NovelDownloadService.NovelFormat.EPUB
+                : NovelDownloadService.NovelFormat.parse(format);
+        NovelMergeService.MergeResult result = (lang == null || lang.isBlank())
+                ? novelMergeService.merge(seriesId, fmt)
+                : novelMergeService.mergeVariant(seriesId, fmt, lang.trim());
+        if (!result.success() || result.mergedPath() == null) {
+            return ResponseEntity.notFound().build();
+        }
+        Path file = Paths.get(result.mergedPath());
+        if (!Files.isRegularFile(file)) {
+            return ResponseEntity.notFound().build();
+        }
+        byte[] body = Files.readAllBytes(file);
+        String filename = file.getFileName().toString();
+        // RFC 5987 filename* 编码，避免中文系列名在 Content-Disposition 中被截断
+        String encoded = java.net.URLEncoder.encode(filename, java.nio.charset.StandardCharsets.UTF_8)
+                .replace("+", "%20");
+        String asciiFallback = filename.replaceAll("[\\p{Cntrl}\"\\\\]", "_");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(mergedMimeFor(fmt)));
+        headers.set(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"" + asciiFallback + "\"; filename*=UTF-8''" + encoded);
+        headers.setCacheControl(CacheControl.noStore());
+        return ResponseEntity.ok().headers(headers).body(body);
+    }
+
+    private static String mergedMimeFor(NovelDownloadService.NovelFormat fmt) {
+        return switch (fmt) {
+            case EPUB -> "application/epub+zip";
+            case HTML -> "text/html; charset=UTF-8";
+            case TXT -> "text/plain; charset=UTF-8";
+        };
+    }
+
     @PostMapping("/novels/downloaded-batch")
     public ResponseEntity<NovelDownloadedBatchResponse> downloadedBatch(
             @RequestBody NovelDownloadedBatchRequest request) {
