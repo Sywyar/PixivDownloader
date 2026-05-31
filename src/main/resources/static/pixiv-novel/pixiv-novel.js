@@ -164,10 +164,23 @@ async function loadContent(lang) {
         if (r.ok) {
             const data = await r.json();
             renderContent(data.content || '', buildImageResolver({ local: localIds, hideMissing: true }));
+            applyTitleForLang(data);
             return;
         }
     } catch {}
     document.getElementById('content-card').innerHTML = `<div class="empty">${pageI18n.t('status.load-failed')}</div>`;
+}
+
+// 切换内容语言时同步替换显示标题：返回 translated=true 且带 translatedTitle 时用译后标题，否则回退原文标题。
+function applyTitleForLang(data) {
+    const titleEl = document.getElementById('novel-title');
+    if (!titleEl || !novelView) return;
+    const fallback = novelView.title || '';
+    if (data && data.translated && data.translatedTitle && data.translatedTitle.trim()) {
+        titleEl.textContent = data.translatedTitle;
+    } else {
+        titleEl.textContent = fallback;
+    }
 }
 
 function renderBadges(o) {

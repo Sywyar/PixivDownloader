@@ -788,6 +788,28 @@
         return res.json();
     }
 
+    // 翻译某系列的系列名为目标语言（admin only）。best-effort：失败仅返回 null，不抛错。
+    // 传 glossaryId 时与正文翻译共用同一张映射表，保证系列名与已译章节标题的术语一致。
+    async function translateSeriesTitle(seriesId, targetLanguage, langHint, glossaryId) {
+        try {
+            var res = await fetch('/api/gallery/novel/series/' + encodeURIComponent(seriesId)
+                + '/translate-title', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    targetLanguage: targetLanguage,
+                    langHint: langHint || null,
+                    glossaryId: (glossaryId == null ? null : glossaryId)
+                })
+            });
+            if (!res.ok) return null;
+            var data = await res.json();
+            return (data && data.langCode) ? data : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
     async function fetchSeriesNovelIds(seriesId) {
         var res = await fetch('/api/gallery/novel/series/' + encodeURIComponent(seriesId) + '/novel-ids',
             { credentials: 'same-origin' });
@@ -993,6 +1015,10 @@
         var mergeFailed = null;
         if (!cancelled && !error && result && opts.seriesId
                 && result.status === 'OK' && result.langCode) {
+            // 合订前顺手补齐该系列在此语言下的系列名翻译（best-effort），共用本次翻译选定的映射表
+            try { await translateSeriesTitle(opts.seriesId, opts.choice.targetLanguage,
+                    result.langCode, opts.choice.glossaryId); }
+            catch (_) {}
             state.phase = 'merging';
             state.phaseStartedAt = Date.now();
             state.cancelDisabled = true;
@@ -1103,6 +1129,10 @@
 
         var mergeFailed = null;
         if (!invalid && langCode && (state.ok > 0 || state.skipped > 0)) {
+            // 合订前先把系列名翻译好（best-effort），共用本次翻译选定的映射表，让合订本与系列页都用译后系列名
+            try { await translateSeriesTitle(opts.seriesId, opts.choice.targetLanguage,
+                    langCode, opts.choice.glossaryId); }
+            catch (_) {}
             state.phase = 'merging';
             state.phaseStartedAt = Date.now();
             state.cancelDisabled = true;
@@ -1129,6 +1159,7 @@
     global.PixivTranslate = {
         openDialog: openDialog,
         translateNovel: translateNovel,
+        translateSeriesTitle: translateSeriesTitle,
         mergeSeriesLang: mergeSeriesLang,
         fetchSeriesNovelIds: fetchSeriesNovelIds,
         runSingleNovel: runSingleNovel,

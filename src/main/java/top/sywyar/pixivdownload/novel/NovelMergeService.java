@@ -87,10 +87,15 @@ public class NovelMergeService {
         }
 
         NovelSeries series = novelDatabase.getSeries(seriesId);
-        String seriesTitle = series == null || series.title() == null || series.title().isBlank()
+        String originalSeriesTitle = series == null || series.title() == null || series.title().isBlank()
                 ? String.valueOf(seriesId) : series.title();
         boolean variant = langCode != null && !langCode.isBlank();
-        String nameSeed = variant ? seriesTitle + "_" + langCode : seriesTitle;
+        // 系列名：变体取该语言已落库的系列名译文（缺失回退原文），原文基准直接取原文。
+        String seriesTitle = variant
+                ? resolveSeriesTitleForLang(seriesId, langCode, originalSeriesTitle)
+                : originalSeriesTitle;
+        // 文件名沿用原系列名 + 语言代码后缀，避免同一系列在不同语言下的合订本因译后系列名冲突而互相覆盖。
+        String nameSeed = variant ? originalSeriesTitle + "_" + langCode : originalSeriesTitle;
         String fallback = variant ? seriesId + "_" + langCode : String.valueOf(seriesId);
         String safeTitle = ArtworkFileNameFormatter.normalizeBaseName(nameSeed, fallback);
         Path outDir = Paths.get(downloadConfig.getRootFolder())
@@ -104,7 +109,7 @@ public class NovelMergeService {
             case EPUB -> writeEpub(outFile, seriesId, seriesTitle, chapters, series, langCode);
         }
         if (!variant) {
-            cleanupLegacyMerge(outDir, seriesTitle, seriesId, format.ext(), outFile);
+            cleanupLegacyMerge(outDir, originalSeriesTitle, seriesId, format.ext(), outFile);
         }
         log.info("novel series merged: seriesId={}, format={}, lang={}, file={}",
                 seriesId, format.ext(), langCode == null ? "-" : langCode, outFile);
@@ -120,6 +125,20 @@ public class NovelMergeService {
             }
         }
         return r.rawContent() == null ? "" : r.rawContent();
+    }
+
+    /** 逐章取用的章节标题：变体取该语言译文标题（缺失回退原文标题），原文基准直接取原标题。 */
+    private String chapterTitleOf(NovelRecord r, String langCode) {
+        String fallback = r.title() == null || r.title().isBlank() ? "#" + r.novelId() : r.title();
+        if (langCode == null || langCode.isBlank()) return fallback;
+        String translated = novelDatabase.getTranslationTitle(r.novelId(), langCode);
+        return translated == null || translated.isBlank() ? fallback : translated;
+    }
+
+    /** 变体合订的系列名：DB 中存在该语言系列名译文则采用，否则回退原系列名。 */
+    private String resolveSeriesTitleForLang(long seriesId, String langCode, String fallback) {
+        String translated = novelDatabase.getSeriesTitleTranslation(seriesId, langCode);
+        return translated == null || translated.isBlank() ? fallback : translated;
     }
 
     /**
@@ -149,8 +168,7 @@ public class NovelMergeService {
         StringBuilder sb = new StringBuilder();
         sb.append("# ").append(seriesTitle).append("\n\n");
         for (NovelRecord r : chapters) {
-            String chapterTitle = r.title() == null || r.title().isBlank()
-                    ? "#" + r.novelId() : r.title();
+            String chapterTitle = chapterTitleOf(r, langCode);
             sb.append("\n\n=== ").append(chapterTitle).append(" ===\n\n");
             String body = NovelMarkupParser.render(
                     contentOf(r, langCode),
@@ -172,8 +190,7 @@ public class NovelMergeService {
                 .append(".novel-image-placeholder{color:#888;}\n.novel-jump{color:#888;font-size:0.85em;}\n")
                 .append("</style>\n</head>\n<body>\n<h1>").append(escapeHtml(seriesTitle)).append("</h1>\n");
         for (NovelRecord r : chapters) {
-            String chapterTitle = r.title() == null || r.title().isBlank()
-                    ? "#" + r.novelId() : r.title();
+            String chapterTitle = chapterTitleOf(r, langCode);
             sb.append("<h2>").append(escapeHtml(chapterTitle)).append("</h2>\n");
             sb.append(NovelMarkupParser.render(
                     contentOf(r, langCode),
@@ -193,8 +210,7 @@ public class NovelMergeService {
         Map<String, NovelEpubWriter.ImageResource> imagesById = new LinkedHashMap<>();
         String firstLang = "ja";
         for (NovelRecord r : chapters) {
-            String novelTitle = r.title() == null || r.title().isBlank()
-                    ? "#" + r.novelId() : r.title();
+            String novelTitle = chapterTitleOf(r, langCode);
             collectChapterImages(r, imagesById);
             // 每本小说内部再按 [chapter:] 拆分，形成「小说 → 章节」两级目录
             List<NovelMarkupParser.Segment> segments = NovelMarkupParser.splitChapters(

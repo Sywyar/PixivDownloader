@@ -24,6 +24,7 @@ public record TranslationResponse(
         @JsonProperty("status") String status,
         @JsonProperty("lang") String lang,
         @JsonProperty("text") String text,
+        @JsonProperty("title") String title,
         @JsonProperty("glossary") List<NewTerm> glossary
 ) {
 
@@ -44,6 +45,17 @@ public record TranslationResponse(
     /** 翻译是否成功（状态码为 {@code ok} 且译文非 null）。 */
     public boolean ok() {
         return STATUS_OK.equalsIgnoreCase(trimmed(status)) && text != null;
+    }
+
+    /**
+     * 模型本次回报的译后标题（同请求附带 sourceTitle 时才会有效）。
+     * 缺省 / 空白 / 字面 {@code "null"} 一律视为「本段未译标题」，返回 {@code null}。
+     */
+    public String translatedTitle() {
+        if (title == null) return null;
+        String trimmed = title.trim();
+        if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("null")) return null;
+        return trimmed;
     }
 
     /** 模型是否判定目标语言不存在 / 无法识别。 */

@@ -22,6 +22,10 @@
     let activeContentLang = '';
     let seriesTranslatedLangs = [];
     let contentLangCtl = null;
+    // 译后系列名按语言缓存，避免切语言时反复请求（首次请求 /series/{id}?lang= 获取后塞入）
+    const seriesTitleByLang = {};
+    // 译后章节标题按 lang+novelId 缓存：当前页章节切语言时由批量端点一次性填充
+    let chapterTitlesByLang = {}; // { [lang]: { [novelId]: translatedTitle } }
 
     const ImageCache = (() => {
         const PREFIX = 'pxImg:';
@@ -264,11 +268,66 @@
             i18n: pageI18n,
             languages: seriesTranslatedLangs,
             current: activeContentLang,
-            onChange: (lang) => {
+            onChange: async (lang) => {
                 activeContentLang = lang || '';
+                await Promise.all([
+                    fetchSeriesTitleForLang(activeContentLang),
+                    fetchChapterTitlesForLang(activeContentLang, state.items),
+                ]);
+                renderSeriesHeader();
                 renderGrid(state.items);
             }
         });
+    }
+
+    // 系列名：取该语言的译后系列名（一次性请求 + 内存缓存）。lang 为空时清除并由 renderSeriesHeader 自动回退到原名。
+    async function fetchSeriesTitleForLang(lang) {
+        if (!lang || !state.seriesId) return;
+        if (Object.prototype.hasOwnProperty.call(seriesTitleByLang, lang)) return;
+        try {
+            const data = await api(`/api/gallery/novel/series/${state.seriesId}?lang=${encodeURIComponent(lang)}`);
+            seriesTitleByLang[lang] = (data && data.translatedTitle) ? data.translatedTitle : '';
+        } catch (_) {
+            seriesTitleByLang[lang] = '';
+        }
+    }
+
+    // 章节标题：批量取当前页章节在该语言的译后标题（一次性请求 + 按 lang 缓存覆盖）。lang 空时跳过。
+    async function fetchChapterTitlesForLang(lang, items) {
+        if (!lang || !Array.isArray(items) || !items.length) return;
+        const ids = items.map(it => it && it.novelId).filter(id => id != null);
+        if (!ids.length) return;
+        try {
+            const url = `/api/gallery/novel/translated-titles?lang=${encodeURIComponent(lang)}`
+                + `&ids=${encodeURIComponent(ids.join(','))}`;
+            const data = await api(url);
+            const titles = (data && data.titles) || {};
+            const bucket = chapterTitlesByLang[lang] || {};
+            Object.keys(titles).forEach(k => { bucket[k] = titles[k]; });
+            chapterTitlesByLang[lang] = bucket;
+        } catch (_) {
+            // 失败回退到原标题，不报错
+        }
+    }
+
+    // 当前章节卡片应显示的标题：所选语言译文优先，回退原标题。
+    function chapterDisplayTitle(item) {
+        if (!item) return '';
+        const original = item.title || t('status.untitled', 'Untitled');
+        if (!activeContentLang || !item.novelId) return original;
+        const bucket = chapterTitlesByLang[activeContentLang];
+        const translated = bucket ? bucket[item.novelId] : null;
+        return (translated && String(translated).trim()) ? translated : original;
+    }
+
+    // 当前应显示的系列名：所选语言译后系列名优先，回退原系列名。
+    function seriesDisplayTitle() {
+        const detail = state.detail;
+        const original = (detail && detail.title)
+            || modeText('series.default', 'Series #{id}', 'Series #{id}', {id: state.seriesId});
+        if (!activeContentLang) return original;
+        const translated = seriesTitleByLang[activeContentLang];
+        return (translated && String(translated).trim()) ? translated : original;
     }
 
     function setSeriesMessage(text) {
@@ -626,6 +685,13 @@
                 return;
             }
             state.detail = buildNovelDetail();
+            // 当前选了内容语言：一次性拉本页章节的译后标题 + 该语言系列名（缺失时回退原文）。
+            if (activeContentLang) {
+                await Promise.all([
+                    fetchSeriesTitleForLang(activeContentLang),
+                    fetchChapterTitlesForLang(activeContentLang, state.items),
+                ]);
+            }
             renderSeriesHeader();
             renderMeta();
             renderStatus();
@@ -689,7 +755,8 @@
             return;
         }
 
-        const title = detail.title || modeText('series.default', 'Series #{id}', 'Series #{id}', {id: detail.seriesId});
+        const originalTitle = detail.title || modeText('series.default', 'Series #{id}', 'Series #{id}', {id: detail.seriesId});
+        const title = isNovelMode() ? seriesDisplayTitle() : originalTitle;
         titleEl.textContent = title;
         document.title = modeText('page.title-with-name', '{title} - Manga Series', '{title} - Novel Series', {title});
         galleryBtn.href = isNovelMode()
@@ -918,7 +985,7 @@
             const isAi = item.isAi === true;
             const isOriginal = item.isOriginal === true;
             const isCurrent = state.currentId && String(item.novelId) === String(state.currentId);
-            const title = item.title || t('status.untitled', 'Untitled');
+            const title = chapterDisplayTitle(item);
             const cover = item.coverExt
                 ? `<img src="/api/gallery/novel/${item.novelId}/cover" alt="${escapeHtml(title)}" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'chapter-cover-placeholder',textContent:this.alt}))">`
                 : `<div class="chapter-cover-placeholder">${escapeHtml(title)}</div>`;

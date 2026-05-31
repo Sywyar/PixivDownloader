@@ -32,6 +32,7 @@ import java.nio.file.Paths;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -255,10 +256,12 @@ public class NovelGalleryController {
         if (lang != null && !lang.isBlank()) {
             String translated = novelDatabase.getTranslationContent(novelId, lang.trim());
             if (translated != null && !translated.isBlank()) {
-                return ResponseEntity.ok(new NovelContentResponse(translated, lang.trim(), true));
+                String translatedTitle = novelDatabase.getTranslationTitle(novelId, lang.trim());
+                return ResponseEntity.ok(new NovelContentResponse(
+                        translated, lang.trim(), true, translatedTitle));
             }
         }
-        return ResponseEntity.ok(new NovelContentResponse(original, null, false));
+        return ResponseEntity.ok(new NovelContentResponse(original, null, false, null));
     }
 
     /**
@@ -297,6 +300,56 @@ public class NovelGalleryController {
         return ResponseEntity.ok(new TranslateLangProbeResponse(code, !code.isEmpty()));
     }
 
+    /**
+     * 翻译某系列的系列名为指定目标语言（AI），并把结果落库。仅管理员可用（{@code /api/gallery/} 受 monitor 语义保护，
+     * POST 不在访客白名单内）。前端「翻译整个系列」流程在章节正文翻译完成后调用一次，确保系列名也跟上变体语言。
+     */
+    @PostMapping("/novel/series/{seriesId}/translate-title")
+    public ResponseEntity<TranslateSeriesTitleResponse> translateSeriesTitle(
+            @PathVariable long seriesId, @RequestBody TranslateSeriesTitleRequest request) {
+        if (request == null || request.targetLanguage() == null || request.targetLanguage().isBlank()) {
+            return ResponseEntity.badRequest().body(new TranslateSeriesTitleResponse(
+                    null, null, messages.get("novel.translate.missing-language")));
+        }
+        String langCode = novelTranslationService.translateSeriesTitle(
+                seriesId, request.targetLanguage(), request.langHint(), request.glossaryId());
+        if (langCode == null || langCode.isBlank()) {
+            return ResponseEntity.ok(new TranslateSeriesTitleResponse(null, null, null));
+        }
+        String translated = novelDatabase.getSeriesTitleTranslation(seriesId, langCode);
+        return ResponseEntity.ok(new TranslateSeriesTitleResponse(langCode, translated, null));
+    }
+
+    /**
+     * 给定一批小说 ID 与目标语言，批量返回各小说在该语言下已存在的译文标题（{@code novel_translations.title}）。
+     * 不存在该语言译文或译文未带标题的小说不出现在返回 map 中。供章节卡片列表一次性替换为译后标题。
+     */
+    @GetMapping("/novel/translated-titles")
+    public ResponseEntity<TranslatedTitlesResponse> translatedTitles(
+            @RequestParam String lang,
+            @RequestParam(required = false) String ids,
+            HttpServletRequest httpRequest) {
+        if (lang == null || lang.isBlank() || ids == null || ids.isBlank()) {
+            return ResponseEntity.ok(new TranslatedTitlesResponse(Map.of()));
+        }
+        // 邀请访客需要按可见性裁剪：只回那些访客能看到的小说的译后标题，避免泄露隐藏作品标题。
+        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
+        Map<Long, String> out = new java.util.LinkedHashMap<>();
+        String langCode = lang.trim();
+        for (String token : ids.split(",")) {
+            String t = token.trim();
+            if (t.isEmpty()) continue;
+            long novelId;
+            try { novelId = Long.parseLong(t); } catch (NumberFormatException ignored) { continue; }
+            if (session != null && !guestAccessGuard.isNovelVisibleToGuest(novelId, session)) continue;
+            String translated = novelDatabase.getTranslationTitle(novelId, langCode);
+            if (translated != null && !translated.isBlank()) {
+                out.put(novelId, translated);
+            }
+        }
+        return ResponseEntity.ok(new TranslatedTitlesResponse(out));
+    }
+
     /** 系列内全部章节的 novel_id（按 series_order 升序），供「翻译整个系列」前端逐章循环。 */
     @GetMapping("/novel/series/{seriesId}/novel-ids")
     public ResponseEntity<NovelSeriesChapterIdsResponse> seriesNovelIds(@PathVariable long seriesId,
@@ -319,6 +372,13 @@ public class NovelGalleryController {
     public record TranslateLangProbeRequest(String targetLanguage) {}
 
     public record TranslateLangProbeResponse(String code, boolean valid) {}
+
+    public record TranslateSeriesTitleRequest(String targetLanguage, String langHint, Long glossaryId) {}
+
+    /** {@code langCode} 为空字符串或 {@code null} 表示翻译失败 / 标题为空；{@code title} 同步给出译后系列名。 */
+    public record TranslateSeriesTitleResponse(String langCode, String title, String message) {}
+
+    public record TranslatedTitlesResponse(Map<Long, String> titles) {}
 
     public record NovelSeriesChapterIdsResponse(List<Long> novelIds) {}
 
@@ -374,6 +434,7 @@ public class NovelGalleryController {
 
     @GetMapping("/novel/series/{seriesId}")
     public ResponseEntity<NovelSeriesDetailResponse> getSeries(@PathVariable long seriesId,
+                                                               @RequestParam(required = false) String lang,
                                                                HttpServletRequest httpRequest) {
         Set<Long> filter = resolveGuestNovelSeriesFilter(httpRequest);
         if (filter != null && !filter.contains(seriesId)) {
@@ -383,7 +444,10 @@ public class NovelGalleryController {
         if (series == null) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(toDetailResponse(series));
+        String translatedTitle = (lang == null || lang.isBlank())
+                ? null
+                : novelDatabase.getSeriesTitleTranslation(seriesId, lang.trim());
+        return ResponseEntity.ok(toDetailResponse(series, translatedTitle));
     }
 
     @GetMapping("/novel/series/{seriesId}/cover")
@@ -502,7 +566,8 @@ public class NovelGalleryController {
 
     public record NovelDownloadedBatchResponse(List<Long> novelIds) {}
 
-    public record NovelContentResponse(String content, String lang, boolean translated) {}
+    public record NovelContentResponse(String content, String lang, boolean translated,
+                                       String translatedTitle) {}
 
     public record NovelSeriesNavResponse(Long seriesId, String seriesTitle, Long currentOrder,
                                          NeighborView prev, NeighborView next) {}
@@ -514,9 +579,10 @@ public class NovelGalleryController {
 
     public record NovelSeriesDetailResponse(long seriesId, String title, Long authorId, long updatedTime,
                                             String description, String coverExt, String coverFolder,
-                                            List<TagDto> tags, List<String> translatedLanguages) {}
+                                            List<TagDto> tags, List<String> translatedLanguages,
+                                            String translatedTitle) {}
 
-    private NovelSeriesDetailResponse toDetailResponse(NovelSeries series) {
+    private NovelSeriesDetailResponse toDetailResponse(NovelSeries series, String translatedTitle) {
         return new NovelSeriesDetailResponse(
                 series.seriesId(),
                 series.title(),
@@ -526,6 +592,7 @@ public class NovelGalleryController {
                 series.coverExt(),
                 series.coverFolder(),
                 novelDatabase.getNovelSeriesTags(series.seriesId()),
-                novelDatabase.getSeriesTranslatedLangs(series.seriesId()));
+                novelDatabase.getSeriesTranslatedLangs(series.seriesId()),
+                translatedTitle);
     }
 }

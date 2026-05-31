@@ -349,6 +349,18 @@ public final class ManagedDatabaseSchema {
                         column("novel_id", "INTEGER", true, null, 1),
                         column("lang_code", "TEXT", true, null, 2),
                         column("raw_content", "TEXT", true, null, 0),
+                        column("title", "TEXT", false, null, 0),
+                        column("created_time", "INTEGER", true, null, 0)
+                ),
+                List.of()
+        ));
+
+        tables.put("novel_series_title_translations", new TableSpec(
+                "novel_series_title_translations",
+                List.of(
+                        column("series_id", "INTEGER", true, null, 1),
+                        column("lang_code", "TEXT", true, null, 2),
+                        column("title", "TEXT", true, null, 0),
                         column("created_time", "INTEGER", true, null, 0)
                 ),
                 List.of()
