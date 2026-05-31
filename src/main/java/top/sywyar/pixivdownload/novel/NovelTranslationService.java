@@ -59,28 +59,46 @@ public class NovelTranslationService {
     public record Result(Status status, String langCode, String message, boolean truncated) {}
 
     /**
-     * 翻译单本小说为目标语言。
+     * 翻译单本小说为目标语言。{@code translateBody / translateTitle / translateDescription} 三者必须至少有一项为
+     * {@code true}（由 controller 校验）。{@code translateBody = false} 时跳过正文 AI 调用，仅对标题 / 简介走
+     * 一次轻量 {@link TitleTranslationRequest} 调用（glossary-only，不附章节标题参考；description-only 时
+     * 仍把原标题作为上下文传入，但只保存被请求的字段）。
      *
-     * @param novelId        小说 ID
-     * @param targetLanguage 用户填写的目标语言自由文本（如「简体中文」「english」）
-     * @param segmentSize    分段字数阈值；{@code <=0} 表示整章一次性翻译
-     * @param overwrite      已存在该语言译文时：{@code true} 覆盖重译，{@code false} 跳过
-     * @param langHint       目标语言代码提示（系列批量时由首章解析得到）；命中且 {@code !overwrite} 可在调用 AI 前直接跳过
-     * @param glossaryId     名词映射表 ID；{@code null} 表示不使用映射表（不注入术语、不回写新名词）
+     * @param novelId             小说 ID
+     * @param targetLanguage      用户填写的目标语言自由文本（如「简体中文」「english」）
+     * @param segmentSize         分段字数阈值；{@code <=0} 表示整章一次性翻译
+     * @param overwrite           已存在该语言译文时：{@code true} 覆盖重译，{@code false} 跳过
+     * @param langHint            目标语言代码提示（系列批量时由首章解析得到）；命中且 {@code !overwrite} 可在调用 AI 前直接跳过
+     * @param glossaryId          名词映射表 ID；{@code null} 表示不使用映射表（不注入术语、不回写新名词）
+     * @param translateBody       是否翻译正文
+     * @param translateTitle      是否翻译章节标题
+     * @param translateDescription 是否翻译章节简介
      */
     public Result translateChapter(long novelId, String targetLanguage, int segmentSize,
-                                   boolean overwrite, String langHint, Long glossaryId) {
+                                   boolean overwrite, String langHint, Long glossaryId,
+                                   boolean translateBody, boolean translateTitle,
+                                   boolean translateDescription) {
+        if (!translateBody && !translateTitle && !translateDescription) {
+            return new Result(Status.ERROR, null,
+                    messages.get("novel.translate.no-scope"), false);
+        }
         NovelRecord record = novelDatabase.getNovel(novelId);
         if (record == null) {
             return new Result(Status.NOT_FOUND, null, messages.get("novel.translate.not-found"), false);
+        }
+        if (!translateBody) {
+            return translateMetadataOnly(record, targetLanguage, overwrite, langHint, glossaryId,
+                    translateTitle, translateDescription);
         }
         String raw = record.rawContent();
         if (raw == null || raw.isBlank()) {
             return new Result(Status.EMPTY, null, messages.get("novel.translate.empty"), false);
         }
-        // 提示语言代码命中且选择跳过：无需调用 AI 直接跳过
+        // 提示语言代码命中且选择跳过：只在<b>用户勾选的所有字段</b>都已有非空译文时跳过；
+        // 否则即便该语言已有部分行（例如已译正文但缺标题）仍需继续翻译以补齐。
         if (!overwrite && langHint != null && !langHint.isBlank()
-                && novelDatabase.hasTranslation(novelId, langHint)) {
+                && isAllRequestedFieldsTranslated(novelId, langHint,
+                translateBody, translateTitle, translateDescription)) {
             return new Result(Status.SKIPPED, langHint.trim(),
                     messages.get("novel.translate.skipped"), false);
         }
@@ -94,17 +112,20 @@ public class NovelTranslationService {
         // 跨段累计模型回报的新名词（同一原文以首次出现为准）
         Map<String, TranslationResponse.NewTerm> newTerms = new LinkedHashMap<>();
         String langCode = null;
-        // 章节标题随首段同请求翻译；首段成功后写入此变量，结尾连同正文一起入库（DB 端 null 表示不动旧标题）。
+        // 章节标题 / 简介随首段同请求翻译；首段成功后写入此变量，结尾连同正文一起入库（DB 端 null 表示不动旧值）。
         String translatedTitle = null;
+        String translatedDescription = null;
         boolean truncated = false;
         try {
             for (int i = 0; i < segments.size(); i++) {
-                // 首段附 sourceTitle：让标题与本段正文共享同一次 AI 调用，自动复用同一映射表与上下文。
-                String segmentTitle = i == 0 ? record.title() : null;
+                // 首段附 sourceTitle / sourceDescription：让标题与简介与本段正文共享同一次 AI 调用，
+                // 自动复用同一映射表与上下文，保证术语一致。仅在用户勾选对应字段时附带 + 保存。
+                String segmentTitle = (i == 0 && translateTitle) ? record.title() : null;
+                String segmentDescription = (i == 0 && translateDescription) ? record.description() : null;
                 AiChatResult chat = aiService.chat(
                         TranslationRequest.CALL_TYPE,
                         new TranslationRequest(targetLanguage, segments.get(i),
-                                segmentTitle, glossaryTerms).toMessages(),
+                                segmentTitle, segmentDescription, glossaryTerms).toMessages(),
                         AiChatOptions.json().withTemperature(0.3));
                 TranslationResponse parsed = TranslationResponse.parse(chat.content());
                 if (parsed.invalidLanguage()) {
@@ -117,12 +138,16 @@ public class NovelTranslationService {
                 }
                 if (i == 0) {
                     langCode = normalizeLang(parsed.lang(), targetLanguage);
-                    // 首段解析出语言代码后，若选择跳过且已存在该语言译文，则不再继续翻译其余分段
-                    if (!overwrite && novelDatabase.hasTranslation(novelId, langCode)) {
+                    // 首段解析出语言代码后，若所有勾选字段都已译完则跳过，避免重复 AI 调用；
+                    // 仅部分字段已译时继续翻译以补齐缺失项。
+                    if (!overwrite && isAllRequestedFieldsTranslated(novelId, langCode,
+                            translateBody, translateTitle, translateDescription)) {
                         return new Result(Status.SKIPPED, langCode,
                                 messages.get("novel.translate.skipped"), false);
                     }
-                    translatedTitle = parsed.translatedTitle();
+                    // 仅在用户勾选对应字段时落库（未勾选 → null，saveTranslation 会保留旧值不动）。
+                    translatedTitle = translateTitle ? parsed.translatedTitle() : null;
+                    translatedDescription = translateDescription ? parsed.translatedDescription() : null;
                 }
                 translatedSegments.add(parsed.text() == null ? "" : parsed.text());
                 boolean usableLang = langCode != null && !langCode.isBlank();
@@ -141,7 +166,7 @@ public class NovelTranslationService {
         }
 
         String translated = String.join("\n", translatedSegments);
-        novelDatabase.saveTranslation(novelId, langCode, translated, translatedTitle);
+        novelDatabase.saveTranslation(novelId, langCode, translated, translatedTitle, translatedDescription);
         mergeNewTerms(glossaryId, langCode, newTerms.values());
         String message = truncated
                 ? messages.get("novel.translate.truncated")
@@ -150,28 +175,95 @@ public class NovelTranslationService {
     }
 
     /**
-     * 把某系列的系列名翻译为目标语言并落库。AI 请求里会附带：
+     * 仅翻译章节标题 / 简介（不动正文）。走一次 {@link TitleTranslationRequest} 调用，
+     * 不附章节标题参考（单本场景下无意义）；翻译时仍把原标题作为上下文传给 AI，但只持久化用户勾选的字段。
+     * 适用于用户只想补译标题、补译简介、或两者一起补译的场景，节省 AI tokens。
+     */
+    private Result translateMetadataOnly(NovelRecord record, String targetLanguage,
+                                         boolean overwrite, String langHint, Long glossaryId,
+                                         boolean translateTitle, boolean translateDescription) {
+        long novelId = record.novelId();
+        String title = record.title();
+        // 没有标题可作上下文且只想翻译简介时仍可继续（AI 不会强制要标题），但若同时连标题字段都没有则更明确。
+        if ((title == null || title.isBlank())
+                && (record.description() == null || record.description().isBlank())) {
+            return new Result(Status.EMPTY, null, messages.get("novel.translate.empty"), false);
+        }
+        // hint 命中且跳过模式：仅当用户勾选的字段都已有非空译文时跳过；只译了正文 / 只译了标题等部分场景仍需补齐。
+        if (!overwrite && langHint != null && !langHint.isBlank()
+                && isAllRequestedFieldsTranslated(novelId, langHint,
+                false, translateTitle, translateDescription)) {
+            return new Result(Status.SKIPPED, langHint.trim(),
+                    messages.get("novel.translate.skipped"), false);
+        }
+        List<GlossaryTerm> terms = loadGlossaryTerms(glossaryId);
+        // 标题为上下文必备；description 只在用户勾选时附带，避免无谓 tokens。
+        String description = translateDescription ? record.description() : null;
+        TitleTranslationResponse parsed = callTitleTranslator(
+                title == null ? "" : title, description, targetLanguage, terms, List.of());
+        if (parsed == null) {
+            return new Result(Status.ERROR, null, messages.get("novel.translate.invalid-language"), false);
+        }
+        if (parsed.invalidLanguage()) {
+            return new Result(Status.INVALID_LANGUAGE, null,
+                    messages.get("novel.translate.invalid-language"), false);
+        }
+        if (!parsed.ok()) {
+            return new Result(Status.ERROR, null,
+                    messages.get("novel.translate.invalid-language"), false);
+        }
+        String langCode = normalizeLang(parsed.lang(), targetLanguage);
+        if (langCode == null || langCode.isBlank()) {
+            return new Result(Status.ERROR, null,
+                    messages.get("novel.translate.invalid-language"), false);
+        }
+        if (!overwrite && isAllRequestedFieldsTranslated(novelId, langCode,
+                false, translateTitle, translateDescription)) {
+            return new Result(Status.SKIPPED, langCode,
+                    messages.get("novel.translate.skipped"), false);
+        }
+        String savedTitle = translateTitle ? parsed.title() : null;
+        String savedDescription = translateDescription ? parsed.translatedDescription() : null;
+        if ((savedTitle == null || savedTitle.isBlank())
+                && (savedDescription == null || savedDescription.isBlank())) {
+            return new Result(Status.ERROR, null,
+                    messages.get("novel.translate.invalid-language"), false);
+        }
+        novelDatabase.saveTranslationMetadata(novelId, langCode, savedTitle, savedDescription);
+        return new Result(Status.OK, langCode, messages.get("novel.translate.success"), false);
+    }
+
+    /**
+     * 把某系列的系列名 + 系列简介翻译为目标语言并落库。AI 请求里会附带：
      * <ul>
      *   <li>指定 {@code glossaryId} 时该映射表的全部条目（与正文翻译共用同一张表，保证专有名词译法一致）；</li>
-     *   <li>同系列内所有章节的「原标题 → 该语言已译标题」对（仅含已经翻译完成的章节），作为命名 / 风格参考样例。</li>
+     *   <li>同系列内所有章节的「原标题 → 该语言已译标题」对（仅含已经翻译完成的章节），作为命名 / 风格参考样例
+     *       —— 仅服务于系列名翻译；系列简介只依赖名词映射表保证术语一致，不参考章节标题。</li>
      * </ul>
-     * 这样系列名既能复用已经在正文 / 章节标题中确立的术语，又能跟同系列其它章节的风格保持一致。
+     * 这样系列名既能复用已经在正文 / 章节标题中确立的术语，又能跟同系列其它章节的风格保持一致；系列简介则
+     * 与系列名在同一次 AI 调用里完成，省下一次请求。
      *
      * <p>{@code langHint} 与 {@link #translateChapter} 同义：命中 DB 已有翻译时直接跳过、不再请求 AI。
      *
      * @param glossaryId 名词映射表 ID；{@code null} 表示不注入术语
      * @return 实际翻译用的语言代码；无可翻译标题 / AI 拒识 / AI 失败时返回空字符串
      */
-    public String translateSeriesTitle(long seriesId, String targetLanguage, String langHint, Long glossaryId) {
+    public String translateSeriesTitle(long seriesId, String targetLanguage, String langHint, Long glossaryId,
+                                       boolean translateTitle, boolean translateDescription) {
+        if (!translateTitle && !translateDescription) return "";
         NovelSeries series = novelDatabase.getSeries(seriesId);
         if (series == null) return "";
         String title = series.title();
         if (title == null || title.isBlank()) return "";
-        // hint 命中：DB 已有该语言翻译则直接返回 hint，无需 AI
+        // hint 命中：DB 已有该语言翻译则直接返回 hint，无需 AI（按用户选定字段判断已存在性）
         if (langHint != null && !langHint.isBlank()) {
-            String existing = novelDatabase.getSeriesTitleTranslation(seriesId, langHint.trim());
-            if (existing != null && !existing.isBlank()) {
-                return langHint.trim();
+            String lang = langHint.trim();
+            boolean titleSatisfied = !translateTitle
+                    || hasNonBlank(novelDatabase.getSeriesTitleTranslation(seriesId, lang));
+            boolean descSatisfied = !translateDescription
+                    || hasNonBlank(novelDatabase.getSeriesDescriptionTranslation(seriesId, lang));
+            if (titleSatisfied && descSatisfied) {
+                return lang;
             }
         }
         // 同系列章节的「原标题 → 该语言已译标题」对，作为译名 / 风格的参考样例（仅取已译完成的章节）。
@@ -180,12 +272,55 @@ public class NovelTranslationService {
                 seriesId, langHint, targetLanguage);
         // 映射表条目（含全部目标语言，模型仅对语言匹配项强制套用）。
         List<GlossaryTerm> terms = loadGlossaryTerms(glossaryId);
-        TitleTranslationResponse parsed = callTitleTranslator(title, targetLanguage, terms, references);
+        // description 仅在用户勾选时附带；title 字段 AI 始终翻译，作为上下文以服务 description（即便只保留 description）。
+        String description = translateDescription ? series.description() : null;
+        TitleTranslationResponse parsed = callTitleTranslator(
+                title, description, targetLanguage, terms, references);
         if (parsed == null || !parsed.ok()) return "";
         String code = normalizeLang(parsed.lang(), targetLanguage);
         if (code == null || code.isBlank()) return "";
-        novelDatabase.saveSeriesTitleTranslation(seriesId, code, parsed.title());
+        String savedTitle = translateTitle ? parsed.title() : null;
+        String savedDescription = translateDescription ? parsed.translatedDescription() : null;
+        if ((savedTitle == null || savedTitle.isBlank())
+                && (savedDescription == null || savedDescription.isBlank())) {
+            return "";
+        }
+        if (savedTitle != null && !savedTitle.isBlank()) {
+            novelDatabase.saveSeriesTitleTranslation(seriesId, code, savedTitle, savedDescription);
+        } else {
+            // 只想补译简介：复用既有系列名（如果有），否则回退原文系列名以保留行的 NOT NULL 约束
+            String existingTitle = novelDatabase.getSeriesTitleTranslation(seriesId, code);
+            String titleToWrite = (existingTitle != null && !existingTitle.isBlank())
+                    ? existingTitle : title;
+            novelDatabase.saveSeriesTitleTranslation(seriesId, code, titleToWrite, savedDescription);
+        }
         return code;
+    }
+
+    private static boolean hasNonBlank(String s) {
+        return s != null && !s.isBlank();
+    }
+
+    /**
+     * skip 模式下判断该语言是否已"满足"用户勾选的全部翻译范围：每个被勾选字段都已有非空译文。
+     * 仅在用户既要翻译正文、又勾选了标题 / 简介时，会出现「正文已译但标题缺失」这类需要继续 AI 调用的情形——
+     * 旧逻辑只看行存在与否，会误把该情况判为「整行已译」直接跳过。
+     */
+    private boolean isAllRequestedFieldsTranslated(long novelId, String langCode,
+                                                   boolean translateBody, boolean translateTitle,
+                                                   boolean translateDescription) {
+        if (langCode == null || langCode.isBlank()) return false;
+        String lang = langCode.trim();
+        if (translateBody && !hasNonBlank(novelDatabase.getTranslationContent(novelId, lang))) {
+            return false;
+        }
+        if (translateTitle && !hasNonBlank(novelDatabase.getTranslationTitle(novelId, lang))) {
+            return false;
+        }
+        if (translateDescription && !hasNonBlank(novelDatabase.getTranslationDescription(novelId, lang))) {
+            return false;
+        }
+        return true;
     }
 
     /** 单次系列名翻译能附带的「参考章节标题对」上限（控制 token 体量）。 */
@@ -218,14 +353,18 @@ public class NovelTranslationService {
         return out;
     }
 
-    /** 调一次标题翻译 AI；任何异常 / 不可解析回复都返回 {@code null}（仅记 debug 日志，best-effort）。 */
-    private TitleTranslationResponse callTitleTranslator(String sourceTitle, String targetLanguage,
+    /**
+     * 调一次标题（+ 可选系列简介）翻译 AI；任何异常 / 不可解析回复都返回 {@code null}
+     * （仅记 debug 日志，best-effort）。
+     */
+    private TitleTranslationResponse callTitleTranslator(String sourceTitle, String sourceDescription,
+                                                         String targetLanguage,
                                                          List<GlossaryTerm> terms,
                                                          List<TitleTranslationRequest.TitleReference> references) {
         try {
             AiChatResult chat = aiService.chat(
                     TitleTranslationRequest.CALL_TYPE,
-                    new TitleTranslationRequest(targetLanguage, sourceTitle,
+                    new TitleTranslationRequest(targetLanguage, sourceTitle, sourceDescription,
                             terms == null ? List.of() : terms,
                             references == null ? List.of() : references).toMessages(),
                     AiChatOptions.json().withTemperature(0.2));

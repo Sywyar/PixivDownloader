@@ -94,8 +94,9 @@ public class NovelMergeService {
         String seriesTitle = variant
                 ? resolveSeriesTitleForLang(seriesId, langCode, originalSeriesTitle)
                 : originalSeriesTitle;
-        // 文件名沿用原系列名 + 语言代码后缀，避免同一系列在不同语言下的合订本因译后系列名冲突而互相覆盖。
-        String nameSeed = variant ? originalSeriesTitle + "_" + langCode : originalSeriesTitle;
+        // 文件名：变体使用译后系列名 + 语言代码后缀；后缀保留作为同系列多语言变体的去重 tie-breaker，
+        // 避免两种译文恰好同名时互相覆盖（例如 zh-CN / zh-TW 译名一致）。
+        String nameSeed = variant ? seriesTitle + "_" + langCode : seriesTitle;
         String fallback = variant ? seriesId + "_" + langCode : String.valueOf(seriesId);
         String safeTitle = ArtworkFileNameFormatter.normalizeBaseName(nameSeed, fallback);
         Path outDir = Paths.get(downloadConfig.getRootFolder())
@@ -106,10 +107,17 @@ public class NovelMergeService {
         switch (format) {
             case TXT -> writeTxt(outFile, seriesTitle, chapters, langCode);
             case HTML -> writeHtml(outFile, seriesTitle, chapters, langCode);
-            case EPUB -> writeEpub(outFile, seriesId, seriesTitle, chapters, series, langCode);
+            case EPUB -> writeEpub(outFile, seriesId, seriesTitle,
+                    resolveSeriesDescriptionForLang(seriesId, langCode, series),
+                    chapters, series, langCode);
         }
         if (!variant) {
             cleanupLegacyMerge(outDir, originalSeriesTitle, seriesId, format.ext(), outFile);
+        } else {
+            // 早期变体合订本固定使用「原系列名 + 语言后缀」；现在改为译后系列名 + 语言后缀，
+            // 当译名 ≠ 原名时清理掉旧版基于原名的同语言合订本，避免遗留两份。
+            cleanupLegacyVariantMerge(outDir, originalSeriesTitle, seriesId, langCode,
+                    format.ext(), outFile);
         }
         log.info("novel series merged: seriesId={}, format={}, lang={}, file={}",
                 seriesId, format.ext(), langCode == null ? "-" : langCode, outFile);
@@ -139,6 +147,37 @@ public class NovelMergeService {
     private String resolveSeriesTitleForLang(long seriesId, String langCode, String fallback) {
         String translated = novelDatabase.getSeriesTitleTranslation(seriesId, langCode);
         return translated == null || translated.isBlank() ? fallback : translated;
+    }
+
+    /**
+     * 变体合订的系列简介（写入 EPUB 元数据）：DB 中存在该语言简介译文则采用，否则回退原文。
+     * 原文基准合订（{@code langCode == null}）一律用原文。
+     */
+    private String resolveSeriesDescriptionForLang(long seriesId, String langCode, NovelSeries series) {
+        String original = series == null ? null : series.description();
+        if (langCode == null || langCode.isBlank()) return original;
+        String translated = novelDatabase.getSeriesDescriptionTranslation(seriesId, langCode);
+        return translated == null || translated.isBlank() ? original : translated;
+    }
+
+    /**
+     * 兼容旧版命名：早期变体合订本固定使用「原系列名 + 语言代码后缀」（{@code {originalTitle}_{lang}.{ext}}）。
+     * 现在变体合订本使用「译后系列名 + 语言代码后缀」（{@code {translatedTitle}_{lang}.{ext}}）；当译名与原名
+     * 不同时旧文件不会被新写出覆盖，本方法在写出新文件后将其删除以避免遗留两份。
+     */
+    private void cleanupLegacyVariantMerge(Path outDir, String originalSeriesTitle, long seriesId,
+                                           String langCode, String ext, Path newFile) {
+        String legacyName = ArtworkFileNameFormatter.normalizeBaseName(
+                originalSeriesTitle + "_" + langCode, seriesId + "_" + langCode);
+        Path legacy = outDir.resolve(legacyName + "." + ext);
+        if (legacy.equals(newFile)) return;
+        try {
+            if (Files.deleteIfExists(legacy)) {
+                log.info("removed legacy variant merged file: {}", legacy);
+            }
+        } catch (IOException e) {
+            log.warn("failed to remove legacy variant merged file {}: {}", legacy, e.getMessage());
+        }
     }
 
     /**
@@ -201,7 +240,7 @@ public class NovelMergeService {
         Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
     }
 
-    private void writeEpub(Path file, long seriesId, String seriesTitle,
+    private void writeEpub(Path file, long seriesId, String seriesTitle, String seriesDescription,
                            List<NovelRecord> chapters, NovelSeries series,
                            String langCode) throws IOException {
         List<NovelEpubWriter.Chapter> epubChapters = new ArrayList<>();
@@ -246,7 +285,8 @@ public class NovelMergeService {
         byte[] epub = NovelEpubWriter.write(seriesTitle, resolveSeriesAuthor(series, chapters), epubLang,
                 identifier, epubChapters, nav,
                 new ArrayList<>(imagesById.values()),
-                readSeriesCover(series), buildSeriesMetadata(seriesId, seriesTitle, series),
+                readSeriesCover(series),
+                buildSeriesMetadata(seriesId, seriesTitle, seriesDescription),
                 epubLabels());
         Files.write(file, epub);
     }
@@ -278,16 +318,18 @@ public class NovelMergeService {
         return "";
     }
 
-    /** 系列合订本的 OPF 元数据：系列简介、标签、Pixiv 系列源链接、系列归组。 */
+    /**
+     * 系列合订本的 OPF 元数据：系列简介、标签、Pixiv 系列源链接、系列归组。
+     * {@code seriesDescription} 由调用方按变体语言解析（变体取译后简介、原文基准取原文）。
+     */
     private NovelEpubWriter.Metadata buildSeriesMetadata(long seriesId, String seriesTitle,
-                                                         NovelSeries series) {
-        String description = series == null ? null : series.description();
+                                                         String seriesDescription) {
         List<String> subjects = novelDatabase.getNovelSeriesTags(seriesId).stream()
                 .map(TagDto::getName)
                 .filter(n -> n != null && !n.isBlank())
                 .toList();
         String source = "https://www.pixiv.net/novel/series/" + seriesId;
-        return new NovelEpubWriter.Metadata(description, null, subjects, source, seriesTitle, null);
+        return new NovelEpubWriter.Metadata(seriesDescription, null, subjects, source, seriesTitle, null);
     }
 
     /**

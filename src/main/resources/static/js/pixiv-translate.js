@@ -481,6 +481,16 @@
             '      </div>' +
             '    </div>' +
             '    <div class="pt-field">' +
+            '      <span class="pt-label pt-scope-label"></span>' +
+            '      <div class="pt-radio-row">' +
+            '        <label class="pt-radio"><input type="checkbox" class="pt-scope-body" checked><span class="pt-scope-body-label"></span></label>' +
+            '        <label class="pt-radio"><input type="checkbox" class="pt-scope-title" checked><span class="pt-scope-title-label"></span></label>' +
+            '        <label class="pt-radio"><input type="checkbox" class="pt-scope-description" checked><span class="pt-scope-description-label"></span></label>' +
+            '      </div>' +
+            '    </div>' +
+            '    <div class="pt-hint pt-scope-hint"></div>' +
+            '    <div class="pt-hint pt-error pt-scope-error" hidden></div>' +
+            '    <div class="pt-field">' +
             '      <span class="pt-label pt-glossary-label"></span>' +
             '      <div class="pt-glossary-row">' +
             '        <select class="pt-input pt-glossary-select"></select>' +
@@ -509,6 +519,15 @@
             existingLabel: backdrop.querySelector('.pt-existing-label'),
             owLabel: backdrop.querySelector('.pt-ow-label'),
             skLabel: backdrop.querySelector('.pt-sk-label'),
+            scopeLabel: backdrop.querySelector('.pt-scope-label'),
+            scopeBody: backdrop.querySelector('.pt-scope-body'),
+            scopeTitle: backdrop.querySelector('.pt-scope-title'),
+            scopeDescription: backdrop.querySelector('.pt-scope-description'),
+            scopeBodyLabel: backdrop.querySelector('.pt-scope-body-label'),
+            scopeTitleLabel: backdrop.querySelector('.pt-scope-title-label'),
+            scopeDescriptionLabel: backdrop.querySelector('.pt-scope-description-label'),
+            scopeHint: backdrop.querySelector('.pt-scope-hint'),
+            scopeError: backdrop.querySelector('.pt-scope-error'),
             glossaryLabel: backdrop.querySelector('.pt-glossary-label'),
             glossarySelect: backdrop.querySelector('.pt-glossary-select'),
             glossaryEdit: backdrop.querySelector('.pt-glossary-edit'),
@@ -599,6 +618,26 @@
         r.existingLabel.textContent = tt(i18n, 'dialog.existing-label', 'When already translated');
         r.owLabel.textContent = tt(i18n, 'dialog.existing-overwrite', 'Overwrite');
         r.skLabel.textContent = tt(i18n, 'dialog.existing-skip', 'Skip');
+        r.scopeLabel.textContent = tt(i18n, 'dialog.scope-label', 'Translate');
+        r.scopeBodyLabel.textContent = tt(i18n, 'dialog.scope-body', 'Body');
+        r.scopeTitleLabel.textContent = tt(i18n, 'dialog.scope-title', 'Title');
+        r.scopeDescriptionLabel.textContent = tt(i18n, 'dialog.scope-description', 'Description');
+        r.scopeHint.textContent = tt(i18n, 'dialog.scope-hint', '');
+        // 每次打开重置三项全选，避免上次会话留痕影响下一次；同时清空验证错误
+        r.scopeBody.checked = true;
+        r.scopeTitle.checked = true;
+        r.scopeDescription.checked = true;
+        r.scopeError.hidden = true;
+        r.scopeError.textContent = '';
+        // 用户勾选任意一项后立即清除验证错误，避免红字与已勾选状态长期共存。
+        [r.scopeBody, r.scopeTitle, r.scopeDescription].forEach(function (cb) {
+            cb.onchange = function () {
+                if (cb.checked) {
+                    r.scopeError.hidden = true;
+                    r.scopeError.textContent = '';
+                }
+            };
+        });
         r.glossaryLabel.textContent = tt(i18n, 'dialog.glossary-label', 'Term glossary');
         r.glossaryEdit.textContent = tt(i18n, 'dialog.glossary-edit', 'Edit');
         r.glossaryHint.textContent = tt(i18n, 'dialog.glossary-hint', '');
@@ -630,6 +669,9 @@
                 r.backdrop.onclick = null;
                 r.glossaryEdit.onclick = null;
                 r.glossarySelect.onchange = null;
+                r.scopeBody.onchange = null;
+                r.scopeTitle.onchange = null;
+                r.scopeDescription.onchange = null;
                 document.removeEventListener('keydown', onKey);
                 resolve(result);
             }
@@ -659,6 +701,17 @@
                 if (!Number.isFinite(seg) || seg < 0) seg = 0;
                 var modeEl = r.modal.querySelector('input[name="ptOverwrite"]:checked');
                 var overwrite = !modeEl || modeEl.value === 'overwrite';
+                var translateBody = !!r.scopeBody.checked;
+                var translateTitle = !!r.scopeTitle.checked;
+                var translateDescription = !!r.scopeDescription.checked;
+                if (!translateBody && !translateTitle && !translateDescription) {
+                    // 弹窗内联错误：放在勾选项下方，跨页面（pixiv-novel / pixiv-series）都可见，
+                    // 不依赖宿主页有没有 toast 容器。
+                    r.scopeError.textContent = tt(i18n, 'dialog.scope-required',
+                        'Select at least one of body, title or description to translate');
+                    r.scopeError.hidden = false;
+                    return;
+                }
                 r.confirm.disabled = true;
                 var glossaryId;
                 try {
@@ -670,7 +723,12 @@
                     return;
                 }
                 r.confirm.disabled = false;
-                cleanup({ targetLanguage: lang, segmentSize: seg, overwrite: overwrite, glossaryId: glossaryId });
+                cleanup({
+                    targetLanguage: lang, segmentSize: seg, overwrite: overwrite,
+                    glossaryId: glossaryId,
+                    translateBody: translateBody, translateTitle: translateTitle,
+                    translateDescription: translateDescription
+                });
             }
             function onKey(e) {
                 // 映射表编辑层（第二/三层）打开时让出键盘，避免一次 Escape 连关多层
@@ -753,6 +811,10 @@
 
     async function translateNovel(novelId, opts) {
         opts = opts || {};
+        // 翻译范围：未显式给出时默认全部 true（兼容旧调用方与外部脚本）
+        var translateBody = opts.translateBody == null ? true : !!opts.translateBody;
+        var translateTitle = opts.translateTitle == null ? true : !!opts.translateTitle;
+        var translateDescription = opts.translateDescription == null ? true : !!opts.translateDescription;
         var fetchInit = {
             method: 'POST',
             credentials: 'same-origin',
@@ -762,7 +824,10 @@
                 segmentSize: opts.segmentSize == null ? 0 : opts.segmentSize,
                 overwrite: !!opts.overwrite,
                 langHint: opts.langHint || null,
-                glossaryId: opts.glossaryId == null ? null : opts.glossaryId
+                glossaryId: opts.glossaryId == null ? null : opts.glossaryId,
+                translateBody: translateBody,
+                translateTitle: translateTitle,
+                translateDescription: translateDescription
             })
         };
         if (opts.signal) fetchInit.signal = opts.signal;
@@ -788,9 +853,14 @@
         return res.json();
     }
 
-    // 翻译某系列的系列名为目标语言（admin only）。best-effort：失败仅返回 null，不抛错。
+    // 翻译某系列的系列名 / 系列简介为目标语言（admin only）。best-effort：失败仅返回 null，不抛错。
     // 传 glossaryId 时与正文翻译共用同一张映射表，保证系列名与已译章节标题的术语一致。
-    async function translateSeriesTitle(seriesId, targetLanguage, langHint, glossaryId) {
+    // translateTitle / translateDescription 默认 true；两者全 false 时跳过本次调用直接返回 null。
+    async function translateSeriesTitle(seriesId, targetLanguage, langHint, glossaryId,
+                                        translateTitle, translateDescription) {
+        var doTitle = translateTitle == null ? true : !!translateTitle;
+        var doDescription = translateDescription == null ? true : !!translateDescription;
+        if (!doTitle && !doDescription) return null;
         try {
             var res = await fetch('/api/gallery/novel/series/' + encodeURIComponent(seriesId)
                 + '/translate-title', {
@@ -799,7 +869,9 @@
                 body: JSON.stringify({
                     targetLanguage: targetLanguage,
                     langHint: langHint || null,
-                    glossaryId: (glossaryId == null ? null : glossaryId)
+                    glossaryId: (glossaryId == null ? null : glossaryId),
+                    translateTitle: doTitle,
+                    translateDescription: doDescription
                 })
             });
             if (!res.ok) return null;
@@ -1015,9 +1087,10 @@
         var mergeFailed = null;
         if (!cancelled && !error && result && opts.seriesId
                 && result.status === 'OK' && result.langCode) {
-            // 合订前顺手补齐该系列在此语言下的系列名翻译（best-effort），共用本次翻译选定的映射表
+            // 合订前顺手补齐该系列在此语言下的系列名 / 系列简介翻译（best-effort），共用本次选定的映射表与勾选范围
             try { await translateSeriesTitle(opts.seriesId, opts.choice.targetLanguage,
-                    result.langCode, opts.choice.glossaryId); }
+                    result.langCode, opts.choice.glossaryId,
+                    opts.choice.translateTitle, opts.choice.translateDescription); }
             catch (_) {}
             state.phase = 'merging';
             state.phaseStartedAt = Date.now();
@@ -1129,9 +1202,10 @@
 
         var mergeFailed = null;
         if (!invalid && langCode && (state.ok > 0 || state.skipped > 0)) {
-            // 合订前先把系列名翻译好（best-effort），共用本次翻译选定的映射表，让合订本与系列页都用译后系列名
+            // 合订前先把系列名 / 系列简介翻译好（best-effort），共用本次选定的映射表与勾选范围
             try { await translateSeriesTitle(opts.seriesId, opts.choice.targetLanguage,
-                    langCode, opts.choice.glossaryId); }
+                    langCode, opts.choice.glossaryId,
+                    opts.choice.translateTitle, opts.choice.translateDescription); }
             catch (_) {}
             state.phase = 'merging';
             state.phaseStartedAt = Date.now();

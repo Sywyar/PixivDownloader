@@ -19,7 +19,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public record TitleTranslationResponse(
         @JsonProperty("status") String status,
         @JsonProperty("lang") String lang,
-        @JsonProperty("title") String title
+        @JsonProperty("title") String title,
+        @JsonProperty("description") String description
 ) {
 
     public static final String STATUS_OK = "ok";
@@ -32,6 +33,17 @@ public record TitleTranslationResponse(
     public boolean ok() {
         return STATUS_OK.equalsIgnoreCase(trimmed(status))
                 && title != null && !title.isBlank();
+    }
+
+    /**
+     * 模型本次回报的译后系列简介（同请求附带 sourceDescription 时才会有效）。
+     * 缺省 / 空白 / 字面 {@code "null"} 一律视为「本次未译简介」，返回 {@code null}。
+     */
+    public String translatedDescription() {
+        if (description == null) return null;
+        String trimmed = description.trim();
+        if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("null")) return null;
+        return trimmed;
     }
 
     /** 模型是否判定目标语言不存在 / 无法识别。 */

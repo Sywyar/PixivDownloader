@@ -22,8 +22,9 @@
     let activeContentLang = '';
     let seriesTranslatedLangs = [];
     let contentLangCtl = null;
-    // 译后系列名按语言缓存，避免切语言时反复请求（首次请求 /series/{id}?lang= 获取后塞入）
+    // 译后系列名 / 系列简介按语言缓存，避免切语言时反复请求（首次请求 /series/{id}?lang= 获取后塞入）
     const seriesTitleByLang = {};
+    const seriesDescriptionByLang = {};
     // 译后章节标题按 lang+novelId 缓存：当前页章节切语言时由批量端点一次性填充
     let chapterTitlesByLang = {}; // { [lang]: { [novelId]: translatedTitle } }
 
@@ -280,15 +281,18 @@
         });
     }
 
-    // 系列名：取该语言的译后系列名（一次性请求 + 内存缓存）。lang 为空时清除并由 renderSeriesHeader 自动回退到原名。
+    // 系列名 / 系列简介：一次请求取该语言的译后系列名与系列简介（内存缓存）。
+    // lang 为空时清除并由 renderSeriesHeader / renderDescription 自动回退到原文。
     async function fetchSeriesTitleForLang(lang) {
         if (!lang || !state.seriesId) return;
         if (Object.prototype.hasOwnProperty.call(seriesTitleByLang, lang)) return;
         try {
             const data = await api(`/api/gallery/novel/series/${state.seriesId}?lang=${encodeURIComponent(lang)}`);
             seriesTitleByLang[lang] = (data && data.translatedTitle) ? data.translatedTitle : '';
+            seriesDescriptionByLang[lang] = (data && data.translatedDescription) ? data.translatedDescription : '';
         } catch (_) {
             seriesTitleByLang[lang] = '';
+            seriesDescriptionByLang[lang] = '';
         }
     }
 
@@ -327,6 +331,15 @@
             || modeText('series.default', 'Series #{id}', 'Series #{id}', {id: state.seriesId});
         if (!activeContentLang) return original;
         const translated = seriesTitleByLang[activeContentLang];
+        return (translated && String(translated).trim()) ? translated : original;
+    }
+
+    // 当前应显示的系列简介：所选语言译后系列简介优先，回退原系列简介。
+    function seriesDisplayDescription() {
+        const detail = state.detail;
+        const original = detail ? detail.description : null;
+        if (!activeContentLang) return original;
+        const translated = seriesDescriptionByLang[activeContentLang];
         return (translated && String(translated).trim()) ? translated : original;
     }
 
@@ -814,7 +827,10 @@
     function renderDescription() {
         const el = document.getElementById('seriesDescription');
         if (!el) return;
-        const text = state.detail ? state.detail.description : null;
+        // 小说系列下若选择了内容语言，优先显示译后系列简介（缺失回退原文）；其它情况走原始 detail.description。
+        const text = isNovelMode()
+            ? seriesDisplayDescription()
+            : (state.detail ? state.detail.description : null);
         if (!text || !String(text).trim()) {
             el.style.display = 'none';
             el.innerHTML = '';

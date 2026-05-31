@@ -350,6 +350,7 @@ public final class ManagedDatabaseSchema {
                         column("lang_code", "TEXT", true, null, 2),
                         column("raw_content", "TEXT", true, null, 0),
                         column("title", "TEXT", false, null, 0),
+                        column("description", "TEXT", false, null, 0),
                         column("created_time", "INTEGER", true, null, 0)
                 ),
                 List.of()
@@ -361,6 +362,7 @@ public final class ManagedDatabaseSchema {
                         column("series_id", "INTEGER", true, null, 1),
                         column("lang_code", "TEXT", true, null, 2),
                         column("title", "TEXT", true, null, 0),
+                        column("description", "TEXT", false, null, 0),
                         column("created_time", "INTEGER", true, null, 0)
                 ),
                 List.of()

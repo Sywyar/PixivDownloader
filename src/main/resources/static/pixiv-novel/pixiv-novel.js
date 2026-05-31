@@ -165,6 +165,7 @@ async function loadContent(lang) {
             const data = await r.json();
             renderContent(data.content || '', buildImageResolver({ local: localIds, hideMissing: true }));
             applyTitleForLang(data);
+            applyDescriptionForLang(data);
             return;
         }
     } catch {}
@@ -180,6 +181,17 @@ function applyTitleForLang(data) {
         titleEl.textContent = data.translatedTitle;
     } else {
         titleEl.textContent = fallback;
+    }
+}
+
+// 切换内容语言时同步替换显示简介：返回 translated=true 且带 translatedDescription 时用译后简介，否则回退原文简介。
+function applyDescriptionForLang(data) {
+    if (!novelView) return;
+    const fallback = novelView.description;
+    if (data && data.translated && data.translatedDescription && data.translatedDescription.trim()) {
+        renderDescription(data.translatedDescription);
+    } else {
+        renderDescription(fallback);
     }
 }
 
@@ -310,7 +322,10 @@ function buildImageResolver(opts) {
 
 async function loadSeriesNav() {
     try {
-        const r = await fetch(`/api/gallery/novel/${encodeURIComponent(novelId)}/series`);
+        // 透传当前内容语言：后端按 lang 替换上一章 / 下一章标题与系列名为译后版本，缺失时回退原文。
+        const url = `/api/gallery/novel/${encodeURIComponent(novelId)}/series`
+            + (activeContentLang ? `?lang=${encodeURIComponent(activeContentLang)}` : '');
+        const r = await fetch(url);
         if (!r.ok) return;
         const nav = await r.json();
         if (!nav.seriesId) return;

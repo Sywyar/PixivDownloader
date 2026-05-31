@@ -25,6 +25,7 @@ public record TranslationResponse(
         @JsonProperty("lang") String lang,
         @JsonProperty("text") String text,
         @JsonProperty("title") String title,
+        @JsonProperty("description") String description,
         @JsonProperty("glossary") List<NewTerm> glossary
 ) {
 
@@ -54,6 +55,17 @@ public record TranslationResponse(
     public String translatedTitle() {
         if (title == null) return null;
         String trimmed = title.trim();
+        if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("null")) return null;
+        return trimmed;
+    }
+
+    /**
+     * 模型本次回报的译后简介（同请求附带 sourceDescription 时才会有效）。
+     * 缺省 / 空白 / 字面 {@code "null"} 一律视为「本段未译简介」，返回 {@code null}。
+     */
+    public String translatedDescription() {
+        if (description == null) return null;
+        String trimmed = description.trim();
         if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("null")) return null;
         return trimmed;
     }

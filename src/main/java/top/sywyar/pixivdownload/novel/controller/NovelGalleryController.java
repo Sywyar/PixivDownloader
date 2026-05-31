@@ -183,28 +183,46 @@ public class NovelGalleryController {
     @GetMapping("/novel/{novelId}/series")
     public ResponseEntity<NovelSeriesNavResponse> seriesNav(
             @PathVariable long novelId,
+            @RequestParam(required = false) String lang,
             HttpServletRequest httpRequest) {
         guestAccessGuard.requireNovelVisible(httpRequest, novelId);
         NovelGalleryService.SeriesNeighbors n = novelGalleryService.seriesNeighbors(novelId);
         if (n == null) {
             return ResponseEntity.ok(new NovelSeriesNavResponse(null, null, null, null, null));
         }
+        // 选定了内容语言时优先用译后系列名 / 译后章节标题，缺失回退原文，与详情页主标题语义一致。
+        String langCode = (lang == null || lang.isBlank()) ? null : lang.trim();
+        String seriesTitle = n.seriesTitle();
+        if (langCode != null && n.seriesId() != null) {
+            String translatedSeries = novelDatabase.getSeriesTitleTranslation(n.seriesId(), langCode);
+            if (translatedSeries != null && !translatedSeries.isBlank()) {
+                seriesTitle = translatedSeries;
+            }
+        }
+        GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         return ResponseEntity.ok(new NovelSeriesNavResponse(
-                n.seriesId(), n.seriesTitle(), n.currentOrder(),
-                visibleNeighbor(n.prev(), GuestAccessGuard.extractSession(httpRequest)),
-                visibleNeighbor(n.next(), GuestAccessGuard.extractSession(httpRequest))
+                n.seriesId(), seriesTitle, n.currentOrder(),
+                visibleNeighbor(n.prev(), session, langCode),
+                visibleNeighbor(n.next(), session, langCode)
         ));
     }
 
     private NeighborView visibleNeighbor(NovelGalleryService.NeighborView neighbor,
-                                         GuestInviteSession session) {
+                                         GuestInviteSession session, String langCode) {
         if (neighbor == null) {
             return null;
         }
         if (session != null && !guestAccessGuard.isNovelVisibleToGuest(neighbor.novelId(), session)) {
             return null;
         }
-        return new NeighborView(neighbor.novelId(), neighbor.title(), neighbor.seriesOrder());
+        String title = neighbor.title();
+        if (langCode != null) {
+            String translated = novelDatabase.getTranslationTitle(neighbor.novelId(), langCode);
+            if (translated != null && !translated.isBlank()) {
+                title = translated;
+            }
+        }
+        return new NeighborView(neighbor.novelId(), title, neighbor.seriesOrder());
     }
 
     private List<NovelGalleryService.NovelView> filterForGuest(
@@ -254,14 +272,22 @@ public class NovelGalleryController {
         }
         String original = rec.rawContent() == null ? "" : rec.rawContent();
         if (lang != null && !lang.isBlank()) {
-            String translated = novelDatabase.getTranslationContent(novelId, lang.trim());
-            if (translated != null && !translated.isBlank()) {
-                String translatedTitle = novelDatabase.getTranslationTitle(novelId, lang.trim());
+            String langCode = lang.trim();
+            String translated = novelDatabase.getTranslationContent(novelId, langCode);
+            String translatedTitle = novelDatabase.getTranslationTitle(novelId, langCode);
+            String translatedDescription = novelDatabase.getTranslationDescription(novelId, langCode);
+            boolean hasBody = translated != null && !translated.isBlank();
+            boolean hasTitle = translatedTitle != null && !translatedTitle.isBlank();
+            boolean hasDescription = translatedDescription != null && !translatedDescription.isBlank();
+            // 即便只译了标题 / 简介（正文为空），也要返回 translated=true 让前端展示译后元数据，
+            // 正文则回退到原文 markup（与「未勾选正文翻译」语义一致）。
+            if (hasBody || hasTitle || hasDescription) {
                 return ResponseEntity.ok(new NovelContentResponse(
-                        translated, lang.trim(), true, translatedTitle));
+                        hasBody ? translated : original, langCode, true,
+                        translatedTitle, translatedDescription));
             }
         }
-        return ResponseEntity.ok(new NovelContentResponse(original, null, false, null));
+        return ResponseEntity.ok(new NovelContentResponse(original, null, false, null, null));
     }
 
     /**
@@ -278,9 +304,19 @@ public class NovelGalleryController {
         }
         int segmentSize = request.segmentSize() == null ? 0 : Math.max(0, request.segmentSize());
         boolean overwrite = Boolean.TRUE.equals(request.overwrite());
+        // 翻译范围：调用方不传时默认全部为 true（保持向前兼容）；三者全为 false 时由 service 层拒绝。
+        boolean translateBody = request.translateBody() == null || request.translateBody();
+        boolean translateTitle = request.translateTitle() == null || request.translateTitle();
+        boolean translateDescription = request.translateDescription() == null || request.translateDescription();
+        if (!translateBody && !translateTitle && !translateDescription) {
+            return ResponseEntity.badRequest().body(new TranslateResponse(
+                    NovelTranslationService.Status.ERROR.name(), null,
+                    messages.get("novel.translate.no-scope"), false));
+        }
         NovelTranslationService.Result result = novelTranslationService.translateChapter(
                 novelId, request.targetLanguage(), segmentSize, overwrite,
-                request.langHint(), request.glossaryId());
+                request.langHint(), request.glossaryId(),
+                translateBody, translateTitle, translateDescription);
         return ResponseEntity.ok(new TranslateResponse(
                 result.status().name(), result.langCode(), result.message(), result.truncated()));
     }
@@ -309,15 +345,25 @@ public class NovelGalleryController {
             @PathVariable long seriesId, @RequestBody TranslateSeriesTitleRequest request) {
         if (request == null || request.targetLanguage() == null || request.targetLanguage().isBlank()) {
             return ResponseEntity.badRequest().body(new TranslateSeriesTitleResponse(
-                    null, null, messages.get("novel.translate.missing-language")));
+                    null, null, null, messages.get("novel.translate.missing-language")));
+        }
+        // 系列名 / 系列简介翻译范围：未传值默认 true；两者全 false 时拒绝。
+        boolean translateTitle = request.translateTitle() == null || request.translateTitle();
+        boolean translateDescription = request.translateDescription() == null || request.translateDescription();
+        if (!translateTitle && !translateDescription) {
+            return ResponseEntity.badRequest().body(new TranslateSeriesTitleResponse(
+                    null, null, null, messages.get("novel.translate.no-scope")));
         }
         String langCode = novelTranslationService.translateSeriesTitle(
-                seriesId, request.targetLanguage(), request.langHint(), request.glossaryId());
+                seriesId, request.targetLanguage(), request.langHint(), request.glossaryId(),
+                translateTitle, translateDescription);
         if (langCode == null || langCode.isBlank()) {
-            return ResponseEntity.ok(new TranslateSeriesTitleResponse(null, null, null));
+            return ResponseEntity.ok(new TranslateSeriesTitleResponse(null, null, null, null));
         }
         String translated = novelDatabase.getSeriesTitleTranslation(seriesId, langCode);
-        return ResponseEntity.ok(new TranslateSeriesTitleResponse(langCode, translated, null));
+        String translatedDescription = novelDatabase.getSeriesDescriptionTranslation(seriesId, langCode);
+        return ResponseEntity.ok(new TranslateSeriesTitleResponse(
+                langCode, translated, translatedDescription, null));
     }
 
     /**
@@ -365,7 +411,9 @@ public class NovelGalleryController {
     }
 
     public record TranslateRequest(String targetLanguage, Integer segmentSize,
-                                   Boolean overwrite, String langHint, Long glossaryId) {}
+                                   Boolean overwrite, String langHint, Long glossaryId,
+                                   Boolean translateBody, Boolean translateTitle,
+                                   Boolean translateDescription) {}
 
     public record TranslateResponse(String status, String langCode, String message, boolean truncated) {}
 
@@ -373,10 +421,15 @@ public class NovelGalleryController {
 
     public record TranslateLangProbeResponse(String code, boolean valid) {}
 
-    public record TranslateSeriesTitleRequest(String targetLanguage, String langHint, Long glossaryId) {}
+    public record TranslateSeriesTitleRequest(String targetLanguage, String langHint, Long glossaryId,
+                                              Boolean translateTitle, Boolean translateDescription) {}
 
-    /** {@code langCode} 为空字符串或 {@code null} 表示翻译失败 / 标题为空；{@code title} 同步给出译后系列名。 */
-    public record TranslateSeriesTitleResponse(String langCode, String title, String message) {}
+    /**
+     * {@code langCode} 为空字符串或 {@code null} 表示翻译失败 / 标题为空；{@code title} 同步给出译后系列名；
+     * {@code description} 同步给出译后系列简介（未翻译 / 失败时为 {@code null}）。
+     */
+    public record TranslateSeriesTitleResponse(String langCode, String title,
+                                               String description, String message) {}
 
     public record TranslatedTitlesResponse(Map<Long, String> titles) {}
 
@@ -444,10 +497,14 @@ public class NovelGalleryController {
         if (series == null) {
             return ResponseEntity.notFound().build();
         }
-        String translatedTitle = (lang == null || lang.isBlank())
+        String langCode = (lang == null || lang.isBlank()) ? null : lang.trim();
+        String translatedTitle = langCode == null
                 ? null
-                : novelDatabase.getSeriesTitleTranslation(seriesId, lang.trim());
-        return ResponseEntity.ok(toDetailResponse(series, translatedTitle));
+                : novelDatabase.getSeriesTitleTranslation(seriesId, langCode);
+        String translatedDescription = langCode == null
+                ? null
+                : novelDatabase.getSeriesDescriptionTranslation(seriesId, langCode);
+        return ResponseEntity.ok(toDetailResponse(series, translatedTitle, translatedDescription));
     }
 
     @GetMapping("/novel/series/{seriesId}/cover")
@@ -538,13 +595,37 @@ public class NovelGalleryController {
         // RFC 5987 filename* 编码，避免中文系列名在 Content-Disposition 中被截断
         String encoded = java.net.URLEncoder.encode(filename, java.nio.charset.StandardCharsets.UTF_8)
                 .replace("+", "%20");
-        String asciiFallback = filename.replaceAll("[\\p{Cntrl}\"\\\\]", "_");
+        String asciiFallback = buildAsciiContentDispositionFallback(filename,
+                seriesId, lang, fmt.ext());
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType(mergedMimeFor(fmt)));
         headers.set(HttpHeaders.CONTENT_DISPOSITION,
                 "attachment; filename=\"" + asciiFallback + "\"; filename*=UTF-8''" + encoded);
         headers.setCacheControl(CacheControl.noStore());
         return ResponseEntity.ok().headers(headers).body(body);
+    }
+
+    /**
+     * 构造 Content-Disposition 的 ASCII 兜底文件名。Tomcat 要求 {@code filename=} 参数只能用 ISO-8859-1 字符
+     * 写入响应头；含中日韩等非 ASCII 字符（例如「【小说⑤卷】」「龙之王弟殿下」）会导致整条 header 被丢弃，
+     * 下载随即失败。本方法把任何非 ASCII 可打印字符、控制字符、双引号、反斜杠都替换成 {@code _}；当替换后
+     * 几乎只剩占位符时改用合成名 {@code series-{seriesId}[_lang].{ext}} 作为兜底，确保现代客户端走 {@code filename*=}
+     * UTF-8 编码、旧客户端也能拿到一个合法可保存的回退名。
+     */
+    private static String buildAsciiContentDispositionFallback(String filename, long seriesId,
+                                                               String lang, String ext) {
+        String sanitized = filename.replaceAll("[^\\x20-\\x7E]|[\"\\\\]", "_");
+        // 全是占位符的话连扩展名也丢了，直接用合成名兜底
+        long printable = sanitized.chars()
+                .filter(c -> c != '_' && c >= 0x20 && c <= 0x7E)
+                .count();
+        if (printable < 2) {
+            return (lang == null || lang.isBlank())
+                    ? "series-" + seriesId + "." + ext
+                    : "series-" + seriesId + "_" + lang.trim().replaceAll("[^A-Za-z0-9-]", "_")
+                            + "." + ext;
+        }
+        return sanitized;
     }
 
     private static String mergedMimeFor(NovelDownloadService.NovelFormat fmt) {
@@ -567,7 +648,7 @@ public class NovelGalleryController {
     public record NovelDownloadedBatchResponse(List<Long> novelIds) {}
 
     public record NovelContentResponse(String content, String lang, boolean translated,
-                                       String translatedTitle) {}
+                                       String translatedTitle, String translatedDescription) {}
 
     public record NovelSeriesNavResponse(Long seriesId, String seriesTitle, Long currentOrder,
                                          NeighborView prev, NeighborView next) {}
@@ -580,9 +661,10 @@ public class NovelGalleryController {
     public record NovelSeriesDetailResponse(long seriesId, String title, Long authorId, long updatedTime,
                                             String description, String coverExt, String coverFolder,
                                             List<TagDto> tags, List<String> translatedLanguages,
-                                            String translatedTitle) {}
+                                            String translatedTitle, String translatedDescription) {}
 
-    private NovelSeriesDetailResponse toDetailResponse(NovelSeries series, String translatedTitle) {
+    private NovelSeriesDetailResponse toDetailResponse(NovelSeries series, String translatedTitle,
+                                                       String translatedDescription) {
         return new NovelSeriesDetailResponse(
                 series.seriesId(),
                 series.title(),
@@ -593,6 +675,7 @@ public class NovelGalleryController {
                 series.coverFolder(),
                 novelDatabase.getNovelSeriesTags(series.seriesId()),
                 novelDatabase.getSeriesTranslatedLangs(series.seriesId()),
-                translatedTitle);
+                translatedTitle,
+                translatedDescription);
     }
 }

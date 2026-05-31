@@ -63,6 +63,8 @@ public class NovelDatabase {
         addColumnIfMissing(novelMapper::addNovelSeriesCoverExtColumn);
         addColumnIfMissing(novelMapper::addNovelSeriesCoverFolderColumn);
         addColumnIfMissing(novelMapper::addNovelTranslationsTitleColumn);
+        addColumnIfMissing(novelMapper::addNovelTranslationsDescriptionColumn);
+        addColumnIfMissing(novelMapper::addNovelSeriesTitleTranslationsDescriptionColumn);
         novelMapper.migrateNovelTimestampsToMillis();
         novelMapper.migrateNovelCollectionTimestampsToMillis();
         novelMapper.migrateNovelSeriesTimestampsToMillis();
@@ -236,21 +238,23 @@ public class NovelDatabase {
     // ── AI translations ──────────────────────────────────────────────────────────
 
     /**
-     * 保存（覆盖）某本小说在某语言下的 AI 译文。{@code translatedTitle} 可为空——传 {@code null} 表示
-     * 本次未翻译标题（保留 DB 中既有标题不变化）。这是为了让「内容已译、标题翻译失败 / 单独触发」时不会被空 title 抹掉。
+     * 保存（覆盖）某本小说在某语言下的 AI 译文。{@code translatedTitle} / {@code translatedDescription}
+     * 都可为空——传 {@code null} 表示本次未翻译对应字段，保留 DB 中既有值不变化。这是为了让
+     * 「内容已译、标题/简介翻译失败 / 单独触发」时不会被空值抹掉。
      */
-    public void saveTranslation(long novelId, String langCode, String rawContent, String translatedTitle) {
+    public void saveTranslation(long novelId, String langCode, String rawContent,
+                                String translatedTitle, String translatedDescription) {
         if (langCode == null || langCode.isBlank()) return;
         String lang = langCode.trim();
         String content = rawContent == null ? "" : rawContent;
         long now = TimestampUtils.nowMillis();
-        if (translatedTitle != null && !translatedTitle.isBlank()) {
-            novelMapper.insertOrReplaceTranslation(novelId, lang, content, translatedTitle.trim(), now);
-        } else {
-            // 不提供标题时保留旧标题：先读出旧值，再 upsert 时一并写回
-            String previousTitle = novelMapper.findTranslationTitle(novelId, lang);
-            novelMapper.insertOrReplaceTranslation(novelId, lang, content, previousTitle, now);
-        }
+        String titleToWrite = (translatedTitle != null && !translatedTitle.isBlank())
+                ? translatedTitle.trim()
+                : novelMapper.findTranslationTitle(novelId, lang);
+        String descriptionToWrite = (translatedDescription != null && !translatedDescription.isBlank())
+                ? translatedDescription.trim()
+                : novelMapper.findTranslationDescription(novelId, lang);
+        novelMapper.insertOrReplaceTranslation(novelId, lang, content, titleToWrite, descriptionToWrite, now);
     }
 
     /** 单独覆盖某本小说某语言的译文标题（不动正文），用于内容已译但标题刚翻译成功的回填。 */
@@ -258,6 +262,24 @@ public class NovelDatabase {
         if (langCode == null || langCode.isBlank()) return;
         if (translatedTitle == null || translatedTitle.isBlank()) return;
         novelMapper.updateTranslationTitle(novelId, langCode.trim(), translatedTitle.trim());
+    }
+
+    /**
+     * 仅写入译文标题 / 译文简介，保留正文（无既有行时以空 {@code raw_content} 落行）。供「仅翻译标题 / 仅翻译简介」
+     * 流程使用：{@link #saveTranslation} 会用调用方传入的正文覆写旧译文正文，本方法则先回填既有正文再走同一 upsert，
+     * 避免空正文抹掉已经翻译完成的章节。
+     */
+    public void saveTranslationMetadata(long novelId, String langCode,
+                                        String translatedTitle, String translatedDescription) {
+        if (langCode == null || langCode.isBlank()) return;
+        if ((translatedTitle == null || translatedTitle.isBlank())
+                && (translatedDescription == null || translatedDescription.isBlank())) {
+            return;
+        }
+        String lang = langCode.trim();
+        String existingContent = novelMapper.findTranslationContent(novelId, lang);
+        String content = existingContent == null ? "" : existingContent;
+        saveTranslation(novelId, lang, content, translatedTitle, translatedDescription);
     }
 
     /** 读取某本小说某语言的译文 markup；不存在返回 {@code null}。 */
@@ -270,6 +292,12 @@ public class NovelDatabase {
     public String getTranslationTitle(long novelId, String langCode) {
         if (langCode == null || langCode.isBlank()) return null;
         return novelMapper.findTranslationTitle(novelId, langCode.trim());
+    }
+
+    /** 读取某本小说某语言的译文简介；不存在 / 未翻译简介返回 {@code null}。 */
+    public String getTranslationDescription(long novelId, String langCode) {
+        if (langCode == null || langCode.isBlank()) return null;
+        return novelMapper.findTranslationDescription(novelId, langCode.trim());
     }
 
     public boolean hasTranslation(long novelId, String langCode) {
@@ -290,18 +318,32 @@ public class NovelDatabase {
         return langs == null ? Collections.emptyList() : langs;
     }
 
-    /** 保存（覆盖）某系列在某语言下的系列名翻译。 */
-    public void saveSeriesTitleTranslation(long seriesId, String langCode, String translatedTitle) {
+    /**
+     * 保存（覆盖）某系列在某语言下的系列名 + 系列简介翻译。{@code translatedDescription} 可为空——传 {@code null}
+     * 表示本次未翻译系列简介（保留 DB 中既有简介值不变），与 saveTranslation 的标题/简介 nullability 语义一致。
+     */
+    public void saveSeriesTitleTranslation(long seriesId, String langCode,
+                                           String translatedTitle, String translatedDescription) {
         if (seriesId <= 0 || langCode == null || langCode.isBlank()) return;
         if (translatedTitle == null || translatedTitle.isBlank()) return;
+        String lang = langCode.trim();
+        String descriptionToWrite = (translatedDescription != null && !translatedDescription.isBlank())
+                ? translatedDescription.trim()
+                : novelMapper.findSeriesDescriptionTranslation(seriesId, lang);
         novelMapper.insertOrReplaceSeriesTitleTranslation(
-                seriesId, langCode.trim(), translatedTitle.trim(), TimestampUtils.nowMillis());
+                seriesId, lang, translatedTitle.trim(), descriptionToWrite, TimestampUtils.nowMillis());
     }
 
     /** 读取某系列某语言的系列名翻译；不存在返回 {@code null}。 */
     public String getSeriesTitleTranslation(long seriesId, String langCode) {
         if (seriesId <= 0 || langCode == null || langCode.isBlank()) return null;
         return novelMapper.findSeriesTitleTranslation(seriesId, langCode.trim());
+    }
+
+    /** 读取某系列某语言的系列简介翻译；不存在 / 未翻译简介返回 {@code null}。 */
+    public String getSeriesDescriptionTranslation(long seriesId, String langCode) {
+        if (seriesId <= 0 || langCode == null || langCode.isBlank()) return null;
+        return novelMapper.findSeriesDescriptionTranslation(seriesId, langCode.trim());
     }
 
     // ── Embedded images ────────────────────────────────────────────────────────

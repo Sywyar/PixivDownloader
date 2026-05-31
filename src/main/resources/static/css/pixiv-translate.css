@@ -95,6 +95,10 @@
     line-height: 1.5;
 }
 
+.pt-hint.pt-error {
+    color: #d9534f;
+}
+
 .pt-radio-row {
     display: flex;
     gap: 18px;

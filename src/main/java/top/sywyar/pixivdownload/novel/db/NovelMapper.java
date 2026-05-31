@@ -85,6 +85,14 @@ public interface NovelMapper {
     @Update("ALTER TABLE novel_translations ADD COLUMN title TEXT DEFAULT NULL")
     void addNovelTranslationsTitleColumn();
 
+    /** 幂等迁移：旧库 novel_translations 表补 description 列；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE novel_translations ADD COLUMN description TEXT DEFAULT NULL")
+    void addNovelTranslationsDescriptionColumn();
+
+    /** 幂等迁移：旧库 novel_series_title_translations 表补 description 列；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE novel_series_title_translations ADD COLUMN description TEXT DEFAULT NULL")
+    void addNovelSeriesTitleTranslationsDescriptionColumn();
+
     /** 幂等迁移：旧库 novel_series 表补 cover_ext 列；列已存在时调用方需吞掉异常 */
     @Update("ALTER TABLE novel_series ADD COLUMN cover_ext TEXT DEFAULT NULL")
     void addNovelSeriesCoverExtColumn();
@@ -141,20 +149,23 @@ public interface NovelMapper {
             + "lang_code TEXT NOT NULL,"
             + "raw_content TEXT NOT NULL,"
             + "title TEXT DEFAULT NULL,"
+            + "description TEXT DEFAULT NULL,"
             + "created_time INTEGER NOT NULL,"
             + "PRIMARY KEY (novel_id, lang_code))")
     void createNovelTranslationsTable();
 
-    @Insert("INSERT INTO novel_translations(novel_id, lang_code, raw_content, title, created_time)"
-            + " VALUES(#{novelId}, #{langCode}, #{rawContent}, #{title}, #{createdTime})"
+    @Insert("INSERT INTO novel_translations(novel_id, lang_code, raw_content, title, description, created_time)"
+            + " VALUES(#{novelId}, #{langCode}, #{rawContent}, #{title}, #{description}, #{createdTime})"
             + " ON CONFLICT(novel_id, lang_code) DO UPDATE SET"
             + " raw_content = excluded.raw_content,"
             + " title = excluded.title,"
+            + " description = excluded.description,"
             + " created_time = excluded.created_time")
     void insertOrReplaceTranslation(@Param("novelId") long novelId,
                                     @Param("langCode") String langCode,
                                     @Param("rawContent") String rawContent,
                                     @Param("title") String title,
+                                    @Param("description") String description,
                                     @Param("createdTime") long createdTime);
 
     /** 单独覆盖译文标题（不动正文），用于内容已译但标题首次成功翻译的回填。 */
@@ -171,6 +182,10 @@ public interface NovelMapper {
     @Select("SELECT title FROM novel_translations"
             + " WHERE novel_id = #{novelId} AND lang_code = #{langCode}")
     String findTranslationTitle(@Param("novelId") long novelId, @Param("langCode") String langCode);
+
+    @Select("SELECT description FROM novel_translations"
+            + " WHERE novel_id = #{novelId} AND lang_code = #{langCode}")
+    String findTranslationDescription(@Param("novelId") long novelId, @Param("langCode") String langCode);
 
     @Select("SELECT COUNT(*) FROM novel_translations"
             + " WHERE novel_id = #{novelId} AND lang_code = #{langCode}")
@@ -196,23 +211,30 @@ public interface NovelMapper {
             + "series_id INTEGER NOT NULL,"
             + "lang_code TEXT NOT NULL,"
             + "title TEXT NOT NULL,"
+            + "description TEXT DEFAULT NULL,"
             + "created_time INTEGER NOT NULL,"
             + "PRIMARY KEY (series_id, lang_code))")
     void createNovelSeriesTitleTranslationsTable();
 
-    @Insert("INSERT INTO novel_series_title_translations(series_id, lang_code, title, created_time)"
-            + " VALUES(#{seriesId}, #{langCode}, #{title}, #{createdTime})"
+    @Insert("INSERT INTO novel_series_title_translations(series_id, lang_code, title, description, created_time)"
+            + " VALUES(#{seriesId}, #{langCode}, #{title}, #{description}, #{createdTime})"
             + " ON CONFLICT(series_id, lang_code) DO UPDATE SET"
             + " title = excluded.title,"
+            + " description = excluded.description,"
             + " created_time = excluded.created_time")
     void insertOrReplaceSeriesTitleTranslation(@Param("seriesId") long seriesId,
                                                @Param("langCode") String langCode,
                                                @Param("title") String title,
+                                               @Param("description") String description,
                                                @Param("createdTime") long createdTime);
 
     @Select("SELECT title FROM novel_series_title_translations"
             + " WHERE series_id = #{seriesId} AND lang_code = #{langCode}")
     String findSeriesTitleTranslation(@Param("seriesId") long seriesId, @Param("langCode") String langCode);
+
+    @Select("SELECT description FROM novel_series_title_translations"
+            + " WHERE series_id = #{seriesId} AND lang_code = #{langCode}")
+    String findSeriesDescriptionTranslation(@Param("seriesId") long seriesId, @Param("langCode") String langCode);
 
     // ── AI glossaries（名词映射表）────────────────────────────────────────────────
     // 一张映射表（novel_glossaries）默认绑定到某个系列或某本单独小说（series_id / novel_id 二选一），
