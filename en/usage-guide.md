@@ -490,6 +490,8 @@ Generate EPUB compilations from novel series pages or during download:
 
 You can also re-download the compilation at any time from the novel-series page (`pixiv-series.html?type=novel&seriesId=...`): the toolbar has a **Download merged volume** button that opens a language picker (Original, or any language the series has already been translated into). Picking a non-original language shows an inline warning — only already-translated chapters use that language; untranslated chapters fall back to original. To get a volume fully in the chosen language, run **Translate whole series** first and then re-download. The backend regenerates the EPUB from the current database state and streams it as an attachment.
 
+When the AI translation feature is used, the novel **title** and series **name** are translated along with the body — single-novel translation translates the chapter title in the SAME AI request as the body (so proper nouns and terminology stay consistent); "Translate whole series" also translates the series name afterwards, passing along the same glossary and the already-translated chapter title pairs from this series as naming-style references. Switching the content language on the novel page / series page swaps the displayed novel title, series name and chapter card titles to the translated versions (falling back to original where a translation is missing). The language-variant merged EPUB uses the translated series name and translated chapter titles too.
+
 ---
 
 ## GUI Desktop Tool
