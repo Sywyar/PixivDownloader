@@ -27,6 +27,9 @@ import java.util.List;
  */
 public record TranslationRequest(String targetLanguage, String sourceText, List<GlossaryTerm> glossary) {
 
+    /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiService} 在日志中标识本次请求用途。 */
+    public static final String CALL_TYPE = "translation";
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** 便捷构造：无名词映射表。 */

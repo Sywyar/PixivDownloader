@@ -51,7 +51,8 @@ public class AiTestController {
 
         AiClientSettings settings = body.toClientSettings();
         try {
-            AiChatResult result = aiService.chatTest(settings, PROBE.toMessages(), AiChatOptions.defaults());
+            AiChatResult result = aiService.chatTest(ConnectivityProbeRequest.CALL_TYPE,
+                    settings, PROBE.toMessages(), AiChatOptions.defaults());
             return ResponseEntity.ok(AiTestResponse.ok(truncate(result.content())));
         } catch (AiService.AiException e) {
             return ResponseEntity.ok(AiTestResponse.fail(e.getMessage()));

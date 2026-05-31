@@ -66,38 +66,36 @@ public class AiService {
      * 业务路径对话：使用当前 {@link AiConfig}。总开关关闭、未配置 base-url / model 或请求失败时抛
      * {@link AiException}。
      *
+     * @param callType 调用类型标签（如 {@code translation} / {@code translation.lang-probe}），仅用于日志标识
      * @param messages 对话消息序列（至少一条）
      * @param options  可选调参；{@code null} 等价于 {@link AiChatOptions#defaults()}
      */
-    public AiChatResult chat(List<AiChatMessage> messages, AiChatOptions options) throws AiException {
+    public AiChatResult chat(String callType, List<AiChatMessage> messages,
+                             AiChatOptions options) throws AiException {
         if (!aiConfig.isEnabled()) {
             throw new AiException(localized("ai.error.disabled"));
         }
-        return deliver(aiConfig.toClientSettings(), messages, options);
-    }
-
-    /** 便捷重载：系统提示 + 用户输入。 */
-    public AiChatResult chat(String systemPrompt, String userPrompt) throws AiException {
-        return chat(List.of(AiChatMessage.system(systemPrompt), AiChatMessage.user(userPrompt)),
-                AiChatOptions.defaults());
+        return deliver(callType, aiConfig.toClientSettings(), messages, options);
     }
 
     /**
      * GUI 连通性测试：使用调用方传入的临时设置（不读取 {@link AiConfig}、不检查总开关），失败抛
      * {@link AiException} 让 GUI 显示失败原因。失败摘要绝不含 API Key。
+     *
+     * @param callType 调用类型标签（如 {@code probe.connectivity}），仅用于日志标识
      */
-    public AiChatResult chatTest(AiClientSettings settings, List<AiChatMessage> messages,
-                                 AiChatOptions options) throws AiException {
+    public AiChatResult chatTest(String callType, AiClientSettings settings,
+                                 List<AiChatMessage> messages, AiChatOptions options) throws AiException {
         if (settings == null) {
             throw new AiException(localized("ai.error.settings-missing"));
         }
-        return deliver(settings, messages, options);
+        return deliver(callType, settings, messages, options);
     }
 
     // ── 内部 ─────────────────────────────────────────────────────────────────
 
-    private AiChatResult deliver(AiClientSettings settings, List<AiChatMessage> chatMessages,
-                                 AiChatOptions options) throws AiException {
+    private AiChatResult deliver(String callType, AiClientSettings settings,
+                                 List<AiChatMessage> chatMessages, AiChatOptions options) throws AiException {
         if (settings.baseUrl() == null || settings.baseUrl().isBlank()) {
             throw new AiException(localized("ai.error.base-url-missing"));
         }
@@ -114,21 +112,35 @@ public class AiService {
         HttpEntity<byte[]> entity = new HttpEntity<>(requestBody, buildHeaders(settings.apiKey()));
         RestTemplate restTemplate = settings.useProxy() ? aiProxyRestTemplate : aiRestTemplate;
 
+        String type = callType == null || callType.isBlank() ? "unknown" : callType;
+        String model = settings.model();
+        long startedAtNs = System.nanoTime();
         try {
             ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.POST, entity, byte[].class);
-            return parseResult(response.getBody());
+            AiChatResult result = parseResult(response.getBody());
+            long elapsedMs = (System.nanoTime() - startedAtNs) / 1_000_000;
+            log.info(logMessage("ai.log.chat.success", type, model, elapsedMs,
+                    tokenStr(result.promptTokens()), tokenStr(result.completionTokens())));
+            return result;
         } catch (RestClientResponseException e) {
+            long elapsedMs = (System.nanoTime() - startedAtNs) / 1_000_000;
             // 已连通但返回非 2xx：附带状态码与（脱敏 / 截断后的）响应正文摘要
             String body = e.getResponseBodyAsString(StandardCharsets.UTF_8);
             String msg = "HTTP " + e.getRawStatusCode()
                     + (body == null || body.isBlank() ? "" : ": " + truncate(body));
-            log.warn(logMessage("ai.log.chat.failed", msg));
+            log.warn(logMessage("ai.log.chat.failed", type, model, elapsedMs, msg));
             throw new AiException(msg, e);
         } catch (RestClientException e) {
+            long elapsedMs = (System.nanoTime() - startedAtNs) / 1_000_000;
             String msg = safeMessage(e);
-            log.warn(logMessage("ai.log.chat.failed", msg));
+            log.warn(logMessage("ai.log.chat.failed", type, model, elapsedMs, msg));
             throw new AiException(msg, e);
         }
+    }
+
+    /** token 计数可能为 null（部分模型不回报），统一成日志字符串。 */
+    private static String tokenStr(Integer count) {
+        return count == null ? "?" : String.valueOf(count);
     }
 
     private ChatRequest buildRequest(String model, List<AiChatMessage> chatMessages, AiChatOptions opts) {

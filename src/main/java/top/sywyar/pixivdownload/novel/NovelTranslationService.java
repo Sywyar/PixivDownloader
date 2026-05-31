@@ -7,6 +7,8 @@ import top.sywyar.pixivdownload.ai.AiService;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import top.sywyar.pixivdownload.ai.translation.GlossaryTerm;
+import top.sywyar.pixivdownload.ai.translation.LangProbeRequest;
+import top.sywyar.pixivdownload.ai.translation.LangProbeResponse;
 import top.sywyar.pixivdownload.ai.translation.TranslationRequest;
 import top.sywyar.pixivdownload.ai.translation.TranslationResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -93,6 +95,7 @@ public class NovelTranslationService {
         try {
             for (int i = 0; i < segments.size(); i++) {
                 AiChatResult chat = aiService.chat(
+                        TranslationRequest.CALL_TYPE,
                         new TranslationRequest(targetLanguage, segments.get(i), glossaryTerms).toMessages(),
                         AiChatOptions.json().withTemperature(0.3));
                 TranslationResponse parsed = TranslationResponse.parse(chat.content());
@@ -135,6 +138,30 @@ public class NovelTranslationService {
                 ? messages.get("novel.translate.truncated")
                 : messages.get("novel.translate.success");
         return new Result(Status.OK, langCode, message, truncated);
+    }
+
+    /**
+     * 把用户输入的自由文本目标语言（如「简体中文」/ {@code english} / {@code 日本語}）转换为与
+     * {@link TranslationResponse#lang()} 同一规范的 BCP-47 代码（如 {@code zh-CN} / {@code en-US}）。
+     * 用于系列批量翻译开始前预解析，让首章也能凭 langHint 直接走 DB 跳过、不必为识别语言再发一次完整翻译请求。
+     *
+     * @return 探测得到的 BCP-47 代码；输入非真实语言、AI 关闭、调用失败等情况返回空字符串
+     */
+    public String resolveLangCode(String targetLanguage) {
+        if (targetLanguage == null || targetLanguage.isBlank()) {
+            return "";
+        }
+        try {
+            AiChatResult chat = aiService.chat(
+                    LangProbeRequest.CALL_TYPE,
+                    new LangProbeRequest(targetLanguage).toMessages(),
+                    AiChatOptions.json().withTemperature(0.0));
+            LangProbeResponse parsed = LangProbeResponse.parse(chat.content());
+            return parsed.ok() ? parsed.code().trim() : "";
+        } catch (AiService.AiException e) {
+            // AiService 已记过失败日志，这里仅静默回退
+            return "";
+        }
     }
 
     /** 读取映射表条目并转换为发给 AI 的术语列表；{@code glossaryId} 为空或表不存在时返回空表。 */

@@ -300,3 +300,68 @@
     outline: none;
     border-color: var(--brand, #0096fa);
 }
+
+/* 翻译进度弹窗 */
+.pt-progress-backdrop {
+    z-index: 4050;
+}
+
+.pt-progress-backdrop .pt-modal {
+    max-width: 480px;
+}
+
+.pt-progress-body {
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.pt-progress-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--text, #1a1a1a);
+}
+
+.pt-progress-spinner {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--line, #d8d8d8);
+    border-top-color: var(--brand, #0096fa);
+    border-radius: 50%;
+    animation: pt-progress-spin 0.9s linear infinite;
+}
+
+@keyframes pt-progress-spin {
+    to { transform: rotate(360deg); }
+}
+
+.pt-progress-sub {
+    font-size: 13px;
+    color: var(--muted, #888);
+    line-height: 1.5;
+}
+
+.pt-progress-stats {
+    font-size: 13px;
+    color: var(--muted, #888);
+}
+
+.pt-progress-warnings {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border-radius: 9px;
+    background: var(--control-muted-bg, #f7f7f7);
+    border: 1px solid var(--line, #e3e3e3);
+}
+
+.pt-progress-warn {
+    font-size: 12px;
+    color: var(--muted, #888);
+    line-height: 1.55;
+}

@@ -268,74 +268,53 @@
         if (el) el.textContent = text;
     }
 
-    // 翻译整个系列：前端逐章循环调用单作品翻译接口（与批量点击单作品 AI 翻译一致），完成后重生该语言变体合订本。
+    // 翻译整个系列：进度弹窗内串行调用单作品翻译接口（保证术语前后一致），完成后重生该语言变体合订本。
     async function translateSeries() {
         if (!window.PixivTranslate || !state.seriesId || !isNovelMode()) return;
+        // 已有进行中的翻译：直接重新弹出当前进度，不再发新请求
+        if (PixivTranslate.hasActiveJob()) {
+            PixivTranslate.showActiveJob();
+            return;
+        }
         const choice = await PixivTranslate.openDialog({
             i18n: pageI18n, series: true, seriesId: state.seriesId,
             onToast: (msg) => setSeriesMessage(msg)
         });
         if (!choice) return;
-        const btn = document.getElementById('translateSeriesBtn');
-        const original = btn.textContent;
-        let ids;
-        try {
-            ids = await PixivTranslate.fetchSeriesNovelIds(state.seriesId);
-        } catch (e) {
-            setSeriesMessage(tx('toast.failed', '翻译失败：{message}', {message: String(e.message || e)}));
+        const result = await PixivTranslate.runSeries({
+            i18n: pageI18n, seriesId: state.seriesId, choice: choice
+        });
+        if (!result) return;
+        if (result.error) {
+            setSeriesMessage(tx('toast.failed', '翻译失败：{message}',
+                {message: String(result.error.message || result.error)}));
             return;
         }
-        if (!ids.length) {
+        if (result.empty) {
             setSeriesMessage(tx('toast.no-chapters', '该系列暂无可翻译章节'));
             return;
         }
-        btn.disabled = true;
-        let ok = 0, skipped = 0, failed = 0, langCode = null, invalid = false;
-        for (let i = 0; i < ids.length; i++) {
-            btn.textContent = tx('status.translating-progress', 'Translating {done}/{total}',
-                {done: i + 1, total: ids.length});
-            try {
-                const resp = await PixivTranslate.translateNovel(ids[i],
-                    Object.assign({}, choice, {langHint: langCode}));
-                if (resp.status === PixivTranslate.STATUS_INVALID_LANGUAGE) {
-                    invalid = true;
-                    break;
-                }
-                if (resp.langCode && !langCode) langCode = resp.langCode;
-                if (resp.status === PixivTranslate.STATUS_OK) ok++;
-                else if (resp.status === PixivTranslate.STATUS_SKIPPED) skipped++;
-                else failed++;
-            } catch (_) {
-                failed++;
-            }
-        }
-        btn.disabled = false;
-        btn.textContent = original;
-        if (invalid) {
+        if (result.invalid) {
             setSeriesMessage(tx('toast.invalid-language', 'AI 判定该语言不存在或无法识别'));
             return;
         }
-        // 重生该语言变体合订本（仅当有成功翻译的章节）
-        if (langCode && (ok > 0 || skipped > 0)) {
-            btn.textContent = tx('status.merging', '正在生成该语言合订本…');
-            try {
-                await PixivTranslate.mergeSeriesLang(state.seriesId, langCode, 'epub');
-            } catch (e) {
-                setSeriesMessage(tx('toast.merge-failed', '合订本生成失败：{message}', {message: String(e.message || e)}));
+        if (result.mergeFailed) {
+            setSeriesMessage(tx('toast.merge-failed', '合订本生成失败：{message}',
+                {message: String(result.mergeFailed.message || result.mergeFailed)}));
+        }
+        // 把新语言并入切换器并默认切到该语言
+        if (result.langCode) {
+            if (seriesTranslatedLangs.indexOf(result.langCode) === -1) {
+                seriesTranslatedLangs = seriesTranslatedLangs.concat([result.langCode]);
             }
-            btn.textContent = original;
-            // 把新语言并入切换器并默认切到该语言
-            if (langCode && seriesTranslatedLangs.indexOf(langCode) === -1) {
-                seriesTranslatedLangs = seriesTranslatedLangs.concat([langCode]);
-            }
-            activeContentLang = langCode;
-            if (window.PixivContentLang) PixivContentLang.setStored(langCode);
-            if (contentLangCtl) contentLangCtl.setLanguages(seriesTranslatedLangs, langCode);
+            activeContentLang = result.langCode;
+            if (window.PixivContentLang) PixivContentLang.setStored(result.langCode);
+            if (contentLangCtl) contentLangCtl.setLanguages(seriesTranslatedLangs, result.langCode);
             else setupNovelContentControls(seriesTranslatedLangs);
             renderGrid(state.items);
         }
         setSeriesMessage(tx('toast.series-done', '系列翻译完成：成功 {ok}，跳过 {skipped}，失败 {failed}',
-            {ok: ok, skipped: skipped, failed: failed}));
+            {ok: result.ok, skipped: result.skipped, failed: result.failed}));
     }
 
     async function loadCollections() {

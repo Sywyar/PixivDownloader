@@ -282,6 +282,21 @@ public class NovelGalleryController {
                 result.status().name(), result.langCode(), result.message(), result.truncated()));
     }
 
+    /**
+     * 用户输入的自由文本目标语言（如「简体中文」/「english」）→ 规范 BCP-47 代码（{@code zh-CN} 等）。
+     * 仅管理员可用。系列批量翻译前调用一次，让首章也能凭已有译文的 lang_code 直接走 DB 跳过，
+     * 不必为识别语言再花一次完整翻译请求。
+     */
+    @PostMapping("/novel/translate-lang-probe")
+    public ResponseEntity<TranslateLangProbeResponse> translateLangProbe(
+            @RequestBody TranslateLangProbeRequest request) {
+        if (request == null || request.targetLanguage() == null || request.targetLanguage().isBlank()) {
+            return ResponseEntity.ok(new TranslateLangProbeResponse("", false));
+        }
+        String code = novelTranslationService.resolveLangCode(request.targetLanguage());
+        return ResponseEntity.ok(new TranslateLangProbeResponse(code, !code.isEmpty()));
+    }
+
     /** 系列内全部章节的 novel_id（按 series_order 升序），供「翻译整个系列」前端逐章循环。 */
     @GetMapping("/novel/series/{seriesId}/novel-ids")
     public ResponseEntity<NovelSeriesChapterIdsResponse> seriesNovelIds(@PathVariable long seriesId,
@@ -300,6 +315,10 @@ public class NovelGalleryController {
                                    Boolean overwrite, String langHint, Long glossaryId) {}
 
     public record TranslateResponse(String status, String langCode, String message, boolean truncated) {}
+
+    public record TranslateLangProbeRequest(String targetLanguage) {}
+
+    public record TranslateLangProbeResponse(String code, boolean valid) {}
 
     public record NovelSeriesChapterIdsResponse(List<Long> novelIds) {}
 

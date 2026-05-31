@@ -753,7 +753,7 @@
 
     async function translateNovel(novelId, opts) {
         opts = opts || {};
-        var res = await fetch('/api/gallery/novel/' + encodeURIComponent(novelId) + '/translate', {
+        var fetchInit = {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
@@ -764,7 +764,9 @@
                 langHint: opts.langHint || null,
                 glossaryId: opts.glossaryId == null ? null : opts.glossaryId
             })
-        });
+        };
+        if (opts.signal) fetchInit.signal = opts.signal;
+        var res = await fetch('/api/gallery/novel/' + encodeURIComponent(novelId) + '/translate', fetchInit);
         if (!res.ok) {
             var msg = 'HTTP ' + res.status;
             try {
@@ -794,11 +796,345 @@
         return (data && data.novelIds) || [];
     }
 
+    // 把用户自由文本（「简体中文」/「english」）解析为规范 BCP-47 代码（zh-CN / en-US）。
+    // 用于系列批量翻译前预解析，使首章也能凭 langHint 走 DB 跳过。失败返回空字符串。
+    async function probeLangCode(targetLanguage, opts) {
+        opts = opts || {};
+        var fetchInit = {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetLanguage: targetLanguage || '' })
+        };
+        if (opts.signal) fetchInit.signal = opts.signal;
+        var res = await fetch('/api/gallery/novel/translate-lang-probe', fetchInit);
+        if (!res.ok) return '';
+        try {
+            var data = await res.json();
+            return (data && data.valid && data.code) ? String(data.code).trim() : '';
+        } catch (_) {
+            return '';
+        }
+    }
+
+    // ── 翻译进度弹窗（单作品 / 系列共用） ────────────────────────────────────────────
+    // 设计：同一时刻只允许一个 activeJob；翻译按钮在 job 进行中再次点击 = 重新弹出当前进度。
+    // 「隐藏」只关闭弹窗、保留任务；「取消」abort 当前 fetch（后端可能仍写入 DB，无法拦截）。
+    // 系列模式下取消后已完成章节仍触发该语言合订。
+
+    var progressEl = null;
+    var progressRefs = null;
+    var progressTimerId = null;
+    var activeJob = null;
+
+    function buildProgress() {
+        var backdrop = document.createElement('div');
+        backdrop.className = 'pt-backdrop pt-progress-backdrop';
+        backdrop.innerHTML =
+            '<div class="pt-modal" role="dialog" aria-modal="true">' +
+            '  <div class="pt-head">' +
+            '    <span class="pt-title pt-progress-title"></span>' +
+            '  </div>' +
+            '  <div class="pt-body pt-progress-body">' +
+            '    <div class="pt-progress-status">' +
+            '      <span class="pt-progress-spinner"></span>' +
+            '      <span class="pt-progress-status-text"></span>' +
+            '    </div>' +
+            '    <div class="pt-progress-sub pt-progress-sub-text"></div>' +
+            '    <div class="pt-progress-stats pt-progress-stats-text"></div>' +
+            '    <div class="pt-progress-warnings"></div>' +
+            '  </div>' +
+            '  <div class="pt-foot">' +
+            '    <button class="pt-btn pt-progress-hide" type="button"></button>' +
+            '    <button class="pt-btn pt-btn-danger pt-progress-cancel" type="button"></button>' +
+            '  </div>' +
+            '</div>';
+        document.body.appendChild(backdrop);
+        progressRefs = {
+            backdrop: backdrop,
+            title: backdrop.querySelector('.pt-progress-title'),
+            statusText: backdrop.querySelector('.pt-progress-status-text'),
+            subText: backdrop.querySelector('.pt-progress-sub-text'),
+            statsText: backdrop.querySelector('.pt-progress-stats-text'),
+            warnings: backdrop.querySelector('.pt-progress-warnings'),
+            hideBtn: backdrop.querySelector('.pt-progress-hide'),
+            cancelBtn: backdrop.querySelector('.pt-progress-cancel')
+        };
+        return backdrop;
+    }
+
+    function elapsedSec(startedAt) {
+        return Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    }
+
+    function renderProgressStatus() {
+        if (!progressRefs || !activeJob) return;
+        var st = activeJob.state;
+        var i18n = st.i18n;
+        var elapsed = elapsedSec(st.phaseStartedAt);
+        if (st.phase === 'merging') {
+            progressRefs.statusText.textContent = tt(i18n, 'progress.status-merging',
+                'Generating the merged volume… ({elapsed}s)', { elapsed: elapsed });
+        } else if (st.phase === 'resolving') {
+            progressRefs.statusText.textContent = tt(i18n, 'progress.status-resolving',
+                'Resolving language code… ({elapsed}s)', { elapsed: elapsed });
+        } else {
+            progressRefs.statusText.textContent = tt(i18n, 'progress.status-running',
+                'AI model translating… ({elapsed}s)', { elapsed: elapsed });
+        }
+    }
+
+    function renderProgressAll() {
+        if (!progressRefs || !activeJob) return;
+        var st = activeJob.state;
+        var i18n = st.i18n;
+        progressRefs.title.textContent = st.title;
+        progressRefs.hideBtn.textContent = tt(i18n, 'progress.btn-hide', 'Hide');
+        progressRefs.cancelBtn.textContent = tt(i18n, 'progress.btn-cancel', 'Cancel');
+        renderProgressStatus();
+        if (st.type === 'series' && st.phase === 'translating') {
+            progressRefs.subText.textContent = tt(i18n, 'progress.series-progress',
+                'Translating chapter {done} / {total}',
+                { done: st.currentIndex + 1, total: st.total });
+            progressRefs.subText.style.display = '';
+        } else {
+            progressRefs.subText.style.display = 'none';
+        }
+        if (st.type === 'series') {
+            progressRefs.statsText.textContent = tt(i18n, 'progress.series-stats',
+                '{ok} done {skipped} skipped {failed} failed',
+                { ok: st.ok, skipped: st.skipped, failed: st.failed });
+            progressRefs.statsText.style.display = '';
+        } else {
+            progressRefs.statsText.style.display = 'none';
+        }
+        progressRefs.warnings.innerHTML = '';
+        if (st.warnings && st.warnings.length) {
+            st.warnings.forEach(function (text) {
+                var div = document.createElement('div');
+                div.className = 'pt-progress-warn';
+                div.textContent = text;
+                progressRefs.warnings.appendChild(div);
+            });
+            progressRefs.warnings.style.display = '';
+        } else {
+            progressRefs.warnings.style.display = 'none';
+        }
+        progressRefs.cancelBtn.disabled = !!st.cancelDisabled;
+    }
+
+    function showProgressDialog() {
+        if (!activeJob) return;
+        if (!progressEl) progressEl = buildProgress();
+        progressEl.classList.add('open');
+        renderProgressAll();
+        if (progressTimerId == null) {
+            progressTimerId = setInterval(function () {
+                if (!activeJob) return;
+                if (progressEl && progressEl.classList.contains('open')) {
+                    renderProgressStatus();
+                }
+            }, 500);
+        }
+    }
+
+    function hideProgressDialog() {
+        if (progressEl) progressEl.classList.remove('open');
+    }
+
+    function endProgressJob() {
+        hideProgressDialog();
+        if (progressTimerId != null) {
+            clearInterval(progressTimerId);
+            progressTimerId = null;
+        }
+        activeJob = null;
+    }
+
+    function bindProgressButtons(onHide, onCancel) {
+        if (!progressRefs) return;
+        progressRefs.hideBtn.onclick = onHide || null;
+        progressRefs.cancelBtn.onclick = onCancel || null;
+    }
+
+    async function runSingleNovel(opts) {
+        opts = opts || {};
+        if (activeJob) { showProgressDialog(); return null; }
+        var i18n = opts.i18n;
+        var controller = new AbortController();
+        var state = {
+            type: 'single',
+            i18n: i18n,
+            title: tt(i18n, 'progress.title-single', 'AI translation in progress'),
+            phase: 'translating',
+            phaseStartedAt: Date.now(),
+            warnings: []
+        };
+        var cancelled = false;
+        activeJob = { type: 'single', state: state, show: showProgressDialog };
+        // 必须先 showProgressDialog 触发 buildProgress（progressRefs 才存在），再绑定按钮
+        showProgressDialog();
+        bindProgressButtons(hideProgressDialog, function () {
+            cancelled = true;
+            state.cancelDisabled = true;
+            renderProgressAll();
+            controller.abort();
+        });
+        var result = null, error = null;
+        try {
+            result = await translateNovel(opts.novelId, Object.assign({}, opts.choice,
+                { signal: controller.signal }));
+        } catch (e) {
+            error = e;
+        }
+
+        // 翻译成功且该小说属于某个系列：重生该语言变体合订本（best-effort）。
+        // 仅在新译成功（OK）时触发，SKIPPED 表示该语言译文早已落库、合订本应已是最新。
+        var mergeFailed = null;
+        if (!cancelled && !error && result && opts.seriesId
+                && result.status === 'OK' && result.langCode) {
+            state.phase = 'merging';
+            state.phaseStartedAt = Date.now();
+            state.cancelDisabled = true;
+            renderProgressAll();
+            try {
+                await mergeSeriesLang(opts.seriesId, result.langCode, 'epub');
+            } catch (e) {
+                mergeFailed = e;
+            }
+        }
+
+        endProgressJob();
+        if (cancelled) return { cancelled: true };
+        if (error) return { error: error };
+        return { result: result, mergeFailed: mergeFailed };
+    }
+
+    async function runSeries(opts) {
+        opts = opts || {};
+        if (activeJob) { showProgressDialog(); return null; }
+        var i18n = opts.i18n;
+        var controller = new AbortController();
+        var state = {
+            type: 'series',
+            i18n: i18n,
+            title: tt(i18n, 'progress.title-series', 'Series translation in progress'),
+            phase: 'translating',
+            phaseStartedAt: Date.now(),
+            currentIndex: 0,
+            total: 0,
+            ok: 0, skipped: 0, failed: 0,
+            warnings: [
+                tt(i18n, 'progress.warn-do-not-close',
+                    'Do not close or refresh this tab; the progress will be interrupted.'),
+                tt(i18n, 'progress.warn-long',
+                    'Serial translation keeps glossary consistency; the whole series may take minutes.'),
+                tt(i18n, 'progress.warn-cancel',
+                    'Cancel keeps already-translated chapters and still triggers the merged volume.')
+            ]
+        };
+        var cancelled = false;
+        activeJob = { type: 'series', state: state, show: showProgressDialog };
+        // 必须先 showProgressDialog 触发 buildProgress（progressRefs 才存在），再绑定按钮
+        showProgressDialog();
+        bindProgressButtons(hideProgressDialog, function () {
+            cancelled = true;
+            state.cancelDisabled = true;
+            renderProgressAll();
+            controller.abort();
+        });
+
+        var ids;
+        try {
+            ids = await fetchSeriesNovelIds(opts.seriesId);
+        } catch (e) {
+            endProgressJob();
+            return { error: e };
+        }
+        if (!ids.length) {
+            endProgressJob();
+            return { empty: true };
+        }
+        state.total = ids.length;
+        renderProgressAll();
+
+        // 跳过模式下：先用一次小型 AI 探测把用户自由文本目标语言转为规范 BCP-47 代码，
+        // 使首章也能凭 langHint 走 DB 跳过、不必为识别语言再发一次完整翻译请求。
+        // 覆盖模式下每章都必发 AI 调用，无需预探测。
+        var langCode = null;
+        var invalid = false;
+        if (!opts.choice.overwrite && !cancelled) {
+            state.phase = 'resolving';
+            state.phaseStartedAt = Date.now();
+            renderProgressAll();
+            try {
+                var probed = await probeLangCode(opts.choice.targetLanguage,
+                    { signal: controller.signal });
+                if (probed) langCode = probed;
+            } catch (e) {
+                // 探测失败 / 取消：忽略，回退到无 langHint 的行为
+                if (cancelled || (e && e.name === 'AbortError')) {
+                    // fall through to loop; cancelled flag handles break
+                }
+            }
+            state.phase = 'translating';
+            renderProgressAll();
+        }
+
+        for (var i = 0; i < ids.length; i++) {
+            if (cancelled) break;
+            state.currentIndex = i;
+            state.phaseStartedAt = Date.now();
+            renderProgressAll();
+            try {
+                var resp = await translateNovel(ids[i], Object.assign({}, opts.choice,
+                    { langHint: langCode, signal: controller.signal }));
+                if (resp.status === 'INVALID_LANGUAGE') { invalid = true; break; }
+                if (resp.langCode && !langCode) langCode = resp.langCode;
+                if (resp.status === 'OK') state.ok++;
+                else if (resp.status === 'SKIPPED') state.skipped++;
+                else state.failed++;
+            } catch (e) {
+                if (cancelled || (e && e.name === 'AbortError')) break;
+                state.failed++;
+            }
+            renderProgressAll();
+        }
+
+        var mergeFailed = null;
+        if (!invalid && langCode && (state.ok > 0 || state.skipped > 0)) {
+            state.phase = 'merging';
+            state.phaseStartedAt = Date.now();
+            state.cancelDisabled = true;
+            renderProgressAll();
+            try {
+                await mergeSeriesLang(opts.seriesId, langCode, 'epub');
+            } catch (e) {
+                mergeFailed = e;
+            }
+        }
+        endProgressJob();
+        return {
+            cancelled: cancelled,
+            invalid: invalid,
+            ok: state.ok, skipped: state.skipped, failed: state.failed,
+            langCode: langCode,
+            mergeFailed: mergeFailed
+        };
+    }
+
+    function hasActiveJob() { return !!activeJob; }
+    function showActiveJob() { if (activeJob) showProgressDialog(); }
+
     global.PixivTranslate = {
         openDialog: openDialog,
         translateNovel: translateNovel,
         mergeSeriesLang: mergeSeriesLang,
         fetchSeriesNovelIds: fetchSeriesNovelIds,
+        runSingleNovel: runSingleNovel,
+        runSeries: runSeries,
+        hasActiveJob: hasActiveJob,
+        showActiveJob: showActiveJob,
         STATUS_OK: 'OK',
         STATUS_SKIPPED: 'SKIPPED',
         STATUS_INVALID_LANGUAGE: 'INVALID_LANGUAGE'
