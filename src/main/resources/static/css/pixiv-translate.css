@@ -142,6 +142,143 @@
     background: var(--brand, #0096fa);
 }
 
+.pt-btn-danger {
+    color: #dc3545;
+    border-color: var(--line, #d8d8d8);
+    background: var(--control-bg, #fff);
+}
+
+.pt-btn-danger:hover {
+    background: var(--hover-bg, #f2f2f2);
+}
+
+/* 名词映射表：弹窗内的选择行 + 编辑器 */
+.pt-glossary-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.pt-glossary-select {
+    flex: 1;
+    min-width: 0;
+}
+
+.pt-glossary-edit {
+    white-space: nowrap;
+    flex: 0 0 auto;
+}
+
+/* 映射表编辑器叠在翻译弹窗之上 */
+.pt-glossary-backdrop {
+    z-index: 4100;
+}
+
+.pt-glossary-backdrop .pt-modal {
+    max-width: 520px;
+}
+
+/* 第二层：语言列表 */
+.pt-glang-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pt-glang-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--line, #e3e3e3);
+    border-radius: 9px;
+    background: var(--control-bg, #fff);
+}
+
+.pt-glang-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pt-glang-edit,
+.pt-glang-remove {
+    flex: 0 0 auto;
+    padding: 5px 12px;
+    font-size: 13px;
+}
+
+.pt-glang-empty {
+    padding: 4px 0;
+}
+
+.pt-glang-add {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 6px;
+}
+
+.pt-glang-add-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.pt-glang-add-btn {
+    white-space: nowrap;
+    flex: 0 0 auto;
+}
+
+/* 第三层：一对一映射编辑器（叠在第二层之上） */
+.pt-lang-mapping-backdrop {
+    z-index: 4200;
+}
+
+.pt-lang-mapping-backdrop .pt-modal {
+    max-width: 560px;
+}
+
+.pt-lm-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 50vh;
+    overflow-y: auto;
+    margin: 4px 0 10px;
+}
+
+.pt-lm-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pt-lm-source,
+.pt-lm-target {
+    flex: 1;
+    min-width: 0;
+}
+
+.pt-lm-arrow {
+    flex: 0 0 auto;
+    color: var(--muted, #888);
+    font-size: 14px;
+}
+
+.pt-lm-del {
+    flex: 0 0 auto;
+    padding: 6px 11px;
+    line-height: 1;
+    color: #dc3545;
+}
+
+.pt-lm-add {
+    align-self: flex-start;
+}
+
 /* 内容语言切换器 */
 .pt-lang-switch {
     display: inline-flex;

@@ -43,6 +43,28 @@ class TranslationResponseTest {
     }
 
     @Test
+    @DisplayName("解析新名词映射数组：过滤掉缺 source/target 的条目")
+    void parseNewGlossaryTerms() {
+        TranslationResponse r = TranslationResponse.parse(
+                "{\"status\":\"ok\",\"lang\":\"zh-CN\",\"text\":\"正文\","
+                        + "\"glossary\":[{\"source\":\"ハルヒ\",\"target\":\"春日\"},"
+                        + "{\"source\":\"\",\"target\":\"忽略\"},"
+                        + "{\"source\":\"涼宮\"}]}");
+        assertTrue(r.ok());
+        assertEquals(1, r.newTerms().size());
+        assertEquals("ハルヒ", r.newTerms().get(0).source());
+        assertEquals("春日", r.newTerms().get(0).target());
+    }
+
+    @Test
+    @DisplayName("无 glossary 字段时 newTerms 返回空列表（不为 null）")
+    void newTermsEmptyWhenAbsent() {
+        TranslationResponse r = TranslationResponse.parse(
+                "{\"status\":\"ok\",\"lang\":\"zh-CN\",\"text\":\"你好\"}");
+        assertTrue(r.newTerms().isEmpty());
+    }
+
+    @Test
     @DisplayName("空内容或无法解析时抛出 IllegalArgumentException")
     void parseEmptyThrows() {
         assertThrows(IllegalArgumentException.class, () -> TranslationResponse.parse(""));

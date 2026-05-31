@@ -6,14 +6,18 @@ import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.ai.AiService;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
+import top.sywyar.pixivdownload.ai.translation.GlossaryTerm;
 import top.sywyar.pixivdownload.ai.translation.TranslationRequest;
 import top.sywyar.pixivdownload.ai.translation.TranslationResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelGlossaryEntry;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 小说 AI 翻译编排服务：把一本小说的原始 Pixiv markup（{@code novels.raw_content}）整章翻译成目标语言。
@@ -31,8 +35,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class NovelTranslationService {
 
+    /** 单次翻译请求最多注入给 AI 的映射表条目数（控制 token 体量）。 */
+    private static final int MAX_GLOSSARY_TERMS = 1000;
+
     private final AiService aiService;
     private final NovelDatabase novelDatabase;
+    private final NovelGlossaryService glossaryService;
     private final AppMessages messages;
 
     public enum Status { OK, SKIPPED, INVALID_LANGUAGE, EMPTY, NOT_FOUND, ERROR }
@@ -53,9 +61,10 @@ public class NovelTranslationService {
      * @param segmentSize    分段字数阈值；{@code <=0} 表示整章一次性翻译
      * @param overwrite      已存在该语言译文时：{@code true} 覆盖重译，{@code false} 跳过
      * @param langHint       目标语言代码提示（系列批量时由首章解析得到）；命中且 {@code !overwrite} 可在调用 AI 前直接跳过
+     * @param glossaryId     名词映射表 ID；{@code null} 表示不使用映射表（不注入术语、不回写新名词）
      */
     public Result translateChapter(long novelId, String targetLanguage, int segmentSize,
-                                   boolean overwrite, String langHint) {
+                                   boolean overwrite, String langHint, Long glossaryId) {
         NovelRecord record = novelDatabase.getNovel(novelId);
         if (record == null) {
             return new Result(Status.NOT_FOUND, null, messages.get("novel.translate.not-found"), false);
@@ -71,14 +80,20 @@ public class NovelTranslationService {
                     messages.get("novel.translate.skipped"), false);
         }
 
+        // 注入给 AI 的映射表条目（含表内全部目标语言，模型仅对语言匹配项强制套用）。
+        // 用可变列表：本章翻译中模型新发现的名词会即时并入，供后续分段沿用，保证章内分段一致。
+        List<GlossaryTerm> glossaryTerms = new ArrayList<>(loadGlossaryTerms(glossaryId));
+
         List<String> segments = splitIntoSegments(raw, segmentSize);
         List<String> translatedSegments = new ArrayList<>(segments.size());
+        // 跨段累计模型回报的新名词（同一原文以首次出现为准）
+        Map<String, TranslationResponse.NewTerm> newTerms = new LinkedHashMap<>();
         String langCode = null;
         boolean truncated = false;
         try {
             for (int i = 0; i < segments.size(); i++) {
                 AiChatResult chat = aiService.chat(
-                        new TranslationRequest(targetLanguage, segments.get(i)).toMessages(),
+                        new TranslationRequest(targetLanguage, segments.get(i), glossaryTerms).toMessages(),
                         AiChatOptions.json().withTemperature(0.3));
                 TranslationResponse parsed = TranslationResponse.parse(chat.content());
                 if (parsed.invalidLanguage()) {
@@ -98,6 +113,13 @@ public class NovelTranslationService {
                     }
                 }
                 translatedSegments.add(parsed.text() == null ? "" : parsed.text());
+                boolean usableLang = langCode != null && !langCode.isBlank();
+                for (TranslationResponse.NewTerm t : parsed.newTerms()) {
+                    // 首次出现的新名词即时并入后续分段要发送的术语表（章内实时一致）
+                    if (newTerms.putIfAbsent(t.source(), t) == null && usableLang) {
+                        glossaryTerms.add(new GlossaryTerm(t.source(), langCode, t.target()));
+                    }
+                }
                 if ("length".equalsIgnoreCase(chat.finishReason())) {
                     truncated = true;
                 }
@@ -108,10 +130,44 @@ public class NovelTranslationService {
 
         String translated = String.join("\n", translatedSegments);
         novelDatabase.saveTranslation(novelId, langCode, translated);
+        mergeNewTerms(glossaryId, langCode, newTerms.values());
         String message = truncated
                 ? messages.get("novel.translate.truncated")
                 : messages.get("novel.translate.success");
         return new Result(Status.OK, langCode, message, truncated);
+    }
+
+    /** 读取映射表条目并转换为发给 AI 的术语列表；{@code glossaryId} 为空或表不存在时返回空表。 */
+    private List<GlossaryTerm> loadGlossaryTerms(Long glossaryId) {
+        if (glossaryId == null) {
+            return List.of();
+        }
+        List<NovelGlossaryEntry> entries = NovelGlossaryService.capped(
+                glossaryService.entries(glossaryId), MAX_GLOSSARY_TERMS);
+        List<GlossaryTerm> terms = new ArrayList<>(entries.size());
+        for (NovelGlossaryEntry e : entries) {
+            terms.add(new GlossaryTerm(e.source(), e.langCode(), e.target()));
+        }
+        return terms;
+    }
+
+    /** 把模型回报的新名词按解析出的语言代码自动并入映射表（已存在条目不覆盖）。 */
+    private void mergeNewTerms(Long glossaryId, String langCode,
+                              java.util.Collection<TranslationResponse.NewTerm> newTerms) {
+        if (glossaryId == null || newTerms.isEmpty() || langCode == null || langCode.isBlank()) {
+            return;
+        }
+        List<NovelGlossaryEntry> toMerge = new ArrayList<>(newTerms.size());
+        for (TranslationResponse.NewTerm t : newTerms) {
+            toMerge.add(new NovelGlossaryEntry(t.source(), langCode, t.target()));
+        }
+        try {
+            glossaryService.mergeAiTerms(glossaryId, langCode, toMerge);
+        } catch (Exception e) {
+            // 名词回写是 best-effort：失败不影响已保存的译文
+            log.warn("merge AI glossary terms failed: glossaryId={}, lang={}, err={}",
+                    glossaryId, langCode, e.getMessage());
+        }
     }
 
     /**

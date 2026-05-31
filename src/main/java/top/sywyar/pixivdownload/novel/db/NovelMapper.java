@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.novel.db;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -165,6 +166,97 @@ public interface NovelMapper {
 
     @Delete("DELETE FROM novel_translations WHERE novel_id = #{novelId}")
     void deleteTranslations(@Param("novelId") long novelId);
+
+    // ── AI glossaries（名词映射表）────────────────────────────────────────────────
+    // 一张映射表（novel_glossaries）默认绑定到某个系列或某本单独小说（series_id / novel_id 二选一），
+    // 也可被任意作品复用；条目（novel_glossary_entries）按 (glossary_id, source, lang_code) 一行，
+    // 一表内同一原文可对多种目标语言各有译名。翻译时把条目发给 AI 统一专有名词，AI 返回的新名词自动并入。
+
+    @Update("CREATE TABLE IF NOT EXISTS novel_glossaries ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "name TEXT NOT NULL,"
+            + "series_id INTEGER DEFAULT NULL,"
+            + "novel_id INTEGER DEFAULT NULL,"
+            + "created_time INTEGER NOT NULL,"
+            + "updated_time INTEGER NOT NULL)")
+    void createNovelGlossariesTable();
+
+    @Update("CREATE INDEX IF NOT EXISTS idx_novel_glossaries_series ON novel_glossaries(series_id)")
+    void createNovelGlossariesSeriesIndex();
+
+    @Update("CREATE INDEX IF NOT EXISTS idx_novel_glossaries_novel ON novel_glossaries(novel_id)")
+    void createNovelGlossariesNovelIndex();
+
+    @Update("CREATE TABLE IF NOT EXISTS novel_glossary_entries ("
+            + "glossary_id INTEGER NOT NULL,"
+            + "source TEXT NOT NULL,"
+            + "lang_code TEXT NOT NULL,"
+            + "target TEXT NOT NULL,"
+            + "created_time INTEGER NOT NULL,"
+            + "PRIMARY KEY (glossary_id, source, lang_code))")
+    void createNovelGlossaryEntriesTable();
+
+    String SELECT_GLOSSARY = "SELECT g.id, g.name,"
+            + " g.series_id AS seriesId, g.novel_id AS novelId,"
+            + " g.created_time AS createdTime, g.updated_time AS updatedTime,"
+            + " COALESCE((SELECT COUNT(*) FROM novel_glossary_entries e WHERE e.glossary_id = g.id), 0) AS entryCount"
+            + " FROM novel_glossaries g";
+
+    @Insert("INSERT INTO novel_glossaries(name, series_id, novel_id, created_time, updated_time)"
+            + " VALUES(#{name}, #{seriesId}, #{novelId}, #{createdTime}, #{updatedTime})")
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    void insertGlossary(NovelGlossaryInsert glossary);
+
+    @Select(SELECT_GLOSSARY + " WHERE g.id = #{id}")
+    NovelGlossary findGlossaryById(@Param("id") long id);
+
+    @Select(SELECT_GLOSSARY + " ORDER BY g.updated_time DESC, g.id DESC")
+    List<NovelGlossary> findAllGlossaries();
+
+    @Select(SELECT_GLOSSARY + " WHERE g.series_id = #{seriesId} ORDER BY g.id LIMIT 1")
+    NovelGlossary findGlossaryBySeriesId(@Param("seriesId") long seriesId);
+
+    @Select(SELECT_GLOSSARY + " WHERE g.novel_id = #{novelId} ORDER BY g.id LIMIT 1")
+    NovelGlossary findGlossaryByNovelId(@Param("novelId") long novelId);
+
+    @Update("UPDATE novel_glossaries SET name = #{name}, updated_time = #{updatedTime} WHERE id = #{id}")
+    int updateGlossaryName(@Param("id") long id, @Param("name") String name,
+                           @Param("updatedTime") long updatedTime);
+
+    @Update("UPDATE novel_glossaries SET updated_time = #{updatedTime} WHERE id = #{id}")
+    int touchGlossary(@Param("id") long id, @Param("updatedTime") long updatedTime);
+
+    @Select("SELECT COUNT(*) FROM novel_glossaries WHERE id = #{id}")
+    int countGlossaryById(@Param("id") long id);
+
+    @Delete("DELETE FROM novel_glossaries WHERE id = #{id}")
+    void deleteGlossary(@Param("id") long id);
+
+    @Select("SELECT source, lang_code AS langCode, target FROM novel_glossary_entries"
+            + " WHERE glossary_id = #{glossaryId} ORDER BY lang_code, source")
+    List<NovelGlossaryEntry> findGlossaryEntries(@Param("glossaryId") long glossaryId);
+
+    /** 手动编辑：整表替换前先清空旧条目。 */
+    @Delete("DELETE FROM novel_glossary_entries WHERE glossary_id = #{glossaryId}")
+    void deleteGlossaryEntries(@Param("glossaryId") long glossaryId);
+
+    /** 手动编辑写入：同 (原文, 语言) 直接覆盖译名。 */
+    @Insert("INSERT OR REPLACE INTO novel_glossary_entries(glossary_id, source, lang_code, target, created_time)"
+            + " VALUES(#{glossaryId}, #{source}, #{langCode}, #{target}, #{createdTime})")
+    void upsertGlossaryEntry(@Param("glossaryId") long glossaryId,
+                             @Param("source") String source,
+                             @Param("langCode") String langCode,
+                             @Param("target") String target,
+                             @Param("createdTime") long createdTime);
+
+    /** AI 自动并入：已存在的 (原文, 语言) 以已有译名为准、不覆盖。 */
+    @Insert("INSERT OR IGNORE INTO novel_glossary_entries(glossary_id, source, lang_code, target, created_time)"
+            + " VALUES(#{glossaryId}, #{source}, #{langCode}, #{target}, #{createdTime})")
+    void insertGlossaryEntryIfAbsent(@Param("glossaryId") long glossaryId,
+                                     @Param("source") String source,
+                                     @Param("langCode") String langCode,
+                                     @Param("target") String target,
+                                     @Param("createdTime") long createdTime);
 
     // ── Full-text search (FTS5) ──────────────────────────────────────────────────
     // novels_fts 是对 novels.raw_content 的辅助全文索引（同库虚拟表，不落到 rootFolder）。

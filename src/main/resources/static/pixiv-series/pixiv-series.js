@@ -271,7 +271,10 @@
     // 翻译整个系列：前端逐章循环调用单作品翻译接口（与批量点击单作品 AI 翻译一致），完成后重生该语言变体合订本。
     async function translateSeries() {
         if (!window.PixivTranslate || !state.seriesId || !isNovelMode()) return;
-        const choice = await PixivTranslate.openDialog({i18n: pageI18n, series: true});
+        const choice = await PixivTranslate.openDialog({
+            i18n: pageI18n, series: true, seriesId: state.seriesId,
+            onToast: (msg) => setSeriesMessage(msg)
+        });
         if (!choice) return;
         const btn = document.getElementById('translateSeriesBtn');
         const original = btn.textContent;

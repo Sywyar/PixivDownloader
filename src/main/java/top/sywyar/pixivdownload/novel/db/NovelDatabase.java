@@ -45,6 +45,10 @@ public class NovelDatabase {
         novelMapper.createNovelCollectionsNovelIndex();
         novelMapper.createNovelImagesTable();
         novelMapper.createNovelTranslationsTable();
+        novelMapper.createNovelGlossariesTable();
+        novelMapper.createNovelGlossariesSeriesIndex();
+        novelMapper.createNovelGlossariesNovelIndex();
+        novelMapper.createNovelGlossaryEntriesTable();
         novelMapper.createNovelFtsTable();
         // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
         try { novelMapper.backfillNovelFts(); } catch (Exception e) {

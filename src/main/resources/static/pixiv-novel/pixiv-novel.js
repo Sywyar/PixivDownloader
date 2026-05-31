@@ -542,7 +542,9 @@ async function setupAdminMode() {
 // ---------- AI translate (admin only) ----------
 async function openTranslateDialog() {
     if (!window.PixivTranslate || !novelId) return;
-    const choice = await PixivTranslate.openDialog({ i18n: pageI18n, series: false });
+    const choice = await PixivTranslate.openDialog({
+        i18n: pageI18n, series: false, novelId: novelId, onToast: toast
+    });
     if (!choice) return;
     const btn = document.getElementById('aiTranslateBtn');
     const original = btn.textContent;

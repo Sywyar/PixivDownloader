@@ -276,7 +276,8 @@ public class NovelGalleryController {
         int segmentSize = request.segmentSize() == null ? 0 : Math.max(0, request.segmentSize());
         boolean overwrite = Boolean.TRUE.equals(request.overwrite());
         NovelTranslationService.Result result = novelTranslationService.translateChapter(
-                novelId, request.targetLanguage(), segmentSize, overwrite, request.langHint());
+                novelId, request.targetLanguage(), segmentSize, overwrite,
+                request.langHint(), request.glossaryId());
         return ResponseEntity.ok(new TranslateResponse(
                 result.status().name(), result.langCode(), result.message(), result.truncated()));
     }
@@ -296,7 +297,7 @@ public class NovelGalleryController {
     }
 
     public record TranslateRequest(String targetLanguage, Integer segmentSize,
-                                   Boolean overwrite, String langHint) {}
+                                   Boolean overwrite, String langHint, Long glossaryId) {}
 
     public record TranslateResponse(String status, String langCode, String message, boolean truncated) {}
 

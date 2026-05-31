@@ -1,12 +1,14 @@
 package top.sywyar.pixivdownload.ai.translation;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 
 import java.util.List;
 
 /**
  * 一次「Pixiv 小说文本翻译」的 AI 请求体。把调用 {@link top.sywyar.pixivdownload.ai.AiService} 所需的
- * <b>业务变量</b>（目标语言、待翻译文本）与 <b>输出规范</b>（提示词 + 期望的 JSON 结构）封装在一起，
+ * <b>业务变量</b>（目标语言、待翻译文本、名词映射表）与 <b>输出规范</b>（提示词 + 期望的 JSON 结构）封装在一起，
  * 与底层 OpenAI 兼容协议解耦。
  *
  * <p>提示词统一使用<b>同一份英文版本</b>（不随界面语言变化），并要求模型：
@@ -14,17 +16,27 @@ import java.util.List;
  *   <li>先判断用户填写的目标语言是否为真实存在的人类语言；不存在时以状态码标记、不翻译；</li>
  *   <li>原样保留所有 Pixiv 标记符号（{@code [newpage]} / {@code [[rb:..]]} / {@code [uploadedimage:id]} 等），
  *       仅翻译其中的自然语言文本，以便译文仍可被 {@link top.sywyar.pixivdownload.novel.NovelMarkupParser} 渲染与合订；</li>
+ *   <li>对随请求提供的名词映射表中<b>语言匹配</b>的条目，强制使用既定译名，保证专有名词一致；</li>
+ *   <li>把遇到的、映射表中尚无的新专有名词回报到输出 JSON 的 {@code glossary} 数组，便于自动入库复用；</li>
  *   <li>严格输出 JSON，便于 {@link TranslationResponse#parse(String)} 解析。</li>
  * </ul>
  *
  * @param targetLanguage 用户填写的目标语言（自由文本，如 {@code 简体中文} / {@code english} / {@code 日本語}）
  * @param sourceText     待翻译的一段 Pixiv 小说原始 markup（整章或其中一个分段）
+ * @param glossary       名词映射表条目（可含多种目标语言，模型仅对语言匹配项强制套用）；可为空
  */
-public record TranslationRequest(String targetLanguage, String sourceText) {
+public record TranslationRequest(String targetLanguage, String sourceText, List<GlossaryTerm> glossary) {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** 便捷构造：无名词映射表。 */
+    public TranslationRequest(String targetLanguage, String sourceText) {
+        this(targetLanguage, sourceText, List.of());
+    }
 
     /**
-     * 系统提示词（英文，固定）。明确翻译规则、标记保留规则与 JSON 输出规范。
-     * {@code {target}} 由 {@link #toMessages()} 在用户消息中给出，这里只定义不变的规则。
+     * 系统提示词（英文，固定）。明确翻译规则、标记保留规则、名词映射规则与 JSON 输出规范。
+     * 业务变量（目标语言、映射表、待译文本）由 {@link #toMessages()} 在用户消息中给出，这里只定义不变的规则。
      */
     private static final String SYSTEM_PROMPT = """
             You are a professional literary translator for Pixiv novels.
@@ -45,10 +57,21 @@ public record TranslationRequest(String targetLanguage, String sourceText) {
                ids, urls and numbers unchanged.
             4. Keep line breaks and paragraph structure identical to the input. Do not add or remove blank lines.
             5. Translate faithfully and naturally; do not summarise, censor, add notes or commentary.
-            6. Output STRICT JSON ONLY (no markdown, no code fences, no extra text) with EXACTLY these fields:
+            6. A glossary of preferred term translations may be provided in the user message as a JSON array
+               named "glossary"; each item is {"source": "...", "lang": "<BCP-47>", "target": "..."}.
+               For every item whose "lang" equals the canonical code of THIS target language, you MUST render
+               that "source" term exactly as its "target" everywhere it appears. Ignore items whose "lang"
+               differs from the target language.
+            7. Whenever you translate a proper noun, character name, place, organization or other recurring
+               named term into the target language, and that term is NOT already covered by a matching-language
+               glossary item, add it to the "glossary" array of your JSON output as
+               {"source": "<original term>", "target": "<your translation>"} so it can be reused for
+               consistency. Keep "source" in its original language. Use an empty array when there are none.
+            8. Output STRICT JSON ONLY (no markdown, no code fences, no extra text) with EXACTLY these fields:
                {"status": "ok" | "invalid_language",
                 "lang": "<canonical BCP-47 code of the target language, e.g. zh-CN, en-US, ja-JP>",
-                "text": "<the translated text, or an empty string when status is invalid_language>"}
+                "text": "<the translated text, or an empty string when status is invalid_language>",
+                "glossary": [{"source": "...", "target": "..."}, ...]}
                The "lang" field must always be the canonical BCP-47 code of the target language
                (prefer region-qualified codes such as zh-CN, en-US, ja-JP).""";
 
@@ -56,9 +79,26 @@ public record TranslationRequest(String targetLanguage, String sourceText) {
     public List<AiChatMessage> toMessages() {
         String lang = targetLanguage == null ? "" : targetLanguage.trim();
         String text = sourceText == null ? "" : sourceText;
-        String userPrompt = "Target language: " + lang + "\n\nText to translate:\n" + text;
+        StringBuilder userPrompt = new StringBuilder("Target language: ").append(lang);
+        String glossaryJson = glossaryJson();
+        if (glossaryJson != null) {
+            userPrompt.append("\n\nGlossary (preferred term translations):\n").append(glossaryJson);
+        }
+        userPrompt.append("\n\nText to translate:\n").append(text);
         return List.of(
                 AiChatMessage.system(SYSTEM_PROMPT),
-                AiChatMessage.user(userPrompt));
+                AiChatMessage.user(userPrompt.toString()));
+    }
+
+    /** 把映射表序列化为 JSON 数组字符串；为空（或序列化失败）时返回 {@code null}（不附带映射段）。 */
+    private String glossaryJson() {
+        if (glossary == null || glossary.isEmpty()) {
+            return null;
+        }
+        try {
+            return MAPPER.writeValueAsString(glossary);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
     }
 }
