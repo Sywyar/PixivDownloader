@@ -96,13 +96,21 @@ public class NovelMergeService {
                 : originalSeriesTitle;
         // 文件名：变体使用译后系列名 + 语言代码后缀；后缀保留作为同系列多语言变体的去重 tie-breaker，
         // 避免两种译文恰好同名时互相覆盖（例如 zh-CN / zh-TW 译名一致）。
-        String nameSeed = variant ? seriesTitle + "_" + langCode : seriesTitle;
-        String fallback = variant ? seriesId + "_" + langCode : String.valueOf(seriesId);
-        String safeTitle = ArtworkFileNameFormatter.normalizeBaseName(nameSeed, fallback);
+        // 长标题必须用 normalizeBaseNameWithSuffix 保留后缀，否则后缀会被 180 字符上限截掉、
+        // 变体路径退化为原文合订本路径并互相覆盖 / 误删。
+        String safeTitle = variant
+                ? ArtworkFileNameFormatter.normalizeBaseNameWithSuffix(
+                seriesTitle, "_" + langCode, seriesId + "_" + langCode)
+                : ArtworkFileNameFormatter.normalizeBaseName(seriesTitle, String.valueOf(seriesId));
         Path outDir = Paths.get(downloadConfig.getRootFolder())
                 .resolve("novel-series-" + seriesId);
         Files.createDirectories(outDir);
         Path outFile = outDir.resolve(safeTitle + "." + format.ext());
+        // 原文基准合订本的路径：用于在清理变体遗留时识别"看起来是变体名、其实长标题截断后等于原文合订本"
+        // 的退化情况，避免误删原文合订本。
+        Path originalBaseFile = outDir.resolve(
+                ArtworkFileNameFormatter.normalizeBaseName(originalSeriesTitle, String.valueOf(seriesId))
+                        + "." + format.ext());
 
         switch (format) {
             case TXT -> writeTxt(outFile, seriesTitle, chapters, langCode);
@@ -117,7 +125,7 @@ public class NovelMergeService {
             // 早期变体合订本固定使用「原系列名 + 语言后缀」；现在改为译后系列名 + 语言后缀，
             // 当译名 ≠ 原名时清理掉旧版基于原名的同语言合订本，避免遗留两份。
             cleanupLegacyVariantMerge(outDir, originalSeriesTitle, seriesId, langCode,
-                    format.ext(), outFile);
+                    format.ext(), outFile, originalBaseFile);
         }
         log.info("novel series merged: seriesId={}, format={}, lang={}, file={}",
                 seriesId, format.ext(), langCode == null ? "-" : langCode, outFile);
@@ -164,13 +172,18 @@ public class NovelMergeService {
      * 兼容旧版命名：早期变体合订本固定使用「原系列名 + 语言代码后缀」（{@code {originalTitle}_{lang}.{ext}}）。
      * 现在变体合订本使用「译后系列名 + 语言代码后缀」（{@code {translatedTitle}_{lang}.{ext}}）；当译名与原名
      * 不同时旧文件不会被新写出覆盖，本方法在写出新文件后将其删除以避免遗留两份。
+     *
+     * <p>语言后缀通过 {@link ArtworkFileNameFormatter#normalizeBaseNameWithSuffix} 强制保留，避免长标题
+     * 把后缀截掉后退化为原文合订本路径；同时显式排除 {@code newFile} 与 {@code originalBaseFile}，作为
+     * 兜底防护。
      */
     private void cleanupLegacyVariantMerge(Path outDir, String originalSeriesTitle, long seriesId,
-                                           String langCode, String ext, Path newFile) {
-        String legacyName = ArtworkFileNameFormatter.normalizeBaseName(
-                originalSeriesTitle + "_" + langCode, seriesId + "_" + langCode);
+                                           String langCode, String ext, Path newFile,
+                                           Path originalBaseFile) {
+        String legacyName = ArtworkFileNameFormatter.normalizeBaseNameWithSuffix(
+                originalSeriesTitle, "_" + langCode, seriesId + "_" + langCode);
         Path legacy = outDir.resolve(legacyName + "." + ext);
-        if (legacy.equals(newFile)) return;
+        if (legacy.equals(newFile) || legacy.equals(originalBaseFile)) return;
         try {
             if (Files.deleteIfExists(legacy)) {
                 log.info("removed legacy variant merged file: {}", legacy);
@@ -183,13 +196,16 @@ public class NovelMergeService {
     /**
      * 兼容旧版命名：早期原文基准合订本带「合订 / merged」后缀（{@code {title}_合订.{ext}}）。
      * 新版去掉该后缀（{@code {title}.{ext}}），写出新文件后删除遗留的旧后缀文件，避免重复留存。
+     *
+     * <p>同样通过 {@link ArtworkFileNameFormatter#normalizeBaseNameWithSuffix} 保留后缀，避免长标题
+     * 把后缀截掉后路径退化为新版合订本路径并被误删。
      */
     private void cleanupLegacyMerge(Path outDir, String seriesTitle, long seriesId,
                                     String ext, Path newFile) {
         for (String suffix : List.of(messages.get("novel.merge.suffix"), "合订", "merged")) {
             if (suffix == null || suffix.isBlank()) continue;
-            String legacyName = ArtworkFileNameFormatter.normalizeBaseName(
-                    seriesTitle + "_" + suffix, String.valueOf(seriesId));
+            String legacyName = ArtworkFileNameFormatter.normalizeBaseNameWithSuffix(
+                    seriesTitle, "_" + suffix, String.valueOf(seriesId));
             Path legacy = outDir.resolve(legacyName + "." + ext);
             if (legacy.equals(newFile)) continue;
             try {

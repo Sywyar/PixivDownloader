@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 大语言模型（LLM）调用服务。统一走 <b>OpenAI Chat Completions 兼容协议</b>：
@@ -46,6 +47,13 @@ public class AiService {
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
+
+    // 兜底脱敏正则：拦截响应正文 / 异常消息中可能回显的密钥碎片。即使来自部分 OpenAI 兼容服务在
+    // "invalid API key" 错误体中把请求里的 key 原样回显，这里也能保证不写进日志 / AiException / GUI 文案。
+    private static final Pattern BEARER_PATTERN = Pattern.compile("(?i)Bearer\\s+[A-Za-z0-9._\\-]+");
+    private static final Pattern KEY_FIELD_PATTERN = Pattern.compile(
+            "(?i)(\"?(?:api[_-]?key|access[_-]?token|authorization|secret)\"?\\s*[:=]\\s*)\"[^\"]+\"");
+    private static final Pattern SK_TOKEN_PATTERN = Pattern.compile("(?i)sk-[A-Za-z0-9_\\-]{10,}");
 
     private final AiConfig aiConfig;
     private final AppMessages messages;
@@ -114,6 +122,7 @@ public class AiService {
 
         String type = callType == null || callType.isBlank() ? "unknown" : callType;
         String model = settings.model();
+        String apiKey = settings.apiKey();
         long startedAtNs = System.nanoTime();
         try {
             ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.POST, entity, byte[].class);
@@ -124,15 +133,17 @@ public class AiService {
             return result;
         } catch (RestClientResponseException e) {
             long elapsedMs = (System.nanoTime() - startedAtNs) / 1_000_000;
-            // 已连通但返回非 2xx：附带状态码与（脱敏 / 截断后的）响应正文摘要
+            // 已连通但返回非 2xx：附带状态码与（脱敏 / 截断后的）响应正文摘要。
+            // 部分 OpenAI 兼容服务会把请求里的 API Key 原样回显在 "invalid api key" 类错误体中，
+            // 这里必须先脱敏再写日志 / 抛 AiException / 回 GUI。
             String body = e.getResponseBodyAsString(StandardCharsets.UTF_8);
             String msg = "HTTP " + e.getRawStatusCode()
-                    + (body == null || body.isBlank() ? "" : ": " + truncate(body));
+                    + (body == null || body.isBlank() ? "" : ": " + redact(body, apiKey));
             log.warn(logMessage("ai.log.chat.failed", type, model, elapsedMs, msg));
             throw new AiException(msg, e);
         } catch (RestClientException e) {
             long elapsedMs = (System.nanoTime() - startedAtNs) / 1_000_000;
-            String msg = safeMessage(e);
+            String msg = safeMessage(e, apiKey);
             log.warn(logMessage("ai.log.chat.failed", type, model, elapsedMs, msg));
             throw new AiException(msg, e);
         }
@@ -198,12 +209,12 @@ public class AiService {
         try {
             return MAPPER.writeValueAsBytes(request);
         } catch (Exception e) {
-            throw new AiException(safeMessage(e), e);
+            throw new AiException(safeMessage(e, null), e);
         }
     }
 
-    /** 截取异常的可读摘要供日志 / GUI 显示。 */
-    private static String safeMessage(Throwable t) {
+    /** 截取异常的可读摘要供日志 / GUI 显示，并按需脱敏 {@code apiKey}。 */
+    private static String safeMessage(Throwable t, String apiKey) {
         if (t == null) {
             return "unknown";
         }
@@ -211,7 +222,31 @@ public class AiService {
         if (msg == null) {
             msg = t.getClass().getSimpleName();
         }
-        return truncate(msg);
+        return redact(msg, apiKey);
+    }
+
+    /**
+     * 对面向日志 / GUI / AiException 的文本做脱敏 + 截断：
+     * 先把当前请求使用的 {@code apiKey} 字面量替换为 {@code ***}（防止部分服务在错误体中回显），
+     * 再用兜底正则盖掉 Bearer token / JSON 字段 {@code "api_key": "..."} / {@code sk-...} 类碎片，
+     * 最后压一行并截到 500 字符上限。
+     */
+    private static String redact(String msg, String apiKey) {
+        if (msg == null) {
+            return "";
+        }
+        String s = msg;
+        if (apiKey != null && apiKey.length() >= 4) {
+            s = s.replace(apiKey, "***");
+            String trimmed = apiKey.trim();
+            if (!trimmed.isEmpty() && !trimmed.equals(apiKey)) {
+                s = s.replace(trimmed, "***");
+            }
+        }
+        s = BEARER_PATTERN.matcher(s).replaceAll("Bearer ***");
+        s = KEY_FIELD_PATTERN.matcher(s).replaceAll("$1\"***\"");
+        s = SK_TOKEN_PATTERN.matcher(s).replaceAll("***");
+        return truncate(s);
     }
 
     private static String truncate(String msg) {

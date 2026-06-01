@@ -271,10 +271,14 @@
             current: activeContentLang,
             onChange: async (lang) => {
                 activeContentLang = lang || '';
-                await Promise.all([
-                    fetchSeriesTitleForLang(activeContentLang),
-                    fetchChapterTitlesForLang(activeContentLang, state.items),
-                ]);
+                try {
+                    await Promise.all([
+                        fetchSeriesTitleForLang(activeContentLang),
+                        fetchChapterTitlesForLang(activeContentLang, state.items),
+                    ]);
+                } catch (_) {
+                    // 切语言时拉译文失败：先按原文渲染，由用户再次切换重试
+                }
                 renderSeriesHeader();
                 renderGrid(state.items);
             }
@@ -283,35 +287,28 @@
 
     // 系列名 / 系列简介：一次请求取该语言的译后系列名与系列简介（内存缓存）。
     // lang 为空时清除并由 renderSeriesHeader / renderDescription 自动回退到原文。
+    // 网络失败时<b>不写</b>空缓存（否则后续 hasOwnProperty 命中会拦下重试），让调用方决定回退或提示。
     async function fetchSeriesTitleForLang(lang) {
         if (!lang || !state.seriesId) return;
         if (Object.prototype.hasOwnProperty.call(seriesTitleByLang, lang)) return;
-        try {
-            const data = await api(`/api/gallery/novel/series/${state.seriesId}?lang=${encodeURIComponent(lang)}`);
-            seriesTitleByLang[lang] = (data && data.translatedTitle) ? data.translatedTitle : '';
-            seriesDescriptionByLang[lang] = (data && data.translatedDescription) ? data.translatedDescription : '';
-        } catch (_) {
-            seriesTitleByLang[lang] = '';
-            seriesDescriptionByLang[lang] = '';
-        }
+        const data = await api(`/api/gallery/novel/series/${state.seriesId}?lang=${encodeURIComponent(lang)}`);
+        seriesTitleByLang[lang] = (data && data.translatedTitle) ? data.translatedTitle : '';
+        seriesDescriptionByLang[lang] = (data && data.translatedDescription) ? data.translatedDescription : '';
     }
 
     // 章节标题：批量取当前页章节在该语言的译后标题（一次性请求 + 按 lang 缓存覆盖）。lang 空时跳过。
+    // 同样改为<b>失败抛出</b>，让调用方决定是否提示用户重试。
     async function fetchChapterTitlesForLang(lang, items) {
         if (!lang || !Array.isArray(items) || !items.length) return;
         const ids = items.map(it => it && it.novelId).filter(id => id != null);
         if (!ids.length) return;
-        try {
-            const url = `/api/gallery/novel/translated-titles?lang=${encodeURIComponent(lang)}`
-                + `&ids=${encodeURIComponent(ids.join(','))}`;
-            const data = await api(url);
-            const titles = (data && data.titles) || {};
-            const bucket = chapterTitlesByLang[lang] || {};
-            Object.keys(titles).forEach(k => { bucket[k] = titles[k]; });
-            chapterTitlesByLang[lang] = bucket;
-        } catch (_) {
-            // 失败回退到原标题，不报错
-        }
+        const url = `/api/gallery/novel/translated-titles?lang=${encodeURIComponent(lang)}`
+            + `&ids=${encodeURIComponent(ids.join(','))}`;
+        const data = await api(url);
+        const titles = (data && data.titles) || {};
+        const bucket = chapterTitlesByLang[lang] || {};
+        Object.keys(titles).forEach(k => { bucket[k] = titles[k]; });
+        chapterTitlesByLang[lang] = bucket;
     }
 
     // 当前章节卡片应显示的标题：所选语言译文优先，回退原标题。
@@ -383,6 +380,7 @@
                 {message: String(result.mergeFailed.message || result.mergeFailed)}));
         }
         // 把新语言并入切换器并默认切到该语言
+        let refreshFailed = false;
         if (result.langCode) {
             if (seriesTranslatedLangs.indexOf(result.langCode) === -1) {
                 seriesTranslatedLangs = seriesTranslatedLangs.concat([result.langCode]);
@@ -396,15 +394,27 @@
             delete seriesTitleByLang[activeContentLang];
             delete seriesDescriptionByLang[activeContentLang];
             delete chapterTitlesByLang[activeContentLang];
-            await Promise.all([
-                fetchSeriesTitleForLang(activeContentLang),
-                fetchChapterTitlesForLang(activeContentLang, state.items),
-            ]);
+            try {
+                await Promise.all([
+                    fetchSeriesTitleForLang(activeContentLang),
+                    fetchChapterTitlesForLang(activeContentLang, state.items),
+                ]);
+            } catch (err) {
+                // 译文已落库；只是刷新失败 —— 上报给用户，让他们知道需要重新切换语言重试。
+                refreshFailed = true;
+                console.warn('post-translate refresh failed', err);
+            }
             renderSeriesHeader();
             renderGrid(state.items);
         }
-        setSeriesMessage(tx('toast.series-done', '系列翻译完成：成功 {ok}，跳过 {skipped}，失败 {failed}',
-            {ok: result.ok, skipped: result.skipped, failed: result.failed}));
+        if (refreshFailed) {
+            setSeriesMessage(tx('toast.series-done-refresh-failed',
+                '系列翻译完成：成功 {ok}，跳过 {skipped}，失败 {failed}；但译后系列名 / 章节标题刷新失败，请重新切换语言重试',
+                {ok: result.ok, skipped: result.skipped, failed: result.failed}));
+        } else {
+            setSeriesMessage(tx('toast.series-done', '系列翻译完成：成功 {ok}，跳过 {skipped}，失败 {failed}',
+                {ok: result.ok, skipped: result.skipped, failed: result.failed}));
+        }
     }
 
     // 解析 Content-Disposition 中的 filename / filename*（后者优先，因为它带 UTF-8 编码）

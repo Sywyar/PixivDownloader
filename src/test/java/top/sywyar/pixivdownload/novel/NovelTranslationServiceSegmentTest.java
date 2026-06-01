@@ -38,4 +38,21 @@ class NovelTranslationServiceSegmentTest {
         assertEquals(1, segments.size());
         assertEquals(raw, segments.get(0));
     }
+
+    @Test
+    @DisplayName("分段边界落在空行后：拼接仍精确还原原文（不丢空行）")
+    void preservesBlankLinesAtSegmentBoundaries() {
+        // 阈值 1 字让 "a" 立刻成为单独一段；下一行是空行（曾被吞掉），再下一行是 "b"
+        String raw = "a\n\nb";
+        List<String> segments = NovelTranslationService.splitIntoSegments(raw, 1);
+        assertEquals(raw, String.join("\n", segments));
+    }
+
+    @Test
+    @DisplayName("尾随换行不丢：a\\n 拼回仍为 a\\n")
+    void preservesTrailingNewline() {
+        String raw = "a\n";
+        List<String> segments = NovelTranslationService.splitIntoSegments(raw, 1);
+        assertEquals(raw, String.join("\n", segments));
+    }
 }

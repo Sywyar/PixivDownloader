@@ -127,7 +127,17 @@ public class NovelTranslationService {
                         new TranslationRequest(targetLanguage, segments.get(i),
                                 segmentTitle, segmentDescription, glossaryTerms).toMessages(),
                         AiChatOptions.json().withTemperature(0.3));
-                TranslationResponse parsed = TranslationResponse.parse(chat.content());
+                TranslationResponse parsed;
+                try {
+                    parsed = TranslationResponse.parse(chat.content());
+                } catch (IllegalArgumentException ex) {
+                    // 模型回了非约定 JSON：走受控 Result，由调用方按状态本地化提示；
+                    // 否则会泄到全局 400 异常处理器、返回 parser 细节而非翻译失败语义。
+                    log.warn("novel translation response unparseable: novelId={}, err={}",
+                            novelId, ex.getMessage());
+                    return new Result(Status.ERROR, null,
+                            messages.get("novel.translate.unparseable"), false);
+                }
                 if (parsed.invalidLanguage()) {
                     return new Result(Status.INVALID_LANGUAGE, null,
                             messages.get("novel.translate.invalid-language"), false);
@@ -434,7 +444,8 @@ public class NovelTranslationService {
 
     /**
      * 按段落（行）边界把原文累积切分成每段约 {@code segmentSize} 字的分段；{@code <=0} 时整体作为一段。
-     * 仅在换行处切分，确保每个 Pixiv 标记 token 不会被截断，且分段拼接后能精确还原原文结构。
+     * 仅在换行处切分，确保每个 Pixiv 标记 token 不会被截断，且分段以 {@code "\n"} 拼接后能精确还原原文结构
+     * （包括位于分段边界的空行 / 尾随换行）。
      */
     static List<String> splitIntoSegments(String raw, int segmentSize) {
         List<String> segments = new ArrayList<>();
@@ -444,17 +455,22 @@ public class NovelTranslationService {
         }
         String[] lines = raw.split("\n", -1);
         StringBuilder current = new StringBuilder();
+        // 用独立 flag 区分"当前段还没收过任何行"与"已收过一行（哪怕是空行）"，否则空行落在段首时
+        // current 长度仍为 0，下一行会以为还没起头而漏掉它本应代表的换行 —— 拼回后丢失空行。
+        boolean hasLine = false;
         for (String line : lines) {
-            if (current.length() > 0) {
+            if (hasLine) {
                 current.append('\n');
             }
             current.append(line);
+            hasLine = true;
             if (current.length() >= segmentSize) {
                 segments.add(current.toString());
                 current.setLength(0);
+                hasLine = false;
             }
         }
-        if (current.length() > 0 || segments.isEmpty()) {
+        if (hasLine || segments.isEmpty()) {
             segments.add(current.toString());
         }
         return segments;

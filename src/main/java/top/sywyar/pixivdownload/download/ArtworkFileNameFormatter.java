@@ -73,6 +73,30 @@ public final class ArtworkFileNameFormatter {
         return limitLength(cleaned, MAX_BASENAME_LENGTH);
     }
 
+    /**
+     * 与 {@link #normalizeBaseName} 同义，但保证 {@code suffix} 不会被长度限制截掉：基础部分先截到
+     * {@code MAX_BASENAME_LENGTH - suffix.length()}，再追加 {@code suffix}。
+     *
+     * <p>用于在长标题后追加语言代码等去重 tie-breaker 后缀（例如系列合订本的 {@code _zh-CN}），避免后缀被
+     * 整体长度限制吃掉、导致变体名退化为原文名并互相覆盖 / 误删原文合订本。
+     *
+     * @param suffix 已 sanitize 的后缀；若为 {@code null} / 空则等价于 {@link #normalizeBaseName}
+     */
+    public static String normalizeBaseNameWithSuffix(String value, String suffix, String fallback) {
+        if (suffix == null || suffix.isEmpty()) {
+            return normalizeBaseName(value, fallback);
+        }
+        String cleaned = sanitize(value);
+        if (cleaned.isBlank()) {
+            cleaned = sanitize(fallback);
+        }
+        if (cleaned.isBlank()) {
+            cleaned = "untitled";
+        }
+        int maxBase = Math.max(1, MAX_BASENAME_LENGTH - suffix.length());
+        return limitLength(cleaned, maxBase) + suffix;
+    }
+
     private static String format(String template,
                                  long artworkId,
                                  String artworkTitle,

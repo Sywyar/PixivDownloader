@@ -32,6 +32,34 @@ class ArtworkFileNameFormatterTest {
     }
 
     @Test
+    @DisplayName("normalizeBaseNameWithSuffix：长标题应保留语言后缀，不被 180 字符上限截断")
+    void shouldPreserveSuffixWhenBaseIsTooLong() {
+        String longTitle = "甲".repeat(220);
+        String result = ArtworkFileNameFormatter.normalizeBaseNameWithSuffix(longTitle, "_zh-CN", "fallback");
+        assertThat(result).endsWith("_zh-CN");
+        assertThat(result.length()).isLessThanOrEqualTo(180);
+        // 基础部分必须真的被截短：原 220 字 + 后缀 6 字 远超 180
+        assertThat(result.length()).isEqualTo(180);
+    }
+
+    @Test
+    @DisplayName("normalizeBaseNameWithSuffix：suffix 为空时退化为 normalizeBaseName")
+    void shouldFallBackToNormalizeWhenSuffixEmpty() {
+        String result = ArtworkFileNameFormatter.normalizeBaseNameWithSuffix("title", "", "fb");
+        assertThat(result).isEqualTo("title");
+    }
+
+    @Test
+    @DisplayName("normalizeBaseNameWithSuffix：长标题的变体名与原文合订本名必须不同（防覆盖 / 防误删）")
+    void variantPathMustDifferFromBasePathForLongTitles() {
+        String longTitle = "甲".repeat(220);
+        String base = ArtworkFileNameFormatter.normalizeBaseName(longTitle, "1");
+        String variant = ArtworkFileNameFormatter.normalizeBaseNameWithSuffix(longTitle, "_zh-CN", "1_zh-CN");
+        assertThat(variant).isNotEqualTo(base);
+        assertThat(variant).endsWith("_zh-CN");
+    }
+
+    @Test
     @DisplayName("重复文件名应自动追加页码")
     void shouldMakeDuplicateNamesUnique() {
         List<String> names = ArtworkFileNameFormatter.formatAll(
