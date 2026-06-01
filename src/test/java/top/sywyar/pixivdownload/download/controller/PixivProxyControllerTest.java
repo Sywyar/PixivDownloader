@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -352,7 +354,9 @@ class PixivProxyControllerTest {
                     eq(HttpMethod.GET),
                     argThat(entity -> entity != null
                             && entity.getHeaders() != null
-                            && !entity.getHeaders().containsKey("Cookie")),
+                            && !entity.getHeaders().containsKey("Cookie")
+                            && PixivRequestHeaders.USER_AGENT.equals(
+                                    entity.getHeaders().getFirst(HttpHeaders.USER_AGENT))),
                     eq(byte[].class));
         }
     }

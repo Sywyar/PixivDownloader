@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 
 import java.util.concurrent.TimeUnit;
 
@@ -87,7 +88,12 @@ public class RestTemplateConfig {
         HttpClient httpClient = httpClientBuilder.build();
 
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-        return new RestTemplate(factory);
+        RestTemplate restTemplate = new RestTemplate(factory);
+        restTemplate.getInterceptors().add((request, body, execution) -> {
+            PixivRequestHeaders.applyBrowserDefaults(request.getHeaders(), request.getURI(), request.getMethod());
+            return execution.execute(request, body);
+        });
+        return restTemplate;
     }
 
     /**

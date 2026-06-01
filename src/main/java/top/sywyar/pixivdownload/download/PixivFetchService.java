@@ -5,23 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.download.db.TagDto;
 
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -44,9 +40,6 @@ import java.util.regex.Pattern;
 @Service
 @RequiredArgsConstructor
 public class PixivFetchService {
-
-    private static final String PIXIV_REFERER = "https://www.pixiv.net/";
-    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
     /** PHPSESSID 形如 {@code {userId}_{session}}：下划线前缀即非敏感 Pixiv userId（账号私有来源发现需要它取 uid）。 */
     private static final Pattern PHPSESSID_PATTERN = Pattern.compile("PHPSESSID=([^;\\s]+)");
@@ -71,13 +64,7 @@ public class PixivFetchService {
     }
 
     private HttpEntity<Void> buildEntity(String cookie) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Referer", PIXIV_REFERER);
-        headers.set("User-Agent", USER_AGENT);
-        if (cookie != null && !cookie.trim().isEmpty()) {
-            headers.set("Cookie", cookie);
-        }
-        return new HttpEntity<>(headers);
+        return new HttpEntity<>(PixivRequestHeaders.ajax(cookie));
     }
 
     private static String exchange(ResponseEntity<byte[]> response) {
@@ -285,7 +272,7 @@ public class PixivFetchService {
         }
         LinkedHashMap<String, Boolean> ids = new LinkedHashMap<>();
         members.stream()
-                .sorted((a, b) -> Integer.compare(a.order(), b.order()))
+                .sorted(Comparator.comparingInt(Member::order))
                 .forEach(m -> ids.put(m.id(), Boolean.TRUE));
         return new ArrayList<>(ids.keySet());
     }
@@ -608,7 +595,7 @@ public class PixivFetchService {
 
     // ---- 解析辅助（与 PixivProxyController 同源，供服务端发现路径复用） ----------
 
-    /** 标签词元（原名 + 英文翻译，已小写去重），供标签筛选的不区分大小写匹配。 */
+    /* 标签词元（原名 + 英文翻译，已小写去重），供标签筛选的不区分大小写匹配。 */
     /** 从系列记录节点解析封面 URL：优先 {@code cover.urls} 最优尺寸，回退到常见单值字段。 */
     private static String extractSeriesCoverUrl(JsonNode meta) {
         JsonNode urls = meta.path("cover").path("urls");

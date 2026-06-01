@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -83,6 +84,9 @@ class PixivBookmarkServiceTest {
                     eq(byte[].class));
             HttpHeaders postHeaders = postCaptor.getValue().getHeaders();
             assertThat(postHeaders.getFirst("x-csrf-token")).isEqualTo("abc123def456");
+            assertThat(postHeaders.getFirst(HttpHeaders.USER_AGENT)).isEqualTo(PixivRequestHeaders.USER_AGENT);
+            assertThat(postHeaders.getFirst(HttpHeaders.ACCEPT)).contains("application/json");
+            assertThat(postHeaders.getFirst(HttpHeaders.ORIGIN)).isEqualTo(PixivRequestHeaders.PIXIV_ORIGIN);
         }
 
         @Test

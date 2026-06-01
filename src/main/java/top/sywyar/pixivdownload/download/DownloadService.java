@@ -14,6 +14,7 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
@@ -343,14 +344,7 @@ public class DownloadService implements ArtworkDownloader {
                 ensureNotCancelled(cancellationRequested);
                 try {
                     Boolean success = downloadRestTemplate.execute(imageUrl, HttpMethod.GET,
-                            request -> {
-                                request.getHeaders().set("Referer", referer);
-                                request.getHeaders().set("User-Agent",
-                                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-                                if (cookie != null && !cookie.trim().isEmpty()) {
-                                    request.getHeaders().set("Cookie", cookie);
-                                }
-                            },
+                            request -> PixivRequestHeaders.applyImage(request.getHeaders(), referer, cookie),
                             (ClientHttpResponse response) -> {
                                 if (!response.getStatusCode().is2xxSuccessful()) {
                                     log.error(logMessage("download.log.http-error", response.getStatusCode(), imageUrl));
@@ -412,7 +406,7 @@ public class DownloadService implements ArtworkDownloader {
                                             .build());
                                 }
                                 return true;
-                            });
+                            }, new Object[]{});
 
                     if (Boolean.TRUE.equals(success)) {
                         Files.move(tempPath, filePath, StandardCopyOption.REPLACE_EXISTING);

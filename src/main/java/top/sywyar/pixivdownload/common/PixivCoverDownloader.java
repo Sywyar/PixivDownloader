@@ -25,10 +25,6 @@ public class PixivCoverDownloader {
 
     public static final Set<String> EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp");
 
-    private static final String PIXIV_REFERER = "https://www.pixiv.net/";
-    private static final String USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
-
     private final RestTemplate downloadRestTemplate;
 
     public PixivCoverDownloader(
@@ -60,13 +56,7 @@ public class PixivCoverDownloader {
         try {
             Files.createDirectories(targetFolder);
             Boolean ok = downloadRestTemplate.execute(uri.toString(), HttpMethod.GET,
-                    request -> {
-                        request.getHeaders().set("Referer", PIXIV_REFERER);
-                        request.getHeaders().set("User-Agent", USER_AGENT);
-                        if (cookie != null && !cookie.isBlank()) {
-                            request.getHeaders().set("Cookie", cookie);
-                        }
-                    },
+                    request -> PixivRequestHeaders.applyImage(request.getHeaders(), cookie),
                     response -> {
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             return Boolean.FALSE;

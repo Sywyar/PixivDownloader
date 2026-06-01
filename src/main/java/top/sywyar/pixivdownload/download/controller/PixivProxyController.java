@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.db.TagDto;
@@ -45,9 +46,6 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @RequiredArgsConstructor
 public class PixivProxyController {
-
-    private static final String PIXIV_REFERER = "https://www.pixiv.net/";
-    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
@@ -1176,13 +1174,7 @@ public class PixivProxyController {
     }
 
     private byte[] proxyGetBytes(String url, String cookie) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Referer", PIXIV_REFERER);
-        headers.set("User-Agent", USER_AGENT);
-        if (cookie != null && !cookie.trim().isEmpty()) {
-            headers.set("Cookie", cookie);
-        }
-        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        HttpEntity<Void> entity = new HttpEntity<>(PixivRequestHeaders.image(cookie));
         ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
         return response.getBody() != null ? response.getBody() : new byte[0];
     }

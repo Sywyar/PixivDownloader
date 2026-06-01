@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.util.List;
@@ -20,8 +21,6 @@ public class PixivBookmarkService {
     private static final String PIXIV_HOME   = "https://www.pixiv.net/";
     private static final String BOOKMARK_URL = "https://www.pixiv.net/ajax/illusts/bookmarks/add";
     private static final String NOVEL_BOOKMARK_URL = "https://www.pixiv.net/ajax/novels/bookmarks/add";
-    private static final String USER_AGENT   =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
     // 新版 Pixiv (Next.js)：JSON 内嵌于 JS 字符串，引号被转义为 \"  →  token\":\"<value>\"
     private static final Pattern CSRF_PATTERN_ESCAPED   = Pattern.compile("token\\\\\":\\\\\"([^\\\\\"]+)\\\\\"");
     // 旧版 / 直接 JSON 响应：标准格式  →  "token":"<value>"
@@ -65,7 +64,7 @@ public class PixivBookmarkService {
     }
 
     private String fetchCsrfToken(String cookie) {
-        HttpHeaders headers = buildBaseHeaders(cookie);
+        HttpHeaders headers = PixivRequestHeaders.document(cookie);
         ResponseEntity<byte[]> response =
                 restTemplate.exchange(PIXIV_HOME, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
         byte[] rawBody = response.getBody();
@@ -133,7 +132,8 @@ public class PixivBookmarkService {
     }
 
     private void postNovelBookmark(Long novelId, String cookie, String csrfToken) throws Exception {
-        HttpHeaders headers = buildBaseHeaders(cookie);
+        HttpHeaders headers = PixivRequestHeaders.ajax(cookie);
+        PixivRequestHeaders.applyOrigin(headers);
         headers.set("x-csrf-token", csrfToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
 
@@ -157,7 +157,8 @@ public class PixivBookmarkService {
     }
 
     private void postBookmark(Long artworkId, String cookie, String csrfToken) throws Exception {
-        HttpHeaders headers = buildBaseHeaders(cookie);
+        HttpHeaders headers = PixivRequestHeaders.ajax(cookie);
+        PixivRequestHeaders.applyOrigin(headers);
         headers.set("x-csrf-token", csrfToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
 
@@ -178,25 +179,6 @@ public class PixivBookmarkService {
         if (root.path("error").asBoolean(false)) {
             throw new IllegalStateException(message("bookmark.log.reason.api.error", root.path("message").asText()));
         }
-    }
-
-    private HttpHeaders buildBaseHeaders(String cookie) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Cookie",     cookie);
-        headers.set("Referer",    PIXIV_HOME);
-        headers.set("User-Agent", USER_AGENT);
-
-        // 模拟浏览器请求头，降低被 WAF 拦截的概率
-        headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
-        headers.set("Accept-Language", "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6");
-        headers.set("Sec-Ch-Ua", "\"Chromium\";v=\"122\", \"Not(A:Brand\";v=\"24\", \"Google Chrome\";v=\"122\"");
-        headers.set("Sec-Ch-Ua-Mobile", "?0");
-        headers.set("Sec-Ch-Ua-Platform", "\"Windows\"");
-        headers.set("Sec-Fetch-Dest", "document");
-        headers.set("Sec-Fetch-Mode", "navigate");
-        headers.set("Sec-Fetch-Site", "none");
-
-        return headers;
     }
 
     private String message(String code, Object... args) {

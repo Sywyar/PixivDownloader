@@ -11,6 +11,7 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.download.DownloadActionResult;
@@ -69,9 +70,6 @@ public class NovelDownloadService implements NovelDownloader {
         }
     }
 
-    private static final String PIXIV_REFERER = "https://www.pixiv.net/";
-    private static final String USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
     private static final Set<String> COVER_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp");
     private static final Set<String> IMAGE_EXT_WHITELIST = Set.of("jpg", "jpeg", "png", "webp", "gif");
     /** 单本小说最多下载多少张内嵌图，避免极端情况吃满磁盘。 */
@@ -414,13 +412,7 @@ public class NovelDownloadService implements NovelDownloader {
         Path target = downloadPath.resolve(baseName + "_thumb." + ext);
         try {
             Boolean ok = downloadRestTemplate.execute(coverUrl, HttpMethod.GET,
-                    request -> {
-                        request.getHeaders().set("Referer", PIXIV_REFERER);
-                        request.getHeaders().set("User-Agent", USER_AGENT);
-                        if (cookie != null && !cookie.isBlank()) {
-                            request.getHeaders().set("Cookie", cookie);
-                        }
-                    },
+                    request -> PixivRequestHeaders.applyImage(request.getHeaders(), cookie),
                     response -> {
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             return Boolean.FALSE;
@@ -603,13 +595,7 @@ public class NovelDownloadService implements NovelDownloader {
         Path target = downloadPath.resolve("embed_" + imageId + "." + ext);
         try {
             Boolean ok = downloadRestTemplate.execute(url, HttpMethod.GET,
-                    request -> {
-                        request.getHeaders().set("Referer", PIXIV_REFERER);
-                        request.getHeaders().set("User-Agent", USER_AGENT);
-                        if (cookie != null && !cookie.isBlank()) {
-                            request.getHeaders().set("Cookie", cookie);
-                        }
-                    },
+                    request -> PixivRequestHeaders.applyImage(request.getHeaders(), cookie),
                     response -> {
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             return Boolean.FALSE;

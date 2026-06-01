@@ -6,6 +6,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstallation;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
@@ -327,7 +328,7 @@ public class UgoiraService {
                     .extractedFrames(orderedFrames.size())
                     .totalFrames(orderedFrames.size())
                     .ffmpegDurationMs(durationMs)
-                    .ffmpegProgress(lastProgress[0] < 0 ? 0 : lastProgress[0])
+                    .ffmpegProgress(Math.max(lastProgress[0], 0))
                     .build());
             return false;
         }
@@ -355,14 +356,7 @@ public class UgoiraService {
             ensureNotCancelled(cancellationRequested);
             try {
                 Boolean success = downloadRestTemplate.execute(url, HttpMethod.GET,
-                        request -> {
-                            request.getHeaders().set("Referer", referer);
-                            request.getHeaders().set("User-Agent",
-                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-                            if (cookie != null && !cookie.trim().isEmpty()) {
-                                request.getHeaders().set("Cookie", cookie);
-                            }
-                        },
+                        request -> PixivRequestHeaders.applyImage(request.getHeaders(), referer, cookie),
                         (ClientHttpResponse response) -> {
                             if (!response.getStatusCode().is2xxSuccessful()) {
                                 log.error(message("ugoira.log.http-error", response.getStatusCode(), url));

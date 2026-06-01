@@ -12,6 +12,7 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.util.TimestampUtils;
@@ -29,9 +30,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AuthorService {
 
-    private static final String PIXIV_REFERER = "https://www.pixiv.net/";
-    private static final String USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
     private static final Duration RENAME_VALIDATE_COOLDOWN = Duration.ofMinutes(10);
 
     private final AuthorMapper authorMapper;
@@ -224,12 +222,7 @@ public class AuthorService {
     }
 
     private JsonNode fetchJson(String url, String cookie) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Referer", PIXIV_REFERER);
-        headers.set("User-Agent", USER_AGENT);
-        if (StringUtils.hasText(cookie)) {
-            headers.set("Cookie", cookie);
-        }
+        HttpHeaders headers = PixivRequestHeaders.ajax(cookie);
 
         ResponseEntity<JsonNode> response = downloadRestTemplate.exchange(
                 url, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);

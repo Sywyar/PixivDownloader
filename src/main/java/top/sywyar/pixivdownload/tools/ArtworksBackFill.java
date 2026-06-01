@@ -12,6 +12,7 @@ import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.util.Timeout;
 import org.sqlite.SQLiteConfig;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -443,9 +444,8 @@ public class ArtworksBackFill {
 
     private static LookupResult queryPixiv(CloseableHttpClient http, ObjectMapper mapper, long artworkId) {
         HttpGet request = new HttpGet(PIXIV_AJAX + artworkId);
-        request.setHeader("User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-        request.setHeader("Referer", "https://www.pixiv.net/");
+        request.setHeader("User-Agent", PixivRequestHeaders.USER_AGENT);
+        request.setHeader("Referer", PixivRequestHeaders.PIXIV_HOME);
         request.setHeader("Accept-Language", "ja,en;q=0.9");
 
         try {

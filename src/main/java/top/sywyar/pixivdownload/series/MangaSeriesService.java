@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
+import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
@@ -44,10 +45,6 @@ public class MangaSeriesService {
      * 所有读取/筛选 series 的查询都必须额外加 {@code series_id > 0}，否则会把哨兵值误当真实 ID。
      */
     public static final long NO_SERIES_SENTINEL = 0L;
-
-    private static final String PIXIV_REFERER = "https://www.pixiv.net/";
-    private static final String USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
     private final MangaSeriesMapper mangaSeriesMapper;
     private final AuthorService authorService;
@@ -300,12 +297,7 @@ public class MangaSeriesService {
     }
 
     private JsonNode fetchJson(String url, String cookie) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("Referer", PIXIV_REFERER);
-        headers.set("User-Agent", USER_AGENT);
-        if (StringUtils.hasText(cookie)) {
-            headers.set("Cookie", cookie);
-        }
+        HttpHeaders headers = PixivRequestHeaders.ajax(cookie);
         ResponseEntity<JsonNode> response = downloadRestTemplate.exchange(
                 url, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
         return response.getBody();
