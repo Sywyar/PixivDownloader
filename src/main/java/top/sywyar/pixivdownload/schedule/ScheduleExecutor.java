@@ -107,8 +107,9 @@ public class ScheduleExecutor {
     /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
     private static final int MAX_ERROR_MESSAGE_LENGTH = 300;
     private static final Pattern COOKIE_HEADER_PATTERN = Pattern.compile("(?i)\\b(cookie\\s*[:=]\\s*)[^\\r\\n]+");
-    private static final Pattern PHPSESSID_PATTERN = Pattern.compile("(?i)\\b(PHPSESSID\\s*=\\s*)[^;\\s]+");
-    private static final Pattern COOKIE_PAIR_PATTERN = Pattern.compile("(?i)(^|[;\\s])([A-Za-z0-9_-]+\\s*=\\s*)[^;\\s]+");
+    private static final Pattern PHPSESSID_PATTERN = Pattern.compile("(?i)\\b(PHPSESSID\\s*=\\s*)[^;\\s&]+");
+    // 涵盖 cookie 串前缀（^ / ; / 空白）以及 URL 查询串前缀（? / &），后者用于 `...?PHPSESSID=...` / `&PHPSESSID=...` 形式。
+    private static final Pattern COOKIE_PAIR_PATTERN = Pattern.compile("(?i)(^|[;\\s?&])([A-Za-z0-9_-]+\\s*=\\s*)[^;\\s&]+");
 
     /** 后台异步运行一次（供「立即运行」端点用，避免阻塞 HTTP 请求线程）。 */
     @Async
@@ -211,13 +212,7 @@ public class ScheduleExecutor {
         if (raw == null || raw.isBlank()) {
             raw = e.getClass().getSimpleName();
         }
-        String collapsed = raw.replaceAll("\\s+", " ").trim();
-        collapsed = COOKIE_HEADER_PATTERN.matcher(collapsed).replaceAll("$1[redacted]");
-        if (collapsed.toLowerCase(Locale.ROOT).contains("phpsessid=")) {
-            collapsed = COOKIE_PAIR_PATTERN.matcher(collapsed).replaceAll("$1$2[redacted]");
-        } else {
-            collapsed = PHPSESSID_PATTERN.matcher(collapsed).replaceAll("$1[redacted]");
-        }
+        String collapsed = redactCookies(raw.replaceAll("\\s+", " ").trim());
         if (collapsed.length() > MAX_ERROR_MESSAGE_LENGTH) {
             collapsed = collapsed.substring(0, MAX_ERROR_MESSAGE_LENGTH) + "…";
         }
@@ -234,13 +229,26 @@ public class ScheduleExecutor {
         if (raw == null || raw.isBlank()) {
             raw = e.getClass().getSimpleName();
         }
-        String redacted = COOKIE_HEADER_PATTERN.matcher(raw).replaceAll("$1[redacted]");
-        if (redacted.toLowerCase(Locale.ROOT).contains("phpsessid=")) {
-            redacted = COOKIE_PAIR_PATTERN.matcher(redacted).replaceAll("$1$2[redacted]");
-        } else {
-            redacted = PHPSESSID_PATTERN.matcher(redacted).replaceAll("$1[redacted]");
-        }
-        return redacted;
+        return redactCookies(raw);
+    }
+
+    /**
+     * 脱敏文本中的 cookie / PHPSESSID。<b>无条件</b>先后应用：
+     * <ol>
+     *   <li>{@code Cookie:} / {@code Cookie=} 整段头；</li>
+     *   <li>独立 {@code PHPSESSID=value}（含 URL 查询串里的 {@code ?PHPSESSID=} / {@code &PHPSESSID=}）；</li>
+     *   <li>cookie 串里的所有 {@code key=value} 对（含 URL 查询串前缀）。</li>
+     * </ol>
+     * 两个值-级 pattern 不再二选一——某些异常文案只命中其中一个（典型如 URL 形式的 {@code ?PHPSESSID=...}
+     * 不命中早期 {@code COOKIE_PAIR_PATTERN}）。同时跑两遍是幂等的：前一遍把 PHPSESSID 值换成 {@code [redacted]}
+     * 之后，后一遍仍可按 {@code key=...} 形态把其他配对正确清空。
+     */
+    static String redactCookies(String text) {
+        if (text == null || text.isEmpty()) return text;
+        String out = COOKIE_HEADER_PATTERN.matcher(text).replaceAll("$1[redacted]");
+        out = PHPSESSID_PATTERN.matcher(out).replaceAll("$1[redacted]");
+        out = COOKIE_PAIR_PATTERN.matcher(out).replaceAll("$1$2[redacted]");
+        return out;
     }
 
     /**
@@ -302,8 +310,9 @@ public class ScheduleExecutor {
 
         try {
             // ── 每轮无条件先消费隔离表（不再依赖 pendingRetryArmed 武装位）：走正常 dispatch 路径，
-            //    计入 N 检查点与过度访问风险；单作品 attempts 自动 +1，达到上限时发邮件转人工。──
-            retryPending(task.id(), runner, politeDelay);
+            //    计入 N 检查点与过度访问风险；单作品 attempts 自动 +1，达到上限时发邮件转人工。
+            //    若作品在隔离期间已被其它路径（手动 / 别的任务）下载，先清隔离表条目、跳过重试。──
+            retryPending(task.id(), runner, politeDelay, alreadyDownloaded);
 
             if (isWatermarkMode(task.type(), source)) {
                 runWatermarkMode(task, novel, source, cookie, runner, run, alreadyDownloaded, politeDelay, fetchLimit);
@@ -366,8 +375,13 @@ public class ScheduleExecutor {
         return completed;
     }
 
-    /** 重试隔离表中尚未达到上限的作品；成功 DELETE、失败 incPendingAttempts，全经正常分类路径。 */
-    private void retryPending(long taskId, WorkRunner runner, Runnable politeDelay)
+    /**
+     * 重试隔离表中尚未达到上限的作品；成功 DELETE、失败 incPendingAttempts，全经正常分类路径。
+     * 若作品在隔离期间已被其它路径（手动 / 别的任务）下载，直接清隔离表条目并跳过 dispatch，
+     * 避免重复下载或在已成功后仍累计失败计数。
+     */
+    private void retryPending(long taskId, WorkRunner runner, Runnable politeDelay,
+                              LongPredicate alreadyDownloaded)
             throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException {
         int max = scheduleConfig.getPendingMaxAttempts();
         for (ScheduledTaskPending p : database.mapper().listPending(taskId)) {
@@ -375,6 +389,11 @@ public class ScheduleExecutor {
                 continue; // 需人工，停止自动重试
             }
             String id = String.valueOf(p.workId());
+            if (alreadyDownloaded.test(p.workId())) {
+                // 已在别处下载完：清隔离条目、本轮不再 dispatch；不入运行队列展示，避免和正常发现的「已下载跳过」混淆。
+                database.mapper().deletePending(taskId, p.workId());
+                continue;
+            }
             runner.run().discovered(id);
             runner.process(id, p.workId(), true);
             politeDelay.run();
@@ -521,6 +540,12 @@ public class ScheduleExecutor {
                 boolean isRetry = pending.contains(workId);
                 // 每轮上限：新作预算耗尽即静默跳过（不登记发现、不入运行队列，下一轮再处理）；重试不受限。
                 if (!isRetry && budget[0] == 0) {
+                    continue;
+                }
+                // 重试条目若已经在别处被下载（手动 / 别的任务）：清隔离条目、跳过 dispatch，避免重复下载。
+                if (isRetry && alreadyDownloaded.test(workId)) {
+                    database.mapper().deletePending(task.id(), workId);
+                    pending.remove(workId);
                     continue;
                 }
                 run.discovered(id, itemKind);
@@ -914,6 +939,7 @@ public class ScheduleExecutor {
     private final class WorkRunner {
         private final long taskId;
         private final String taskName;
+        private final Long ackWarningTime;
         private final boolean novel;
         private final String cookie;
         private final Filters filters;
@@ -935,6 +961,7 @@ public class ScheduleExecutor {
                    ScheduleRunQueue.Run run, int concurrency, TaskExecutor pool) {
             this.taskId = task.id();
             this.taskName = task.name();
+            this.ackWarningTime = task.ackWarningTime();
             this.novel = novel;
             this.cookie = cookie;
             this.filters = filters;
@@ -1039,7 +1066,9 @@ public class ScheduleExecutor {
                 try {
                     ok = job.run();
                 } catch (Exception e) {
-                    log.warn("Scheduled task {} download work {} threw: {}", taskId, workId, e.getMessage());
+                    // 下载器抛出的 message 可能含上游错误 URL（带 PHPSESSID 查询串）或 cookie 头，先脱敏。
+                    log.warn("Scheduled task {} download work {} threw: {}",
+                            taskId, workId, redactCookies(String.valueOf(e.getMessage())));
                     ok = false;
                 }
                 try {
@@ -1121,8 +1150,9 @@ public class ScheduleExecutor {
             if (n <= 0 || dispatchedSinceCheck % n != 0) {
                 return;
             }
+            // 必须传任务的 ackWarningTime：管理员已显式放行 / 延迟的同账号警告不应在轮内再次触发暂停。
             OveruseWarningService.Result r =
-                    overuseWarningService.check(cookie, null, System.currentTimeMillis());
+                    overuseWarningService.check(cookie, ackWarningTime, System.currentTimeMillis());
             if (r.isWarned()) {
                 throw new OveruseWarningException(r.modifiedAt(), r.excerpt());
             }

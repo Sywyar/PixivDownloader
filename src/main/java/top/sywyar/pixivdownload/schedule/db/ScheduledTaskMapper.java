@@ -66,6 +66,18 @@ public interface ScheduledTaskMapper {
     @Update("CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_account ON scheduled_tasks(account_id)")
     void createScheduledTasksAccountIndex();
 
+    /** 幂等迁移：旧库 scheduled_tasks 表补 account_id 列；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE scheduled_tasks ADD COLUMN account_id TEXT DEFAULT NULL")
+    void addAccountIdColumn();
+
+    /** 幂等迁移：旧库 scheduled_tasks 表补 ack_warning_time 列；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE scheduled_tasks ADD COLUMN ack_warning_time INTEGER DEFAULT NULL")
+    void addAckWarningTimeColumn();
+
+    /** 幂等迁移：旧库 scheduled_tasks 表补 pending_retry_armed 列；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE scheduled_tasks ADD COLUMN pending_retry_armed INTEGER DEFAULT 0")
+    void addPendingRetryArmedColumn();
+
     /**
      * 隔离表（待重试）：每个因可恢复失败被跳过的单作品一行，{@code task_id} 区分多任务。
      * 解耦 watermark 与单作品重试——watermark 在有零星可恢复失败时照常推进，失败作品在此单独追踪。
@@ -203,11 +215,15 @@ public interface ScheduledTaskMapper {
     @Update("UPDATE scheduled_tasks SET ack_warning_time = #{ackTime} WHERE account_id = #{accountId}")
     int updateAckWarning(@Param("accountId") String accountId, @Param("ackTime") Long ackTime);
 
-    /** 账号级恢复：同账号所有挂起任务清挂起 + 重置 next_run + 清中断哨兵。 */
+    /**
+     * 账号级（过度访问）恢复：同账号<b>仅 {@code OVERUSE_PAUSED}</b> 任务清挂起 + 重置 next_run + 清中断哨兵。
+     * 绝不顺带恢复 {@code AUTH_EXPIRED}（需要重新授权 cookie）或 {@code PAUSED}（管理员手动暂停）——这两类
+     * 与过度访问无关，应该由各自的恢复入口处理。
+     */
     @Update("UPDATE scheduled_tasks SET last_status = NULL, last_message = NULL,"
             + " next_run_time = #{nextRun}, run_started_time = NULL"
             + " WHERE account_id = #{accountId}"
-            + " AND last_status IN ('OVERUSE_PAUSED','AUTH_EXPIRED','PAUSED')")
+            + " AND last_status = 'OVERUSE_PAUSED'")
     int clearSuspendForAccount(@Param("accountId") String accountId, @Param("nextRun") Long nextRun);
 
     /**
@@ -218,6 +234,18 @@ public interface ScheduledTaskMapper {
     @Update("UPDATE scheduled_tasks SET last_status = NULL, last_message = NULL,"
             + " next_run_time = #{nextRun}, run_started_time = NULL WHERE id = #{id}")
     int clearSuspend(@Param("id") long id, @Param("nextRun") Long nextRun);
+
+    /**
+     * 单任务、<b>仅当当前状态为指定挂起态</b>时清挂起 + 重置 next_run + 清中断哨兵。
+     * 用于「按入口类型限定恢复」：cookie 重新授权只解 {@code AUTH_EXPIRED}、手动恢复只解 {@code PAUSED}，
+     * 避免一个恢复入口越权清掉其它管理员未确认的挂起态。
+     */
+    @Update("UPDATE scheduled_tasks SET last_status = NULL, last_message = NULL,"
+            + " next_run_time = #{nextRun}, run_started_time = NULL"
+            + " WHERE id = #{id} AND last_status = #{expectedStatus}")
+    int clearSuspendIfStatus(@Param("id") long id,
+                             @Param("nextRun") Long nextRun,
+                             @Param("expectedStatus") String expectedStatus);
 
     /** 管理员处理完异常后武装：下一轮运行开始先把隔离表入队重试。 */
     @Update("UPDATE scheduled_tasks SET pending_retry_armed = 1 WHERE id = #{id}")

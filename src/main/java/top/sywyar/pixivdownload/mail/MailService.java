@@ -69,9 +69,9 @@ public class MailService {
             deliver(settings, recipients, subject, htmlBody);
             log.info(logMessage("mail.log.send.success", joinRecipients(recipients), settings.host()));
         } catch (MailException | MessagingException e) {
-            log.error(logMessage("mail.log.send.failed", safeMessage(e)));
+            log.error(logMessage("mail.log.send.failed", safeMessage(e, settings.password())));
         } catch (RuntimeException e) {
-            log.error(logMessage("mail.log.send.failed", safeMessage(e)), e);
+            log.error(logMessage("mail.log.send.failed", safeMessage(e, settings.password())), e);
         }
     }
 
@@ -99,7 +99,7 @@ public class MailService {
             deliver(settings, recipients, subject, htmlBody);
             log.info(logMessage("mail.log.test.success", joinRecipients(recipients), settings.host()));
         } catch (MessagingException | MailException e) {
-            String msg = safeMessage(e);
+            String msg = safeMessage(e, settings.password());
             log.warn(logMessage("mail.log.test.failed", msg));
             throw new MailSendException(msg, e);
         }
@@ -213,20 +213,45 @@ public class MailService {
     }
 
     /**
-     * 截取异常的可读摘要供日志 / GUI 显示。**绝不**回显密码：异常链上若意外带了密码，本方法会自行截断。
+     * 截取异常的可读摘要供日志 / GUI 显示。**绝不**回显密码：先遍历整个 cause 链合并 message，
+     * 把传入的 SMTP 密码 / 用户名 / 授权码逐字替换为 {@code [redacted]}（JavaMail 与一些 SMTP 错误
+     * 文案会原样回显客户端提交的认证字段），再截断到 500 字符。
      */
-    private static String safeMessage(Throwable t) {
+    static String safeMessage(Throwable t, String password) {
         if (t == null) {
             return "unknown";
         }
-        String msg = t.getMessage();
-        if (msg == null) {
-            msg = t.getClass().getSimpleName();
-        }
+        String msg = collectMessages(t);
+        msg = redactSecret(msg, password);
         if (msg.length() > 500) {
             msg = msg.substring(0, 500) + "…";
         }
         return msg;
+    }
+
+    /** 拼接异常链上所有 cause 的 message，便于一次性脱敏（JavaMail 嵌套异常的密码往往出现在 cause 上）。 */
+    private static String collectMessages(Throwable t) {
+        StringBuilder sb = new StringBuilder();
+        Throwable cur = t;
+        int depth = 0;
+        while (cur != null && depth < 8) {
+            String m = cur.getMessage();
+            if (m == null || m.isBlank()) {
+                m = cur.getClass().getSimpleName();
+            }
+            if (sb.length() > 0) sb.append("; ");
+            sb.append(m);
+            cur = cur.getCause();
+            depth++;
+        }
+        return sb.length() == 0 ? t.getClass().getSimpleName() : sb.toString();
+    }
+
+    /** 把秘密原文逐字替换为 {@code [redacted]}；空 / 过短的秘密不替换以免误伤普通文本。 */
+    private static String redactSecret(String text, String secret) {
+        if (text == null || text.isEmpty()) return text;
+        if (secret == null || secret.length() < 4) return text;
+        return text.replace(secret, "[redacted]");
     }
 
     private String logMessage(String code, Object... args) {

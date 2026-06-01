@@ -94,6 +94,9 @@ public class ScheduleService {
         database.mapper().updateDefinition(
                 id, req.getName().trim(), req.getType(), req.getParamsJson(),
                 triggerKind, req.getIntervalMinutes(), emptyToNull(req.getCronExpr()), nextRun);
+        // 编辑后的任务可能换了 type / source / filters，旧隔离表里的 workId 在新定义下没意义
+        // （甚至 kind 也可能从插画切到小说）。一并清掉，避免用错误的下载管线复活旧失败条目。
+        database.mapper().deleteAllPending(id);
         return get(id);
     }
 
@@ -143,7 +146,8 @@ public class ScheduleService {
      * 为任务快照绑定 Cookie。校验含 {@code PHPSESSID} 后写入；cookie 绝不写日志 / 回显。
      *
      * <p>同时解析非敏感 {@code account_id}（PHPSESSID 下划线前缀 = Pixiv userId）写入；
-     * 并清挂起（解 AUTH_EXPIRED）、重算 next_run——这是 {@code AUTH_EXPIRED} 的恢复入口。
+     * 这是 {@code AUTH_EXPIRED} 的恢复入口——仅当任务当前为 {@code AUTH_EXPIRED} 时才清挂起 + 重算 next_run。
+     * 处于 {@code OVERUSE_PAUSED} / 手动 {@code PAUSED} 的任务在重新授权后不会被静默恢复（必须走对应的恢复入口）。
      * 隔离表不再需要"武装"：{@link ScheduleExecutor#runTask} 每轮无条件先消费隔离表。
      */
     @Transactional
@@ -157,7 +161,8 @@ public class ScheduleService {
         database.mapper().updateCookie(id, cookie.trim(), ScheduledTask.COOKIE_BOUND);
         database.mapper().updateAccountId(id, parsePixivUserId(cookie));
         ScheduledTask task = database.mapper().findById(id);
-        database.mapper().clearSuspend(id, nextRunFor(task));
+        database.mapper().clearSuspendIfStatus(
+                id, nextRunFor(task), ScheduledTask.STATUS_AUTH_EXPIRED);
         return get(id);
     }
 
@@ -281,6 +286,15 @@ public class ScheduleService {
         if (tasks.isEmpty()) {
             throw LocalizedException.badRequest(
                     "schedule.error.account-not-found", "账号下无计划任务: {0}", accountId);
+        }
+        boolean hasOverusePaused = tasks.stream()
+                .anyMatch(t -> ScheduledTask.STATUS_OVERUSE_PAUSED.equals(t.lastStatus()));
+        if (!hasOverusePaused) {
+            // 账号级恢复仅针对过度访问暂停。AUTH_EXPIRED / 手动 PAUSED 必须各自走对应恢复入口，
+            // 不能借账号级按钮一并清除（会越权放行管理员未确认的状态）。
+            throw LocalizedException.badRequest(
+                    "schedule.error.account-not-overuse-paused",
+                    "账号下没有过度访问暂停的计划任务: {0}", accountId);
         }
         String mode = req.getMode() == null ? "" : req.getMode().trim();
         Long ackTime = latestOveruseWarning(tasks);

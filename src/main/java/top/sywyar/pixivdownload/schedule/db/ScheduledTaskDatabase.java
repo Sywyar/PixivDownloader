@@ -21,10 +21,25 @@ public class ScheduledTaskDatabase {
     @PostConstruct
     public void init() {
         mapper.createScheduledTasksTable();
+        // 幂等迁移：在建索引前补齐旧库可能缺失的列，否则建 account_id 索引或后续读写会失败。
+        addColumnIfMissing(mapper::addAccountIdColumn);
+        addColumnIfMissing(mapper::addAckWarningTimeColumn);
+        addColumnIfMissing(mapper::addPendingRetryArmedColumn);
         mapper.createScheduledTasksNextRunIndex();
         mapper.createScheduledTasksAccountIndex();
         mapper.createScheduledTaskPendingTable();
         log.info("scheduled_tasks schema initialized");
+    }
+
+    private void addColumnIfMissing(Runnable addColumn) {
+        try {
+            addColumn.run();
+        } catch (Exception e) {
+            String msg = String.valueOf(e.getMessage());
+            if (!msg.toLowerCase().contains("duplicate column")) {
+                log.warn("Unexpected error adding scheduled_tasks column: {}", msg, e);
+            }
+        }
     }
 
     public ScheduledTaskMapper mapper() {
