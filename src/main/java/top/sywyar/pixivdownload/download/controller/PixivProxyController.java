@@ -1152,23 +1152,24 @@ public class PixivProxyController {
     }
 
     @GetMapping("/thumbnail-proxy")
-    public ResponseEntity<byte[]> proxyThumbnail(
-            @RequestParam String url,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie) {
+    public ResponseEntity<byte[]> proxyThumbnail(@RequestParam String url) {
         URI uri;
         try {
             uri = URI.create(url);
         } catch (IllegalArgumentException e) {
             throw new SecurityException(messages.get("pixiv.proxy.thumbnail-url.invalid"));
         }
-        String host = uri.getHost();
         // pximg.net 子域服务作品缩略图；embed.pixiv.net 服务珍藏集封面缩略图。两者均为 Pixiv 固定 CDN。
-        boolean allowed = host != null
+        // 仅允许 https，避免被诱导明文出站；缩略图只需 Pixiv Referer，绝不携带任何用户 Cookie（PHPSESSID 不应外泄到 CDN）。
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        boolean allowed = "https".equalsIgnoreCase(scheme)
+                && host != null
                 && (host.endsWith(".pximg.net") || host.equals("embed.pixiv.net"));
         if (!allowed) {
             throw new SecurityException(messages.get("pixiv.proxy.thumbnail-url.host.invalid"));
         }
-        byte[] bytes = proxyGetBytes(url, cookie);
+        byte[] bytes = proxyGetBytes(url, null);
         HttpHeaders responseHeaders = new HttpHeaders();
         responseHeaders.setCacheControl(CacheControl.maxAge(1, TimeUnit.HOURS).cachePublic());
         return ResponseEntity.ok().headers(responseHeaders).body(bytes);

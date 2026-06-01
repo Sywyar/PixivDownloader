@@ -327,6 +327,34 @@ class PixivProxyControllerTest {
                             .param("url", "https://www.pixiv.net/some/image.jpg"))
                     .andExpect(status().isBadRequest());
         }
+
+        @Test
+        @DisplayName("http 协议的 pximg.net URL 应返回 400（仅允许 https）")
+        void shouldRejectHttpScheme() throws Exception {
+            mockMvc.perform(get("/api/pixiv/thumbnail-proxy")
+                            .param("url", "http://i.pximg.net/img-original/img/2024/01/01/123456_p0.jpg"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        @DisplayName("即便客户端传 X-Pixiv-Cookie，也不会把 Cookie 转发给 pximg.net")
+        void shouldNotForwardCookieToCdn() throws Exception {
+            when(restTemplate.exchange(eq(VALID_URL), eq(HttpMethod.GET), any(), eq(byte[].class)))
+                    .thenReturn(new ResponseEntity<>(DUMMY_IMAGE, HttpStatus.OK));
+
+            mockMvc.perform(get("/api/pixiv/thumbnail-proxy")
+                            .param("url", VALID_URL)
+                            .header("X-Pixiv-Cookie", "PHPSESSID=12345_secret; other=value"))
+                    .andExpect(status().isOk());
+
+            verify(restTemplate).exchange(
+                    eq(VALID_URL),
+                    eq(HttpMethod.GET),
+                    argThat(entity -> entity != null
+                            && entity.getHeaders() != null
+                            && !entity.getHeaders().containsKey("Cookie")),
+                    eq(byte[].class));
+        }
     }
 
     // ========== 多人模式访问控制 ==========

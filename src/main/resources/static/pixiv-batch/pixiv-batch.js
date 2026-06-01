@@ -633,6 +633,17 @@
         }[normalizedSource] || bt('queue.source.import', '导入');
     }
 
+    // 渲染时派生队列项标题：模型里 title 只存原始字符串（可为空），
+    // 此处补 i18n fallback —— 不能 bake 进模型，否则切换语言后旧译文会跟着 localStorage / 服务端快照一起留下来。
+    function queueItemDisplayTitle(q) {
+        if (q && q.title) return q.title;
+        if (q && q.kind === 'novel') {
+            const id = q.novelId || (q.id != null ? String(q.id).replace(/^n/, '') : '');
+            return bt('queue.novel-fallback', '小说 {id}', {id});
+        }
+        return bt('queue.artwork-fallback', '作品 {id}', {id: q && q.id != null ? q.id : ''});
+    }
+
     // 兼容旧版本：返回旧版本的 ntab 模式标识符
     function legacyImportMode() {
         return 'n' + 'tab';
@@ -2425,7 +2436,8 @@
                 kind: m.kind || 'illust',
                 novelId: m.novelId || null,
                 mergeAfterSeriesId: m.mergeAfterSeriesId || null,
-                title: m.title || bt('queue.artwork-fallback', '作品 {id}', {id}),
+                // title 存原始字符串（可为空），fallback 文案由渲染层 queueItemDisplayTitle(q) 派生，避免跨语言切换显示旧译。
+                title: m.title || '',
                 status: state.isRunning ? 'pending' : 'idle',
                 source: normalizeImportMode(source || SINGLE_IMPORT_MODE),
                 username: username || '',
@@ -2503,7 +2515,7 @@
             return;
         }
         const lines = state.queue.map(q =>
-            `https://www.pixiv.net/artworks/${q.id} | ${q.title}`);
+            `https://www.pixiv.net/artworks/${q.id} | ${queueItemDisplayTitle(q)}`);
         downloadTxt(lines.join('\n'), `pixiv_all_list_${Date.now()}.txt`);
         setStatus(bt('status.exported-all', '已导出 {count} 个作品', {count: lines.length}), 'success');
     }
@@ -2515,7 +2527,7 @@
             return;
         }
         const lines = items.map(q =>
-            `https://www.pixiv.net/artworks/${q.id} | ${q.title}`);
+            `https://www.pixiv.net/artworks/${q.id} | ${queueItemDisplayTitle(q)}`);
         downloadTxt(lines.join('\n'), `pixiv_undownloaded_list_${Date.now()}.txt`);
         setStatus(
             bt('status.exported-undownloaded', '已导出 {count} 个未下载作品', {count: lines.length}),
@@ -3234,7 +3246,9 @@
                 ? {label: queueSourceText('search'), bg: '#28a745'}
                 : q.source === 'series' || q.source === 'series-novel'
                     ? {label: queueSourceText('series'), bg: '#6366f1'}
-                    : {label: queueSourceText(SINGLE_IMPORT_MODE), bg: '#6610f2'};
+                    : q.source === QUICK_FETCH_MODE
+                        ? {label: queueSourceText(QUICK_FETCH_MODE), bg: '#f59e0b'}
+                        : {label: queueSourceText(SINGLE_IMPORT_MODE), bg: '#6610f2'};
         const srcLabel = `<span style="background:${sourceTone.bg};color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:5px;vertical-align:middle;">${esc(sourceTone.label)}</span>`;
         const R18Label = q.xRestrict == null
             ? `<span style="background:rgba(100,116,139,.15);color:#64748b;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">${esc(bt('queue.unknown', '未知'))}</span>`
@@ -3260,7 +3274,7 @@
             : '';
         return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
       <div class="q-title" style="display:flex;align-items:center;gap:2px;">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(q.title)}${novelTag}${srcLabel}${R18Label}${AILabel}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(queueItemDisplayTitle(q))}${novelTag}${srcLabel}${R18Label}${AILabel}</span>
         ${linkBtn}${removeBtn}
       </div>
       <div class="q-meta">ID: ${isNovel ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)' : q.id} | ${descHtml}</div>
@@ -8801,9 +8815,11 @@
     }
 
     function buildQuickQueueMeta(item, kind = quickState.kind) {
+        // 队列模型禁止 bake 翻译文案（会被持久化、跨语言切换继续显示旧译）；
+        // title 直接存原始值（可为空），渲染时由 queueItemDisplayTitle(q) 派生 fallback。
         if (kind === 'novel') {
             return {
-                title: item.title || bt('queue.novel-fallback', '小说 {id}', {id: item.id}),
+                title: item.title || '',
                 novelId: String(item.id),
                 kind: 'novel',
                 authorId: item.userId ? Number(item.userId) : null,
@@ -8814,7 +8830,7 @@
             };
         }
         return {
-            title: item.title,
+            title: item.title || '',
             authorId: item.userId ? Number(item.userId) : null,
             authorName: item.userName || '',
             isAi: Number(item.aiType ?? 0) >= 2,
@@ -8916,8 +8932,9 @@
                 {total: quickState.allIds.length})) return;
             const isNovel = quickState.action === 'my-novels';
             const ids = quickState.allIds.map(id => isNovel ? 'n' + id : id);
+            // 队列模型禁止 bake 翻译文案；title 留空，渲染时由 queueItemDisplayTitle(q) 派生 fallback。
             const metas = quickState.allIds.map(id => isNovel
-                ? {title: bt('queue.novel-fallback', '小说 {id}', {id}), novelId: String(id), kind: 'novel'}
+                ? {novelId: String(id), kind: 'novel'}
                 : {});
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
             setStatus(
@@ -8947,10 +8964,13 @@
             });
         };
         // 「全部加入队列」入队全量（未过滤）作品，实际不符合附加筛选者在下载时逐作品跳过；预览筛选只影响「当前页加入队列」。
+        // 当前页可能不是第 1 页（用户停在第 N 页才点「全部」），需要遍历 1..totalPages 全部页码，
+        // 当前页直接复用 rawItems 以避免重复请求；collectedIds 兜底去重。
         acc(quickState.rawItems);
         setQuickBtnLoading('quick-add-all', true);
         try {
-            for (let p = quickState.page + 1; p <= totalPages; p++) {
+            for (let p = 1; p <= totalPages; p++) {
+                if (p === quickState.page) continue;
                 setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...',
                     {done: ids.length, total: quickState.total}), 'info');
                 const more = await quickFetchPage(p);
@@ -9332,10 +9352,12 @@
             });
         };
         // 「全部加入队列」入队全量（未过滤）作品，附加筛选不符者在下载时逐作品跳过；预览筛选只影响「当前页加入队列」。
+        // 当前页可能不是第 1 页，需要遍历 1..totalPages 全部页码，当前页直接复用 rawItems；collected 兜底去重。
         acc(quickInner.rawItems);
         setQuickBtnLoading('quick-inner-add-all', true);
         try {
-            for (let p = quickInner.page + 1; p <= totalPages; p++) {
+            for (let p = 1; p <= totalPages; p++) {
+                if (p === quickInner.page) continue;
                 setStatus(bt('status.user-fetch-all-progress', '正在抓取画师作品卡片 {done} / {total}...',
                     {done: ids.length, total: quickInner.total}), 'info');
                 acc(await quickFetchInnerPage(p, kind));
