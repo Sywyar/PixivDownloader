@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [Unreleased]
+
+### Bug Fixes
+- 修复计划任务以较高并发（接近或达到下载并发上限）运行时，页面 API 长时间无响应、整站观感"卡死"的问题：之前数据库连接池容量小于下载并发数，下载 worker 把连接占满后，页面轮询 / 画廊 / 详情等请求拿不到连接而阻塞到超时；现在连接池容量会随下载并发上限自适应并预留 web 请求头空间。
+
 ## [v1.11.3] - 2026.6.1
 
 ### Features
