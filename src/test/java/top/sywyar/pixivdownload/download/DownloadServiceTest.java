@@ -86,7 +86,7 @@ class DownloadServiceTest {
     @BeforeEach
     void setUp() {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
-        artworkFileLocator = new ArtworkFileLocator(pixivDatabase);
+        artworkFileLocator = new ArtworkFileLocator(pixivDatabase, downloadConfig);
         downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService,
                 downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService, authorService,
                 collectionService, mangaSeriesService, artworkFileLocator, imageHashService, APP_MESSAGES);

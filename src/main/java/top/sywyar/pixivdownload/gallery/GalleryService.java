@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gallery;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.ArtworkFileLocator;
@@ -11,6 +12,7 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.series.MangaSeries;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
@@ -96,14 +98,20 @@ public class GalleryService {
 
     /**
      * 删除单个作品：先删磁盘文件（图片 / 缩略图 / 图库缓存 / 空目录），再删全部 DB 留存数据。
-     * 作品不存在时返回 {@code false}。文件删除为 best-effort，不会阻断 DB 清理。
+     * 作品不存在时返回 {@code false}。磁盘文件删除失败（被锁定 / 权限不足等）会立即抛出，
+     * 不再继续删 DB，避免 DB 与磁盘状态不一致出现孤儿文件。
      */
     public boolean deleteArtwork(long artworkId) {
         ArtworkRecord record = pixivDatabase.getArtwork(artworkId);
         if (record == null) {
             return false;
         }
-        artworkFileLocator.deleteArtworkFiles(record);
+        if (!artworkFileLocator.deleteArtworkFiles(record)) {
+            throw new LocalizedException(HttpStatus.CONFLICT,
+                    "gallery.delete.file-failed",
+                    "作品 {0} 的磁盘文件未能全部删除，已中止数据库清理",
+                    artworkId);
+        }
         pixivDatabase.deleteArtwork(artworkId);
         log.info("已删除作品 {} 及其全部留存数据", artworkId);
         return true;

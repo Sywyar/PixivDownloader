@@ -5,12 +5,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
@@ -27,6 +29,7 @@ public class ArtworkFileLocator {
     private static final Set<String> HASHABLE_IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp");
 
     private final PixivDatabase pixivDatabase;
+    private final DownloadConfig downloadConfig;
 
     public record LocatedArtworkFile(File file, String extension) {
     }
@@ -109,58 +112,106 @@ public class ArtworkFileLocator {
     }
 
     /**
-     * 删除一个作品在磁盘上的全部留存文件（best-effort）：每页的图片文件（任意扩展名）与对应的
+     * 删除一个作品在磁盘上的全部留存文件：每页的图片文件（任意扩展名）与对应的
      * {@code _thumb.jpg} 缩略图、动图的 {@code _thumb.jpg}，以及图库缩略图二进制缓存
      * {@code ./data/gallery_thumbs/{artworkId}/}。最后若该作品独占的 {@code {rootFolder}/{artworkId}/}
      * 目录已空，则一并移除空目录；经分类器移动到共享目录（{@code move_folder}）时不会误删共享目录。
-     * 任何单步失败仅记日志，不抛出——DB 行清理不应被文件删除失败阻断。
+     *
+     * <p>磁盘边界守卫（避免污染的 folder / move_folder 把删除范围扩大到 root 之外或共享目录）：
+     * 解析后的目录必须有效、非 OS / 驱动盘根、且不等于配置的 {@code download.root-folder} 本身；
+     * 否则跳过该步并视为"无需处理"（不算失败）。基于已知文件名前缀（{@code stems}）做枚举式删除而非递归 walk，
+     * 即使目录指向共享路径也只会触碰当前作品命名空间内的文件。
+     *
+     * @return 文件层清理结果：{@code true} 表示所有尝试的删除都成功（或没有可删的文件），
+     *         调用方可以继续删除 DB 行；{@code false} 表示有文件因锁定 / 权限不足等原因删除失败，
+     *         调用方必须中止 DB 清理以避免 DB 与磁盘状态不一致。
      */
-    public void deleteArtworkFiles(ArtworkRecord artwork) {
+    public boolean deleteArtworkFiles(ArtworkRecord artwork) {
         if (artwork == null) {
-            return;
+            return true;
         }
+        boolean success = true;
         String directoryPath = resolveArtworkDirectory(artwork);
         if (StringUtils.hasText(directoryPath)) {
-            Set<String> stems = new HashSet<>();
-            int count = Math.max(artwork.count(), 1);
-            for (int page = 0; page < count; page++) {
-                try {
-                    String baseName = resolveStoredFileBaseName(artwork, page);
-                    if (StringUtils.hasText(baseName)) {
-                        stems.add(baseName);
-                        stems.add(baseName + "_thumb");
+            Path safeDir = resolveSafeArtworkDirectory(directoryPath, artwork.artworkId());
+            if (safeDir != null) {
+                Set<String> stems = new HashSet<>();
+                int count = Math.max(artwork.count(), 1);
+                for (int page = 0; page < count; page++) {
+                    try {
+                        String baseName = resolveStoredFileBaseName(artwork, page);
+                        if (StringUtils.hasText(baseName)) {
+                            stems.add(baseName);
+                            stems.add(baseName + "_thumb");
+                        }
+                    } catch (Exception e) {
+                        log.warn("解析作品 {} 第 {} 页文件名失败，跳过该页文件删除", artwork.artworkId(), page);
                     }
-                } catch (Exception e) {
-                    log.warn("解析作品 {} 第 {} 页文件名失败，跳过该页文件删除", artwork.artworkId(), page);
                 }
+                if (!deleteFilesWithStems(safeDir, stems)) {
+                    success = false;
+                }
+                removeOwnedEmptyDirectory(safeDir, artwork.artworkId());
             }
-            deleteFilesWithStems(directoryPath, stems);
-            removeOwnedEmptyDirectory(directoryPath, artwork.artworkId());
         }
-        deleteGalleryThumbnailCache(artwork.artworkId());
+        if (!deleteGalleryThumbnailCache(artwork.artworkId())) {
+            success = false;
+        }
+        return success;
     }
 
-    private void deleteFilesWithStems(String directoryPath, Set<String> stems) {
+    /**
+     * 校验作品目录在边界上是安全可删的：路径解析成功、非 OS / 驱动盘根、且不等于配置的下载根目录本身。
+     * {@code move_folder} 允许指向 {@code download.root-folder} 之外（分类器搬移到用户选定的共享目录），
+     * 因此不强制要求目录在 root 内；但绝不允许删除根本身或没有名字层级的"裸根"。
+     */
+    private Path resolveSafeArtworkDirectory(String directoryPath, long artworkId) {
+        Path absolute;
+        try {
+            absolute = Paths.get(directoryPath).toAbsolutePath().normalize();
+        } catch (InvalidPathException e) {
+            log.warn("作品 {} 的目录路径无效，跳过磁盘清理: {}", artworkId, directoryPath);
+            return null;
+        }
+        if (absolute.getNameCount() < 1 || absolute.equals(absolute.getRoot())) {
+            log.warn("拒绝清理作品 {} 的目录（指向文件系统根）: {}", artworkId, absolute);
+            return null;
+        }
+        Path downloadRoot;
+        try {
+            downloadRoot = Paths.get(downloadConfig.getRootFolder()).toAbsolutePath().normalize();
+        } catch (InvalidPathException e) {
+            downloadRoot = null;
+        }
+        if (downloadRoot != null && absolute.equals(downloadRoot)) {
+            log.warn("拒绝清理作品 {} 的目录（等于 download.root-folder 本身）: {}", artworkId, absolute);
+            return null;
+        }
+        return absolute;
+    }
+
+    private boolean deleteFilesWithStems(Path directory, Set<String> stems) {
         if (stems.isEmpty()) {
-            return;
+            return true;
         }
-        File directory = new File(directoryPath);
-        File[] files = directory.listFiles();
+        File[] files = directory.toFile().listFiles();
         if (files == null) {
-            return;
+            return true;
         }
+        boolean allDeleted = true;
         for (File file : files) {
             if (file.isFile() && stems.contains(getBaseName(file.getName()))) {
                 if (!file.delete()) {
                     log.warn("删除作品文件失败: {}", file.getAbsolutePath());
+                    allDeleted = false;
                 }
             }
         }
+        return allDeleted;
     }
 
     /** 仅当目录名等于 artworkId（即标准的 {@code {rootFolder}/{artworkId}/} 独占目录）且为空时移除，避免误删共享/分类目录。*/
-    private void removeOwnedEmptyDirectory(String directoryPath, long artworkId) {
-        Path dir = Paths.get(directoryPath);
+    private void removeOwnedEmptyDirectory(Path dir, long artworkId) {
         Path name = dir.getFileName();
         if (name == null || !name.toString().equals(String.valueOf(artworkId))) {
             return;
@@ -170,26 +221,30 @@ public class ArtworkFileLocator {
                 Files.deleteIfExists(dir);
             }
         } catch (IOException e) {
-            log.warn("移除作品空目录失败: {}", directoryPath);
+            log.warn("移除作品空目录失败: {}", dir);
         }
     }
 
-    private void deleteGalleryThumbnailCache(long artworkId) {
+    private boolean deleteGalleryThumbnailCache(long artworkId) {
         Path cacheDir = RuntimeFiles.galleryThumbnailDirectory().resolve(String.valueOf(artworkId));
         if (!Files.isDirectory(cacheDir)) {
-            return;
+            return true;
         }
+        boolean[] allDeleted = {true};
         try (var stream = Files.walk(cacheDir)) {
             stream.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.deleteIfExists(p);
                 } catch (IOException e) {
                     log.warn("删除图库缩略图缓存失败: {}", p);
+                    allDeleted[0] = false;
                 }
             });
         } catch (IOException e) {
             log.warn("清理图库缩略图缓存目录失败: {}", cacheDir);
+            return false;
         }
+        return allDeleted[0];
     }
 
     public static File findFileByName(String directoryPath, String fileName) {

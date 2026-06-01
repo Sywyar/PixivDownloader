@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.setup.guest;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -19,6 +20,9 @@ import java.util.Optional;
 
 /**
  * 公开的邀请码兑换端点。每次提交无论成败都计入登录限流，防止暴力枚举 code。
+ *
+ * <p>下发的 {@code pixiv_invite_token} cookie 与 {@code AuthFilter} 的清除 / GET {@code /invite} 兑换路径
+ * 保持一致的安全属性：HttpOnly + SameSite=Strict + 当 {@code server.ssl.enabled} 为 true 时附加 Secure。</p>
  */
 @Slf4j
 @RestController
@@ -27,6 +31,9 @@ public class InviteRedeemController {
 
     private final GuestInviteService guestInviteService;
     private final LoginRateLimitService loginRateLimitService;
+
+    @Value("${server.ssl.enabled:false}")
+    private boolean sslEnabled;
 
     @PostMapping("/api/auth/invite-redeem")
     public ResponseEntity<Map<String, Object>> redeem(@RequestBody RedeemRequest body,
@@ -48,7 +55,7 @@ public class InviteRedeemController {
                     "guest.invite.code.invalid", "邀请码无效或已失效");
         }
         ResponseCookie cookie = ResponseCookie.from(AuthFilter.INVITE_COOKIE, session.get().code())
-                .path("/").httpOnly(true).sameSite("Strict").build();
+                .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").build();
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
                 .body(Map.of("success", true, "redirect", "/pixiv-gallery.html"));

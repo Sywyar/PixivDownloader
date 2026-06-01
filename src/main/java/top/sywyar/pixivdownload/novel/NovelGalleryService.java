@@ -2,10 +2,13 @@ package top.sywyar.pixivdownload.novel;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
+import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
+import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelAuthorSummary;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
@@ -17,6 +20,7 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -41,6 +45,7 @@ public class NovelGalleryService {
     private final NovelDatabase novelDatabase;
     private final NovelGalleryRepository novelGalleryRepository;
     private final AuthorService authorService;
+    private final DownloadConfig downloadConfig;
 
     public PagedNovels query(NovelGalleryQuery q) {
         // 简单实现：内存过滤。规模按本地下载量计算可接受；后续可下沉到 SQL。
@@ -149,14 +154,19 @@ public class NovelGalleryService {
      * 删除单本小说：先删磁盘文件（正文 TXT/HTML/EPUB、封面、内嵌图、独占目录），再删全部 DB 留存数据
      * （{@code novel_tags} / {@code novel_collections} / {@code novel_images} / 主行 / FTS，见
      * {@link NovelDatabase#deleteNovel}）。系列封面与合订文件属于系列、不在此删除。小说不存在返回 {@code false}。
-     * 文件删除为 best-effort，不阻断 DB 清理。
+     * 磁盘文件删除失败（被锁定 / 权限不足等）会立即抛出，不再继续删 DB，避免 DB 与磁盘状态不一致。
      */
     public boolean deleteNovel(long novelId) {
         NovelRecord record = novelDatabase.getNovel(novelId);
         if (record == null) {
             return false;
         }
-        deleteNovelFiles(record);
+        if (!deleteNovelFiles(record)) {
+            throw new LocalizedException(HttpStatus.CONFLICT,
+                    "novel.delete.file-failed",
+                    "小说 {0} 的磁盘文件未能全部删除，已中止数据库清理",
+                    novelId);
+        }
         novelDatabase.deleteNovel(novelId);
         log.info("已删除小说 {} 及其全部留存数据", novelId);
         return true;
@@ -181,33 +191,67 @@ public class NovelGalleryService {
 
     /**
      * 删除小说磁盘文件：每本小说独占 {@code {rootFolder}/novel-{novelId}/} 目录（小说无重定位语义），
-     * 因此目录名匹配 {@code novel-{novelId}} 时直接整目录删除；否则保守地只删该目录下的全部常规文件并尝试移除空目录。
+     * 因此目录名必须匹配 {@code novel-{novelId}} 才会被递归删除。
+     *
+     * <p>磁盘边界守卫（避免污染的 folder 把递归删除范围扩大到 root 之外、共享目录或 OS 根）：
+     * 解析后的目录必须非空、可解析、非 OS / 驱动盘根、且不等于配置的 {@code download.root-folder} 本身；
+     * 同时目录名必须等于 {@code novel-{novelId}} 才视为本小说独占目录。任何一条不满足都不会触碰磁盘，
+     * 仅记日志后视为"无需处理"（不算失败，DB 清理仍会继续——polluted folder 行可由管理员据此排查）。
+     *
+     * @return 文件层清理结果：{@code true} 表示所有尝试的删除都成功（或没有可删的文件 / 被边界守卫跳过），
+     *         调用方可继续删 DB 行；{@code false} 表示有文件因锁定 / 权限不足等原因删除失败，
+     *         调用方必须中止 DB 清理。
      */
-    private void deleteNovelFiles(NovelRecord record) {
+    private boolean deleteNovelFiles(NovelRecord record) {
         String folder = record.folder();
         if (folder == null || folder.isBlank()) {
-            return;
+            return true;
         }
-        Path dir = Paths.get(folder);
+        Path dir;
+        try {
+            dir = Paths.get(folder).toAbsolutePath().normalize();
+        } catch (InvalidPathException e) {
+            log.warn("小说 {} 的目录路径无效，跳过磁盘清理: {}", record.novelId(), folder);
+            return true;
+        }
         if (!Files.isDirectory(dir)) {
-            return;
+            return true;
+        }
+        if (dir.getNameCount() < 1 || dir.equals(dir.getRoot())) {
+            log.warn("拒绝清理小说 {} 的目录（指向文件系统根）: {}", record.novelId(), dir);
+            return true;
+        }
+        try {
+            Path downloadRoot = Paths.get(downloadConfig.getRootFolder()).toAbsolutePath().normalize();
+            if (dir.equals(downloadRoot)) {
+                log.warn("拒绝清理小说 {} 的目录（等于 download.root-folder 本身）: {}", record.novelId(), dir);
+                return true;
+            }
+        } catch (InvalidPathException ignored) {
+            // 解析 download.root-folder 失败仅意味着无法做 root 自身比对，目录名守卫仍然生效。
         }
         Path name = dir.getFileName();
-        boolean ownedDir = name != null && name.toString().equals("novel-" + record.novelId());
+        String expectedName = "novel-" + record.novelId();
+        if (name == null || !expectedName.equals(name.toString())) {
+            log.warn("小说 {} 的 folder 路径 {} 不是独占目录（期望末段 {}），跳过磁盘清理",
+                    record.novelId(), dir, expectedName);
+            return true;
+        }
+        boolean[] allDeleted = {true};
         try (var stream = Files.walk(dir)) {
             stream.sorted(Comparator.reverseOrder()).forEach(p -> {
-                if (!ownedDir && p.equals(dir)) {
-                    return; // 非独占目录：保留目录本身（仅删文件）
-                }
                 try {
                     Files.deleteIfExists(p);
                 } catch (IOException e) {
                     log.warn("删除小说文件失败: {}", p);
+                    allDeleted[0] = false;
                 }
             });
         } catch (IOException e) {
             log.warn("清理小说 {} 目录失败: {}", record.novelId(), folder);
+            return false;
         }
+        return allDeleted[0];
     }
 
     public List<NovelView> bySeries(long seriesId, int limit) {

@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.series.MangaSeriesService;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.inOrder;
@@ -67,6 +68,7 @@ class GalleryServiceTest {
     void shouldDeleteFilesThenDatabase() {
         ArtworkRecord record = mock(ArtworkRecord.class);
         when(pixivDatabase.getArtwork(12345L)).thenReturn(record);
+        when(artworkFileLocator.deleteArtworkFiles(record)).thenReturn(true);
 
         assertThat(galleryService.deleteArtwork(12345L)).isTrue();
 
@@ -76,11 +78,25 @@ class GalleryServiceTest {
     }
 
     @Test
+    @DisplayName("磁盘文件删除失败时不删数据库记录，并抛出异常以阻止状态不一致")
+    void shouldAbortWhenFileDeletionFails() {
+        ArtworkRecord record = mock(ArtworkRecord.class);
+        when(pixivDatabase.getArtwork(999L)).thenReturn(record);
+        when(artworkFileLocator.deleteArtworkFiles(record)).thenReturn(false);
+
+        assertThatThrownBy(() -> galleryService.deleteArtwork(999L))
+                .isInstanceOf(top.sywyar.pixivdownload.i18n.LocalizedException.class);
+
+        verify(pixivDatabase, never()).deleteArtwork(anyLong());
+    }
+
+    @Test
     @DisplayName("批量删除应去重并返回实际删除数量")
     void shouldBatchDeleteDistinctAndCount() {
         ArtworkRecord record = mock(ArtworkRecord.class);
         when(pixivDatabase.getArtwork(1L)).thenReturn(record);
         when(pixivDatabase.getArtwork(2L)).thenReturn(null);
+        when(artworkFileLocator.deleteArtworkFiles(record)).thenReturn(true);
 
         int deleted = galleryService.deleteArtworks(List.of(1L, 2L, 1L));
 
