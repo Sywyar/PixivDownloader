@@ -391,6 +391,16 @@
             if (window.PixivContentLang) PixivContentLang.setStored(result.langCode);
             if (contentLangCtl) contentLangCtl.setLanguages(seriesTranslatedLangs, result.langCode);
             else setupNovelContentControls(seriesTranslatedLangs);
+            // 翻译完成后必须先拉取该语言的译后系列名 / 章节标题再重渲染，否则界面只切了语言、文字仍是原文。
+            // 同时清掉已有缓存条目，避免对同一语言重译时被 fetchSeriesTitleForLang 的早返回拦下、读到旧值。
+            delete seriesTitleByLang[activeContentLang];
+            delete seriesDescriptionByLang[activeContentLang];
+            delete chapterTitlesByLang[activeContentLang];
+            await Promise.all([
+                fetchSeriesTitleForLang(activeContentLang),
+                fetchChapterTitlesForLang(activeContentLang, state.items),
+            ]);
+            renderSeriesHeader();
             renderGrid(state.items);
         }
         setSeriesMessage(tx('toast.series-done', '系列翻译完成：成功 {ok}，跳过 {skipped}，失败 {failed}',
