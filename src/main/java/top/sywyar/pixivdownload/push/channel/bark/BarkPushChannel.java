@@ -1,0 +1,94 @@
+package top.sywyar.pixivdownload.push.channel.bark;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.push.OutboundRequest;
+import top.sywyar.pixivdownload.push.PushChannel;
+import top.sywyar.pixivdownload.push.PushChannelSettings;
+import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushHttpSender;
+import top.sywyar.pixivdownload.push.PushMessage;
+import top.sywyar.pixivdownload.push.PushResult;
+
+import java.util.List;
+
+/**
+ * Bark（iOS 推送）通道。{@code POST {server}/push}，JSON 体携带 device_key / title / body / sound。
+ * <p>
+ * 渲染逻辑集中在 {@link #deliver}，{@link #send}（已保存配置）与 {@link #sendTest}（GUI 临时设置）共用它。
+ * 只读取 {@link BarkConfig}，与其它通道解耦；发送细节委托给 {@link PushHttpSender}。
+ */
+@Component
+public class BarkPushChannel implements PushChannel {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    private final BarkConfig config;
+    private final PushHttpSender sender;
+
+    public BarkPushChannel(BarkConfig config, PushHttpSender sender) {
+        this.config = config;
+        this.sender = sender;
+    }
+
+    @Override
+    public PushChannelType type() {
+        return PushChannelType.BARK;
+    }
+
+    @Override
+    public boolean isConfigured() {
+        return config.isEnabled() && config.toSettings().isComplete();
+    }
+
+    @Override
+    public PushResult send(PushMessage message) {
+        return deliver(config.toSettings(), message);
+    }
+
+    @Override
+    public PushResult sendTest(PushChannelSettings settings, PushMessage message) {
+        if (settings instanceof BarkSettings barkSettings) {
+            return deliver(barkSettings, message);
+        }
+        return PushResult.failed(type(), "settings type mismatch");
+    }
+
+    private PushResult deliver(BarkSettings settings, PushMessage message) {
+        if (!settings.isComplete()) {
+            return PushResult.skipped(type(), "incomplete settings");
+        }
+        String url = stripTrailingSlash(settings.server()) + "/push";
+        String sound = settings.sound().isBlank() ? null : settings.sound();
+        Payload payload = new Payload(settings.deviceKey(), message.title(), message.content(), sound);
+
+        byte[] body;
+        try {
+            body = MAPPER.writeValueAsBytes(payload);
+        } catch (Exception e) {
+            return PushResult.failed(type(), "serialize error");
+        }
+        OutboundRequest request = OutboundRequest.json(
+                url, body, List.of(settings.deviceKey()), settings.useProxy());
+        return sender.send(type(), request);
+    }
+
+    private static String stripTrailingSlash(String s) {
+        String t = s;
+        while (t.endsWith("/")) {
+            t = t.substring(0, t.length() - 1);
+        }
+        return t;
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record Payload(
+            @JsonProperty("device_key") String deviceKey,
+            String title,
+            String body,
+            String sound
+    ) {
+    }
+}

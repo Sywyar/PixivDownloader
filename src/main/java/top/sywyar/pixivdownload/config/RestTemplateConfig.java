@@ -60,6 +60,25 @@ public class RestTemplateConfig {
         return buildRestTemplate(30_000, 120_000, new FixedProxyRoutePlanner(proxyConfig));
     }
 
+    /**
+     * 推送通知专用 RestTemplate（直连，不走代理）。短超时即可：推送目标是体量很小的 webhook 调用。
+     * {@link top.sywyar.pixivdownload.push.PushHttpSender} 在通道 {@code use-proxy=false} 时使用本 bean。
+     */
+    @Bean("pushRestTemplate")
+    public RestTemplate pushRestTemplate() {
+        return buildRestTemplate(10_000, 15_000, null);
+    }
+
+    /**
+     * 推送通知专用 RestTemplate（经 {@link ProxyConfig} 的 host:port 出站）。是否走代理由各推送通道自身的
+     * {@code use-proxy} 决定（如 Telegram 默认开启），与全局 {@code proxy.enabled} 相互独立，故此处不检查它。
+     * {@link top.sywyar.pixivdownload.push.PushHttpSender} 在通道 {@code use-proxy=true} 时使用本 bean。
+     */
+    @Bean("pushProxyRestTemplate")
+    public RestTemplate pushProxyRestTemplate() {
+        return buildRestTemplate(10_000, 15_000, new FixedProxyRoutePlanner(proxyConfig));
+    }
+
     private RestTemplate buildRestTemplate(int connectTimeoutMs, int socketTimeoutMs) {
         return buildRestTemplate(connectTimeoutMs, socketTimeoutMs, new DynamicProxyRoutePlanner(proxyConfig));
     }

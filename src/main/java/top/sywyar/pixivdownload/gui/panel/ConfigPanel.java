@@ -65,8 +65,8 @@ public class ConfigPanel extends JPanel {
     private final String serverGroup;
     private final String multiModeGroup;
     private final String maintenanceGroup;
-    private final String mailGroup;
     private final String aiGroup;
+    private final String notificationGroup;
 
     /** key → 渲染后的字段（含取值/赋值方法） */
     private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
@@ -111,8 +111,8 @@ public class ConfigPanel extends JPanel {
         this.serverGroup = groups.isEmpty() ? "" : groups.get(0);
         this.multiModeGroup = ConfigFieldRegistry.groupMultiMode();
         this.maintenanceGroup = ConfigFieldRegistry.groupMaintenance();
-        this.mailGroup = ConfigFieldRegistry.groupMail();
         this.aiGroup = ConfigFieldRegistry.groupAi();
+        this.notificationGroup = ConfigFieldRegistry.groupNotification();
         buildUi();
         loadCurrentValues();
         checkFieldDrift();
@@ -137,21 +137,18 @@ public class ConfigPanel extends JPanel {
         add(buildBottomPanel(), BorderLayout.SOUTH);
     }
 
-    private JScrollPane buildGroupPanel(String group) {
+    private JComponent buildGroupPanel(String group) {
+        // 「通知」分组特殊：邮件 + 多通道推送合并，用服务下拉切换编辑，所有已启用的服务同时生效。
+        if (notificationGroup.equals(group)) {
+            return buildNotificationPanel();
+        }
+
         JPanel content = new GroupContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         List<ConfigFieldSpec> fields = allFields.stream()
                 .filter(f -> group.equals(f.group()))
                 .toList();
-
-        // 服务商预设需要排在 mail.* 字段之前，先 append 即天然位于顶部
-        if (mailGroup.equals(group)) {
-            JPanel mailPresetPanel = buildMailPresetPanel();
-            mailPresetPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            content.add(mailPresetPanel);
-            content.add(Box.createVerticalStrut(2));
-        }
 
         // AI 服务商预设排在 ai.* 字段之前
         if (aiGroup.equals(group)) {
@@ -183,16 +180,6 @@ public class ConfigPanel extends JPanel {
             content.add(autoStartPanel);
             content.add(Box.createVerticalStrut(2));
         }
-        if (mailGroup.equals(group)) {
-            JPanel mailTestPanel = buildMailTestPanel();
-            mailTestPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            content.add(mailTestPanel);
-            content.add(Box.createVerticalStrut(2));
-            JPanel mailTestAllPanel = buildMailTestAllPanel();
-            mailTestAllPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            content.add(mailTestAllPanel);
-            content.add(Box.createVerticalStrut(2));
-        }
         if (aiGroup.equals(group)) {
             JPanel aiTestPanel = buildAiTestPanel();
             aiTestPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -204,21 +191,170 @@ public class ConfigPanel extends JPanel {
         JScrollPane sp = new JScrollPane(content);
         sp.setBorder(null);
         sp.getVerticalScrollBar().setUnitIncrement(16);
-        // mail 分组在 init 阶段对预设 combo 的 setSelectedItem + 对 host/port/security 的
-        // setEnabled(false) 会让视口偏离 (0,0)；首次显示时强制回到顶部。AI 分组同理（锁定 base-url）。
-        if (mailGroup.equals(group) || aiGroup.equals(group)) {
-            sp.addHierarchyListener(new HierarchyListener() {
-                @Override
-                public void hierarchyChanged(HierarchyEvent e) {
-                    if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0
-                            && sp.isShowing()) {
-                        SwingUtilities.invokeLater(() -> sp.getViewport().setViewPosition(new Point(0, 0)));
-                        sp.removeHierarchyListener(this);
-                    }
-                }
-            });
-        }
+        // 任何分组在 init 阶段（字段锁定 / 预设回填 / 响应式重排）都可能让视口偏离 (0,0)；
+        // 首次显示时统一强制回到顶部，避免切到该标签页时字段区域停在底部。
+        resetScrollToTopOnFirstShow(sp);
         return sp;
+    }
+
+    /**
+     * 让滚动面板在首次真正显示时把视口重置回顶部，随后摘除监听器不再干预用户滚动。
+     * <p>
+     * AI / 邮件等分组在 init 阶段锁定字段（如 ai.base-url / mail.host）会触发
+     * {@code scrollRectToVisible}，使视口偏离 (0,0)；若不修正，首次切到该标签页 / 卡片时
+     * 字段区域会直接停在底部而非从头显示。
+     */
+    private static void resetScrollToTopOnFirstShow(JScrollPane sp) {
+        sp.addHierarchyListener(new HierarchyListener() {
+            @Override
+            public void hierarchyChanged(HierarchyEvent e) {
+                if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0
+                        && sp.isShowing()) {
+                    SwingUtilities.invokeLater(() -> sp.getViewport().setViewPosition(new Point(0, 0)));
+                    sp.removeHierarchyListener(this);
+                }
+            }
+        });
+    }
+
+    // ── 通知分组（邮件 + 多通道推送，服务下拉切换编辑）────────────────────────────────
+
+    /** 通知服务下拉项：id 用于 CardLayout 切换与推送测试，displayKey 为 i18n 显示名。 */
+    private record NotificationService(String id, String displayKey) {
+    }
+
+    private static List<NotificationService> notificationServices() {
+        return List.of(
+                new NotificationService("mail", "gui.config.notification.service.mail"),
+                new NotificationService("bark", "gui.config.notification.service.bark"),
+                new NotificationService("dingtalk", "gui.config.notification.service.dingtalk"),
+                new NotificationService("telegram", "gui.config.notification.service.telegram"),
+                new NotificationService("feishu", "gui.config.notification.service.feishu"),
+                new NotificationService("wecom", "gui.config.notification.service.wecom"),
+                new NotificationService("pushplus", "gui.config.notification.service.pushplus"),
+                new NotificationService("serverchan", "gui.config.notification.service.serverchan"),
+                new NotificationService("webhook", "gui.config.notification.service.webhook"));
+    }
+
+    /**
+     * 通知分组面板：顶部提示 + 推送总开关 + 服务下拉；下方 CardLayout 显示所选服务的编辑卡片。
+     * 所有已启用的服务同时发送；下拉仅切换当前编辑的服务。
+     */
+    private JComponent buildNotificationPanel() {
+        JPanel root = new JPanel(new BorderLayout(0, 6));
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JPanel top = new JPanel();
+        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+
+        JLabel hint = new JLabel(message("gui.config.notification.hint"));
+        hint.setFont(hint.getFont().deriveFont(Font.PLAIN, 11f));
+        hint.setForeground(new Color(0, 128, 96));
+        hint.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(hint);
+        top.add(Box.createVerticalStrut(4));
+
+        // 推送总开关（push.enabled）置顶，始终可见。
+        ConfigFieldSpec pushEnabledSpec = findSpec("push.enabled");
+        if (pushEnabledSpec != null) {
+            FieldRenderer.RenderedField rf = FieldRenderer.render(pushEnabledSpec);
+            registerRenderedField(pushEnabledSpec, rf);
+            rf.panel().setAlignmentX(Component.LEFT_ALIGNMENT);
+            top.add(rf.panel());
+            top.add(Box.createVerticalStrut(2));
+        }
+
+        JComboBox<NotificationService> serviceCombo =
+                new JComboBox<>(notificationServices().toArray(new NotificationService[0]));
+        serviceCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof NotificationService s) {
+                    label.setText(message(s.displayKey()));
+                }
+                return label;
+            }
+        });
+        JPanel comboRow = FieldRenderer.fieldPanel(
+                message("gui.config.notification.service.label") + message("gui.punctuation.colon"),
+                serviceCombo, null, message("gui.config.notification.service.help"));
+        comboRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(comboRow);
+
+        CardLayout cardLayout = new CardLayout();
+        JPanel cardHost = new JPanel(cardLayout);
+        for (NotificationService s : notificationServices()) {
+            cardHost.add(buildServiceCard(s), s.id());
+        }
+        serviceCombo.addActionListener(e -> {
+            if (serviceCombo.getSelectedItem() instanceof NotificationService s) {
+                cardLayout.show(cardHost, s.id());
+            }
+        });
+
+        root.add(top, BorderLayout.NORTH);
+        root.add(cardHost, BorderLayout.CENTER);
+        return root;
+    }
+
+    /** 构建单个通知服务的编辑卡片（邮件含预设 + 测试；推送渠道含字段 + 单渠道测试）。 */
+    private JComponent buildServiceCard(NotificationService service) {
+        JPanel content = new GroupContentPanel();
+        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        if ("mail".equals(service.id())) {
+            JPanel preset = buildMailPresetPanel();
+            preset.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(preset);
+            content.add(Box.createVerticalStrut(2));
+            addFieldsTo(content, fieldsByPrefix("mail."));
+            JPanel test = buildMailTestPanel();
+            test.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(test);
+            content.add(Box.createVerticalStrut(2));
+            JPanel testAll = buildMailTestAllPanel();
+            testAll.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(testAll);
+            content.add(Box.createVerticalStrut(2));
+        } else {
+            addFieldsTo(content, fieldsByPrefix("push." + service.id() + "."));
+            JPanel test = buildPushChannelTestPanel(service.id());
+            test.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(test);
+            content.add(Box.createVerticalStrut(2));
+        }
+        content.add(Box.createVerticalGlue());
+
+        JScrollPane sp = new JScrollPane(content);
+        sp.setBorder(null);
+        sp.getVerticalScrollBar().setUnitIncrement(16);
+        // 邮件卡片含预设锁定，init 阶段会让视口偏离 (0,0)；首次显示该卡片时强制回到顶部。
+        resetScrollToTopOnFirstShow(sp);
+        return sp;
+    }
+
+    /** 渲染并注册一组字段到容器（供通知卡片复用，与 buildGroupPanel 的渲染循环一致）。 */
+    private void addFieldsTo(JPanel content, List<ConfigFieldSpec> specs) {
+        for (ConfigFieldSpec spec : specs) {
+            FieldRenderer.RenderedField rf = FieldRenderer.render(spec);
+            registerRenderedField(spec, rf);
+            rf.panel().setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(rf.panel());
+            content.add(Box.createVerticalStrut(2));
+        }
+    }
+
+    private List<ConfigFieldSpec> fieldsByPrefix(String prefix) {
+        return allFields.stream()
+                .filter(f -> notificationGroup.equals(f.group()))
+                .filter(f -> f.key().startsWith(prefix))
+                .toList();
+    }
+
+    private ConfigFieldSpec findSpec(String key) {
+        return allFields.stream().filter(f -> key.equals(f.key())).findFirst().orElse(null);
     }
 
     private JPanel buildMaintenanceWeekdayPanel(List<ConfigFieldSpec> fields) {
@@ -916,6 +1052,194 @@ public class ConfigPanel extends JPanel {
 
     /** ai-test 异步结果。reachable=false 表示后端连接不上；success=true 仅当成功拿到模型回复。 */
     private record AiTestOutcome(boolean reachable, boolean success, String error, String reply) {
+    }
+
+    // ── 推送分组特殊控件 ──────────────────────────────────────────────────────────
+
+    /** "测试推送" 按钮行：用当前表单值向所有已勾选启用的推送通道各发一条测试消息。 */
+    /** 某个推送渠道卡片底部的「测试此渠道」按钮行。 */
+    private JPanel buildPushChannelTestPanel(String channelId) {
+        JButton button = new JButton(message("gui.config.push.test-current-button.label"));
+        button.addActionListener(e -> sendPushChannelTest(channelId, button));
+        return FieldRenderer.fieldPanel(
+                message("gui.config.push.test-current-button.label") + message("gui.punctuation.colon"),
+                button,
+                null,
+                message("gui.config.push.test-current-button.help"));
+    }
+
+    /** 用当前表单值仅测试 {@code channelId} 一个渠道（无需先保存）。 */
+    private void sendPushChannelTest(String channelId, JButton button) {
+        button.setEnabled(false);
+        showNotice(message("gui.config.push.test.notice.sending"));
+
+        ObjectNode payload = buildPushPayload(channelId);
+        SwingWorker<PushTestOutcome, Void> worker = new SwingWorker<>() {
+            @Override
+            protected PushTestOutcome doInBackground() {
+                return postPushTest(payload);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    PushTestOutcome outcome = get();
+                    if (!outcome.reachable()) {
+                        showNotice(message("gui.config.push.test.notice.unreachable"));
+                    } else if (outcome.total() == 0) {
+                        showNotice(message("gui.config.push.test.notice.none"));
+                    } else if (outcome.success()) {
+                        showNotice(message("gui.config.push.test.notice.current-success"));
+                    } else if (outcome.summary() != null && outcome.summary().contains("SKIPPED")) {
+                        showNotice(message("gui.config.push.test.notice.current-skipped"));
+                    } else {
+                        showNotice(message("gui.config.push.test.notice.current-failed",
+                                outcome.summary() == null ? "" : outcome.summary()));
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    showNotice(message("gui.config.push.test.notice.unreachable"));
+                } catch (ExecutionException ex) {
+                    log.warn(logMessage("gui.config.push.test.notice.current-failed",
+                            safeMessage(ex.getCause())), ex.getCause());
+                    showNotice(message("gui.config.push.test.notice.unreachable"));
+                } finally {
+                    button.setEnabled(true);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    /**
+     * 构造 push-test 请求体：每个渠道都带上当前表单值，但只有 {@code onlyChannelId} 的 enabled=true，
+     * 从而只测试当前所选渠道（与各渠道自身的「启用」勾选无关）。
+     */
+    private ObjectNode buildPushPayload(String onlyChannelId) {
+        ObjectNode payload = MAPPER.createObjectNode();
+        ObjectNode bark = payload.putObject("bark");
+        bark.put("enabled", "bark".equals(onlyChannelId));
+        bark.put("server", currentFieldValue("push.bark.server"));
+        bark.put("deviceKey", currentFieldValue("push.bark.device-key"));
+        bark.put("sound", currentFieldValue("push.bark.sound"));
+        bark.put("useProxy", Boolean.parseBoolean(currentFieldValue("push.bark.use-proxy")));
+        ObjectNode dingtalk = payload.putObject("dingtalk");
+        dingtalk.put("enabled", "dingtalk".equals(onlyChannelId));
+        dingtalk.put("accessToken", currentFieldValue("push.dingtalk.access-token"));
+        dingtalk.put("secret", currentFieldValue("push.dingtalk.secret"));
+        dingtalk.put("useProxy", Boolean.parseBoolean(currentFieldValue("push.dingtalk.use-proxy")));
+        ObjectNode telegram = payload.putObject("telegram");
+        telegram.put("enabled", "telegram".equals(onlyChannelId));
+        telegram.put("botToken", currentFieldValue("push.telegram.bot-token"));
+        telegram.put("chatId", currentFieldValue("push.telegram.chat-id"));
+        telegram.put("useProxy", Boolean.parseBoolean(currentFieldValue("push.telegram.use-proxy")));
+        ObjectNode feishu = payload.putObject("feishu");
+        feishu.put("enabled", "feishu".equals(onlyChannelId));
+        feishu.put("webhookKey", currentFieldValue("push.feishu.webhook-key"));
+        feishu.put("secret", currentFieldValue("push.feishu.secret"));
+        feishu.put("useProxy", Boolean.parseBoolean(currentFieldValue("push.feishu.use-proxy")));
+        ObjectNode wecom = payload.putObject("wecom");
+        wecom.put("enabled", "wecom".equals(onlyChannelId));
+        wecom.put("key", currentFieldValue("push.wecom.key"));
+        wecom.put("useProxy", Boolean.parseBoolean(currentFieldValue("push.wecom.use-proxy")));
+        ObjectNode pushplus = payload.putObject("pushplus");
+        pushplus.put("enabled", "pushplus".equals(onlyChannelId));
+        pushplus.put("token", currentFieldValue("push.pushplus.token"));
+        pushplus.put("useProxy", Boolean.parseBoolean(currentFieldValue("push.pushplus.use-proxy")));
+        ObjectNode serverchan = payload.putObject("serverchan");
+        serverchan.put("enabled", "serverchan".equals(onlyChannelId));
+        serverchan.put("sendKey", currentFieldValue("push.serverchan.send-key"));
+        serverchan.put("useProxy", Boolean.parseBoolean(currentFieldValue("push.serverchan.use-proxy")));
+        ObjectNode webhook = payload.putObject("webhook");
+        webhook.put("enabled", "webhook".equals(onlyChannelId));
+        webhook.put("url", currentFieldValue("push.webhook.url"));
+        webhook.put("contentType", currentFieldValue("push.webhook.content-type"));
+        webhook.put("bodyTemplate", currentFieldValue("push.webhook.body-template"));
+        webhook.put("useProxy", Boolean.parseBoolean(currentFieldValue("push.webhook.use-proxy")));
+        return payload;
+    }
+
+    /**
+     * 调用 {@code /api/gui/push-test}；同时尝试 http / https，本地端点；连接不上返回 reachable=false。
+     * 读超时 30s：推送是体量很小的 webhook 调用，但 Telegram 经代理可能略慢。
+     */
+    private PushTestOutcome postPushTest(ObjectNode payload) {
+        byte[] body;
+        try {
+            body = MAPPER.writeValueAsBytes(payload);
+        } catch (Exception e) {
+            return new PushTestOutcome(true, false, 0, 0, e.getMessage());
+        }
+        String[] schemes = {"http", "https"};
+        for (String scheme : schemes) {
+            HttpURLConnection conn = null;
+            try {
+                URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/push-test").toURL();
+                conn = (HttpURLConnection) url.openConnection();
+                if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
+                    https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
+                    https.setHostnameVerifier((host, session) -> true);
+                }
+                conn.setConnectTimeout(2000);
+                conn.setReadTimeout(30_000);
+                conn.setRequestMethod("POST");
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                conn.setRequestProperty("Accept-Language", GuiMessages.currentLocale().toLanguageTag());
+                String guiToken = GuiTokenHolder.get();
+                if (guiToken != null) {
+                    conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
+                }
+                conn.getOutputStream().write(body);
+                int status = conn.getResponseCode();
+                String responseBody = readResponseBody(conn, status);
+                if (status >= 200 && status < 300) {
+                    boolean success = false;
+                    int total = 0;
+                    int succeeded = 0;
+                    String summary = null;
+                    if (responseBody != null && !responseBody.isBlank()) {
+                        var node = MAPPER.readTree(responseBody);
+                        success = node.path("success").asBoolean(false);
+                        total = node.path("total").asInt(0);
+                        succeeded = node.path("succeeded").asInt(0);
+                        var results = node.path("results");
+                        if (results.isArray()) {
+                            StringBuilder sb = new StringBuilder();
+                            for (var item : results) {
+                                if (!"OK".equals(item.path("status").asText(""))) {
+                                    if (sb.length() > 0) sb.append("; ");
+                                    sb.append(item.path("channel").asText("-"))
+                                            .append(": ")
+                                            .append(item.path("status").asText(""));
+                                    String detail = item.path("detail").asText("");
+                                    if (!detail.isBlank()) {
+                                        sb.append(" (").append(detail).append(')');
+                                    }
+                                }
+                            }
+                            if (sb.length() > 0) summary = sb.toString();
+                        }
+                    }
+                    return new PushTestOutcome(true, success, total, succeeded, summary);
+                }
+                return new PushTestOutcome(true, false, 0, 0,
+                        (responseBody == null || responseBody.isBlank())
+                                ? ("HTTP " + status)
+                                : responseBody);
+            } catch (Exception ignored) {
+                // try the other scheme
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+        return new PushTestOutcome(false, false, 0, 0, null);
+    }
+
+    /** push-test 异步结果。reachable=false 表示后端连接不上；success=true 仅当全部通道都发送成功。 */
+    private record PushTestOutcome(boolean reachable, boolean success, int total, int succeeded, String summary) {
     }
 
     private boolean shouldHideGroup(String group) {

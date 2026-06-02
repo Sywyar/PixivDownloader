@@ -31,14 +31,14 @@ public final class ConfigFieldRegistry {
         return message("gui.config.group.maintenance");
     }
 
-    /** 邮件配置分组名（按当前 locale）。 */
-    public static String groupMail() {
-        return message("gui.config.group.mail");
-    }
-
     /** AI 配置分组名（按当前 locale）。 */
     public static String groupAi() {
         return message("gui.config.group.ai");
+    }
+
+    /** 通知分组名（邮件 / SMTP + 多通道推送，按当前 locale）。 */
+    public static String groupNotification() {
+        return message("gui.config.group.notification");
     }
 
     /** 全部分组名（按当前 locale，保持顺序）。 */
@@ -54,8 +54,8 @@ public final class ConfigFieldRegistry {
                 message("gui.config.group.https"),
                 message("gui.config.group.update"),
                 message("gui.config.group.schedule"),
-                message("gui.config.group.mail"),
-                message("gui.config.group.ai")
+                message("gui.config.group.ai"),
+                message("gui.config.group.notification")
         );
     }
 
@@ -71,8 +71,8 @@ public final class ConfigFieldRegistry {
         String groupHttps = message("gui.config.group.https");
         String groupUpdate = message("gui.config.group.update");
         String groupSchedule = message("gui.config.group.schedule");
-        String groupMail = message("gui.config.group.mail");
         String groupAi = message("gui.config.group.ai");
+        String groupNotification = message("gui.config.group.notification");
 
         return List.of(
 
@@ -623,20 +623,20 @@ public final class ConfigFieldRegistry {
                         .build(),
 
                 // ── 邮件 / SMTP ─────────────────────────────────────────────────────
-                ConfigFieldSpec.builder("mail.enabled", message("gui.config.field.mail.enabled.label"), BOOL, groupMail)
+                ConfigFieldSpec.builder("mail.enabled", message("gui.config.field.mail.enabled.label"), BOOL, groupNotification)
                         .defaultValue("false")
                         .help(message("gui.config.field.mail.enabled.help"))
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("mail.host", message("gui.config.field.mail.host.label"), STRING, groupMail)
+                ConfigFieldSpec.builder("mail.host", message("gui.config.field.mail.host.label"), STRING, groupNotification)
                         .defaultValue("")
                         .help(message("gui.config.field.mail.host.help"))
                         .enabledWhen(snap -> snap.isTrue("mail.enabled"))
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("mail.port", message("gui.config.field.mail.port.label"), PORT, groupMail)
+                ConfigFieldSpec.builder("mail.port", message("gui.config.field.mail.port.label"), PORT, groupNotification)
                         .defaultValue("587")
                         .help(message("gui.config.field.mail.port.help"))
                         .enabledWhen(snap -> snap.isTrue("mail.enabled"))
@@ -651,7 +651,7 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("mail.security", message("gui.config.field.mail.security.label"), ENUM, groupMail)
+                ConfigFieldSpec.builder("mail.security", message("gui.config.field.mail.security.label"), ENUM, groupNotification)
                         .defaultValue("starttls")
                         .enumValues("none", "ssl", "starttls")
                         .help(message("gui.config.field.mail.security.help"))
@@ -659,42 +659,42 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("mail.username", message("gui.config.field.mail.username.label"), STRING, groupMail)
+                ConfigFieldSpec.builder("mail.username", message("gui.config.field.mail.username.label"), STRING, groupNotification)
                         .defaultValue("")
                         .help(message("gui.config.field.mail.username.help"))
                         .enabledWhen(snap -> snap.isTrue("mail.enabled"))
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("mail.password", message("gui.config.field.mail.password.label"), PASSWORD, groupMail)
+                ConfigFieldSpec.builder("mail.password", message("gui.config.field.mail.password.label"), PASSWORD, groupNotification)
                         .defaultValue("")
                         .help(message("gui.config.field.mail.password.help"))
                         .enabledWhen(snap -> snap.isTrue("mail.enabled"))
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("mail.from", message("gui.config.field.mail.from.label"), STRING, groupMail)
+                ConfigFieldSpec.builder("mail.from", message("gui.config.field.mail.from.label"), STRING, groupNotification)
                         .defaultValue("")
                         .help(message("gui.config.field.mail.from.help"))
                         .enabledWhen(snap -> snap.isTrue("mail.enabled"))
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("mail.to", message("gui.config.field.mail.to.label"), STRING, groupMail)
+                ConfigFieldSpec.builder("mail.to", message("gui.config.field.mail.to.label"), STRING, groupNotification)
                         .defaultValue("")
                         .help(message("gui.config.field.mail.to.help"))
                         .enabledWhen(snap -> snap.isTrue("mail.enabled"))
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("mail.socks-proxy", message("gui.config.field.mail.socks-proxy.label"), STRING, groupMail)
+                ConfigFieldSpec.builder("mail.socks-proxy", message("gui.config.field.mail.socks-proxy.label"), STRING, groupNotification)
                         .defaultValue("")
                         .help(message("gui.config.field.mail.socks-proxy.help"))
                         .enabledWhen(snap -> snap.isTrue("mail.enabled"))
                         .hotReloadable()
                         .build(),
 
-                ConfigFieldSpec.builder("mail.subject-prefix", message("gui.config.field.mail.subject-prefix.label"), STRING, groupMail)
+                ConfigFieldSpec.builder("mail.subject-prefix", message("gui.config.field.mail.subject-prefix.label"), STRING, groupNotification)
                         .defaultValue("[PixivDownloader]")
                         .help(message("gui.config.field.mail.subject-prefix.help"))
                         .enabledWhen(snap -> snap.isTrue("mail.enabled"))
@@ -733,6 +733,207 @@ public final class ConfigFieldRegistry {
                         .defaultValue("false")
                         .help(message("gui.config.field.ai.use-proxy.help"))
                         .enabledWhen(snap -> snap.isTrue("ai.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── 推送通知（多通道） ──────────────────────────────────────────────
+                ConfigFieldSpec.builder("push.enabled", message("gui.config.field.push.enabled.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.enabled.help"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("push.bark.enabled", message("gui.config.field.push.bark.enabled.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.bark.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.bark.server", message("gui.config.field.push.bark.server.label"), STRING, groupNotification)
+                        .defaultValue("https://api.day.app")
+                        .help(message("gui.config.field.push.bark.server.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.bark.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.bark.device-key", message("gui.config.field.push.bark.device-key.label"), PASSWORD, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.bark.device-key.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.bark.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.bark.sound", message("gui.config.field.push.bark.sound.label"), STRING, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.bark.sound.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.bark.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.bark.use-proxy", message("gui.config.field.push.bark.use-proxy.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.use-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.bark.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("push.dingtalk.enabled", message("gui.config.field.push.dingtalk.enabled.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.dingtalk.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.dingtalk.access-token", message("gui.config.field.push.dingtalk.access-token.label"), PASSWORD, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.dingtalk.access-token.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.dingtalk.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.dingtalk.secret", message("gui.config.field.push.dingtalk.secret.label"), PASSWORD, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.dingtalk.secret.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.dingtalk.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.dingtalk.use-proxy", message("gui.config.field.push.dingtalk.use-proxy.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.use-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.dingtalk.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("push.telegram.enabled", message("gui.config.field.push.telegram.enabled.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.telegram.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.telegram.bot-token", message("gui.config.field.push.telegram.bot-token.label"), PASSWORD, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.telegram.bot-token.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.telegram.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.telegram.chat-id", message("gui.config.field.push.telegram.chat-id.label"), STRING, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.telegram.chat-id.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.telegram.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.telegram.use-proxy", message("gui.config.field.push.telegram.use-proxy.label"), BOOL, groupNotification)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.push.use-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.telegram.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("push.feishu.enabled", message("gui.config.field.push.feishu.enabled.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.feishu.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.feishu.webhook-key", message("gui.config.field.push.feishu.webhook-key.label"), PASSWORD, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.feishu.webhook-key.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.feishu.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.feishu.secret", message("gui.config.field.push.feishu.secret.label"), PASSWORD, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.feishu.secret.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.feishu.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.feishu.use-proxy", message("gui.config.field.push.feishu.use-proxy.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.use-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.feishu.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("push.wecom.enabled", message("gui.config.field.push.wecom.enabled.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.wecom.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.wecom.key", message("gui.config.field.push.wecom.key.label"), PASSWORD, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.wecom.key.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.wecom.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.wecom.use-proxy", message("gui.config.field.push.wecom.use-proxy.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.use-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.wecom.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("push.pushplus.enabled", message("gui.config.field.push.pushplus.enabled.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.pushplus.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.pushplus.token", message("gui.config.field.push.pushplus.token.label"), PASSWORD, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.pushplus.token.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.pushplus.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.pushplus.use-proxy", message("gui.config.field.push.pushplus.use-proxy.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.use-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.pushplus.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("push.serverchan.enabled", message("gui.config.field.push.serverchan.enabled.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.serverchan.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.serverchan.send-key", message("gui.config.field.push.serverchan.send-key.label"), PASSWORD, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.serverchan.send-key.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.serverchan.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.serverchan.use-proxy", message("gui.config.field.push.serverchan.use-proxy.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.use-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.serverchan.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("push.webhook.enabled", message("gui.config.field.push.webhook.enabled.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.webhook.enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.webhook.url", message("gui.config.field.push.webhook.url.label"), STRING, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.webhook.url.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.webhook.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.webhook.content-type", message("gui.config.field.push.webhook.content-type.label"), STRING, groupNotification)
+                        .defaultValue("application/json")
+                        .help(message("gui.config.field.push.webhook.content-type.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.webhook.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.webhook.body-template", message("gui.config.field.push.webhook.body-template.label"), STRING, groupNotification)
+                        .defaultValue("")
+                        .help(message("gui.config.field.push.webhook.body-template.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.webhook.enabled"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("push.webhook.use-proxy", message("gui.config.field.push.webhook.use-proxy.label"), BOOL, groupNotification)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.push.use-proxy.help"))
+                        .enabledWhen(snap -> snap.isTrue("push.enabled") && snap.isTrue("push.webhook.enabled"))
                         .hotReloadable()
                         .build()
         );
