@@ -104,6 +104,8 @@ public class ScheduleExecutor {
 
     /** {@code last_message} 失败原因摘要的最大长度（截断防止超长异常文本撑爆列）。 */
     private static final int MAX_ERROR_MESSAGE_LENGTH = 300;
+    /** 过度访问通知里逐条列出受影响任务的最大条数，超出附「等共 N 个」。 */
+    private static final int TASK_LIST_LIMIT = 15;
     private static final Pattern COOKIE_HEADER_PATTERN = Pattern.compile("(?i)\\b(cookie\\s*[:=]\\s*)[^\\r\\n]+");
     private static final Pattern PHPSESSID_PATTERN = Pattern.compile("(?i)\\b(PHPSESSID\\s*=\\s*)[^;\\s&]+");
     // 涵盖 cookie 串前缀（^ / ; / 空白）以及 URL 查询串前缀（? / &），后者用于 `...?PHPSESSID=...` / `&PHPSESSID=...` 形式。
@@ -937,6 +939,10 @@ public class ScheduleExecutor {
     private final class WorkRunner {
         private final long taskId;
         private final String taskName;
+        private final ScheduledTaskType taskType;
+        private final String triggerKind;
+        private final Integer intervalMinutes;
+        private final String cronExpr;
         private final Long ackWarningTime;
         private final boolean novel;
         private final String cookie;
@@ -959,6 +965,10 @@ public class ScheduleExecutor {
                    ScheduleRunQueue.Run run, int concurrency, TaskExecutor pool) {
             this.taskId = task.id();
             this.taskName = task.name();
+            this.taskType = task.type();
+            this.triggerKind = task.triggerKind();
+            this.intervalMinutes = task.intervalMinutes();
+            this.cronExpr = task.cronExpr();
             this.ackWarningTime = task.ackWarningTime();
             this.novel = novel;
             this.cookie = cookie;
@@ -1130,10 +1140,14 @@ public class ScheduleExecutor {
             Map<String, String> ph = new LinkedHashMap<>();
             ph.put("task_name", taskName == null ? "-" : taskName);
             ph.put("task_id", String.valueOf(taskId));
+            ph.put("task_type", taskTypeLabel(locale, taskType));
+            ph.put("task_trigger", triggerLabel(locale, triggerKind, intervalMinutes, cronExpr));
             ph.put("work_id", String.valueOf(workId));
             ph.put("work_kind", kindLabel);
+            ph.put("work_url", workUrl(novel, workId));
             ph.put("attempts", String.valueOf(attempts));
             ph.put("trigger_time", formatTime(System.currentTimeMillis()));
+            ph.put("next_run_time", formatTime(nextRunFromNow(triggerKind, intervalMinutes, cronExpr)));
             ph.put("last_error_excerpt", reason == null ? "" : reason);
             sendNotification(NotificationScenario.PENDING_EXHAUSTED, ph);
         }
@@ -1163,6 +1177,9 @@ public class ScheduleExecutor {
     private void handleOveruse(ScheduledTask task, OveruseWarningException e) {
         String accountId = task.accountId();
         String message = String.valueOf(e.modifiedAt());
+        Locale locale = AppLocale.normalize(Locale.getDefault());
+        // 冻结前先取「将被冻结」的同账号任务（状态门与 freezeAccount 一致），用于在通知里逐条列出被挂起的任务名 / ID。
+        List<ScheduledTask> affected = collectFreezableTasks(task, accountId);
         int frozen = 1;
         if (accountId != null && !accountId.isBlank()) {
             frozen = Math.max(1, database.mapper().freezeAccount(
@@ -1171,6 +1188,8 @@ public class ScheduleExecutor {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("account_id", accountId == null ? "-" : accountId);
         ph.put("tasks_count", String.valueOf(frozen));
+        ph.put("tasks_list_html", buildTaskList(locale, affected, true));
+        ph.put("tasks_list_md", buildTaskList(locale, affected, false));
         ph.put("warning_time", formatTime(e.modifiedAt()));
         ph.put("trigger_time", formatTime(System.currentTimeMillis()));
         ph.put("warning_excerpt", e.excerpt());
@@ -1179,10 +1198,14 @@ public class ScheduleExecutor {
 
     /** 任务级挂起：发 auth-expired（dead cookie）或 circuit-breaker（熔断）通知（邮件 + 推送）。 */
     private void handleSuspend(ScheduledTask task, ScheduleSuspendException e) {
+        Locale locale = AppLocale.normalize(Locale.getDefault());
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
+        ph.put("task_type", taskTypeLabel(locale, task.type()));
+        ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
         ph.put("trigger_time", formatTime(System.currentTimeMillis()));
+        ph.put("next_run_time", formatTime(nextRunFromNow(task.triggerKind(), task.intervalMinutes(), task.cronExpr())));
         if (e.reason() == ScheduleSuspendException.Reason.CIRCUIT_BREAKER) {
             ph.put("consecutive_failures", String.valueOf(e.consecutiveFailures()));
             ph.put("last_error_excerpt", e.lastErrorExcerpt() == null ? "" : e.lastErrorExcerpt());
@@ -1192,6 +1215,100 @@ public class ScheduleExecutor {
             ph.put("reason", e.reason().name());
             sendNotification(NotificationScenario.AUTH_EXPIRED, ph);
         }
+    }
+
+    /**
+     * 取「将被账号级冻结」的任务列表（状态门与 {@link top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper#freezeAccount}
+     * 一致：排除已挂起态），供通知逐条列出。无 account（restricted 任务）时退化为当前任务一条。
+     */
+    private List<ScheduledTask> collectFreezableTasks(ScheduledTask current, String accountId) {
+        if (accountId == null || accountId.isBlank()) {
+            return List.of(current);
+        }
+        List<ScheduledTask> result = new ArrayList<>();
+        for (ScheduledTask t : database.mapper().findByAccountId(accountId)) {
+            String st = t.lastStatus();
+            boolean suspended = ScheduledTask.STATUS_OVERUSE_PAUSED.equals(st)
+                    || ScheduledTask.STATUS_AUTH_EXPIRED.equals(st)
+                    || ScheduledTask.STATUS_PAUSED.equals(st);
+            if (!suspended) {
+                result.add(t);
+            }
+        }
+        return result.isEmpty() ? List.of(current) : result;
+    }
+
+    /**
+     * 把受影响任务渲染成「任务名（ID）」列表：{@code html=true} 用 {@code <br>} 连接（任务名做 HTML 转义），
+     * 否则用 Markdown 无序列表（{@code - } 前缀、{@code \n} 连接）。超过 {@link #TASK_LIST_LIMIT} 条截断并附「等共 N 个」。
+     */
+    private String buildTaskList(Locale locale, List<ScheduledTask> tasks, boolean html) {
+        if (tasks == null || tasks.isEmpty()) {
+            return "-";
+        }
+        int limit = Math.min(tasks.size(), TASK_LIST_LIMIT);
+        List<String> lines = new ArrayList<>();
+        for (int i = 0; i < limit; i++) {
+            ScheduledTask t = tasks.get(i);
+            String name = t.name() == null ? "-" : t.name();
+            String item = messages.get(locale, "mail.template.overuse-paused.task-item",
+                    html ? escapeHtml(name) : name, t.id());
+            lines.add(html ? item : "- " + item);
+        }
+        if (tasks.size() > limit) {
+            String more = messages.get(locale, "mail.template.overuse-paused.task-more", tasks.size());
+            lines.add(html ? more : "- " + more);
+        }
+        return String.join(html ? "<br>" : "\n", lines);
+    }
+
+    /** 计划任务类型的本地化标签（与邮件 / 推送共用同一组 i18n key）。 */
+    private String taskTypeLabel(Locale locale, ScheduledTaskType type) {
+        if (type == null) {
+            return "-";
+        }
+        String key = switch (type) {
+            case USER_NEW -> "mail.template.common.task-type.user-new";
+            case SEARCH -> "mail.template.common.task-type.search";
+            case SERIES -> "mail.template.common.task-type.series";
+            case MY_BOOKMARKS -> "mail.template.common.task-type.my-bookmarks";
+            case FOLLOW_LATEST -> "mail.template.common.task-type.follow-latest";
+            case COLLECTION -> "mail.template.common.task-type.collection";
+        };
+        return messages.get(locale, key);
+    }
+
+    /** 触发方式的本地化标签：{@code interval} → 「每 N 分钟」、{@code cron} → 「Cron：表达式」。 */
+    private String triggerLabel(Locale locale, String triggerKind, Integer intervalMinutes, String cronExpr) {
+        if (ScheduledTask.TRIGGER_CRON.equals(triggerKind)) {
+            return messages.get(locale, "mail.template.common.trigger.cron", cronExpr == null ? "-" : cronExpr);
+        }
+        // 传 String 而非 Integer：避免 MessageFormat 对 ≥1000 的分钟数插入千分位分隔符（如 1,440）。
+        return messages.get(locale, "mail.template.common.trigger.interval",
+                intervalMinutes == null ? "-" : String.valueOf(intervalMinutes));
+    }
+
+    /** 以「当前时刻」为基准算出下次预定运行（参数非法时返回 {@code null}，由 {@link #formatTime(Long)} 转「-」）。 */
+    private static Long nextRunFromNow(String triggerKind, Integer intervalMinutes, String cronExpr) {
+        return ScheduleTiming.computeNextRun(triggerKind, intervalMinutes, cronExpr, System.currentTimeMillis());
+    }
+
+    /** 失败作品的 Pixiv 直链（外部静态链接，不指向本服务）：小说走 novel show，其余走 artworks。 */
+    private static String workUrl(boolean novel, long workId) {
+        return novel
+                ? "https://www.pixiv.net/novel/show.php?id=" + workId
+                : "https://www.pixiv.net/artworks/" + workId;
+    }
+
+    /** 最简 HTML 转义：避免任务名里的尖括号 / & 破坏邮件信息卡布局。 */
+    private static String escapeHtml(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
     }
 
     /**
@@ -1218,6 +1335,11 @@ public class ScheduleExecutor {
     private static String formatTime(long epochMs) {
         if (epochMs <= 0) return "-";
         return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(new Date(epochMs));
+    }
+
+    /** null 安全的时间格式化（计算下次运行可能返回 {@code null}）：null → 「-」。 */
+    private static String formatTime(Long epochMs) {
+        return epochMs == null ? "-" : formatTime(epochMs.longValue());
     }
 
     // ── 服务端筛选 ────────────────────────────────────────────────────────────────

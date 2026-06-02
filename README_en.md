@@ -35,8 +35,9 @@
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
 - Scheduled tasks: automatically discover and download new artworks in the background on a fixed interval or
   cron schedule, with three source types (artist new works / saved search / series — both illustrations and novels)
-- Email notifications and SMTP config: used to receive scheduled-task overuse / auth-expired alerts that need manual
-  attention
+- Email / push notifications: scheduled-task events needing manual attention (overuse pause, auth expired, circuit
+  breaker, per-work auto-retry exhausted) are delivered via email and any configured push channels, listing the
+  paused task names / IDs, task type, trigger and next scheduled run
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
 - Novel AI translation (requires an LLM configured): translate a novel or a whole series into a chosen language and store it locally, with a content-language switch between the original and translations
 

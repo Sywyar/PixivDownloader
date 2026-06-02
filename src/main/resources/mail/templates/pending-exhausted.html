@@ -61,8 +61,20 @@
                                             <td style="color:#333;font-weight:600;padding:3px 0;font-family:Consolas,Monaco,monospace;font-size:12px;">{{task_id}}</td>
                                         </tr>
                                         <tr>
+                                            <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.common.info-card.type}}</td>
+                                            <td style="color:#333;font-weight:600;padding:3px 0;">{{task_type}}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.common.info-card.trigger}}</td>
+                                            <td style="color:#333;font-weight:600;padding:3px 0;">{{task_trigger}}</td>
+                                        </tr>
+                                        <tr>
                                             <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.pending-exhausted.info-card.work}}</td>
                                             <td style="color:#333;font-weight:600;padding:3px 0;font-family:Consolas,Monaco,monospace;font-size:12px;">{{work_kind}} #{{work_id}}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.pending-exhausted.info-card.link}}</td>
+                                            <td style="padding:3px 0;font-size:12px;"><a href="{{work_url}}" style="color:#007bff;text-decoration:none;word-break:break-all;">{{work_url}}</a></td>
                                         </tr>
                                         <tr>
                                             <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.pending-exhausted.info-card.attempts}}</td>
@@ -71,6 +83,10 @@
                                         <tr>
                                             <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.pending-exhausted.info-card.trigger-time}}</td>
                                             <td style="color:#333;font-weight:600;padding:3px 0;font-family:Consolas,Monaco,monospace;font-size:12px;">{{trigger_time}}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="color:#888;padding:3px 12px 3px 0;vertical-align:top;">{{i18n:mail.template.common.info-card.next-run}}</td>
+                                            <td style="color:#333;font-weight:600;padding:3px 0;font-family:Consolas,Monaco,monospace;font-size:12px;">{{next_run_time}}</td>
                                         </tr>
                                     </table>
                                 </td>

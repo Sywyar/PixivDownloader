@@ -86,14 +86,20 @@ public class NotificationPushTestController {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("account_id", messages.get(locale, "mail.template.sample.account-id"));
         ph.put("tasks_count", messages.get(locale, "mail.template.sample.tasks-count"));
+        ph.put("tasks_list_html", messages.get(locale, "mail.template.sample.tasks-list-html"));
+        ph.put("tasks_list_md", messages.get(locale, "mail.template.sample.tasks-list-md"));
         ph.put("warning_time", now.minusMinutes(5).format(TIME_FORMAT));
         ph.put("trigger_time", now.format(TIME_FORMAT));
         ph.put("task_name", messages.get(locale, "mail.template.sample.task-name"));
         ph.put("task_id", messages.get(locale, "mail.template.sample.task-id"));
+        ph.put("task_type", messages.get(locale, "mail.template.common.task-type.user-new"));
+        ph.put("task_trigger", messages.get(locale, "mail.template.common.trigger.interval", 60));
+        ph.put("next_run_time", now.plusMinutes(60).format(TIME_FORMAT));
         ph.put("consecutive_failures", messages.get(locale, "mail.template.sample.consecutive-failures"));
         ph.put("last_error_excerpt", messages.get(locale, "mail.template.sample.last-error-excerpt"));
         ph.put("work_id", messages.get(locale, "mail.template.sample.work-id"));
         ph.put("work_kind", messages.get(locale, "mail.template.pending-exhausted.kind.illust"));
+        ph.put("work_url", "https://www.pixiv.net/artworks/" + messages.get(locale, "mail.template.sample.work-id"));
         ph.put("attempts", messages.get(locale, "mail.template.sample.attempts"));
         return ph;
     }

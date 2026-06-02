@@ -126,10 +126,14 @@ class MailTemplateRegistryTest {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", "画师计划");
         ph.put("task_id", "9");
+        ph.put("task_type", "画师新作");
+        ph.put("task_trigger", "每 60 分钟");
         ph.put("work_id", "123456");
         ph.put("work_kind", "插画");
+        ph.put("work_url", "https://www.pixiv.net/artworks/123456");
         ph.put("attempts", "5");
         ph.put("trigger_time", "2026-05-27 12:00:00");
+        ph.put("next_run_time", "2026-05-27 13:00:00");
         ph.put("last_error_excerpt", "受限内容");
 
         RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED,
@@ -138,6 +142,8 @@ class MailTemplateRegistryTest {
         assertThat(zh.htmlBody())
                 .contains("画师计划")
                 .contains("123456")
+                .contains("画师新作")                                 // {{task_type}}
+                .contains("https://www.pixiv.net/artworks/123456")    // {{work_url}}
                 .contains("受限内容")
                 .doesNotContain("{{");
 
@@ -153,13 +159,19 @@ class MailTemplateRegistryTest {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("account_id", "12345");
         ph.put("tasks_count", "3");
+        ph.put("tasks_list_html", "画师计划A（ID 1）<br>搜索计划B（ID 2）");
         ph.put("warning_time", "2026-05-27 12:00:00");
         ph.put("trigger_time", "2026-05-27 12:01:00");
         ph.put("warning_excerpt", "policies excerpt");
 
         RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED, Locale.SIMPLIFIED_CHINESE, ph);
         assertThat(zh.subject()).contains("过度访问");
-        assertThat(zh.htmlBody()).contains("12345").contains("policies excerpt").doesNotContain("{{");
+        assertThat(zh.htmlBody())
+                .contains("12345")
+                .contains("画师计划A（ID 1）")   // {{tasks_list_html}} 逐条任务名/ID
+                .contains("搜索计划B（ID 2）")
+                .contains("policies excerpt")
+                .doesNotContain("{{");
 
         RenderedMail en = registry.render(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED, Locale.US, ph);
         assertThat(en.subject().toLowerCase()).contains("overuse");
@@ -172,13 +184,21 @@ class MailTemplateRegistryTest {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", "测试任务");
         ph.put("task_id", "7");
+        ph.put("task_type", "保存的搜索");
+        ph.put("task_trigger", "Cron：0 0 * * * *");
         ph.put("consecutive_failures", "5");
         ph.put("trigger_time", "2026-05-27 12:00:00");
+        ph.put("next_run_time", "2026-05-27 13:00:00");
         ph.put("last_error_excerpt", "限制级需登录");
 
         RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_CIRCUIT_BREAKER, Locale.SIMPLIFIED_CHINESE, ph);
         assertThat(zh.subject()).contains("5");
-        assertThat(zh.htmlBody()).contains("测试任务").contains("限制级需登录").doesNotContain("{{");
+        assertThat(zh.htmlBody())
+                .contains("测试任务")
+                .contains("保存的搜索")           // {{task_type}}
+                .contains("Cron：0 0 * * * *")    // {{task_trigger}}
+                .contains("限制级需登录")
+                .doesNotContain("{{");
     }
 
     @Test
@@ -187,10 +207,17 @@ class MailTemplateRegistryTest {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", "画师计划");
         ph.put("task_id", "9");
+        ph.put("task_type", "已关注用户的新作");
+        ph.put("task_trigger", "每 30 分钟");
         ph.put("trigger_time", "2026-05-27 12:00:00");
+        ph.put("next_run_time", "2026-05-27 12:30:00");
 
         RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_AUTH_EXPIRED, Locale.SIMPLIFIED_CHINESE, ph);
-        assertThat(zh.htmlBody()).contains("画师计划").doesNotContain("{{");
+        assertThat(zh.htmlBody())
+                .contains("画师计划")
+                .contains("已关注用户的新作")   // {{task_type}}
+                .contains("每 30 分钟")          // {{task_trigger}}
+                .doesNotContain("{{");
         assertThat(zh.subject()).isNotBlank();
     }
 
