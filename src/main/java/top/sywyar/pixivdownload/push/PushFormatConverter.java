@@ -173,7 +173,9 @@ public class PushFormatConverter {
     }
 
     private static String htmlToken(int index) {
-        return "\u0000PUSH_HTML_" + index + "\u0000";
+        // token 不得含 `_` / `*`：否则后续的粗体 / 斜体正则（如 `_HTML_` → `<i>HTML</i>`）会误伤占位符，
+        // 导致 restoreProtectedHtml 无法还原、token 泄漏到输出。两端的   哨兵保证不与正文冲突。
+        return "\u0000PUSHHTML" + index + "\u0000";
     }
 
     private static String htmlToText(String html) {
