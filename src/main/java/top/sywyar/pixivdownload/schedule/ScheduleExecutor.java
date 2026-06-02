@@ -29,6 +29,7 @@ import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -159,10 +160,14 @@ public class ScheduleExecutor {
         }
         String status;
         String message = null;
+        ScheduleSuspendException suspendNotification = null;
+        long suspendTriggerTime = 0L;
+        List<PendingExhaustedNotification> pendingNotifications =
+                Collections.synchronizedList(new ArrayList<>());
         try {
             // 落库本轮开始时刻：正常结束（含干净挂起）时 updateRunResult 会清为 NULL；进程被强杀则残留 → 中断红灯。
             database.mapper().updateRunStarted(task.id(), System.currentTimeMillis());
-            int completed = runTask(task);
+            int completed = runTask(task, pendingNotifications);
             status = STATUS_OK;
             log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completed);
         } catch (OveruseWarningException e) {
@@ -174,7 +179,8 @@ public class ScheduleExecutor {
         } catch (ScheduleSuspendException e) {
             // cookie 依赖型 dead cookie / 单作品连续失败熔断：任务级挂起 + 通知。
             status = STATUS_AUTH_EXPIRED;
-            handleSuspend(task, e);
+            suspendNotification = e;
+            suspendTriggerTime = System.currentTimeMillis();
             log.warn("Scheduled task {} ({}) suspended: {}", task.id(), task.name(), e.reason());
         } catch (SchedulePauseException e) {
             // 用户在本轮派发循环中按了「暂停」：DB 已被 ScheduleService.pause 写成 PAUSED，
@@ -186,7 +192,8 @@ public class ScheduleExecutor {
         } catch (PixivFetchService.PixivFetchException e) {
             // 发现阶段鉴权失效（轮首/翻页）：不写 cookie 到日志，挂起并发通知等管理员重授权。
             status = STATUS_AUTH_EXPIRED;
-            handleSuspend(task, new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD));
+            suspendNotification = new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD);
+            suspendTriggerTime = System.currentTimeMillis();
             log.warn("Scheduled task {} ({}) auth expired, awaiting re-authorization", task.id(), task.name());
         } catch (Exception e) {
             status = STATUS_ERROR;
@@ -201,6 +208,11 @@ public class ScheduleExecutor {
                 task.triggerKind(), task.intervalMinutes(), task.cronExpr(), completedAt);
         // 挂起态写未来 next_run 仅供展示；findDue 的 last_status 门控会挡住它，不会立即重跑。
         database.mapper().updateRunResult(task.id(), completedAt, status, message, nextRun);
+        Long notificationNextRun = persistedNextRun(task.id(), nextRun);
+        if (suspendNotification != null) {
+            handleSuspend(task, suspendNotification, suspendTriggerTime, notificationNextRun);
+        }
+        sendPendingExhaustedNotifications(task, pendingNotifications, notificationNextRun);
     }
 
     /**
@@ -217,6 +229,17 @@ public class ScheduleExecutor {
             collapsed = collapsed.substring(0, MAX_ERROR_MESSAGE_LENGTH) + "…";
         }
         return collapsed;
+    }
+
+    /** 更新运行结果后读取数据库中的真实 next_run_time；若读取失败则回退到本轮刚计算出的值。 */
+    private Long persistedNextRun(long taskId, Long fallback) {
+        try {
+            ScheduledTask refreshed = database.mapper().findById(taskId);
+            return refreshed == null ? fallback : refreshed.nextRunTime();
+        } catch (RuntimeException e) {
+            log.debug(messages.getForLog("schedule.log.next-run.reload-failed", taskId, e.getMessage()));
+            return fallback;
+        }
     }
 
     /**
@@ -258,7 +281,7 @@ public class ScheduleExecutor {
      * @throws ScheduleSuspendException cookie 依赖型 dead cookie / 单作品连续失败熔断
      * @throws PixivFetchService.PixivFetchException 发现阶段鉴权失效
      */
-    private int runTask(ScheduledTask task) throws Exception {
+    private int runTask(ScheduledTask task, List<PendingExhaustedNotification> pendingNotifications) throws Exception {
         String cookie = ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())
                 ? database.mapper().findCookieSnapshot(task.id())
                 : null;
@@ -293,7 +316,7 @@ public class ScheduleExecutor {
 
         // COLLECTION 是插画+小说混合来源，分两遍各自走对应下载管线，单独处理。
         if (task.type() == ScheduledTaskType.COLLECTION) {
-            return runCollectionTask(task, source, cookie, filters, download, fetchLimit);
+            return runCollectionTask(task, source, cookie, filters, download, fetchLimit, pendingNotifications);
         }
 
         // 开新一轮的运行队列（整体替换上一轮）。
@@ -306,7 +329,8 @@ public class ScheduleExecutor {
         Runnable politeDelay = politeDelayFor(download);
         TaskExecutor pool = novel ? novelDownloadTaskExecutor : downloadTaskExecutor;
         int concurrency = effectiveConcurrency(novel, download.concurrent());
-        WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool);
+        WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool,
+                pendingNotifications);
 
         try {
             // ── 每轮无条件先消费隔离表（不再依赖 pendingRetryArmed 武装位）：走正常 dispatch 路径，
@@ -492,7 +516,8 @@ public class ScheduleExecutor {
      * 隔离表重试按「成员是否仍在珍藏集内」的成员关系判定：仍在则本轮以 retry 语义重派，已被移出的孤儿条目本轮跳过。
      */
     private int runCollectionTask(ScheduledTask task, JsonNode source, String cookie,
-                                  Filters filters, Download download, int fetchLimit) throws Exception {
+                                  Filters filters, Download download, int fetchLimit,
+                                  List<PendingExhaustedNotification> pendingNotifications) throws Exception {
         String collectionId = source.path("collectionId").asText("");
         PixivFetchService.CollectionWorkIds ids = pixivFetchService.discoverCollectionWorkIds(collectionId, cookie);
 
@@ -511,8 +536,10 @@ public class ScheduleExecutor {
         int[] budget = {fetchLimit > 0 ? fetchLimit : -1};
 
         int completed = 0;
-        completed += runCollectionPass(task, false, cookie, filters, download, run, ids.illustIds(), pending, politeDelay, budget);
-        completed += runCollectionPass(task, true, cookie, filters, download, run, ids.novelIds(), pending, politeDelay, budget);
+        completed += runCollectionPass(task, false, cookie, filters, download, run, ids.illustIds(), pending,
+                politeDelay, budget, pendingNotifications);
+        completed += runCollectionPass(task, true, cookie, filters, download, run, ids.novelIds(), pending,
+                politeDelay, budget, pendingNotifications);
         return completed;
     }
 
@@ -523,11 +550,13 @@ public class ScheduleExecutor {
      */
     private int runCollectionPass(ScheduledTask task, boolean novel, String cookie, Filters filters,
                                   Download download, ScheduleRunQueue.Run run, List<String> ids,
-                                  Set<Long> pending, Runnable politeDelay, int[] budget) throws Exception {
+                                  Set<Long> pending, Runnable politeDelay, int[] budget,
+                                  List<PendingExhaustedNotification> pendingNotifications) throws Exception {
         LongPredicate alreadyDownloaded = alreadyDownloadedPredicate(novel, download);
         TaskExecutor pool = novel ? novelDownloadTaskExecutor : downloadTaskExecutor;
         int concurrency = effectiveConcurrency(novel, download.concurrent());
-        WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool);
+        WorkRunner runner = new WorkRunner(task, novel, cookie, filters, download, run, concurrency, pool,
+                pendingNotifications);
         String itemKind = novel ? ScheduleRunQueue.KIND_NOVEL : ScheduleRunQueue.KIND_ILLUST;
         try {
             for (String id : ids) {
@@ -925,6 +954,10 @@ public class ScheduleExecutor {
         return meta;
     }
 
+    /** 本轮中达到自动重试上限、需要在最终 next_run_time 确定后再发送的通知事件。 */
+    private record PendingExhaustedNotification(
+            boolean novel, long workId, int attempts, long triggerTime, String reason) {}
+
     /**
      * 一轮运行内对单作品派发做异常分类、隔离表记账、连续失败熔断与到 N 过度访问检查的有状态封装。
      *
@@ -938,11 +971,6 @@ public class ScheduleExecutor {
      */
     private final class WorkRunner {
         private final long taskId;
-        private final String taskName;
-        private final ScheduledTaskType taskType;
-        private final String triggerKind;
-        private final Integer intervalMinutes;
-        private final String cronExpr;
         private final Long ackWarningTime;
         private final boolean novel;
         private final String cookie;
@@ -951,6 +979,7 @@ public class ScheduleExecutor {
         private final ScheduleRunQueue.Run run;
         private final Semaphore permits;
         private final TaskExecutor pool;
+        private final List<PendingExhaustedNotification> pendingNotifications;
         // 仅调度主线程顺序追加 / 读取（process 与 awaitAll 都在主线程），无需并发容器。
         private final List<CompletableFuture<Void>> inflight = new ArrayList<>();
         // 本轮系列富信息缓存（按 seriesId）：同一系列的多个章节只查一次 Pixiv 系列 AJAX，仅主线程访问。
@@ -962,13 +991,9 @@ public class ScheduleExecutor {
         private int dispatchedSinceCheck = 0;
 
         WorkRunner(ScheduledTask task, boolean novel, String cookie, Filters filters, Download download,
-                   ScheduleRunQueue.Run run, int concurrency, TaskExecutor pool) {
+                   ScheduleRunQueue.Run run, int concurrency, TaskExecutor pool,
+                   List<PendingExhaustedNotification> pendingNotifications) {
             this.taskId = task.id();
-            this.taskName = task.name();
-            this.taskType = task.type();
-            this.triggerKind = task.triggerKind();
-            this.intervalMinutes = task.intervalMinutes();
-            this.cronExpr = task.cronExpr();
             this.ackWarningTime = task.ackWarningTime();
             this.novel = novel;
             this.cookie = cookie;
@@ -977,6 +1002,7 @@ public class ScheduleExecutor {
             this.run = run;
             this.permits = new Semaphore(Math.max(1, concurrency));
             this.pool = pool;
+            this.pendingNotifications = pendingNotifications;
         }
 
         ScheduleRunQueue.Run run() {
@@ -1125,31 +1151,10 @@ public class ScheduleExecutor {
                     log.warn("Scheduled task {} isolated work {}: {}", taskId, workId, reason);
                 }
             }
-            // 通知在锁外发：避免阻塞其它并发完成回调对隔离表的访问。
             if (exhausted) {
-                notifyPendingExhausted(workId, attemptsAtLimit, reason);
+                // worker 线程里只登记事件；最终 next_run_time 要等 runTask join 完、completedAt 确定后才能准确计算。
+                pendingNotifications.add(new PendingExhaustedNotification(novel, workId, attemptsAtLimit, now, reason));
             }
-        }
-
-        /** attempts 刚到达 {@code schedule.pending-max-attempts} 时发通知（邮件 + 推送），best-effort、不影响调度。 */
-        private void notifyPendingExhausted(long workId, int attempts, String reason) {
-            Locale locale = AppLocale.normalize(Locale.getDefault());
-            String kindLabel = messages.get(locale, novel
-                    ? "mail.template.pending-exhausted.kind.novel"
-                    : "mail.template.pending-exhausted.kind.illust");
-            Map<String, String> ph = new LinkedHashMap<>();
-            ph.put("task_name", taskName == null ? "-" : taskName);
-            ph.put("task_id", String.valueOf(taskId));
-            ph.put("task_type", taskTypeLabel(locale, taskType));
-            ph.put("task_trigger", triggerLabel(locale, triggerKind, intervalMinutes, cronExpr));
-            ph.put("work_id", String.valueOf(workId));
-            ph.put("work_kind", kindLabel);
-            ph.put("work_url", workUrl(novel, workId));
-            ph.put("attempts", String.valueOf(attempts));
-            ph.put("trigger_time", formatTime(System.currentTimeMillis()));
-            ph.put("next_run_time", formatTime(nextRunFromNow(triggerKind, intervalMinutes, cronExpr)));
-            ph.put("last_error_excerpt", reason == null ? "" : reason);
-            sendNotification(NotificationScenario.PENDING_EXHAUSTED, ph);
         }
 
         /** 成功派发后到 N 触发过度访问检查；{@code WARNED} 干净 unwind（COOKIE_DEAD 轮内不双重判定，交给熔断）。 */
@@ -1197,15 +1202,15 @@ public class ScheduleExecutor {
     }
 
     /** 任务级挂起：发 auth-expired（dead cookie）或 circuit-breaker（熔断）通知（邮件 + 推送）。 */
-    private void handleSuspend(ScheduledTask task, ScheduleSuspendException e) {
+    private void handleSuspend(ScheduledTask task, ScheduleSuspendException e, long triggerTime, Long nextRun) {
         Locale locale = AppLocale.normalize(Locale.getDefault());
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
         ph.put("task_id", String.valueOf(task.id()));
         ph.put("task_type", taskTypeLabel(locale, task.type()));
         ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
-        ph.put("trigger_time", formatTime(System.currentTimeMillis()));
-        ph.put("next_run_time", formatTime(nextRunFromNow(task.triggerKind(), task.intervalMinutes(), task.cronExpr())));
+        ph.put("trigger_time", formatTime(triggerTime));
+        ph.put("next_run_time", formatTime(nextRun));
         if (e.reason() == ScheduleSuspendException.Reason.CIRCUIT_BREAKER) {
             ph.put("consecutive_failures", String.valueOf(e.consecutiveFailures()));
             ph.put("last_error_excerpt", e.lastErrorExcerpt() == null ? "" : e.lastErrorExcerpt());
@@ -1215,6 +1220,43 @@ public class ScheduleExecutor {
             ph.put("reason", e.reason().name());
             sendNotification(NotificationScenario.AUTH_EXPIRED, ph);
         }
+    }
+
+    /** attempts 刚到达 {@code schedule.pending-max-attempts} 后，在最终 next_run_time 确定时发通知。 */
+    private void sendPendingExhaustedNotifications(ScheduledTask task,
+                                                   List<PendingExhaustedNotification> notifications,
+                                                   Long nextRun) {
+        if (notifications == null || notifications.isEmpty()) {
+            return;
+        }
+        List<PendingExhaustedNotification> snapshot;
+        synchronized (notifications) {
+            snapshot = List.copyOf(notifications);
+        }
+        for (PendingExhaustedNotification event : snapshot) {
+            notifyPendingExhausted(task, event, nextRun);
+        }
+    }
+
+    /** 单个 pending-exhausted 事件的邮件 + 推送通知，best-effort、不影响调度。 */
+    private void notifyPendingExhausted(ScheduledTask task, PendingExhaustedNotification event, Long nextRun) {
+        Locale locale = AppLocale.normalize(Locale.getDefault());
+        String kindLabel = messages.get(locale, event.novel()
+                ? "mail.template.pending-exhausted.kind.novel"
+                : "mail.template.pending-exhausted.kind.illust");
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", task.name() == null ? "-" : task.name());
+        ph.put("task_id", String.valueOf(task.id()));
+        ph.put("task_type", taskTypeLabel(locale, task.type()));
+        ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
+        ph.put("work_id", String.valueOf(event.workId()));
+        ph.put("work_kind", kindLabel);
+        ph.put("work_url", workUrl(event.novel(), event.workId()));
+        ph.put("attempts", String.valueOf(event.attempts()));
+        ph.put("trigger_time", formatTime(event.triggerTime()));
+        ph.put("next_run_time", formatTime(nextRun));
+        ph.put("last_error_excerpt", event.reason() == null ? "" : event.reason());
+        sendNotification(NotificationScenario.PENDING_EXHAUSTED, ph);
     }
 
     /**
@@ -1286,11 +1328,6 @@ public class ScheduleExecutor {
         // 传 String 而非 Integer：避免 MessageFormat 对 ≥1000 的分钟数插入千分位分隔符（如 1,440）。
         return messages.get(locale, "mail.template.common.trigger.interval",
                 intervalMinutes == null ? "-" : String.valueOf(intervalMinutes));
-    }
-
-    /** 以「当前时刻」为基准算出下次预定运行（参数非法时返回 {@code null}，由 {@link #formatTime(Long)} 转「-」）。 */
-    private static Long nextRunFromNow(String triggerKind, Integer intervalMinutes, String cronExpr) {
-        return ScheduleTiming.computeNextRun(triggerKind, intervalMinutes, cronExpr, System.currentTimeMillis());
     }
 
     /** 失败作品的 Pixiv 直链（外部静态链接，不指向本服务）：小说走 novel show，其余走 artworks。 */

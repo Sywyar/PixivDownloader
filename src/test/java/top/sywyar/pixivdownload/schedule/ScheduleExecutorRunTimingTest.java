@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -33,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -216,6 +218,33 @@ class ScheduleExecutorRunTimingTest {
     }
 
     @Test
+    @DisplayName("鉴权失效通知使用本轮完成后实际落库的下次运行时间")
+    void authExpiredNotificationUsesPersistedNextRunTime() throws Exception {
+        ScheduledTask task = new ScheduledTask(
+                13L, "鉴权失效计划", true, ScheduledTaskType.USER_NEW,
+                "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
+                ScheduledTask.TRIGGER_INTERVAL, 1, null,
+                ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
+        when(pixivFetchService.discoverUserArtworkIds("100", null))
+                .thenThrow(new PixivFetchService.PixivFetchException("auth expired"));
+        doAnswer(inv -> {
+            Thread.sleep(1100);
+            return null;
+        }).when(notificationService).notify(eq(NotificationScenario.AUTH_EXPIRED), any(), any());
+
+        executor.runTaskAndRecord(task);
+
+        ArgumentCaptor<Long> nextRun = ArgumentCaptor.forClass(Long.class);
+        verify(mapper).updateRunResult(eq(13L), anyLong(), eq(ScheduleExecutor.STATUS_AUTH_EXPIRED),
+                isNull(), nextRun.capture());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
+        verify(notificationService).notify(eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
+        assertThat(placeholders.getValue().get("next_run_time")).isEqualTo(formatTime(nextRun.getValue()));
+    }
+
+    @Test
     @DisplayName("失败原因：写入 last_message 前脱敏 Pixiv Cookie")
     void shouldSanitizeCookieBeforePersistingFailureMessage() throws Exception {
         ScheduledTask task = new ScheduledTask(
@@ -324,7 +353,10 @@ class ScheduleExecutorRunTimingTest {
         when(mapper.listPending(9L)).thenReturn(List.of(
                 new ScheduledTaskPending(9L, 777L, "previous", 4, 1000L, 2000L)));
         when(mapper.selectPendingAttempts(9L, 777L)).thenReturn(5);
-        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of());
+        when(pixivFetchService.discoverUserArtworkIds("100", null)).thenAnswer(inv -> {
+            Thread.sleep(1100);
+            return List.of();
+        });
         // retryPending 不查 hasArtwork（直接 process），无需 stub
         // 模拟瞬时失败 → recordRecoverable 走 incPendingAttempts → 检查 attempts 是否到阈值
         when(pixivFetchService.fetchArtworkMeta("777", null))
@@ -333,8 +365,19 @@ class ScheduleExecutorRunTimingTest {
         executor.runTaskAndRecord(task);
 
         verify(mapper).incPendingAttempts(eq(9L), eq(777L), anyLong());
+        ArgumentCaptor<Long> nextRun = ArgumentCaptor.forClass(Long.class);
+        verify(mapper).updateRunResult(eq(9L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), nextRun.capture());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
         // 统一通知：扇出给所有介质由 NotificationService 负责，调度器只触发一次场景。
-        verify(notificationService).notify(eq(NotificationScenario.PENDING_EXHAUSTED), any(), any());
+        verify(notificationService).notify(eq(NotificationScenario.PENDING_EXHAUSTED), any(), placeholders.capture());
+        assertThat(placeholders.getValue().get("next_run_time")).isEqualTo(formatTime(nextRun.getValue()));
+    }
+
+    private static String formatTime(long epochMs) {
+        return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.ROOT)
+                .format(new java.util.Date(epochMs));
     }
 
     @Test
