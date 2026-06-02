@@ -2,7 +2,10 @@ package top.sywyar.pixivdownload.push;
 
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 推送格式化系统的<b>框架层</b>：协商目标格式 + 在格式间转换。无状态，被 {@link PushService} 复用。
@@ -19,7 +22,7 @@ import java.util.List;
  *   <li>{@code MARKDOWN → PLAIN_TEXT}：剥离标记</li>
  *   <li>{@code PLAIN_TEXT → MARKDOWN}：原样透传（纯文本即合法 Markdown）</li>
  *   <li>{@code HTML → PLAIN_TEXT}：去标签 + 反转义实体</li>
- *   <li>{@code PLAIN_TEXT → HTML}：转义 + 换行转 {@code <br>}</li>
+ *   <li>{@code PLAIN_TEXT → HTML}：转义特殊字符，保留原始换行（Telegram HTML 不支持 {@code <br>}）</li>
  *   <li>{@code MARKDOWN → HTML}：受限子集（粗体 / 斜体 / 行内代码 / 链接，标题降级为去标记）</li>
  *   <li>{@code HTML → MARKDOWN}：<b>不支持</b> → 调用方降级为 {@link PushFormat#PLAIN_TEXT}</li>
  *   <li>{@code * → CARD}：CARD 正文以 Markdown 内联承载，故 {@code CARD} 可达 ⟺ {@code MARKDOWN} 可达</li>
@@ -27,6 +30,9 @@ import java.util.List;
  */
 @Component
 public class PushFormatConverter {
+
+    private static final Pattern MARKDOWN_LINK = Pattern.compile("\\[([^\\]]*)\\]\\(([^)]*)\\)");
+    private static final Pattern INLINE_CODE = Pattern.compile("`([^`]+)`");
 
     /**
      * 按通道<b>优先级顺序</b>选出第一个可从 {@code source} 转换到的目标格式。
@@ -115,18 +121,59 @@ public class PushFormatConverter {
     }
 
     private static String markdownToHtml(String md) {
+        List<String> protectedHtml = new ArrayList<>();
         String t = escapeHtml(md);
         t = t.replaceAll("(?m)^\\s{0,3}#{1,6}\\s+", "");                              // 标题标记 → 去除
+        t = protectInlineCode(t, protectedHtml);
         t = t.replaceAll("!\\[([^\\]]*)\\]\\([^)]*\\)", "$1");                        // 图片 → alt
-        t = t.replaceAll("\\[([^\\]]*)\\]\\(([^)]*)\\)", "<a href=\"$2\">$1</a>");    // 链接
+        t = protectMarkdownLinks(t, protectedHtml);
         t = t.replaceAll("(\\*\\*|__)(.+?)\\1", "<b>$2</b>");                         // 粗体
         t = t.replaceAll("(\\*|_)(.+?)\\1", "<i>$2</i>");                             // 斜体
-        t = t.replaceAll("`([^`]+)`", "<code>$1</code>");                            // 行内代码
-        return t;
+        return restoreProtectedHtml(t, protectedHtml);
     }
 
     private static String textToHtml(String text) {
-        return escapeHtml(text).replace("\n", "<br>");
+        return escapeHtml(text);
+    }
+
+    private static String protectInlineCode(String text, List<String> protectedHtml) {
+        Matcher matcher = INLINE_CODE.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String html = "<code>" + matcher.group(1) + "</code>";
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(protectHtml(html, protectedHtml)));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    private static String protectMarkdownLinks(String text, List<String> protectedHtml) {
+        Matcher matcher = MARKDOWN_LINK.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String html = "<a href=\"" + matcher.group(2) + "\">" + matcher.group(1) + "</a>";
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(protectHtml(html, protectedHtml)));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
+    }
+
+    private static String protectHtml(String html, List<String> protectedHtml) {
+        int index = protectedHtml.size();
+        protectedHtml.add(html);
+        return htmlToken(index);
+    }
+
+    private static String restoreProtectedHtml(String text, List<String> protectedHtml) {
+        String restored = text;
+        for (int i = 0; i < protectedHtml.size(); i++) {
+            restored = restored.replace(htmlToken(i), protectedHtml.get(i));
+        }
+        return restored;
+    }
+
+    private static String htmlToken(int index) {
+        return "\u0000PUSH_HTML_" + index + "\u0000";
     }
 
     private static String htmlToText(String html) {

@@ -65,11 +65,20 @@ class PushFormatConverterTest {
     }
 
     @Test
-    @DisplayName("转换：纯文本 → HTML，转义特殊字符并换行转 <br>")
+    @DisplayName("转换：Markdown → HTML，链接 URL 中的下划线不会被二次解析为斜体")
+    void renderMarkdownLinkToHtmlKeepsHrefIntact() {
+        RenderedMessage rm = converter.render(
+                PushMessage.markdown("", "[作品](https://example.com/foo_bar_baz)", PushLevel.INFO),
+                PushFormat.HTML);
+        assertThat(rm.body()).isEqualTo("<a href=\"https://example.com/foo_bar_baz\">作品</a>");
+    }
+
+    @Test
+    @DisplayName("转换：纯文本 → HTML，转义特殊字符并保留换行")
     void renderPlainTextToHtml() {
         RenderedMessage rm = converter.render(
                 PushMessage.text("", "a<b>\nc", PushLevel.INFO), PushFormat.HTML);
-        assertThat(rm.body()).isEqualTo("a&lt;b&gt;<br>c");
+        assertThat(rm.body()).isEqualTo("a&lt;b&gt;\nc");
     }
 
     @Test
