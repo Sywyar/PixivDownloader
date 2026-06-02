@@ -60,6 +60,37 @@ Proxy server port. **Hot-reload supported**.
 > [!TIP]
 > The FFmpeg download button in the GUI also reuses this proxy configuration for fetching FFmpeg release packages from GitHub.
 
+#### Route web Pixiv through the same proxy (PAC, no system proxy)
+
+The backend reaches Pixiv through the proxy configured above and **does not rely on a system-wide proxy**. But if you also want to open `pixiv.net` directly in the browser (e.g. together with the userscripts), you would normally have to additionally enable the "system proxy" in Clash or similar — a disjointed experience.
+
+For this, a proxy auto-config (PAC) endpoint `/proxy.pac` is built in:
+
+- Set your OS or browser "Automatic proxy configuration script (PAC) URL" to `http://localhost:<port>/proxy.pac` (the port matches `server.port`; with HTTPS enabled it becomes `https://<domain>:<port>/proxy.pac`).
+- Only Pixiv-related domains (`pixiv.net`, `*.pixiv.net`, `*.pximg.net`, `*.pixiv.org`, `*.fanbox.cc`, `*.pixivision.net`) then go through the same proxy configured under `proxy.*`; everything else stays direct.
+- The endpoint is **local-only**; changes to `proxy.*` (including hot reload) are reflected in the PAC content automatically, with no restart needed.
+- When `proxy.enabled: false` or host/port is empty, the PAC returns direct for all domains (equivalent to disabling this feature).
+
+This lets you **keep the system proxy off for good**, letting this configuration decide whether web Pixiv goes through the proxy — no more toggling back and forth.
+
+##### Settings entry points per browser / OS
+
+> [!TIP]
+> The `chrome://`, `edge://`, and `about:` addresses below are browser-internal pages. For security reasons they **cannot be opened by clicking a link on a web page** — you have to **copy them into the browser's address bar and press Enter**. In the address bar they act as a one-tap shortcut to the matching settings page. `ms-settings:` works from the address bar or the `Win+R` Run box.
+
+| Browser / OS | Address to open settings | Where to enter the PAC URL |
+|---|---|---|
+| **Firefox** | `about:preferences#general` | Scroll to the bottom → "Network Settings → Settings…" → choose "Automatic proxy configuration URL (PAC)" → paste the URL → OK. Firefox uses an **independent** proxy setting that doesn't affect the system or other apps — the best fit for "browser-only, no system proxy". |
+| **Chrome (Windows)** | `chrome://settings/system` | Click "Open your computer's proxy settings" and fill it in via the Windows system proxy settings. On Windows, Chrome follows the system proxy and has no independent PAC entry. |
+| **Edge (Windows)** | `edge://settings/system` | Same as above — click "Open your computer's proxy settings" to jump to the Windows system proxy settings. |
+| **Windows system proxy** | `ms-settings:network-proxy` | Turn on "Automatic proxy setup → Use setup script", set "Script address" to `http://localhost:6999/proxy.pac`, and save. Applies to Chrome / Edge and every app that follows the system proxy. |
+| **macOS system proxy** | System Settings → Network → your network → "Details… → Proxies" | Enable "Automatic Proxy Configuration" and enter the PAC URL. Safari / Chrome etc. follow the system proxy. |
+
+> [!WARNING]
+> The "system proxy" toggle in Clash and similar tools **overrides** the Windows proxy settings (including the PAC script address you set here). When using this PAC approach, **keep Clash's system proxy toggle off**, otherwise the two will overwrite each other. Firefox is unaffected because it uses an independent setting.
+
+> The port in the URL must match your `server.port` (the example uses 6999); with HTTPS enabled, use `https://<domain>:<port>/proxy.pac`.
+
 ---
 
 ### Multi-mode Configuration

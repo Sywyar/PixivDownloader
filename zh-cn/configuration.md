@@ -60,6 +60,37 @@ proxy.port: 7890
 > [!TIP]
 > GUI 中的 FFmpeg 下载按钮同样复用此代理配置，便于拉取 GitHub 上的 FFmpeg 发布包。
 
+#### 让网页版 Pixiv 走同一个代理（PAC，无需系统代理）
+
+后端访问 Pixiv 走上面配置的代理，**不依赖系统级代理**。但如果你还想在浏览器里直接打开 `pixiv.net`（例如配合油猴脚本使用），通常得额外开启 Clash 等工具的「系统代理 / system proxy」，体验割裂。
+
+为此内置了代理自动配置（PAC）端点 `/proxy.pac`：
+
+- 在系统或浏览器的「自动代理配置脚本（PAC）URL」处填入 `http://localhost:<端口>/proxy.pac`（端口与 `server.port` 一致；启用 HTTPS 时为 `https://<域名>:<端口>/proxy.pac`）。
+- 之后仅 Pixiv 相关域名（`pixiv.net`、`*.pixiv.net`、`*.pximg.net`、`*.pixiv.org`、`*.fanbox.cc`、`*.pixivision.net`）会走上面 `proxy.*` 配置的同一个代理，其余流量一律直连，互不影响。
+- 该端点**仅本机可访问**；`proxy.*` 的改动（含热重载）会自动反映到 PAC 内容，无需重启。
+- 当 `proxy.enabled: false` 或 host/port 为空时，PAC 对所有域名返回直连（等同关闭本特性）。
+
+这样就可以**一直关闭系统代理**，由本配置统一决定网页版 Pixiv 是否走代理，免去来回切换。
+
+##### 各浏览器 / 系统的设置入口
+
+> [!TIP]
+> 下表中的 `chrome://`、`edge://`、`about:` 是浏览器内部地址，出于安全限制**不能从网页里点链接跳转**，需要把它**复制到浏览器地址栏后回车**才能打开——在地址栏里它就相当于「一键直达」对应设置项。`ms-settings:` 可在地址栏或 `Win+R` 运行框中打开。
+
+| 浏览器 / 系统 | 打开设置的地址 | 填 PAC URL 的位置 |
+|---|---|---|
+| **Firefox** | `about:preferences#general` | 拉到底「网络设置 → 设置…」→ 选「自动代理配置 URL(PAC)」→ 填入地址 → 确定。Firefox 使用**独立**代理设置，不影响系统与其它程序，最贴合「仅浏览器、免系统代理」。 |
+| **Chrome（Windows）** | `chrome://settings/system` | 点「打开您计算机的代理设置」，进入下方的 Windows 系统代理设置填写。Chrome 在 Windows 上跟随系统代理，没有独立 PAC 入口。 |
+| **Edge（Windows）** | `edge://settings/system` | 同上，点「打开计算机的代理设置」跳到 Windows 系统代理设置填写。 |
+| **Windows 系统代理** | `ms-settings:network-proxy` | 「自动代理设置 → 使用安装脚本」打开开关，「脚本地址」填入 `http://localhost:6999/proxy.pac`，保存。Chrome / Edge 及所有跟随系统代理的程序都会生效。 |
+| **macOS 系统代理** | 系统设置 → 网络 → 对应网络 →「详细信息… → 代理」 | 勾选「自动代理配置」，URL 填入 PAC 地址。Safari / Chrome 等跟随系统代理。 |
+
+> [!WARNING]
+> Clash 等工具的「系统代理 / system proxy」开关会**覆盖** Windows 的代理设置（包括这里填的 PAC 脚本地址）。采用本 PAC 方案时请**保持 Clash 的系统代理开关关闭**，否则两者会互相覆盖。Firefox 因为用独立设置，不受此影响。
+
+> 地址里的端口需与你的 `server.port` 一致（示例用 6999）；启用 HTTPS 时填 `https://<域名>:<端口>/proxy.pac`。
+
 ---
 
 ### 多人模式配置
