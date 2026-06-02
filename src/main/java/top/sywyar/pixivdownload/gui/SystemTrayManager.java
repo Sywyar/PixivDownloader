@@ -8,7 +8,6 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
 import java.awt.image.BufferedImage;
 import java.net.URI;
 
@@ -23,9 +22,6 @@ public final class SystemTrayManager {
 
     /** 已安装的托盘图标，供热重载语言时刷新文案。 */
     private static volatile TrayIcon installedTrayIcon;
-    /** 关联的主窗口与下载目录，重建菜单时复用。 */
-    private static volatile MainFrame installedFrame;
-    private static volatile String installedRootFolder;
 
     private SystemTrayManager() {}
 
@@ -46,13 +42,13 @@ public final class SystemTrayManager {
         TrayIcon trayIcon = new TrayIcon(icon, message("app.name"));
         trayIcon.setImageAutoSize(true);
 
-        // Swing 弹出菜单（支持中文，无需依赖 AWT ANSI 码页）
-        JPopupMenu menu = buildPopupMenu(frame, rootFolder, trayIcon);
-
         // 左键双击 = 显示主窗口
         trayIcon.addActionListener(e -> showFrame(frame));
 
-        // 右键 = 弹出 Swing 菜单（使用绝对屏幕坐标，避免 TrayIcon 事件坐标不可靠）
+        // 右键 = 弹出 Swing 菜单（使用绝对屏幕坐标，避免 TrayIcon 事件坐标不可靠）。
+        // 每次右键都重建菜单：JPopupMenu 不挂在任何窗口树上，FlatLaf.updateUI() 的全局重涂
+        // 够不到它，复用同一实例会让菜单停留在创建时的主题（例如启动深色后切到浅色仍是白字）。
+        // 即时重建可同时跟随当前主题与语言，并避免 showAt 每次累积 PopupMenuListener。
         trayIcon.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseReleased(MouseEvent e) { maybeShow(e); }
@@ -61,7 +57,7 @@ public final class SystemTrayManager {
             private void maybeShow(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     Point p = MouseInfo.getPointerInfo().getLocation();
-                    showAt(menu, p.x, p.y);
+                    showAt(buildPopupMenu(frame, rootFolder, trayIcon), p.x, p.y);
                 }
             }
         });
@@ -69,8 +65,6 @@ public final class SystemTrayManager {
         try {
             SystemTray.getSystemTray().add(trayIcon);
             installedTrayIcon = trayIcon;
-            installedFrame = frame;
-            installedRootFolder = rootFolder;
             log.debug(logMessage("gui.tray.log.installed"));
             return true;
         } catch (AWTException e) {
@@ -85,30 +79,11 @@ public final class SystemTrayManager {
      */
     public static void refreshLocale() {
         TrayIcon trayIcon = installedTrayIcon;
-        MainFrame frame = installedFrame;
-        String rootFolder = installedRootFolder;
-        if (trayIcon == null || frame == null) {
+        if (trayIcon == null) {
             return;
         }
+        // 菜单已在每次右键时按当前 locale 重建，这里只需刷新 tooltip 文案。
         trayIcon.setToolTip(message("app.name"));
-        // JPopupMenu 在每次右键时通过闭包捕获新菜单引用即可刷新；
-        // 这里重建菜单并替换原 mouseListener 中引用的菜单。
-        JPopupMenu newMenu = buildPopupMenu(frame, rootFolder, trayIcon);
-        for (MouseListener listener : trayIcon.getMouseListeners()) {
-            trayIcon.removeMouseListener(listener);
-        }
-        trayIcon.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseReleased(MouseEvent e) { maybeShow(e); }
-            @Override
-            public void mousePressed(MouseEvent e) { maybeShow(e); }
-            private void maybeShow(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    Point p = MouseInfo.getPointerInfo().getLocation();
-                    showAt(newMenu, p.x, p.y);
-                }
-            }
-        });
     }
 
     private static JPopupMenu buildPopupMenu(MainFrame frame,

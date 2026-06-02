@@ -119,6 +119,7 @@ public final class DefaultConfigTemplate {
 
         appendSection(config, messages, "config.template.section.language");
         appendSetting(config, messages, "app.language:", "config.template.app.language.comment");
+        appendSetting(config, messages, "app.theme: system", "config.template.app.theme.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.update");

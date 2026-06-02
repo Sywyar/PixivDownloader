@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.download.db.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.FlatLafSetup;
+import top.sywyar.pixivdownload.gui.theme.ThemePreference;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
@@ -193,6 +194,7 @@ public class GuiLauncher {
         // ── 2. 启动前读取配置（Spring 尚未就绪，直接读文件）────────────────────────
         int serverPort = DEFAULT_PORT;
         String rootFolder = DEFAULT_ROOT;
+        ThemePreference themePreference = ThemePreference.SYSTEM;
         Path configPath = RuntimeFiles.resolveConfigYamlPath();
 
         if (configPath.toFile().exists()) {
@@ -200,12 +202,14 @@ public class GuiLauncher {
                 ConfigFileEditor editor = new ConfigFileEditor(configPath);
                 String portStr = editor.read("server.port");
                 String rootStr = editor.read("download.root-folder");
+                String themeStr = editor.read("app.theme");
                 if (portStr != null && !portStr.isBlank()) {
                     serverPort = Integer.parseInt(portStr.trim());
                 }
                 if (rootStr != null && !rootStr.isBlank()) {
                     rootFolder = rootStr.trim();
                 }
+                themePreference = ThemePreference.fromConfigValue(themeStr);
             } catch (Exception e) {
                 log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));
             }
@@ -215,6 +219,7 @@ public class GuiLauncher {
 
         final int port = serverPort;
         final String root = rootFolder;
+        final ThemePreference theme = themePreference;
         String[] backendArgs = filterArgs(args);
 
         BackendLifecycleManager.configure(backendArgs, GuiLauncher::showBackendStartupFailure);
@@ -222,7 +227,7 @@ public class GuiLauncher {
         // ── 3. 初始化 Swing + FlatLaf，展示主窗口 ────────────────────────────────
         SwingUtilities.invokeLater(() -> {
             try {
-                FlatLafSetup.apply();
+                FlatLafSetup.apply(theme);
                 MainFrame frame = new MainFrame(port, root, configPath);
                 singleInstanceManager.setActivationHandler(() -> SwingUtilities.invokeLater(frame::showWindow));
                 boolean trayInstalled = SystemTrayManager.install(frame, root);

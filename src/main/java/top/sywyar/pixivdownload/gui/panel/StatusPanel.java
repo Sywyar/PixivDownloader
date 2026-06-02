@@ -12,6 +12,8 @@ import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.theme.FlatLafSetup;
+import top.sywyar.pixivdownload.gui.theme.ThemePreference;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
@@ -79,6 +81,9 @@ public class StatusPanel extends JPanel {
     private final JProgressBar ffmpegProgress = new JProgressBar();
 
     private final JComboBox<LocaleOption> languageCombo = new JComboBox<>();
+    private final JComboBox<ThemeOption> themeCombo = new JComboBox<>();
+    private final java.awt.event.ActionListener themeActionListener = e -> applyThemeSelection();
+    private final Runnable themeChangeListener = this::onThemeChanged;
 
     private final int serverPort;
     private final String rootFolder;
@@ -144,7 +149,7 @@ public class StatusPanel extends JPanel {
         JPanel badgeRow = new JPanel(new BorderLayout(12, 0));
         badgeRow.setOpaque(false);
         badgeRow.add(statusBadge, BorderLayout.WEST);
-        badgeRow.add(buildLanguageSelector(), BorderLayout.EAST);
+        badgeRow.add(buildPreferencesRow(), BorderLayout.EAST);
 
         JPanel content = new JPanel(new GridBagLayout());
         content.setOpaque(false);
@@ -311,12 +316,8 @@ public class StatusPanel extends JPanel {
     }
 
     private JComponent buildUpdateBanner() {
-        // 正式版横幅（黄色）
+        // 正式版横幅：背景 / 边框 / 文本颜色随主题切换，避免在暗色模式下浅黄背景配浅色文本变成灰蒙蒙的低对比
         updateBanner.setOpaque(true);
-        updateBanner.setBackground(new Color(255, 247, 220));
-        updateBanner.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(220, 190, 120)),
-                BorderFactory.createEmptyBorder(8, 12, 8, 12)));
         updateBannerLabel.setFont(updateBannerLabel.getFont().deriveFont(Font.BOLD));
         updateBannerViewLogButton.setText(message("gui.update.banner.view-log"));
         updateBannerViewLogButton.addActionListener(e -> showOfficialReleaseNotesDialog());
@@ -333,12 +334,8 @@ public class StatusPanel extends JPanel {
         updateBanner.add(officialActions, BorderLayout.EAST);
         updateBanner.setVisible(false);
 
-        // 每夜版横幅（淡紫色，区分正式版）
+        // 每夜版横幅：背景 / 边框 / 文本颜色随主题切换
         updateBannerNightly.setOpaque(true);
-        updateBannerNightly.setBackground(new Color(232, 232, 252));
-        updateBannerNightly.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(150, 150, 210)),
-                BorderFactory.createEmptyBorder(8, 12, 8, 12)));
         updateBannerNightlyLabel.setFont(updateBannerNightlyLabel.getFont().deriveFont(Font.BOLD));
         updateBannerNightlyViewDiffButton.setText(message("gui.update.banner.view-diff"));
         updateBannerNightlyViewDiffButton.addActionListener(e -> showNightlyDiffDialog());
@@ -376,13 +373,145 @@ public class StatusPanel extends JPanel {
         container.add(updateBannerNightly);
         container.add(Box.createVerticalStrut(4));
         container.add(updateProgressPanel);
+        applyUpdateBannerColors();
         return container;
+    }
+
+    /**
+     * 按当前主题（浅 / 深）刷新两个更新横幅的背景、边框与文本颜色。
+     * 浅色：沿用原本的浅黄 / 淡紫；深色：复用前端 dark 主题的色号
+     * （{@code --surface #171a21} 底 + {@code --text #f4f7fb} 字），
+     * 边框保留各自的金 / 紫强调色以区分正式版与每夜版。
+     */
+    private void applyUpdateBannerColors() {
+        boolean dark = FlatLafSetup.isCurrentDark();
+        // 前端 dark 主题：--surface = #171a21（卡片底）、--text = #f4f7fb（主文本）
+        Color darkSurface = new Color(0x17, 0x1a, 0x21);
+        Color darkText = new Color(0xf4, 0xf7, 0xfb);
+
+        Color officialBg = dark ? darkSurface : new Color(255, 247, 220);
+        Color officialBorder = dark ? new Color(200, 165, 70) : new Color(220, 190, 120);
+        Color nightlyBg = dark ? darkSurface : new Color(232, 232, 252);
+        Color nightlyBorder = dark ? new Color(150, 150, 220) : new Color(150, 150, 210);
+        Color fg = dark ? darkText : UIManager.getColor("Label.foreground");
+        if (fg == null) {
+            fg = dark ? darkText : Color.BLACK;
+        }
+
+        updateBanner.setBackground(officialBg);
+        updateBanner.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(officialBorder),
+                BorderFactory.createEmptyBorder(8, 12, 8, 12)));
+        updateBannerLabel.setForeground(fg);
+
+        updateBannerNightly.setBackground(nightlyBg);
+        updateBannerNightly.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(nightlyBorder),
+                BorderFactory.createEmptyBorder(8, 12, 8, 12)));
+        updateBannerNightlyLabel.setForeground(fg);
+
+        updateBanner.repaint();
+        updateBannerNightly.repaint();
+    }
+
+    private void onThemeChanged() {
+        syncThemeComboSelection();
+        applyUpdateBannerColors();
     }
 
     private JButton webButton(String messageCode, String path) {
         JButton button = new JButton(message(messageCode));
         button.addActionListener(e -> openWebPage(path));
         return button;
+    }
+
+    private JComponent buildPreferencesRow() {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
+        row.setOpaque(false);
+        row.add(buildThemeSelector());
+        row.add(buildLanguageSelector());
+        return row;
+    }
+
+    private JComponent buildThemeSelector() {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 0));
+        row.setOpaque(false);
+
+        JLabel label = new JLabel(message("gui.status.theme.label"));
+        label.setForeground(Color.GRAY);
+
+        ThemeOption[] options = {
+                new ThemeOption(ThemePreference.SYSTEM, message("gui.status.theme.option.system")),
+                new ThemeOption(ThemePreference.LIGHT, message("gui.status.theme.option.light")),
+                new ThemeOption(ThemePreference.DARK, message("gui.status.theme.option.dark")),
+        };
+        for (ThemeOption option : options) {
+            themeCombo.addItem(option);
+        }
+        syncThemeComboSelection();
+        themeCombo.setToolTipText(message("gui.status.theme.tooltip"));
+        themeCombo.addActionListener(themeActionListener);
+        FlatLafSetup.addChangeListener(themeChangeListener);
+
+        row.add(label);
+        row.add(themeCombo);
+        return row;
+    }
+
+    private void syncThemeComboSelection() {
+        ThemePreference pref = FlatLafSetup.currentPreference();
+        for (int i = 0; i < themeCombo.getItemCount(); i++) {
+            ThemeOption option = themeCombo.getItemAt(i);
+            if (option.preference() == pref) {
+                if (themeCombo.getSelectedItem() != option) {
+                    themeCombo.removeActionListener(themeActionListener);
+                    themeCombo.setSelectedItem(option);
+                    themeCombo.addActionListener(themeActionListener);
+                }
+                return;
+            }
+        }
+    }
+
+    private void applyThemeSelection() {
+        ThemeOption option = (ThemeOption) themeCombo.getSelectedItem();
+        if (option == null) {
+            return;
+        }
+        ThemePreference next = option.preference();
+        if (next == FlatLafSetup.currentPreference()) {
+            return;
+        }
+
+        boolean persisted = persistThemePreference(next);
+        FlatLafSetup.setPreference(next);
+
+        if (!persisted && configPath != null) {
+            log.warn(logMessage("gui.status.log.theme.persist-failed-warn", configPath));
+            JOptionPane.showMessageDialog(this,
+                    message("gui.status.theme.persist-failed.message"),
+                    message("gui.dialog.error.title"), JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private record ThemeOption(ThemePreference preference, String label) {
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    private boolean persistThemePreference(ThemePreference preference) {
+        if (configPath == null || !Files.exists(configPath)) {
+            return false;
+        }
+        try {
+            new ConfigFileEditor(configPath).write("app.theme", preference.toConfigValue());
+            return true;
+        } catch (Exception e) {
+            log.warn(logMessage("gui.status.log.theme.persist-failed", e.getMessage()));
+            return false;
+        }
     }
 
     private JComponent buildLanguageSelector() {
@@ -1247,6 +1376,7 @@ public class StatusPanel extends JPanel {
         stopDownloadProgressTimer();
         stopLiveStatusTimer();
         BackendLifecycleManager.removeListener(backendListener);
+        FlatLafSetup.removeChangeListener(themeChangeListener);
     }
 
     /**
