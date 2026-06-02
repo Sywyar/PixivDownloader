@@ -324,6 +324,10 @@ public class ConfigPanel extends JPanel {
             test.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(test);
             content.add(Box.createVerticalStrut(2));
+            JPanel testAll = buildPushChannelTestAllPanel(service.id());
+            testAll.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(testAll);
+            content.add(Box.createVerticalStrut(2));
         }
         content.add(Box.createVerticalGlue());
 
@@ -1068,6 +1072,60 @@ public class ConfigPanel extends JPanel {
                 message("gui.config.push.test-current-button.help"));
     }
 
+    private JPanel buildPushChannelTestAllPanel(String channelId) {
+        JButton button = new JButton(message("gui.config.push.test-all.button.label"));
+        button.addActionListener(e -> sendPushChannelTestAll(channelId, button));
+        return FieldRenderer.fieldPanel(
+                message("gui.config.push.test-all.button.label") + message("gui.punctuation.colon"),
+                button,
+                null,
+                message("gui.config.push.test-all.button.help"));
+    }
+
+    /** 用当前表单值向 {@code channelId} 一个渠道发送全部通知消息模板（无需先保存），便于预览各类通知呈现。 */
+    private void sendPushChannelTestAll(String channelId, JButton button) {
+        button.setEnabled(false);
+        showNotice(message("gui.config.push.test-all.notice.sending"));
+
+        ObjectNode payload = buildPushPayload(channelId);
+        SwingWorker<PushTestOutcome, Void> worker = new SwingWorker<>() {
+            @Override
+            protected PushTestOutcome doInBackground() {
+                return postPushTest(payload, "push-test-all");
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    PushTestOutcome outcome = get();
+                    if (!outcome.reachable()) {
+                        showNotice(message("gui.config.push.test.notice.unreachable"));
+                    } else if (outcome.total() == 0
+                            || (outcome.succeeded() == 0 && outcome.summary() != null
+                                && outcome.summary().contains("SKIPPED"))) {
+                        showNotice(message("gui.config.push.test-all.notice.skipped"));
+                    } else if (outcome.success()) {
+                        showNotice(message("gui.config.push.test-all.notice.success", outcome.total()));
+                    } else {
+                        showNotice(message("gui.config.push.test-all.notice.partial",
+                                outcome.succeeded(), outcome.total(),
+                                outcome.summary() == null ? "" : outcome.summary()));
+                    }
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    showNotice(message("gui.config.push.test.notice.unreachable"));
+                } catch (ExecutionException ex) {
+                    log.warn(logMessage("gui.config.push.test-all.notice.partial",
+                            0, 0, safeMessage(ex.getCause())), ex.getCause());
+                    showNotice(message("gui.config.push.test.notice.unreachable"));
+                } finally {
+                    button.setEnabled(true);
+                }
+            }
+        };
+        worker.execute();
+    }
+
     /** 用当前表单值仅测试 {@code channelId} 一个渠道（无需先保存）。 */
     private void sendPushChannelTest(String channelId, JButton button) {
         button.setEnabled(false);
@@ -1077,7 +1135,7 @@ public class ConfigPanel extends JPanel {
         SwingWorker<PushTestOutcome, Void> worker = new SwingWorker<>() {
             @Override
             protected PushTestOutcome doInBackground() {
-                return postPushTest(payload);
+                return postPushTest(payload, "push-test");
             }
 
             @Override
@@ -1160,10 +1218,11 @@ public class ConfigPanel extends JPanel {
     }
 
     /**
-     * 调用 {@code /api/gui/push-test}；同时尝试 http / https，本地端点；连接不上返回 reachable=false。
-     * 读超时 30s：推送是体量很小的 webhook 调用，但 Telegram 经代理可能略慢。
+     * 调用 {@code /api/gui/<endpoint>}（{@code push-test} 单条测试 / {@code push-test-all} 全部模板）；
+     * 同时尝试 http / https，本地端点；连接不上返回 reachable=false。读超时 30s：推送是体量很小的 webhook
+     * 调用，但 Telegram 经代理可能略慢（全部模板为多条串行发送，仍在余量内）。
      */
-    private PushTestOutcome postPushTest(ObjectNode payload) {
+    private PushTestOutcome postPushTest(ObjectNode payload, String endpoint) {
         byte[] body;
         try {
             body = MAPPER.writeValueAsBytes(payload);
@@ -1174,7 +1233,7 @@ public class ConfigPanel extends JPanel {
         for (String scheme : schemes) {
             HttpURLConnection conn = null;
             try {
-                URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/push-test").toURL();
+                URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/" + endpoint).toURL();
                 conn = (HttpURLConnection) url.openConnection();
                 if (conn instanceof HttpsURLConnection https && TRUST_ALL_SSL != null) {
                     https.setSSLSocketFactory(TRUST_ALL_SSL.getSocketFactory());
