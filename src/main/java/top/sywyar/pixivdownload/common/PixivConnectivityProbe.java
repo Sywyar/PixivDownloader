@@ -47,13 +47,11 @@ public class PixivConnectivityProbe {
     public Result probe() {
         long started = System.nanoTime();
         try {
-            HttpRequest request = HttpRequest.newBuilder(PIXIV_URI)
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(PIXIV_URI)
                     .timeout(REQUEST_TIMEOUT)
-                    .header("User-Agent", PixivRequestHeaders.USER_AGENT)
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    .header("Accept-Language", "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,ja;q=0.6")
-                    .GET()
-                    .build();
+                    .GET();
+            PixivRequestHeaders.applyDocument(requestBuilder, null);
+            HttpRequest request = requestBuilder.build();
             HttpResponse<Void> response = buildClient()
                     .send(request, HttpResponse.BodyHandlers.discarding());
             long latencyMs = elapsedMillis(started);

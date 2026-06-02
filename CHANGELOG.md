@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ## [Unreleased]
 
 ### Bug Fixes
-- 修复后端访问 Pixiv 时部分请求使用不完整或不一致的浏览器请求头、可能触发 Cloudflare 403 拦截的问题：Pixiv AJAX、图片下载、缩略图代理与收藏请求现在统一使用完整浏览器 UA 与配套请求头，并在 RestTemplate 层增加 Pixiv 域名兜底注入。
+- 修复后端访问 Pixiv 时部分请求使用不完整或不一致的浏览器请求头、可能触发 Cloudflare 403 拦截的问题：Pixiv AJAX、图片下载、缩略图代理、收藏请求、连通性探测与维护回填工具现在统一使用完整浏览器 UA 与配套请求头，并在 RestTemplate 层增加 Pixiv 域名兜底注入。
 
 ## [v1.11.4] - 2026.6.1
 

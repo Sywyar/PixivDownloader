@@ -444,9 +444,7 @@ public class ArtworksBackFill {
 
     private static LookupResult queryPixiv(CloseableHttpClient http, ObjectMapper mapper, long artworkId) {
         HttpGet request = new HttpGet(PIXIV_AJAX + artworkId);
-        request.setHeader("User-Agent", PixivRequestHeaders.USER_AGENT);
-        request.setHeader("Referer", PixivRequestHeaders.PIXIV_HOME);
-        request.setHeader("Accept-Language", "ja,en;q=0.9");
+        PixivRequestHeaders.applyAjax(request, null);
 
         try {
             return http.execute(request, response -> {

@@ -48,38 +48,63 @@ public final class PixivRequestHeaders {
     }
 
     public static void applyAjax(HttpHeaders headers, String cookie) {
-        applyBase(headers, PIXIV_HOME, cookie);
-        headers.set(HttpHeaders.ACCEPT, ACCEPT_JSON);
-        headers.set("X-Requested-With", "XMLHttpRequest");
-        headers.set("Sec-Fetch-Dest", "empty");
-        headers.set("Sec-Fetch-Mode", "cors");
-        headers.set("Sec-Fetch-Site", "same-origin");
+        applyAjax(writer(headers), cookie);
+    }
+
+    public static void applyAjax(java.net.http.HttpRequest.Builder builder, String cookie) {
+        applyAjax(writer(builder), cookie);
+    }
+
+    public static void applyAjax(org.apache.hc.core5.http.HttpRequest request, String cookie) {
+        applyAjax(writer(request), cookie);
     }
 
     public static void applyDocument(HttpHeaders headers, String cookie) {
-        applyBase(headers, PIXIV_HOME, cookie);
-        headers.set(HttpHeaders.ACCEPT, ACCEPT_DOCUMENT);
-        headers.set("Upgrade-Insecure-Requests", "1");
-        headers.set("Sec-Fetch-Dest", "document");
-        headers.set("Sec-Fetch-Mode", "navigate");
-        headers.set("Sec-Fetch-Site", "none");
-        headers.set("Sec-Fetch-User", "?1");
+        applyDocument(writer(headers), cookie);
+    }
+
+    public static void applyDocument(java.net.http.HttpRequest.Builder builder, String cookie) {
+        applyDocument(writer(builder), cookie);
+    }
+
+    public static void applyDocument(org.apache.hc.core5.http.HttpRequest request, String cookie) {
+        applyDocument(writer(request), cookie);
     }
 
     public static void applyImage(HttpHeaders headers, String cookie) {
-        applyImage(headers, PIXIV_HOME, cookie);
+        applyImage(writer(headers), PIXIV_HOME, cookie);
+    }
+
+    public static void applyImage(java.net.http.HttpRequest.Builder builder, String cookie) {
+        applyImage(writer(builder), PIXIV_HOME, cookie);
+    }
+
+    public static void applyImage(org.apache.hc.core5.http.HttpRequest request, String cookie) {
+        applyImage(writer(request), PIXIV_HOME, cookie);
     }
 
     public static void applyImage(HttpHeaders headers, String referer, String cookie) {
-        applyBase(headers, StringUtils.hasText(referer) ? referer : PIXIV_HOME, cookie);
-        headers.set(HttpHeaders.ACCEPT, ACCEPT_IMAGE);
-        headers.set("Sec-Fetch-Dest", "image");
-        headers.set("Sec-Fetch-Mode", "no-cors");
-        headers.set("Sec-Fetch-Site", "cross-site");
+        applyImage(writer(headers), referer, cookie);
+    }
+
+    public static void applyImage(java.net.http.HttpRequest.Builder builder, String referer, String cookie) {
+        applyImage(writer(builder), referer, cookie);
+    }
+
+    public static void applyImage(org.apache.hc.core5.http.HttpRequest request, String referer, String cookie) {
+        applyImage(writer(request), referer, cookie);
     }
 
     public static void applyOrigin(HttpHeaders headers) {
         headers.set(HttpHeaders.ORIGIN, PIXIV_ORIGIN);
+    }
+
+    public static void applyOrigin(java.net.http.HttpRequest.Builder builder) {
+        builder.header(HttpHeaders.ORIGIN, PIXIV_ORIGIN);
+    }
+
+    public static void applyOrigin(org.apache.hc.core5.http.HttpRequest request) {
+        request.setHeader(HttpHeaders.ORIGIN, PIXIV_ORIGIN);
     }
 
     public static void applyBrowserDefaults(HttpHeaders headers, URI uri, HttpMethod method) {
@@ -100,6 +125,37 @@ public final class PixivRequestHeaders {
     }
 
     private static void applyBase(HttpHeaders headers, String referer, String cookie) {
+        applyBase(writer(headers), referer, cookie);
+    }
+
+    private static void applyAjax(HeaderWriter headers, String cookie) {
+        applyBase(headers, PIXIV_HOME, cookie);
+        headers.set(HttpHeaders.ACCEPT, ACCEPT_JSON);
+        headers.set("X-Requested-With", "XMLHttpRequest");
+        headers.set("Sec-Fetch-Dest", "empty");
+        headers.set("Sec-Fetch-Mode", "cors");
+        headers.set("Sec-Fetch-Site", "same-origin");
+    }
+
+    private static void applyDocument(HeaderWriter headers, String cookie) {
+        applyBase(headers, PIXIV_HOME, cookie);
+        headers.set(HttpHeaders.ACCEPT, ACCEPT_DOCUMENT);
+        headers.set("Upgrade-Insecure-Requests", "1");
+        headers.set("Sec-Fetch-Dest", "document");
+        headers.set("Sec-Fetch-Mode", "navigate");
+        headers.set("Sec-Fetch-Site", "none");
+        headers.set("Sec-Fetch-User", "?1");
+    }
+
+    private static void applyImage(HeaderWriter headers, String referer, String cookie) {
+        applyBase(headers, StringUtils.hasText(referer) ? referer : PIXIV_HOME, cookie);
+        headers.set(HttpHeaders.ACCEPT, ACCEPT_IMAGE);
+        headers.set("Sec-Fetch-Dest", "image");
+        headers.set("Sec-Fetch-Mode", "no-cors");
+        headers.set("Sec-Fetch-Site", "cross-site");
+    }
+
+    private static void applyBase(HeaderWriter headers, String referer, String cookie) {
         headers.set(HttpHeaders.USER_AGENT, USER_AGENT);
         headers.set(HttpHeaders.REFERER, referer);
         headers.set(HttpHeaders.ACCEPT_LANGUAGE, ACCEPT_LANGUAGE);
@@ -110,6 +166,10 @@ public final class PixivRequestHeaders {
     }
 
     private static void applyClientHints(HttpHeaders headers) {
+        applyClientHints(writer(headers));
+    }
+
+    private static void applyClientHints(HeaderWriter headers) {
         headers.set("Sec-Ch-Ua", SEC_CH_UA);
         headers.set("Sec-Ch-Ua-Mobile", "?0");
         headers.set("Sec-Ch-Ua-Platform", "\"Windows\"");
@@ -179,5 +239,22 @@ public final class PixivRequestHeaders {
 
     private static boolean hasHeader(HttpHeaders headers, String name) {
         return StringUtils.hasText(headers.getFirst(name));
+    }
+
+    private static HeaderWriter writer(HttpHeaders headers) {
+        return headers::set;
+    }
+
+    private static HeaderWriter writer(java.net.http.HttpRequest.Builder builder) {
+        return (name, value) -> builder.header(name, value);
+    }
+
+    private static HeaderWriter writer(org.apache.hc.core5.http.HttpRequest request) {
+        return (name, value) -> request.setHeader(name, value);
+    }
+
+    @FunctionalInterface
+    private interface HeaderWriter {
+        void set(String name, String value);
     }
 }
