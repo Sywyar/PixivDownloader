@@ -33,13 +33,16 @@ class PushServiceTest {
         }
     });
 
+    /** 无状态，全测试共用一个实例。 */
+    private static final PushFormatConverter CONVERTER = new PushFormatConverter();
+
     @Test
     @DisplayName("总开关关闭时不派发任何通道、返回空列表")
     void masterSwitchOffSkipsEverything() {
         PushConfig config = new PushConfig();
         config.setEnabled(false);
         FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = new PushService(config, List.of(bark), MESSAGES);
+        PushService service = new PushService(config, List.of(bark), CONVERTER, MESSAGES);
 
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
@@ -54,7 +57,7 @@ class PushServiceTest {
         config.setEnabled(true);
         FakeChannel configured = new FakeChannel(PushChannelType.BARK, true);
         FakeChannel notConfigured = new FakeChannel(PushChannelType.TELEGRAM, false);
-        PushService service = new PushService(config, List.of(configured, notConfigured), MESSAGES);
+        PushService service = new PushService(config, List.of(configured, notConfigured), CONVERTER, MESSAGES);
 
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
@@ -63,6 +66,8 @@ class PushServiceTest {
         assertThat(results.get(0).isOk()).isTrue();
         assertThat(configured.received).hasSize(1);
         assertThat(notConfigured.received).isEmpty();
+        // 仅支持纯文本的通道：Markdown 源消息被协商 + 转换为纯文本后才交给通道。
+        assertThat(configured.received.get(0).format()).isEqualTo(PushFormat.PLAIN_TEXT);
     }
 
     @Test
@@ -73,7 +78,7 @@ class PushServiceTest {
         FakeChannel exploding = new FakeChannel(PushChannelType.DINGTALK, true);
         exploding.toThrow = new RuntimeException("boom");
         FakeChannel healthy = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = new PushService(config, List.of(exploding, healthy), MESSAGES);
+        PushService service = new PushService(config, List.of(exploding, healthy), CONVERTER, MESSAGES);
 
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
@@ -90,7 +95,7 @@ class PushServiceTest {
         PushConfig config = new PushConfig();
         config.setEnabled(true);
         FakeChannel unconfigured = new FakeChannel(PushChannelType.BARK, false);
-        PushService service = new PushService(config, List.of(unconfigured), MESSAGES);
+        PushService service = new PushService(config, List.of(unconfigured), CONVERTER, MESSAGES);
 
         assertThat(service.push(PushChannelType.BARK, PushMessage.of("t", "c")).status())
                 .isEqualTo(PushResult.Status.SKIPPED);
@@ -105,7 +110,7 @@ class PushServiceTest {
         config.setEnabled(false); // 测试路径不应受总开关影响
         FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
         FakeChannel telegram = new FakeChannel(PushChannelType.TELEGRAM, true);
-        PushService service = new PushService(config, List.of(bark, telegram), MESSAGES);
+        PushService service = new PushService(config, List.of(bark, telegram), CONVERTER, MESSAGES);
 
         List<PushResult> results = service.test(
                 List.of(new FakeSettings(PushChannelType.BARK, true)),
@@ -124,7 +129,7 @@ class PushServiceTest {
         PushConfig config = new PushConfig();
         config.setEnabled(true);
         FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = new PushService(config, List.of(bark), MESSAGES);
+        PushService service = new PushService(config, List.of(bark), CONVERTER, MESSAGES);
 
         List<PushResult> results = service.test(
                 List.of(new FakeSettings(PushChannelType.BARK, false)),
@@ -143,13 +148,13 @@ class PushServiceTest {
         }
     }
 
-    /** 测试替身：记录收到的消息，可配置是否"已配置"以及是否抛异常。 */
+    /** 测试替身：记录收到的已渲染消息，可配置是否"已配置"以及是否抛异常。声明仅支持纯文本。 */
     private static final class FakeChannel implements PushChannel {
         private final PushChannelType type;
         private final boolean configured;
         private RuntimeException toThrow;
-        private final List<PushMessage> received = new ArrayList<>();
-        private final List<PushMessage> testReceived = new ArrayList<>();
+        private final List<RenderedMessage> received = new ArrayList<>();
+        private final List<RenderedMessage> testReceived = new ArrayList<>();
 
         FakeChannel(PushChannelType type, boolean configured) {
             this.type = type;
@@ -167,7 +172,12 @@ class PushServiceTest {
         }
 
         @Override
-        public PushResult send(PushMessage message) {
+        public List<PushFormat> supportedFormats() {
+            return List.of(PushFormat.PLAIN_TEXT);
+        }
+
+        @Override
+        public PushResult send(RenderedMessage message) {
             if (toThrow != null) {
                 throw toThrow;
             }
@@ -176,7 +186,7 @@ class PushServiceTest {
         }
 
         @Override
-        public PushResult sendTest(PushChannelSettings settings, PushMessage message) {
+        public PushResult sendTest(PushChannelSettings settings, RenderedMessage message) {
             if (toThrow != null) {
                 throw toThrow;
             }

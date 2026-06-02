@@ -1,0 +1,111 @@
+package top.sywyar.pixivdownload.push;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@DisplayName("PushFormatConverter 协商与格式转换单元测试")
+class PushFormatConverterTest {
+
+    private final PushFormatConverter converter = new PushFormatConverter();
+
+    // ---- 协商 negotiate ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("协商：按通道优先级取第一个可达格式（Markdown 源 → 优先 CARD）")
+    void negotiatePicksFirstReachableByPreference() {
+        assertThat(converter.negotiate(List.of(PushFormat.CARD, PushFormat.PLAIN_TEXT), PushFormat.MARKDOWN))
+                .isEqualTo(PushFormat.CARD);
+        assertThat(converter.negotiate(List.of(PushFormat.HTML, PushFormat.PLAIN_TEXT), PushFormat.MARKDOWN))
+                .isEqualTo(PushFormat.HTML);
+    }
+
+    @Test
+    @DisplayName("协商：CARD 可达 ⟺ MARKDOWN 可达，HTML 源无法到 CARD 则降级到下一支持格式")
+    void negotiateCardReachabilityFollowsMarkdown() {
+        assertThat(converter.negotiate(List.of(PushFormat.CARD, PushFormat.PLAIN_TEXT), PushFormat.HTML))
+                .isEqualTo(PushFormat.PLAIN_TEXT);
+    }
+
+    @Test
+    @DisplayName("协商：HTML 源 → 仅支持 MARKDOWN 的位置不可达，回退到列表中的 PLAIN_TEXT")
+    void negotiateHtmlToMarkdownUnreachable() {
+        assertThat(converter.negotiate(List.of(PushFormat.MARKDOWN, PushFormat.PLAIN_TEXT), PushFormat.HTML))
+                .isEqualTo(PushFormat.PLAIN_TEXT);
+    }
+
+    @Test
+    @DisplayName("协商：空 / null 支持列表兜底为 PLAIN_TEXT")
+    void negotiateEmptyFallsBackToPlainText() {
+        assertThat(converter.negotiate(List.of(), PushFormat.MARKDOWN)).isEqualTo(PushFormat.PLAIN_TEXT);
+        assertThat(converter.negotiate(null, PushFormat.MARKDOWN)).isEqualTo(PushFormat.PLAIN_TEXT);
+    }
+
+    // ---- 转换 render ---------------------------------------------------------------------
+
+    @Test
+    @DisplayName("转换：Markdown → 纯文本，剥离粗体与链接标记")
+    void renderMarkdownToPlainText() {
+        RenderedMessage rm = converter.render(
+                PushMessage.markdown("", "**粗** [链接](http://x)", PushLevel.INFO), PushFormat.PLAIN_TEXT);
+        assertThat(rm.format()).isEqualTo(PushFormat.PLAIN_TEXT);
+        assertThat(rm.body()).isEqualTo("粗 链接");
+    }
+
+    @Test
+    @DisplayName("转换：Markdown → HTML，粗体转 <b>")
+    void renderMarkdownToHtml() {
+        RenderedMessage rm = converter.render(
+                PushMessage.markdown("", "**粗**", PushLevel.INFO), PushFormat.HTML);
+        assertThat(rm.format()).isEqualTo(PushFormat.HTML);
+        assertThat(rm.body()).isEqualTo("<b>粗</b>");
+    }
+
+    @Test
+    @DisplayName("转换：纯文本 → HTML，转义特殊字符并换行转 <br>")
+    void renderPlainTextToHtml() {
+        RenderedMessage rm = converter.render(
+                PushMessage.text("", "a<b>\nc", PushLevel.INFO), PushFormat.HTML);
+        assertThat(rm.body()).isEqualTo("a&lt;b&gt;<br>c");
+    }
+
+    @Test
+    @DisplayName("转换：HTML → 纯文本，去标签、<br> 转换行、反转义实体")
+    void renderHtmlToPlainText() {
+        RenderedMessage rm = converter.render(
+                PushMessage.html("", "<b>x</b><br>y&amp;z", PushLevel.INFO), PushFormat.PLAIN_TEXT);
+        assertThat(rm.body()).isEqualTo("x\ny&z");
+    }
+
+    @Test
+    @DisplayName("转换：目标 CARD 时正文以 Markdown 内联承载（Markdown 源原样）")
+    void renderCardCarriesMarkdownBody() {
+        RenderedMessage rm = converter.render(
+                PushMessage.markdown("标题", "**粗**", PushLevel.WARNING), PushFormat.CARD);
+        assertThat(rm.format()).isEqualTo(PushFormat.CARD);
+        assertThat(rm.title()).isEqualTo("标题");
+        assertThat(rm.body()).isEqualTo("**粗**");
+        assertThat(rm.level()).isEqualTo(PushLevel.WARNING);
+    }
+
+    @Test
+    @DisplayName("转换：HTML 源 → CARD 不可达 Markdown，卡片正文降级为纯文本")
+    void renderCardFromHtmlDegradesBody() {
+        RenderedMessage rm = converter.render(
+                PushMessage.html("", "<b>x</b>", PushLevel.INFO), PushFormat.CARD);
+        assertThat(rm.format()).isEqualTo(PushFormat.CARD);
+        assertThat(rm.body()).isEqualTo("x");
+    }
+
+    @Test
+    @DisplayName("降级：目标不可达（HTML 源 → MARKDOWN）时尽力降级为纯文本仍产出")
+    void renderUnreachableTargetDegradesToPlainText() {
+        RenderedMessage rm = converter.render(
+                PushMessage.html("", "<b>x</b>", PushLevel.INFO), PushFormat.MARKDOWN);
+        assertThat(rm.format()).isEqualTo(PushFormat.PLAIN_TEXT);
+        assertThat(rm.body()).isEqualTo("x");
+    }
+}

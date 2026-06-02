@@ -7,20 +7,23 @@ import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushHttpSender;
-import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushResult;
+import top.sywyar.pixivdownload.push.RenderedMessage;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * 自定义 Webhook（DIY）通道。把 {@link PushMessage} 套进用户提供的请求体模板后 POST 到用户提供的 URL，
+ * 自定义 Webhook（DIY）通道。把已渲染消息套进用户提供的请求体模板后 POST 到用户提供的 URL，
  * 可对接 Discord / Slack / ntfy / Gotify 等任意 webhook。
  * <p>
- * 模板支持 {@code {{title}}} / {@code {{content}}} 占位符；当内容类型为 JSON 时，占位符值会做 JSON 字符串转义，
- * 避免正文里的引号 / 换行破坏 JSON。模板留空时使用 {@code {"title":"{{title}}","content":"{{content}}"}}。
- * 只读取 {@link WebhookConfig}，与其它通道解耦；发送细节委托给 {@link PushHttpSender}。
+ * 声明支持 {@link PushFormat#MARKDOWN} 与 {@link PushFormat#PLAIN_TEXT}：正文按协商结果原样注入模板
+ * （默认源即 Markdown，注入 Markdown 文本）。模板支持 {@code {{title}}} / {@code {{content}}} 占位符；当内容类型
+ * 为 JSON 时，占位符值会做 JSON 字符串转义，避免正文里的引号 / 换行破坏 JSON。模板留空时使用
+ * {@code {"title":"{{title}}","content":"{{content}}"}}。只读取 {@link WebhookConfig}，与其它通道解耦；
+ * 发送细节委托给 {@link PushHttpSender}。
  */
 @Component
 public class WebhookPushChannel implements PushChannel {
@@ -49,19 +52,24 @@ public class WebhookPushChannel implements PushChannel {
     }
 
     @Override
-    public PushResult send(PushMessage message) {
+    public List<PushFormat> supportedFormats() {
+        return List.of(PushFormat.MARKDOWN, PushFormat.PLAIN_TEXT);
+    }
+
+    @Override
+    public PushResult send(RenderedMessage message) {
         return deliver(config.toSettings(), message);
     }
 
     @Override
-    public PushResult sendTest(PushChannelSettings settings, PushMessage message) {
+    public PushResult sendTest(PushChannelSettings settings, RenderedMessage message) {
         if (settings instanceof WebhookSettings webhookSettings) {
             return deliver(webhookSettings, message);
         }
         return PushResult.failed(type(), "settings type mismatch");
     }
 
-    private PushResult deliver(WebhookSettings settings, PushMessage message) {
+    private PushResult deliver(WebhookSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
             return PushResult.skipped(type(), "incomplete settings");
         }
@@ -74,7 +82,7 @@ public class WebhookPushChannel implements PushChannel {
         boolean json = isJson(mediaType);
         String template = settings.bodyTemplate().isBlank() ? DEFAULT_TEMPLATE : settings.bodyTemplate();
         String title = json ? jsonEscape(message.title()) : message.title();
-        String content = json ? jsonEscape(message.content()) : message.content();
+        String content = json ? jsonEscape(message.body()) : message.body();
         String rendered = template
                 .replace(PLACEHOLDER_TITLE, title)
                 .replace(PLACEHOLDER_CONTENT, content);

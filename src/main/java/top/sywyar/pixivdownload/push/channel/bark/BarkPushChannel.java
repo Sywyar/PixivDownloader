@@ -8,15 +8,19 @@ import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushHttpSender;
-import top.sywyar.pixivdownload.push.PushMessage;
+import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushResult;
+import top.sywyar.pixivdownload.push.RenderedMessage;
 
 import java.util.List;
 
 /**
- * Bark（iOS 推送）通道。{@code POST {server}/push}，JSON 体携带 device_key / title / body / sound。
+ * Bark（iOS 推送）通道。{@code POST {server}/push}，JSON 体携带 device_key / title / body / sound / level。
  * <p>
+ * iOS 通知正文不渲染 Markdown / HTML，故只声明支持 {@link PushFormat#PLAIN_TEXT}；
+ * {@link PushLevel#ERROR} 映射为 Bark 的 {@code timeSensitive} 中断级别（可在专注模式下展示）。
  * 渲染逻辑集中在 {@link #deliver}，{@link #send}（已保存配置）与 {@link #sendTest}（GUI 临时设置）共用它。
  * 只读取 {@link BarkConfig}，与其它通道解耦；发送细节委托给 {@link PushHttpSender}。
  */
@@ -44,25 +48,31 @@ public class BarkPushChannel implements PushChannel {
     }
 
     @Override
-    public PushResult send(PushMessage message) {
+    public List<PushFormat> supportedFormats() {
+        return List.of(PushFormat.PLAIN_TEXT);
+    }
+
+    @Override
+    public PushResult send(RenderedMessage message) {
         return deliver(config.toSettings(), message);
     }
 
     @Override
-    public PushResult sendTest(PushChannelSettings settings, PushMessage message) {
+    public PushResult sendTest(PushChannelSettings settings, RenderedMessage message) {
         if (settings instanceof BarkSettings barkSettings) {
             return deliver(barkSettings, message);
         }
         return PushResult.failed(type(), "settings type mismatch");
     }
 
-    private PushResult deliver(BarkSettings settings, PushMessage message) {
+    private PushResult deliver(BarkSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
             return PushResult.skipped(type(), "incomplete settings");
         }
         String url = stripTrailingSlash(settings.server()) + "/push";
         String sound = settings.sound().isBlank() ? null : settings.sound();
-        Payload payload = new Payload(settings.deviceKey(), message.title(), message.content(), sound);
+        Payload payload = new Payload(
+                settings.deviceKey(), message.title(), message.body(), sound, barkLevel(message.level()));
 
         byte[] body;
         try {
@@ -73,6 +83,11 @@ public class BarkPushChannel implements PushChannel {
         OutboundRequest request = OutboundRequest.json(
                 url, body, List.of(settings.deviceKey()), settings.useProxy());
         return sender.send(type(), request);
+    }
+
+    /** 严重级别映射到 Bark 中断级别；非 ERROR 用默认（返回 {@code null} 则不下发该字段）。 */
+    private static String barkLevel(PushLevel level) {
+        return level == PushLevel.ERROR ? "timeSensitive" : null;
     }
 
     private static String stripTrailingSlash(String s) {
@@ -88,7 +103,8 @@ public class BarkPushChannel implements PushChannel {
             @JsonProperty("device_key") String deviceKey,
             String title,
             String body,
-            String sound
+            String sound,
+            String level
     ) {
     }
 }

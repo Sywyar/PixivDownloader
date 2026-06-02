@@ -6,9 +6,10 @@ import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushHttpSender;
-import top.sywyar.pixivdownload.push.PushMessage;
 import top.sywyar.pixivdownload.push.PushResult;
+import top.sywyar.pixivdownload.push.RenderedMessage;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -19,11 +20,12 @@ import java.util.Base64;
 import java.util.List;
 
 /**
- * 钉钉自定义机器人通道。{@code POST https://oapi.dingtalk.com/robot/send?access_token=...}，
- * 以 markdown 消息体发送（标题加粗 + 正文）。
+ * 钉钉自定义机器人通道。{@code POST https://oapi.dingtalk.com/robot/send?access_token=...}。
  * <p>
- * 渲染逻辑集中在 {@link #deliver}，{@link #send}（已保存配置）与 {@link #sendTest}（GUI 临时设置）共用它。
- * 只读取 {@link DingTalkConfig}，与其它通道解耦；发送细节委托给 {@link PushHttpSender}。
+ * 声明支持 {@link PushFormat#MARKDOWN}（{@code markdown} 消息体，标题作 {@code ####} 标题）与
+ * {@link PushFormat#PLAIN_TEXT}（{@code text} 消息体）。渲染逻辑集中在 {@link #deliver}，
+ * {@link #send}（已保存配置）与 {@link #sendTest}（GUI 临时设置）共用它。只读取 {@link DingTalkConfig}，
+ * 与其它通道解耦；发送细节委托给 {@link PushHttpSender}。
  */
 @Component
 public class DingTalkPushChannel implements PushChannel {
@@ -50,19 +52,24 @@ public class DingTalkPushChannel implements PushChannel {
     }
 
     @Override
-    public PushResult send(PushMessage message) {
+    public List<PushFormat> supportedFormats() {
+        return List.of(PushFormat.MARKDOWN, PushFormat.PLAIN_TEXT);
+    }
+
+    @Override
+    public PushResult send(RenderedMessage message) {
         return deliver(config.toSettings(), message);
     }
 
     @Override
-    public PushResult sendTest(PushChannelSettings settings, PushMessage message) {
+    public PushResult sendTest(PushChannelSettings settings, RenderedMessage message) {
         if (settings instanceof DingTalkSettings dingTalkSettings) {
             return deliver(dingTalkSettings, message);
         }
         return PushResult.failed(type(), "settings type mismatch");
     }
 
-    private PushResult deliver(DingTalkSettings settings, PushMessage message) {
+    private PushResult deliver(DingTalkSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
             return PushResult.skipped(type(), "incomplete settings");
         }
@@ -86,8 +93,9 @@ public class DingTalkPushChannel implements PushChannel {
             secrets.add(secret);
         }
 
-        String text = "#### " + message.title() + "\n\n" + message.content();
-        Payload payload = new Payload("markdown", new Markdown(message.title(), text));
+        Object payload = message.format() == PushFormat.MARKDOWN
+                ? markdownPayload(message)
+                : textPayload(message);
 
         byte[] body;
         try {
@@ -97,6 +105,22 @@ public class DingTalkPushChannel implements PushChannel {
         }
         OutboundRequest request = OutboundRequest.json(url, body, secrets, settings.useProxy());
         return sender.send(type(), request);
+    }
+
+    private static MarkdownPayload markdownPayload(RenderedMessage message) {
+        String text = message.title().isBlank()
+                ? message.body()
+                : "#### " + message.title() + "\n\n" + message.body();
+        // markdown 消息的 title 仅用于通知摘要、不展示，缺省用正文兜底。
+        String title = message.title().isBlank() ? message.body() : message.title();
+        return new MarkdownPayload("markdown", new Markdown(title, text));
+    }
+
+    private static TextPayload textPayload(RenderedMessage message) {
+        String content = message.title().isBlank()
+                ? message.body()
+                : message.title() + "\n\n" + message.body();
+        return new TextPayload("text", new Text(content));
     }
 
     /**
@@ -112,9 +136,15 @@ public class DingTalkPushChannel implements PushChannel {
         return URLEncoder.encode(Base64.getEncoder().encodeToString(signData), StandardCharsets.UTF_8);
     }
 
-    private record Payload(String msgtype, Markdown markdown) {
+    private record MarkdownPayload(String msgtype, Markdown markdown) {
     }
 
     private record Markdown(String title, String text) {
+    }
+
+    private record TextPayload(String msgtype, Text text) {
+    }
+
+    private record Text(String content) {
     }
 }

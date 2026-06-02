@@ -7,9 +7,11 @@ import top.sywyar.pixivdownload.push.OutboundRequest;
 import top.sywyar.pixivdownload.push.PushChannel;
 import top.sywyar.pixivdownload.push.PushChannelSettings;
 import top.sywyar.pixivdownload.push.PushChannelType;
+import top.sywyar.pixivdownload.push.PushFormat;
 import top.sywyar.pixivdownload.push.PushHttpSender;
-import top.sywyar.pixivdownload.push.PushMessage;
+import top.sywyar.pixivdownload.push.PushLevel;
 import top.sywyar.pixivdownload.push.PushResult;
+import top.sywyar.pixivdownload.push.RenderedMessage;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -17,9 +19,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * 飞书自定义机器人通道。{@code POST https://open.feishu.cn/open-apis/bot/v2/hook/{webhookKey}}，text 消息。
+ * 飞书自定义机器人通道。{@code POST https://open.feishu.cn/open-apis/bot/v2/hook/{webhookKey}}。
  * <p>
- * 「签名校验」安全设置：算法与钉钉<b>不同</b>——以 {@code timestamp(秒) + "\n" + secret} 作为 HMAC-SHA256 的
+ * 声明支持 {@link PushFormat#CARD}（{@code interactive} 消息卡片：header 颜色按 {@link PushLevel} 着色、
+ * 正文用 {@code lark_md} 渲染 Markdown）与 {@link PushFormat#PLAIN_TEXT}（{@code text} 消息）。
+ * 「签名校验」安全设置算法与钉钉<b>不同</b>——以 {@code timestamp(秒) + "\n" + secret} 作为 HMAC-SHA256 的
  * <b>密钥</b>对<b>空串</b>签名、Base64（不再 URL 编码），并把 {@code timestamp}/{@code sign} 放进<b>请求体</b>。
  * 只读取 {@link FeishuConfig}，与其它通道解耦；发送细节委托给 {@link PushHttpSender}。
  */
@@ -48,26 +52,28 @@ public class FeishuPushChannel implements PushChannel {
     }
 
     @Override
-    public PushResult send(PushMessage message) {
+    public List<PushFormat> supportedFormats() {
+        return List.of(PushFormat.CARD, PushFormat.PLAIN_TEXT);
+    }
+
+    @Override
+    public PushResult send(RenderedMessage message) {
         return deliver(config.toSettings(), message);
     }
 
     @Override
-    public PushResult sendTest(PushChannelSettings settings, PushMessage message) {
+    public PushResult sendTest(PushChannelSettings settings, RenderedMessage message) {
         if (settings instanceof FeishuSettings feishuSettings) {
             return deliver(feishuSettings, message);
         }
         return PushResult.failed(type(), "settings type mismatch");
     }
 
-    private PushResult deliver(FeishuSettings settings, PushMessage message) {
+    private PushResult deliver(FeishuSettings settings, RenderedMessage message) {
         if (!settings.isComplete()) {
             return PushResult.skipped(type(), "incomplete settings");
         }
         String url = HOOK_BASE + settings.webhookKey();
-        String text = message.title().isBlank()
-                ? message.content()
-                : message.title() + "\n\n" + message.content();
 
         String timestamp = null;
         String sign = null;
@@ -79,7 +85,10 @@ public class FeishuPushChannel implements PushChannel {
                 return PushResult.failed(type(), "sign error");
             }
         }
-        Payload payload = new Payload(timestamp, sign, "text", new Content(text));
+
+        Object payload = message.format() == PushFormat.CARD
+                ? cardPayload(timestamp, sign, message)
+                : textPayload(timestamp, sign, message);
 
         byte[] body;
         try {
@@ -90,6 +99,31 @@ public class FeishuPushChannel implements PushChannel {
         OutboundRequest request = OutboundRequest.json(
                 url, body, List.of(settings.webhookKey(), settings.secret()), settings.useProxy());
         return sender.send(type(), request);
+    }
+
+    private static CardPayload cardPayload(String timestamp, String sign, RenderedMessage message) {
+        CardHeader header = message.title().isBlank()
+                ? null
+                : new CardHeader(new CardTitle("plain_text", message.title()), feishuColor(message.level()));
+        List<CardElement> elements = List.of(new CardElement("div", new LarkText("lark_md", message.body())));
+        Card card = new Card(new CardConfig(true), header, elements);
+        return new CardPayload(timestamp, sign, "interactive", card);
+    }
+
+    private static TextPayload textPayload(String timestamp, String sign, RenderedMessage message) {
+        String text = message.title().isBlank()
+                ? message.body()
+                : message.title() + "\n\n" + message.body();
+        return new TextPayload(timestamp, sign, "text", new TextContent(text));
+    }
+
+    /** 严重级别映射到飞书卡片 header 颜色。 */
+    private static String feishuColor(PushLevel level) {
+        return switch (level) {
+            case ERROR -> "red";
+            case WARNING -> "orange";
+            case INFO -> "blue";
+        };
     }
 
     /**
@@ -106,9 +140,32 @@ public class FeishuPushChannel implements PushChannel {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    private record Payload(String timestamp, String sign, String msg_type, Content content) {
+    private record TextPayload(String timestamp, String sign, String msg_type, TextContent content) {
     }
 
-    private record Content(String text) {
+    private record TextContent(String text) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record CardPayload(String timestamp, String sign, String msg_type, Card card) {
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record Card(CardConfig config, CardHeader header, List<CardElement> elements) {
+    }
+
+    private record CardConfig(boolean wide_screen_mode) {
+    }
+
+    private record CardHeader(CardTitle title, String template) {
+    }
+
+    private record CardTitle(String tag, String content) {
+    }
+
+    private record CardElement(String tag, LarkText text) {
+    }
+
+    private record LarkText(String tag, String content) {
     }
 }

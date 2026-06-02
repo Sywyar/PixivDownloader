@@ -16,6 +16,10 @@ import java.util.Map;
  * 通过 Spring 的 {@code List<PushChannel>} 注入自动发现全部通道，本类<b>不感知</b>任何具体通道：
  * 新增通道不改动此类。整体 best-effort——{@link PushConfig#isEnabled() 总开关}关闭时直接跳过；
  * 单个通道的失败 / 异常被隔离，绝不影响其它通道，也<b>绝不向调用方抛出</b>。
+ * <p>
+ * 派发前先由 {@link PushFormatConverter} 按每个通道 {@link PushChannel#supportedFormats() 支持的格式}与
+ * 消息源格式协商目标格式、把正文转换好（不可转换时尽力降级为纯文本），通道只渲染已定型的
+ * {@link RenderedMessage}。
  */
 @Service
 @Slf4j
@@ -24,12 +28,15 @@ public class PushService {
     private final PushConfig pushConfig;
     private final List<PushChannel> channels;
     private final Map<PushChannelType, PushChannel> byType;
+    private final PushFormatConverter formatConverter;
     private final AppMessages messages;
 
-    public PushService(PushConfig pushConfig, List<PushChannel> channels, AppMessages messages) {
+    public PushService(PushConfig pushConfig, List<PushChannel> channels,
+                       PushFormatConverter formatConverter, AppMessages messages) {
         this.pushConfig = pushConfig;
         // List<PushChannel> 可能为空（未注册任何通道实现），属正常情况。
         this.channels = channels == null ? List.of() : channels;
+        this.formatConverter = formatConverter;
         this.messages = messages;
         Map<PushChannelType, PushChannel> map = new EnumMap<>(PushChannelType.class);
         for (PushChannel channel : this.channels) {
@@ -124,7 +131,7 @@ public class PushService {
      */
     private PushResult dispatch(PushChannel channel, PushMessage message) {
         try {
-            return channel.send(message);
+            return channel.send(renderFor(channel, message));
         } catch (RuntimeException e) {
             log.warn(messages.getForLog("push.log.channel.error", channel.type().id(),
                     e.getClass().getSimpleName()));
@@ -134,11 +141,17 @@ public class PushService {
 
     private PushResult dispatchTest(PushChannel channel, PushChannelSettings settings, PushMessage message) {
         try {
-            return channel.sendTest(settings, message);
+            return channel.sendTest(settings, renderFor(channel, message));
         } catch (RuntimeException e) {
             log.warn(messages.getForLog("push.log.channel.error", channel.type().id(),
                     e.getClass().getSimpleName()));
             return PushResult.failed(channel.type(), "unexpected error");
         }
+    }
+
+    /** 为指定通道协商目标格式并把正文转换好。 */
+    private RenderedMessage renderFor(PushChannel channel, PushMessage message) {
+        PushFormat target = formatConverter.negotiate(channel.supportedFormats(), message.sourceFormat());
+        return formatConverter.render(message, target);
     }
 }
