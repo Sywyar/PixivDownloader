@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.push;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
@@ -14,6 +16,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -28,6 +31,7 @@ import java.util.List;
 public class PushHttpSender {
 
     private static final int DETAIL_MAX_LEN = 500;
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final RestTemplate directRestTemplate;
     private final RestTemplate proxyRestTemplate;
@@ -42,7 +46,7 @@ public class PushHttpSender {
     }
 
     /**
-     * 发送一次调用。HTTP 2xx 记为成功；非 2xx / 网络异常归为失败并返回脱敏详情。<b>不抛异常。</b>
+     * 发送一次调用。HTTP 2xx 且业务响应未报错记为成功；非 2xx / 业务失败 / 网络异常归为失败并返回脱敏详情。<b>不抛异常。</b>
      */
     public PushResult send(PushChannelType type, OutboundRequest request) {
         // 以 URI 直发，绝不让 RestTemplate 把 URL 当作模板再编码一次——通道（如钉钉「加签」）可能已经把
@@ -64,6 +68,13 @@ public class PushHttpSender {
             ResponseEntity<byte[]> response =
                     restTemplate.exchange(uri, HttpMethod.POST, entity, byte[].class);
             long elapsedMs = elapsedMs(startedAtNs);
+            BusinessStatus businessStatus =
+                    inspectBusinessStatus(type, response.getBody(), request.secrets());
+            if (!businessStatus.ok()) {
+                String detail = businessStatus.detail();
+                log.warn(messages.getForLog("push.log.send.failed", type.id(), elapsedMs, detail));
+                return PushResult.failed(type, detail);
+            }
             log.info(messages.getForLog("push.log.send.success", type.id(),
                     response.getStatusCode().value(), elapsedMs));
             return PushResult.ok(type);
@@ -81,6 +92,163 @@ public class PushHttpSender {
             log.warn(messages.getForLog("push.log.send.failed", type.id(), elapsedMs, detail));
             return PushResult.failed(type, detail);
         }
+    }
+
+    private static BusinessStatus inspectBusinessStatus(PushChannelType type, byte[] body, List<String> secrets) {
+        if (type == PushChannelType.WEBHOOK || body == null || body.length == 0) {
+            return BusinessStatus.success();
+        }
+
+        String text = new String(body, StandardCharsets.UTF_8);
+        if (text.isBlank()) {
+            return BusinessStatus.success();
+        }
+
+        JsonNode root;
+        try {
+            root = JSON.readTree(text);
+        } catch (Exception ignored) {
+            return BusinessStatus.success();
+        }
+        if (root == null || !root.isObject()) {
+            return BusinessStatus.success();
+        }
+
+        return switch (type) {
+            case DINGTALK, WECOM -> errcodeStatus(root, secrets);
+            case TELEGRAM -> telegramStatus(root, secrets);
+            case FEISHU -> feishuStatus(root, secrets);
+            case PUSHPLUS -> codeStatus(root, "code", List.of("200"),
+                    List.of("msg", "message"), secrets);
+            case SERVERCHAN -> codeStatus(root, "code", List.of("0", "200"),
+                    List.of("message", "msg"), secrets);
+            case BARK -> codeStatus(root, "code", List.of("200"),
+                    List.of("message", "msg"), secrets);
+            case WEBHOOK -> BusinessStatus.success();
+        };
+    }
+
+    private static BusinessStatus errcodeStatus(JsonNode root, List<String> secrets) {
+        JsonNode errcode = field(root, "errcode");
+        if (errcode == null || matches(errcode, "0")) {
+            return BusinessStatus.success();
+        }
+        return BusinessStatus.failed(failureDetail("errcode", errcode,
+                firstText(root, "errmsg", "message", "msg"), secrets));
+    }
+
+    private static BusinessStatus telegramStatus(JsonNode root, List<String> secrets) {
+        JsonNode okNode = field(root, "ok");
+        Boolean ok = bool(okNode);
+        if (ok == null || ok) {
+            return BusinessStatus.success();
+        }
+
+        String code = scalarText(field(root, "error_code"));
+        String detail = "ok=false";
+        if (code != null && !code.isBlank()) {
+            detail += ", error_code=" + code;
+        }
+        String message = firstText(root, "description", "message");
+        if (message != null && !message.isBlank()) {
+            detail += ": " + message;
+        }
+        return BusinessStatus.failed(truncate(redact(detail, secrets)));
+    }
+
+    private static BusinessStatus feishuStatus(JsonNode root, List<String> secrets) {
+        JsonNode statusCode = field(root, "StatusCode");
+        if (statusCode != null) {
+            return codeStatus(root, "StatusCode", List.of("0"),
+                    List.of("StatusMessage", "msg", "message"), secrets);
+        }
+        return codeStatus(root, "code", List.of("0"),
+                List.of("msg", "message", "StatusMessage"), secrets);
+    }
+
+    private static BusinessStatus codeStatus(JsonNode root, String codeField, List<String> successValues,
+                                             List<String> messageFields, List<String> secrets) {
+        JsonNode code = field(root, codeField);
+        if (code == null || successValues.stream().anyMatch(value -> matches(code, value))) {
+            return BusinessStatus.success();
+        }
+        return BusinessStatus.failed(failureDetail(codeField, code,
+                firstText(root, messageFields), secrets));
+    }
+
+    private static JsonNode field(JsonNode root, String name) {
+        if (root == null || name == null) {
+            return null;
+        }
+        JsonNode exact = root.get(name);
+        if (exact != null && !exact.isNull()) {
+            return exact;
+        }
+        Iterator<String> names = root.fieldNames();
+        while (names.hasNext()) {
+            String candidate = names.next();
+            if (name.equalsIgnoreCase(candidate)) {
+                JsonNode node = root.get(candidate);
+                return node == null || node.isNull() ? null : node;
+            }
+        }
+        return null;
+    }
+
+    private static boolean matches(JsonNode node, String expected) {
+        String value = scalarText(node);
+        return value != null && value.trim().equals(expected);
+    }
+
+    private static Boolean bool(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isBoolean()) {
+            return node.booleanValue();
+        }
+        if (node.isTextual()) {
+            String value = node.asText().trim();
+            if ("true".equalsIgnoreCase(value)) {
+                return Boolean.TRUE;
+            }
+            if ("false".equalsIgnoreCase(value)) {
+                return Boolean.FALSE;
+            }
+        }
+        return null;
+    }
+
+    private static String firstText(JsonNode root, List<String> names) {
+        return firstText(root, names.toArray(String[]::new));
+    }
+
+    private static String firstText(JsonNode root, String... names) {
+        for (String name : names) {
+            String value = scalarText(field(root, name));
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static String failureDetail(String codeField, JsonNode code, String message, List<String> secrets) {
+        String detail = codeField + "=" + scalarText(code);
+        if (message != null && !message.isBlank()) {
+            detail += ": " + message;
+        }
+        return truncate(redact(detail, secrets));
+    }
+
+    private static String scalarText(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isTextual() || node.isNumber() || node.isBoolean()) {
+            return node.asText();
+        }
+        return node.toString();
     }
 
     private static long elapsedMs(long startedAtNs) {
@@ -115,5 +283,15 @@ public class PushHttpSender {
         }
         String oneLine = msg.replaceAll("\\s+", " ").trim();
         return oneLine.length() > DETAIL_MAX_LEN ? oneLine.substring(0, DETAIL_MAX_LEN) + "…" : oneLine;
+    }
+
+    private record BusinessStatus(boolean ok, String detail) {
+        private static BusinessStatus success() {
+            return new BusinessStatus(true, null);
+        }
+
+        private static BusinessStatus failed(String detail) {
+            return new BusinessStatus(false, detail);
+        }
     }
 }
