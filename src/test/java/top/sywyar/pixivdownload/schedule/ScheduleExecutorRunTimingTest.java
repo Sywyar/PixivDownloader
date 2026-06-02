@@ -13,12 +13,11 @@ import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.mail.MailService;
-import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.notification.NotificationService;
 import top.sywyar.pixivdownload.novel.NovelDownloader;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.mail.template.RenderedMail;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
@@ -61,9 +60,7 @@ class ScheduleExecutorRunTimingTest {
     @Mock
     private OveruseWarningService overuseWarningService;
     @Mock
-    private MailService mailService;
-    @Mock
-    private MailTemplateRegistry mailTemplateRegistry;
+    private NotificationService notificationService;
     @Mock
     private top.sywyar.pixivdownload.i18n.AppMessages appMessages;
     @Mock
@@ -87,7 +84,7 @@ class ScheduleExecutorRunTimingTest {
         return new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
                 artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
-                overuseWarningService, mailService, mailTemplateRegistry, appMessages, setupService,
+                overuseWarningService, notificationService, appMessages, setupService,
                 new top.sywyar.pixivdownload.download.config.DownloadConfig(), imagePool, novelPool);
     }
 
@@ -315,15 +312,15 @@ class ScheduleExecutorRunTimingTest {
     }
 
     @Test
-    @DisplayName("重试失败刚跨过 pending-max-attempts 阈值时发送 pending-exhausted 邮件")
-    void shouldSendPendingExhaustedMailWhenAttemptsCrossLimit() throws Exception {
+    @DisplayName("重试失败刚跨过 pending-max-attempts 阈值时触发 pending-exhausted 通知")
+    void shouldNotifyPendingExhaustedWhenAttemptsCrossLimit() throws Exception {
         ScheduledTask task = new ScheduledTask(
                 9L, "重试达上限计划", true, ScheduledTaskType.USER_NEW,
                 "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
                 ScheduledTask.TRIGGER_INTERVAL, 1, null,
                 ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null,
                 0, 0L);
-        // 既有隔离条目：attempts=4，再失败 +1 = 5（默认 max=5）→ 触发邮件
+        // 既有隔离条目：attempts=4，再失败 +1 = 5（默认 max=5）→ 触发通知
         when(mapper.listPending(9L)).thenReturn(List.of(
                 new ScheduledTaskPending(9L, 777L, "previous", 4, 1000L, 2000L)));
         when(mapper.selectPendingAttempts(9L, 777L)).thenReturn(5);
@@ -332,15 +329,12 @@ class ScheduleExecutorRunTimingTest {
         // 模拟瞬时失败 → recordRecoverable 走 incPendingAttempts → 检查 attempts 是否到阈值
         when(pixivFetchService.fetchArtworkMeta("777", null))
                 .thenThrow(new IllegalStateException("still failing"));
-        when(mailTemplateRegistry.render(eq(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED),
-                any(), any())).thenReturn(new RenderedMail("subject", "body"));
 
         executor.runTaskAndRecord(task);
 
         verify(mapper).incPendingAttempts(eq(9L), eq(777L), anyLong());
-        verify(mailTemplateRegistry).render(eq(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED),
-                any(), any());
-        verify(mailService).send(anyString(), anyString());
+        // 统一通知：扇出给所有介质由 NotificationService 负责，调度器只触发一次场景。
+        verify(notificationService).notify(eq(NotificationScenario.PENDING_EXHAUSTED), any(), any());
     }
 
     @Test

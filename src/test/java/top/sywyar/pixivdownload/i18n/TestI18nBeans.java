@@ -19,7 +19,8 @@ public final class TestI18nBeans {
         messageSource.setBasenames(
                 "classpath:i18n/messages",
                 "classpath:i18n/ValidationMessages",
-                "classpath:i18n/mail/messages"
+                "classpath:i18n/mail/messages",
+                "classpath:i18n/push/messages"
         );
         messageSource.setDefaultEncoding(StandardCharsets.UTF_8.name());
         messageSource.setFallbackToSystemLocale(false);

@@ -16,9 +16,8 @@ import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.mail.MailService;
-import top.sywyar.pixivdownload.mail.template.MailTemplateRegistry;
-import top.sywyar.pixivdownload.mail.template.RenderedMail;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.notification.NotificationService;
 import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.NovelDownloader;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
@@ -60,7 +59,7 @@ import java.util.regex.Pattern;
  *       记隔离表 + 连续计数，连续 M（{@code schedule.auth-failure-circuit-breaker}）次熔断挂起。</li>
  *   <li><b>watermark</b>：reached 边界且无挂起条件即推进（哪怕本轮有作品进隔离表）；挂起异常上抛时绝不推进。</li>
  * </ul>
- * 自动挂起均发通知邮件（best-effort）；手动 {@code PAUSED} 不发。
+ * 自动挂起均发通知（邮件 + 推送并行，经 {@link NotificationService}，best-effort）；手动 {@code PAUSED} 不发。
  *
  * <p><b>作品级并发</b>：任务间本就串行（唯一 {@code @Scheduled} tick + 单飞），故一个任务内借用
  * 下载线程池（插画走 {@code downloadTaskExecutor}、小说走 {@code novelDownloadTaskExecutor}，与交互式
@@ -95,8 +94,7 @@ public class ScheduleExecutor {
     private final ScheduleRunQueue runQueue;
     private final ObjectMapper objectMapper;
     private final OveruseWarningService overuseWarningService;
-    private final MailService mailService;
-    private final MailTemplateRegistry mailTemplateRegistry;
+    private final NotificationService notificationService;
     private final AppMessages messages;
     private final SetupService setupService;
     private final DownloadConfig downloadConfig;
@@ -166,13 +164,13 @@ public class ScheduleExecutor {
             status = STATUS_OK;
             log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completed);
         } catch (OveruseWarningException e) {
-            // 过度访问警告：账号级暂停 + 冻结同账号 + 邮件；干净挂起（清 run_started_time）。
+            // 过度访问警告：账号级暂停 + 冻结同账号 + 通知；干净挂起（清 run_started_time）。
             status = STATUS_OVERUSE_PAUSED;
             message = String.valueOf(e.modifiedAt()); // 触发警告 modifiedAt：供卡片展示 + 账号级 ack 取用
             handleOveruse(task, e);
             log.warn("Scheduled task {} ({}) paused: overuse warning", task.id(), task.name());
         } catch (ScheduleSuspendException e) {
-            // cookie 依赖型 dead cookie / 单作品连续失败熔断：任务级挂起 + 邮件。
+            // cookie 依赖型 dead cookie / 单作品连续失败熔断：任务级挂起 + 通知。
             status = STATUS_AUTH_EXPIRED;
             handleSuspend(task, e);
             log.warn("Scheduled task {} ({}) suspended: {}", task.id(), task.name(), e.reason());
@@ -184,7 +182,7 @@ public class ScheduleExecutor {
             status = ScheduledTask.STATUS_PAUSED;
             log.info("Scheduled task {} ({}) paused mid-run by user", task.id(), task.name());
         } catch (PixivFetchService.PixivFetchException e) {
-            // 发现阶段鉴权失效（轮首/翻页）：不写 cookie 到日志，挂起并发邮件等管理员重授权。
+            // 发现阶段鉴权失效（轮首/翻页）：不写 cookie 到日志，挂起并发通知等管理员重授权。
             status = STATUS_AUTH_EXPIRED;
             handleSuspend(task, new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD));
             log.warn("Scheduled task {} ({}) auth expired, awaiting re-authorization", task.id(), task.name());
@@ -310,7 +308,7 @@ public class ScheduleExecutor {
 
         try {
             // ── 每轮无条件先消费隔离表（不再依赖 pendingRetryArmed 武装位）：走正常 dispatch 路径，
-            //    计入 N 检查点与过度访问风险；单作品 attempts 自动 +1，达到上限时发邮件转人工。
+            //    计入 N 检查点与过度访问风险；单作品 attempts 自动 +1，达到上限时发通知转人工。
             //    若作品在隔离期间已被其它路径（手动 / 别的任务）下载，先清隔离表条目、跳过重试。──
             retryPending(task.id(), runner, politeDelay, alreadyDownloaded);
 
@@ -933,7 +931,7 @@ public class ScheduleExecutor {
      * 才更新 run 状态 / 隔离表 / 完成计数 / 清零连续失败计数。{@link #awaitAll} 等本轮全部在途下载收尾。
      *
      * <p><b>并发下的线程安全</b>：{@code completedDownloads} 与 {@code consecutiveFailures} 用 {@link AtomicInteger}；
-     * 隔离表读写经 {@code pendingLock} 串行化（{@code incPendingAttempts}+阈值判定原子，邮件在锁外发）。
+     * 隔离表读写经 {@code pendingLock} 串行化（{@code incPendingAttempts}+阈值判定原子，通知在锁外发）。
      * {@code dispatchedSinceCheck} 仅调度主线程访问。「连续失败」熔断计数在并发下退化为「按完成顺序的连续」（可接受）。
      */
     private final class WorkRunner {
@@ -1104,7 +1102,7 @@ public class ScheduleExecutor {
                 if (isRetry) {
                     database.mapper().incPendingAttempts(taskId, workId, now);
                     log.warn("Scheduled task {} retry work {} failed: {}", taskId, workId, reason);
-                    // 刚跨过自动重试上限：发邮件转人工。临界判断（== max）确保只在跨越那一次触发，
+                    // 刚跨过自动重试上限：发通知转人工。临界判断（== max）确保只在跨越那一次触发，
                     // 不会因为后续仍在表里的同行（attempts >= max 已被 retryPending 跳过）重复发。
                     int max = scheduleConfig.getPendingMaxAttempts();
                     Integer attempts = database.mapper().selectPendingAttempts(taskId, workId);
@@ -1117,13 +1115,13 @@ public class ScheduleExecutor {
                     log.warn("Scheduled task {} isolated work {}: {}", taskId, workId, reason);
                 }
             }
-            // 邮件在锁外发：避免阻塞其它并发完成回调对隔离表的访问。
+            // 通知在锁外发：避免阻塞其它并发完成回调对隔离表的访问。
             if (exhausted) {
                 notifyPendingExhausted(workId, attemptsAtLimit, reason);
             }
         }
 
-        /** attempts 刚到达 {@code schedule.pending-max-attempts} 时发邮件，best-effort、不影响调度。 */
+        /** attempts 刚到达 {@code schedule.pending-max-attempts} 时发通知（邮件 + 推送），best-effort、不影响调度。 */
         private void notifyPendingExhausted(long workId, int attempts, String reason) {
             Locale locale = AppLocale.normalize(Locale.getDefault());
             String kindLabel = messages.get(locale, novel
@@ -1137,7 +1135,7 @@ public class ScheduleExecutor {
             ph.put("attempts", String.valueOf(attempts));
             ph.put("trigger_time", formatTime(System.currentTimeMillis()));
             ph.put("last_error_excerpt", reason == null ? "" : reason);
-            sendNotification(MailTemplateRegistry.TEMPLATE_PENDING_EXHAUSTED, ph);
+            sendNotification(NotificationScenario.PENDING_EXHAUSTED, ph);
         }
 
         /** 成功派发后到 N 触发过度访问检查；{@code WARNED} 干净 unwind（COOKIE_DEAD 轮内不双重判定，交给熔断）。 */
@@ -1159,9 +1157,9 @@ public class ScheduleExecutor {
         }
     }
 
-    // ── 自动挂起通知邮件（best-effort） ────────────────────────────────────────────
+    // ── 自动挂起通知（邮件 + 推送并行，best-effort） ──────────────────────────────────
 
-    /** 过度访问：冻结同账号所有非挂起态任务 + 发 overuse-paused 邮件。 */
+    /** 过度访问：冻结同账号所有非挂起态任务 + 发 overuse-paused 通知（邮件 + 推送）。 */
     private void handleOveruse(ScheduledTask task, OveruseWarningException e) {
         String accountId = task.accountId();
         String message = String.valueOf(e.modifiedAt());
@@ -1176,10 +1174,10 @@ public class ScheduleExecutor {
         ph.put("warning_time", formatTime(e.modifiedAt()));
         ph.put("trigger_time", formatTime(System.currentTimeMillis()));
         ph.put("warning_excerpt", e.excerpt());
-        sendNotification(MailTemplateRegistry.TEMPLATE_OVERUSE_PAUSED, ph);
+        sendNotification(NotificationScenario.OVERUSE_PAUSED, ph);
     }
 
-    /** 任务级挂起：发 auth-expired（dead cookie）或 circuit-breaker（熔断）邮件。 */
+    /** 任务级挂起：发 auth-expired（dead cookie）或 circuit-breaker（熔断）通知（邮件 + 推送）。 */
     private void handleSuspend(ScheduledTask task, ScheduleSuspendException e) {
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
@@ -1188,25 +1186,24 @@ public class ScheduleExecutor {
         if (e.reason() == ScheduleSuspendException.Reason.CIRCUIT_BREAKER) {
             ph.put("consecutive_failures", String.valueOf(e.consecutiveFailures()));
             ph.put("last_error_excerpt", e.lastErrorExcerpt() == null ? "" : e.lastErrorExcerpt());
-            sendNotification(MailTemplateRegistry.TEMPLATE_CIRCUIT_BREAKER, ph);
+            sendNotification(NotificationScenario.CIRCUIT_BREAKER, ph);
         } else {
             // reason 文案走模板 i18n，运行期只给一个稳定的 key 标识
             ph.put("reason", e.reason().name());
-            sendNotification(MailTemplateRegistry.TEMPLATE_AUTH_EXPIRED, ph);
+            sendNotification(NotificationScenario.AUTH_EXPIRED, ph);
         }
     }
 
-    /** 渲染模板并发信，全程 best-effort：渲染或发信失败仅记日志，绝不影响调度。 */
-    private void sendNotification(String templateId, Map<String, String> placeholders) {
-        try {
-            Locale locale = AppLocale.normalize(Locale.getDefault());
-            // 问候语称呼：用户设了称呼用称呼，否则回退本地化的「管理员」。所有模板共用，统一在此补齐。
-            placeholders.putIfAbsent("username", greetingName(locale));
-            RenderedMail mail = mailTemplateRegistry.render(templateId, locale, placeholders);
-            mailService.send(mail.subject(), mail.htmlBody());
-        } catch (Exception ex) {
-            log.error("Schedule notification mail [{}] failed: {}", templateId, ex.getMessage());
-        }
+    /**
+     * 统一触发一个通知场景：扇出给所有介质（邮件 + 推送），全程 best-effort——
+     * {@link NotificationService} 对每个介质各自隔离，绝不影响调度。
+     */
+    private void sendNotification(NotificationScenario scenario, Map<String, String> placeholders) {
+        // 调度器无 HTTP 上下文，locale 显式取 JVM 系统语言归一值。
+        Locale locale = AppLocale.normalize(Locale.getDefault());
+        // 问候语称呼：用户设了称呼用称呼，否则回退本地化的「管理员」。邮件模板共用，统一在此补齐。
+        placeholders.putIfAbsent("username", greetingName(locale));
+        notificationService.notify(scenario, locale, placeholders);
     }
 
     /** 邮件问候称呼：用户自定义称呼优先，否则回退本地化默认「管理员 / administrator」。 */
