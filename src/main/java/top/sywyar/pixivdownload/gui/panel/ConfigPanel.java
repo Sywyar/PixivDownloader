@@ -46,6 +46,9 @@ import java.util.concurrent.ExecutionException;
  */
 @Slf4j
 public class ConfigPanel extends JPanel {
+    private static final int PUSH_TEST_READ_TIMEOUT_MS = 30_000;
+    private static final int PUSH_TEST_ALL_READ_TIMEOUT_MS = 10 * 60 * 1000;
+
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String DEFAULT_ROOT_FOLDER = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
@@ -1219,8 +1222,8 @@ public class ConfigPanel extends JPanel {
 
     /**
      * 调用 {@code /api/gui/<endpoint>}（{@code push-test} 单条测试 / {@code push-test-all} 全部模板）；
-     * 同时尝试 http / https，本地端点；连接不上返回 reachable=false。读超时 30s：推送是体量很小的 webhook
-     * 调用，但 Telegram 经代理可能略慢（全部模板为多条串行发送，仍在余量内）。
+     * 同时尝试 http / https，本地端点；连接不上返回 reachable=false。单条测试沿用短读超时；全部模板会串行发送多条
+     * webhook，读超时放宽到 10 分钟。
      */
     private PushTestOutcome postPushTest(ObjectNode payload, String endpoint) {
         byte[] body;
@@ -1240,7 +1243,7 @@ public class ConfigPanel extends JPanel {
                     https.setHostnameVerifier((host, session) -> true);
                 }
                 conn.setConnectTimeout(2000);
-                conn.setReadTimeout(30_000);
+                conn.setReadTimeout(pushTestReadTimeout(endpoint));
                 conn.setRequestMethod("POST");
                 conn.setDoOutput(true);
                 conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
@@ -1295,6 +1298,12 @@ public class ConfigPanel extends JPanel {
             }
         }
         return new PushTestOutcome(false, false, 0, 0, null);
+    }
+
+    private static int pushTestReadTimeout(String endpoint) {
+        return "push-test-all".equals(endpoint)
+                ? PUSH_TEST_ALL_READ_TIMEOUT_MS
+                : PUSH_TEST_READ_TIMEOUT_MS;
     }
 
     /** push-test 异步结果。reachable=false 表示后端连接不上；success=true 仅当全部通道都发送成功。 */
