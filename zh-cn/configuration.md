@@ -405,6 +405,93 @@ mail.subject-prefix: "[PixivDownloader]"
 ```
 邮件主题前缀，便于客户端过滤；自动拼接在模板标题之前。
 
+> 邮件与下面的「推送通知」同属 **GUI 配置页 →「通知」** 分组，下拉切换要编辑的服务，已启用的服务都会生效。
+
+---
+
+### 推送通知（多通道）
+
+> 除邮件外还支持多种「推送」渠道，与邮件同属 **GUI 配置页 →「通知」** 分组。可同时启用任意多个渠道；每个渠道在 GUI 里都有独立的「启用」开关、配置字段，以及一个「测试此渠道」按钮（用当前表单值发送一条测试消息，无需先保存即可验证连通性）。**所有密钥 / Token 绝不会出现在日志或推送正文中。** 全部 `push.*` 字段**支持热重载**。
+
+```yaml
+push.enabled: false
+```
+推送总开关；关闭时所有渠道都不发送。默认关闭。
+
+> 下面每个渠道都有自己的「启用」开关（如 `push.bark.enabled`）和「是否走代理」开关（`push.<渠道>.use-proxy`，开启后该渠道请求走 `proxy.*` 配置的 HTTP 代理，独立于全局开关；Telegram 默认开启，其余默认关闭）。
+
+#### Bark（iOS）
+
+```yaml
+push.bark.enabled: false
+push.bark.server: https://api.day.app
+push.bark.device-key:
+push.bark.sound:
+```
+Bark 是 iOS 上的推送 App。`server` 为官方公共服务器或你自建的地址；`device-key` 在 Bark App 中获取；`sound` 为可选提示音名称，留空用 App 默认。
+
+#### 钉钉（DingTalk）
+
+```yaml
+push.dingtalk.enabled: false
+push.dingtalk.access-token:
+push.dingtalk.secret:
+```
+钉钉群「自定义机器人」。在钉钉群「设置 → 智能群助手 → 添加机器人 → 自定义」创建机器人，**在「安全设置」里勾选「加签」**。创建完成后会得到一个形如 `https://oapi.dingtalk.com/robot/send?access_token=xxxx` 的 Webhook 链接——把 `access_token=` 后面那一段填入 `access-token`；把勾选「加签」后生成的 **`SEC` 开头的密钥**填入 `secret`（该密钥关闭页面后无法再次查看，请及时复制）。若改用「自定义关键词」或「IP 白名单」，则 `secret` 留空。
+
+#### Telegram
+
+```yaml
+push.telegram.enabled: false
+push.telegram.bot-token:
+push.telegram.chat-id:
+push.telegram.use-proxy: true
+```
+向 [@BotFather](https://t.me/BotFather) 申请 Bot 获得 `bot-token`；`chat-id` 为目标会话（用户 / 群 / 频道）的 id。国内通常需开启代理（`use-proxy` 默认 `true`）。
+
+#### 飞书（Feishu）
+
+```yaml
+push.feishu.enabled: false
+push.feishu.webhook-key:
+push.feishu.secret:
+```
+飞书群「自定义机器人」。`webhook-key` 为机器人 Webhook 地址 `.../bot/v2/hook/` 之后那一段；若在机器人「安全设置」里启用「签名校验」，把密钥填入 `secret`，否则留空。
+
+#### 企业微信（WeCom）
+
+```yaml
+push.wecom.enabled: false
+push.wecom.key:
+```
+企业微信群机器人。`key` 为机器人 Webhook 链接 `?key=` 后面那一段。
+
+#### PushPlus（推送加）
+
+```yaml
+push.pushplus.enabled: false
+push.pushplus.token:
+```
+推送到微信。`token` 为 PushPlus 用户令牌，在 [官网](https://www.pushplus.plus) 或「pushplus 推送加」微信公众号回复 `token` 获取。
+
+#### Server 酱（Turbo / ³）
+
+```yaml
+push.serverchan.enabled: false
+push.serverchan.send-key:
+```
+推送到微信。`send-key` 为 Server 酱 SendKey；`sctp` 前缀的 Key 会自动走 Server 酱³ 端点，其余走 Turbo 端点。
+
+#### 自定义 Webhook
+
+```yaml
+push.webhook.enabled: false
+push.webhook.url:
+push.webhook.content-type: application/json
+push.webhook.body-template:
+```
+万能渠道：把通知套进你提供的请求体模板后 POST 到 `url`，可对接 Discord / Slack / ntfy / Gotify 等任意 Webhook。模板支持 `{{title}}` / `{{content}}` 占位符，留空时用 `{"title":"{{title}}","content":"{{content}}"}`；当 `content-type` 为 JSON 类型时，占位符值会自动做 JSON 转义，避免正文里的引号 / 换行破坏 JSON 结构。
+
 ---
 
 ## 配置热重载说明
@@ -454,6 +541,7 @@ mail.subject-prefix: "[PixivDownloader]"
 | `schedule.overuse-defer-default-minutes` | ✅ |
 | `schedule.tick-interval-ms` | ❌ 需重启 |
 | `mail.*` | ✅ |
+| `push.*` | ✅ |
 | `server.port` | ❌ 需重启 |
 | `download.root-folder` | ❌ 需重启 |
 
@@ -562,4 +650,38 @@ mail.from:
 mail.to:
 mail.socks-proxy:
 mail.subject-prefix: "[PixivDownloader]"
+
+# 推送通知（多通道，与邮件同属 GUI「通知」分组）
+push.enabled: false
+push.bark.enabled: false
+push.bark.server: https://api.day.app
+push.bark.device-key:
+push.bark.sound:
+push.bark.use-proxy: false
+push.dingtalk.enabled: false
+push.dingtalk.access-token:
+push.dingtalk.secret:
+push.dingtalk.use-proxy: false
+push.telegram.enabled: false
+push.telegram.bot-token:
+push.telegram.chat-id:
+push.telegram.use-proxy: true
+push.feishu.enabled: false
+push.feishu.webhook-key:
+push.feishu.secret:
+push.feishu.use-proxy: false
+push.wecom.enabled: false
+push.wecom.key:
+push.wecom.use-proxy: false
+push.pushplus.enabled: false
+push.pushplus.token:
+push.pushplus.use-proxy: false
+push.serverchan.enabled: false
+push.serverchan.send-key:
+push.serverchan.use-proxy: false
+push.webhook.enabled: false
+push.webhook.url:
+push.webhook.content-type: application/json
+push.webhook.body-template:
+push.webhook.use-proxy: false
 ```
