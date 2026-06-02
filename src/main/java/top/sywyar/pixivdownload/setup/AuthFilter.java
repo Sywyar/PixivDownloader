@@ -248,6 +248,17 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        // 代理自动配置（PAC）：仅本地客户端可获取。它会暴露后端配置的代理 host:port，
+        // 属于本地配置（语义同 setup 向导），因此本地放行、绕过鉴权与限流；非本地请求拒绝。
+        if (path.equals("/proxy.pac")) {
+            if (!NetworkUtils.isLocalRequest(req)) {
+                sendTextError(req, res, 403, "auth.local-only", "Forbidden: local access only");
+                return;
+            }
+            chain.doFilter(req, res);
+            return;
+        }
+
         if (shouldApplyStaticResourceRateLimit(req, path)) {
             // 邀请访客按邀请码限流（两种模式均生效）；其余未登录流量按客户端 IP 限流。
             GuestInviteSession inviteSession = resolveGuestInviteSessionCached(req, res);

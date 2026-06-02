@@ -77,6 +77,14 @@ PixivDownload.exe
 
 首次启动后按引导完成配置，即可访问 `http://localhost:6999/pixiv-batch.html` 开始下载。
 
+### 让网页版 Pixiv 走后端配置的代理（无需开启系统代理）
+
+后端访问 Pixiv 走配置里指定的代理（默认 `127.0.0.1:7890`），不依赖系统代理。如果你还希望在浏览器里直接打开 `pixiv.net`（例如配合油猴脚本），又不想为此开启 Clash 的「系统代理 / system proxy」，可以使用内置的代理自动配置（PAC）：
+
+在系统或浏览器的「自动代理配置脚本（PAC）URL」处填入 `http://localhost:6999/proxy.pac`（端口与你的配置一致；启用 HTTPS 时为 `https://<域名>:<端口>/proxy.pac`），即可让仅 Pixiv 相关域名走后端配置的同一个代理、其余流量直连。该地址仅本机可访问，代理变更（含热重载）会自动反映到 PAC 内容；不再需要来回切换系统代理。
+
+各浏览器 / 系统的具体设置入口地址（Firefox `about:preferences#general`、Windows `ms-settings:network-proxy` 等）见[配置参考 · 让网页版 Pixiv 走同一个代理](https://sywyar.github.io/PixivDownloader/#/zh-cn/configuration)。
+
 > [!TIP]
 > **详细安装步骤、使用指南、配置参考、开发指南等请查阅 [在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/)**
 

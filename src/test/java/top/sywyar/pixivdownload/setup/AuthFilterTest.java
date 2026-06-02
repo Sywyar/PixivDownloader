@@ -1019,6 +1019,40 @@ class AuthFilterTest {
         }
     }
 
+    // ========== /proxy.pac 本地访问控制 ==========
+
+    @Nested
+    @DisplayName("/proxy.pac 本地访问控制")
+    class ProxyPacTests {
+
+        @ParameterizedTest
+        @ValueSource(strings = {"127.0.0.1", "::1", "::ffff:127.0.0.1"})
+        @DisplayName("本地请求应直接放行且不触碰鉴权与限流")
+        void shouldAllowProxyPacFromLocalAddress(String addr) throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/proxy.pac");
+            request.setRemoteAddr(addr);
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+            verifyNoInteractions(setupService, rateLimitService, staticResourceRateLimitService);
+        }
+
+        @Test
+        @DisplayName("非本地请求应返回 403")
+        void shouldRejectProxyPacFromRemoteAddress() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/proxy.pac");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+    }
+
     // ========== /redirect 重定向 ==========
 
     @Nested

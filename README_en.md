@@ -87,6 +87,21 @@ PixivDownload.exe
 After first startup, follow the wizard to complete setup, then visit `http://localhost:6999/pixiv-batch.html` to start
 downloading.
 
+### Route web Pixiv through the backend-configured proxy (no system proxy needed)
+
+The backend reaches Pixiv through the proxy in your config (default `127.0.0.1:7890`) and does not rely on a system
+proxy. If you also want to open `pixiv.net` directly in the browser (e.g. with the userscripts) without turning on
+Clash's system proxy, use the built-in proxy auto-config (PAC):
+
+Set your OS/browser "Automatic proxy configuration script (PAC) URL" to `http://localhost:6999/proxy.pac` (match your
+configured port; with HTTPS enabled it becomes `https://<domain>:<port>/proxy.pac`). Only Pixiv-related domains then go
+through the same backend-configured proxy while everything else stays direct. The endpoint is local-only, and proxy
+changes (including hot reload) are reflected automatically — no more toggling the system proxy back and forth.
+
+For the exact settings entry points per browser/OS (Firefox `about:preferences#general`, Windows
+`ms-settings:network-proxy`, etc.), see [Configuration · Route web Pixiv through the same
+proxy](https://sywyar.github.io/PixivDownloader/#/en/configuration).
+
 > [!TIP]
 > **See the [online documentation](https://sywyar.github.io/PixivDownloader/#/en/) for detailed installation, usage,
 configuration, and development guides.**
