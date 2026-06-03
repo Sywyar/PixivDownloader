@@ -149,6 +149,11 @@ public class ScheduleService {
      * 这是 {@code AUTH_EXPIRED} 的恢复入口——仅当任务当前为 {@code AUTH_EXPIRED} 时才清挂起 + 重算 next_run。
      * 处于 {@code OVERUSE_PAUSED} / 手动 {@code PAUSED} 的任务在重新授权后不会被静默恢复（必须走对应的恢复入口）。
      * 隔离表不再需要"武装"：{@link ScheduleExecutor#runTask} 每轮无条件先消费隔离表。
+     *
+     * <p><b>重新授权必须用「新的」Cookie</b>：提交的 Cookie 与当前已绑定的快照完全一致时直接拒绝、不做任何写入。
+     * 这同时兜住「任务因 Cookie 失效（{@code AUTH_EXPIRED}）被挂起后，管理员误用同一份失效 Cookie 重新授权」——
+     * 同一份 Cookie 不可能修复失效，若放行只会清掉挂起态、下一轮再次失效并重复发通知，白白空跑。
+     * 由于在任何写库之前就抛出，故既不覆盖快照、也不清除 {@code AUTH_EXPIRED} 状态。
      */
     @Transactional
     public ScheduleTaskView authorizeCookie(long id, String cookie) {
@@ -158,8 +163,15 @@ public class ScheduleService {
             throw LocalizedException.badRequest(
                     "schedule.error.cookie-invalid", "Cookie 无效：缺少 PHPSESSID");
         }
-        database.mapper().updateCookie(id, cookie.trim(), ScheduledTask.COOKIE_BOUND);
-        database.mapper().updateAccountId(id, parsePixivUserId(cookie));
+        String trimmed = cookie.trim();
+        String existing = database.mapper().findCookieSnapshot(id);
+        if (existing != null && existing.equals(trimmed)) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.cookie-unchanged",
+                    "Cookie 与当前已绑定的相同，未做更新；若任务因 Cookie 失效被挂起，请改用新的有效 Cookie");
+        }
+        database.mapper().updateCookie(id, trimmed, ScheduledTask.COOKIE_BOUND);
+        database.mapper().updateAccountId(id, parsePixivUserId(trimmed));
         ScheduledTask task = database.mapper().findById(id);
         database.mapper().clearSuspendIfStatus(
                 id, nextRunFor(task), ScheduledTask.STATUS_AUTH_EXPIRED);

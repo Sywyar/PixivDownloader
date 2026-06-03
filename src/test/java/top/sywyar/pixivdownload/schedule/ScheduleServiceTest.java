@@ -179,6 +179,49 @@ class ScheduleServiceTest {
     }
 
     @Test
+    @DisplayName("authorizeCookie：Cookie 与现有快照一致 → 拒绝，不写 Cookie、不解析账号、不清 AUTH_EXPIRED")
+    void authorizeCookieRejectedWhenUnchanged() {
+        when(database.mapper()).thenReturn(mapper);
+        when(mapper.findById(5L)).thenReturn(task(5L, "12345", ScheduledTask.STATUS_AUTH_EXPIRED, null));
+        when(mapper.findCookieSnapshot(5L)).thenReturn("PHPSESSID=12345_abc; other=x");
+
+        ScheduleService service = newService();
+        // 提交前后空白不同，但去空白后与现有快照一致 → 仍判为「未变化」
+        assertThatThrownBy(() -> service.authorizeCookie(5L, "  PHPSESSID=12345_abc; other=x  "))
+                .isInstanceOf(LocalizedException.class);
+
+        verify(mapper, never()).updateCookie(anyLong(), anyString(), anyString());
+        verify(mapper, never()).updateAccountId(anyLong(), any());
+        verify(mapper, never()).clearSuspendIfStatus(anyLong(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("authorizeCookie：Cookie 与现有快照不同 → 写 Cookie、解析账号、清 AUTH_EXPIRED")
+    void authorizeCookieSavesWhenChanged() {
+        when(database.mapper()).thenReturn(mapper);
+        when(mapper.findById(6L)).thenReturn(task(6L, "12345", ScheduledTask.STATUS_AUTH_EXPIRED, null));
+        when(mapper.findCookieSnapshot(6L)).thenReturn("PHPSESSID=12345_old; other=x");
+
+        newService().authorizeCookie(6L, "PHPSESSID=12345_new; other=x");
+
+        verify(mapper).updateCookie(6L, "PHPSESSID=12345_new; other=x", ScheduledTask.COOKIE_BOUND);
+        verify(mapper).updateAccountId(6L, "12345");
+        verify(mapper).clearSuspendIfStatus(eq(6L), any(), eq(ScheduledTask.STATUS_AUTH_EXPIRED));
+    }
+
+    @Test
+    @DisplayName("authorizeCookie：任务尚无 Cookie 快照（首次授权）→ 正常写入")
+    void authorizeCookieSavesWhenNoExisting() {
+        when(database.mapper()).thenReturn(mapper);
+        when(mapper.findById(7L)).thenReturn(task(7L, null, null, null));
+        when(mapper.findCookieSnapshot(7L)).thenReturn(null);
+
+        newService().authorizeCookie(7L, "PHPSESSID=999_abc");
+
+        verify(mapper).updateCookie(7L, "PHPSESSID=999_abc", ScheduledTask.COOKIE_BOUND);
+    }
+
+    @Test
     @DisplayName("resume：非手动暂停态任务拒绝恢复")
     void resumeRejectedWhenNotPaused() {
         when(database.mapper()).thenReturn(mapper);
