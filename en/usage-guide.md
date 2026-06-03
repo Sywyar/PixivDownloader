@@ -480,6 +480,16 @@ Click the **🎧 Listen** button at the top of the novel page to read the text a
 > [!NOTE]
 > Visitors using an invite link can also use the online engine, but are rate-limited by `guest-invite.tts-request-limit-minute` (admins and the browser engine are not limited). Guest invites are independent of the solo/multi run mode — they work in both. The browser engine runs entirely in the frontend — no server resources, no network.
 
+### Multi-voice narration (admin only)
+
+Click **🎭 Multi-voice narration** on the novel page to have an LLM attribute every sentence of the chapter to a speaker (narrator / individual characters); each character is synthesized line by line with a fixed voice profile and played back continuously — unlike the single-voice **Listen** above. It requires an LLM and a narration engine that accepts a voice description (e.g. a self-hosted VoxCPM).
+
+- **Line-by-line playback with follow-along**: sentences are synthesized and played in order (the next one is prefetched); the **paragraph of the current sentence is highlighted and auto-scrolled**, and the bar shows a "Speaker: sentence" subtitle.
+- **Cast & voices**: the 🎭 panel lists each character's gender / age / English voice profile; you can **edit a character's voice and save** it (saving marks it "Locked" so the AI won't overwrite it) and preview it individually. Edited voices take effect on subsequent synthesis **immediately**, without re-analysis.
+- **Voice conflicts**: when the text clearly contradicts or outgrows a voice you locked, the panel lists the conflict with **Adopt suggestion / Keep current / Rewrite** choices.
+- **Segment size**: same meaning as in AI translation — `0` (default) analyzes the whole chapter in one call (fullest context, most accurate attribution); a number batches by paragraph up to roughly that many characters (fewer tokens per call).
+- The per-sentence attribution is **cached** so replays don't re-analyze; use "Re-analyze" in the settings to recompute. Very long text is rejected for one-shot analysis with a prompt to narrow the scope.
+
 ### Series Compilation
 
 Generate EPUB compilations from novel series pages or during download:
