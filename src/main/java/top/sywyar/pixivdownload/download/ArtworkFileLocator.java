@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
@@ -30,6 +31,7 @@ public class ArtworkFileLocator {
 
     private final PixivDatabase pixivDatabase;
     private final DownloadConfig downloadConfig;
+    private final AppMessages messages;
 
     public record LocatedArtworkFile(File file, String extension) {
     }
@@ -87,7 +89,7 @@ public class ArtworkFileLocator {
         int count = Math.max(artwork.count(), page + 1);
         String authorName = resolveStoredFileAuthorName(artwork);
         if (authorName == null && template != null && template.contains("{author_name}")) {
-            log.warn("模板含{author_name}但file_author_name_id为空，作者名将缺失: artworkId={}", artwork.artworkId());
+            log.warn(logMessage("download.file.log.author-name-missing", artwork.artworkId()));
         }
         List<String> baseNames = ArtworkFileNameFormatter.formatAll(
                 template,
@@ -101,6 +103,10 @@ public class ArtworkFileLocator {
                 artwork.xRestrict()
         );
         return baseNames.get(page);
+    }
+
+    private String logMessage(String code, Object... args) {
+        return messages.getForLog(code, args);
     }
 
     private String resolveStoredFileAuthorName(ArtworkRecord artwork) {
@@ -145,7 +151,7 @@ public class ArtworkFileLocator {
                             stems.add(baseName + "_thumb");
                         }
                     } catch (Exception e) {
-                        log.warn("解析作品 {} 第 {} 页文件名失败，跳过该页文件删除", artwork.artworkId(), page);
+                        log.warn(logMessage("download.file.log.filename-parse-failed", artwork.artworkId(), page));
                     }
                 }
                 if (!deleteFilesWithStems(safeDir, stems)) {
@@ -170,11 +176,11 @@ public class ArtworkFileLocator {
         try {
             absolute = Paths.get(directoryPath).toAbsolutePath().normalize();
         } catch (InvalidPathException e) {
-            log.warn("作品 {} 的目录路径无效，跳过磁盘清理: {}", artworkId, directoryPath);
+            log.warn(logMessage("download.file.log.directory-invalid", artworkId, directoryPath));
             return null;
         }
         if (absolute.getNameCount() < 1 || absolute.equals(absolute.getRoot())) {
-            log.warn("拒绝清理作品 {} 的目录（指向文件系统根）: {}", artworkId, absolute);
+            log.warn(logMessage("download.file.log.directory-root-refused", artworkId, absolute));
             return null;
         }
         Path downloadRoot;
@@ -184,7 +190,7 @@ public class ArtworkFileLocator {
             downloadRoot = null;
         }
         if (downloadRoot != null && absolute.equals(downloadRoot)) {
-            log.warn("拒绝清理作品 {} 的目录（等于 download.root-folder 本身）: {}", artworkId, absolute);
+            log.warn(logMessage("download.file.log.directory-root-folder-refused", artworkId, absolute));
             return null;
         }
         return absolute;
@@ -202,7 +208,7 @@ public class ArtworkFileLocator {
         for (File file : files) {
             if (file.isFile() && stems.contains(getBaseName(file.getName()))) {
                 if (!file.delete()) {
-                    log.warn("删除作品文件失败: {}", file.getAbsolutePath());
+                    log.warn(logMessage("download.file.log.delete-file-failed", file.getAbsolutePath()));
                     allDeleted = false;
                 }
             }
@@ -221,7 +227,7 @@ public class ArtworkFileLocator {
                 Files.deleteIfExists(dir);
             }
         } catch (IOException e) {
-            log.warn("移除作品空目录失败: {}", dir);
+            log.warn(logMessage("download.file.log.remove-empty-dir-failed", dir));
         }
     }
 
@@ -236,12 +242,12 @@ public class ArtworkFileLocator {
                 try {
                     Files.deleteIfExists(p);
                 } catch (IOException e) {
-                    log.warn("删除图库缩略图缓存失败: {}", p);
+                    log.warn(logMessage("download.file.log.delete-thumbnail-failed", p));
                     allDeleted[0] = false;
                 }
             });
         } catch (IOException e) {
-            log.warn("清理图库缩略图缓存目录失败: {}", cacheDir);
+            log.warn(logMessage("download.file.log.clean-thumbnail-cache-failed", cacheDir));
             return false;
         }
         return allDeleted[0];

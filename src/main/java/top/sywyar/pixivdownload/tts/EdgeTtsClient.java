@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.tts;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.config.ProxyConfig;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.ByteArrayOutputStream;
 import java.net.InetSocketAddress;
@@ -61,10 +62,13 @@ public class EdgeTtsClient {
 
     private final ProxyConfig proxyConfig;
     private final EdgeTtsVersionService versionService;
+    private final AppMessages messages;
 
-    public EdgeTtsClient(ProxyConfig proxyConfig, EdgeTtsVersionService versionService) {
+    public EdgeTtsClient(ProxyConfig proxyConfig, EdgeTtsVersionService versionService,
+                         AppMessages messages) {
         this.proxyConfig = proxyConfig;
         this.versionService = versionService;
+        this.messages = messages;
     }
 
     /**
@@ -87,7 +91,7 @@ public class EdgeTtsClient {
             if (e.serverEpochSec > 0) {
                 long oldSkew = clockSkewSeconds;
                 clockSkewSeconds = e.serverEpochSec - System.currentTimeMillis() / 1000L;
-                log.info("Edge TTS 握手 403，校正时钟偏差为 {}s（原 {}s）", clockSkewSeconds, oldSkew);
+                log.info(logMessage("tts.log.clock-skew-corrected", clockSkewSeconds, oldSkew));
             }
             try {
                 return attempt(text, voice, rate, pitch, volume);
@@ -126,8 +130,8 @@ public class EdgeTtsClient {
             if (serverEpoch != null) {
                 throw new Handshake403(serverEpoch);
             }
-            log.warn("Edge TTS WebSocket 连接失败 (proxy={}:{} enabled={})",
-                    proxyConfig.getHost(), proxyConfig.getPort(), proxyConfig.isEnabled(), cause);
+            log.warn(logMessage("tts.log.websocket-connect-failed",
+                    proxyConfig.getHost(), proxyConfig.getPort(), proxyConfig.isEnabled()), cause);
             throw new EdgeTtsException("无法连接 Edge TTS 服务："
                     + cause.getClass().getSimpleName() + ": " + cause.getMessage(), cause);
         }
@@ -263,6 +267,10 @@ public class EdgeTtsClient {
 
     private static String newId() {
         return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private String logMessage(String code, Object... args) {
+        return messages.getForLog(code, args);
     }
 
     /**

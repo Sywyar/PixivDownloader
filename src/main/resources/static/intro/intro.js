@@ -142,7 +142,7 @@
       applyPageTranslations();
     } catch (e) {
       // i18n initialization failed; page falls back to inline Chinese text
-      console && console.warn && console.warn('intro i18n init failed:', e);
+      console && console.warn && console.warn(pageI18n ? pageI18n.t('intro:log.i18n-init-failed', 'i18n 初始化失败') : 'i18n 初始化失败', e);
     }
   }
 

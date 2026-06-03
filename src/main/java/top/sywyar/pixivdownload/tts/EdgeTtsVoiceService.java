@@ -9,6 +9,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.tts.dto.EdgeTtsVoice;
 
 import java.util.ArrayList;
@@ -31,14 +32,16 @@ public class EdgeTtsVoiceService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final EdgeTtsVersionService versionService;
+    private final AppMessages messages;
 
     private volatile List<EdgeTtsVoice> cached;
 
     public EdgeTtsVoiceService(RestTemplate restTemplate, ObjectMapper objectMapper,
-                               EdgeTtsVersionService versionService) {
+                               EdgeTtsVersionService versionService, AppMessages messages) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.versionService = versionService;
+        this.messages = messages;
     }
 
     public List<EdgeTtsVoice> listVoices() {
@@ -86,7 +89,7 @@ public class EdgeTtsVoiceService {
             }
             return out;
         } catch (Exception e) {
-            log.warn("获取 Edge TTS 语音列表失败，使用内置兜底语音: {}", e.getMessage());
+            log.warn(logMessage("tts.log.voice-list-fetch-failed", e.getMessage()));
             return List.of();
         }
     }
@@ -108,5 +111,9 @@ public class EdgeTtsVoiceService {
         list.add(new EdgeTtsVoice("en-US-GuyNeural", "en-US", "Male", "Guy"));
         list.add(new EdgeTtsVoice("ko-KR-SunHiNeural", "ko-KR", "Female", "SunHi"));
         return list;
+    }
+
+    private String logMessage(String code, Object... args) {
+        return messages.getForLog(code, args);
     }
 }

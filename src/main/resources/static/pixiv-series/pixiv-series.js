@@ -402,7 +402,7 @@
             } catch (err) {
                 // 译文已落库；只是刷新失败 —— 上报给用户，让他们知道需要重新切换语言重试。
                 refreshFailed = true;
-                console.warn('post-translate refresh failed', err);
+                console.warn(t('log.post-translate-refresh-failed', '译文刷新失败'), err);
             }
             renderSeriesHeader();
             renderGrid(state.items);
@@ -569,7 +569,7 @@
             state.collections = resp.collections || [];
             renderCollections();
         } catch (e) {
-            console.warn('load collections failed', e);
+            console.warn(t('log.collections-failed', '加载收藏夹失败'), e);
         }
     }
 

@@ -1336,7 +1336,7 @@
             state.collections = resp.collections || [];
             renderCollections();
         } catch (e) {
-            console.error('load collections failed', e);
+            console.error(t('log.collections-failed', '加载收藏夹失败'), e);
         }
     }
 
@@ -1839,7 +1839,7 @@
                 state.tags.forEach(rememberTagOption);
                 state.tagsLoaded = true;
             } catch (e) {
-                console.error('load tags failed', e);
+                console.error(t('log.tags-failed', '加载标签失败'), e);
                 state.tags = [];
             }
             renderTagChips();
@@ -1981,7 +1981,7 @@
                 state.seriesOptions.forEach(rememberSeriesOption);
                 state.seriesOptionsLoaded = true;
             } catch (e) {
-                console.error('load series options failed', e);
+                console.error(t('log.series-options-failed', '加载系列选项失败'), e);
                 state.seriesOptions = [];
             }
             renderSeriesFilterChips();
@@ -2142,7 +2142,7 @@
                 });
                 state.authorOptionsLoaded = true;
             } catch (e) {
-                console.error('load author options failed', e);
+                console.error(t('log.author-options-failed', '加载作者选项失败'), e);
                 state.authorOptions = [];
             }
             renderAuthorChips();
@@ -3125,7 +3125,7 @@
             applyGalleryStateToUi();
             // 画廊不再注册旧版 💡 操作指引 FAB；新手向导（含画廊逐区域讲解）由 setupGalleryOnboarding 接管
             setupGalleryOnboarding();
-        }).catch(err => console.error('i18n 加载失败', err));
+        }).catch(err => console.error(t('log.i18n-failed', 'i18n 加载失败'), err));
 
         // Load the sidebar immediately; filter option lists load when the panel opens.
         loadCollections();

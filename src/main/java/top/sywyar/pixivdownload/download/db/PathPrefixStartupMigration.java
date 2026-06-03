@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
@@ -38,6 +39,7 @@ public class PathPrefixStartupMigration {
     private final DataSource dataSource;
     private final PathPrefixCodec codec;
     private final DownloadConfig downloadConfig;
+    private final AppMessages messages;
 
     // 仅为触发 @PostConstruct 顺序，确保被迁移表已建好
     @SuppressWarnings("unused")
@@ -54,7 +56,7 @@ public class PathPrefixStartupMigration {
         try {
             seedPrefixes();
         } catch (Exception e) {
-            log.warn("路径前缀初始化失败，跳过迁移：{}", e.getMessage(), e);
+            log.warn(logMessage("download.db.log.prefix-init-failed", e.getMessage()), e);
             return;
         }
         try {
@@ -66,11 +68,15 @@ public class PathPrefixStartupMigration {
             total += migrateTable(jdbc, "novel_series", "series_id", List.of("cover_folder"));
             total += migrateTable(jdbc, "collections", "id", List.of("download_root"));
             if (total > 0) {
-                log.info("path_prefixes 迁移完成：共重写 {} 行的绝对路径为前缀引用", total);
+                log.info(logMessage("download.db.log.migration-complete", total));
             }
         } catch (Exception e) {
-            log.warn("路径前缀迁移过程中发生异常，存量数据保留原值：{}", e.getMessage(), e);
+            log.warn(logMessage("download.db.log.migration-exception", e.getMessage()), e);
         }
+    }
+
+    private String logMessage(String code, Object... args) {
+        return messages.getForLog(code, args);
     }
 
     /**
@@ -88,7 +94,7 @@ public class PathPrefixStartupMigration {
             try (InputStream in = Files.newInputStream(classifierProperties)) {
                 props.load(in);
             } catch (IOException e) {
-                log.warn("读取 {} 失败：{}", classifierProperties, e.getMessage());
+                log.warn(logMessage("download.db.log.read-failed", classifierProperties, e.getMessage()));
                 return;
             }
             registerPrefix(props.getProperty("default.folder"));
@@ -108,7 +114,7 @@ public class PathPrefixStartupMigration {
         try {
             codec.getOrCreatePrefixId(stripped);
         } catch (Exception e) {
-            log.warn("注册路径前缀失败：{} ({})", stripped, e.getMessage());
+            log.warn(logMessage("download.db.log.register-prefix-failed", stripped, e.getMessage()));
         }
     }
 
@@ -126,7 +132,7 @@ public class PathPrefixStartupMigration {
         try {
             rows = jdbc.queryForList(sql.toString(), new MapSqlParameterSource());
         } catch (Exception e) {
-            log.warn("扫描 {} 失败，跳过：{}", table, e.getMessage());
+            log.warn(logMessage("download.db.log.scan-failed", table, e.getMessage()));
             return 0;
         }
 
@@ -158,7 +164,7 @@ public class PathPrefixStartupMigration {
                 jdbc.update(update, params);
                 updated++;
             } catch (Exception e) {
-                log.warn("迁移 {} {}={} 失败：{}", table, idColumn, idObj, e.getMessage());
+                log.warn(logMessage("download.db.log.migrate-row-failed", table, idColumn, idObj, e.getMessage()));
             }
         }
         return updated;

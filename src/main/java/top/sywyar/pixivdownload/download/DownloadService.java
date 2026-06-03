@@ -631,7 +631,7 @@ public class DownloadService implements ArtworkDownloader {
         );
         List<String> provided = ArtworkFileNameFormatter.normalizeProvidedBaseNames(other.getFileNames(), count, artworkId);
         if (!provided.isEmpty() && !provided.equals(computed)) {
-            log.debug("前端文件名与后端模板计算结果不一致，使用后端结果: artworkId={}", artworkId);
+            log.debug(logMessage("download.log.filename-mismatch", artworkId));
         }
         return new FileNamePlan(templateId, recordTime, fileAuthorNameId, provided.equals(computed) ? provided : computed);
     }

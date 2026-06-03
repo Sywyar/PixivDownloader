@@ -368,7 +368,7 @@
             }
         } catch (e) {
             // best-effort：失败不影响跳过逻辑，至少裸记录仍在
-            console.warn('recoverArtworkMetadata failed', artworkId, e);
+            console.warn(bt('download.log.recover-metadata-failed', '恢复作品元数据失败: artworkId={id}', {id: artworkId}), e);
         }
         return null;
     }
@@ -664,7 +664,7 @@
                 try {
                     await processSingle(item);
                 } catch (e) {
-                    console.error(e);
+                    console.error(bt('download.log.process-single-error', '处理单个作品失败'), e);
                 } finally {
                     // 作品间隔实时生效：每次作品之间按当前设置读取间隔。
                     await sleep(getIntervalMs());
@@ -722,7 +722,7 @@
                         }
                     } catch (e) {
                         // best-effort：拉 meta 失败不影响跳过
-                        console.warn('recover metadata failed', item.id, e);
+                        console.warn(bt('download.log.skip-recover-meta-failed', '跳过恢复元数据失败: itemId={id}', {id: item.id}), e);
                     }
                 }
                 item.status = 'skipped';
@@ -1228,7 +1228,7 @@
             }
             setStatus(bt('status.novel-series-merged', '小说系列合订本已生成（系列 {id}）', {id: seriesId}), 'success');
         } catch (e) {
-            console.warn('merge failed', seriesId, e);
+            console.warn(bt('download.log.novel-merge-failed', '小说合订本生成失败: seriesId={id}', {id: seriesId}), e);
             _novelMergeFiredSeries.delete(seriesId);
             setStatus(bt('status.novel-series-merge-failed',
                 '小说系列合订本生成失败（系列 {id}）：{message}',

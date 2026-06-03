@@ -244,7 +244,7 @@
                 updateChart(allArtworksCache);
             }
             renderActiveDownloads();
-        }).catch(err => console.error('i18n 加载失败', err));
+        }).catch(err => console.error(t('log.i18n-failed', 'i18n 加载失败'), err));
     });
 
     document.addEventListener('visibilitychange', () => {
@@ -314,7 +314,7 @@
             document.getElementById('totalArtworks').textContent = s.totalArtworks ?? 0;
             document.getElementById('totalImages').textContent   = s.totalImages   ?? 0;
             document.getElementById('totalMoved').textContent    = s.totalMoved    ?? 0;
-        } catch (e) { console.error('统计加载失败', e); }
+        } catch (e) { console.error(t('log.stats-failed', '统计加载失败'), e); }
     }
 
     // ===================== 全量数据 =====================
@@ -335,7 +335,7 @@
             updateAuthorFilterIcon();
             renderFromCache();
         } catch (e) {
-            console.error('数据加载失败', e);
+            console.error(t('log.data-failed', '数据加载失败'), e);
             document.getElementById('historyTableBody').innerHTML =
                 '<tr><td colspan="10" class="text-center" style="color:var(--red);padding:2rem;">'
                 + escapeHtml(t('status.load-failed-retry', 'LOAD FAILED — CLICK REFRESH TO RETRY'))
@@ -758,7 +758,7 @@
                 currentPage = 1;
                 loadAllDataForChart();
             }
-        } catch (e) { console.error('活跃下载同步失败', e); }
+        } catch (e) { console.error(t('log.active-download-sync-failed', '活跃下载同步失败'), e); }
         scheduleActiveSync();
     }
 
@@ -873,7 +873,7 @@
 
             artworkModal.show();
         } catch (e) {
-            console.error('加载作品详情失败', e);
+            console.error(t('log.artwork-detail-failed', '加载作品详情失败'), e);
             alert(t('alert.load-artwork-failed', 'Failed to load artwork details'));
         }
     }
@@ -906,7 +906,7 @@
             artworkModal.show();
             renderThumbnailPage();
         } catch (e) {
-            console.error('加载缩略图失败', e);
+            console.error(t('log.thumbnail-failed', '加载缩略图失败'), e);
             alert(t('alert.load-thumbnails-failed', 'Failed to load thumbnails'));
         }
     }
@@ -1014,7 +1014,7 @@
             img.onerror = () => {
                 spinner.classList.remove('active');
                 img.style.opacity = '1';
-                console.error('加载完整图片失败');
+                console.error(t('log.full-image-failed', '加载完整图片失败'));
                 alert(t('alert.load-image-failed', 'Failed to load image'));
                 fullImgLoading = false;
                 resolve(false);

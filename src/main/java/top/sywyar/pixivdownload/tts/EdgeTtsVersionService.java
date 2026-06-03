@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -41,12 +42,15 @@ public class EdgeTtsVersionService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final AppMessages messages;
 
     private volatile String fullVersion = DEFAULT_FULL_VERSION;
 
-    public EdgeTtsVersionService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public EdgeTtsVersionService(RestTemplate restTemplate, ObjectMapper objectMapper,
+                                 AppMessages messages) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.messages = messages;
     }
 
     @PostConstruct
@@ -57,11 +61,11 @@ public class EdgeTtsVersionService {
                 String cached = Files.readString(versionFile, StandardCharsets.UTF_8).trim();
                 if (isValidVersion(cached)) {
                     fullVersion = cached;
-                    log.info("Edge TTS Chromium 版本从本地缓存载入: {}", cached);
+                    log.info(logMessage("tts.log.version-loaded-from-cache", cached));
                 }
             }
         } catch (Exception e) {
-            log.warn("读取 Edge TTS 版本缓存失败，使用默认 {}: {}", fullVersion, e.getMessage());
+            log.warn(logMessage("tts.log.version-cache-read-failed", fullVersion, e.getMessage()));
         }
     }
 
@@ -96,7 +100,7 @@ public class EdgeTtsVersionService {
         if (latest == null || latest.equals(fullVersion)) {
             return;
         }
-        log.info("Edge TTS Chromium 版本已更新: {} -> {}", fullVersion, latest);
+        log.info(logMessage("tts.log.version-updated", fullVersion, latest));
         fullVersion = latest;
         persist(latest);
     }
@@ -112,12 +116,12 @@ public class EdgeTtsVersionService {
             }
             return parseStableWindowsVersion(objectMapper.readTree(body));
         } catch (Exception e) {
-            log.warn("拉取 Edge 版本失败，沿用 {}: {}", fullVersion, e.getMessage());
+            log.warn(logMessage("tts.log.version-fetch-failed", fullVersion, e.getMessage()));
             return null;
         }
     }
 
-    private static void persist(String version) {
+    private void persist(String version) {
         Path versionFile = versionFile();
         try {
             Path parent = versionFile.getParent();
@@ -126,7 +130,7 @@ public class EdgeTtsVersionService {
             }
             Files.writeString(versionFile, version, StandardCharsets.UTF_8);
         } catch (Exception e) {
-            log.warn("写入 Edge TTS 版本缓存失败: {}", e.getMessage());
+            log.warn(logMessage("tts.log.version-cache-write-failed", e.getMessage()));
         }
     }
 
@@ -189,5 +193,9 @@ public class EdgeTtsVersionService {
         } catch (NumberFormatException e) {
             return 0;
         }
+    }
+
+    private String logMessage(String code, Object... args) {
+        return messages.getForLog(code, args);
     }
 }

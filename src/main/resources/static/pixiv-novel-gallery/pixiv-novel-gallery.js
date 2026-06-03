@@ -1171,7 +1171,7 @@ async function loadCollections() {
         state.collections = data.collections || [];
         renderCollections();
         renderCollectionFilterChips();
-    } catch (e) { console.warn('load collections failed', e); }
+    } catch (e) { console.warn(pageI18n ? pageI18n.t('gallery:log.collections-failed', '加载收藏夹失败') : '加载收藏夹失败', e); }
 }
 
 function renderCollections() {
@@ -1278,7 +1278,7 @@ async function loadTags() {
         state.tags = data.tags || [];
         state.tags.forEach(rememberTagOption);
         renderTagChips();
-    } catch (e) { console.warn('load tags failed', e); }
+    } catch (e) { console.warn(pageI18n ? pageI18n.t('gallery:log.tags-failed', '加载标签失败') : '加载标签失败', e); }
 }
 
 function renderTagChips() {
@@ -1365,7 +1365,7 @@ async function loadSeries() {
         const data = await r.json();
         state.series = data.content || [];
         renderSeriesChips();
-    } catch (e) { console.warn('load series failed', e); }
+    } catch (e) { console.warn(pageI18n ? pageI18n.t('gallery:log.series-options-failed', '加载系列失败') : '加载系列失败', e); }
 }
 
 function renderSeriesChips() {
@@ -1407,7 +1407,7 @@ async function loadAuthors() {
         state.authors = data.content || [];
         state.authors.forEach(rememberAuthorOption);
         renderAuthorChips();
-    } catch (e) { console.warn('load authors failed', e); }
+    } catch (e) { console.warn(pageI18n ? pageI18n.t('gallery:log.author-options-failed', '加载作者失败') : '加载作者失败', e); }
 }
 
 function renderAuthorChips() {

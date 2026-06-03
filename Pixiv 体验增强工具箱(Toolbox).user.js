@@ -537,7 +537,7 @@
         const docCookie = (document.cookie || '').trim();
         const api = resolveCookieApi();
         if (!api) {
-            console.warn(COOKIE_LOG, 'GM_cookie 不可用（脚本管理器可能是 Violentmonkey/Greasemonkey，或未授予 GM_cookie 权限）→ 回退 document.cookie');
+            console.warn(COOKIE_LOG, t('log.cookie-unavailable', 'GM_cookie 不可用（脚本管理器可能是 Violentmonkey/Greasemonkey，或未授予 GM_cookie 权限）→ 回退 document.cookie'));
             return docCookie;
         }
         const host = location.host;                 // www.pixiv.net
@@ -561,8 +561,8 @@
             const n = cookies ? cookies.length : -1;
             const names = cookies ? cookies.map(c => c && c.name).filter(Boolean) : [];
             console.warn(COOKIE_LOG, 'GM_cookie.list', JSON.stringify(details),
-                '→ ' + (n < 0 ? 'null/失败' : n + ' 个'),
-                names.length ? '名称=[' + names.join(',') + ']' : '');
+                '→ ' + (n < 0 ? t('log.cookie-list-null', 'null/失败') : `${n} ${t('log.cookie-count-unit', '个')}`),
+                names.length ? `${t('log.cookie-names-prefix', '名称')}=[${names.join(',')}]` : '');
             if (cookies && cookies.length) {
                 gotAny = true;
                 cookies.forEach(c => {
@@ -573,9 +573,9 @@
         }
         const header = Array.from(map.entries()).map(([k, v]) => k + '=' + v).join('; ');
         console.warn(COOKIE_LOG,
-            'GM_cookie 可用；合并后共 ' + map.size + ' 个 cookie；',
+            t('log.gm-cookie-available', 'GM_cookie 可用；合并后共 {count} 个 cookie；', {count: map.size}),
             'GM 返回=' + gotAny, 'PHPSESSID=' + map.has('PHPSESSID'),
-            '名称=[' + Array.from(map.keys()).join(',') + ']');
+            t('log.cookie-names-prefix', '名称') + '=[' + Array.from(map.keys()).join(',') + ']');
         return header || docCookie;
     }
 
@@ -618,7 +618,7 @@
             if (postRes.status !== 200) return { code: 'http', status: postRes.status };
             return { code: status };
         } catch (e) {
-            console.warn('[Pixiv体验增强] Cookie 推送失败：', e);
+            console.warn(t('log.cookie-push-failed', 'Cookie 推送失败'), e);
             return { code: 'network' };
         }
     }
@@ -666,7 +666,7 @@
                     try { loggedIn = (JSON.parse(checkRes.responseText) || {}).valid === true; } catch (e) {}
                     setState({ phase: 'resolved', local, mode, loggedIn });
                 } catch (e) {
-                    console.warn('[Pixiv体验增强] 服务器状态检测失败：', e);
+                    console.warn(t('log.server-status-check-failed', '服务器状态检测失败'), e);
                     setState({ phase: 'unreachable', local, mode: null, loggedIn: false });
                 }
             })();
@@ -781,7 +781,7 @@
             try {
                 GM_setValue(featSettingsKey(feature.def.id), JSON.stringify(feature.settings));
             } catch (e) {
-                console.error('[Pixiv体验增强] 保存设置失败：', e);
+                console.error(t('log.save-settings-failed', '保存设置失败'), e);
             }
             if (feature.running && typeof feature.def.onSettings === 'function') {
                 try { feature.def.onSettings(feature.api); } catch (e) { console.error('[' + feature.def.id + '] onSettings', e); }
@@ -959,7 +959,7 @@
                 }).then(res => {
                     if (res.status === 401) { api.handleUnauthorized(); return; }
                     if (res.status !== 200) {
-                        console.warn('[Pixiv体验增强] 批量查询返回非 200：', res.status);
+                        console.warn(t('log.batch-query-non-200', '批量查询返回非 200'), res.status);
                         return;
                     }
                     const downloaded = new Set();
@@ -977,7 +977,7 @@
                     this._applyMarks(this._collectTargets(), api);
                 }).catch((err) => {
                     // 失败的 key 解除占用，下次扫描可重试
-                    console.warn('[Pixiv体验增强] 批量查询失败：', err);
+                    console.warn(t('log.batch-query-failed', '批量查询失败'), err);
                 }).finally(() => {
                     chunk.forEach(k => this._querying.delete(k));
                 });
@@ -1478,7 +1478,7 @@
 
     /* ========== 引导 ========== */
     if (isDuplicateInstance) {
-        console.warn('[Pixiv体验增强] 检测到本页已有一个实例在运行，本实例已停用（请勿同时启用独立脚本与 All-in-One 合并包）。');
+        console.warn(t('log.duplicate-instance', '检测到本页已有一个实例在运行，本实例已停用（请勿同时启用独立脚本与 All-in-One 合并包）。'));
         PromptGuard.once('enhance-multi-instance', { ttlMs: 3600000 }, () => {
             alert(t('enhance.multi-instance.warn',
                 '检测到「Pixiv 体验增强工具箱」在本页重复运行，本重复实例已停用。请在 Tampermonkey 中只保留其中一个启用。'));

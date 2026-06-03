@@ -1076,10 +1076,10 @@
             }
         } catch (error) {
             if (error.message === 'quota_exceeded' && error.quotaData) {
-                console.warn('已达到下载限额');
+                console.warn(t('log.download-limit-reached', '已达到下载限额'));
                 showQuotaExceededUI(error.quotaData);
             } else {
-                console.error('小说下载失败:', error);
+                console.error(t('log.novel-download-failed', '小说下载失败'), error);
                 alert(t('single.alert.download-failed', null, {message: error.message}));
             }
         }
@@ -1444,10 +1444,10 @@
 
         } catch (error) {
             if (error.message === 'quota_exceeded' && error.quotaData) {
-                console.warn('已达到下载限额');
+                console.warn(t('log.download-limit-reached', '已达到下载限额'));
                 showQuotaExceededUI(error.quotaData);
             } else {
-                console.error('下载失败:', error);
+                console.error(t('log.download-failed', '下载失败'), error);
                 alert(t('single.alert.download-failed', null, { message: error.message }));
             }
         }
@@ -1883,7 +1883,7 @@
             }).observe(document, {subtree: true, childList: true});
 
         } catch (error) {
-            console.log('初始化下载UI失败:', error);
+            console.log(t('log.init-download-ui-failed', '初始化下载UI失败'), error);
             setTimeout(createDownloadUI, 3000);
         }
     }

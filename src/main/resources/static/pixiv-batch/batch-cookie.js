@@ -56,7 +56,7 @@
                     .join('; ');
             }
         } catch (e) {
-            console.warn('Cookie 解析失败，原样使用:', e.message);
+            console.warn(bt('cookie.warn.parse-fallback', 'Cookie 解析失败，原样使用: {message}', {message: e.message}));
         }
         // header string 或解析失败时原样返回
         return raw;

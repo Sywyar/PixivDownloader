@@ -82,7 +82,7 @@ public class TtsController {
             headers.setCacheControl(CacheControl.noStore());
             return ResponseEntity.ok().headers(headers).body(mp3);
         } catch (EdgeTtsException e) {
-            log.warn("Edge TTS 合成失败: {}", e.getMessage());
+            log.warn(logMessage("tts.log.synthesize-failed", e.getMessage()));
             return ResponseEntity.status(502).body(new ErrorResponse(messages.get("tts.synthesize.failed", e.getMessage())));
         }
     }
@@ -119,5 +119,9 @@ public class TtsController {
     private static String formatPitch(Integer pitch) {
         int v = pitch == null ? 0 : Math.max(-50, Math.min(50, pitch));
         return (v >= 0 ? "+" : "") + v + "Hz";
+    }
+
+    private String logMessage(String code, Object... args) {
+        return messages.getForLog(code, args);
     }
 }

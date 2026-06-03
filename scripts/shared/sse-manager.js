@@ -1,4 +1,9 @@
 /* ========== SSE 管理器（共享单连接版：所有作品复用同一条聚合 SSE，按 artworkId 路由） ========== */
+function _sseLogT(key, fallback, vars) {
+    if (typeof t !== 'undefined') return t(key, fallback, vars);
+    return fallback || key;
+}
+
 class SSEManager {
     constructor() {
         this.handle = null;
@@ -71,13 +76,13 @@ class SSEManager {
                     this.connected = true;
                     const stream = res.response;
                     if (!stream || typeof stream.getReader !== 'function') {
-                        console.warn('SSE: ReadableStream 不可用，将依赖轮询兜底');
+                        console.warn(_sseLogT('log.sse.no-readable-stream', 'SSE: ReadableStream 不可用，将依赖轮询兜底'));
                         return;
                     }
                     this._readStream(stream);
                 },
                 onerror: (err) => {
-                    console.error('SSE connection error', err);
+                    console.error(_sseLogT('log.sse.connection-error', 'SSE connection error'), err);
                     this._cleanup();
                     this._scheduleReconnect();
                 },
@@ -87,7 +92,7 @@ class SSEManager {
                 }
             });
         } catch (err) {
-            console.error('SSE open failed', err);
+            console.error(_sseLogT('log.sse.open-failed', 'SSE open failed'), err);
             this._cleanup();
             this._scheduleReconnect();
         }

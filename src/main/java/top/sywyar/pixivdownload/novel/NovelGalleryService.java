@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.db.NovelAuthorSummary;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -46,6 +47,11 @@ public class NovelGalleryService {
     private final NovelGalleryRepository novelGalleryRepository;
     private final AuthorService authorService;
     private final DownloadConfig downloadConfig;
+    private final AppMessages messages;
+
+    private String logMessage(String code, Object... args) {
+        return messages.getForLog(code, args);
+    }
 
     public PagedNovels query(NovelGalleryQuery q) {
         // 简单实现：内存过滤。规模按本地下载量计算可接受；后续可下沉到 SQL。
@@ -168,7 +174,7 @@ public class NovelGalleryService {
                     novelId);
         }
         novelDatabase.deleteNovel(novelId);
-        log.info("已删除小说 {} 及其全部留存数据", novelId);
+        log.info(logMessage("novel.gallery.log.deleted", novelId));
         return true;
     }
 
@@ -183,7 +189,7 @@ public class NovelGalleryService {
             try {
                 if (deleteNovel(id)) deleted++;
             } catch (Exception e) {
-                log.warn("删除小说 {} 失败: {}", id, e.getMessage());
+                log.warn(logMessage("novel.gallery.log.delete-failed", id, e.getMessage()));
             }
         }
         return deleted;
@@ -211,20 +217,20 @@ public class NovelGalleryService {
         try {
             dir = Paths.get(folder).toAbsolutePath().normalize();
         } catch (InvalidPathException e) {
-            log.warn("小说 {} 的目录路径无效，跳过磁盘清理: {}", record.novelId(), folder);
+            log.warn(logMessage("novel.gallery.log.directory-invalid", record.novelId(), folder));
             return true;
         }
         if (!Files.isDirectory(dir)) {
             return true;
         }
         if (dir.getNameCount() < 1 || dir.equals(dir.getRoot())) {
-            log.warn("拒绝清理小说 {} 的目录（指向文件系统根）: {}", record.novelId(), dir);
+            log.warn(logMessage("novel.gallery.log.directory-root-refused", record.novelId(), dir));
             return true;
         }
         try {
             Path downloadRoot = Paths.get(downloadConfig.getRootFolder()).toAbsolutePath().normalize();
             if (dir.equals(downloadRoot)) {
-                log.warn("拒绝清理小说 {} 的目录（等于 download.root-folder 本身）: {}", record.novelId(), dir);
+                log.warn(logMessage("novel.gallery.log.directory-root-folder-refused", record.novelId(), dir));
                 return true;
             }
         } catch (InvalidPathException ignored) {
@@ -233,8 +239,7 @@ public class NovelGalleryService {
         Path name = dir.getFileName();
         String expectedName = "novel-" + record.novelId();
         if (name == null || !expectedName.equals(name.toString())) {
-            log.warn("小说 {} 的 folder 路径 {} 不是独占目录（期望末段 {}），跳过磁盘清理",
-                    record.novelId(), dir, expectedName);
+            log.warn(logMessage("novel.gallery.log.directory-not-exclusive", record.novelId(), dir, expectedName));
             return true;
         }
         boolean[] allDeleted = {true};
@@ -243,12 +248,12 @@ public class NovelGalleryService {
                 try {
                     Files.deleteIfExists(p);
                 } catch (IOException e) {
-                    log.warn("删除小说文件失败: {}", p);
+                    log.warn(logMessage("novel.gallery.log.delete-file-failed", p));
                     allDeleted[0] = false;
                 }
             });
         } catch (IOException e) {
-            log.warn("清理小说 {} 目录失败: {}", record.novelId(), folder);
+            log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), folder));
             return false;
         }
         return allDeleted[0];

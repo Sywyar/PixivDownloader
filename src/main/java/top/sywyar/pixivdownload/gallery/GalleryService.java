@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.series.MangaSeries;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
@@ -29,6 +30,7 @@ public class GalleryService {
     private final AuthorService authorService;
     private final MangaSeriesService mangaSeriesService;
     private final ArtworkFileLocator artworkFileLocator;
+    private final AppMessages messages;
 
     public PagedHistoryResponse query(GalleryQuery query) {
         GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(query);
@@ -113,7 +115,7 @@ public class GalleryService {
                     artworkId);
         }
         pixivDatabase.deleteArtwork(artworkId);
-        log.info("已删除作品 {} 及其全部留存数据", artworkId);
+        log.info(logMessage("gallery.log.deleted", artworkId));
         return true;
     }
 
@@ -128,10 +130,14 @@ public class GalleryService {
             try {
                 if (deleteArtwork(id)) deleted++;
             } catch (Exception e) {
-                log.warn("删除作品 {} 失败: {}", id, e.getMessage());
+                log.warn(logMessage("gallery.log.delete-failed", id, e.getMessage()));
             }
         }
         return deleted;
+    }
+
+    private String logMessage(String code, Object... args) {
+        return messages.getForLog(code, args);
     }
 
     private int clampLimit(int limit) {

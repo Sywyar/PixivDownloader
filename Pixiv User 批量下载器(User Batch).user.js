@@ -1423,7 +1423,7 @@
                 // 从URL提取用户ID（保底）
                 const userIdMatch = String(userId).match(/(\d+)/);
                 if (!userIdMatch || !userIdMatch[1]) {
-                    console.error('无法从userId提取数字ID:', userId);
+                    console.error(t('log.extract-user-id-failed', '无法从userId提取数字ID'), userId);
                     return null;
                 }
 
@@ -1442,25 +1442,25 @@
                 });
 
                 if (!response.ok) {
-                    console.error(`API请求失败: ${response.status}`);
+                    console.error(t('log.api-error', 'API返回错误: {message}', {message: response.status}));
                     return null;
                 }
 
                 const data = await response.json();
 
                 if (data.error) {
-                    console.error('API返回错误:', data.message);
+                    console.error(t('log.api-error', 'API返回错误: {message}', {message: data.message}));
                     return null;
                 }
 
                 if (data.body && data.body.name) {
-                    console.log('API获取的用户名:', data.body.name);
+                    console.log(t('log.api-username', 'API获取的用户名: {name}', {name: data.body.name}));
                     return data.body.name;
                 }
 
                 return null;
             } catch (error) {
-                console.error('获取用户名失败:', error);
+                console.error(t('log.fetch-username-failed', '获取用户名失败'), error);
                 return null;
             }
         },
@@ -1913,6 +1913,11 @@
 
     // >>> SHARED:sse-manager.js
     /* ========== SSE 管理器（共享单连接版：所有作品复用同一条聚合 SSE，按 artworkId 路由） ========== */
+    function _sseLogT(key, fallback, vars) {
+        if (typeof t !== 'undefined') return t(key, fallback, vars);
+        return fallback || key;
+    }
+
     class SSEManager {
         constructor() {
             this.handle = null;
@@ -1985,13 +1990,13 @@
                         this.connected = true;
                         const stream = res.response;
                         if (!stream || typeof stream.getReader !== 'function') {
-                            console.warn('SSE: ReadableStream 不可用，将依赖轮询兜底');
+                            console.warn(_sseLogT('log.sse.no-readable-stream', 'SSE: ReadableStream 不可用，将依赖轮询兜底'));
                             return;
                         }
                         this._readStream(stream);
                     },
                     onerror: (err) => {
-                        console.error('SSE connection error', err);
+                        console.error(_sseLogT('log.sse.connection-error', 'SSE connection error'), err);
                         this._cleanup();
                         this._scheduleReconnect();
                     },
@@ -2001,7 +2006,7 @@
                     }
                 });
             } catch (err) {
-                console.error('SSE open failed', err);
+                console.error(_sseLogT('log.sse.open-failed', 'SSE open failed'), err);
                 this._cleanup();
                 this._scheduleReconnect();
             }
@@ -4132,7 +4137,7 @@
                 }).catch(err => {
                     username = uid;
                     manager.setUserName(uid);
-                    console.warn("[Pixiv Batch] 获取用户名异常，使用 uid 作为 username", err);
+                    console.warn(t('log.fetch-username-exception', '获取用户名异常，使用 uid 作为 username'), err);
                 });
 
                 // 初始化配额

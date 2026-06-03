@@ -4,6 +4,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +34,7 @@ public class PathPrefixCodec {
     private static final Pattern ENCODED_PATTERN = Pattern.compile("^\\{(\\d+)}(?:[/\\\\](.*))?$");
 
     private final PathPrefixMapper mapper;
+    private final AppMessages messages;
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private volatile List<PathPrefix> cachedPrefixes = List.of();
@@ -119,7 +121,7 @@ public class PathPrefixCodec {
         }
         String prefix = lookupPrefix(id);
         if (prefix == null) {
-            log.warn("path_prefixes id {} 不存在，原样返回编码值 {}", id, storedValue);
+            log.warn(logMessage("download.db.log.prefix-id-not-found", id, storedValue));
             return storedValue;
         }
         String rest = matcher.group(2);
@@ -195,5 +197,9 @@ public class PathPrefixCodec {
      */
     public List<PathPrefix> snapshot() {
         return new ArrayList<>(currentPrefixes());
+    }
+
+    private String logMessage(String code, Object... args) {
+        return messages.getForLog(code, args);
     }
 }
