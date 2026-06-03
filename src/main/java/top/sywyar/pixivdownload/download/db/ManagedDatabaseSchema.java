@@ -421,6 +421,7 @@ public final class ManagedDatabaseSchema {
                         column("gender", "TEXT", false, null, 0),
                         column("age", "TEXT", false, null, 0),
                         column("control_instruction", "TEXT", true, null, 0),
+                        column("edited_by_user", "INTEGER", true, "0", 0),
                         column("created_time", "INTEGER", true, null, 0)
                 ),
                 List.of()

@@ -69,6 +69,8 @@ public class NovelDatabase {
         addColumnIfMissing(novelMapper::addNovelTranslationsTitleColumn);
         addColumnIfMissing(novelMapper::addNovelTranslationsDescriptionColumn);
         addColumnIfMissing(novelMapper::addNovelSeriesTitleTranslationsDescriptionColumn);
+        // 幂等迁移：旧 dev 库 novel_narration_voices 表补 edited_by_user 列；列已存在抛异常吞掉
+        addColumnIfMissing(novelMapper::addNarrationVoiceEditedByUserColumn);
         novelMapper.migrateNovelTimestampsToMillis();
         novelMapper.migrateNovelCollectionTimestampsToMillis();
         novelMapper.migrateNovelSeriesTimestampsToMillis();

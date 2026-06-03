@@ -354,9 +354,14 @@ public interface NovelMapper {
             + "gender TEXT,"
             + "age TEXT,"
             + "control_instruction TEXT NOT NULL,"
+            + "edited_by_user INTEGER NOT NULL DEFAULT 0,"
             + "created_time INTEGER NOT NULL,"
             + "PRIMARY KEY (cast_id, character_id))")
     void createNovelNarrationVoicesTable();
+
+    /** 幂等迁移：旧库 novel_narration_voices 表补 edited_by_user 列（0=AI 生成 / 1=用户手改锁定）；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE novel_narration_voices ADD COLUMN edited_by_user INTEGER NOT NULL DEFAULT 0")
+    void addNarrationVoiceEditedByUserColumn();
 
     String SELECT_NARRATION_CAST = "SELECT c.id, c.name,"
             + " c.series_id AS seriesId, c.novel_id AS novelId,"
@@ -395,32 +400,46 @@ public interface NovelMapper {
     void deleteNarrationCast(@Param("id") long id);
 
     @Select("SELECT character_id AS id, name, gender, age,"
-            + " control_instruction AS controlInstruction, (character_id = 0) AS narrator"
+            + " control_instruction AS controlInstruction, (character_id = 0) AS narrator,"
+            + " edited_by_user AS editedByUser"
             + " FROM novel_narration_voices WHERE cast_id = #{castId} ORDER BY character_id")
     List<top.sywyar.pixivdownload.ai.narration.NarrationCharacter> findNarrationVoices(@Param("castId") long castId);
 
     @Select("SELECT MAX(character_id) FROM novel_narration_voices WHERE cast_id = #{castId}")
     Integer maxNarrationVoiceId(@Param("castId") long castId);
 
-    /** AI 自动并入：已存在的 (cast_id, character_id) 不覆盖。 */
+    /** AI 自动并入：已存在的 (cast_id, character_id) 不覆盖。{@code editedByUser} 应为 {@code false}（AI 生成）。 */
     @Insert("INSERT OR IGNORE INTO novel_narration_voices"
-            + "(cast_id, character_id, name, gender, age, control_instruction, created_time)"
-            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{createdTime})")
+            + "(cast_id, character_id, name, gender, age, control_instruction, edited_by_user, created_time)"
+            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{editedByUser}, #{createdTime})")
     void insertNarrationVoiceIfAbsent(@Param("castId") long castId, @Param("characterId") int characterId,
                                       @Param("name") String name, @Param("gender") String gender,
                                       @Param("age") String age,
                                       @Param("controlInstruction") String controlInstruction,
+                                      @Param("editedByUser") boolean editedByUser,
                                       @Param("createdTime") long createdTime);
 
-    /** 手动编辑写入：同 (cast_id, character_id) 直接覆盖音色等字段。 */
+    /** 手动编辑写入：同 (cast_id, character_id) 直接覆盖音色等字段。{@code editedByUser=true} 标记用户锁定。 */
     @Insert("INSERT OR REPLACE INTO novel_narration_voices"
-            + "(cast_id, character_id, name, gender, age, control_instruction, created_time)"
-            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{createdTime})")
+            + "(cast_id, character_id, name, gender, age, control_instruction, edited_by_user, created_time)"
+            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{editedByUser}, #{createdTime})")
     void upsertNarrationVoice(@Param("castId") long castId, @Param("characterId") int characterId,
                               @Param("name") String name, @Param("gender") String gender,
                               @Param("age") String age,
                               @Param("controlInstruction") String controlInstruction,
+                              @Param("editedByUser") boolean editedByUser,
                               @Param("createdTime") long createdTime);
+
+    /**
+     * 刷新某角色的音色画像与编辑来源标记，不动 name/gender/age/created_time。用于：AI 兼容性补充、
+     * 对 AI 生成角色自动应用冲突建议（均传 {@code editedByUser=false}），以及用户解决冲突后写回（{@code true}）。
+     */
+    @Update("UPDATE novel_narration_voices SET control_instruction = #{controlInstruction},"
+            + " edited_by_user = #{editedByUser}"
+            + " WHERE cast_id = #{castId} AND character_id = #{characterId}")
+    void updateNarrationVoiceInstruction(@Param("castId") long castId, @Param("characterId") int characterId,
+                                         @Param("controlInstruction") String controlInstruction,
+                                         @Param("editedByUser") boolean editedByUser);
 
     @Delete("DELETE FROM novel_narration_voices WHERE cast_id = #{castId}")
     void deleteNarrationVoices(@Param("castId") long castId);

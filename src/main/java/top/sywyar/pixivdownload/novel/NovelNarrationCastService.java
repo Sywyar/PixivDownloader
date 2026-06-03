@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
+import top.sywyar.pixivdownload.ai.narration.NarrationConflict;
+import top.sywyar.pixivdownload.ai.narration.NarrationLineVoice;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
@@ -13,36 +15,46 @@ import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.tts.narration.NarrationScript;
 import top.sywyar.pixivdownload.tts.narration.NarrationScriptService;
+import top.sywyar.pixivdownload.tts.narration.NarrationSegmentAnalysis;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
- * 朗读花名册（narration cast）编排服务：管理「说话人 → 固定音色画像（Control Instruction）」的名册，供多角色
- * 有声朗读时为每句分配稳定音色。
+ * 朗读花名册（narration cast）编排服务：管理「说话人 → 固定音色画像（Control Instruction）」的名册，并以
+ * <b>合并单次按段分析</b>驱动一章小说的多角色朗读——逐段把句子连同当前花名册发给 LLM
+ * （{@link NarrationScriptService#analyzeSegment}），一次拿到逐句归属 + 新角色 + 兼容性补充 + 冲突上报，
+ * 然后落库、按编辑来源路由。
  *
- * <p>绑定与入册机制与名词映射表（{@link NovelGlossaryService}）<b>完全一致</b>：
+ * <p>绑定与入册机制与名词映射表（{@link NovelGlossaryService}）<b>一致</b>：
  * <ul>
  *   <li><b>一个系列共享一份花名册、无系列的单本各自一份</b>——{@link #resolveNovelDefaultCast} 属系列则取系列册、
- *       否则取该单本自己的册（均按需创建）；同一绑定的默认册至多一张（{@link #create} 幂等复用）。</li>
- *   <li>AI 选角发现的新角色由 {@link #enrollCharacters} 自动并入（按角色名 putIfAbsent，<b>不覆盖</b>已有 /
- *       用户改过的音色），从而同一角色跨章复用同一音色画像，保证「同一个人描述准确一致」。</li>
+ *       否则取该单本自己的册（均按需创建）。</li>
+ *   <li>新角色按<b>角色名</b> putIfAbsent 入册（{@code edited_by_user=0}），从而同一角色跨章复用同一音色画像。</li>
  * </ul>
  *
- * <p>持久化与 AI 编排解耦：本服务持有 DB + 选角 AI 调用，{@link NarrationScriptService} 仍是纯 AI 编排器
- * （文本 / 名册进、脚本出，不碰 DB）。
+ * <p><b>入册与冲突路由</b>（{@code edited_by_user} 标记 0=AI 生成 / 1=用户手改锁定）：
+ * <ul>
+ *   <li>{@code updatedCharacters}（兼容性补充）：仅对 {@code edited_by_user=0} 的角色刷新画像；用户锁定的<b>忽略</b>。</li>
+ *   <li>{@code conflicts}（完全相反 / 明显不完整）：对 {@code edited_by_user=0} 的角色<b>自动采纳建议</b>覆盖画像；
+ *       对用户锁定角色<b>绝不覆盖</b>，收集成 {@link NarrationConflictReport} 待用户处理。</li>
+ * </ul>
+ *
+ * <p>持久化与 AI 编排解耦：本服务持有 DB + 按段编排，{@link NarrationScriptService} 仍是纯 AI 分析器
+ * （花名册 / 句子进、分段结果出，不碰 DB、不断句）。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class NovelNarrationCastService {
 
-    /** 单次发给选角 AI 的「已有角色名」上限，控制 token 体量。 */
-    private static final int MAX_KNOWN_NAMES = 200;
+    /** 每段发给 AI 的句子数（控制单次响应体量与下标规模；建议 30–40）。 */
+    static final int SEGMENT_SIZE = 35;
 
     private final NovelMapper novelMapper;
     private final NovelDatabase novelDatabase;
@@ -53,6 +65,9 @@ public class NovelNarrationCastService {
      * {@code suggestedName} + {@code seriesId}/{@code novelId} 给出按需创建所需的名称与绑定。
      */
     public record DefaultCast(NovelNarrationCast cast, String suggestedName, Long seriesId, Long novelId) {}
+
+    /** 一段处理后的花名册变更结果：新角色「临时 id → 真实 id」映射 + 本段未解决的冲突。 */
+    record SegmentRosterResult(Map<Integer, Integer> tempToReal, List<NarrationConflictReport> unresolvedConflicts) {}
 
     public List<NovelNarrationCast> listAll() {
         return novelMapper.findAllNarrationCasts();
@@ -108,8 +123,9 @@ public class NovelNarrationCastService {
     }
 
     /**
-     * 手动整册替换角色：清空后写入给定角色（同 {@code character_id} 覆盖）。始终保留一名旁白（id 0）——
-     * 列表中未含旁白时补一名默认旁白。
+     * 手动整册替换角色：清空后写入给定角色（同 {@code character_id} 覆盖）。用户手改的角色一律标记
+     * {@code edited_by_user=1}（AI 之后绝不覆盖其画像，只能以冲突形式弹给用户）。始终保留一名旁白（id 0）——
+     * 列表中未含旁白时补一名默认旁白（来源仍记为 AI 生成 {@code edited_by_user=0}，允许后续 AI 补充）。
      */
     @Transactional
     public void replaceVoices(long castId, List<NarrationCharacter> roster) {
@@ -121,14 +137,14 @@ public class NovelNarrationCastService {
                 if (c == null || c.name() == null || c.name().isBlank()) continue;
                 if (c.controlInstruction() == null || c.controlInstruction().isBlank()) continue;
                 novelMapper.upsertNarrationVoice(castId, c.id(), c.name().trim(),
-                        c.gender(), c.age(), c.controlInstruction().trim(), now);
+                        c.gender(), c.age(), c.controlInstruction().trim(), true, now);
                 hasNarrator |= c.id() == NarrationCharacter.NARRATOR_ID;
             }
         }
         if (!hasNarrator) {
             NarrationCharacter n = NarrationCharacter.defaultNarrator();
             novelMapper.upsertNarrationVoice(castId, n.id(), n.name(), n.gender(), n.age(),
-                    n.controlInstruction(), now);
+                    n.controlInstruction(), false, now);
         }
         novelMapper.touchNarrationCast(castId, now);
     }
@@ -155,33 +171,61 @@ public class NovelNarrationCastService {
     }
 
     /**
-     * 选角并入册：解析作品默认花名册（按需创建）→ 把已有角色发给 AI 复用、选角 → 新角色 putIfAbsent 并入 →
-     * 返回持久化后的完整名册。AI 关闭 / 失败时返回已有名册（至少含一名旁白），不抛异常。
+     * 用作品的持久化花名册分析整章句子，产出完整逐句朗读脚本 + 未解决冲突：解析默认花名册（按需创建）→ 把句子
+     * 按 {@link #SEGMENT_SIZE} 切段 → 逐段携带刷新后的花名册做合并单次分析 → 新角色入册、补充 / 冲突按编辑来源
+     * 路由 → 把逐句临时 id 重映射成真实 id 累积 → 最终用刷新后的名册装配脚本。
+     *
+     * <p>断句是调用方职责（{@code sentences} 已切好按序传入）。AI 关闭 / 失败 / 某段不可解析时该段整段归旁白，
+     * 结果始终与输入句子等长、永不缺句。
      */
-    public List<NarrationCharacter> resolveAndEnroll(long novelId, String chapterText) {
+    public ChapterNarration analyzeChapter(long novelId, List<String> sentences) {
+        List<String> safeSentences = sentences == null ? List.of() : sentences;
+        if (safeSentences.isEmpty()) {
+            NarrationScript empty = narrationScriptService.buildScript(
+                    List.of(NarrationCharacter.defaultNarrator()), List.of(), List.of());
+            return new ChapterNarration(empty, List.of());
+        }
         DefaultCast def = resolveNovelDefaultCast(novelId);
         if (def == null) {
-            return List.of(NarrationCharacter.defaultNarrator());
+            // 作品不存在：全篇单一默认旁白，不落任何花名册。
+            NarrationScript script = narrationScriptService.buildScript(
+                    List.of(NarrationCharacter.defaultNarrator()), safeSentences, List.of());
+            return new ChapterNarration(script, List.of());
         }
         long castId = def.cast() != null ? def.cast().id()
                 : create(def.suggestedName(), def.seriesId(), def.novelId()).id();
-        List<NarrationCharacter> existing = loadRoster(castId);
-        List<String> known = existing.stream()
-                .filter(c -> !c.narrator())
-                .map(NarrationCharacter::name)
-                .limit(MAX_KNOWN_NAMES)
-                .toList();
-        List<NarrationCharacter> aiRoster = narrationScriptService.buildCast(chapterText, known);
-        enrollCharacters(castId, aiRoster);
-        return loadRoster(castId);
-    }
+        ensureNarratorPersisted(castId);
 
-    /**
-     * 用作品的持久化花名册产出整段文本的多角色朗读脚本：选角入册 + 逐句归属 + 合成每句 Control Instruction。
-     */
-    public NarrationScript narrate(long novelId, String chapterText, List<String> sentences) {
-        List<NarrationCharacter> roster = resolveAndEnroll(novelId, chapterText);
-        return narrationScriptService.buildScript(roster, sentences);
+        List<NarrationLineVoice> allLineVoices = new ArrayList<>(safeSentences.size());
+        Map<Integer, NarrationConflictReport> unresolved = new LinkedHashMap<>();
+
+        int total = safeSentences.size();
+        for (int start = 0; start < total; start += SEGMENT_SIZE) {
+            int end = Math.min(start + SEGMENT_SIZE, total);
+            List<String> segment = safeSentences.subList(start, end);
+
+            List<NarrationCharacter> roster = loadRoster(castId);
+            int nextId = nextCharacterId(roster);
+            NarrationSegmentAnalysis analysis = narrationScriptService.analyzeSegment(roster, segment, nextId);
+
+            SegmentRosterResult res = processSegmentRoster(castId, roster, analysis);
+
+            Set<Integer> rosterIds = new java.util.LinkedHashSet<>();
+            for (NarrationCharacter c : roster) {
+                rosterIds.add(c.id());
+            }
+            for (NarrationLineVoice lv : analysis.lines()) {
+                int realSpeaker = remapSpeaker(lv.speakerId(), rosterIds, res.tempToReal());
+                allLineVoices.add(new NarrationLineVoice(start + lv.index(), realSpeaker, lv.delivery()));
+            }
+            for (NarrationConflictReport report : res.unresolvedConflicts()) {
+                unresolved.put(report.characterId(), report);
+            }
+        }
+
+        List<NarrationCharacter> finalRoster = loadRoster(castId);
+        NarrationScript script = narrationScriptService.buildScript(finalRoster, safeSentences, allLineVoices);
+        return new ChapterNarration(script, new ArrayList<>(unresolved.values()));
     }
 
     // ── 内部 ─────────────────────────────────────────────────────────────────
@@ -199,49 +243,71 @@ public class NovelNarrationCastService {
         return out;
     }
 
+    /** 确保旁白行（id 0）已持久化（默认音色、AI 生成来源），以便后续 AI 补充 / 冲突能对旁白生效。 */
+    @Transactional
+    void ensureNarratorPersisted(long castId) {
+        novelMapper.insertNarrationVoiceIfAbsent(castId, NarrationCharacter.NARRATOR_ID, "Narrator",
+                "unknown", "unknown", NarrationCharacter.DEFAULT_NARRATOR_INSTRUCTION, false,
+                TimestampUtils.nowMillis());
+    }
+
     /**
-     * AI 选角结果并入持久化名册：按<b>角色名</b> putIfAbsent——已在册的角色（含用户改过的音色）保持不变，
-     * 只为新名字分配新的 {@code character_id} 并写入。同时确保旁白行（id 0）存在。
+     * 把一段分析结果落库并路由：① 新角色按名字 putIfAbsent 入册（{@code edited_by_user=0}）、建立临时 id → 真实
+     * id 映射；② 兼容性补充仅对未锁定角色刷新画像；③ 冲突对未锁定角色自动采纳建议、对用户锁定角色收集为待处理
+     * 冲突（绝不覆盖）。返回临时 id 映射与未解决冲突供编排层重映射逐句 speaker / 提示用户。
      */
     @Transactional
-    void enrollCharacters(long castId, List<NarrationCharacter> aiRoster) {
+    SegmentRosterResult processSegmentRoster(long castId, List<NarrationCharacter> roster,
+                                             NarrationSegmentAnalysis analysis) {
         long now = TimestampUtils.nowMillis();
-        List<NarrationCharacter> existing = novelMapper.findNarrationVoices(castId);
-        Set<String> existingNames = new LinkedHashSet<>();
-        int maxId = -1;
-        boolean hasNarrator = false;
-        for (NarrationCharacter c : existing) {
-            existingNames.add(normName(c.name()));
+        Map<String, Integer> nameToId = new LinkedHashMap<>();
+        Map<Integer, NarrationCharacter> byId = new LinkedHashMap<>();
+        int maxId = NarrationCharacter.NARRATOR_ID;
+        for (NarrationCharacter c : roster) {
+            nameToId.putIfAbsent(normName(c.name()), c.id());
+            byId.putIfAbsent(c.id(), c);
             maxId = Math.max(maxId, c.id());
-            hasNarrator |= c.narrator();
         }
         boolean changed = false;
 
-        // 确保旁白行存在：优先用 AI 选出的旁白音色，否则默认旁白。
-        if (!hasNarrator) {
-            NarrationCharacter aiNarrator = firstNarrator(aiRoster);
-            String instruction = aiNarrator != null ? aiNarrator.controlInstruction()
-                    : NarrationCharacter.DEFAULT_NARRATOR_INSTRUCTION;
-            novelMapper.insertNarrationVoiceIfAbsent(castId, NarrationCharacter.NARRATOR_ID, "Narrator",
-                    "unknown", "unknown", instruction, now);
-            existingNames.add(normName("Narrator"));
-            maxId = Math.max(maxId, NarrationCharacter.NARRATOR_ID);
+        // ① 新角色入册（按名字 putIfAbsent，不覆盖已有 / 用户改过的音色），返回 临时 id → 真实 id 映射。
+        Map<Integer, Integer> tempToReal = new LinkedHashMap<>();
+        for (NarrationCharacter c : analysis.newCharacters()) {
+            if (c == null) continue;
+            String name = c.name() == null ? "" : c.name().trim();
+            if (name.isEmpty() || c.controlInstruction() == null || c.controlInstruction().isBlank()) continue;
+            String key = normName(name);
+            Integer realId = nameToId.get(key);
+            if (realId == null) {
+                realId = ++maxId;
+                novelMapper.insertNarrationVoiceIfAbsent(castId, realId, name,
+                        c.gender(), c.age(), c.controlInstruction().trim(), false, now);
+                nameToId.put(key, realId);
+                changed = true;
+            }
+            tempToReal.put(c.id(), realId);
+        }
+
+        // ② 兼容性补充：仅刷新 AI 生成（未锁定）的已有角色画像；用户锁定的忽略。
+        for (Map.Entry<Integer, String> e : analysis.updatedCharacters().entrySet()) {
+            NarrationCharacter ex = byId.get(e.getKey());
+            if (ex == null || ex.editedByUser()) continue;
+            String instr = e.getValue();
+            if (instr == null || instr.isBlank()) continue;
+            novelMapper.updateNarrationVoiceInstruction(castId, ex.id(), instr.trim(), false);
             changed = true;
         }
 
-        if (aiRoster != null) {
-            for (NarrationCharacter c : aiRoster) {
-                if (c == null || c.narrator()) continue;
-                String name = c.name() == null ? "" : c.name().trim();
-                if (name.isEmpty() || c.controlInstruction() == null || c.controlInstruction().isBlank()) {
-                    continue;
-                }
-                if (!existingNames.add(normName(name))) {
-                    continue; // 已在册：不覆盖
-                }
-                int newId = ++maxId;
-                novelMapper.insertNarrationVoiceIfAbsent(castId, newId, name,
-                        c.gender(), c.age(), c.controlInstruction().trim(), now);
+        // ③ 冲突路由：AI 生成角色自动采纳建议覆盖；用户锁定角色保留原值、收集为待处理冲突。
+        List<NarrationConflictReport> unresolved = new ArrayList<>();
+        for (NarrationConflict conflict : analysis.conflicts()) {
+            NarrationCharacter ex = byId.get(conflict.characterId());
+            if (ex == null) continue;
+            if (ex.editedByUser()) {
+                unresolved.add(new NarrationConflictReport(ex.id(), ex.name(), conflict.type(),
+                        conflict.reason(), ex.controlInstruction(), conflict.suggestion()));
+            } else {
+                novelMapper.updateNarrationVoiceInstruction(castId, ex.id(), conflict.suggestion(), false);
                 changed = true;
             }
         }
@@ -249,14 +315,24 @@ public class NovelNarrationCastService {
         if (changed) {
             novelMapper.touchNarrationCast(castId, now);
         }
+        return new SegmentRosterResult(tempToReal, unresolved);
     }
 
-    private static NarrationCharacter firstNarrator(List<NarrationCharacter> roster) {
-        if (roster == null) return null;
-        for (NarrationCharacter c : roster) {
-            if (c != null && c.narrator()) return c;
+    /** 把逐句 speaker 的段内引用映射成真实 id：已有名册 id 原样保留；新角色临时 id 换成入册后的真实 id；其余归旁白。 */
+    private static int remapSpeaker(int speakerId, Set<Integer> rosterIds, Map<Integer, Integer> tempToReal) {
+        if (rosterIds.contains(speakerId)) {
+            return speakerId;
         }
-        return null;
+        Integer real = tempToReal.get(speakerId);
+        return real != null ? real : NarrationCharacter.NARRATOR_ID;
+    }
+
+    private static int nextCharacterId(List<NarrationCharacter> roster) {
+        int max = NarrationCharacter.NARRATOR_ID;
+        for (NarrationCharacter c : roster) {
+            max = Math.max(max, c.id());
+        }
+        return max + 1;
     }
 
     private static String normName(String name) {

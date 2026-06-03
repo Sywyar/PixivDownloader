@@ -21,8 +21,10 @@ public record NarrationScript(List<NarrationCharacter> cast, List<Line> lines, b
      * @param text               原句文本
      * @param speakerId          名册里的说话人 id（0 为旁白）
      * @param speakerName        说话人称谓（便于展示 / 调试）
+     * @param delivery           本句情绪 / 语气微调（短英文，可为空串）；引擎适配器可据此映射 rate / pitch 等
      * @param controlInstruction 已合成的最终 Control Instruction（角色基底音色画像 + 本句情绪微调），可直接喂 TTS
      */
-    public record Line(int index, String text, int speakerId, String speakerName, String controlInstruction) {
+    public record Line(int index, String text, int speakerId, String speakerName,
+                       String delivery, String controlInstruction) {
     }
 }
