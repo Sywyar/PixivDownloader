@@ -82,6 +82,26 @@ public class RestTemplateConfig {
     }
 
     /**
+     * 多角色朗读引擎可用性探测专用 RestTemplate（直连，<b>短超时</b>）。仅用于对 VoxCPM 等 OpenAI 兼容服务做一次
+     * 轻量 GET {@code /models} 存活探测，故连接 / 读取超时都很短，避免后端不可达时拖慢 {@code /api/narration/availability}
+     * 与小说页加载。{@code narration-tts.voxcpm.use-proxy=false} 时由
+     * {@link top.sywyar.pixivdownload.tts.narration.engine.VoxCpmNarrationEngine} 选用本 bean。
+     */
+    @Bean("narrationTtsProbeRestTemplate")
+    public RestTemplate narrationTtsProbeRestTemplate() {
+        return buildRestTemplate(2_000, 4_000, null);
+    }
+
+    /**
+     * 多角色朗读引擎可用性探测专用 RestTemplate（经 {@link ProxyConfig} 出站，<b>短超时</b>）。是否走代理由
+     * {@code narration-tts.voxcpm.use-proxy} 决定，与全局 {@code proxy.enabled} 相互独立，故此处不检查它。
+     */
+    @Bean("narrationTtsProbeProxyRestTemplate")
+    public RestTemplate narrationTtsProbeProxyRestTemplate() {
+        return buildRestTemplate(2_000, 4_000, new FixedProxyRoutePlanner(proxyConfig));
+    }
+
+    /**
      * 推送通知专用 RestTemplate（直连，不走代理）。短超时即可：推送目标是体量很小的 webhook 调用。
      * {@link top.sywyar.pixivdownload.push.PushHttpSender} 在通道 {@code use-proxy=false} 时使用本 bean。
      */

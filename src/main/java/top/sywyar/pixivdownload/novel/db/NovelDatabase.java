@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.util.TimestampUtils;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
@@ -54,6 +55,7 @@ public class NovelDatabase {
         novelMapper.createNovelNarrationCastsSeriesIndex();
         novelMapper.createNovelNarrationCastsNovelIndex();
         novelMapper.createNovelNarrationVoicesTable();
+        novelMapper.createNovelNarrationScriptsTable();
         novelMapper.createNovelFtsTable();
         // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
         try { novelMapper.backfillNovelFts(); } catch (Exception e) {
@@ -119,10 +121,14 @@ public class NovelDatabase {
                             Integer wordCount, Integer textLength, Integer readingTimeSeconds,
                             Integer pageCount, Boolean isOriginal, String xLanguage,
                             String rawContent, String coverExt) {
+        NovelRecord previous = novelMapper.findById(novelId);
         novelMapper.insertOrReplace(novelId, title, pathPrefixCodec.encode(stripTrailingSlash(folder)),
                 count, extensions, time, xRestrict, isAi, authorId, description,
                 fileName, fileAuthorNameId, seriesId, seriesOrder,
                 wordCount, textLength, readingTimeSeconds, pageCount, isOriginal, xLanguage, rawContent, coverExt);
+        if (previous != null && !Objects.equals(previous.rawContent(), rawContent)) {
+            novelMapper.deleteNarrationScripts(novelId);
+        }
         syncNovelFts(novelId, rawContent);
     }
 
@@ -235,6 +241,7 @@ public class NovelDatabase {
         novelMapper.deleteAllNovelCollections(novelId);
         novelMapper.deleteNovelImages(novelId);
         novelMapper.deleteTranslations(novelId);
+        novelMapper.deleteNarrationScripts(novelId);
         novelMapper.deleteById(novelId);
         try { novelMapper.deleteNovelFts(novelId); } catch (Exception e) {
             log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
@@ -253,6 +260,7 @@ public class NovelDatabase {
         if (langCode == null || langCode.isBlank()) return;
         String lang = langCode.trim();
         String content = rawContent == null ? "" : rawContent;
+        String previousContent = novelMapper.findTranslationContent(novelId, lang);
         long now = TimestampUtils.nowMillis();
         String titleToWrite = (translatedTitle != null && !translatedTitle.isBlank())
                 ? translatedTitle.trim()
@@ -261,6 +269,9 @@ public class NovelDatabase {
                 ? translatedDescription.trim()
                 : novelMapper.findTranslationDescription(novelId, lang);
         novelMapper.insertOrReplaceTranslation(novelId, lang, content, titleToWrite, descriptionToWrite, now);
+        if (!Objects.equals(previousContent, content)) {
+            novelMapper.deleteNarrationScript(novelId, lang);
+        }
     }
 
     /** 单独覆盖某本小说某语言的译文标题（不动正文），用于内容已译但标题刚翻译成功的回填。 */

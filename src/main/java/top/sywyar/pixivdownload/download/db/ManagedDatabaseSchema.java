@@ -427,6 +427,19 @@ public final class ManagedDatabaseSchema {
                 List.of()
         ));
 
+        tables.put("novel_narration_scripts", new TableSpec(
+                "novel_narration_scripts",
+                List.of(
+                        column("novel_id", "INTEGER", true, null, 1),
+                        column("lang", "TEXT", true, null, 2),
+                        column("cast_id", "INTEGER", true, null, 0),
+                        column("segment_size", "INTEGER", true, null, 0),
+                        column("analyzed_time", "INTEGER", true, null, 0),
+                        column("script_json", "TEXT", true, null, 0)
+                ),
+                List.of()
+        ));
+
         tables.put("scheduled_tasks", new TableSpec(
                 "scheduled_tasks",
                 List.of(

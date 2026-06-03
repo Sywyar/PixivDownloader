@@ -100,6 +100,95 @@ public final class NovelMarkupParser {
         return segments;
     }
 
+    /** 一个<b>可朗读渲染块</b>的类型。{@code NEWPAGE} 不产生块（不出现在 {@link #textBlocks} 结果中）。 */
+    public enum TextBlockKind { CHAPTER, PARAGRAPH }
+
+    /**
+     * 一个可朗读渲染块：{@code text} 已是<b>纯朗读文本</b>（ruby 注音取基词、外链取链接文字、翻页标记 /
+     * 内嵌图片占位一律剔除），与前端渲染出的 DOM 文本内容一致。
+     */
+    public record TextBlock(TextBlockKind kind, String text) {}
+
+    /**
+     * 把原始 Pixiv markup 拆成<b>与前端渲染块逐一对齐</b>的可朗读纯文本块序列，供「AI 听小说」断句 + 段落级高亮使用。
+     *
+     * <p>本方法的块枚举顺序与数量必须与前端 {@code pixiv-novel-render.js} 渲染出的
+     * {@code <h2 class="novel-chapter">} / {@code <p>} 元素（即 {@code querySelectorAll('h2.novel-chapter, p')}）
+     * 严格一致，以保证 {@code paragraphIndex} 能在两端对齐：
+     * <ul>
+     *   <li>{@code [chapter:标题]} → 一个 {@link TextBlockKind#CHAPTER} 块；</li>
+     *   <li>{@code [newpage]} → <b>不产生块</b>（前端只是切 section，无 h2/p）；</li>
+     *   <li>其余连续行先按 {@code \n} 累积为一个段落缓冲，再按<b>空行（{@code \n{2,}}）</b>切成多个片段，每个
+     *       <b>非空字符串</b>片段对应一个 {@link TextBlockKind#PARAGRAPH} 块（与前端「每个非空片段渲染一个
+     *       {@code <p>}」一致）。</li>
+     * </ul>
+     * 块的 {@code text} 经 {@link #plainText} 还原为朗读文本；某些块（如仅含翻页 / 缺失图片的片段）{@code text}
+     * 可能为空白，但<b>仍占一个块位</b>（与前端 DOM 中存在的空 {@code <p>} 对齐），以免下标错位。
+     */
+    public static List<TextBlock> textBlocks(String raw) {
+        if (raw == null) raw = "";
+        String normalized = raw.replace("\r\n", "\n").replace('\r', '\n');
+        String[] lines = normalized.split("\n", -1);
+        List<TextBlock> out = new ArrayList<>();
+        StringBuilder buf = new StringBuilder();
+        boolean hasBuf = false;
+        for (String line : lines) {
+            Matcher chapter = CHAPTER_LINE.matcher(line);
+            if (chapter.matches()) {
+                flushTextParagraph(buf, hasBuf, out);
+                buf.setLength(0);
+                hasBuf = false;
+                out.add(new TextBlock(TextBlockKind.CHAPTER, plainText(chapter.group(1).trim())));
+                continue;
+            }
+            if (NEWPAGE_LINE.matcher(line).matches()) {
+                flushTextParagraph(buf, hasBuf, out);
+                buf.setLength(0);
+                hasBuf = false;
+                // newpage 在前端只切 section、不产生 h2/p，这里同样不产生块。
+                continue;
+            }
+            if (hasBuf) buf.append('\n');
+            buf.append(line);
+            hasBuf = true;
+        }
+        flushTextParagraph(buf, hasBuf, out);
+        return out;
+    }
+
+    /** 把一个段落缓冲按空行（{@code \n{2,}}）切成多个 {@code <p>} 对应块；与前端 {@code if (!p) continue} 一致，仅跳过空串片段。 */
+    private static void flushTextParagraph(StringBuilder buf, boolean hasBuf, List<TextBlock> out) {
+        if (!hasBuf) return;
+        String[] pieces = buf.toString().split("\\n{2,}", -1);
+        for (String piece : pieces) {
+            if (piece.isEmpty()) continue;
+            out.add(new TextBlock(TextBlockKind.PARAGRAPH, plainText(piece)));
+        }
+    }
+
+    /**
+     * 把一段含内联标记的文本还原为<b>纯朗读文本</b>：ruby 取基词、外链取链接文字、翻页提示与内嵌图片占位一律剔除。
+     * 与前端把这些内联元素渲染后取 {@code textContent} 的结果一致（外链只读出链接文字、不读 URL；图片不读出）。
+     */
+    private static String plainText(String text) {
+        if (text == null || text.isEmpty()) return "";
+        Matcher m = INLINE_PATTERN.matcher(text);
+        StringBuilder out = new StringBuilder();
+        int last = 0;
+        while (m.find()) {
+            out.append(text, last, m.start());
+            if (m.group("rbBase") != null) {
+                out.append(m.group("rbBase").trim());
+            } else if (m.group("juText") != null) {
+                out.append(m.group("juText").trim());
+            }
+            // jumpPage / upImg / pxImg：剔除，不读出。
+            last = m.end();
+        }
+        out.append(text, last, text.length());
+        return out.toString();
+    }
+
     /** 扫描原始正文中出现的 [uploadedimage:id] 占位符 ID 列表（按出现顺序去重）。 */
     public static Set<String> findUploadedImageIds(String raw) {
         if (raw == null || raw.isEmpty()) return Set.of();

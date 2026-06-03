@@ -516,7 +516,8 @@
             color: var(--text-secondary);
         }
         .tts-field label { white-space: nowrap; color: var(--muted); }
-        .tts-field select {
+        .tts-field select,
+        .tts-field input[type="number"] {
             max-width: 220px;
             height: 32px;
             padding: 0 8px;
@@ -528,7 +529,9 @@
             font-size: 13px;
             outline: none;
         }
-        .tts-field select:focus { border-color: var(--brand); }
+        .tts-field input[type="number"] { width: 120px; }
+        .tts-field select:focus,
+        .tts-field input[type="number"]:focus { border-color: var(--brand); }
         .tts-field-rate input[type="range"] { width: 120px; accent-color: var(--brand); }
         .tts-rate-value { min-width: 40px; color: var(--muted); }
         .tts-hint {
@@ -540,5 +543,224 @@
         @media (max-width: 600px) {
             .tts-field select { max-width: 150px; }
             .tts-field-rate input[type="range"] { width: 80px; }
+        }
+
+        /* ── 多角色朗读（narration） ───────────────────────────────────────── */
+        /* 当前朗读段落高亮（与单声道 tts-active 区分：左侧色条 + 表面底色） */
+        .content-card .narration-active {
+            background: var(--control-muted-bg);
+            box-shadow: -10px 0 0 var(--control-muted-bg), inset 4px 0 0 var(--brand);
+            border-radius: 0 4px 4px 0;
+        }
+        .narration-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 16px;
+            transform: translateX(-50%);
+            width: calc(100% - 32px);
+            max-width: var(--page-max);
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+            z-index: 1500;
+            overflow: hidden;
+        }
+        .narration-progressbar {
+            position: relative;
+            height: 6px;
+            background: var(--control-muted-bg);
+            cursor: pointer;
+        }
+        .narration-progressbar:hover { height: 8px; }
+        .narration-progressbar-fill {
+            height: 100%;
+            width: 0;
+            background: var(--brand);
+            transition: width .15s linear;
+            pointer-events: none;
+        }
+        .narration-subtitle {
+            padding: 8px 14px 0;
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--text);
+            min-height: 20px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .narration-subtitle .narration-speaker {
+            color: var(--brand);
+            font-weight: 600;
+            margin-right: 6px;
+        }
+        .narration-bar-main {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+        }
+        .narration-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 15px;
+            line-height: 1;
+        }
+        .narration-icon-btn:hover { border-color: var(--brand); color: var(--brand); }
+        .narration-icon-btn.narration-play { color: var(--brand); border-color: var(--brand); }
+        .narration-progress {
+            flex: 1;
+            text-align: center;
+            font-size: 13px;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .narration-close { margin-left: auto; }
+        .narration-settings {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-top: 1px solid var(--line);
+            background: var(--control-muted-bg);
+        }
+        .narration-field {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .narration-field label { white-space: nowrap; color: var(--muted); }
+        .narration-field select {
+            height: 32px;
+            padding: 0 8px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 13px;
+            outline: none;
+        }
+        .narration-field select:focus { border-color: var(--brand); }
+        .narration-hint {
+            flex-basis: 100%;
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--muted);
+        }
+
+        /* 选角 / 冲突面板 */
+        .narration-cast-modal { max-width: 560px; }
+        .narration-conflicts {
+            margin-bottom: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .narration-conflict {
+            border: 1px solid var(--brand);
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: var(--control-muted-bg);
+        }
+        .narration-conflict-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .narration-conflict-type {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--brand);
+            border: 1px solid var(--brand);
+            border-radius: 999px;
+            padding: 1px 8px;
+        }
+        .narration-conflict-body { font-size: 12px; color: var(--muted); line-height: 1.6; }
+        .narration-conflict-body .narration-instr { color: var(--text); }
+        .narration-conflict-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        .narration-cast-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .narration-cast-empty {
+            padding: 24px;
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+        }
+        .narration-voice {
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 10px 12px;
+        }
+        .narration-voice-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .narration-voice-name { font-weight: 600; font-size: 14px; }
+        .narration-voice-meta { font-size: 12px; color: var(--muted); }
+        .narration-voice-flag {
+            font-size: 11px;
+            border-radius: 999px;
+            padding: 1px 8px;
+            border: 1px solid var(--line);
+            color: var(--muted);
+        }
+        .narration-voice-flag.locked { color: var(--brand); border-color: var(--brand); }
+        .narration-voice-head .narration-voice-actions { margin-left: auto; display: flex; gap: 6px; }
+        .narration-voice-instr {
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.6;
+            word-break: break-word;
+        }
+        .narration-voice-edit { margin-top: 8px; display: none; flex-direction: column; gap: 8px; }
+        .narration-voice-edit.open { display: flex; }
+        .narration-voice-edit textarea {
+            width: 100%;
+            min-height: 60px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--control-bg);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 13px;
+            padding: 8px;
+            outline: none;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+        .narration-voice-edit textarea:focus { border-color: var(--brand); }
+        .narration-voice-edit-actions { display: flex; gap: 8px; }
+        .btn.btn-sm { padding: 4px 10px; font-size: 12px; height: auto; }
+        @media (max-width: 600px) {
+            .narration-field select { max-width: 150px; }
         }
 

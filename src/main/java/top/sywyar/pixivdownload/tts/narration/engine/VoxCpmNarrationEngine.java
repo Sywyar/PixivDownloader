@@ -39,6 +39,8 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String SPEECH_PATH = "/audio/speech";
+    /** OpenAI 兼容存活探测路径：GET {@code {base-url}/models}。 */
+    private static final String MODELS_PATH = "/models";
     /** 内联 voice-design 固定 voice id。 */
     private static final String DEFAULT_VOICE = "default";
     /** 非 2xx 错误体摘要上限，避免超长正文进异常 / 日志。 */
@@ -49,15 +51,21 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
     private final NarrationTtsConfig config;
     private final RestTemplate directRestTemplate;
     private final RestTemplate proxyRestTemplate;
+    private final RestTemplate directProbeRestTemplate;
+    private final RestTemplate proxyProbeRestTemplate;
     private final AppMessages messages;
 
     public VoxCpmNarrationEngine(NarrationTtsConfig config,
                                  @Qualifier("narrationTtsRestTemplate") RestTemplate directRestTemplate,
                                  @Qualifier("narrationTtsProxyRestTemplate") RestTemplate proxyRestTemplate,
+                                 @Qualifier("narrationTtsProbeRestTemplate") RestTemplate directProbeRestTemplate,
+                                 @Qualifier("narrationTtsProbeProxyRestTemplate") RestTemplate proxyProbeRestTemplate,
                                  AppMessages messages) {
         this.config = config;
         this.directRestTemplate = directRestTemplate;
         this.proxyRestTemplate = proxyRestTemplate;
+        this.directProbeRestTemplate = directProbeRestTemplate;
+        this.proxyProbeRestTemplate = proxyProbeRestTemplate;
         this.messages = messages;
     }
 
@@ -70,6 +78,43 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
     public boolean isAvailable() {
         NarrationTtsConfig.Voxcpm vox = config.getVoxcpm();
         return vox != null && vox.getBaseUrl() != null && !vox.getBaseUrl().isBlank();
+    }
+
+    /**
+     * 真实可达探测：在配置就绪的前提下，<b>带上已配置 api-key</b> 对 VoxCPM 的 OpenAI 兼容服务发一次<b>短超时</b>
+     * GET {@code {base-url}/models}。
+     * <ul>
+     *   <li>未配置 base-url → 直接 {@code false}，<b>不</b>触网；</li>
+     *   <li>2xx → 在线、凭证被接受，视为可用；</li>
+     *   <li>任何非 2xx（401/403 凭证被拒、404 路径错、5xx 等）或连接被拒 / 超时 / DNS 失败 → 不可用。</li>
+     * </ul>
+     * 因探测已带上配置的凭证，401/403 意味着同样凭证下真实合成也会失败，故一并按不可用处理。
+     * 失败仅以 debug 记一条脱敏日志（绝不含 api-key），不抛异常。
+     */
+    @Override
+    public boolean isReachable() {
+        NarrationTtsConfig.Voxcpm vox = config.getVoxcpm();
+        if (vox == null || vox.getBaseUrl() == null || vox.getBaseUrl().isBlank()) {
+            return false;
+        }
+        String apiKey = vox.getApiKey();
+        HttpHeaders headers = new HttpHeaders();
+        if (apiKey != null && !apiKey.isBlank()) {
+            headers.setBearerAuth(apiKey.trim());
+        }
+        RestTemplate restTemplate = vox.isUseProxy() ? proxyProbeRestTemplate : directProbeRestTemplate;
+        String url = modelsUrl(vox.getBaseUrl());
+        try {
+            ResponseEntity<Void> response =
+                    restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), Void.class);
+            return response.getStatusCode().is2xxSuccessful();
+        } catch (RestClientException e) {
+            // RestClientResponseException（非 2xx）是其子类，连同连接失败 / 超时一并视为不可达。
+            if (log.isDebugEnabled()) {
+                log.debug("VoxCPM 可用性探测失败：{}", redact(safeMessage(e), apiKey));
+            }
+            return false;
+        }
     }
 
     @Override
@@ -149,11 +194,20 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
 
     /** 在 base-url 后拼接 {@code /audio/speech}，自动处理结尾斜杠。 */
     private static String speechUrl(String baseUrl) {
+        return trimTrailingSlash(baseUrl) + SPEECH_PATH;
+    }
+
+    /** 在 base-url 后拼接 {@code /models}（存活探测），自动处理结尾斜杠。 */
+    private static String modelsUrl(String baseUrl) {
+        return trimTrailingSlash(baseUrl) + MODELS_PATH;
+    }
+
+    private static String trimTrailingSlash(String baseUrl) {
         String trimmed = baseUrl.trim();
         while (trimmed.endsWith("/")) {
             trimmed = trimmed.substring(0, trimmed.length() - 1);
         }
-        return trimmed + SPEECH_PATH;
+        return trimmed;
     }
 
     /** contentType 取响应头；缺失时按输出格式推断。 */

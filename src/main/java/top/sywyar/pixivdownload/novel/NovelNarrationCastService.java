@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.novel;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,10 +19,12 @@ import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.tts.narration.NarrationScript;
 import top.sywyar.pixivdownload.tts.narration.NarrationScriptService;
 import top.sywyar.pixivdownload.tts.narration.NarrationSegmentAnalysis;
+import top.sywyar.pixivdownload.tts.narration.NarrationSentence;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -54,14 +57,12 @@ import java.util.Set;
 @Service
 public class NovelNarrationCastService {
 
-    /** 每段发给 AI 的句子数（控制单次响应体量与下标规模；建议 30–40）。 */
-    static final int SEGMENT_SIZE = 35;
-
     private final NovelMapper novelMapper;
     private final NovelDatabase novelDatabase;
     private final NarrationScriptService narrationScriptService;
     private final TransactionOperations transactionOperations;
 
+    @Autowired
     public NovelNarrationCastService(NovelMapper novelMapper,
                                      NovelDatabase novelDatabase,
                                      NarrationScriptService narrationScriptService,
@@ -191,15 +192,25 @@ public class NovelNarrationCastService {
 
     /**
      * 用作品的持久化花名册分析整章句子，产出完整逐句朗读脚本 + 未解决冲突：解析默认花名册（按需创建）→ 把句子
-     * 按 {@link #SEGMENT_SIZE} 切段 → 逐段携带刷新后的花名册做合并单次分析 → 新角色入册、补充 / 冲突按编辑来源
-     * 路由 → 把逐句临时 id 重映射成真实 id 累积 → 最终用刷新后的名册装配脚本。
+     * 按<b>分段字数</b>攒成多批（单元=段落，{@code segmentSize<=0} 整章一批）→ 逐批携带刷新后的花名册做合并单次
+     * 分析 → 新角色入册、补充 / 冲突按编辑来源路由 → 把逐句临时 id 重映射成真实 id 累积 → 最终用刷新后的名册装配脚本。
      *
-     * <p>断句是调用方职责（{@code sentences} 已切好按序传入）。AI 关闭 / 失败 / 某段不可解析时该段整段归旁白，
-     * 结果始终与输入句子等长、永不缺句。
+     * <p><b>两个粒度不可混淆</b>：归属永远<b>按句</b>（脚本逐句对齐输入句子）；{@code segmentSize} 只决定每批
+     * 发给 AI 的文本量，语义与小说翻译的「分段字数」一致（默认 0=整章一批）。
+     *
+     * <p>断句是调用方职责（{@code sentences} 已切好、带 paragraphIndex 按序传入）。AI 关闭 / 失败 / 某批不可解析时
+     * 该批整批归旁白，结果始终与输入句子等长、永不缺句。
+     *
+     * @param sentences   已断好的逐句（带 paragraphIndex）
+     * @param segmentSize 分段字数：{@code <=0} 整章一批；{@code >0} 按段落累积到约该字数切批
      */
-    public ChapterNarration analyzeChapter(long novelId, List<String> sentences) {
-        List<String> safeSentences = sentences == null ? List.of() : sentences;
-        if (safeSentences.isEmpty()) {
+    public ChapterNarration analyzeChapter(long novelId, List<NarrationSentence> sentences, int segmentSize) {
+        List<NarrationSentence> safe = sentences == null ? List.of() : sentences;
+        List<String> texts = new ArrayList<>(safe.size());
+        for (NarrationSentence s : safe) {
+            texts.add(s.text());
+        }
+        if (safe.isEmpty()) {
             NarrationScript empty = narrationScriptService.buildScript(
                     List.of(NarrationCharacter.defaultNarrator()), List.of(), List.of());
             return new ChapterNarration(empty, List.of());
@@ -208,20 +219,22 @@ public class NovelNarrationCastService {
         if (def == null) {
             // 作品不存在：全篇单一默认旁白，不落任何花名册。
             NarrationScript script = narrationScriptService.buildScript(
-                    List.of(NarrationCharacter.defaultNarrator()), safeSentences, List.of());
+                    List.of(NarrationCharacter.defaultNarrator()), texts, List.of());
             return new ChapterNarration(script, List.of());
         }
         long castId = def.cast() != null ? def.cast().id()
                 : create(def.suggestedName(), def.seriesId(), def.novelId()).id();
         ensureNarratorPersisted(castId);
 
-        List<NarrationLineVoice> allLineVoices = new ArrayList<>(safeSentences.size());
+        List<NarrationLineVoice> allLineVoices = new ArrayList<>(safe.size());
         Map<Integer, NarrationConflictReport> unresolved = new LinkedHashMap<>();
 
-        int total = safeSentences.size();
-        for (int start = 0; start < total; start += SEGMENT_SIZE) {
-            int end = Math.min(start + SEGMENT_SIZE, total);
-            List<String> segment = safeSentences.subList(start, end);
+        int globalStart = 0;
+        for (List<NarrationSentence> batch : splitIntoBatches(safe, segmentSize)) {
+            List<String> segment = new ArrayList<>(batch.size());
+            for (NarrationSentence s : batch) {
+                segment.add(s.text());
+            }
 
             List<NarrationCharacter> roster = loadRoster(castId);
             int nextId = nextCharacterId(roster);
@@ -229,22 +242,88 @@ public class NovelNarrationCastService {
 
             SegmentRosterResult res = processSegmentRoster(castId, roster, analysis);
 
-            Set<Integer> rosterIds = new java.util.LinkedHashSet<>();
+            Set<Integer> rosterIds = new LinkedHashSet<>();
             for (NarrationCharacter c : roster) {
                 rosterIds.add(c.id());
             }
             for (NarrationLineVoice lv : analysis.lines()) {
                 int realSpeaker = remapSpeaker(lv.speakerId(), rosterIds, res.tempToReal());
-                allLineVoices.add(new NarrationLineVoice(start + lv.index(), realSpeaker, lv.delivery()));
+                allLineVoices.add(new NarrationLineVoice(globalStart + lv.index(), realSpeaker, lv.delivery()));
             }
             for (NarrationConflictReport report : res.unresolvedConflicts()) {
                 unresolved.put(report.characterId(), report);
             }
+            globalStart += batch.size();
         }
 
         List<NarrationCharacter> finalRoster = loadRoster(castId);
-        NarrationScript script = narrationScriptService.buildScript(finalRoster, safeSentences, allLineVoices);
+        NarrationScript script = narrationScriptService.buildScript(finalRoster, texts, allLineVoices);
         return new ChapterNarration(script, new ArrayList<>(unresolved.values()));
+    }
+
+    /**
+     * 用户手动修改某角色音色画像并锁定（{@code edited_by_user=1}，AI 之后绝不覆盖），同时推进花名册
+     * {@code updated_time}，使前端音频缓存键（含 {@code castUpdatedTime}）失效、对后续合成即时生效。
+     * 也用于「解决冲突」时写回采纳 / 改写后的画像。
+     */
+    @Transactional
+    public void updateVoiceInstruction(long castId, int characterId, String instruction) {
+        String instr = instruction == null ? "" : instruction.trim();
+        if (instr.isEmpty()) {
+            return;
+        }
+        long now = TimestampUtils.nowMillis();
+        int updated = novelMapper.updateNarrationVoiceInstruction(castId, characterId, instr, true);
+        if (updated <= 0 && characterId == NarrationCharacter.NARRATOR_ID) {
+            NarrationCharacter narrator = NarrationCharacter.defaultNarrator();
+            novelMapper.upsertNarrationVoice(castId, narrator.id(), narrator.name(), narrator.gender(), narrator.age(),
+                    instr, true, now);
+            updated = 1;
+        }
+        if (updated > 0) {
+            novelMapper.touchNarrationCast(castId, now);
+        }
+    }
+
+    /**
+     * 按<b>分段字数</b>把逐句攒成多批：累积<b>单元为段落</b>（{@code paragraphIndex} 相同的连续句子，整段不可拆），
+     * 累计字数 {@code >= segmentSize} 即切一批；{@code segmentSize<=0} → 整章一批。与小说翻译
+     * {@link NovelTranslationService#splitIntoSegments} 的「累积到阈值切」语义一致（单元换成段落），避免漂移。
+     */
+    static List<List<NarrationSentence>> splitIntoBatches(List<NarrationSentence> sentences, int segmentSize) {
+        List<List<NarrationSentence>> batches = new ArrayList<>();
+        if (sentences == null || sentences.isEmpty()) {
+            return batches;
+        }
+        if (segmentSize <= 0) {
+            batches.add(new ArrayList<>(sentences));
+            return batches;
+        }
+        List<NarrationSentence> current = new ArrayList<>();
+        int currentChars = 0;
+        int n = sentences.size();
+        int i = 0;
+        while (i < n) {
+            int para = sentences.get(i).paragraphIndex();
+            // 收齐同一段落（paragraphIndex 相同）的连续句子作为一个不可分割的累积单元
+            int j = i;
+            while (j < n && sentences.get(j).paragraphIndex() == para) {
+                NarrationSentence s = sentences.get(j);
+                current.add(s);
+                currentChars += s.text() == null ? 0 : s.text().length();
+                j++;
+            }
+            i = j;
+            if (currentChars >= segmentSize) {
+                batches.add(current);
+                current = new ArrayList<>();
+                currentChars = 0;
+            }
+        }
+        if (!current.isEmpty()) {
+            batches.add(current);
+        }
+        return batches;
     }
 
     // ── 内部 ─────────────────────────────────────────────────────────────────

@@ -127,7 +127,7 @@ public class NarrationScriptService {
     }
 
     /** 合成最终 Control Instruction：角色基底音色画像 +（非空时）逐句情绪微调。 */
-    static String combine(String baseInstruction, String delivery) {
+    public static String combine(String baseInstruction, String delivery) {
         String base = baseInstruction == null ? "" : baseInstruction.trim();
         if (delivery == null || delivery.isBlank()) {
             return base;

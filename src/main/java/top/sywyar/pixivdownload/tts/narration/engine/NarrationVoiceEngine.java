@@ -15,8 +15,19 @@ public interface NarrationVoiceEngine {
     /** 引擎稳定标识（如 {@code voxcpm}），与 {@code narration-tts.engine} 取值对应。 */
     String id();
 
-    /** 引擎当前是否可用（必要配置是否就绪，如已配置服务地址）。 */
+    /** 引擎当前是否可用（必要配置是否就绪，如已配置服务地址）。<b>纯配置检查、不触网</b>，用作合成前的快速门禁。 */
     boolean isAvailable();
+
+    /**
+     * 引擎当前是否<b>真实可达</b>：在 {@link #isAvailable() 配置就绪} 的基础上，再对后端服务做一次<b>轻量、短超时</b>
+     * 的存活探测（如对 OpenAI 兼容服务 GET {@code /models}），确认服务在线、可服务。供「富感情朗读」入口的可用性
+     * 判定使用——区别于 {@link #isAvailable()} 的纯配置检查，本方法可能产生一次网络请求。
+     *
+     * <p>默认实现回退到 {@link #isAvailable()}（不触网），未实现探测的引擎据此降级为「仅看配置」。
+     */
+    default boolean isReachable() {
+        return isAvailable();
+    }
 
     /**
      * 合成一句话为音频。

@@ -437,12 +437,49 @@ public interface NovelMapper {
     @Update("UPDATE novel_narration_voices SET control_instruction = #{controlInstruction},"
             + " edited_by_user = #{editedByUser}"
             + " WHERE cast_id = #{castId} AND character_id = #{characterId}")
-    void updateNarrationVoiceInstruction(@Param("castId") long castId, @Param("characterId") int characterId,
-                                         @Param("controlInstruction") String controlInstruction,
-                                         @Param("editedByUser") boolean editedByUser);
+    int updateNarrationVoiceInstruction(@Param("castId") long castId, @Param("characterId") int characterId,
+                                        @Param("controlInstruction") String controlInstruction,
+                                        @Param("editedByUser") boolean editedByUser);
 
     @Delete("DELETE FROM novel_narration_voices WHERE cast_id = #{castId}")
     void deleteNarrationVoices(@Param("castId") long castId);
+
+    // ── 朗读脚本持久化（novel_narration_scripts）───────────────────────────────────
+    // 一本小说每种语言一行的整章逐句朗读脚本（lang ''=原文）。LLM 分析昂贵，逐句归属持久化、重播不重算，
+    // 只在用户主动「重新分析」（force）时重算。script_json 不存 controlInstruction —— 合成时按 speaker
+    // 从活花名册取基底再合并 delivery，使音色编辑 / 冲突解决即时生效。
+
+    @Update("CREATE TABLE IF NOT EXISTS novel_narration_scripts ("
+            + "novel_id INTEGER NOT NULL,"
+            + "lang TEXT NOT NULL,"
+            + "cast_id INTEGER NOT NULL,"
+            + "segment_size INTEGER NOT NULL,"
+            + "analyzed_time INTEGER NOT NULL,"
+            + "script_json TEXT NOT NULL,"
+            + "PRIMARY KEY (novel_id, lang))")
+    void createNovelNarrationScriptsTable();
+
+    @Insert("INSERT INTO novel_narration_scripts(novel_id, lang, cast_id, segment_size, analyzed_time, script_json)"
+            + " VALUES(#{novelId}, #{lang}, #{castId}, #{segmentSize}, #{analyzedTime}, #{scriptJson})"
+            + " ON CONFLICT(novel_id, lang) DO UPDATE SET"
+            + " cast_id = excluded.cast_id,"
+            + " segment_size = excluded.segment_size,"
+            + " analyzed_time = excluded.analyzed_time,"
+            + " script_json = excluded.script_json")
+    void upsertNarrationScript(@Param("novelId") long novelId, @Param("lang") String lang,
+                               @Param("castId") long castId, @Param("segmentSize") int segmentSize,
+                               @Param("analyzedTime") long analyzedTime, @Param("scriptJson") String scriptJson);
+
+    @Select("SELECT novel_id AS novelId, lang, cast_id AS castId, segment_size AS segmentSize,"
+            + " analyzed_time AS analyzedTime, script_json AS scriptJson"
+            + " FROM novel_narration_scripts WHERE novel_id = #{novelId} AND lang = #{lang}")
+    NovelNarrationScriptRow findNarrationScript(@Param("novelId") long novelId, @Param("lang") String lang);
+
+    @Delete("DELETE FROM novel_narration_scripts WHERE novel_id = #{novelId}")
+    void deleteNarrationScripts(@Param("novelId") long novelId);
+
+    @Delete("DELETE FROM novel_narration_scripts WHERE novel_id = #{novelId} AND lang = #{lang}")
+    void deleteNarrationScript(@Param("novelId") long novelId, @Param("lang") String lang);
 
     // ── Full-text search (FTS5) ──────────────────────────────────────────────────
     // novels_fts 是对 novels.raw_content 的辅助全文索引（同库虚拟表，不落到 rootFolder）。

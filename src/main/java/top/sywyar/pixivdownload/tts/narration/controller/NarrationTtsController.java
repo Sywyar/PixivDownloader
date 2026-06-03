@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.novel.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.tts.narration.NarrationAudioService;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
@@ -33,7 +34,39 @@ public class NarrationTtsController {
     private static final int MAX_TEXT_LENGTH = 4000;
 
     private final NarrationAudioService narrationAudioService;
+    private final NovelNarrationScriptService narrationScriptService;
     private final AppMessages messages;
+
+    /**
+     * 合成持久化整章脚本的<b>某一行</b>音频。服务端按该行 speaker 从<b>活花名册</b>取基底画像、合并该行
+     * delivery 后交给引擎，因此音色编辑 / 冲突解决会即时体现。脚本不存在 / 行越界 → 404；引擎失败 → 502。
+     */
+    @PostMapping("/line")
+    public ResponseEntity<?> line(@RequestBody NarrationLineRequest request) {
+        if (request == null || request.novelId() == null || request.lineIndex() == null) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.error.invalid-line")));
+        }
+        String lang = request.lang() == null ? "" : request.lang().trim();
+        try {
+            NarrationAudio audio = narrationScriptService.synthesizeLine(
+                    request.novelId(), lang, request.lineIndex());
+            if (audio == null) {
+                return ResponseEntity.status(404)
+                        .body(new ErrorResponse(messages.get("narration.error.no-script")));
+            }
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.valueOf(audio.contentType()));
+            headers.setCacheControl(CacheControl.noStore());
+            return ResponseEntity.ok().headers(headers).body(audio.data());
+        } catch (NarrationVoiceException e) {
+            log.warn(messages.getForLog("narration.tts.log.preview-failed", e.getMessage()));
+            return ResponseEntity.status(502)
+                    .body(new ErrorResponse(messages.get("narration.tts.preview.failed", e.getMessage())));
+        }
+    }
+
+    /** 单行合成请求：按 {@code novelId} + {@code lineIndex} 定位持久化脚本行；{@code lang} 与脚本语言一致（空=原文）。 */
+    public record NarrationLineRequest(Long novelId, Integer lineIndex, String lang) {}
 
     @PostMapping("/preview")
     public ResponseEntity<?> preview(@RequestBody NarrationTtsPreviewRequest request) {

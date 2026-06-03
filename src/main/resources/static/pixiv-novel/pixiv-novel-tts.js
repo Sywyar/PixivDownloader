@@ -138,6 +138,7 @@
         segments: [],          // [{ el, text }]
         index: -1,
         engine: 'browser',
+        narrationAvailable: false, // 后端富感情朗读引擎是否可用（探测得到，决定引擎选项是否可选）
         playing: false,
         paused: false,
         token: 0,              // 失效令牌：停止 / 跳段 / 换引擎时自增，丢弃过期的异步回调
@@ -202,25 +203,110 @@
         return Math.max(0.1, Math.min(10, 1 + ratePercent() / 100));
     }
 
+    // ---------- 富感情朗读（多角色）引擎分发 ----------
+    // 「富感情朗读」是听书的第三个引擎，复用同一控制条；播放逻辑委托给 PixivNovelNarration 驱动控制器。
+    function isNarration() { return state.engine === 'narration'; }
+    function narrationCall(fn, arg) {
+        const N = window.PixivNovelNarration;
+        if (N && typeof N[fn] === 'function') N[fn](arg);
+    }
+    function narrationActivate() { narrationCall('activate'); }
+    function narrationDeactivate() { narrationCall('deactivate'); }
+
     // ---------- 引擎切换 / 语音填充 ----------
     function applyEngine(engine) {
-        stop();
-        clearEdgeCache();
-        state.engine = engine === 'edge' ? 'edge' : 'browser';
+        let next = engine === 'edge' ? 'edge' : (engine === 'narration' ? 'narration' : 'browser');
+        // 富感情朗读只有在后端已配置且可用时才允许启用；不可用则退化为浏览器（无内置语音时退到在线）朗读。
+        if (next === 'narration' && !state.narrationAvailable) {
+            next = ('speechSynthesis' in window) ? 'browser' : 'edge';
+        }
+        // 拆除当前引擎：富感情朗读交给驱动停用，浏览器 / Edge 走自身停止。
+        if (isNarration()) {
+            narrationDeactivate();
+        } else {
+            stop();
+            clearEdgeCache();
+            if (next === 'narration') clearSegmentHighlight(); // 进入富感情朗读前清掉单声道段落高亮
+        }
+        state.engine = next;
         lsSet(LS.engine, state.engine);
         els.engine.value = state.engine;
+        updateModeUi();
         updateEngineHint();
-        if (state.engine === 'edge') {
+        if (state.engine === 'narration') {
+            narrationActivate(); // 仅刷新控制条，绝不触发分析
+        } else if (state.engine === 'edge') {
             ensureEdgeVoices().then(() => populateVoices());
+            updateProgress();
+            updateBar(0);
         } else {
             populateVoices();
+            updateProgress();
+            updateBar(0);
         }
     }
 
     function updateEngineHint() {
-        els.hint.textContent = state.engine === 'edge'
-            ? t('tts.hint.edge')
-            : t('tts.hint.browser');
+        if (isNarration()) {
+            els.hint.textContent = t('tts.hint.narration');
+        } else {
+            els.hint.textContent = state.engine === 'edge' ? t('tts.hint.edge') : t('tts.hint.browser');
+        }
+    }
+
+    // 引擎切换时显隐对应设置 / 控制项：富感情朗读隐藏语音 / 语速，显示字幕 / 选角 / 分段 / 重新分析。
+    function updateModeUi() {
+        const narr = isNarration();
+        if (els.voiceField) els.voiceField.style.display = narr ? 'none' : '';
+        if (els.rateField) els.rateField.style.display = narr ? 'none' : '';
+        if (els.segmentField) els.segmentField.style.display = narr ? '' : 'none';
+        if (els.regenerate) els.regenerate.style.display = narr ? '' : 'none';
+        if (els.castBtn) els.castBtn.style.display = narr ? '' : 'none';
+        if (els.subtitle) els.subtitle.style.display = narr ? '' : 'none';
+        els.prev.title = narr ? t('narration:bar.prev', '上一句') : t('tts.prev', '上一段');
+        els.next.title = narr ? t('narration:bar.next', '下一句') : t('tts.next', '下一段');
+    }
+
+    function updateEngineOptionLabels() {
+        if (!els.engineNarrationOpt) return;
+        // 该选项仅在后端可用时才显示，故始终用可用态文案。
+        els.engineNarrationOpt.textContent = t('tts.engine.narration', '富感情朗读（多角色）');
+    }
+
+    // 探测后端朗读引擎可用性 + 管理员可见性：/api/narration/* 为 admin-only，非管理员请求被拦截（非 2xx）。
+    // 「富感情朗读」只有在后端已配置且可用时才可见且可选，否则隐藏不可选；非管理员 / 探测失败一律按不可用处理。
+    // 上次选了富感情朗读时：可用则切回，不可用则退化为浏览器朗读并提示（不覆盖偏好，后端恢复后刷新自动切回）。
+    function setupNarrationOption(wantNarration) {
+        if (!els.engineNarrationOpt || !window.PixivNovelNarration) return;
+        els.engineNarrationOpt.style.display = 'none';
+        els.engineNarrationOpt.disabled = true;
+        fetch('/api/narration/availability', { credentials: 'same-origin' })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => applyNarrationAvailability(!!(data && data.available), wantNarration))
+            .catch(() => applyNarrationAvailability(false, wantNarration));
+    }
+
+    function applyNarrationAvailability(available, wantNarration) {
+        state.narrationAvailable = available;
+        els.engineNarrationOpt.style.display = available ? '' : 'none';
+        els.engineNarrationOpt.disabled = !available;
+        updateEngineOptionLabels();
+        if (!wantNarration) return;
+        if (available) {
+            applyEngine('narration'); // 可用且上次正是它 → 切回富感情朗读
+        } else {
+            degradeFromNarration();   // 上次选了它但现在不可用 → 退化到浏览器朗读并提示
+        }
+    }
+
+    // 富感情朗读不可用时的退化：运行引擎已在初始化阶段落到 browser/edge（savedEngine='narration' → 'browser'），
+    // 这里只确保不停留在 narration 并给出可见反馈；不覆盖 localStorage 偏好，后端恢复后刷新会自动切回。
+    function degradeFromNarration() {
+        if (state.engine === 'narration') applyEngine(('speechSynthesis' in window) ? 'browser' : 'edge');
+        const name = state.engine === 'edge'
+            ? t('tts.engine.edge', '在线（Edge 神经语音）')
+            : t('tts.engine.browser', '浏览器（离线）');
+        state.toast && state.toast(t('tts.narration-degraded', '富感情朗读暂不可用，已切换为{engine}', { engine: name }));
     }
 
     function populateVoices() {
@@ -293,6 +379,10 @@
     }
 
     // ---------- 高亮 / 进度 ----------
+    function clearSegmentHighlight() {
+        state.segments.forEach((s) => s.el.classList.remove('tts-active'));
+    }
+
     function highlight(i, scroll) {
         state.segments.forEach((s, idx) => s.el.classList.toggle('tts-active', idx === i));
         const seg = state.segments[i];
@@ -472,7 +562,7 @@
         state.playing = false;
         state.paused = false;
         setPlayIcon(false);
-        state.segments.forEach((s) => s.el.classList.remove('tts-active'));
+        clearSegmentHighlight();
         state.index = -1;
         clearPos(); // 读完一本，清掉记忆，下次从头开始
         updateProgress();
@@ -615,12 +705,17 @@
     // ---------- 显示 / 隐藏 ----------
     function showBar() {
         els.bar.style.display = 'block';
+        if (isNarration()) {
+            narrationActivate(); // 仅刷新控制条，绝不触发分析
+            return;
+        }
         if (!state.segments.length) state.segments = buildSegments();
         updateProgress();
         updateBar(0);
     }
     function hideBar() {
-        stop();
+        if (isNarration()) narrationDeactivate();
+        else stop();
         els.bar.style.display = 'none';
     }
 
@@ -648,6 +743,15 @@
         els.rate = document.getElementById('ttsRate');
         els.rateValue = document.getElementById('ttsRateValue');
         els.hint = document.getElementById('ttsEngineHint');
+        // 富感情朗读（多角色）相关的共享 / 专属控件
+        els.subtitle = document.getElementById('ttsSubtitle');
+        els.castBtn = document.getElementById('ttsCastBtn');
+        els.voiceField = document.getElementById('ttsVoiceField');
+        els.rateField = document.getElementById('ttsRateField');
+        els.segmentField = document.getElementById('ttsSegmentField');
+        els.segmentSize = document.getElementById('ttsSegmentSize');
+        els.regenerate = document.getElementById('ttsRegenerate');
+        els.engineNarrationOpt = document.getElementById('ttsEngineNarrationOpt');
         const toggle = document.getElementById('ttsToggle');
         if (!els.bar || !toggle) return;
 
@@ -656,7 +760,10 @@
 
         // 浏览器不支持 Web Speech 时默认用在线引擎
         const hasWebSpeech = 'speechSynthesis' in window;
-        state.engine = lsGet(LS.engine, hasWebSpeech ? 'browser' : 'edge');
+        const savedEngine = lsGet(LS.engine, hasWebSpeech ? 'browser' : 'edge');
+        // 富感情朗读引擎要异步探测可用性 + 管理员可见性，初始化先回落到浏览器 / Edge；可用且上次正是它时再切回
+        const wantNarration = savedEngine === 'narration';
+        state.engine = savedEngine === 'edge' ? 'edge' : 'browser';
         if (!hasWebSpeech) {
             const browserOpt = els.engine.querySelector('option[value="browser"]');
             if (browserOpt) browserOpt.disabled = true;
@@ -673,15 +780,34 @@
         if (state.engine === 'edge') ensureEdgeVoices().then(() => populateVoices());
         else populateVoices();
         updateEngineHint();
+        updateModeUi();
+
+        // 富感情朗读（多角色）作为听书的一个引擎：把共享控制条元素交给驱动控制器，由本宿主按引擎分发控制。
+        if (window.PixivNovelNarration) {
+            window.PixivNovelNarration.attach({
+                i18n: state.i18n, toast: state.toast, contentEl: state.contentEl,
+                novelId: state.novelId, lang: opts.narrationLang || '',
+                els: {
+                    playPause: els.playPause, progress: els.progress, progressFill: els.progressFill,
+                    subtitle: els.subtitle, castBtn: els.castBtn,
+                    segmentSize: els.segmentSize, regenerate: els.regenerate,
+                    castModal: document.getElementById('modalNarrationCast'),
+                    castList: document.getElementById('narrationCastList'),
+                    conflicts: document.getElementById('narrationConflicts')
+                }
+            });
+        }
+        setupNarrationOption(wantNarration);
 
         toggle.addEventListener('click', () => {
             if (els.bar.style.display === 'none') { showBar(); toggle.classList.add('active'); }
             else { hideBar(); toggle.classList.remove('active'); }
         });
-        els.playPause.addEventListener('click', togglePlay);
-        els.prev.addEventListener('click', prev);
-        els.next.addEventListener('click', next);
-        els.stop.addEventListener('click', stop);
+        // 播放 / 上一段 / 下一段 / 停止按引擎分发：富感情朗读交给驱动控制器，浏览器 / Edge 走本控制器。
+        els.playPause.addEventListener('click', () => { isNarration() ? narrationCall('togglePlay') : togglePlay(); });
+        els.prev.addEventListener('click', () => { isNarration() ? narrationCall('prev') : prev(); });
+        els.next.addEventListener('click', () => { isNarration() ? narrationCall('next') : next(); });
+        els.stop.addEventListener('click', () => { isNarration() ? narrationCall('stop') : stop(); });
         els.close.addEventListener('click', () => { hideBar(); toggle.classList.remove('active'); });
         els.settingsToggle.addEventListener('click', () => {
             els.settings.style.display = els.settings.style.display === 'none' ? 'flex' : 'none';
@@ -703,10 +829,11 @@
         });
         if (els.progressBar) {
             els.progressBar.addEventListener('click', (e) => {
-                const n = state.segments.length;
-                if (!n) return;
                 const rect = els.progressBar.getBoundingClientRect();
                 const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                if (isNarration()) { narrationCall('seekFrac', frac); return; }
+                const n = state.segments.length;
+                if (!n) return;
                 seekTo(Math.min(n - 1, Math.floor(frac * n)));
             });
         }
@@ -721,8 +848,13 @@
     function setI18n(i18n) {
         state.i18n = i18n;
         updateEngineHint();
-        setPlayIcon(state.playing && !state.paused);
-        updateProgress();
+        updateEngineOptionLabels();
+        updateModeUi();
+        // 富感情朗读模式下的字幕 / 进度 / 播放图标由 PixivNovelNarration.setI18n 负责（页面会单独调用）。
+        if (!isNarration()) {
+            setPlayIcon(state.playing && !state.paused);
+            updateProgress();
+        }
     }
 
     global.PixivNovelTts = { attach: attach, setI18n: setI18n };

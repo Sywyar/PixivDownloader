@@ -85,6 +85,7 @@
     <div class="tts-progressbar" id="ttsProgressBar" data-i18n-title="tts.seek" title="点击跳转">
         <div class="tts-progressbar-fill" id="ttsProgressFill"></div>
     </div>
+    <div class="narration-subtitle" id="ttsSubtitle" style="display:none;">—</div>
     <div class="tts-bar-main">
         <button class="tts-icon-btn tts-play" id="ttsPlayPause" type="button" data-i18n-title="tts.play" title="播放">▶</button>
         <button class="tts-icon-btn" id="ttsPrev" type="button" data-i18n-title="tts.prev" title="上一段">⏮</button>
@@ -94,24 +95,48 @@
         <button class="tts-icon-btn tts-gear" id="ttsSettingsToggle" type="button" data-i18n-title="tts.settings" title="设置">⚙</button>
         <button class="tts-icon-btn tts-close" id="ttsClose" type="button" data-i18n-title="tts.close" title="关闭">×</button>
     </div>
-    <div class="tts-settings" id="ttsSettings" style="display:none;">
+    <div class="tts-settings" id="ttsSettings" style="display:flex;">
         <div class="tts-field">
             <label data-i18n="tts.engine">引擎</label>
             <select id="ttsEngine">
                 <option value="browser" data-i18n="tts.engine.browser">浏览器（离线）</option>
                 <option value="edge" data-i18n="tts.engine.edge">在线（Edge 神经语音）</option>
+                <option value="narration" id="ttsEngineNarrationOpt" style="display:none;">富感情朗读（多角色）</option>
             </select>
         </div>
-        <div class="tts-field">
+        <div class="tts-field" id="ttsVoiceField">
             <label data-i18n="tts.voice">语音</label>
             <select id="ttsVoice"></select>
         </div>
-        <div class="tts-field tts-field-rate">
+        <div class="tts-field tts-field-rate" id="ttsRateField">
             <label data-i18n="tts.rate">语速</label>
             <input type="range" id="ttsRate" min="-50" max="100" step="10" value="0">
             <span class="tts-rate-value" id="ttsRateValue">0%</span>
         </div>
+        <div class="tts-field" id="ttsSegmentField" style="display:none;">
+            <label data-i18n="narration:settings.segment-size">分段字数</label>
+            <input type="number" id="ttsSegmentSize" min="0" step="100" inputmode="numeric"
+                   data-i18n-placeholder="narration:settings.segment-whole" placeholder="整章（0）">
+        </div>
+        <button class="btn btn-sm" id="ttsRegenerate" type="button" style="display:none;" data-i18n="narration:settings.regenerate">重新分析</button>
+        <button class="btn btn-sm" id="ttsCastBtn" type="button" style="display:none;" data-i18n="narration:bar.cast">选角与音色</button>
         <div class="tts-hint" id="ttsEngineHint"></div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="modalNarrationCast">
+    <div class="modal narration-cast-modal">
+        <div class="modal-head">
+            <span class="modal-title" data-i18n="narration:cast.title">选角与音色</span>
+            <button class="modal-close" id="narrationCastClose" type="button">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="narration-conflicts" id="narrationConflicts" style="display:none;"></div>
+            <div class="narration-cast-list" id="narrationCastList"></div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" id="narrationCastDone" data-i18n="common:button.done" type="button">完成</button>
+        </div>
     </div>
 </div>
 
@@ -135,6 +160,7 @@
 
 <script src="/js/pixiv-translate.js"></script>
 <script src="/pixiv-novel/pixiv-novel-tts.js"></script>
+<script src="/pixiv-novel/pixiv-novel-narration.js"></script>
 <script src="/pixiv-novel/pixiv-novel.js"></script>
 </body>
 </html>

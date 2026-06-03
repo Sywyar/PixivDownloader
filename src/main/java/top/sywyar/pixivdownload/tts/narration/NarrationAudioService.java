@@ -63,6 +63,16 @@ public class NarrationAudioService {
         return synthesize(NarrationVoiceRequest.of(text, controlInstruction, localeHint));
     }
 
+    /**
+     * 当前 {@code narration-tts.engine} 选定的引擎是否存在且<b>真实可用</b>：除引擎配置就绪外，还会对后端服务做一次
+     * 短超时存活探测（见 {@link NarrationVoiceEngine#isReachable()}，如 VoxCPM 的 GET {@code /models}）。供前端按
+     * 可用性显隐 / 禁用「富感情朗读」入口，避免后端未配置 / 已宕机时仍可点开并触发分析。
+     */
+    public boolean isEngineAvailable() {
+        NarrationVoiceEngine engine = selectEngine();
+        return engine != null && engine.isReachable();
+    }
+
     private NarrationAudio synthesize(NarrationVoiceRequest req) {
         NarrationVoiceEngine engine = selectEngine();
         if (engine == null) {

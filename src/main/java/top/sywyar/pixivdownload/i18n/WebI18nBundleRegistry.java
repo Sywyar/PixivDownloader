@@ -25,6 +25,7 @@ public class WebI18nBundleRegistry {
         namespaces.put("series", "i18n.web.series");
         namespaces.put("novel", "i18n.web.novel");
         namespaces.put("translate", "i18n.web.translate");
+        namespaces.put("narration", "i18n.web.narration");
         namespaces.put("monitor", "i18n.web.monitor");
         namespaces.put("userscript", "i18n.web.userscript");
         namespaces.put("invite", "i18n.web.invite");

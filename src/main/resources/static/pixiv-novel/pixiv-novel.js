@@ -16,7 +16,7 @@ const collectionState = {
 };
 
 async function loadAll() {
-    pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common', 'translate'] });
+    pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common', 'translate', 'narration'] });
     pageI18n.apply();
     await PixivLangSwitcher.mount({
         mountPoint: document.getElementById('langSwitcherAnchor'),
@@ -27,6 +27,7 @@ async function loadAll() {
             rerenderDynamic();
             if (contentLangCtl) contentLangCtl.relabel(pageI18n);
             if (window.PixivNovelTts) PixivNovelTts.setI18n(next);
+            if (window.PixivNovelNarration) PixivNovelNarration.setI18n(next);
         }
     });
     PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') });
@@ -396,7 +397,9 @@ function setupTts() {
     const data = rerenderPayload ? rerenderPayload.data : null;
     // 听书语言：显示译文时用所选内容语言，否则用作品原始语言
     const language = activeContentLang || (data ? (data.language || data.xLanguage || '') : '');
-    PixivNovelTts.attach({ i18n: pageI18n, contentEl, toast, language, novelId });
+    // 「富感情朗读（多角色）」作为听书引擎之一并入同一控制条；narrationLang 用所选内容语言（空=原文），
+    // 与脚本 / 渲染同源。引擎可用性 + 管理员可见由 TTS 控制器自行探测，未配置时该引擎选项禁用。
+    PixivNovelTts.attach({ i18n: pageI18n, contentEl, toast, language, novelId, narrationLang: activeContentLang });
 }
 
 // ---------- Collections ----------
