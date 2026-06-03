@@ -396,7 +396,8 @@ class DatabaseSchemaInspectorTest {
             try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
                 PixivMapper mapper = session.getMapper(PixivMapper.class);
                 PathPrefixMapper pathPrefixMapper = session.getMapper(PathPrefixMapper.class);
-                PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper);
+                PathPrefixCodec codec = new PathPrefixCodec(
+                        pathPrefixMapper, top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages());
                 codec.init();
                 PixivDatabase database = new PixivDatabase(
                         mapper, top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), codec);

@@ -36,7 +36,7 @@ class PixivDatabaseTest {
         PixivMapper mapper = sqlSession.getMapper(PixivMapper.class);
         PathPrefixMapper pathPrefixMapper = sqlSession.getMapper(PathPrefixMapper.class);
 
-        PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper);
+        PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper, TestI18nBeans.appMessages());
         codec.init();
 
         pixivDatabase = new PixivDatabase(mapper, TestI18nBeans.appMessages(), codec);

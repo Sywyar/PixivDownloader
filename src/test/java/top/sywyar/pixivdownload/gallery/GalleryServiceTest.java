@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.util.List;
@@ -49,7 +50,8 @@ class GalleryServiceTest {
     @BeforeEach
     void setUp() {
         galleryService = new GalleryService(galleryRepository, pixivDatabase,
-                downloadService, authorService, mangaSeriesService, artworkFileLocator);
+                downloadService, authorService, mangaSeriesService, artworkFileLocator,
+                TestI18nBeans.appMessages());
     }
 
     @Test
