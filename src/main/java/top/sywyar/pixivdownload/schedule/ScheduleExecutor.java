@@ -210,7 +210,7 @@ public class ScheduleExecutor {
         database.mapper().updateRunResult(task.id(), completedAt, status, message, nextRun);
         Long notificationNextRun = persistedNextRun(task.id(), nextRun);
         if (suspendNotification != null) {
-            handleSuspend(task, suspendNotification, suspendTriggerTime, notificationNextRun);
+            handleSuspend(task, suspendNotification, suspendTriggerTime);
         }
         sendPendingExhaustedNotifications(task, pendingNotifications, notificationNextRun);
     }
@@ -1201,8 +1201,13 @@ public class ScheduleExecutor {
         sendNotification(NotificationScenario.OVERUSE_PAUSED, ph);
     }
 
-    /** 任务级挂起：发 auth-expired（dead cookie）或 circuit-breaker（熔断）通知（邮件 + 推送）。 */
-    private void handleSuspend(ScheduledTask task, ScheduleSuspendException e, long triggerTime, Long nextRun) {
+    /**
+     * 任务级挂起：发 auth-expired（dead cookie）或 circuit-breaker（熔断）通知（邮件 + 推送）。
+     * 挂起任务被 {@code findDue} 状态门挡住、不会自动续跑，故<b>不传 next_run_time</b>——
+     * 否则通知里会出现一个永远不会自动到来的「下次预定运行」时间误导管理员；
+     * 模板 / 推送文案改为固定的「恢复方式：需重新授权 Cookie」行。
+     */
+    private void handleSuspend(ScheduledTask task, ScheduleSuspendException e, long triggerTime) {
         Locale locale = AppLocale.normalize(Locale.getDefault());
         Map<String, String> ph = new LinkedHashMap<>();
         ph.put("task_name", task.name() == null ? "-" : task.name());
@@ -1210,7 +1215,6 @@ public class ScheduleExecutor {
         ph.put("task_type", taskTypeLabel(locale, task.type()));
         ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
         ph.put("trigger_time", formatTime(triggerTime));
-        ph.put("next_run_time", formatTime(nextRun));
         if (e.reason() == ScheduleSuspendException.Reason.CIRCUIT_BREAKER) {
             ph.put("consecutive_failures", String.valueOf(e.consecutiveFailures()));
             ph.put("last_error_excerpt", e.lastErrorExcerpt() == null ? "" : e.lastErrorExcerpt());

@@ -1190,7 +1190,7 @@
             </div>
             <div class="schedule-card-meta">
                 <div>${escHtml(bt('schedule.meta.trigger', '触发：'))}${escHtml(triggerLabel)}</div>
-                <div>${escHtml(bt('schedule.meta.next', '下次运行：'))}${escHtml(fmtScheduleTime(t.nextRunTime))}</div>
+                <div>${escHtml(bt('schedule.meta.next', '下次运行：'))}${escHtml(suspended ? bt('schedule.meta.next-suspended', '需人工恢复后才会继续') : fmtScheduleTime(t.nextRunTime))}</div>
                 <div>${escHtml(bt('schedule.meta.last', '上次运行：'))}${escHtml(fmtScheduleTime(t.lastRunTime))}</div>
                 <div class="schedule-meta-actions">
                     <button type="button" class="btn btn-blue" onclick="showScheduleSnapshot(${t.id})">${escHtml(bt('schedule.snapshot.action.view', '查看任务快照信息'))}</button>

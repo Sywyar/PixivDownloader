@@ -34,7 +34,6 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -218,8 +217,8 @@ class ScheduleExecutorRunTimingTest {
     }
 
     @Test
-    @DisplayName("鉴权失效通知使用本轮完成后实际落库的下次运行时间")
-    void authExpiredNotificationUsesPersistedNextRunTime() throws Exception {
+    @DisplayName("鉴权失效通知不含「下次预定运行」：挂起任务不会自动续跑，避免误导")
+    void authExpiredNotificationOmitsNextRunTime() throws Exception {
         ScheduledTask task = new ScheduledTask(
                 13L, "鉴权失效计划", true, ScheduledTaskType.USER_NEW,
                 "{\"kind\":\"illust\",\"source\":{\"userId\":\"100\"}}",
@@ -227,21 +226,18 @@ class ScheduleExecutorRunTimingTest {
                 ScheduledTask.COOKIE_RESTRICTED, 0L, null, null, null, null, null, null, null, 0, 0L);
         when(pixivFetchService.discoverUserArtworkIds("100", null))
                 .thenThrow(new PixivFetchService.PixivFetchException("auth expired"));
-        doAnswer(inv -> {
-            Thread.sleep(1100);
-            return null;
-        }).when(notificationService).notify(eq(NotificationScenario.AUTH_EXPIRED), any(), any());
 
         executor.runTaskAndRecord(task);
 
-        ArgumentCaptor<Long> nextRun = ArgumentCaptor.forClass(Long.class);
+        // next_run 仍照常落库供卡片展示（findDue 状态门挡住自动续跑）
         verify(mapper).updateRunResult(eq(13L), anyLong(), eq(ScheduleExecutor.STATUS_AUTH_EXPIRED),
-                isNull(), nextRun.capture());
+                isNull(), any());
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
         verify(notificationService).notify(eq(NotificationScenario.AUTH_EXPIRED), any(), placeholders.capture());
-        assertThat(placeholders.getValue().get("next_run_time")).isEqualTo(formatTime(nextRun.getValue()));
+        // 挂起态需人工重授权才会继续，通知里绝不携带会误导的下次运行时间
+        assertThat(placeholders.getValue()).doesNotContainKey("next_run_time");
     }
 
     @Test

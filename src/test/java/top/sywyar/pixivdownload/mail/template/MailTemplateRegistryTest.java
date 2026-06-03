@@ -188,7 +188,6 @@ class MailTemplateRegistryTest {
         ph.put("task_trigger", "Cron：0 0 * * * *");
         ph.put("consecutive_failures", "5");
         ph.put("trigger_time", "2026-05-27 12:00:00");
-        ph.put("next_run_time", "2026-05-27 13:00:00");
         ph.put("last_error_excerpt", "限制级需登录");
 
         RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_CIRCUIT_BREAKER, Locale.SIMPLIFIED_CHINESE, ph);
@@ -198,6 +197,7 @@ class MailTemplateRegistryTest {
                 .contains("保存的搜索")           // {{task_type}}
                 .contains("Cron：0 0 * * * *")    // {{task_trigger}}
                 .contains("限制级需登录")
+                .contains("不会自动重试")          // 挂起任务展示「恢复方式」而非误导的下次运行时间
                 .doesNotContain("{{");
     }
 
@@ -210,13 +210,13 @@ class MailTemplateRegistryTest {
         ph.put("task_type", "已关注用户的新作");
         ph.put("task_trigger", "每 30 分钟");
         ph.put("trigger_time", "2026-05-27 12:00:00");
-        ph.put("next_run_time", "2026-05-27 12:30:00");
 
         RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_AUTH_EXPIRED, Locale.SIMPLIFIED_CHINESE, ph);
         assertThat(zh.htmlBody())
                 .contains("画师计划")
                 .contains("已关注用户的新作")   // {{task_type}}
                 .contains("每 30 分钟")          // {{task_trigger}}
+                .contains("不会自动重试")        // 挂起任务展示「恢复方式」而非误导的下次运行时间
                 .doesNotContain("{{");
         assertThat(zh.subject()).isNotBlank();
     }
