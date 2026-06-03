@@ -396,6 +396,36 @@ public final class ManagedDatabaseSchema {
                 List.of()
         ));
 
+        tables.put("novel_narration_casts", new TableSpec(
+                "novel_narration_casts",
+                List.of(
+                        column("id", "INTEGER", false, null, 1),
+                        column("name", "TEXT", true, null, 0),
+                        column("series_id", "INTEGER", false, null, 0),
+                        column("novel_id", "INTEGER", false, null, 0),
+                        column("created_time", "INTEGER", true, null, 0),
+                        column("updated_time", "INTEGER", true, null, 0)
+                ),
+                List.of(
+                        explicitIndex("idx_novel_narration_casts_series", false, "series_id"),
+                        explicitIndex("idx_novel_narration_casts_novel", false, "novel_id")
+                )
+        ));
+
+        tables.put("novel_narration_voices", new TableSpec(
+                "novel_narration_voices",
+                List.of(
+                        column("cast_id", "INTEGER", true, null, 1),
+                        column("character_id", "INTEGER", true, null, 2),
+                        column("name", "TEXT", true, null, 0),
+                        column("gender", "TEXT", false, null, 0),
+                        column("age", "TEXT", false, null, 0),
+                        column("control_instruction", "TEXT", true, null, 0),
+                        column("created_time", "INTEGER", true, null, 0)
+                ),
+                List.of()
+        ));
+
         tables.put("scheduled_tasks", new TableSpec(
                 "scheduled_tasks",
                 List.of(

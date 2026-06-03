@@ -327,6 +327,104 @@ public interface NovelMapper {
                                      @Param("target") String target,
                                      @Param("createdTime") long createdTime);
 
+    // ── 朗读花名册（narration cast）──────────────────────────────────────────────
+    // 一份花名册（novel_narration_casts）默认绑定到某个系列或某本单独小说（series_id / novel_id 二选一），
+    // 也可被任意作品复用；角色（novel_narration_voices）按 (cast_id, character_id) 一行，character_id 0 恒为旁白。
+    // 选角时把已有角色名发给 AI 复用，AI 发现的新角色自动并入（INSERT OR IGNORE，不覆盖已有 / 用户改过的音色）。
+
+    @Update("CREATE TABLE IF NOT EXISTS novel_narration_casts ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "name TEXT NOT NULL,"
+            + "series_id INTEGER DEFAULT NULL,"
+            + "novel_id INTEGER DEFAULT NULL,"
+            + "created_time INTEGER NOT NULL,"
+            + "updated_time INTEGER NOT NULL)")
+    void createNovelNarrationCastsTable();
+
+    @Update("CREATE INDEX IF NOT EXISTS idx_novel_narration_casts_series ON novel_narration_casts(series_id)")
+    void createNovelNarrationCastsSeriesIndex();
+
+    @Update("CREATE INDEX IF NOT EXISTS idx_novel_narration_casts_novel ON novel_narration_casts(novel_id)")
+    void createNovelNarrationCastsNovelIndex();
+
+    @Update("CREATE TABLE IF NOT EXISTS novel_narration_voices ("
+            + "cast_id INTEGER NOT NULL,"
+            + "character_id INTEGER NOT NULL,"
+            + "name TEXT NOT NULL,"
+            + "gender TEXT,"
+            + "age TEXT,"
+            + "control_instruction TEXT NOT NULL,"
+            + "created_time INTEGER NOT NULL,"
+            + "PRIMARY KEY (cast_id, character_id))")
+    void createNovelNarrationVoicesTable();
+
+    String SELECT_NARRATION_CAST = "SELECT c.id, c.name,"
+            + " c.series_id AS seriesId, c.novel_id AS novelId,"
+            + " c.created_time AS createdTime, c.updated_time AS updatedTime,"
+            + " COALESCE((SELECT COUNT(*) FROM novel_narration_voices v WHERE v.cast_id = c.id), 0) AS voiceCount"
+            + " FROM novel_narration_casts c";
+
+    @Insert("INSERT INTO novel_narration_casts(name, series_id, novel_id, created_time, updated_time)"
+            + " VALUES(#{name}, #{seriesId}, #{novelId}, #{createdTime}, #{updatedTime})")
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
+    void insertNarrationCast(NovelNarrationCastInsert cast);
+
+    @Select(SELECT_NARRATION_CAST + " WHERE c.id = #{id}")
+    NovelNarrationCast findNarrationCastById(@Param("id") long id);
+
+    @Select(SELECT_NARRATION_CAST + " ORDER BY c.updated_time DESC, c.id DESC")
+    List<NovelNarrationCast> findAllNarrationCasts();
+
+    @Select(SELECT_NARRATION_CAST + " WHERE c.series_id = #{seriesId} ORDER BY c.id LIMIT 1")
+    NovelNarrationCast findNarrationCastBySeriesId(@Param("seriesId") long seriesId);
+
+    @Select(SELECT_NARRATION_CAST + " WHERE c.novel_id = #{novelId} ORDER BY c.id LIMIT 1")
+    NovelNarrationCast findNarrationCastByNovelId(@Param("novelId") long novelId);
+
+    @Update("UPDATE novel_narration_casts SET name = #{name}, updated_time = #{updatedTime} WHERE id = #{id}")
+    int updateNarrationCastName(@Param("id") long id, @Param("name") String name,
+                                @Param("updatedTime") long updatedTime);
+
+    @Update("UPDATE novel_narration_casts SET updated_time = #{updatedTime} WHERE id = #{id}")
+    int touchNarrationCast(@Param("id") long id, @Param("updatedTime") long updatedTime);
+
+    @Select("SELECT COUNT(*) FROM novel_narration_casts WHERE id = #{id}")
+    int countNarrationCastById(@Param("id") long id);
+
+    @Delete("DELETE FROM novel_narration_casts WHERE id = #{id}")
+    void deleteNarrationCast(@Param("id") long id);
+
+    @Select("SELECT character_id AS id, name, gender, age,"
+            + " control_instruction AS controlInstruction, (character_id = 0) AS narrator"
+            + " FROM novel_narration_voices WHERE cast_id = #{castId} ORDER BY character_id")
+    List<top.sywyar.pixivdownload.ai.narration.NarrationCharacter> findNarrationVoices(@Param("castId") long castId);
+
+    @Select("SELECT MAX(character_id) FROM novel_narration_voices WHERE cast_id = #{castId}")
+    Integer maxNarrationVoiceId(@Param("castId") long castId);
+
+    /** AI 自动并入：已存在的 (cast_id, character_id) 不覆盖。 */
+    @Insert("INSERT OR IGNORE INTO novel_narration_voices"
+            + "(cast_id, character_id, name, gender, age, control_instruction, created_time)"
+            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{createdTime})")
+    void insertNarrationVoiceIfAbsent(@Param("castId") long castId, @Param("characterId") int characterId,
+                                      @Param("name") String name, @Param("gender") String gender,
+                                      @Param("age") String age,
+                                      @Param("controlInstruction") String controlInstruction,
+                                      @Param("createdTime") long createdTime);
+
+    /** 手动编辑写入：同 (cast_id, character_id) 直接覆盖音色等字段。 */
+    @Insert("INSERT OR REPLACE INTO novel_narration_voices"
+            + "(cast_id, character_id, name, gender, age, control_instruction, created_time)"
+            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{createdTime})")
+    void upsertNarrationVoice(@Param("castId") long castId, @Param("characterId") int characterId,
+                              @Param("name") String name, @Param("gender") String gender,
+                              @Param("age") String age,
+                              @Param("controlInstruction") String controlInstruction,
+                              @Param("createdTime") long createdTime);
+
+    @Delete("DELETE FROM novel_narration_voices WHERE cast_id = #{castId}")
+    void deleteNarrationVoices(@Param("castId") long castId);
+
     // ── Full-text search (FTS5) ──────────────────────────────────────────────────
     // novels_fts 是对 novels.raw_content 的辅助全文索引（同库虚拟表，不落到 rootFolder）。
     // trigram 分词器对中日英混排正文都按 3-gram 子串匹配，rowid 复用 novel_id。
