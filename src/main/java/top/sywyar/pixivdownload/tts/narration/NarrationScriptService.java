@@ -66,7 +66,13 @@ public class NarrationScriptService {
             NarrationAnalysisResponse response = NarrationAnalysisResponse.parse(chat.content());
 
             List<NarrationCharacter> newCharacters = response.newCharacters();
-            Set<Integer> validSpeakerIds = new LinkedHashSet<>(indexById(safeRoster).keySet());
+            Map<Integer, NarrationCharacter> rosterById = indexById(safeRoster);
+            if (hasInvalidNewCharacterId(newCharacters, rosterById.keySet(), nextId)) {
+                log.warn("narration segment analysis returned invalid new character id, falling back to narrator: count={}, nextId={}",
+                        count, nextId);
+                return NarrationSegmentAnalysis.narratorFallback(count);
+            }
+            Set<Integer> validSpeakerIds = new LinkedHashSet<>(rosterById.keySet());
             for (NarrationCharacter c : newCharacters) {
                 validSpeakerIds.add(c.id());
             }
@@ -131,6 +137,26 @@ public class NarrationScriptService {
         }
         String trimmed = base.endsWith(".") ? base.substring(0, base.length() - 1) : base;
         return trimmed + ", " + delivery.trim();
+    }
+
+    private static boolean hasInvalidNewCharacterId(List<NarrationCharacter> newCharacters,
+                                                    Set<Integer> existingIds,
+                                                    int nextId) {
+        if (newCharacters == null || newCharacters.isEmpty()) {
+            return false;
+        }
+        Set<Integer> seen = new LinkedHashSet<>();
+        Set<Integer> safeExistingIds = existingIds == null ? Set.of() : existingIds;
+        for (NarrationCharacter c : newCharacters) {
+            if (c == null) {
+                continue;
+            }
+            int id = c.id();
+            if (id < nextId || safeExistingIds.contains(id) || !seen.add(id)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Map<Integer, NarrationCharacter> indexById(List<NarrationCharacter> cast) {

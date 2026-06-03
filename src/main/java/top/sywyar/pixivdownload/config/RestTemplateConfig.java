@@ -61,6 +61,27 @@ public class RestTemplateConfig {
     }
 
     /**
+     * 多角色朗读 TTS 专用 RestTemplate（直连，不走代理）。读超时放宽到 120s：VoxCPM 等富情感 TTS 在 GPU 上
+     * 合成单句也可能较慢。{@link top.sywyar.pixivdownload.tts.narration.engine.VoxCpmNarrationEngine} 在
+     * {@code narration-tts.voxcpm.use-proxy=false} 时使用本 bean。
+     */
+    @Bean("narrationTtsRestTemplate")
+    public RestTemplate narrationTtsRestTemplate() {
+        return buildRestTemplate(30_000, 120_000, null);
+    }
+
+    /**
+     * 多角色朗读 TTS 专用 RestTemplate（经 {@link ProxyConfig} 的 host:port 出站）。是否走代理由
+     * {@code narration-tts.voxcpm.use-proxy} 决定（由
+     * {@link top.sywyar.pixivdownload.tts.narration.engine.VoxCpmNarrationEngine} 选择本 bean 体现），
+     * 与全局 {@code proxy.enabled} 相互独立，故此处不检查它。
+     */
+    @Bean("narrationTtsProxyRestTemplate")
+    public RestTemplate narrationTtsProxyRestTemplate() {
+        return buildRestTemplate(30_000, 120_000, new FixedProxyRoutePlanner(proxyConfig));
+    }
+
+    /**
      * 推送通知专用 RestTemplate（直连，不走代理）。短超时即可：推送目标是体量很小的 webhook 调用。
      * {@link top.sywyar.pixivdownload.push.PushHttpSender} 在通道 {@code use-proxy=false} 时使用本 bean。
      */

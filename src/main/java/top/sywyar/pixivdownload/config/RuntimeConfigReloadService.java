@@ -26,6 +26,7 @@ import top.sywyar.pixivdownload.push.channel.wecom.WecomConfig;
 import top.sywyar.pixivdownload.quota.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.SetupProperties;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteConfig;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationTtsConfig;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.io.IOException;
@@ -52,6 +53,7 @@ public class RuntimeConfigReloadService {
     private final UpdateConfig updateConfig;
     private final MailConfig mailConfig;
     private final AiConfig aiConfig;
+    private final NarrationTtsConfig narrationTtsConfig;
     private final PushConfig pushConfig;
     private final BarkConfig barkConfig;
     private final DingTalkConfig dingTalkConfig;
@@ -74,6 +76,7 @@ public class RuntimeConfigReloadService {
         UpdateConfig nextUpdate = bind(binder, "update", UpdateConfig::new, UpdateConfig.class);
         MailConfig nextMail = bind(binder, "mail", MailConfig::new, MailConfig.class);
         AiConfig nextAi = bind(binder, "ai", AiConfig::new, AiConfig.class);
+        NarrationTtsConfig nextNarrationTts = bind(binder, "narration-tts", NarrationTtsConfig::new, NarrationTtsConfig.class);
         PushConfig nextPush = bind(binder, "push", PushConfig::new, PushConfig.class);
         BarkConfig nextBark = bind(binder, "push.bark", BarkConfig::new, BarkConfig.class);
         DingTalkConfig nextDingTalk = bind(binder, "push.dingtalk", DingTalkConfig::new, DingTalkConfig.class);
@@ -95,6 +98,7 @@ public class RuntimeConfigReloadService {
         applyUpdateConfig(nextUpdate, applied);
         applyMailConfig(nextMail, applied);
         applyAiConfig(nextAi, applied);
+        applyNarrationTtsConfig(nextNarrationTts, applied);
         applyPushConfig(nextPush, nextBark, nextDingTalk, nextTelegram, applied);
         applyPushChannels(nextFeishu, nextWecom, nextPushPlus, nextServerChan, nextWebhook, applied);
 
@@ -354,6 +358,51 @@ public class RuntimeConfigReloadService {
                 aiConfig.isUseProxy(),
                 next.isUseProxy(),
                 () -> aiConfig.setUseProxy(next.isUseProxy()));
+    }
+
+    private void applyNarrationTtsConfig(NarrationTtsConfig next, List<String> applied) {
+        applyIfChanged(applied,
+                "narration-tts.engine",
+                narrationTtsConfig.getEngine(),
+                next.getEngine(),
+                () -> narrationTtsConfig.setEngine(next.getEngine()));
+
+        NarrationTtsConfig.Voxcpm currentVox = ensureVoxcpm(narrationTtsConfig);
+        NarrationTtsConfig.Voxcpm nextVox = ensureVoxcpm(next);
+        applyIfChanged(applied,
+                "narration-tts.voxcpm.base-url",
+                currentVox.getBaseUrl(),
+                nextVox.getBaseUrl(),
+                () -> currentVox.setBaseUrl(nextVox.getBaseUrl()));
+        applyIfChanged(applied,
+                "narration-tts.voxcpm.api-key",
+                currentVox.getApiKey(),
+                nextVox.getApiKey(),
+                () -> currentVox.setApiKey(nextVox.getApiKey()));
+        applyIfChanged(applied,
+                "narration-tts.voxcpm.model",
+                currentVox.getModel(),
+                nextVox.getModel(),
+                () -> currentVox.setModel(nextVox.getModel()));
+        applyIfChanged(applied,
+                "narration-tts.voxcpm.response-format",
+                currentVox.getResponseFormat(),
+                nextVox.getResponseFormat(),
+                () -> currentVox.setResponseFormat(nextVox.getResponseFormat()));
+        applyIfChanged(applied,
+                "narration-tts.voxcpm.use-proxy",
+                currentVox.isUseProxy(),
+                nextVox.isUseProxy(),
+                () -> currentVox.setUseProxy(nextVox.isUseProxy()));
+    }
+
+    private static NarrationTtsConfig.Voxcpm ensureVoxcpm(NarrationTtsConfig config) {
+        NarrationTtsConfig.Voxcpm voxcpm = config.getVoxcpm();
+        if (voxcpm == null) {
+            voxcpm = new NarrationTtsConfig.Voxcpm();
+            config.setVoxcpm(voxcpm);
+        }
+        return voxcpm;
     }
 
     private void applyPushConfig(PushConfig nextPush, BarkConfig nextBark, DingTalkConfig nextDingTalk,

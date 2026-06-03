@@ -55,6 +55,7 @@ public final class ConfigFieldRegistry {
                 message("gui.config.group.update"),
                 message("gui.config.group.schedule"),
                 message("gui.config.group.ai"),
+                message("gui.config.group.narration-tts"),
                 message("gui.config.group.notification")
         );
     }
@@ -72,6 +73,7 @@ public final class ConfigFieldRegistry {
         String groupUpdate = message("gui.config.group.update");
         String groupSchedule = message("gui.config.group.schedule");
         String groupAi = message("gui.config.group.ai");
+        String groupNarrationTts = message("gui.config.group.narration-tts");
         String groupNotification = message("gui.config.group.notification");
 
         return List.of(
@@ -733,6 +735,50 @@ public final class ConfigFieldRegistry {
                         .defaultValue("false")
                         .help(message("gui.config.field.ai.use-proxy.help"))
                         .enabledWhen(snap -> snap.isTrue("ai.enabled"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── AI 听小说朗读 TTS 引擎 ──────────────────────────────────────────
+                ConfigFieldSpec.builder("narration-tts.engine", message("gui.config.field.narration-tts.engine.label"), ENUM, groupNarrationTts)
+                        .defaultValue("voxcpm")
+                        .enumValues("voxcpm")
+                        .help(message("gui.config.field.narration-tts.engine.help"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("narration-tts.voxcpm.base-url", message("gui.config.field.narration-tts.voxcpm.base-url.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.voxcpm.base-url.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "voxcpm"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("narration-tts.voxcpm.api-key", message("gui.config.field.narration-tts.voxcpm.api-key.label"), PASSWORD, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.voxcpm.api-key.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "voxcpm"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("narration-tts.voxcpm.model", message("gui.config.field.narration-tts.voxcpm.model.label"), STRING, groupNarrationTts)
+                        .defaultValue("openbmb/VoxCPM2")
+                        .help(message("gui.config.field.narration-tts.voxcpm.model.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "voxcpm"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("narration-tts.voxcpm.response-format", message("gui.config.field.narration-tts.voxcpm.response-format.label"), ENUM, groupNarrationTts)
+                        .defaultValue("wav")
+                        .enumValues("wav", "pcm")
+                        .help(message("gui.config.field.narration-tts.voxcpm.response-format.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "voxcpm"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("narration-tts.voxcpm.use-proxy", message("gui.config.field.narration-tts.voxcpm.use-proxy.label"), BOOL, groupNarrationTts)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.narration-tts.voxcpm.use-proxy.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "voxcpm"))
                         .hotReloadable()
                         .build(),
 

@@ -2,6 +2,10 @@ package top.sywyar.pixivdownload.novel;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.SimpleTransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionOperations;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
 import top.sywyar.pixivdownload.ai.narration.NarrationConflict;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -27,6 +31,13 @@ import static org.mockito.Mockito.when;
 @DisplayName("朗读花名册入册与冲突路由")
 class NovelNarrationCastServiceTest {
 
+    private static final TransactionOperations TX = new TransactionOperations() {
+        @Override
+        public <T> T execute(TransactionCallback<T> action) throws TransactionException {
+            return action.doInTransaction(new SimpleTransactionStatus());
+        }
+    };
+
     private static NarrationCharacter narrator(String instr) {
         return new NarrationCharacter(0, "Narrator", "unknown", "unknown", instr, true, false);
     }
@@ -48,7 +59,7 @@ class NovelNarrationCastServiceTest {
     }
 
     private NovelNarrationCastService service(NovelMapper mapper) {
-        return new NovelNarrationCastService(mapper, mock(NovelDatabase.class), mock(NarrationScriptService.class));
+        return new NovelNarrationCastService(mapper, mock(NovelDatabase.class), mock(NarrationScriptService.class), TX);
     }
 
     @Test

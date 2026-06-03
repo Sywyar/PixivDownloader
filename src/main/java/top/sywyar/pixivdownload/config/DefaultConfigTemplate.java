@@ -167,6 +167,15 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "ai.use-proxy: false", "config.template.ai.use-proxy.comment");
         appendBlankLine(config);
 
+        appendSection(config, messages, "config.template.section.narration-tts");
+        appendSetting(config, messages, "narration-tts.engine: voxcpm", "config.template.narration-tts.engine.comment");
+        appendSetting(config, messages, "narration-tts.voxcpm.base-url:", "config.template.narration-tts.voxcpm.base-url.comment");
+        appendSetting(config, messages, "narration-tts.voxcpm.api-key:", "config.template.narration-tts.voxcpm.api-key.comment");
+        appendSetting(config, messages, "narration-tts.voxcpm.model: openbmb/VoxCPM2", "config.template.narration-tts.voxcpm.model.comment");
+        appendSetting(config, messages, "narration-tts.voxcpm.response-format: wav", "config.template.narration-tts.voxcpm.response-format.comment");
+        appendSetting(config, messages, "narration-tts.voxcpm.use-proxy: false", "config.template.narration-tts.voxcpm.use-proxy.comment");
+        appendBlankLine(config);
+
         appendSection(config, messages, "config.template.section.push");
         appendSetting(config, messages, "push.enabled: false", "config.template.push.enabled.comment");
         appendBlankLine(config);

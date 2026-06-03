@@ -79,6 +79,27 @@ class NarrationScriptServiceTest {
     }
 
     @Test
+    @DisplayName("analyzeSegment：新角色临时 id 小于 nextId / 撞既有名册时整段归旁白")
+    void analyzeSegmentFallsBackWhenNewCharacterIdConflictsWithRoster() throws Exception {
+        AiService ai = mock(AiService.class);
+        String json = "{\"lines\":[{\"i\":0,\"speaker\":1,\"delivery\":\"confused\"}],"
+                + "\"newCharacters\":[{\"id\":1,\"name\":\"少年\",\"gender\":\"male\",\"age\":\"teen\","
+                + "\"instruction\":\"A bright teenage boy.\"}],"
+                + "\"updatedCharacters\":[],\"conflicts\":[]}";
+        when(ai.chat(eq(NarrationAnalysisRequest.CALL_TYPE), any(), any())).thenReturn(result(json));
+        NarrationScriptService service = new NarrationScriptService(ai);
+
+        NarrationSegmentAnalysis a = service.analyzeSegment(
+                List.of(narrator("N"), ch(1, "哀家", "V1")), List.of("s0"), 2);
+
+        assertEquals(1, a.lines().size());
+        assertEquals(0, a.lines().get(0).speakerId());
+        assertTrue(a.newCharacters().isEmpty());
+        assertTrue(a.updatedCharacters().isEmpty());
+        assertTrue(a.conflicts().isEmpty());
+    }
+
+    @Test
     @DisplayName("buildScript：用最终名册 + 逐句归属合成 Control Instruction（基底 + 逐句微调），每行带 delivery")
     void buildScriptAssemblesLines() {
         NarrationScriptService service = new NarrationScriptService(mock(AiService.class));

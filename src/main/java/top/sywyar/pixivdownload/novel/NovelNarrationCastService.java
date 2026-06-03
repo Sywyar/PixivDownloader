@@ -1,9 +1,11 @@
 package top.sywyar.pixivdownload.novel;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
 import top.sywyar.pixivdownload.ai.narration.NarrationConflict;
 import top.sywyar.pixivdownload.ai.narration.NarrationLineVoice;
@@ -50,7 +52,6 @@ import java.util.Set;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class NovelNarrationCastService {
 
     /** 每段发给 AI 的句子数（控制单次响应体量与下标规模；建议 30–40）。 */
@@ -59,6 +60,24 @@ public class NovelNarrationCastService {
     private final NovelMapper novelMapper;
     private final NovelDatabase novelDatabase;
     private final NarrationScriptService narrationScriptService;
+    private final TransactionOperations transactionOperations;
+
+    public NovelNarrationCastService(NovelMapper novelMapper,
+                                     NovelDatabase novelDatabase,
+                                     NarrationScriptService narrationScriptService,
+                                     PlatformTransactionManager transactionManager) {
+        this(novelMapper, novelDatabase, narrationScriptService, new TransactionTemplate(transactionManager));
+    }
+
+    NovelNarrationCastService(NovelMapper novelMapper,
+                              NovelDatabase novelDatabase,
+                              NarrationScriptService narrationScriptService,
+                              TransactionOperations transactionOperations) {
+        this.novelMapper = novelMapper;
+        this.novelDatabase = novelDatabase;
+        this.narrationScriptService = narrationScriptService;
+        this.transactionOperations = transactionOperations;
+    }
 
     /**
      * 某作品的「默认花名册」解析结果。{@code cast} 为 {@code null} 表示尚未创建，此时
@@ -244,11 +263,13 @@ public class NovelNarrationCastService {
     }
 
     /** 确保旁白行（id 0）已持久化（默认音色、AI 生成来源），以便后续 AI 补充 / 冲突能对旁白生效。 */
-    @Transactional
     void ensureNarratorPersisted(long castId) {
-        novelMapper.insertNarrationVoiceIfAbsent(castId, NarrationCharacter.NARRATOR_ID, "Narrator",
-                "unknown", "unknown", NarrationCharacter.DEFAULT_NARRATOR_INSTRUCTION, false,
-                TimestampUtils.nowMillis());
+        transactionOperations.execute(status -> {
+            novelMapper.insertNarrationVoiceIfAbsent(castId, NarrationCharacter.NARRATOR_ID, "Narrator",
+                    "unknown", "unknown", NarrationCharacter.DEFAULT_NARRATOR_INSTRUCTION, false,
+                    TimestampUtils.nowMillis());
+            return null;
+        });
     }
 
     /**
@@ -256,9 +277,15 @@ public class NovelNarrationCastService {
      * id 映射；② 兼容性补充仅对未锁定角色刷新画像；③ 冲突对未锁定角色自动采纳建议、对用户锁定角色收集为待处理
      * 冲突（绝不覆盖）。返回临时 id 映射与未解决冲突供编排层重映射逐句 speaker / 提示用户。
      */
-    @Transactional
     SegmentRosterResult processSegmentRoster(long castId, List<NarrationCharacter> roster,
                                              NarrationSegmentAnalysis analysis) {
+        SegmentRosterResult result = transactionOperations.execute(
+                status -> processSegmentRosterInTransaction(castId, roster, analysis));
+        return result == null ? new SegmentRosterResult(Map.of(), List.of()) : result;
+    }
+
+    private SegmentRosterResult processSegmentRosterInTransaction(long castId, List<NarrationCharacter> roster,
+                                                                  NarrationSegmentAnalysis analysis) {
         long now = TimestampUtils.nowMillis();
         Map<String, Integer> nameToId = new LinkedHashMap<>();
         Map<Integer, NarrationCharacter> byId = new LinkedHashMap<>();
