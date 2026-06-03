@@ -292,6 +292,7 @@
         renderAuthor();
         loadSeriesSections();
         loadRelated();
+        loadMembership();
     }
 
     function renderViewer() {
@@ -742,9 +743,11 @@
         try {
             const resp = await api(`/api/collections/of/${state.artworkId}`);
             state.collectionMembership = new Set(resp.collectionIds || []);
+            const btn = document.getElementById('heartBtn');
+            if (btn) btn.style.display = '';
             updateHeart();
         } catch (e) {
-            // Ignore
+            // Ignore — heart stays hidden when collections aren't accessible
         }
     }
 
