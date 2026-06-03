@@ -456,8 +456,13 @@
     // 单个队列项的 HTML。下载工作区底部的「下载队列」与计划任务卡片底部的「本轮队列详情」共用此函数，
     // 保证两处队列展示完全一致（进度条、来源/分级/AI 标记、小说进度等）。
     // opts.removable=false 时不渲染移除按钮（计划任务为服务端队列，前端不可移除）。
+    // opts.queueId 给行根节点打一个稳定的 data-queue-id，供「只替换单行 outerHTML」的局部刷新定位该行
+    //（计划任务详情高频 SSE 刷新用，避免整块 innerHTML 重建）；不传则不输出该属性，普通队列调用不受影响。
     function buildQueueItemHtml(q, opts) {
         const removable = !opts || opts.removable !== false;
+        const queueIdAttr = opts && opts.queueId != null
+            ? ` data-queue-id="${esc(String(opts.queueId))}"`
+            : '';
         const prog = q.totalImages > 0
             ? `<div class="prog-wrap">
           <div class="prog-label"><span>${esc(formatImageProgressText(q.downloadedCount || 0, q.totalImages))}</span><span>${pct(q)}%</span></div>
@@ -500,7 +505,7 @@
         const novelTag = isNovel
             ? `<span style="background:#0d9488;color:white;border-radius:3px;padding:1px 5px;font-size:10px;margin-left:3px;vertical-align:middle;">📕 ${esc(bt('queue.novel', '小说'))}</span>`
             : '';
-        return `<div class="queue-item" style="border-left-color:${statusColor(q.status)}">
+        return `<div class="queue-item"${queueIdAttr} style="border-left-color:${statusColor(q.status)}">
       <div class="q-title" style="display:flex;align-items:center;gap:2px;">
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(queueItemDisplayTitle(q))}${novelTag}${srcLabel}${R18Label}${AILabel}</span>
         ${linkBtn}${removeBtn}

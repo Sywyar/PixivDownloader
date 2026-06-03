@@ -314,7 +314,9 @@
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                setScheduleFormStatus(err.message || bt('schedule.error.save', '保存失败'), 'error');
+                // 后端错误体是 {"error": "..."}（ErrorResponse）：Cron 表达式无效等具体原因都在 error 字段，
+                // 读对字段才能把「Cron 表达式无效」这类原因透给用户，而不是一律退回泛化的「保存失败」。
+                setScheduleFormStatus(err.error || err.message || bt('schedule.error.save', '保存失败'), 'error');
                 return;
             }
             // solo 模式下新建任务时，用当前输入框里的 Cookie 自动授权绑定，省去手动「授权 Cookie」一步。
@@ -1257,6 +1259,17 @@
     // 上一轮轮询时仍在运行的展开任务：用于在运行结束的那一拍补拉一次最终终态快照。
     const scheduleQueueWasRunning = new Set();
 
+    // ── 「本轮队列详情」高频刷新合批 ─────────────────────────────────────────────
+    // 并发下载时 SSE 逐图进度事件会高频到达。若每个事件都整块重建 .schedule-queue-body 的 innerHTML
+    //（含全部队列行），主线程会被反复的 DOM 拆建占满，交互延迟（INP）随之飙高。
+    // 改为：SSE 只 patch 内存模型 + 标记脏行 id，再用节流合批，只替换发生变化的单行 outerHTML；
+    // 统计栏 / 当前下载项区域用更低频的独立节流刷新。折叠 / 解绑 / 整块重渲染时清理待执行刷新与脏集合。
+    const scheduleQueueDirtyRows = new Map();        // taskId → Set<queueId>：待局部刷新的脏行
+    const scheduleQueueRowFlushHandles = new Map();  // taskId → setTimeout 句柄：脏行合批刷新
+    const scheduleQueueMetaFlushHandles = new Map(); // taskId → setTimeout 句柄：统计/当前项低频刷新
+    const SCHEDULE_QUEUE_ROW_FLUSH_MS = 150;         // 脏行批量刷新节流（100-250ms 区间）
+    const SCHEDULE_QUEUE_META_FLUSH_MS = 350;        // 统计栏 / 当前下载项低频刷新（250-500ms 区间）
+
     // 取某任务的队列模型：内存优先，缺失时从 localStorage 缓存恢复（支持刷新 / 服务重启后继续展示）。
     function getScheduleQueueModel(id) {
         id = Number(id);
@@ -1398,6 +1411,8 @@
         body.innerHTML = renderScheduleQueueBody(id);
         const newList = body.querySelector('.schedule-queue-list');
         if (newList) newList.scrollTop = prevScroll;
+        // 整块已重渲染（含状态/统计/当前项/全部行）：丢弃此前累积的脏行与待执行的局部/低频刷新，避免重复刷新。
+        cancelScheduleQueueFlush(id);
     }
 
     // 展开某任务的队列：切换箭头，先用缓存模型即时渲染，再向后端拉取最新一轮队列；折叠则不请求并解绑 SSE。
@@ -1411,6 +1426,7 @@
         if (scheduleExpandedQueues.has(id)) {
             scheduleExpandedQueues.delete(id);
             unsubscribeScheduleQueueSse(id);
+            cancelScheduleQueueFlush(id); // 折叠：取消待执行的局部刷新，隐藏视图不再消耗主线程
             if (body) body.hidden = true;
             if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
             if (caret) caret.textContent = '▸';
@@ -1493,14 +1509,11 @@
         };
     }
 
-    // 完整照搬下载工作区底部的「状态栏 + 统计栏 + 当前下载卡 + 下载队列」四段结构，
-    // 仅把数据源换成本任务的队列模型；各段分别复用 #status-bar / #stats-bar / #current-card / #queue-list 的样式与格式化函数。
-    function renderScheduleQueueBody(id) {
-        const model = getScheduleQueueModel(id) || [];
+    // 状态栏文案（对应工作区 #status-bar）：任务运行状态文案 + 本轮开始时间 + 截断提示。
+    // 抽成独立函数，让整块渲染与低频 meta 刷新（refreshScheduleQueueMeta）共用一处口径。
+    function buildScheduleQueueStatusText(id, model) {
         const task = scheduleTaskById(id);
         const meta = getScheduleQueueMeta(id);
-
-        // 状态栏（对应 #status-bar）：任务运行状态文案 + 本轮开始时间 + 截断提示
         let statusText = task ? scheduleStatusLight(task).text : bt('schedule.light.never', '等待首次运行');
         if (meta.startedTime) {
             statusText += ' · ' + bt('schedule.queue.started', '本轮开始：{time}', {time: fmtScheduleTime(meta.startedTime)});
@@ -1508,6 +1521,14 @@
         if (meta.truncated) {
             statusText += ' · ' + bt('schedule.queue.truncated', '作品过多，仅记录并展示前 {count} 项', {count: model.length});
         }
+        return statusText;
+    }
+
+    // 完整照搬下载工作区底部的「状态栏 + 统计栏 + 当前下载卡 + 下载队列」四段结构，
+    // 仅把数据源换成本任务的队列模型；各段分别复用 #status-bar / #stats-bar / #current-card / #queue-list 的样式与格式化函数。
+    function renderScheduleQueueBody(id) {
+        const model = getScheduleQueueModel(id) || [];
+        const statusText = buildScheduleQueueStatusText(id, model);
         const s = computeScheduleQueueStats(model);
         // 渲染前用 localizeScheduleQueueItem 派生 title / lastMessage，确保跟随当前 UI 语言；
         // 模型本身仍是 raw 字段，下次语言切换重渲染再次派生即可。
@@ -1517,11 +1538,103 @@
         const statusLine = `<div class="schedule-queue-status">${escHtml(statusText)}</div>`;
         const statsLine = `<div class="schedule-queue-stats">${escHtml(formatStatsText(s.pending, s.success, s.failed, s.active, s.skipped))}</div>`;
         const currentCard = `<div class="schedule-queue-current">${formatCurrentCardHtml(current)}</div>`;
+        // 每行带上 data-queue-id（= 模型项 id），供 flushScheduleQueueRows 局部替换单行 outerHTML 时定位。
         const listInner = localized.length
-            ? localized.map(q => buildQueueItemHtml(q, {removable: false})).join('')
+            ? localized.map(q => buildQueueItemHtml(q, {removable: false, queueId: q.id})).join('')
             : `<div class="queue-empty">${escHtml(bt('status.queue-empty', '队列为空'))}</div>`;
         const listCard = `<div class="schedule-queue-list">${listInner}</div>`;
         return statusLine + statsLine + currentCard + listCard;
+    }
+
+    // 标记某任务的某行待刷新：只 patch 完模型后调用，合批后由 flushScheduleQueueRows 局部替换该行。
+    function markScheduleQueueRowDirty(id, qId) {
+        id = Number(id);
+        if (!scheduleExpandedQueues.has(id)) return; // 已折叠：无可见 DOM，丢弃
+        let set = scheduleQueueDirtyRows.get(id);
+        if (!set) { set = new Set(); scheduleQueueDirtyRows.set(id, set); }
+        set.add(String(qId));
+        if (!scheduleQueueRowFlushHandles.has(id)) {
+            scheduleQueueRowFlushHandles.set(id,
+                setTimeout(() => flushScheduleQueueRows(id), SCHEDULE_QUEUE_ROW_FLUSH_MS));
+        }
+        armScheduleQueueMetaFlush(id);
+    }
+
+    // 安排一次低频的统计栏 / 当前下载项刷新（已排程则复用，避免每行都重算整块统计/当前卡）。
+    function armScheduleQueueMetaFlush(id) {
+        id = Number(id);
+        if (scheduleQueueMetaFlushHandles.has(id)) return;
+        scheduleQueueMetaFlushHandles.set(id, setTimeout(() => {
+            scheduleQueueMetaFlushHandles.delete(id);
+            refreshScheduleQueueMeta(id);
+        }, SCHEDULE_QUEUE_META_FLUSH_MS));
+    }
+
+    // 合批刷新脏行：只对发生变化的行重新生成单行 HTML 并替换其 outerHTML；
+    // 找不到对应 DOM 行（如刚展开还没渲染过 list / 行被快照重建移除）时退化为一次整块渲染。
+    function flushScheduleQueueRows(id) {
+        id = Number(id);
+        scheduleQueueRowFlushHandles.delete(id);
+        const dirty = scheduleQueueDirtyRows.get(id);
+        scheduleQueueDirtyRows.delete(id);
+        if (!dirty || dirty.size === 0) return;
+        if (!scheduleExpandedQueues.has(id)) return;
+        const wrap = document.querySelector(`.schedule-queue[data-task-id="${id}"]`);
+        const listEl = wrap ? wrap.querySelector('.schedule-queue-list') : null;
+        const model = scheduleQueueModels[id];
+        if (!wrap || !listEl || !model) {
+            renderScheduleQueueBodyInto(id); // 列表尚未渲染或模型缺失：整块兜底（频率低，可接受）
+            return;
+        }
+        const byId = {};
+        model.forEach(q => { byId[q.id] = q; });
+        let needFull = false;
+        dirty.forEach(qId => {
+            const q = byId[qId];
+            if (!q) return; // 模型里已无此项（被快照重建移除）：留给后续整块渲染
+            const row = listEl.querySelector(`.queue-item[data-queue-id="${qId}"]`);
+            if (!row) { needFull = true; return; }
+            row.outerHTML = buildQueueItemHtml(localizeScheduleQueueItem(q), {removable: false, queueId: q.id});
+        });
+        if (needFull) {
+            renderScheduleQueueBodyInto(id);
+        } else {
+            armScheduleQueueMetaFlush(id); // 行已就地更新；统计 / 当前下载项交给低频 meta 刷新
+        }
+    }
+
+    // 低频刷新统计栏 + 当前下载项 + 状态栏（不触碰队列列表 DOM，避免整块重建）。
+    function refreshScheduleQueueMeta(id) {
+        id = Number(id);
+        if (!scheduleExpandedQueues.has(id)) return;
+        const wrap = document.querySelector(`.schedule-queue[data-task-id="${id}"]`);
+        if (!wrap) return;
+        const body = wrap.querySelector('.schedule-queue-body');
+        if (!body || body.hidden) return;
+        const model = getScheduleQueueModel(id) || [];
+        const statusEl = body.querySelector('.schedule-queue-status');
+        if (statusEl) statusEl.textContent = buildScheduleQueueStatusText(id, model);
+        const statsEl = body.querySelector('.schedule-queue-stats');
+        if (statsEl) {
+            const s = computeScheduleQueueStats(model);
+            statsEl.textContent = formatStatsText(s.pending, s.success, s.failed, s.active, s.skipped);
+        }
+        const currentEl = body.querySelector('.schedule-queue-current');
+        if (currentEl) {
+            const cur = model.find(q => q.status === 'downloading');
+            currentEl.innerHTML = formatCurrentCardHtml(cur ? localizeScheduleQueueItem(cur) : null);
+        }
+    }
+
+    // 取消某任务待执行的局部刷新并清空脏集合：折叠 / 解绑 SSE / 整块重渲染 / 任务下线时调用，
+    // 避免隐藏视图或陈旧任务继续占用主线程做无意义的刷新。
+    function cancelScheduleQueueFlush(id) {
+        id = Number(id);
+        const rowHandle = scheduleQueueRowFlushHandles.get(id);
+        if (rowHandle != null) { clearTimeout(rowHandle); scheduleQueueRowFlushHandles.delete(id); }
+        const metaHandle = scheduleQueueMetaFlushHandles.get(id);
+        if (metaHandle != null) { clearTimeout(metaHandle); scheduleQueueMetaFlushHandles.delete(id); }
+        scheduleQueueDirtyRows.delete(id);
     }
 
     // ── 计划任务队列的 SSE 实时进度同步（复用工作区的聚合 EventSource） ──────────────────────────
@@ -1546,6 +1659,8 @@
 
     function unsubscribeScheduleQueueSse(id) {
         id = Number(id);
+        // 不再有逐图事件进来：取消待执行的局部 / 低频刷新合批，避免遗留定时器空转。
+        cancelScheduleQueueFlush(id);
         const handlers = scheduleSseHandlers[id];
         if (!handlers) return;
         Object.keys(handlers).forEach(key => removeSSEListener(key, handlers[key]));
@@ -1604,7 +1719,9 @@
             q.imageProgress = data.imageProgress || q.imageProgress || null;
             q.ugoiraProgress = mergeUgoiraProgress(q.ugoiraProgress, data.ugoiraProgress);
         }
-        renderScheduleQueueBodyInto(id);
+        // 只 patch 模型 + 标记脏行：不在每个事件里整块重建 DOM。合批后只替换变化的单行，
+        // 统计 / 当前下载项由更低频的 meta 刷新处理，使高频进度事件不再阻塞主线程。
+        markScheduleQueueRowDirty(id, qId);
     }
 
     async function runScheduleTask(id) {
@@ -1703,7 +1820,7 @@
                 loadScheduleTasks();
             } else {
                 const err = await res.json().catch(() => ({}));
-                setScheduleListStatus(err.message || bt('schedule.error.resume', '恢复失败'), 'error');
+                setScheduleListStatus(err.error || err.message || bt('schedule.error.resume', '恢复失败'), 'error');
             }
         } catch (e) {
             setScheduleListStatus(bt('schedule.error.resume', '恢复失败'), 'error');
@@ -1810,7 +1927,7 @@
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                setScheduleCardTip(id, err.message || bt('schedule.error.authorize', '授权失败'), 'error');
+                setScheduleCardTip(id, err.error || err.message || bt('schedule.error.authorize', '授权失败'), 'error');
                 return;
             }
             setScheduleCardTip(id, bt('schedule.status.authorized', 'Cookie 已授权绑定到该任务'), 'success');
