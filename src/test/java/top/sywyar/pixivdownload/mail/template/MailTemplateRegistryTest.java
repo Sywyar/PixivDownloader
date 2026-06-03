@@ -221,6 +221,90 @@ class MailTemplateRegistryTest {
         assertThat(zh.subject()).isNotBlank();
     }
 
+    @Test
+    @DisplayName("degraded-anonymous 中英渲染：含新下载数 / 运行时间 / 下次运行，无裸占位符")
+    void degradedAnonymousRenders() throws Exception {
+        assertThat(registry.templates()).containsKey(MailTemplateRegistry.TEMPLATE_DEGRADED_ANONYMOUS);
+
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", "搜索计划");
+        ph.put("task_id", "12");
+        ph.put("task_type", "保存的搜索");
+        ph.put("task_trigger", "每 60 分钟");
+        ph.put("completed", "8");
+        ph.put("trigger_time", "2026-05-27 12:00:00");
+        ph.put("next_run_time", "2026-05-27 13:00:00");
+
+        RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_DEGRADED_ANONYMOUS,
+                Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(zh.subject()).contains("受限模式");
+        assertThat(zh.htmlBody())
+                .contains("搜索计划")
+                .contains("保存的搜索")        // {{task_type}}
+                .contains("本轮新下载")        // common.info-card.completed
+                .contains("8")                 // {{completed}}
+                .contains("2026-05-27 13:00:00") // {{next_run_time}}
+                .doesNotContain("{{")
+                .doesNotContain("PHPSESSID");
+
+        RenderedMail en = registry.render(MailTemplateRegistry.TEMPLATE_DEGRADED_ANONYMOUS, Locale.US, ph);
+        assertThat(en.subject().toLowerCase()).contains("restricted");
+        assertThat(en.htmlBody()).doesNotContain("{{");
+    }
+
+    @Test
+    @DisplayName("run-failed 中英渲染：note 区含失败原因摘要，无裸占位符")
+    void runFailedRenders() throws Exception {
+        assertThat(registry.templates()).containsKey(MailTemplateRegistry.TEMPLATE_RUN_FAILED);
+
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", "画师计划");
+        ph.put("task_id", "9");
+        ph.put("task_type", "画师新作");
+        ph.put("task_trigger", "每 30 分钟");
+        ph.put("trigger_time", "2026-05-27 12:00:00");
+        ph.put("next_run_time", "2026-05-27 12:30:00");
+        ph.put("last_error_excerpt", "Connection timed out");
+
+        RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_RUN_FAILED, Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(zh.subject()).contains("失败");
+        assertThat(zh.htmlBody())
+                .contains("画师计划")
+                .contains("Connection timed out") // {{last_error_excerpt}}
+                .doesNotContain("{{");
+
+        RenderedMail en = registry.render(MailTemplateRegistry.TEMPLATE_RUN_FAILED, Locale.US, ph);
+        assertThat(en.subject().toLowerCase()).contains("failed");
+        assertThat(en.htmlBody()).doesNotContain("{{");
+    }
+
+    @Test
+    @DisplayName("run-summary subject 含新下载数占位符替换，中英渲染无裸占位符")
+    void runSummaryRenders() throws Exception {
+        assertThat(registry.templates()).containsKey(MailTemplateRegistry.TEMPLATE_RUN_SUMMARY);
+
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", "系列计划");
+        ph.put("task_id", "3");
+        ph.put("task_type", "系列下载");
+        ph.put("task_trigger", "Cron：0 0 * * * *");
+        ph.put("completed", "5");
+        ph.put("trigger_time", "2026-05-27 12:00:00");
+        ph.put("next_run_time", "2026-05-27 18:00:00");
+
+        RenderedMail zh = registry.render(MailTemplateRegistry.TEMPLATE_RUN_SUMMARY, Locale.SIMPLIFIED_CHINESE, ph);
+        assertThat(zh.subject()).contains("5"); // {{completed}} 进入 subject
+        assertThat(zh.htmlBody())
+                .contains("系列计划")
+                .contains("系列下载")
+                .contains("5")
+                .doesNotContain("{{");
+
+        RenderedMail en = registry.render(MailTemplateRegistry.TEMPLATE_RUN_SUMMARY, Locale.US, ph);
+        assertThat(en.subject()).contains("5");
+        assertThat(en.htmlBody()).doesNotContain("{{");
+    }
+
     private static Map<String, String> placeholders() {
         Map<String, String> map = new LinkedHashMap<>();
         map.put("app_name", "PixivDownloader");

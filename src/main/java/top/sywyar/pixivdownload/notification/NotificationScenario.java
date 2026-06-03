@@ -15,7 +15,8 @@ import top.sywyar.pixivdownload.push.PushLevel;
  * 必须同步维护（邮件模板 + subject i18n；推送 {@code title} / {@code body} i18n），由
  * {@code NotificationSinkCoverageTest} 遍历「场景 × 介质」守护，缺一即 loud-failure。
  *
- * <p>当前 4 个场景均由 {@code schedule/ScheduleExecutor} 在自动挂起 / 自动重试达上限时触发。
+ * <p>当前 7 个场景均由 {@code schedule/ScheduleExecutor} 在一轮运行结束（自动挂起 / 自动重试达上限 /
+ * 自动降级 / 运行失败 / 成功有新下载）时触发。
  */
 public enum NotificationScenario {
 
@@ -26,7 +27,13 @@ public enum NotificationScenario {
     /** 单作品连续失败熔断 → 任务级挂起。 */
     CIRCUIT_BREAKER("circuit-breaker", PushLevel.ERROR),
     /** 单作品自动重试达上限 → 需人工处理。 */
-    PENDING_EXHAUSTED("pending-exhausted", PushLevel.WARNING);
+    PENDING_EXHAUSTED("pending-exhausted", PushLevel.WARNING),
+    /** cookie 失效但任务无需 cookie → 自动清除失效快照、本轮降级匿名续跑并成功（仅清除快照那一轮通知一次）。 */
+    DEGRADED_ANONYMOUS("degraded-anonymous", PushLevel.WARNING),
+    /** 整轮运行失败（非鉴权类异常）→ 进入 ERROR 状态（仅在状态由非 ERROR 转入 ERROR 时通知一次，连续失败不重复）。 */
+    RUN_FAILED("run-failed", PushLevel.ERROR),
+    /** 运行成功且本轮有新下载 → 摘要通知。 */
+    RUN_SUMMARY("run-summary", PushLevel.INFO);
 
     private final String id;
     private final PushLevel level;

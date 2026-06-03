@@ -54,7 +54,8 @@ import java.util.regex.Pattern;
  * <ul>
  *   <li><b>轮首检查点</b>（发现之前）：对 cookie-bound 任务读站内信（{@link OveruseWarningService}）——
  *       {@code COOKIE_DEAD} 时依赖型任务挂起 {@code AUTH_EXPIRED}（避免 watermark 越过当时不可见的 R-18 永久遗漏），
- *       非依赖型降级匿名续跑；{@code WARNED} 抛 {@link OveruseWarningException} → 账号级冻结。</li>
+ *       非依赖型自动清除失效快照、降级匿名续跑（运行成功后发一次 {@code DEGRADED_ANONYMOUS} 通知）；
+ *       {@code WARNED} 抛 {@link OveruseWarningException} → 账号级冻结。</li>
  *   <li><b>轮内 N 检查点</b>：每成功派发 N（{@code schedule.inbox-check-every}）个下载读一次站内信，{@code WARNED} 干净 unwind。</li>
  *   <li><b>单作品异常分类</b>：404/403-gone 跳过不挡 watermark；可恢复 {@link PixivFetchService.PixivFetchException}
  *       记隔离表 + 连续计数，连续 M（{@code schedule.auth-failure-circuit-breaker}）次熔断挂起。</li>
@@ -162,14 +163,19 @@ public class ScheduleExecutor {
         String message = null;
         ScheduleSuspendException suspendNotification = null;
         long suspendTriggerTime = 0L;
+        // 本轮是否因 cookie 失效但任务无需 cookie 而自动降级（runTask 内已清失效快照 + 转匿名续跑）；运行成功后据此发一次降级通知。
+        boolean[] degraded = {false};
+        int completedCount = 0;
+        // 仅当 last_status 由「非 ERROR」转入 ERROR 时才发失败通知（连续失败不重复打扰）；进入 catch 前先读旧状态。
+        boolean notifyRunFailed = false;
         List<PendingExhaustedNotification> pendingNotifications =
                 Collections.synchronizedList(new ArrayList<>());
         try {
             // 落库本轮开始时刻：正常结束（含干净挂起）时 updateRunResult 会清为 NULL；进程被强杀则残留 → 中断红灯。
             database.mapper().updateRunStarted(task.id(), System.currentTimeMillis());
-            int completed = runTask(task, pendingNotifications);
+            completedCount = runTask(task, pendingNotifications, degraded);
             status = STATUS_OK;
-            log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completed);
+            log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completedCount);
         } catch (OveruseWarningException e) {
             // 过度访问警告：账号级暂停 + 冻结同账号 + 通知；干净挂起（清 run_started_time）。
             status = STATUS_OVERUSE_PAUSED;
@@ -198,6 +204,7 @@ public class ScheduleExecutor {
         } catch (Exception e) {
             status = STATUS_ERROR;
             message = summarizeError(e);
+            notifyRunFailed = !STATUS_ERROR.equals(task.lastStatus());
             log.error("Scheduled task {} ({}) failed [{}]: {}",
                     task.id(), task.name(), e.getClass().getSimpleName(), message);
         } finally {
@@ -213,6 +220,16 @@ public class ScheduleExecutor {
             handleSuspend(task, suspendNotification, suspendTriggerTime);
         }
         sendPendingExhaustedNotifications(task, pendingNotifications, notificationNextRun);
+        // ── 运行结束通知（best-effort，不影响调度）：成功时按「是否自动降级 / 是否有新下载」二选一，失败时按「转入 ERROR」发一次。──
+        if (STATUS_OK.equals(status)) {
+            if (degraded[0]) {
+                notifyDegradedAnonymous(task, completedCount, completedAt, notificationNextRun);
+            } else if (completedCount > 0) {
+                notifyRunSummary(task, completedCount, completedAt, notificationNextRun);
+            }
+        } else if (notifyRunFailed) {
+            notifyRunFailure(task, message, completedAt, notificationNextRun);
+        }
     }
 
     /**
@@ -281,7 +298,8 @@ public class ScheduleExecutor {
      * @throws ScheduleSuspendException cookie 依赖型 dead cookie / 单作品连续失败熔断
      * @throws PixivFetchService.PixivFetchException 发现阶段鉴权失效
      */
-    private int runTask(ScheduledTask task, List<PendingExhaustedNotification> pendingNotifications) throws Exception {
+    private int runTask(ScheduledTask task, List<PendingExhaustedNotification> pendingNotifications,
+                        boolean[] degraded) throws Exception {
         String cookie = ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())
                 ? database.mapper().findCookieSnapshot(task.id())
                 : null;
@@ -307,8 +325,11 @@ public class ScheduleExecutor {
                     // 账号私有来源（收藏 / 关注新作 / 珍藏集）无法匿名续跑，dead cookie 一律挂起。
                     throw new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD);
                 }
-                // 非依赖型：降级匿名续跑（全年龄作品照样抓全、不丢、不浪费）
+                // 非依赖型：失效 Cookie 已无价值，自动清除快照转受限模式——避免每轮再用死 cookie 探测站内信、
+                // 也避免每轮重复发降级通知；本轮降级匿名续跑（全年龄作品照样抓全、不丢、不浪费），运行成功后发一次降级通知。
+                database.mapper().updateCookie(task.id(), null, ScheduledTask.COOKIE_RESTRICTED);
                 cookie = null;
+                degraded[0] = true;
             } else if (result.isWarned()) {
                 throw new OveruseWarningException(result.modifiedAt(), result.excerpt());
             }
@@ -1261,6 +1282,46 @@ public class ScheduleExecutor {
         ph.put("next_run_time", formatTime(nextRun));
         ph.put("last_error_excerpt", event.reason() == null ? "" : event.reason());
         sendNotification(NotificationScenario.PENDING_EXHAUSTED, ph);
+    }
+
+    /** 任务级通知共用的基础占位符（任务名 / ID / 类型 / 触发方式），与邮件 / 推送同一套键。 */
+    private Map<String, String> baseTaskPlaceholders(ScheduledTask task, Locale locale) {
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", task.name() == null ? "-" : task.name());
+        ph.put("task_id", String.valueOf(task.id()));
+        ph.put("task_type", taskTypeLabel(locale, task.type()));
+        ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
+        return ph;
+    }
+
+    /** cookie 失效但任务无需 cookie → 已自动清除失效快照、降级匿名续跑且运行成功：发一次降级通知（best-effort）。 */
+    private void notifyDegradedAnonymous(ScheduledTask task, int completed, long triggerTime, Long nextRun) {
+        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Map<String, String> ph = baseTaskPlaceholders(task, locale);
+        ph.put("completed", String.valueOf(completed));
+        ph.put("trigger_time", formatTime(triggerTime));
+        ph.put("next_run_time", formatTime(nextRun));
+        sendNotification(NotificationScenario.DEGRADED_ANONYMOUS, ph);
+    }
+
+    /** 运行成功且本轮有新下载：发摘要通知（best-effort）。 */
+    private void notifyRunSummary(ScheduledTask task, int completed, long triggerTime, Long nextRun) {
+        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Map<String, String> ph = baseTaskPlaceholders(task, locale);
+        ph.put("completed", String.valueOf(completed));
+        ph.put("trigger_time", formatTime(triggerTime));
+        ph.put("next_run_time", formatTime(nextRun));
+        sendNotification(NotificationScenario.RUN_SUMMARY, ph);
+    }
+
+    /** 整轮运行失败（状态由非 ERROR 转入 ERROR）：发失败通知（best-effort）。errorExcerpt 已脱敏、不含凭证。 */
+    private void notifyRunFailure(ScheduledTask task, String errorExcerpt, long triggerTime, Long nextRun) {
+        Locale locale = AppLocale.normalize(Locale.getDefault());
+        Map<String, String> ph = baseTaskPlaceholders(task, locale);
+        ph.put("trigger_time", formatTime(triggerTime));
+        ph.put("next_run_time", formatTime(nextRun));
+        ph.put("last_error_excerpt", errorExcerpt == null ? "" : errorExcerpt);
+        sendNotification(NotificationScenario.RUN_FAILED, ph);
     }
 
     /**

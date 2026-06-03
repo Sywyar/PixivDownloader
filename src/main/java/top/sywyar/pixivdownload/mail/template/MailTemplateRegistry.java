@@ -51,6 +51,12 @@ public class MailTemplateRegistry {
     public static final String TEMPLATE_CIRCUIT_BREAKER = "circuit-breaker";
     /** 单作品自动重试达到 {@code schedule.pending-max-attempts} 上限 → 需人工处理。 */
     public static final String TEMPLATE_PENDING_EXHAUSTED = "pending-exhausted";
+    /** cookie 失效但任务无需 cookie → 自动降级为受限模式、运行成功。 */
+    public static final String TEMPLATE_DEGRADED_ANONYMOUS = "degraded-anonymous";
+    /** 整轮运行失败（非鉴权类异常）→ 进入 ERROR 状态。 */
+    public static final String TEMPLATE_RUN_FAILED = "run-failed";
+    /** 运行成功且本轮有新下载 → 摘要通知。 */
+    public static final String TEMPLATE_RUN_SUMMARY = "run-summary";
 
     private static final String I18N_PREFIX = "i18n:";
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*([a-zA-Z0-9_.\\-:]+)\\s*}}");
@@ -63,6 +69,9 @@ public class MailTemplateRegistry {
         put(TEMPLATE_AUTH_EXPIRED, MailTemplate.of(TEMPLATE_AUTH_EXPIRED));
         put(TEMPLATE_CIRCUIT_BREAKER, MailTemplate.of(TEMPLATE_CIRCUIT_BREAKER));
         put(TEMPLATE_PENDING_EXHAUSTED, MailTemplate.of(TEMPLATE_PENDING_EXHAUSTED));
+        put(TEMPLATE_DEGRADED_ANONYMOUS, MailTemplate.of(TEMPLATE_DEGRADED_ANONYMOUS));
+        put(TEMPLATE_RUN_FAILED, MailTemplate.of(TEMPLATE_RUN_FAILED));
+        put(TEMPLATE_RUN_SUMMARY, MailTemplate.of(TEMPLATE_RUN_SUMMARY));
     }};
 
     /**

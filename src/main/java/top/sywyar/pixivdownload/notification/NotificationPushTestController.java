@@ -95,6 +95,7 @@ public class NotificationPushTestController {
         ph.put("task_type", messages.get(locale, "mail.template.common.task-type.user-new"));
         ph.put("task_trigger", messages.get(locale, "mail.template.common.trigger.interval", 60));
         ph.put("next_run_time", now.plusMinutes(60).format(TIME_FORMAT));
+        ph.put("completed", messages.get(locale, "mail.template.sample.completed"));
         ph.put("consecutive_failures", messages.get(locale, "mail.template.sample.consecutive-failures"));
         ph.put("last_error_excerpt", messages.get(locale, "mail.template.sample.last-error-excerpt"));
         ph.put("work_id", messages.get(locale, "mail.template.sample.work-id"));
