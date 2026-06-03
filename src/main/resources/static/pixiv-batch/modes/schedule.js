@@ -1250,6 +1250,32 @@
         } catch (e) { /* 存储不可用时忽略：内存渲染仍可工作 */ }
     }
 
+    // 缓存里随队列一起记录的「该队列所属那一轮运行的完成时刻」（写入时取任务当时的 lastRunTime）。
+    // 与任务当前的 lastRunTime 比对即可判断缓存是否已过期：任务又跑过新的一轮（前端没刷到、或后端重启后），
+    // 两者就不再一致。无缓存返回 undefined。
+    function scheduleQueueCacheRunTime(id) {
+        const cache = readScheduleQueueCache(id);
+        if (!cache) return undefined;
+        return cache.lastRunTime != null ? cache.lastRunTime : null;
+    }
+
+    // 缓存队列是否已不属于任务的最新一轮：把缓存记录的运行时刻与任务当前 lastRunTime 比对，不一致即过期。
+    // 无缓存时不算过期（fetch 会负责填充）。
+    function isScheduleQueueCacheStale(id, task) {
+        const cachedRunTime = scheduleQueueCacheRunTime(id);
+        if (cachedRunTime === undefined) return false;
+        const latestRunTime = task && task.lastRunTime != null ? task.lastRunTime : null;
+        return cachedRunTime !== latestRunTime;
+    }
+
+    // 丢弃某任务的队列缓存与内存模型：过期时清空，让 renderScheduleQueueBody 即时显示空、
+    // 并避免 fetchScheduleQueue 的 keepCache 分支用陈旧队列盖住后端的空响应。
+    function discardScheduleQueueCache(id) {
+        id = Number(id);
+        delete scheduleQueueModels[id];
+        try { storeRemove(scheduleQueueCacheKey(id)); } catch (e) { /* 存储不可用时忽略 */ }
+    }
+
     // 计划任务「本轮队列详情」的客户端模型：taskId → 队列项数组（与下载工作区 state.queue 同形，
     // 直接喂给 buildQueueItemHtml 渲染，保证两处队列完全一致）。后端 4s 快照提供权威的发现/终态，
     // SSE 提供运行中的逐图实时进度。
@@ -1433,6 +1459,11 @@
             return;
         }
         scheduleExpandedQueues.add(id);
+        // 展开即比对：缓存队列若不属于任务最新一轮（任务又跑过新的一轮、前端没刷到，或后端重启丢失内存），
+        // 先清掉过期缓存再渲染 —— 这样立即显示空、随后 fetch；后端若已无该轮队列则保持空，不再用旧队列盖住。
+        if (isScheduleQueueCacheStale(id, scheduleTaskById(id))) {
+            discardScheduleQueueCache(id);
+        }
         if (body) {
             body.hidden = false;
             body.innerHTML = renderScheduleQueueBody(id); // 缓存模型即时渲染（可能为空）
@@ -1481,6 +1512,8 @@
                 scheduleQueueModels[id] = model;
                 writeScheduleQueueCache(id, {
                     startedTime: data.startedTime != null ? data.startedTime : null,
+                    // 记录该队列所属那一轮的运行时刻（任务当前 lastRunTime），供下次展开时比对是否过期。
+                    lastRunTime: task && task.lastRunTime != null ? task.lastRunTime : null,
                     truncated: !!data.truncated,
                     total: typeof data.total === 'number' ? data.total : model.length,
                     items: model,
