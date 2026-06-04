@@ -61,13 +61,13 @@ public class RestTemplateConfig {
     }
 
     /**
-     * 多角色朗读 TTS 专用 RestTemplate（直连，不走代理）。读超时放宽到 120s：VoxCPM 等富情感 TTS 在 GPU 上
-     * 合成单句也可能较慢。{@link top.sywyar.pixivdownload.tts.narration.engine.VoxCpmNarrationEngine} 在
+     * 多角色朗读 TTS 专用 RestTemplate（直连，不走代理）。读超时放宽到 5 分钟：VoxCPM 等富情感 TTS 在 GPU 上
+     * 合成单句也可能很慢。{@link top.sywyar.pixivdownload.tts.narration.engine.VoxCpmNarrationEngine} 在
      * {@code narration-tts.voxcpm.use-proxy=false} 时使用本 bean。
      */
     @Bean("narrationTtsRestTemplate")
     public RestTemplate narrationTtsRestTemplate() {
-        return buildRestTemplate(30_000, 120_000, null);
+        return buildRestTemplate(30_000, 300_000, null);
     }
 
     /**
@@ -78,7 +78,7 @@ public class RestTemplateConfig {
      */
     @Bean("narrationTtsProxyRestTemplate")
     public RestTemplate narrationTtsProxyRestTemplate() {
-        return buildRestTemplate(30_000, 120_000, new FixedProxyRoutePlanner(proxyConfig));
+        return buildRestTemplate(30_000, 300_000, new FixedProxyRoutePlanner(proxyConfig));
     }
 
     /**

@@ -107,11 +107,20 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
         try {
             ResponseEntity<Void> response =
                     restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), Void.class);
-            return response.getStatusCode().is2xxSuccessful();
+            boolean ok = response.getStatusCode().is2xxSuccessful();
+            if (log.isDebugEnabled()) {
+                if (ok) {
+                    log.debug(forLog("narration.tts.log.reachable.ok", url));
+                } else {
+                    log.debug(forLog("narration.tts.log.reachable.failed",
+                            "HTTP " + response.getStatusCode().value()));
+                }
+            }
+            return ok;
         } catch (RestClientException e) {
             // RestClientResponseException（非 2xx）是其子类，连同连接失败 / 超时一并视为不可达。
             if (log.isDebugEnabled()) {
-                log.debug("VoxCPM 可用性探测失败：{}", redact(safeMessage(e), apiKey));
+                log.debug(forLog("narration.tts.log.reachable.failed", redact(safeMessage(e), apiKey)));
             }
             return false;
         }
@@ -130,27 +139,39 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
 
         String format = normalizeFormat(vox.getResponseFormat());
         String apiKey = vox.getApiKey();
+        boolean useProxy = vox.isUseProxy();
         VoxCpmSpeechRequest body = new VoxCpmSpeechRequest(vox.getModel(), input, DEFAULT_VOICE, format);
         HttpEntity<byte[]> entity = new HttpEntity<>(serialize(body, apiKey), buildHeaders(apiKey));
-        RestTemplate restTemplate = vox.isUseProxy() ? proxyRestTemplate : directRestTemplate;
+        RestTemplate restTemplate = useProxy ? proxyRestTemplate : directRestTemplate;
         String url = speechUrl(vox.getBaseUrl());
 
+        log.debug(forLog("narration.tts.log.synthesize.start", vox.getModel(), format, useProxy, input.length()));
+        long startNs = System.nanoTime();
         try {
             ResponseEntity<byte[]> response =
                     restTemplate.exchange(url, HttpMethod.POST, entity, byte[].class);
             byte[] audio = response.getBody();
+            long elapsedMs = elapsedMs(startNs);
             if (audio == null || audio.length == 0) {
+                log.warn(forLog("narration.tts.log.synthesize.empty-audio", elapsedMs));
                 throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
             }
-            return new NarrationAudio(audio, resolveContentType(response, format));
+            String contentType = resolveContentType(response, format);
+            log.info(forLog("narration.tts.log.synthesize.done", audio.length, contentType, elapsedMs));
+            return new NarrationAudio(audio, contentType);
         } catch (RestClientResponseException e) {
             // 已连通但返回非 2xx：附状态码与（脱敏 / 截断后的）响应正文摘要。
-            String respBody = e.getResponseBodyAsString(StandardCharsets.UTF_8);
+            long elapsedMs = elapsedMs(startNs);
+            String redactedBody = redact(e.getResponseBodyAsString(StandardCharsets.UTF_8), apiKey);
+            log.warn(forLog("narration.tts.log.synthesize.http-error",
+                    e.getRawStatusCode(), redactedBody, elapsedMs));
             String detail = "HTTP " + e.getRawStatusCode()
-                    + (respBody == null || respBody.isBlank() ? "" : ": " + redact(respBody, apiKey));
+                    + (redactedBody.isBlank() ? "" : ": " + redactedBody);
             throw new NarrationVoiceException(localized("narration.tts.error.request-failed", detail), e);
         } catch (RestClientException e) {
+            long elapsedMs = elapsedMs(startNs);
             String detail = redact(safeMessage(e), apiKey);
+            log.warn(forLog("narration.tts.log.synthesize.failed", detail, elapsedMs));
             throw new NarrationVoiceException(localized("narration.tts.error.request-failed", detail), e);
         }
     }
@@ -250,5 +271,14 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
 
     private String localized(String code, Object... args) {
         return messages.get(code, args);
+    }
+
+    /** 日志专用文案：跟随 JVM 系统语言（{@link AppMessages#getForLog}），不随请求 locale 漂移。 */
+    private String forLog(String code, Object... args) {
+        return messages.getForLog(code, args);
+    }
+
+    private static long elapsedMs(long startNs) {
+        return (System.nanoTime() - startNs) / 1_000_000L;
     }
 }

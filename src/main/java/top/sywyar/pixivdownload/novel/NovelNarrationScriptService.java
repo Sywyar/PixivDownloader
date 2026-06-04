@@ -130,6 +130,8 @@ public class NovelNarrationScriptService {
         if (!force) {
             ChapterScript cached = peekScript(novelId, langKey);
             if (cached != null) {
+                log.debug("narration script cache hit: novelId={}, lang='{}', lines={}, castId={}",
+                        novelId, langKey, cached.lines().size(), cached.castId());
                 return cached;
             }
         }
@@ -141,6 +143,8 @@ public class NovelNarrationScriptService {
 
         boolean pureNarrator = castId != null && castId <= 0;
         String narratorVoice = narratorInstruction == null ? "" : narratorInstruction.trim();
+        log.info("narration script analyze: novelId={}, lang='{}', segmentSize={}, force={}, castId={}, sentences={}, pureNarrator={}",
+                novelId, langKey, normalizedSegment, force, castId, sentences.size(), pureNarrator);
 
         // 旁白音色锁定：拿到本次所用花名册（>0），把旁白(id 0)锁定为所选画像，再分析（先锁后析 → AI 不漂移旁白）。
         long lockedCastId = 0L;
@@ -173,6 +177,8 @@ public class NovelNarrationScriptService {
 
         long now = TimestampUtils.nowMillis();
         novelMapper.upsertNarrationScript(novelId, langKey, resolvedCastId, normalizedSegment, now, writeLines(lines));
+        log.info("narration script persisted: novelId={}, lang='{}', castId={}, lines={}, conflicts={}",
+                novelId, langKey, resolvedCastId, lines.size(), conflicts.size());
         return new ChapterScript(lines, resolvedCastId, castUpdatedTime(resolvedCastId), normalizedSegment, now,
                 conflicts);
     }
@@ -202,10 +208,13 @@ public class NovelNarrationScriptService {
         String langKey = lang == null ? "" : lang.trim();
         NovelNarrationScriptRow row = novelMapper.findNarrationScript(novelId, langKey);
         if (row == null) {
+            log.debug("narration line synth skipped: no persisted script novelId={}, lang='{}'", novelId, langKey);
             return null;
         }
         List<ScriptLine> lines = parseLines(row.scriptJson());
         if (lineIndex < 0 || lineIndex >= lines.size()) {
+            log.debug("narration line synth skipped: index out of range novelId={}, lang='{}', lineIndex={}, lines={}",
+                    novelId, langKey, lineIndex, lines.size());
             return null;
         }
         ScriptLine line = lines.get(lineIndex);
@@ -236,6 +245,8 @@ public class NovelNarrationScriptService {
         String combined = NarrationScriptService.combine(base, line.delivery());
         NarrationScript.Line scriptLine = new NarrationScript.Line(
                 line.index(), line.text(), line.speakerId(), speakerName, line.delivery(), combined);
+        log.debug("narration line synth: novelId={}, lang='{}', lineIndex={}, speaker={}({}), castId={}",
+                novelId, langKey, lineIndex, line.speakerId(), speakerName, row.castId());
         return narrationAudioService.synthesizeLine(scriptLine, langKey.isEmpty() ? null : langKey);
     }
 

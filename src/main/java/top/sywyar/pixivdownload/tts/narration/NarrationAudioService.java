@@ -76,11 +76,16 @@ public class NarrationAudioService {
     private NarrationAudio synthesize(NarrationVoiceRequest req) {
         NarrationVoiceEngine engine = selectEngine();
         if (engine == null) {
+            log.warn(messages.getForLog("narration.tts.log.engine.not-found", config.getEngine(), engines.size()));
             throw new NarrationVoiceException(
                     messages.get("narration.tts.error.engine-not-found", config.getEngine()), null);
         }
         if (!engine.isAvailable()) {
+            log.warn(messages.getForLog("narration.tts.log.engine.unavailable", engine.id()));
             throw new NarrationVoiceException(messages.get("narration.tts.error.unavailable"), null);
+        }
+        if (log.isDebugEnabled()) {
+            log.debug(messages.getForLog("narration.tts.log.engine.selected", engine.id()));
         }
         return engine.synthesize(req);
     }

@@ -252,8 +252,14 @@ public class NovelNarrationCastService {
         List<NarrationLineVoice> allLineVoices = new ArrayList<>(safe.size());
         Map<Integer, NarrationConflictReport> unresolved = new LinkedHashMap<>();
 
+        List<List<NarrationSentence>> batches = splitIntoBatches(safe, segmentSize);
+        long startNs = System.nanoTime();
+        log.info("narration chapter analysis start: novelId={}, castId={}, sentences={}, batches={}, segmentSize={}",
+                novelId, castId, safe.size(), batches.size(), segmentSize);
+        int batchNo = 0;
         int globalStart = 0;
-        for (List<NarrationSentence> batch : splitIntoBatches(safe, segmentSize)) {
+        for (List<NarrationSentence> batch : batches) {
+            batchNo++;
             List<String> segment = new ArrayList<>(batch.size());
             for (NarrationSentence s : batch) {
                 segment.add(s.text());
@@ -276,11 +282,17 @@ public class NovelNarrationCastService {
             for (NarrationConflictReport report : res.unresolvedConflicts()) {
                 unresolved.put(report.characterId(), report);
             }
+            log.info("narration chapter analysis batch {}/{}: sentences={}, newCharacters={}, conflicts={}",
+                    batchNo, batches.size(), batch.size(), analysis.newCharacters().size(),
+                    res.unresolvedConflicts().size());
             globalStart += batch.size();
         }
 
         List<NarrationCharacter> finalRoster = loadRoster(castId);
         NarrationScript script = narrationScriptService.buildScript(finalRoster, texts, allLineVoices);
+        log.info("narration chapter analysis done: novelId={}, castId={}, lines={}, roster={}, unresolvedConflicts={}, elapsedMs={}",
+                novelId, castId, script.lines().size(), finalRoster.size(), unresolved.size(),
+                (System.nanoTime() - startNs) / 1_000_000L);
         return new ChapterNarration(script, new ArrayList<>(unresolved.values()), castId);
     }
 

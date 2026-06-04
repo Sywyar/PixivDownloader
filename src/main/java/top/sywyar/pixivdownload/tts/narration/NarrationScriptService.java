@@ -58,6 +58,7 @@ public class NarrationScriptService {
         }
         List<NarrationCharacter> safeRoster = (roster == null || roster.isEmpty())
                 ? List.of(NarrationCharacter.defaultNarrator()) : roster;
+        log.debug("narration segment analysis: sentences={}, rosterSize={}, nextId={}", count, safeRoster.size(), nextId);
         try {
             AiChatResult chat = aiService.chat(
                     NarrationAnalysisRequest.CALL_TYPE,
@@ -77,6 +78,8 @@ public class NarrationScriptService {
                 validSpeakerIds.add(c.id());
             }
             List<NarrationLineVoice> lines = response.normalizedTo(count, validSpeakerIds);
+            log.debug("narration segment analysis done: sentences={}, newCharacters={}, updated={}, conflicts={}",
+                    count, newCharacters.size(), response.updatedCharacters().size(), response.conflicts().size());
             return new NarrationSegmentAnalysis(lines, newCharacters,
                     response.updatedCharacters(), response.conflicts());
         } catch (AiService.AiException | IllegalArgumentException e) {
