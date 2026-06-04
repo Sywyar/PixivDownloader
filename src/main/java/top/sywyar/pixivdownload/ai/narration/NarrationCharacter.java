@@ -22,9 +22,12 @@ public record NarrationCharacter(int id, String name, String gender, String age,
 
     public static final int NARRATOR_ID = 0;
 
-    /** 旁白兜底音色画像：AI 关闭 / 分析失败时全篇用此单一旁白朗读。 */
-    public static final String DEFAULT_NARRATOR_INSTRUCTION =
-            "A clear, warm, neutral storytelling voice at a natural pace.";
+    /**
+     * 旁白兜底音色画像：AI 关闭 / 分析失败 / 未显式选择旁白音色时全篇用此单一旁白朗读。取
+     * {@link NarratorVoicePreset#DEFAULT}（温暖女声）的画像作为单一事实源——一段写到位的详细音色描述
+     * （性别 / 年龄 / 音高 / 音质 / 语速 / 情绪基线 / 咬字 / 稳定性约束），缩小 TTS 发挥空间、减轻音色漂移。
+     */
+    public static final String DEFAULT_NARRATOR_INSTRUCTION = NarratorVoicePreset.DEFAULT.instruction();
 
     /** 构造一名旁白（id 0，AI 生成来源）；{@code instruction} 为空时回退到 {@link #DEFAULT_NARRATOR_INSTRUCTION}。 */
     public static NarrationCharacter narrator(String instruction) {

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
+import top.sywyar.pixivdownload.ai.narration.NarratorVoicePreset;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.NovelNarrationCastService;
@@ -57,14 +58,14 @@ class NarrationControllerTest {
                 new NovelNarrationScriptService.ScriptLine(0, 1, "哀家", "angry", 2, "住口！"));
         List<NarrationConflictReport> conflicts = List.of(
                 new NarrationConflictReport(1, "哀家", "contradiction", "reason", "old voice", "new voice"));
-        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class)))
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class)))
                 .thenReturn(new NovelNarrationScriptService.ChapterScript(lines, 5L, 88L, 0, 1234L, conflicts));
         when(castService.voices(5L)).thenReturn(List.of(
                 new NarrationCharacter(0, "Narrator", "unknown", "unknown", "N.", true, false),
                 new NarrationCharacter(1, "哀家", "female", "elderly", "An elderly woman.", false, true)));
 
         ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(7L, null, null, null, null, null));
+                new NarrationController.ScriptRequest(7L, null, null, null, null, null, null));
 
         assertEquals(200, resp.getStatusCode().value());
         NarrationController.ScriptResponse body = (NarrationController.ScriptResponse) resp.getBody();
@@ -86,10 +87,10 @@ class NarrationControllerTest {
     @DisplayName("/script：正文过长返回 400")
     void scriptTooLargeReturns400() {
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
-        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class)))
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class)))
                 .thenThrow(new NovelNarrationScriptService.ContentTooLargeException(200000));
         ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(7L, null, null, null, null, null));
+                new NarrationController.ScriptRequest(7L, null, null, null, null, null, null));
         assertEquals(400, resp.getStatusCode().value());
     }
 
@@ -99,16 +100,16 @@ class NarrationControllerTest {
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
         List<NovelNarrationScriptService.ScriptLine> lines = List.of(
                 new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
-        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), eq(9L)))
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), eq(9L), nullable(String.class)))
                 .thenReturn(new NovelNarrationScriptService.ChapterScript(lines, 9L, 5L, 0, 6L, List.of()));
 
         ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(7L, null, null, null, 9L, null));
+                new NarrationController.ScriptRequest(7L, null, null, null, 9L, null, null));
 
         assertEquals(200, resp.getStatusCode().value());
         NarrationController.ScriptResponse body = (NarrationController.ScriptResponse) resp.getBody();
         assertEquals(9L, body.castId());
-        verify(scriptService).getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), eq(9L));
+        verify(scriptService).getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), eq(9L), nullable(String.class));
     }
 
     @Test
@@ -118,11 +119,38 @@ class NarrationControllerTest {
         when(scriptService.peekScript(7L, "")).thenReturn(null);
 
         ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(7L, null, null, null, null, false));
+                new NarrationController.ScriptRequest(7L, null, null, null, null, null, false));
 
         assertEquals(204, resp.getStatusCode().value());
         verify(scriptService, org.mockito.Mockito.never())
-                .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class));
+                .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
+    }
+
+    @Test
+    @DisplayName("/script：narratorPreset 经枚举解析为画像传给分析（不信任客户端原文）")
+    void scriptResolvesNarratorPreset() {
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+        List<NovelNarrationScriptService.ScriptLine> lines = List.of(
+                new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class),
+                eq(NarratorVoicePreset.CALM_MALE.instruction())))
+                .thenReturn(new NovelNarrationScriptService.ChapterScript(lines, 5L, 1L, 0, 2L, List.of()));
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, null, null, "calm-male", null));
+
+        assertEquals(200, resp.getStatusCode().value());
+        verify(scriptService).getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class),
+                eq(NarratorVoicePreset.CALM_MALE.instruction()));
+    }
+
+    @Test
+    @DisplayName("/narrator-presets：列出全部旁白音色预设，首项为默认（温暖女声）")
+    void narratorPresetsEndpoint() {
+        NarrationController.NarratorPresetsResponse resp = controller.narratorPresets();
+        assertEquals(NarratorVoicePreset.all().size(), resp.presets().size());
+        assertEquals(NarratorVoicePreset.DEFAULT.id(), resp.presets().get(0).id());
+        assertEquals(NarratorVoicePreset.WARM_FEMALE.instruction(), resp.presets().get(0).instruction());
     }
 
     @Test
@@ -144,7 +172,7 @@ class NarrationControllerTest {
     void scriptNotFound() {
         when(novelDatabase.getNovel(9L)).thenReturn(null);
         ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(9L, null, null, null, null, null));
+                new NarrationController.ScriptRequest(9L, null, null, null, null, null, null));
         assertEquals(404, resp.getStatusCode().value());
     }
 

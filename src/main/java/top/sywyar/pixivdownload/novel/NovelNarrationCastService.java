@@ -184,6 +184,19 @@ public class NovelNarrationCastService {
                 novelDefaultName(record), null, novelId);
     }
 
+    /**
+     * 解析并<b>按需创建</b>某本小说的默认花名册，返回其 ID。供需要「先拿到默认册再操作」（如锁定旁白音色）的调用方
+     * 使用。作品不存在 / 无法解析默认册时返回 {@code 0}。
+     */
+    public long ensureDefaultCastId(long novelId) {
+        DefaultCast def = resolveNovelDefaultCast(novelId);
+        if (def == null) {
+            return 0L;
+        }
+        return def.cast() != null ? def.cast().id()
+                : create(def.suggestedName(), def.seriesId(), def.novelId()).id();
+    }
+
     /** 解析某小说系列的默认花名册（默认册可能尚未创建）。 */
     public DefaultCast resolveSeriesDefaultCast(long seriesId) {
         return new DefaultCast(novelMapper.findNarrationCastBySeriesId(seriesId),
@@ -279,12 +292,7 @@ public class NovelNarrationCastService {
         if (castIdOverride != null && castIdOverride > 0 && exists(castIdOverride)) {
             return castIdOverride;
         }
-        DefaultCast def = resolveNovelDefaultCast(novelId);
-        if (def == null) {
-            return 0L;
-        }
-        return def.cast() != null ? def.cast().id()
-                : create(def.suggestedName(), def.seriesId(), def.novelId()).id();
+        return ensureDefaultCastId(novelId);
     }
 
     /**

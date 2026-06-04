@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
+import top.sywyar.pixivdownload.ai.narration.NarratorVoicePreset;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.NarrationConflictReport;
@@ -52,10 +53,12 @@ public class NarrationController {
 
     /**
      * 生成 / 取脚本请求。{@code castId} 为本次分析显式指定的花名册（{@code null}=本作默认、{@code <=0}=纯旁白、
-     * {@code >0}=指定/借用花名册）；{@code analyzeIfMissing} 为 {@code false} 时仅取缓存、无缓存不分析（探测用）。
+     * {@code >0}=指定/借用花名册）；{@code narratorPreset} 为首次分析弹窗选定的旁白音色预设 id（见
+     * {@link NarratorVoicePreset}，空 / 未知=不改旁白）；{@code analyzeIfMissing} 为 {@code false} 时仅取缓存、
+     * 无缓存不分析（探测用）。
      */
     public record ScriptRequest(Long novelId, String lang, Integer segmentSize, Boolean force,
-                                Long castId, Boolean analyzeIfMissing) {}
+                                Long castId, String narratorPreset, Boolean analyzeIfMissing) {}
 
     /** 逐句脚本行（下发给客户端，<b>不含</b> controlInstruction）。 */
     public record ScriptLineView(int index, int speakerId, String speakerName, String delivery,
@@ -93,6 +96,11 @@ public class NarrationController {
     /** 朗读引擎可用性（前端据此启用 / 禁用「富感情朗读」听书引擎入口）。 */
     public record AvailabilityResponse(boolean available) {}
 
+    /** 旁白音色预设（id + 固定英文画像）：前端按 id 映射 i18n 标签、用画像做预览 / 试听。 */
+    public record NarratorPresetView(String id, String instruction) {}
+
+    public record NarratorPresetsResponse(List<NarratorPresetView> presets) {}
+
     // ── 端点 ──────────────────────────────────────────────────────────────────
 
     /**
@@ -102,6 +110,16 @@ public class NarrationController {
     @GetMapping("/availability")
     public ResponseEntity<?> availability() {
         return ResponseEntity.ok(new AvailabilityResponse(narrationAudioService.isEngineAvailable()));
+    }
+
+    /** 旁白音色预设清单（admin-only）：供首次分析弹窗的「旁白音色」选择器渲染标签 / 预览 / 试听。 */
+    @GetMapping("/narrator-presets")
+    public NarratorPresetsResponse narratorPresets() {
+        List<NarratorPresetView> presets = new ArrayList<>();
+        for (NarratorVoicePreset p : NarratorVoicePreset.all()) {
+            presets.add(new NarratorPresetView(p.id(), p.instruction()));
+        }
+        return new NarratorPresetsResponse(presets);
     }
 
     /** 生成 / 取整章逐句脚本（缓存命中不调 LLM；{@code force} 重新分析）。 */
@@ -129,9 +147,14 @@ public class NarrationController {
             return ResponseEntity.ok(toScriptResponse(cached));
         }
 
+        // 旁白音色预设 id → 固定英文画像（未知 / 空=不改旁白）；画像文本始终由后端枚举提供，不信任客户端原文。
+        NarratorVoicePreset preset = NarratorVoicePreset.byId(request.narratorPreset());
+        String narratorInstruction = preset == null ? null : preset.instruction();
+
         NovelNarrationScriptService.ChapterScript script;
         try {
-            script = scriptService.getOrAnalyze(novelId, lang, segmentSize, force, MAX_CONTENT_CHARS, request.castId());
+            script = scriptService.getOrAnalyze(novelId, lang, segmentSize, force, MAX_CONTENT_CHARS,
+                    request.castId(), narratorInstruction);
         } catch (NovelNarrationScriptService.ContentTooLargeException e) {
             return ResponseEntity.badRequest()
                     .body(new ErrorResponse(messages.get("narration.error.content-too-large", e.limit())));

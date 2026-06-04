@@ -103,17 +103,28 @@ public class NovelNarrationScriptService {
         return getOrAnalyze(novelId, lang, segmentSize, force, maxChars, null);
     }
 
-    /**
-     * 同 {@link #getOrAnalyze(long, String, int, boolean, int)}，但允许调用方<b>显式指定花名册</b>用于本次分析：
-     * <ul>
-     *   <li>{@code castId == null} → 取本作默认花名册（现有行为）；</li>
-     *   <li>{@code castId != null && castId <= 0} → <b>纯旁白</b>：不调 LLM，全章逐句归旁白，落库 {@code cast_id=0}；</li>
-     *   <li>{@code castId != null && castId > 0} → 以该花名册为基底分析（借用别人的花名册即编辑那份共享册）。</li>
-     * </ul>
-     * 命中缓存且非 {@code force} 时仍直接返回旧脚本（不重算、忽略 {@code castId}）。
-     */
     public ChapterScript getOrAnalyze(long novelId, String lang, int segmentSize, boolean force, int maxChars,
                                       Long castId) {
+        return getOrAnalyze(novelId, lang, segmentSize, force, maxChars, castId, null);
+    }
+
+    /**
+     * 同 {@link #getOrAnalyze(long, String, int, boolean, int)}，但允许调用方<b>显式指定花名册</b>与<b>旁白音色</b>：
+     * <ul>
+     *   <li>{@code castId == null} → 取本作默认花名册（现有行为）；</li>
+     *   <li>{@code castId != null && castId <= 0} → <b>纯旁白</b>：不调 LLM，全章逐句归旁白；</li>
+     *   <li>{@code castId != null && castId > 0} → 以该花名册为基底分析（借用别人的花名册即编辑那份共享册）。</li>
+     * </ul>
+     *
+     * <p>{@code narratorInstruction} 非空时（用户在首次分析弹窗选定的旁白音色预设画像）：先把本次所用花名册的旁白
+     * （id 0）锁定为该画像（{@code edited_by_user=1}，AI 之后不再漂移旁白），<b>再</b>分析。其中纯旁白
+     * （{@code castId<=0}）若带旁白音色，则为本作创建 / 复用默认花名册以承载该旁白、{@code cast_id} 落该册 id
+     * （仍不调 LLM）；不带旁白音色时维持「不落册、{@code cast_id=0}」旧语义。
+     *
+     * <p>命中缓存且非 {@code force} 时仍直接返回旧脚本（不重算、忽略 {@code castId} / {@code narratorInstruction}）。
+     */
+    public ChapterScript getOrAnalyze(long novelId, String lang, int segmentSize, boolean force, int maxChars,
+                                      Long castId, String narratorInstruction) {
         String langKey = lang == null ? "" : lang.trim();
         int normalizedSegment = Math.max(0, segmentSize);
         if (!force) {
@@ -128,16 +139,33 @@ public class NovelNarrationScriptService {
         }
         List<NarrationSentence> sentences = NarrationSentenceSplitter.split(raw);
 
+        boolean pureNarrator = castId != null && castId <= 0;
+        String narratorVoice = narratorInstruction == null ? "" : narratorInstruction.trim();
+
+        // 旁白音色锁定：拿到本次所用花名册（>0），把旁白(id 0)锁定为所选画像，再分析（先锁后析 → AI 不漂移旁白）。
+        long lockedCastId = 0L;
+        if (!narratorVoice.isEmpty()) {
+            lockedCastId = (castId != null && castId > 0) ? castId : castService.ensureDefaultCastId(novelId);
+            if (lockedCastId > 0) {
+                castService.updateVoiceInstruction(lockedCastId, NarrationCharacter.NARRATOR_ID, narratorVoice);
+            }
+        }
+
         List<ScriptLine> lines;
         long resolvedCastId;
         List<NarrationConflictReport> conflicts;
-        if (castId != null && castId <= 0) {
-            // 纯旁白：不调 LLM，全章逐句归旁白（仍按句保留 paragraphIndex），落库 cast_id=0。
+        if (pureNarrator) {
+            // 纯旁白：不调 LLM，全章逐句归旁白（仍按句保留 paragraphIndex）。选了旁白音色则落默认册 id（承载该旁白），否则 cast_id=0。
             lines = narratorOnlyLines(sentences);
-            resolvedCastId = 0L;
+            resolvedCastId = lockedCastId > 0 ? lockedCastId : 0L;
             conflicts = List.of();
         } else {
-            ChapterNarration narration = castService.analyzeChapter(novelId, sentences, normalizedSegment, castId);
+            // 锁过旁白则把同一册作为 override 传入，确保分析与锁定用同一花名册（注意勿用三元混合 long/Long，会把 null castId 拆箱）。
+            Long analysisCast = castId;
+            if (lockedCastId > 0) {
+                analysisCast = lockedCastId;
+            }
+            ChapterNarration narration = castService.analyzeChapter(novelId, sentences, normalizedSegment, analysisCast);
             lines = toScriptLines(narration.script(), sentences);
             resolvedCastId = narration.castId();
             conflicts = narration.conflicts();

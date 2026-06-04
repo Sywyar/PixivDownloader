@@ -39,18 +39,42 @@ public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<Str
             (1) the CURRENT CAST — a roster of voices already established for this work, each with a
             stable integer id and an English voice-design "instruction" — and (2) a SEGMENT of
             consecutive sentences from a novel (in any language). In ONE pass, for the segment:
-              A. Attribute every sentence to the voice that should read it.
+              A. Attribute every sentence to the voice that should read it — a character for that
+                 character's own spoken dialogue AND their inner voice (thoughts / 心声); the narrator
+                 (id 0) only for objective, ownerless text.
               B. Annotate each sentence with a short delivery note (emotion / tone / pace) for THIS line.
               C. Discover NEW speaking characters not yet in the cast and design their voices.
               D. For EXISTING characters, EITHER propose a compatible refinement, OR flag a conflict, OR
                  leave them unchanged — see rules 5-7.
 
             Definitions:
-            - The narrator is always cast id 0. Use it for narration, description, and any line whose
+            - The narrator is cast id 0. It is the voice for OBJECTIVE, OWNERLESS text ONLY — text not
+              voiced from inside any single character's head: external scene-setting and description,
+              the action and events of the world, speech tags ("X said", "she whispered"), and detached
+              omniscient narration. Use id 0 when no specific character owns the line, and whenever the
               speaker is uncertain or not in the cast.
-            - A voice "instruction" is an English persona a TTS engine can synthesize: apparent gender,
-              age, vocal timbre, pace, temperament. It is the SAME voice every time that character
-              speaks. Write it in ENGLISH even though the sentences are not.
+            - A character's INNER VOICE — their thoughts, inner monologue, feelings, wishes, memories and
+              silent reactions (心声) that are NOT spoken aloud — belongs to THAT character and is read in
+              their OWN voice, exactly like their spoken dialogue. Attribute such a sentence to that
+              character's id, NOT to the narrator. Decide ownership by WHOSE subjective viewpoint the
+              sentence comes from, regardless of grammatical person; a sentence that merely describes a
+              character from the OUTSIDE (their visible action / appearance) is still the narrator.
+            - FIRST-PERSON works: the narrating "I" is a CHARACTER (the protagonist), not the objective
+              narrator. Attribute the protagonist's whole first-person stream — both their narration and
+              their inner thoughts — to that ONE protagonist character so it stays a single consistent
+              voice; reserve id 0 only for any genuinely detached / objective text (often there is little
+              or none). Name the protagonist by their own name once it becomes known, merging earlier
+              "I" / unnamed references into that SAME one character (rule 4); other characters still speak
+              and think in their own voices.
+            - A voice "instruction" is a DETAILED English voice-design persona a TTS engine can
+              synthesize as ONE stable voice. It MUST concretely specify EVERY trait below — never a
+              vague one-liner: apparent gender; age or age-range; pitch register (low / mid / high);
+              vocal timbre and quality (pick concrete descriptors, e.g. warm, clear, husky, smooth,
+              bright, nasal, resonant, breathy, gravelly); pace / tempo; rhythm / cadence; baseline
+              emotional affect and temperament; and articulation / accent (default to a neutral,
+              accent-light standard register unless the text clearly implies otherwise). Describe a
+              STABLE timbre — the SAME voice every time that character speaks — NOT a momentary mood.
+              Write it in ENGLISH even though the sentences are not.
             - A "delivery" note is a SHORT English phrase (<= 8 words) for one line's emotion / tone /
               pace, e.g. "angry, faster" or "whispering, afraid". Empty string for a plain line. It
               modulates one line only; it never redefines the character's voice.
@@ -58,18 +82,42 @@ public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<Str
             Rules:
             1. Output EXACTLY one line object per input sentence. Never merge, split, drop, reorder,
                translate or rewrite sentences. "i" is the sentence's zero-based index in the segment.
-            2. "speaker" is the cast id reading that sentence. Reuse existing ids for known characters;
-               use 0 for narration or when unsure.
+            2. "speaker" is the cast id whose voice reads that sentence. Attribute a sentence to a
+               CHARACTER (non-zero id) when it is EITHER that character's dialogue spoken aloud (typically
+               inside quotation marks 「」, 『』, “”, "", etc. or carrying a speech tag) OR that character's
+               inner voice — their thoughts, feelings, wishes, memories or silent reactions (心声). In a
+               first-person work the narrating protagonist's narration ALSO goes to their character id
+               (see the first-person rule in the definitions). Use the narrator (id 0) ONLY for objective,
+               ownerless text — external description, the world's action, speech tags and detached
+               narration — and whenever you are unsure. Decide by WHOSE subjective viewpoint owns the
+               sentence, NOT merely by who it is about: a sentence that only describes a character from
+               the outside (their visible action or appearance) is the narrator, not that character. When
+               a sentence mixes a quoted line with a narration tag, give it to the character if the spoken
+               words dominate, else to the narrator. Reuse existing ids for known voices.
             3. For a speaker NOT in the current cast, create them in "newCharacters" with a fresh integer
                id greater than every existing cast id (unique within this response) and use that SAME id
-               as the line's "speaker". Only add characters who actually speak; merge aliases of one
-               person into ONE character; never duplicate someone already in the cast.
-            4. Each new character needs "name" (appellation in the ORIGINAL language; a short label if
-               unnamed), "gender" (male|female|unknown), "age"
-               (child|teen|young|middle|elderly|unknown), and an English "instruction".
+               as the line's "speaker". Only add characters who speak aloud or whose inner voice (心声) is
+               read — including the first-person protagonist; merge aliases of one person into ONE
+               character (name it per rule 4's alias format); never duplicate someone already in the cast.
+            4. Each new character needs "name" (the appellation in the ORIGINAL language; a short label
+               if unnamed). When the SAME character is known by MULTIPLE names or aliases, format the
+               name as mainName(alias1, alias2): mainName is their most formal and complete name,
+               immediately followed by half-width parentheses listing the remaining aliases separated by
+               a comma and a space, every part in the original language. With a single name, output it
+               ALONE without parentheses, and NEVER join multiple names with slashes, ampersands or any
+               other separator outside this parenthesized form. The character also needs "gender"
+               (male|female|unknown), "age"
+               (child|teen|young|middle|elderly|unknown), and a DETAILED English "instruction" that
+               specifies EVERY trait listed in the definition above (gender, age, pitch register,
+               timbre & quality, pace, rhythm, baseline affect / temperament, articulation / accent).
+               Use one or two full sentences — never a vague one-liner — so a TTS engine reproduces
+               the SAME distinct voice every time. Make each character's voice clearly DISTINGUISHABLE
+               from the narrator and from the other cast members (vary pitch, timbre, pace and
+               temperament); do not give two characters near-identical instructions.
             5. Use "updatedCharacters" ONLY for a COMPATIBLE refinement of an existing character: the same
                person and the same direction as the GIVEN instruction, just richer and non-contradicting.
-               Provide "id" and a full refined English "instruction". Do NOT change name, gender or age.
+               Provide "id" and a full, detailed refined English "instruction" covering all the traits
+               above. Do NOT change name, gender or age.
                Be conservative — most segments need none.
             6. Use "conflicts" when the GIVEN instruction of an existing character is, on clear and
                significant evidence in THIS segment, either:
@@ -78,7 +126,8 @@ public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<Str
                  - "incomplete": materially incomplete (missing strongly-evidenced traits that would
                    change how the voice should sound).
                Provide "id", "type" ("contradiction" | "incomplete"), a SHORT English "reason", and a
-               "suggestion" (the full English instruction you would use). Do NOT silently overwrite —
+               "suggestion" (the full, detailed English instruction you would use, covering all the
+               traits above). Do NOT silently overwrite —
                conflicts are for a human to resolve. Raise a conflict ONLY when evidence is clear and
                significant; otherwise stay silent or use "updatedCharacters".
             7. A character appears in AT MOST ONE of "newCharacters" / "updatedCharacters" / "conflicts"

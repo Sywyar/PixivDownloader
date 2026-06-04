@@ -368,8 +368,8 @@
         } catch {}
     }
 
-    // 按所选设置分析（segmentSize + castId），完成后 applyScript；force 时清音频缓存。autoPlay 时分析完自动播放。
-    async function runAnalysis(segmentSize, castId, force, autoPlay) {
+    // 按所选设置分析（segmentSize + castId + 旁白音色预设），完成后 applyScript；force 时清音频缓存。autoPlay 时分析完自动播放。
+    async function runAnalysis(segmentSize, castId, force, autoPlay, narratorPreset) {
         if (state.loading) return;
         if (!state.blocks.length) state.blocks = buildBlocks();
         stop();
@@ -377,7 +377,10 @@
         updateProgress(true);
         let data = null;
         try {
-            data = await requestScript({ segmentSize: segmentSize, castId: castId, force: !!force });
+            data = await requestScript({
+                segmentSize: segmentSize, castId: castId, force: !!force,
+                narratorPreset: narratorPreset || undefined
+            });
         } catch (e) {
             state.toast && state.toast(t('narration:toast.generate-failed', '生成失败：{message}',
                 { message: String(e && e.message ? e.message : e) }), 'error');
@@ -851,13 +854,24 @@
     // 单角色试听：用该角色当前音色画像合成一小段示例文本（/preview）
     async function previewVoice(btn, instruction, v) {
         const sample = sampleLineFor(v.id) || t('narration:narrator', '旁白');
+        await previewInstruction(btn, sample, instruction);
+    }
+
+    // 试听一段音色画像：按钮经历「生成中…→试听中…」两态——POST /preview 合成期间禁用并显示「生成中…」，
+    // 拿到音频开始播放后显示「试听中…」，播放结束 / 出错 / 合成失败再恢复为「试听」。空画像不发请求、不变更按钮。
+    async function previewInstruction(btn, text, instruction) {
+        if (!btn) return;
+        const instr = instruction == null ? '' : String(instruction).trim();
+        if (!instr) return;
+        const restore = () => { btn.disabled = false; btn.textContent = t('narration:cast.preview', '试听'); };
         btn.disabled = true;
+        btn.textContent = t('narration:cast.generating', '生成中…');
         try {
             const r = await fetch('/api/narration/tts/preview', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: sample, controlInstruction: instruction })
+                body: JSON.stringify({ text: text, controlInstruction: instr })
             });
             if (!r.ok) {
                 let msg = 'HTTP ' + r.status;
@@ -867,12 +881,14 @@
             const blob = await r.blob();
             const url = URL.createObjectURL(blob);
             const audio = new Audio(url);
-            audio.onended = () => { try { URL.revokeObjectURL(url); } catch {} };
-            audio.play().catch(() => {});
+            const done = () => { try { URL.revokeObjectURL(url); } catch {} restore(); };
+            audio.onended = done;
+            audio.onerror = done;
+            btn.textContent = t('narration:cast.previewing', '试听中…'); // 合成完成、进入播放态
+            audio.play().catch(done);
         } catch (e) {
             state.toast && state.toast(t('narration:toast.synth-failed', '合成失败：{message}', { message: String(e && e.message ? e.message : e) }), 'error');
-        } finally {
-            btn.disabled = false;
+            restore();
         }
     }
 
@@ -913,9 +929,118 @@
     const CAST_OPT_NONE = '';            // 不使用（纯旁白）→ castId 0（不调 LLM）
     const CAST_OPT_DEFAULT = '__default__';
     const CAST_OPT_NEW = '__new__';
+    const NARRATOR_KEEP = '__keep__';    // 旁白音色「保持当前」哨兵 → 不下发 narratorPreset（旁白不变）
     let dialogEl = null;
     let dialogRefs = null;
     let castCtx = { def: null, list: [] }; // def: {castId,name,seriesId,novelId}; list: [{id,name,...}]
+    let narratorPresets = null;          // [{id, instruction}]（后端固定英文画像，首次加载后缓存）
+
+    function narratorPresetById(id) {
+        return (narratorPresets || []).find((p) => p.id === id) || null;
+    }
+    // 默认预设 = 后端清单首项（枚举声明序，首项即 NarratorVoicePreset.DEFAULT，避免在前端硬编码 id）。
+    function narratorDefaultId() {
+        return (narratorPresets && narratorPresets[0]) ? narratorPresets[0].id : NARRATOR_KEEP;
+    }
+    async function loadNarratorPresets() {
+        if (narratorPresets) return narratorPresets;
+        try {
+            const d = await castApi('/api/narration/narrator-presets');
+            narratorPresets = (d && d.presets) || [];
+        } catch { narratorPresets = []; }
+        return narratorPresets;
+    }
+    // 旁白音色下拉：「保持当前音色」+ 各预设（label 走 i18n、value=preset.id）。
+    function rebuildNarratorSelect(selectValue) {
+        const sel = dialogRefs && dialogRefs.narratorSelect;
+        if (!sel) return;
+        const prev = selectValue != null ? selectValue : sel.value;
+        sel.innerHTML = '';
+        const keep = document.createElement('option');
+        keep.value = NARRATOR_KEEP;
+        keep.textContent = t('narration:dialog.narrator-keep', '保持当前音色');
+        sel.appendChild(keep);
+        (narratorPresets || []).forEach((p) => {
+            const o = document.createElement('option');
+            o.value = p.id;
+            o.textContent = t('narration:narrator-preset.' + p.id, p.id);
+            sel.appendChild(o);
+        });
+        const values = Array.prototype.map.call(sel.options, (o) => o.value);
+        sel.value = (prev != null && values.indexOf(prev) !== -1) ? prev : NARRATOR_KEEP;
+        updateNarratorPreview();
+    }
+    // 选中预设时在预览区显示其英文画像；「保持当前」时提示试听将用当前 / 默认旁白音色。两种情况「试听」都可点。
+    function updateNarratorPreview() {
+        const sel = dialogRefs && dialogRefs.narratorSelect;
+        if (!sel) return;
+        const p = narratorPresetById(sel.value);
+        if (dialogRefs.narratorPreview) {
+            dialogRefs.narratorPreview.textContent = p
+                ? p.instruction
+                : t('narration:dialog.narrator-keep-preview', '试听将使用本作当前 / 默认旁白音色');
+            dialogRefs.narratorPreview.style.display = 'block';
+        }
+    }
+    // 「试听」按钮当前所选项要用的旁白画像：选了预设→该预设画像；「保持当前」→当前所选花名册的旁白(id 0)画像，
+    // 取不到 / 无册→默认预设画像（清单首项，即温暖女声）。
+    async function resolveNarratorPreviewInstruction() {
+        const p = narratorPresetById(dialogRefs.narratorSelect.value);
+        if (p) return p.instruction;
+        const castId = peekSelectedCastId();
+        if (castId > 0) {
+            try {
+                const d = await castApi('/api/narration/casts/' + encodeURIComponent(castId) + '/voices');
+                const narrator = ((d && d.voices) || []).find((v) => v.id === 0);
+                if (narrator && narrator.controlInstruction) return narrator.controlInstruction;
+            } catch {}
+        }
+        return (narratorPresets && narratorPresets[0]) ? narratorPresets[0].instruction : '';
+    }
+    // 只读地解析花名册下拉当前对应的 castId（不创建）：不使用 / 新建 / 默认未建 → 0；其它 → 该册 id。
+    function peekSelectedCastId() {
+        const v = dialogRefs.castSelect.value;
+        if (v === CAST_OPT_NONE || v === CAST_OPT_NEW) return 0;
+        if (v === CAST_OPT_DEFAULT) {
+            const def = castCtx.def;
+            return def && def.castId != null ? def.castId : 0;
+        }
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+    }
+    // 旁白音色加载：默认选中——本作默认册尚不存在（首次分析）→ 预选默认预设（温和提示用户选）；否则「保持当前」。
+    async function loadNarratorContext() {
+        await loadNarratorPresets();
+        const firstTime = !(castCtx.def && castCtx.def.castId != null);
+        rebuildNarratorSelect(firstTime ? narratorDefaultId() : NARRATOR_KEEP);
+    }
+    // 旁白试听样例：优先脚本里旁白第一句；否则取正文首个可朗读段落；都没有时回退旁白标签。
+    function sampleNarratorText() {
+        const fromScript = sampleLineFor(0);
+        if (fromScript) return fromScript;
+        if (!state.blocks.length) state.blocks = buildBlocks();
+        for (const el of state.blocks) {
+            const tx = (el.textContent || '').trim();
+            if (tx) return tx.slice(0, 120);
+        }
+        return t('narration:narrator', '旁白');
+    }
+    // 试听旁白音色：选了预设用其画像；「保持当前」用当前 / 默认旁白画像。生成期间先显示「生成中…」（含解析当前画像
+    // 的轻量请求），再交给 previewInstruction 走两态并播放。
+    async function tryNarratorVoice() {
+        const btn = dialogRefs.narratorTry;
+        if (!btn) return;
+        btn.disabled = true;
+        btn.textContent = t('narration:cast.generating', '生成中…');
+        let instruction = '';
+        try { instruction = await resolveNarratorPreviewInstruction(); } catch { instruction = ''; }
+        if (!instruction) {
+            btn.disabled = false;
+            btn.textContent = t('narration:cast.preview', '试听');
+            return;
+        }
+        await previewInstruction(btn, sampleNarratorText(), instruction);
+    }
 
     async function castApi(url, options) {
         const res = await fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
@@ -960,6 +1085,15 @@
             '      </div>' +
             '    </div>' +
             '    <div class="pt-hint pt-nd-cast-hint"></div>' +
+            '    <div class="pt-field">' +
+            '      <span class="pt-label pt-nd-narrator-label"></span>' +
+            '      <div class="pt-glossary-row">' +
+            '        <select class="pt-input pt-glossary-select pt-nd-narrator-select"></select>' +
+            '        <button class="pt-btn pt-nd-narrator-try" type="button"></button>' +
+            '      </div>' +
+            '    </div>' +
+            '    <div class="pt-hint pt-nd-narrator-preview"></div>' +
+            '    <div class="pt-hint pt-nd-narrator-hint"></div>' +
             '  </div>' +
             '  <div class="pt-foot">' +
             '    <button class="pt-btn pt-nd-cancel" type="button"></button>' +
@@ -978,6 +1112,11 @@
             castSelect: backdrop.querySelector('.pt-nd-cast-select'),
             castEdit: backdrop.querySelector('.pt-nd-cast-edit'),
             castHint: backdrop.querySelector('.pt-nd-cast-hint'),
+            narratorLabel: backdrop.querySelector('.pt-nd-narrator-label'),
+            narratorSelect: backdrop.querySelector('.pt-nd-narrator-select'),
+            narratorTry: backdrop.querySelector('.pt-nd-narrator-try'),
+            narratorPreview: backdrop.querySelector('.pt-nd-narrator-preview'),
+            narratorHint: backdrop.querySelector('.pt-nd-narrator-hint'),
             cancel: backdrop.querySelector('.pt-nd-cancel'),
             confirm: backdrop.querySelector('.pt-nd-confirm')
         };
@@ -1060,6 +1199,9 @@
         r.castLabel.textContent = t('narration:dialog.cast-label', '朗读花名册');
         r.castEdit.textContent = t('narration:dialog.cast-edit', '选角与音色');
         r.castHint.textContent = t('narration:dialog.cast-hint', '');
+        r.narratorLabel.textContent = t('narration:dialog.narrator-label', '旁白音色');
+        r.narratorTry.textContent = t('narration:cast.preview', '试听');
+        r.narratorHint.textContent = t('narration:dialog.narrator-hint', '');
         r.cancel.textContent = t('narration:dialog.cancel', '取消');
         r.confirm.textContent = opts.reanalyze
             ? t('narration:dialog.confirm-reanalyze', '重新分析')
@@ -1067,7 +1209,9 @@
         const seg = parseInt(lsGet(LS.segment, '0'), 10);
         r.segInput.value = Number.isFinite(seg) && seg >= 0 ? String(seg) : '0';
         r.castSelect.innerHTML = '';
-        loadCastContext();
+        r.narratorSelect.innerHTML = '';
+        // 旁白音色默认选中依赖本作默认册是否已存在，故在花名册上下文加载完成后再建旁白下拉。
+        loadCastContext().then(loadNarratorContext);
 
         dialogEl.classList.add('open');
         setTimeout(() => { r.segInput.focus(); }, 30);
@@ -1078,6 +1222,7 @@
                 dialogEl.classList.remove('open');
                 r.close.onclick = null; r.cancel.onclick = null; r.confirm.onclick = null;
                 r.backdrop.onclick = null; r.castEdit.onclick = null; r.castSelect.onchange = null;
+                r.narratorSelect.onchange = null; r.narratorTry.onclick = null;
                 document.removeEventListener('keydown', onKey);
                 resolve(result);
             }
@@ -1098,7 +1243,9 @@
                     return;
                 }
                 r.confirm.disabled = false;
-                cleanup({ segmentSize: segVal, castId: castId });
+                const narratorVal = r.narratorSelect.value;
+                const narratorPreset = (narratorVal && narratorVal !== NARRATOR_KEEP) ? narratorVal : null;
+                cleanup({ segmentSize: segVal, castId: castId, narratorPreset: narratorPreset });
             }
             // 编辑当前所选花名册的角色音色（不使用 / 纯旁白时无册可编辑）
             async function editSelectedCast() {
@@ -1131,6 +1278,8 @@
             r.confirm.onclick = confirmChoice;
             r.castEdit.onclick = editSelectedCast;
             r.castSelect.onchange = onCastChange;
+            r.narratorSelect.onchange = updateNarratorPreview;
+            r.narratorTry.onclick = tryNarratorVoice;
             r.backdrop.onclick = (e) => { if (e.target === r.backdrop) cleanup(null); };
             document.addEventListener('keydown', onKey);
         });
@@ -1143,7 +1292,7 @@
         const choice = await openDialog({ reanalyze: !!force });
         if (!choice) return;
         lsSet(LS.segment, String(choice.segmentSize));
-        await runAnalysis(choice.segmentSize, choice.castId, !!force, !!autoPlay);
+        await runAnalysis(choice.segmentSize, choice.castId, !!force, !!autoPlay, choice.narratorPreset);
     }
 
     // ---------- 激活 / 停用（由听书宿主 pixiv-novel-tts.js 在引擎切换时调用） ----------

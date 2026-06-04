@@ -122,6 +122,60 @@ class NovelNarrationScriptServiceTest {
     }
 
     @Test
+    @DisplayName("getOrAnalyze：纯旁白带旁白音色 → 建/复用默认册、锁定旁白(id 0)、脚本 castId 落该册（仍不调 LLM）")
+    void narratorOnlyWithPresetLocksNarratorOnDefaultCast() {
+        NovelNarrationCastService castService = mock(NovelNarrationCastService.class);
+        NovelDatabase db = mock(NovelDatabase.class);
+        NovelMapper mapper = mock(NovelMapper.class);
+        NarrationAudioService audio = mock(NarrationAudioService.class);
+
+        when(db.getNovel(7L)).thenReturn(novel(7L, "句子一。句子二。"));
+        when(castService.ensureDefaultCastId(7L)).thenReturn(5L);
+        when(castService.find(5L)).thenReturn(cast(5L, 70L));
+
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService.ChapterScript result =
+                service.getOrAnalyze(7L, "", 0, true, 0, 0L, "A warm female narrator.");
+
+        // 仍不调 LLM、整篇逐句归旁白
+        result.lines().forEach(l -> assertEquals(0, l.speakerId()));
+        verify(castService, never()).analyzeChapter(anyLong(), any(), anyInt(), nullable(Long.class));
+        // 先锁旁白：默认册旁白(id 0)被锁定为所选画像
+        verify(castService).ensureDefaultCastId(7L);
+        verify(castService).updateVoiceInstruction(5L, NarrationCharacter.NARRATOR_ID, "A warm female narrator.");
+        // 脚本 castId 落默认册（原纯旁白为 0），以承载该旁白音色
+        assertEquals(5L, result.castId());
+        verify(mapper).upsertNarrationScript(eq(7L), eq(""), eq(5L), eq(0), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("getOrAnalyze：多角色带旁白音色 → 先锁默认册旁白，再以同一册分析")
+    void multiVoiceWithPresetLocksNarratorThenAnalyzesSameCast() {
+        NovelNarrationCastService castService = mock(NovelNarrationCastService.class);
+        NovelDatabase db = mock(NovelDatabase.class);
+        NovelMapper mapper = mock(NovelMapper.class);
+        NarrationAudioService audio = mock(NarrationAudioService.class);
+
+        when(db.getNovel(7L)).thenReturn(novel(7L, "句子一。"));
+        when(castService.ensureDefaultCastId(7L)).thenReturn(5L);
+        NarrationScript script = new NarrationScript(List.of(
+                new NarrationCharacter(0, "Narrator", "unknown", "unknown", "N.", true, false)),
+                List.of(new NarrationScript.Line(0, "句子一。", 0, "Narrator", "", "N.")), true);
+        when(castService.analyzeChapter(eq(7L), any(), eq(0), eq(5L)))
+                .thenReturn(new ChapterNarration(script, List.of(), 5L));
+        when(castService.find(5L)).thenReturn(cast(5L, 80L));
+
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService.ChapterScript result =
+                service.getOrAnalyze(7L, "", 0, true, 0, null, "A warm female narrator.");
+
+        // 先锁后析、同一册：默认册旁白先被锁定，再以该册作 override 分析
+        verify(castService).updateVoiceInstruction(5L, NarrationCharacter.NARRATOR_ID, "A warm female narrator.");
+        verify(castService).analyzeChapter(eq(7L), any(), eq(0), eq(5L));
+        assertEquals(5L, result.castId());
+    }
+
+    @Test
     @DisplayName("getOrAnalyze：显式 castId 透传给 analyzeChapter，落库脚本用其返回的 castId")
     void castIdOverrideThreadedToAnalysis() {
         NovelNarrationCastService castService = mock(NovelNarrationCastService.class);
