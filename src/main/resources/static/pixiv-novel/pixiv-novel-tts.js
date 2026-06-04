@@ -139,6 +139,7 @@
         index: -1,
         engine: 'browser',
         narrationAvailable: false, // 后端富感情朗读引擎是否可用（探测得到，决定引擎选项是否可选）
+        narrationDebug: false,     // 调试模式：开启时即便引擎不可用也允许选中富感情朗读，仅用于运行分析 / 查看结果
         playing: false,
         paused: false,
         token: 0,              // 失效令牌：停止 / 跳段 / 换引擎时自增，丢弃过期的异步回调
@@ -217,7 +218,8 @@
     function applyEngine(engine) {
         let next = engine === 'edge' ? 'edge' : (engine === 'narration' ? 'narration' : 'browser');
         // 富感情朗读只有在后端已配置且可用时才允许启用；不可用则退化为浏览器（无内置语音时退到在线）朗读。
-        if (next === 'narration' && !state.narrationAvailable) {
+        // 调试模式例外：即便引擎不可用也允许选中，便于运行分析、查看结果（逐句合成会失败）。
+        if (next === 'narration' && !state.narrationAvailable && !state.narrationDebug) {
             next = ('speechSynthesis' in window) ? 'browser' : 'edge';
         }
         // 拆除当前引擎：富感情朗读交给驱动停用，浏览器 / Edge 走自身停止。
@@ -248,7 +250,10 @@
 
     function updateEngineHint() {
         if (isNarration()) {
-            els.hint.textContent = t('tts.hint.narration');
+            // 调试模式下引擎不可用时，提示「仅可运行分析、查看结果，合成会失败」。
+            els.hint.textContent = (!state.narrationAvailable && state.narrationDebug)
+                ? t('tts.hint.narration-debug')
+                : t('tts.hint.narration');
         } else {
             els.hint.textContent = state.engine === 'edge' ? t('tts.hint.edge') : t('tts.hint.browser');
         }
@@ -268,8 +273,10 @@
 
     function updateEngineOptionLabels() {
         if (!els.engineNarrationOpt) return;
-        // 该选项仅在后端可用时才显示，故始终用可用态文案。
-        els.engineNarrationOpt.textContent = t('tts.engine.narration', '富感情朗读（多角色）');
+        // 引擎可用时用常规文案；调试模式下引擎不可用但仍可选，用带「调试」标记的文案。
+        els.engineNarrationOpt.textContent = (!state.narrationAvailable && state.narrationDebug)
+            ? t('tts.engine.narration-debug', '富感情朗读（多角色·调试）')
+            : t('tts.engine.narration', '富感情朗读（多角色）');
     }
 
     // 探测后端朗读引擎可用性 + 管理员可见性：/api/narration/* 为 admin-only，非管理员请求被拦截（非 2xx）。
@@ -281,20 +288,24 @@
         els.engineNarrationOpt.disabled = true;
         fetch('/api/narration/availability', { credentials: 'same-origin' })
             .then((r) => (r.ok ? r.json() : null))
-            .then((data) => applyNarrationAvailability(!!(data && data.available), wantNarration))
-            .catch(() => applyNarrationAvailability(false, wantNarration));
+            .then((data) => applyNarrationAvailability(
+                !!(data && data.available), !!(data && data.debug), wantNarration))
+            .catch(() => applyNarrationAvailability(false, false, wantNarration));
     }
 
-    function applyNarrationAvailability(available, wantNarration) {
+    // 选项是否可选：引擎可用，或调试模式开启（不可用时也允许选中以运行分析、查看结果）。
+    function applyNarrationAvailability(available, debug, wantNarration) {
         state.narrationAvailable = available;
-        els.engineNarrationOpt.style.display = available ? '' : 'none';
-        els.engineNarrationOpt.disabled = !available;
+        state.narrationDebug = debug;
+        const selectable = available || debug;
+        els.engineNarrationOpt.style.display = selectable ? '' : 'none';
+        els.engineNarrationOpt.disabled = !selectable;
         updateEngineOptionLabels();
         if (!wantNarration) return;
-        if (available) {
-            applyEngine('narration'); // 可用且上次正是它 → 切回富感情朗读
+        if (selectable) {
+            applyEngine('narration'); // 可用或调试可选，且上次正是它 → 切回富感情朗读
         } else {
-            degradeFromNarration();   // 上次选了它但现在不可用 → 退化到浏览器朗读并提示
+            degradeFromNarration();   // 上次选了它但现在不可用且非调试 → 退化到浏览器朗读并提示
         }
     }
 

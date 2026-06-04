@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
 import top.sywyar.pixivdownload.ai.narration.NarratorVoicePreset;
+import top.sywyar.pixivdownload.config.DebugConfig;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.NovelNarrationCastService;
@@ -39,9 +40,11 @@ class NarrationControllerTest {
     private final NovelNarrationCastService castService = mock(NovelNarrationCastService.class);
     private final NovelDatabase novelDatabase = mock(NovelDatabase.class);
     private final NarrationAudioService audioService = mock(NarrationAudioService.class);
+    private final DebugConfig debugConfig = new DebugConfig();
 
     private final NarrationController controller =
-            new NarrationController(scriptService, castService, audioService, novelDatabase, TestI18nBeans.appMessages());
+            new NarrationController(scriptService, castService, audioService, novelDatabase,
+                    TestI18nBeans.appMessages(), debugConfig);
     private final NarrationTtsController ttsController =
             new NarrationTtsController(audioService, scriptService, TestI18nBeans.appMessages());
 
@@ -154,7 +157,7 @@ class NarrationControllerTest {
     }
 
     @Test
-    @DisplayName("/availability：透出当前朗读引擎是否可用")
+    @DisplayName("/availability：透出当前朗读引擎是否可用 + 调试模式开关")
     void availabilityReflectsEngine() {
         when(audioService.isEngineAvailable()).thenReturn(true);
         ResponseEntity<?> on = controller.availability();
@@ -165,6 +168,16 @@ class NarrationControllerTest {
         ResponseEntity<?> off = controller.availability();
         assertEquals(200, off.getStatusCode().value());
         assertTrue(!((NarrationController.AvailabilityResponse) off.getBody()).available());
+        // 调试模式默认关闭
+        assertTrue(!((NarrationController.AvailabilityResponse) off.getBody()).debug());
+
+        // 调试模式开启时透出 debug=true（即便引擎不可用）
+        debugConfig.setEnabled(true);
+        ResponseEntity<?> dbg = controller.availability();
+        assertEquals(200, dbg.getStatusCode().value());
+        NarrationController.AvailabilityResponse body = (NarrationController.AvailabilityResponse) dbg.getBody();
+        assertTrue(!body.available());
+        assertTrue(body.debug());
     }
 
     @Test

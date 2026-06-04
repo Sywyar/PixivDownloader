@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
 import top.sywyar.pixivdownload.ai.narration.NarratorVoicePreset;
+import top.sywyar.pixivdownload.config.DebugConfig;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.NarrationConflictReport;
@@ -48,6 +49,7 @@ public class NarrationController {
     private final NarrationAudioService narrationAudioService;
     private final NovelDatabase novelDatabase;
     private final AppMessages messages;
+    private final DebugConfig debugConfig;
 
     // ── DTO ──────────────────────────────────────────────────────────────────
 
@@ -93,8 +95,11 @@ public class NarrationController {
     /** 编辑某角色音色：优先用显式 {@code castId}，否则按 {@code novelId} 解析本作默认册（按需创建）。 */
     public record VoiceUpdateRequest(Long castId, Long novelId, Integer characterId, String controlInstruction) {}
 
-    /** 朗读引擎可用性（前端据此启用 / 禁用「富感情朗读」听书引擎入口）。 */
-    public record AvailabilityResponse(boolean available) {}
+    /**
+     * 朗读引擎可用性（前端据此启用 / 禁用「富感情朗读」听书引擎入口）。
+     * {@code debug} 为调试模式开关：开启时即便引擎不可用，前端也允许选中该引擎以运行分析、查看结果。
+     */
+    public record AvailabilityResponse(boolean available, boolean debug) {}
 
     /** 旁白音色预设（id + 固定英文画像）：前端按 id 映射 i18n 标签、用画像做预览 / 试听。 */
     public record NarratorPresetView(String id, String instruction) {}
@@ -109,7 +114,8 @@ public class NarrationController {
      */
     @GetMapping("/availability")
     public ResponseEntity<?> availability() {
-        return ResponseEntity.ok(new AvailabilityResponse(narrationAudioService.isEngineAvailable()));
+        return ResponseEntity.ok(new AvailabilityResponse(
+                narrationAudioService.isEngineAvailable(), debugConfig.isEnabled()));
     }
 
     /** 旁白音色预设清单（admin-only）：供首次分析弹窗的「旁白音色」选择器渲染标签 / 预览 / 试听。 */
