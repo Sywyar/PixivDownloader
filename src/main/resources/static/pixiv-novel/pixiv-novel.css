@@ -766,3 +766,36 @@
             .narration-field select { max-width: 150px; }
         }
 
+        /* 「显示分析出的说话人」复选框（设置面板内，与其它 tts-field 对齐） */
+        .tts-field.tts-checkbox-field { cursor: pointer; gap: 6px; }
+        .tts-field.tts-checkbox-field input[type="checkbox"] {
+            width: 15px; height: 15px; cursor: pointer; accent-color: var(--brand);
+        }
+        .tts-field.tts-checkbox-field span { color: var(--text-secondary); white-space: nowrap; }
+
+        /* 正文逐句说话人标注：正文整体右移一个说话人列宽，左侧列内逐句标出说话人（名字超列宽则换行） */
+        .content-card.narration-marks-on { --nm-gutter: 0px; --nm-name-col: 0px; }
+        .content-card.narration-marks-on p { padding-left: var(--nm-gutter); }
+        /* 章节标题只随正文一起右移（inline-block 用 margin，避免下划线延伸到空缺的说话人列下方） */
+        .content-card.narration-marks-on h2.novel-chapter { margin-left: var(--nm-gutter); }
+        .content-card.narration-marks-on .nm-sentence {
+            display: block;
+            position: relative;
+        }
+        .content-card.narration-marks-on .nm-label {
+            position: absolute;
+            left: calc(-1 * var(--nm-gutter));
+            top: 0;
+            width: var(--nm-name-col);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--brand);
+            text-align: right;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+

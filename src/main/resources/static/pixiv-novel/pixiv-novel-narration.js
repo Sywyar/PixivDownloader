@@ -14,7 +14,9 @@
 (function (global) {
     'use strict';
 
-    const LS = { segment: 'pixiv_narration_segment' };
+    const LS = { segment: 'pixiv_narration_segment', showSpeakers: 'pixiv_narration_show_speakers' };
+    const MARK_GAP = 14;              // 说话人列与正文之间的间隔（px）
+    const MARK_NAME_CAP_RATIO = 0.10; // 说话人列宽上限：正文宽度的 10%，超出此宽度的名字换行
     const NOVEL_LIMIT = 50; // 音频缓存保留的小说数上限
     const PREFETCH_AHEAD = 20;       // 维持的预生成缓冲句数：播放时后台至少向前合成这么多句，消除逐句合成的停顿
     const PREFETCH_CONCURRENCY = 3;  // 后台并发合成上限：避免把整个缓冲窗口一次性压向合成后端
@@ -148,6 +150,7 @@
         segmentSize: 0,
         scriptLoaded: false,
         loading: false,
+        showSpeakers: false,   // 「显示分析出的说话人」：在正文左侧逐句标注说话人并整体缩进
         active: false,         // 是否为当前选中的听书引擎（仅 active 时才写共享控制条 DOM）
         index: -1,
         playing: false,
@@ -179,6 +182,156 @@
         if (!line) return '';
         if (line.speakerId === 0) return t('narration:narrator', '旁白');
         return line.speakerName || t('narration:narrator', '旁白');
+    }
+
+    // ---------- 「显示分析出的说话人」正文标注 ----------
+    // 勾选后：正文每个段落按逐句脚本切成「逐句块」，每句左侧固定宽度的说话人列里标出说话人，正文整体右移
+    // 一个说话人列宽（最长名字宽，上限 = 正文宽度的 10%，超出上限的名字在列内换行）。非破坏式：保存原 innerHTML，
+    // 取消勾选 / 退出富感情朗读时还原。逐句切分基于脚本逐句 text 与 DOM 可朗读文本（剔除 ruby 注音 / 翻页 / 图片占位）
+    // 的顺序匹配；某段无法对齐时该段只缩进、不加逐句标注，绝不破坏正文。
+    let markedBlocks = [];           // [{ el, html }] 已标注块与其原始 innerHTML
+    let markResizeBound = false;
+
+    // 与后端断句 String.trim() 对齐：只把码位 <= U+0020 的字符视作句间空白（全角空格 / NBSP 等保留在句内）。
+    function isMarkWs(ch) { return ch <= ' '; }
+
+    // 一个内联子树还原成「可朗读文本」：与后端 NovelMarkupParser.plainText 对齐——ruby 取基词（剔除 rt）、
+    // 外链取链接文字、翻页提示与内嵌图片占位剔除。
+    function subtreeReadable(el) {
+        let s = '';
+        el.childNodes.forEach((n) => {
+            if (n.nodeType === 3) { s += n.data; return; }
+            if (n.nodeType !== 1) return;
+            if (n.tagName === 'RT' || n.tagName === 'FIGURE') return;
+            if (n.classList && n.classList.contains('novel-jump')) return;
+            s += subtreeReadable(n);
+        });
+        return s;
+    }
+
+    // 把一个段落 <p> 按其逐句脚本切成逐句块。成功返回 true（已改写 innerHTML），匹配失败返回 false（原段落不动）。
+    function markBlock(block, lines) {
+        // 1) 收集顶层子节点为「原子」，并拼出该块的可朗读文本（与断句所用文本对齐）。
+        const atoms = [];
+        let readable = '';
+        block.childNodes.forEach((child) => {
+            if (child.nodeType === 3) {
+                atoms.push({ kind: 'text', node: child, start: readable.length, len: child.data.length });
+                readable += child.data;
+            } else if (child.nodeType === 1) {
+                if (child.tagName === 'BR') {
+                    atoms.push({ kind: 'br', start: readable.length, len: 1 });
+                    readable += '\n';
+                } else {
+                    const r = subtreeReadable(child);
+                    atoms.push({ kind: 'el', node: child, start: readable.length, len: r.length });
+                    readable += r;
+                }
+            }
+        });
+        // 2) 逐句在可朗读文本里顺序定位（跳过句间空白；优先 startsWith，失败再 indexOf 容错）。
+        const ranges = [];
+        let cursor = 0;
+        for (let li = 0; li < lines.length; li++) {
+            const s = lines[li].text || '';
+            if (!s) continue;
+            while (cursor < readable.length && isMarkWs(readable.charAt(cursor))) cursor++;
+            let st = readable.startsWith(s, cursor) ? cursor : readable.indexOf(s, cursor);
+            if (st < 0) return false; // 对不齐：整段放弃逐句标注
+            ranges.push({ start: st, end: st + s.length, line: lines[li] });
+            cursor = st + s.length;
+        }
+        if (!ranges.length) return false;
+        // 3) 按区间重建为逐句块：文本原子按交集切片复制，内联元素原子按其起点归属唯一一句（克隆），<br> 作分隔丢弃。
+        const frag = document.createDocumentFragment();
+        ranges.forEach((rg) => {
+            const span = document.createElement('span');
+            span.className = 'nm-sentence';
+            const label = document.createElement('span');
+            label.className = 'nm-label';
+            label.textContent = speakerLabel(rg.line);
+            span.appendChild(label);
+            const text = document.createElement('span');
+            text.className = 'nm-text';
+            atoms.forEach((a) => {
+                if (a.kind === 'br') return;
+                if (a.kind === 'text') {
+                    const aEnd = a.start + a.len;
+                    if (aEnd <= rg.start || a.start >= rg.end) return;
+                    const from = Math.max(rg.start, a.start) - a.start;
+                    const to = Math.min(rg.end, aEnd) - a.start;
+                    text.appendChild(document.createTextNode(a.node.data.slice(from, to)));
+                } else if (a.start >= rg.start && a.start < rg.end) {
+                    text.appendChild(a.node.cloneNode(true));
+                }
+            });
+            span.appendChild(text);
+            frag.appendChild(span);
+        });
+        block.textContent = '';
+        block.appendChild(frag);
+        return true;
+    }
+
+    // 量出说话人列宽：取所有说话人名字的最长渲染宽（按 nm-label 字体），上限为正文宽度的 10%，并写入 CSS 变量。
+    function computeMarkGutter() {
+        if (!state.contentEl || !markedBlocks.length) return;
+        const cs = window.getComputedStyle(state.contentEl);
+        const innerWidth = state.contentEl.clientWidth
+            - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+        const labels = new Set();
+        state.lines.forEach((l) => { const s = speakerLabel(l); if (s) labels.add(s); });
+        let canvas = computeMarkGutter._c || (computeMarkGutter._c = document.createElement('canvas'));
+        const ctx = canvas.getContext('2d');
+        ctx.font = '600 13px ' + (cs.fontFamily || 'serif');
+        let max = 0;
+        labels.forEach((s) => { max = Math.max(max, ctx.measureText(s).width); });
+        const cap = Math.max(40, innerWidth * MARK_NAME_CAP_RATIO);
+        const nameCol = Math.min(Math.ceil(max) + 2, Math.round(cap));
+        state.contentEl.style.setProperty('--nm-name-col', nameCol + 'px');
+        state.contentEl.style.setProperty('--nm-gutter', (nameCol + MARK_GAP) + 'px');
+    }
+
+    function clearMarks() {
+        if (markedBlocks.length) {
+            markedBlocks.forEach((m) => { m.el.innerHTML = m.html; });
+            markedBlocks = [];
+        }
+        if (state.contentEl) {
+            state.contentEl.classList.remove('narration-marks-on');
+            state.contentEl.style.removeProperty('--nm-gutter');
+            state.contentEl.style.removeProperty('--nm-name-col');
+        }
+    }
+
+    function applyMarks() {
+        if (!state.showSpeakers || !state.active || !state.scriptLoaded) return;
+        if (!state.blocks.length) state.blocks = buildBlocks();
+        if (!state.lines.length || !state.blocks.length) return;
+        const byBlock = new Map();
+        state.lines.forEach((l) => {
+            if (l.paragraphIndex >= 0 && l.paragraphIndex < state.blocks.length) {
+                if (!byBlock.has(l.paragraphIndex)) byBlock.set(l.paragraphIndex, []);
+                byBlock.get(l.paragraphIndex).push(l);
+            }
+        });
+        byBlock.forEach((lns, idx) => {
+            const el = state.blocks[idx];
+            if (!el || el.tagName !== 'P') return; // 章节标题只随正文缩进、不加逐句标注
+            const html = el.innerHTML;
+            if (markBlock(el, lns)) markedBlocks.push({ el, html });
+        });
+        if (!markedBlocks.length) return; // 整章都对不齐（如正文为译文）：不缩进、不加类，保持原样
+        state.contentEl.classList.add('narration-marks-on');
+        computeMarkGutter();
+    }
+
+    function renderMarks() { clearMarks(); applyMarks(); }
+
+    function setShowSpeakers(on) {
+        state.showSpeakers = !!on;
+        lsSet(LS.showSpeakers, state.showSpeakers ? '1' : '0');
+        renderMarks();
     }
 
     // ---------- 脚本加载 / 分析 ----------
@@ -252,6 +405,7 @@
         if (state.index >= state.lines.length) state.index = -1;
         updateProgress(false);
         updateBar(0);
+        renderMarks();
         if (state.index >= 0) highlight(state.index, false);
     }
 
@@ -1001,12 +1155,14 @@
         updateProgress(false);
         updateBar(0);
         updateSubtitle(state.index >= 0 ? state.lines[state.index] : null);
+        renderMarks();
         if (state.novelId) NarrationStore.touch(state.novelId);
     }
     function deactivate() {
         stop();
         clearHighlight();
         updateSubtitle(null);
+        clearMarks();
         state.active = false;
     }
 
@@ -1036,6 +1192,7 @@
         els.progressFill = shared.progressFill;
         els.subtitle = shared.subtitle;
         els.regenerate = shared.regenerate;
+        els.showSpeakers = shared.showSpeakers;
         els.castModal = shared.castModal;
         els.castList = shared.castList;
         els.conflicts = shared.conflicts;
@@ -1045,6 +1202,21 @@
 
         // 朗读专属控件：「朗读分析设置」按钮打开设置弹窗（确认即按新设置 force 重新分析，不自动播放）。
         els.regenerate && els.regenerate.addEventListener('click', () => openAnalysisDialog(true, false));
+        // 「显示分析出的说话人」复选框：勾选即在正文逐句标注说话人；偏好持久化、跨会话恢复。
+        state.showSpeakers = lsGet(LS.showSpeakers, '0') === '1';
+        if (els.showSpeakers) {
+            els.showSpeakers.checked = state.showSpeakers;
+            els.showSpeakers.addEventListener('change', () => setShowSpeakers(els.showSpeakers.checked));
+        }
+        if (!markResizeBound) {
+            markResizeBound = true;
+            let rt = null;
+            window.addEventListener('resize', () => {
+                if (!markedBlocks.length) return;
+                if (rt) clearTimeout(rt);
+                rt = setTimeout(computeMarkGutter, 150);
+            });
+        }
         if (els.castModal) {
             els.castModal.addEventListener('click', (e) => { if (e.target.id === 'modalNarrationCast') closeCast(); });
             const closeBtn = document.getElementById('narrationCastClose');
@@ -1062,6 +1234,7 @@
             setPlayIcon(state.playing && !state.paused);
             updateProgress(false);
             if (state.index >= 0) updateSubtitle(state.lines[state.index]);
+            if (state.showSpeakers && markedBlocks.length) renderMarks(); // 切换语言后重新派生说话人列文案
         }
         if (els.castModal && els.castModal.classList.contains('open')) { renderConflicts(); renderCastList(); }
     }

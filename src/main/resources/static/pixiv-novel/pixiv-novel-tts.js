@@ -260,6 +260,7 @@
         if (els.voiceField) els.voiceField.style.display = narr ? 'none' : '';
         if (els.rateField) els.rateField.style.display = narr ? 'none' : '';
         if (els.regenerate) els.regenerate.style.display = narr ? '' : 'none';
+        if (els.showSpeakersField) els.showSpeakersField.style.display = narr ? '' : 'none';
         if (els.subtitle) els.subtitle.style.display = narr ? '' : 'none';
         els.prev.title = narr ? t('narration:bar.prev', '上一句') : t('tts.prev', '上一段');
         els.next.title = narr ? t('narration:bar.next', '下一句') : t('tts.next', '下一段');
@@ -746,6 +747,8 @@
         els.voiceField = document.getElementById('ttsVoiceField');
         els.rateField = document.getElementById('ttsRateField');
         els.regenerate = document.getElementById('ttsRegenerate');
+        els.showSpeakersField = document.getElementById('ttsShowSpeakersField');
+        els.showSpeakers = document.getElementById('ttsShowSpeakers');
         els.engineNarrationOpt = document.getElementById('ttsEngineNarrationOpt');
         const toggle = document.getElementById('ttsToggle');
         if (!els.bar || !toggle) return;
@@ -784,7 +787,7 @@
                 novelId: state.novelId, lang: opts.narrationLang || '',
                 els: {
                     playPause: els.playPause, progress: els.progress, progressFill: els.progressFill,
-                    subtitle: els.subtitle, regenerate: els.regenerate,
+                    subtitle: els.subtitle, regenerate: els.regenerate, showSpeakers: els.showSpeakers,
                     castModal: document.getElementById('modalNarrationCast'),
                     castList: document.getElementById('narrationCastList'),
                     conflicts: document.getElementById('narrationConflicts')
