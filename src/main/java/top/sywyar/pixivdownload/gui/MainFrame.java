@@ -66,6 +66,9 @@ public class MainFrame extends JFrame {
 
         setContentPane(buildTabs());
 
+        // 彩蛋：任意界面连续按出「上上下下左右左右 BABA」即解锁「配置 → 服务器」下的调试模式复选框。
+        KonamiCodeListener.install(DebugUnlockState::unlock);
+
         // 引导未完成前每次启动都停留在引导首页（含未完成配置的情况）；
         // “完成” = 首次安装已完成 且 整套引导已走到最后一页。任一不满足都还要展示引导。
         // setup 未完成却存在残留的旧标记 → 复位，避免未配置用户被错误地带过引导。

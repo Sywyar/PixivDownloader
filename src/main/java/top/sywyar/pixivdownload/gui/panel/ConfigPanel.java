@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.AutoStartManager;
+import top.sywyar.pixivdownload.gui.DebugUnlockState;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.*;
@@ -76,6 +77,10 @@ public class ConfigPanel extends JPanel {
 
     /** 提示条（保存后显示） */
     private final JLabel noticeBar = new JLabel(" ");
+
+    /** 调试模式解锁监听：彩蛋触发后在 EDT 上刷新可见性并提示。面板加入/移出窗口时随之注册/注销，避免泄漏。 */
+    private final Runnable debugUnlockListener = () -> SwingUtilities.invokeLater(this::onDebugUnlocked);
+
     private JCheckBox autoStartCheckBox;
     private boolean autoStartSupported;
     private boolean updatingAutoStartCheckBox;
@@ -119,6 +124,24 @@ public class ConfigPanel extends JPanel {
         buildUi();
         loadCurrentValues();
         checkFieldDrift();
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        DebugUnlockState.addListener(debugUnlockListener);
+    }
+
+    @Override
+    public void removeNotify() {
+        DebugUnlockState.removeListener(debugUnlockListener);
+        super.removeNotify();
+    }
+
+    /** 彩蛋解锁后刷新字段可见性，让「调试模式」复选框显示出来并提示用户。 */
+    private void onDebugUnlocked() {
+        updateEnabledStates();
+        showNotice(message("gui.config.notice.debug-unlocked"));
     }
 
     // ── UI 构建 ──────────────────────────────────────────────────────────────────
@@ -1402,6 +1425,12 @@ public class ConfigPanel extends JPanel {
                 }
             }
 
+            // 既有配置已开启调试模式时自动解锁复选框，便于用户在 GUI 中关闭它
+            FieldRenderer.RenderedField debugField = renderedFields.get("debug.enabled");
+            if (debugField != null && "true".equalsIgnoreCase(debugField.getValue().get())) {
+                DebugUnlockState.unlock();
+            }
+
             resolveMailPresetFromCurrentHost();
             resolveAiPresetFromCurrentBaseUrl();
             updateEnabledStates();
@@ -1562,7 +1591,8 @@ public class ConfigPanel extends JPanel {
     }
 
     private static boolean shouldPreserveHiddenValue(ConfigFieldSpec spec) {
-        return isMaintenanceDayTimeKey(spec.key());
+        // debug.enabled 在未解锁时隐藏，但其值仍应原样保留（写空会清掉用户已有的调试开关）
+        return isMaintenanceDayTimeKey(spec.key()) || "debug.enabled".equals(spec.key());
     }
 
     private static boolean isMaintenanceDayEnabledKey(String key) {

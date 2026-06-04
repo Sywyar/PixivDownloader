@@ -92,6 +92,13 @@ public final class ConfigFieldRegistry {
                         })
                         .build(),
 
+                // 调试模式：默认隐藏，仅在 GUI 中触发彩蛋后（DebugUnlockState 解锁）才显示。
+                ConfigFieldSpec.builder("debug.enabled", message("gui.config.field.debug.enabled.label"), BOOL, groupServer)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.debug.enabled.help"))
+                        .visibleWhen(snap -> top.sywyar.pixivdownload.gui.DebugUnlockState.isUnlocked())
+                        .build(),
+
                 // ── 下载 ───────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("download.root-folder", message("gui.config.field.download.root-folder.label"), PATH_DIR, groupDownload)
                         .defaultValue("pixiv-download")

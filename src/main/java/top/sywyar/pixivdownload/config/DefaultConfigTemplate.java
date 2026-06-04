@@ -38,6 +38,7 @@ public final class DefaultConfigTemplate {
         appendBlankLine(config);
 
         appendSetting(config, messages, "server.port: 6999", "config.template.server.port.comment");
+        appendSetting(config, messages, "debug.enabled: false", "config.template.debug.enabled.comment");
         appendBlankLine(config);
 
         appendSetting(config, messages, "download.root-folder: pixiv-download", "config.template.download.root-folder.comment");
