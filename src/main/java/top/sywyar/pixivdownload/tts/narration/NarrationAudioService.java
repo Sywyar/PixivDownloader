@@ -37,18 +37,23 @@ public class NarrationAudioService {
 
     /**
      * 合成脚本中的一行：用 line 的文本 / 已合成 Control Instruction / delivery 组
-     * {@link NarrationVoiceRequest}（gender / age 本次留空）后交给选中引擎。
+     * {@link NarrationVoiceRequest}（gender / age 本次留空）后交给选中引擎。带上由上游（持久化层）解析好的
+     * 参考音 {@code referenceVoice}（可为空）——引擎据其是否存在决定走可控克隆还是内联 voice-design，本服务与
+     * 引擎都不直接读盘 / 查库，保持解耦。
      *
-     * @param line       朗读脚本行（{@link NarrationScript.Line}）
-     * @param localeHint 文本 / 界面语言提示（可为空；VoxCPM 内联不使用）
+     * @param line           朗读脚本行（{@link NarrationScript.Line}）
+     * @param referenceVoice 该说话人的参考音（可为空）；非空且有音频时引擎走克隆
+     * @param localeHint     文本 / 界面语言提示（可为空；VoxCPM 内联不使用）
      */
-    public NarrationAudio synthesizeLine(NarrationScript.Line line, String localeHint) {
+    public NarrationAudio synthesizeLine(NarrationScript.Line line,
+                                         top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice referenceVoice,
+                                         String localeHint) {
         if (line == null) {
             throw new NarrationVoiceException(messages.get("narration.tts.error.empty-text"), null);
         }
         NarrationVoiceRequest req = new NarrationVoiceRequest(
                 line.text(), line.controlInstruction(), line.delivery(),
-                null, null, 0L, line.speakerId(), localeHint);
+                null, null, 0L, line.speakerId(), localeHint, referenceVoice);
         return synthesize(req);
     }
 

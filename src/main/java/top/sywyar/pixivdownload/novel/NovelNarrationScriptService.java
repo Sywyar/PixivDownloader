@@ -38,17 +38,20 @@ public class NovelNarrationScriptService {
     private final NovelDatabase novelDatabase;
     private final NovelMapper novelMapper;
     private final NarrationAudioService narrationAudioService;
+    private final NarrationReferenceVoiceService referenceVoiceService;
     private final ObjectMapper objectMapper;
 
     public NovelNarrationScriptService(NovelNarrationCastService castService,
                                        NovelDatabase novelDatabase,
                                        NovelMapper novelMapper,
                                        NarrationAudioService narrationAudioService,
+                                       NarrationReferenceVoiceService referenceVoiceService,
                                        ObjectMapper objectMapper) {
         this.castService = castService;
         this.novelDatabase = novelDatabase;
         this.novelMapper = novelMapper;
         this.narrationAudioService = narrationAudioService;
+        this.referenceVoiceService = referenceVoiceService;
         this.objectMapper = objectMapper;
     }
 
@@ -245,9 +248,11 @@ public class NovelNarrationScriptService {
         String combined = NarrationScriptService.combine(base, line.delivery());
         NarrationScript.Line scriptLine = new NarrationScript.Line(
                 line.index(), line.text(), line.speakerId(), speakerName, line.delivery(), combined);
-        log.debug("narration line synth: novelId={}, lang='{}', lineIndex={}, speaker={}({}), castId={}",
-                novelId, langKey, lineIndex, line.speakerId(), speakerName, row.castId());
-        return narrationAudioService.synthesizeLine(scriptLine, langKey.isEmpty() ? null : langKey);
+        // 参考音克隆：按 (castId, speakerId) 解析该说话人参考音（无则 null）；引擎据此走可控克隆 / 内联 voice-design。
+        var referenceVoice = referenceVoiceService.resolve(row.castId(), line.speakerId());
+        log.debug("narration line synth: novelId={}, lang='{}', lineIndex={}, speaker={}({}), castId={}, ref={}",
+                novelId, langKey, lineIndex, line.speakerId(), speakerName, row.castId(), referenceVoice != null);
+        return narrationAudioService.synthesizeLine(scriptLine, referenceVoice, langKey.isEmpty() ? null : langKey);
     }
 
     // ── 内部 ─────────────────────────────────────────────────────────────────

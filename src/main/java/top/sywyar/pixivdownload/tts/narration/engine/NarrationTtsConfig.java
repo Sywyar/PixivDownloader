@@ -28,6 +28,8 @@ public class NarrationTtsConfig {
     public static final String KEY_VOXCPM_MODEL = "narration-tts.voxcpm.model";
     public static final String KEY_VOXCPM_RESPONSE_FORMAT = "narration-tts.voxcpm.response-format";
     public static final String KEY_VOXCPM_USE_PROXY = "narration-tts.voxcpm.use-proxy";
+    public static final String KEY_VOXCPM_ENABLE_CLONE = "narration-tts.voxcpm.enable-clone";
+    public static final String KEY_VOXCPM_MAX_NEW_TOKENS = "narration-tts.voxcpm.max-new-tokens";
 
     /** 引擎 id 常量：VoxCPM 外部 OpenAI 兼容引擎。 */
     public static final String ENGINE_VOXCPM = "voxcpm";
@@ -66,5 +68,18 @@ public class NarrationTtsConfig {
          * 默认 {@code false} 直连；独立于全局 {@code proxy.enabled}。
          */
         private volatile boolean useProxy = false;
+
+        /**
+         * 是否启用<b>参考音克隆</b>（角色配了标准音 / 参考音时用其音色克隆）。默认 {@code true}；置 {@code false} 时
+         * 即便角色已有参考音也忽略、退回内联 voice-design（全局开关）。
+         */
+        private volatile boolean enableClone = true;
+
+        /**
+         * 克隆时的生成 token 上限（兜底已知 bug vllm-omni#2896：{@code ref_audio} 克隆停止符可能不触发导致无限生成）。
+         * 仅在克隆请求中下发；{@code <=0} 表示不下发（不设上限）。默认 {@code 4096}：足够覆盖单句朗读，又能避免跑飞；
+         * 若克隆模式下长句被截断可调高。
+         */
+        private volatile int maxNewTokens = 4096;
     }
 }

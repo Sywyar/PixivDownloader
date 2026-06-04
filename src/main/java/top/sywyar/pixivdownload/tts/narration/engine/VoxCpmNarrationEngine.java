@@ -132,7 +132,9 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
         if (vox == null || vox.getBaseUrl() == null || vox.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String input = buildInput(req);
+        // 可控克隆：仅当配了参考音且未全局关闭克隆时启用——括号里只放 delivery、timbre 取自参考音。
+        boolean clone = req != null && req.hasReferenceVoice() && vox.isEnableClone();
+        String input = buildInput(req, clone);
         if (input.isEmpty()) {
             throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
         }
@@ -140,7 +142,11 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
         String format = normalizeFormat(vox.getResponseFormat());
         String apiKey = vox.getApiKey();
         boolean useProxy = vox.isUseProxy();
-        VoxCpmSpeechRequest body = new VoxCpmSpeechRequest(vox.getModel(), input, DEFAULT_VOICE, format);
+        VoxCpmSpeechRequest body = clone
+                ? new VoxCpmSpeechRequest(vox.getModel(), input, DEFAULT_VOICE, format,
+                        toDataUri(req.referenceVoice()), normalizeRefText(req.referenceVoice().text()),
+                        positiveOrNull(vox.getMaxNewTokens()))
+                : VoxCpmSpeechRequest.voiceDesign(vox.getModel(), input, DEFAULT_VOICE, format);
         HttpEntity<byte[]> entity = new HttpEntity<>(serialize(body, apiKey), buildHeaders(apiKey));
         RestTemplate restTemplate = useProxy ? proxyRestTemplate : directRestTemplate;
         String url = speechUrl(vox.getBaseUrl());
@@ -176,14 +182,44 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
         }
     }
 
-    /** 内联 voice-design：{@code (controlInstruction)text}；instruction 为空时仅正文。 */
-    static String buildInput(NarrationVoiceRequest req) {
+    /**
+     * 拼接 VoxCPM 的 {@code (style)正文} 输入：
+     * <ul>
+     *   <li>{@code cloneMode=false}（内联 voice-design）→ 括号放 {@link NarrationVoiceRequest#controlInstruction()}
+     *       （基底画像 + delivery 合并串）；</li>
+     *   <li>{@code cloneMode=true}（可控克隆）→ 括号<b>只</b>放 {@link NarrationVoiceRequest#delivery()}（情绪），
+     *       timbre 由参考音提供，绝不再塞基底画像以免与参考音打架。</li>
+     * </ul>
+     * style 为空时仅正文。
+     */
+    static String buildInput(NarrationVoiceRequest req, boolean cloneMode) {
         String text = req == null || req.text() == null ? "" : req.text().trim();
         if (text.isEmpty()) {
             return "";
         }
-        String ci = req.controlInstruction() == null ? "" : req.controlInstruction().trim();
-        return ci.isEmpty() ? text : "(" + ci + ")" + text;
+        String raw = cloneMode ? req.delivery() : req.controlInstruction();
+        String style = raw == null ? "" : raw.trim();
+        return style.isEmpty() ? text : "(" + style + ")" + text;
+    }
+
+    /** 参考音转 {@code data:audio/...;base64,...} URI（不依赖服务端文件开关）。 */
+    private static String toDataUri(NarrationReferenceVoice ref) {
+        String mime = ref.mime() == null || ref.mime().isBlank() ? "audio/wav" : ref.mime().trim();
+        return "data:" + mime + ";base64," + java.util.Base64.getEncoder().encodeToString(ref.audio());
+    }
+
+    /** 转录文本归一：空 / 空白 → {@code null}（{@code NON_NULL} 序列化下不出现）。 */
+    private static String normalizeRefText(String text) {
+        if (text == null) {
+            return null;
+        }
+        String trimmed = text.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /** token 上限：{@code <=0} → {@code null}（不下发上限）。 */
+    private static Integer positiveOrNull(int value) {
+        return value > 0 ? value : null;
     }
 
     /** 输出格式归一为受支持的 {@code wav} / {@code pcm}，未知 / 空回退 {@code wav}。 */

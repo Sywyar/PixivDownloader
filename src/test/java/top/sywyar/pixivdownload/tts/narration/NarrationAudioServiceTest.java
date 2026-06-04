@@ -71,7 +71,7 @@ class NarrationAudioServiceTest {
         NarrationScript.Line line = new NarrationScript.Line(
                 0, "原句", 1, "哀家", "angry", "An elderly woman, angry");
 
-        service.synthesizeLine(line, "zh-CN");
+        service.synthesizeLine(line, null, "zh-CN");
 
         ArgumentCaptor<NarrationVoiceRequest> captor = ArgumentCaptor.forClass(NarrationVoiceRequest.class);
         verify(voxcpm).synthesize(captor.capture());
@@ -81,6 +81,7 @@ class NarrationAudioServiceTest {
         assertThat(req.delivery()).isEqualTo("angry");
         assertThat(req.characterId()).isEqualTo(1);
         assertThat(req.localeHint()).isEqualTo("zh-CN");
+        assertThat(req.hasReferenceVoice()).isFalse();
     }
 
     private static NarrationVoiceEngine availableEngine(String id) {

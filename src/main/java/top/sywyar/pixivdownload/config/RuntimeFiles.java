@@ -48,6 +48,7 @@ public final class RuntimeFiles {
     public static final String EDGE_TTS_CHROMIUM_VERSION = "chromium-version.txt";
     public static final String BACKFILL_DIR = "backfill";
     public static final String BACKFILL_UNREACHABLE_FILE = "unreachable.json";
+    public static final String NARRATION_VOICE_DIR = "narration-voice";
     private static final String LEGACY_COLLECTION_ICONS_DIR = "_collection_icons";
     private static final String LEGACY_GUI_STATE_DIR = "_gui";
     private static final String LEGACY_TTS_DIR = "_tts";
@@ -109,6 +110,40 @@ public final class RuntimeFiles {
 
     public static Path resolveBackfillUnreachablePath() {
         return backfillDirectory().resolve(BACKFILL_UNREACHABLE_FILE).normalize();
+    }
+
+    /**
+     * 多角色朗读「参考音 / 标准音」存放目录：{@code data/narration-voice/}。参考 wav / mp3 是二进制资产，
+     * 必须放在 {@code data/} 下（不进 {@code rootFolder}、不新增前导下划线目录），元数据留 DB。
+     */
+    public static Path narrationVoiceDirectory() {
+        Path target = dataDirectory().resolve(NARRATION_VOICE_DIR);
+        try {
+            Files.createDirectories(target);
+        } catch (IOException e) {
+            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
+        }
+        return target.normalize();
+    }
+
+    /** 某花名册的参考音子目录：{@code data/narration-voice/{castId}/}。 */
+    public static Path narrationVoiceCastDirectory(long castId) {
+        Path target = narrationVoiceDirectory().resolve(Long.toString(castId));
+        try {
+            Files.createDirectories(target);
+        } catch (IOException e) {
+            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
+        }
+        return target.normalize();
+    }
+
+    /** 某角色的参考音文件：{@code data/narration-voice/{castId}/{characterId}.{ext}}（不自动创建文件）。 */
+    public static Path narrationVoiceFile(long castId, int characterId, String ext) {
+        String normalizedExt = ext == null ? "wav" : ext.trim().toLowerCase();
+        if (normalizedExt.isEmpty()) {
+            normalizedExt = "wav";
+        }
+        return narrationVoiceCastDirectory(castId).resolve(characterId + "." + normalizedExt).normalize();
     }
 
     public static Path singleInstanceDirectory() {

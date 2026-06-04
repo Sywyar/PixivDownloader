@@ -122,6 +122,41 @@ class VoxCpmNarrationEngineTest {
     }
 
     @Test
+    @DisplayName("可控克隆：配了参考音时 input 只含 delivery（不塞基底画像），body 带 ref_audio(data URI) / ref_text / max_new_tokens")
+    void cloneModeBuildsReferenceBody() throws Exception {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
+        NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", "种子句");
+        NarrationVoiceRequest req = new NarrationVoiceRequest(
+                "原句", "An elderly woman, low and cold voice", "angry", null, null, 9L, 1, null, ref);
+
+        engine(config("http://h/v1", "")).synthesize(req);
+
+        Map<String, Object> body = capturedBody(direct);
+        assertThat(body.get("input")).isEqualTo("(angry)原句");
+        assertThat((String) body.get("ref_audio")).startsWith("data:audio/wav;base64,");
+        assertThat(body.get("ref_text")).isEqualTo("种子句");
+        assertThat(body.get("max_new_tokens")).isEqualTo(4096);
+    }
+
+    @Test
+    @DisplayName("克隆全局关闭（enable-clone=false）：即便配了参考音也退回内联 voice-design，body 不带 ref_audio / max_new_tokens")
+    void cloneDisabledFallsBackToVoiceDesign() throws Exception {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
+        NarrationTtsConfig cfg = config("http://h/v1", "");
+        cfg.getVoxcpm().setEnableClone(false);
+        NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1}, "audio/wav", "x");
+        NarrationVoiceRequest req = new NarrationVoiceRequest(
+                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+
+        engine(cfg).synthesize(req);
+
+        Map<String, Object> body = capturedBody(direct);
+        assertThat(body.get("input")).isEqualTo("(An elderly woman)原句");
+        assertThat(body.containsKey("ref_audio")).isFalse();
+        assertThat(body.containsKey("max_new_tokens")).isFalse();
+    }
+
+    @Test
     @DisplayName("配了 api-key 时带 Bearer 头")
     void bearerHeaderWhenApiKeyConfigured() {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());

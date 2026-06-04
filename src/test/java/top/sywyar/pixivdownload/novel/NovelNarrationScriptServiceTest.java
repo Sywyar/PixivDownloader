@@ -55,7 +55,7 @@ class NovelNarrationScriptServiceTest {
                 new NovelNarrationScriptRow(7L, "", 5L, 0, 1234L, json));
         when(castService.find(5L)).thenReturn(cast(5L, 99L));
 
-        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
         NovelNarrationScriptService.ChapterScript result = service.getOrAnalyze(7L, "", 0, false, 0);
 
         assertEquals(1, result.lines().size());
@@ -86,7 +86,7 @@ class NovelNarrationScriptServiceTest {
                 .thenReturn(new ChapterNarration(script, List.of(), 5L));
         when(castService.find(5L)).thenReturn(cast(5L, 100L));
 
-        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
         NovelNarrationScriptService.ChapterScript result = service.getOrAnalyze(7L, "", 0, true, 0);
 
         assertEquals(2, result.lines().size());
@@ -111,7 +111,7 @@ class NovelNarrationScriptServiceTest {
 
         when(db.getNovel(7L)).thenReturn(novel(7L, "句子一。句子二。"));
 
-        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
         NovelNarrationScriptService.ChapterScript result = service.getOrAnalyze(7L, "", 0, true, 0, 0L);
 
         assertEquals(0L, result.castId());
@@ -133,7 +133,7 @@ class NovelNarrationScriptServiceTest {
         when(castService.ensureDefaultCastId(7L)).thenReturn(5L);
         when(castService.find(5L)).thenReturn(cast(5L, 70L));
 
-        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
         NovelNarrationScriptService.ChapterScript result =
                 service.getOrAnalyze(7L, "", 0, true, 0, 0L, "A warm female narrator.");
 
@@ -165,7 +165,7 @@ class NovelNarrationScriptServiceTest {
                 .thenReturn(new ChapterNarration(script, List.of(), 5L));
         when(castService.find(5L)).thenReturn(cast(5L, 80L));
 
-        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
         NovelNarrationScriptService.ChapterScript result =
                 service.getOrAnalyze(7L, "", 0, true, 0, null, "A warm female narrator.");
 
@@ -191,7 +191,7 @@ class NovelNarrationScriptServiceTest {
                 .thenReturn(new ChapterNarration(script, List.of(), 9L));
         when(castService.find(9L)).thenReturn(cast(9L, 50L));
 
-        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
         NovelNarrationScriptService.ChapterScript result = service.getOrAnalyze(7L, "", 0, true, 0, 9L);
 
         assertEquals(9L, result.castId());
@@ -213,14 +213,14 @@ class NovelNarrationScriptServiceTest {
         when(castService.voices(5L)).thenReturn(List.of(
                 new NarrationCharacter(0, "Narrator", "unknown", "unknown", "N.", true, false),
                 new NarrationCharacter(1, "哀家", "female", "elderly", "An elderly woman, low and cold voice.", false, true)));
-        when(audio.synthesizeLine(any(), any())).thenReturn(new NarrationAudio(new byte[]{1, 2}, "audio/wav"));
+        when(audio.synthesizeLine(any(), any(), any())).thenReturn(new NarrationAudio(new byte[]{1, 2}, "audio/wav"));
 
-        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
         NarrationAudio out = service.synthesizeLine(7L, "", 0);
 
         assertEquals("audio/wav", out.contentType());
         ArgumentCaptor<NarrationScript.Line> lineCaptor = ArgumentCaptor.forClass(NarrationScript.Line.class);
-        verify(audio).synthesizeLine(lineCaptor.capture(), any());
+        verify(audio).synthesizeLine(lineCaptor.capture(), any(), any());
         NarrationScript.Line line = lineCaptor.getValue();
         assertEquals(1, line.speakerId());
         assertEquals("住口！", line.text());
@@ -235,7 +235,7 @@ class NovelNarrationScriptServiceTest {
         NovelDatabase db = mock(NovelDatabase.class);
         NovelMapper mapper = mock(NovelMapper.class);
         NarrationAudioService audio = mock(NarrationAudioService.class);
-        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
 
         when(mapper.findNarrationScript(7L, "")).thenReturn(null);
         assertNull(service.synthesizeLine(7L, "", 0));

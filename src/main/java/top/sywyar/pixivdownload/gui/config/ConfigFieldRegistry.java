@@ -789,6 +789,27 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
+                ConfigFieldSpec.builder("narration-tts.voxcpm.enable-clone", message("gui.config.field.narration-tts.voxcpm.enable-clone.label"), BOOL, groupNarrationTts)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.narration-tts.voxcpm.enable-clone.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "voxcpm"))
+                        .hotReloadable()
+                        .build(),
+
+                ConfigFieldSpec.builder("narration-tts.voxcpm.max-new-tokens", message("gui.config.field.narration-tts.voxcpm.max-new-tokens.label"), INT, groupNarrationTts)
+                        .defaultValue("4096")
+                        .help(message("gui.config.field.narration-tts.voxcpm.max-new-tokens.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "voxcpm"))
+                        .validator(v -> {
+                            try {
+                                return Integer.parseInt(v) >= 0 ? null : message("gui.config.validation.valid-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+
                 // ── 推送通知（多通道） ──────────────────────────────────────────────
                 ConfigFieldSpec.builder("push.enabled", message("gui.config.field.push.enabled.label"), BOOL, groupNotification)
                         .defaultValue("false")

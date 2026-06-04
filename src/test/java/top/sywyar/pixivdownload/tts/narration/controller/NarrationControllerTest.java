@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.ai.narration.NarratorVoicePreset;
 import top.sywyar.pixivdownload.config.DebugConfig;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.NarrationConflictReport;
+import top.sywyar.pixivdownload.novel.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -38,12 +39,13 @@ class NarrationControllerTest {
 
     private final NovelNarrationScriptService scriptService = mock(NovelNarrationScriptService.class);
     private final NovelNarrationCastService castService = mock(NovelNarrationCastService.class);
+    private final NarrationReferenceVoiceService referenceVoiceService = mock(NarrationReferenceVoiceService.class);
     private final NovelDatabase novelDatabase = mock(NovelDatabase.class);
     private final NarrationAudioService audioService = mock(NarrationAudioService.class);
     private final DebugConfig debugConfig = new DebugConfig();
 
     private final NarrationController controller =
-            new NarrationController(scriptService, castService, audioService, novelDatabase,
+            new NarrationController(scriptService, castService, referenceVoiceService, audioService, novelDatabase,
                     TestI18nBeans.appMessages(), debugConfig);
     private final NarrationTtsController ttsController =
             new NarrationTtsController(audioService, scriptService, TestI18nBeans.appMessages());
@@ -225,10 +227,12 @@ class NarrationControllerTest {
         when(castService.voices(3L)).thenReturn(List.of(
                 new NarrationCharacter(0, "Narrator", "unknown", "unknown", "N.", true, false),
                 new NarrationCharacter(1, "哀家", "female", "elderly", "An elderly woman.", false, true)));
+        when(referenceVoiceService.sources(3L)).thenReturn(java.util.Map.of(1, "upload"));
         ResponseEntity<NarrationController.CastResponse> voices = controller.castVoices(3L);
         assertEquals(200, voices.getStatusCode().value());
         assertEquals(2, voices.getBody().voices().size());
         assertEquals("An elderly woman.", voices.getBody().voices().get(1).controlInstruction());
+        assertEquals("upload", voices.getBody().voices().get(1).refAudioSource());
     }
 
     @Test

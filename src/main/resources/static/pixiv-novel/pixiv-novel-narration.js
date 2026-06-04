@@ -848,7 +848,167 @@
         row.appendChild(head);
         row.appendChild(instr);
         row.appendChild(edit);
+        row.appendChild(renderRefRow(v));
         return row;
+    }
+
+    // 「标准音色 / 参考音」区：状态 + [生成标准音][试听参考音][上传][删除]。配了参考音后，逐句合成用其音色克隆
+    // （逐句情绪仍生效）、跨章一致；未配则用上面的音色画像。任何变更都会推进花名册 castUpdatedTime、失效音频缓存。
+    function refRowStatusLabel(source) {
+        if (source === 'auto') return t('narration:cast.ref.status.auto', '自动生成的标准音');
+        if (source === 'upload') return t('narration:cast.ref.status.upload', '已上传参考音');
+        return t('narration:cast.ref.status.none', '无参考音（使用音色画像）');
+    }
+
+    function renderRefRow(v) {
+        const box = document.createElement('div');
+        box.className = 'narration-voice-ref';
+        const status = document.createElement('span');
+        status.className = 'narration-voice-ref-status';
+        status.textContent = refRowStatusLabel(v.refAudioSource);
+        const actions = document.createElement('span');
+        actions.className = 'narration-voice-ref-actions';
+        const hasRef = !!v.refAudioSource;
+        const genBtn = refButton(t('narration:cast.ref.generate', '生成标准音'));
+        const playBtn = refButton(t('narration:cast.ref.preview', '试听参考音'));
+        const uploadBtn = refButton(t('narration:cast.ref.upload', '上传'));
+        const delBtn = refButton(t('narration:cast.ref.delete', '删除'));
+        playBtn.style.display = hasRef ? '' : 'none';
+        delBtn.style.display = hasRef ? '' : 'none';
+        genBtn.addEventListener('click', () => generateRef(v, genBtn));
+        playBtn.addEventListener('click', () => playRefAudio(playBtn, v.id));
+        uploadBtn.addEventListener('click', () => uploadRef(v));
+        delBtn.addEventListener('click', () => deleteRef(v));
+        actions.appendChild(genBtn);
+        actions.appendChild(playBtn);
+        actions.appendChild(uploadBtn);
+        actions.appendChild(delBtn);
+        box.appendChild(status);
+        box.appendChild(actions);
+        return box;
+    }
+
+    function refButton(label) {
+        const b = document.createElement('button');
+        b.className = 'btn btn-sm';
+        b.type = 'button';
+        b.textContent = label;
+        return b;
+    }
+
+    // 参考音变更后：清音频缓存 + 重取缓存脚本（刷新 castUpdatedTime 使音频缓存失效，不重算 LLM）+ 重渲染花名册（拉最新状态）。
+    async function afterRefChange() {
+        clearCache();
+        await reloadCachedScript();
+        await renderCastList();
+    }
+
+    // 自动生成并采用该角色的标准音（后端用其音色画像走 Voice Design 渲中性种子句）。
+    async function generateRef(v, button) {
+        if (!state.editCastId) return;
+        button.disabled = true;
+        button.textContent = t('narration:cast.ref.generating', '生成中…');
+        let done = false;
+        try {
+            const r = await fetch('/api/narration/cast/voice/reference/generate', {
+                method: 'POST', credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ castId: state.editCastId, characterId: v.id })
+            });
+            if (!r.ok) {
+                let msg = 'HTTP ' + r.status;
+                try { const j = await r.json(); if (j && j.message) msg = j.message; } catch {}
+                throw new Error(msg);
+            }
+            state.toast && state.toast(t('narration:toast.ref.generated', '已生成标准音并采用'), 'success');
+            done = true;
+            await afterRefChange();
+        } catch (e) {
+            state.toast && state.toast(t('narration:toast.ref.failed', '参考音操作失败：{message}',
+                { message: String(e && e.message ? e.message : e) }), 'error');
+        } finally {
+            // 成功路径已 renderCastList 重建本行，无需复位；失败则恢复按钮。
+            if (!done) { button.disabled = false; button.textContent = t('narration:cast.ref.generate', '生成标准音'); }
+        }
+    }
+
+    // 试听已配的参考音（直接回放存盘文件，非合成）。
+    async function playRefAudio(button, characterId) {
+        if (!button || !state.editCastId) return;
+        const restore = () => { button.disabled = false; button.textContent = t('narration:cast.ref.preview', '试听参考音'); };
+        button.disabled = true;
+        button.textContent = t('narration:cast.ref.loading', '加载中…');
+        try {
+            const r = await fetch('/api/narration/cast/voice/reference?castId='
+                + encodeURIComponent(state.editCastId) + '&characterId=' + encodeURIComponent(characterId),
+                { credentials: 'same-origin' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const blob = await r.blob();
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            const finish = () => { try { URL.revokeObjectURL(url); } catch {} restore(); };
+            audio.onended = finish;
+            audio.onerror = finish;
+            button.textContent = t('narration:cast.previewing', '试听中…');
+            audio.play().catch(finish);
+        } catch (e) {
+            state.toast && state.toast(t('narration:toast.ref.failed', '参考音操作失败：{message}',
+                { message: String(e && e.message ? e.message : e) }), 'error');
+            restore();
+        }
+    }
+
+    // 上传真人参考音（wav/mp3）+ 可选转录。
+    function uploadRef(v) {
+        if (!state.editCastId) return;
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'audio/wav,audio/x-wav,audio/mpeg,audio/mp3,.wav,.mp3';
+        input.style.display = 'none';
+        input.addEventListener('change', async () => {
+            const file = input.files && input.files[0];
+            if (file) {
+                const transcript = window.prompt(
+                    t('narration:cast.ref.upload-transcript', '可选：输入参考音对应的文本（留空则不使用转录）'), '');
+                const form = new FormData();
+                form.append('castId', String(state.editCastId));
+                form.append('characterId', String(v.id));
+                form.append('file', file);
+                if (transcript != null && transcript.trim()) form.append('refText', transcript.trim());
+                try {
+                    const r = await fetch('/api/narration/cast/voice/reference',
+                        { method: 'POST', credentials: 'same-origin', body: form });
+                    if (!r.ok) {
+                        let msg = 'HTTP ' + r.status;
+                        try { const j = await r.json(); if (j && j.message) msg = j.message; } catch {}
+                        throw new Error(msg);
+                    }
+                    state.toast && state.toast(t('narration:toast.ref.uploaded', '参考音已上传'), 'success');
+                    await afterRefChange();
+                } catch (e) {
+                    state.toast && state.toast(t('narration:toast.ref.failed', '参考音操作失败：{message}',
+                        { message: String(e && e.message ? e.message : e) }), 'error');
+                }
+            }
+            try { document.body.removeChild(input); } catch {}
+        });
+        document.body.appendChild(input);
+        input.click();
+    }
+
+    async function deleteRef(v) {
+        if (!state.editCastId) return;
+        try {
+            const r = await fetch('/api/narration/cast/voice/reference?castId='
+                + encodeURIComponent(state.editCastId) + '&characterId=' + encodeURIComponent(v.id),
+                { method: 'DELETE', credentials: 'same-origin' });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            state.toast && state.toast(t('narration:toast.ref.deleted', '参考音已删除'), 'success');
+            await afterRefChange();
+        } catch (e) {
+            state.toast && state.toast(t('narration:toast.ref.failed', '参考音操作失败：{message}',
+                { message: String(e && e.message ? e.message : e) }), 'error');
+        }
     }
 
     // 单角色试听：用该角色当前音色画像合成一小段示例文本（/preview）

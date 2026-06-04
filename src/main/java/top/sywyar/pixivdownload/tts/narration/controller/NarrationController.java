@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.config.DebugConfig;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.NarrationConflictReport;
+import top.sywyar.pixivdownload.novel.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -26,6 +27,7 @@ import top.sywyar.pixivdownload.tts.narration.NarrationAudioService;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 「AI 听小说」多角色朗读编排端点：整章脚本生成 / 缓存（{@code /script}）、花名册音色查看（{@code /cast}）、
@@ -46,6 +48,7 @@ public class NarrationController {
 
     private final NovelNarrationScriptService scriptService;
     private final NovelNarrationCastService castService;
+    private final NarrationReferenceVoiceService referenceVoiceService;
     private final NarrationAudioService narrationAudioService;
     private final NovelDatabase novelDatabase;
     private final AppMessages messages;
@@ -76,9 +79,12 @@ public class NarrationController {
                                   List<ConflictView> conflicts, long castId, long castUpdatedTime,
                                   int segmentSize, long analyzedTime) {}
 
-    /** 花名册角色（含音色画像，仅 admin 可见）。 */
+    /**
+     * 花名册角色（含音色画像，仅 admin 可见）。{@code refAudioSource} 为该角色参考音 / 标准音来源
+     * （{@code auto}=自动生成、{@code upload}=用户上传、{@code null}=未配，使用音色画像），供前端展示状态。
+     */
     public record VoiceView(int id, String name, String gender, String age,
-                            String controlInstruction, boolean editedByUser) {}
+                            String controlInstruction, boolean editedByUser, String refAudioSource) {}
 
     public record CastResponse(Long castId, String castName, List<VoiceView> voices) {}
 
@@ -191,12 +197,14 @@ public class NarrationController {
             return ResponseEntity.notFound().build();
         }
         if (def.cast() == null) {
-            return ResponseEntity.ok(new CastResponse(null, null, List.of(voiceView(NarrationCharacter.defaultNarrator()))));
+            return ResponseEntity.ok(new CastResponse(null, null,
+                    List.of(voiceView(NarrationCharacter.defaultNarrator(), null))));
         }
         long castId = def.cast().id();
+        Map<Integer, String> sources = referenceVoiceService.sources(castId);
         List<VoiceView> voices = new ArrayList<>();
         for (NarrationCharacter c : castService.voices(castId)) {
-            voices.add(voiceView(c));
+            voices.add(voiceView(c, sources.get(c.id())));
         }
         return ResponseEntity.ok(new CastResponse(castId, def.cast().name(), voices));
     }
@@ -244,9 +252,10 @@ public class NarrationController {
         if (cast == null) {
             return ResponseEntity.notFound().build();
         }
+        Map<Integer, String> sources = referenceVoiceService.sources(id);
         List<VoiceView> voices = new ArrayList<>();
         for (NarrationCharacter c : castService.voices(id)) {
-            voices.add(voiceView(c));
+            voices.add(voiceView(c, sources.get(c.id())));
         }
         return ResponseEntity.ok(new CastResponse(id, cast.name(), voices));
     }
@@ -292,8 +301,9 @@ public class NarrationController {
         return out;
     }
 
-    private static VoiceView voiceView(NarrationCharacter c) {
-        return new VoiceView(c.id(), c.name(), c.gender(), c.age(), c.controlInstruction(), c.editedByUser());
+    private static VoiceView voiceView(NarrationCharacter c, String refAudioSource) {
+        return new VoiceView(c.id(), c.name(), c.gender(), c.age(),
+                c.controlInstruction(), c.editedByUser(), refAudioSource);
     }
 
     private static CastSummary toSummary(NovelNarrationCast c) {

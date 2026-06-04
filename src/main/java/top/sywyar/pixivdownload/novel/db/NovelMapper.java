@@ -355,6 +355,10 @@ public interface NovelMapper {
             + "age TEXT,"
             + "control_instruction TEXT NOT NULL,"
             + "edited_by_user INTEGER NOT NULL DEFAULT 0,"
+            + "ref_audio_ext TEXT DEFAULT NULL,"
+            + "ref_audio_text TEXT DEFAULT NULL,"
+            + "ref_audio_source TEXT DEFAULT NULL,"
+            + "ref_audio_time INTEGER DEFAULT NULL,"
             + "created_time INTEGER NOT NULL,"
             + "PRIMARY KEY (cast_id, character_id))")
     void createNovelNarrationVoicesTable();
@@ -362,6 +366,19 @@ public interface NovelMapper {
     /** 幂等迁移：旧库 novel_narration_voices 表补 edited_by_user 列（0=AI 生成 / 1=用户手改锁定）；列已存在时调用方需吞掉异常 */
     @Update("ALTER TABLE novel_narration_voices ADD COLUMN edited_by_user INTEGER NOT NULL DEFAULT 0")
     void addNarrationVoiceEditedByUserColumn();
+
+    /** 幂等迁移：旧库 novel_narration_voices 表补参考音列（扩展名 / 转录 / 来源 / 时间）；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE novel_narration_voices ADD COLUMN ref_audio_ext TEXT DEFAULT NULL")
+    void addNarrationVoiceRefAudioExtColumn();
+
+    @Update("ALTER TABLE novel_narration_voices ADD COLUMN ref_audio_text TEXT DEFAULT NULL")
+    void addNarrationVoiceRefAudioTextColumn();
+
+    @Update("ALTER TABLE novel_narration_voices ADD COLUMN ref_audio_source TEXT DEFAULT NULL")
+    void addNarrationVoiceRefAudioSourceColumn();
+
+    @Update("ALTER TABLE novel_narration_voices ADD COLUMN ref_audio_time INTEGER DEFAULT NULL")
+    void addNarrationVoiceRefAudioTimeColumn();
 
     String SELECT_NARRATION_CAST = "SELECT c.id, c.name,"
             + " c.series_id AS seriesId, c.novel_id AS novelId,"
@@ -443,6 +460,34 @@ public interface NovelMapper {
 
     @Delete("DELETE FROM novel_narration_voices WHERE cast_id = #{castId}")
     void deleteNarrationVoices(@Param("castId") long castId);
+
+    /** 设置 / 覆盖某角色的参考音元数据（不动音色画像等其它列）；行不存在则影响 0 行。 */
+    @Update("UPDATE novel_narration_voices SET ref_audio_ext = #{ext}, ref_audio_text = #{text},"
+            + " ref_audio_source = #{source}, ref_audio_time = #{time}"
+            + " WHERE cast_id = #{castId} AND character_id = #{characterId}")
+    int updateNarrationVoiceReference(@Param("castId") long castId, @Param("characterId") int characterId,
+                                      @Param("ext") String ext, @Param("text") String text,
+                                      @Param("source") String source, @Param("time") Long time);
+
+    /** 清空某角色的参考音元数据（删除参考音时）。 */
+    @Update("UPDATE novel_narration_voices SET ref_audio_ext = NULL, ref_audio_text = NULL,"
+            + " ref_audio_source = NULL, ref_audio_time = NULL"
+            + " WHERE cast_id = #{castId} AND character_id = #{characterId}")
+    int clearNarrationVoiceReference(@Param("castId") long castId, @Param("characterId") int characterId);
+
+    /** 取某角色的参考音元数据（无参考音时各列为 null）。 */
+    @Select("SELECT cast_id AS castId, character_id AS characterId,"
+            + " ref_audio_ext AS ext, ref_audio_text AS text,"
+            + " ref_audio_source AS source, ref_audio_time AS time"
+            + " FROM novel_narration_voices WHERE cast_id = #{castId} AND character_id = #{characterId}")
+    NovelNarrationVoiceRef findNarrationVoiceRef(@Param("castId") long castId, @Param("characterId") int characterId);
+
+    /** 取某花名册全部已配参考音的角色元数据（供前端展示每个角色的参考音状态）。 */
+    @Select("SELECT cast_id AS castId, character_id AS characterId,"
+            + " ref_audio_ext AS ext, ref_audio_text AS text,"
+            + " ref_audio_source AS source, ref_audio_time AS time"
+            + " FROM novel_narration_voices WHERE cast_id = #{castId} AND ref_audio_ext IS NOT NULL")
+    List<NovelNarrationVoiceRef> findNarrationVoiceRefs(@Param("castId") long castId);
 
     // ── 朗读脚本持久化（novel_narration_scripts）───────────────────────────────────
     // 一本小说每种语言一行的整章逐句朗读脚本（lang ''=原文）。LLM 分析昂贵，逐句归属持久化、重播不重算，

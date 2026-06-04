@@ -422,6 +422,10 @@ public final class ManagedDatabaseSchema {
                         column("age", "TEXT", false, null, 0),
                         column("control_instruction", "TEXT", true, null, 0),
                         column("edited_by_user", "INTEGER", true, "0", 0),
+                        column("ref_audio_ext", "TEXT", false, null, 0),
+                        column("ref_audio_text", "TEXT", false, null, 0),
+                        column("ref_audio_source", "TEXT", false, null, 0),
+                        column("ref_audio_time", "INTEGER", false, null, 0),
                         column("created_time", "INTEGER", true, null, 0)
                 ),
                 List.of()

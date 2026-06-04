@@ -73,6 +73,11 @@ public class NovelDatabase {
         addColumnIfMissing(novelMapper::addNovelSeriesTitleTranslationsDescriptionColumn);
         // 幂等迁移：旧 dev 库 novel_narration_voices 表补 edited_by_user 列；列已存在抛异常吞掉
         addColumnIfMissing(novelMapper::addNarrationVoiceEditedByUserColumn);
+        // 幂等迁移：旧 dev 库 novel_narration_voices 表补参考音列；列已存在抛异常吞掉
+        addColumnIfMissing(novelMapper::addNarrationVoiceRefAudioExtColumn);
+        addColumnIfMissing(novelMapper::addNarrationVoiceRefAudioTextColumn);
+        addColumnIfMissing(novelMapper::addNarrationVoiceRefAudioSourceColumn);
+        addColumnIfMissing(novelMapper::addNarrationVoiceRefAudioTimeColumn);
         novelMapper.migrateNovelTimestampsToMillis();
         novelMapper.migrateNovelCollectionTimestampsToMillis();
         novelMapper.migrateNovelSeriesTimestampsToMillis();

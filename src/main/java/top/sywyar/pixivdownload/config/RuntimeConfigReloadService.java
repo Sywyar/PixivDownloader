@@ -394,6 +394,16 @@ public class RuntimeConfigReloadService {
                 currentVox.isUseProxy(),
                 nextVox.isUseProxy(),
                 () -> currentVox.setUseProxy(nextVox.isUseProxy()));
+        applyIfChanged(applied,
+                "narration-tts.voxcpm.enable-clone",
+                currentVox.isEnableClone(),
+                nextVox.isEnableClone(),
+                () -> currentVox.setEnableClone(nextVox.isEnableClone()));
+        applyIfChanged(applied,
+                "narration-tts.voxcpm.max-new-tokens",
+                currentVox.getMaxNewTokens(),
+                nextVox.getMaxNewTokens(),
+                () -> currentVox.setMaxNewTokens(nextVox.getMaxNewTokens()));
     }
 
     private static NarrationTtsConfig.Voxcpm ensureVoxcpm(NarrationTtsConfig config) {
