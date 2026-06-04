@@ -484,7 +484,11 @@ public class StatusPanel extends JPanel {
         }
 
         boolean persisted = persistThemePreference(next);
-        FlatLafSetup.setPreference(next);
+        // LAF 重建（FlatLaf.updateUI）会重装包括本下拉框在内的所有组件 UI；若在组合框自身的
+        // 选中回调里同步触发，会拆掉正在栈上执行回调的旧 UI delegate（其 comboBox 被置 null），
+        // 方向键导航的 selectNextPossibleValue() 末尾再 repaint 就会 NPE。推迟到当前键盘事件
+        // 派发结束后再切换，等价于 applyLanguageSelection() 对 onLocaleChanged 的处理。
+        SwingUtilities.invokeLater(() -> FlatLafSetup.setPreference(next));
 
         if (!persisted && configPath != null) {
             log.warn(logMessage("gui.status.log.theme.persist-failed-warn", configPath));
