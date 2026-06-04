@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,6 +18,7 @@ import top.sywyar.pixivdownload.novel.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.tts.narration.NarrationAudioService;
 
@@ -48,7 +50,12 @@ public class NarrationController {
 
     // ── DTO ──────────────────────────────────────────────────────────────────
 
-    public record ScriptRequest(Long novelId, String lang, Integer segmentSize, Boolean force) {}
+    /**
+     * 生成 / 取脚本请求。{@code castId} 为本次分析显式指定的花名册（{@code null}=本作默认、{@code <=0}=纯旁白、
+     * {@code >0}=指定/借用花名册）；{@code analyzeIfMissing} 为 {@code false} 时仅取缓存、无缓存不分析（探测用）。
+     */
+    public record ScriptRequest(Long novelId, String lang, Integer segmentSize, Boolean force,
+                                Long castId, Boolean analyzeIfMissing) {}
 
     /** 逐句脚本行（下发给客户端，<b>不含</b> controlInstruction）。 */
     public record ScriptLineView(int index, int speakerId, String speakerName, String delivery,
@@ -61,7 +68,7 @@ public class NarrationController {
                                String currentInstruction, String suggestion) {}
 
     public record ScriptResponse(List<ScriptLineView> lines, List<CastBrief> cast,
-                                  List<ConflictView> conflicts, long castUpdatedTime,
+                                  List<ConflictView> conflicts, long castId, long castUpdatedTime,
                                   int segmentSize, long analyzedTime) {}
 
     /** 花名册角色（含音色画像，仅 admin 可见）。 */
@@ -70,7 +77,18 @@ public class NarrationController {
 
     public record CastResponse(Long castId, String castName, List<VoiceView> voices) {}
 
-    public record VoiceUpdateRequest(Long novelId, Integer characterId, String controlInstruction) {}
+    /** 花名册概要（选择器用）。 */
+    public record CastSummary(long id, String name, Long seriesId, Long novelId, int voiceCount) {}
+
+    public record CastListResponse(List<CastSummary> casts) {}
+
+    public record CreateCastRequest(String name, Long seriesId, Long novelId) {}
+
+    /** 某作品的默认花名册；{@code castId} 为 {@code null} 表示尚未创建，前端可据 {@code name} + 绑定按需创建。 */
+    public record DefaultCastResponse(Long castId, String name, Long seriesId, Long novelId, int voiceCount) {}
+
+    /** 编辑某角色音色：优先用显式 {@code castId}，否则按 {@code novelId} 解析本作默认册（按需创建）。 */
+    public record VoiceUpdateRequest(Long castId, Long novelId, Integer characterId, String controlInstruction) {}
 
     /** 朗读引擎可用性（前端据此启用 / 禁用「富感情朗读」听书引擎入口）。 */
     public record AvailabilityResponse(boolean available) {}
@@ -100,15 +118,28 @@ public class NarrationController {
         String lang = request.lang() == null ? "" : request.lang().trim();
         int segmentSize = request.segmentSize() == null ? 0 : Math.max(0, request.segmentSize());
         boolean force = Boolean.TRUE.equals(request.force());
+        boolean analyzeIfMissing = request.analyzeIfMissing() == null || request.analyzeIfMissing();
+
+        // 探测模式：仅取缓存、无缓存不分析（点播放前判断是否已有脚本）。
+        if (!force && !analyzeIfMissing) {
+            NovelNarrationScriptService.ChapterScript cached = scriptService.peekScript(novelId, lang);
+            if (cached == null) {
+                return ResponseEntity.noContent().build();
+            }
+            return ResponseEntity.ok(toScriptResponse(cached));
+        }
 
         NovelNarrationScriptService.ChapterScript script;
         try {
-            script = scriptService.getOrAnalyze(novelId, lang, segmentSize, force, MAX_CONTENT_CHARS);
+            script = scriptService.getOrAnalyze(novelId, lang, segmentSize, force, MAX_CONTENT_CHARS, request.castId());
         } catch (NovelNarrationScriptService.ContentTooLargeException e) {
             return ResponseEntity.badRequest()
                     .body(new ErrorResponse(messages.get("narration.error.content-too-large", e.limit())));
         }
+        return ResponseEntity.ok(toScriptResponse(script));
+    }
 
+    private ScriptResponse toScriptResponse(NovelNarrationScriptService.ChapterScript script) {
         List<ScriptLineView> lines = new ArrayList<>(script.lines().size());
         for (NovelNarrationScriptService.ScriptLine l : script.lines()) {
             lines.add(new ScriptLineView(l.index(), l.speakerId(), l.speakerName(),
@@ -119,8 +150,8 @@ public class NarrationController {
             conflicts.add(new ConflictView(c.characterId(), c.name(), c.type(),
                     c.reason(), c.currentInstruction(), c.suggestion()));
         }
-        return ResponseEntity.ok(new ScriptResponse(lines, castBrief(script.castId()),
-                conflicts, script.castUpdatedTime(), script.segmentSize(), script.analyzedTime()));
+        return new ScriptResponse(lines, castBrief(script.castId()), conflicts, script.castId(),
+                script.castUpdatedTime(), script.segmentSize(), script.analyzedTime());
     }
 
     /** 查看某本小说的默认花名册（含音色画像，admin-only）；未分析时返回仅旁白、不强制创建。 */
@@ -141,19 +172,79 @@ public class NarrationController {
         return ResponseEntity.ok(new CastResponse(castId, def.cast().name(), voices));
     }
 
-    /** 编辑某角色音色画像并锁定（{@code edited_by_user=1}）。冲突解决「采纳建议 / 改写」复用本端点；「保留」为无操作。 */
-    @PutMapping("/cast/voice")
-    public ResponseEntity<?> updateVoice(@RequestBody VoiceUpdateRequest request) {
-        if (request == null || request.novelId() == null || request.characterId() == null
-                || request.controlInstruction() == null || request.controlInstruction().isBlank()) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.error.invalid-voice")));
+    /** 列出全部花名册（选择器用，含角色数）。 */
+    @GetMapping("/casts")
+    public CastListResponse listCasts() {
+        List<CastSummary> casts = new ArrayList<>();
+        for (NovelNarrationCast c : castService.listAll()) {
+            casts.add(toSummary(c));
         }
-        NovelNarrationCastService.DefaultCast def = castService.resolveNovelDefaultCast(request.novelId());
+        return new CastListResponse(casts);
+    }
+
+    /** 新建花名册（{@code seriesId}/{@code novelId} 二选一绑定，均空=无绑定的共享册）。 */
+    @PostMapping("/casts")
+    public ResponseEntity<CastSummary> createCast(@RequestBody CreateCastRequest request) {
+        if (request == null) {
+            return ResponseEntity.badRequest().build();
+        }
+        NovelNarrationCast created = castService.create(request.name(), request.seriesId(), request.novelId());
+        return ResponseEntity.ok(toSummary(created));
+    }
+
+    /** 某本小说的默认花名册（{@code castId} 为 {@code null} 表示尚未创建，前端可按需创建）。 */
+    @GetMapping("/casts/novel/{novelId}/default")
+    public ResponseEntity<DefaultCastResponse> novelDefaultCast(@PathVariable long novelId) {
+        NovelNarrationCastService.DefaultCast def = castService.resolveNovelDefaultCast(novelId);
         if (def == null) {
             return ResponseEntity.notFound().build();
         }
-        long castId = def.cast() != null ? def.cast().id()
-                : castService.create(def.suggestedName(), def.seriesId(), def.novelId()).id();
+        NovelNarrationCast cast = def.cast();
+        if (cast != null) {
+            return ResponseEntity.ok(new DefaultCastResponse(cast.id(), cast.name(),
+                    cast.seriesId(), cast.novelId(), cast.voiceCount()));
+        }
+        return ResponseEntity.ok(new DefaultCastResponse(null, def.suggestedName(),
+                def.seriesId(), def.novelId(), 0));
+    }
+
+    /** 取某花名册的全部角色（含音色画像，admin-only）；供弹窗内「选角与音色」按 castId 编辑所选花名册。 */
+    @GetMapping("/casts/{id}/voices")
+    public ResponseEntity<CastResponse> castVoices(@PathVariable long id) {
+        NovelNarrationCast cast = castService.find(id);
+        if (cast == null) {
+            return ResponseEntity.notFound().build();
+        }
+        List<VoiceView> voices = new ArrayList<>();
+        for (NarrationCharacter c : castService.voices(id)) {
+            voices.add(voiceView(c));
+        }
+        return ResponseEntity.ok(new CastResponse(id, cast.name(), voices));
+    }
+
+    /** 编辑某角色音色画像并锁定（{@code edited_by_user=1}）。冲突解决「采纳建议 / 改写」复用本端点；「保留」为无操作。 */
+    @PutMapping("/cast/voice")
+    public ResponseEntity<?> updateVoice(@RequestBody VoiceUpdateRequest request) {
+        if (request == null || request.characterId() == null
+                || request.controlInstruction() == null || request.controlInstruction().isBlank()) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.error.invalid-voice")));
+        }
+        long castId;
+        if (request.castId() != null && request.castId() > 0) {
+            if (!castService.exists(request.castId())) {
+                return ResponseEntity.notFound().build();
+            }
+            castId = request.castId();
+        } else if (request.novelId() != null) {
+            NovelNarrationCastService.DefaultCast def = castService.resolveNovelDefaultCast(request.novelId());
+            if (def == null) {
+                return ResponseEntity.notFound().build();
+            }
+            castId = def.cast() != null ? def.cast().id()
+                    : castService.create(def.suggestedName(), def.seriesId(), def.novelId()).id();
+        } else {
+            return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.error.invalid-voice")));
+        }
         castService.updateVoiceInstruction(castId, request.characterId(), request.controlInstruction());
         return ResponseEntity.ok().build();
     }
@@ -174,5 +265,9 @@ public class NarrationController {
 
     private static VoiceView voiceView(NarrationCharacter c) {
         return new VoiceView(c.id(), c.name(), c.gender(), c.age(), c.controlInstruction(), c.editedByUser());
+    }
+
+    private static CastSummary toSummary(NovelNarrationCast c) {
+        return new CastSummary(c.id(), c.name(), c.seriesId(), c.novelId(), c.voiceCount());
     }
 }

@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
 import top.sywyar.pixivdownload.ai.narration.NarrationConflict;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
+import top.sywyar.pixivdownload.tts.narration.NarrationScript;
 import top.sywyar.pixivdownload.tts.narration.NarrationScriptService;
 import top.sywyar.pixivdownload.tts.narration.NarrationSegmentAnalysis;
 import top.sywyar.pixivdownload.tts.narration.NarrationSentence;
@@ -196,6 +197,29 @@ class NovelNarrationCastServiceTest {
         assertEquals(2, batches.size());
         assertEquals(3, batches.get(0).size()); // 整个段落 0（30 字）不被拆
         assertEquals(1, batches.get(1).size());
+    }
+
+    @Test
+    @DisplayName("analyzeChapter：显式指定花名册存在时用它做基底，不解析本作默认册")
+    void analyzeChapterUsesCastOverride() {
+        NovelMapper mapper = mock(NovelMapper.class);
+        NovelDatabase db = mock(NovelDatabase.class);
+        NarrationScriptService scriptSvc = mock(NarrationScriptService.class);
+        NovelNarrationCastService svc = new NovelNarrationCastService(mapper, db, scriptSvc, TX);
+
+        when(mapper.countNarrationCastById(9L)).thenReturn(1);
+        when(mapper.findNarrationVoices(9L)).thenReturn(List.of(narrator("N")));
+        when(scriptSvc.analyzeSegment(any(), any(), anyInt()))
+                .thenReturn(new NarrationSegmentAnalysis(List.of(), List.of(), Map.of(), List.of()));
+        NarrationScript built = new NarrationScript(List.of(narrator("N")),
+                List.of(new NarrationScript.Line(0, "句。", 0, "Narrator", "", "N")), true);
+        when(scriptSvc.buildScript(any(), any(), any())).thenReturn(built);
+
+        ChapterNarration out = svc.analyzeChapter(11L, List.of(new NarrationSentence("句。", 0)), 0, 9L);
+
+        assertEquals(9L, out.castId());
+        // 指定册存在 → 走 exists 分支、不解析本作默认册（不读 novel 记录）
+        verify(db, never()).getNovel(anyLong());
     }
 
     @Test

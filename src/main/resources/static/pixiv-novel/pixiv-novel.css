@@ -664,6 +664,8 @@
         }
 
         /* 选角 / 冲突面板 */
+        /* 从「朗读分析设置」弹窗（.pt-backdrop，z-index:4000）内打开「选角与音色」时，需叠在其之上 */
+        #modalNarrationCast { z-index: 4200; }
         .narration-cast-modal { max-width: 560px; }
         .narration-conflicts {
             margin-bottom: 14px;

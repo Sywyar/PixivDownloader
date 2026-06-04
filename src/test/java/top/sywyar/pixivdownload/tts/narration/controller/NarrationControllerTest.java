@@ -16,13 +16,19 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 
 import java.util.List;
 
+import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @DisplayName("多角色朗读控制器（DTO 形状 / controlInstruction 不下发 / line 错误码）")
@@ -51,20 +57,21 @@ class NarrationControllerTest {
                 new NovelNarrationScriptService.ScriptLine(0, 1, "哀家", "angry", 2, "住口！"));
         List<NarrationConflictReport> conflicts = List.of(
                 new NarrationConflictReport(1, "哀家", "contradiction", "reason", "old voice", "new voice"));
-        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt()))
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class)))
                 .thenReturn(new NovelNarrationScriptService.ChapterScript(lines, 5L, 88L, 0, 1234L, conflicts));
         when(castService.voices(5L)).thenReturn(List.of(
                 new NarrationCharacter(0, "Narrator", "unknown", "unknown", "N.", true, false),
                 new NarrationCharacter(1, "哀家", "female", "elderly", "An elderly woman.", false, true)));
 
         ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(7L, null, null, null));
+                new NarrationController.ScriptRequest(7L, null, null, null, null, null));
 
         assertEquals(200, resp.getStatusCode().value());
         NarrationController.ScriptResponse body = (NarrationController.ScriptResponse) resp.getBody();
         assertEquals(1, body.lines().size());
         assertEquals(1, body.lines().get(0).speakerId());
         assertEquals(2, body.lines().get(0).paragraphIndex());
+        assertEquals(5L, body.castId());
         assertEquals(88L, body.castUpdatedTime());
         assertEquals(1234L, body.analyzedTime());
         // cast 概要不含音色画像（CastBrief 无 controlInstruction 字段，结构性保证）
@@ -79,11 +86,43 @@ class NarrationControllerTest {
     @DisplayName("/script：正文过长返回 400")
     void scriptTooLargeReturns400() {
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
-        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt()))
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class)))
                 .thenThrow(new NovelNarrationScriptService.ContentTooLargeException(200000));
         ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(7L, null, null, null));
+                new NarrationController.ScriptRequest(7L, null, null, null, null, null));
         assertEquals(400, resp.getStatusCode().value());
+    }
+
+    @Test
+    @DisplayName("/script：显式 castId 透传给分析；castId 随脚本下发")
+    void scriptPassesCastIdOverride() {
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+        List<NovelNarrationScriptService.ScriptLine> lines = List.of(
+                new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), eq(9L)))
+                .thenReturn(new NovelNarrationScriptService.ChapterScript(lines, 9L, 5L, 0, 6L, List.of()));
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, null, 9L, null));
+
+        assertEquals(200, resp.getStatusCode().value());
+        NarrationController.ScriptResponse body = (NarrationController.ScriptResponse) resp.getBody();
+        assertEquals(9L, body.castId());
+        verify(scriptService).getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), eq(9L));
+    }
+
+    @Test
+    @DisplayName("/script：analyzeIfMissing=false 且无缓存返回 204（绝不分析）")
+    void scriptPeekNoCacheReturns204() {
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+        when(scriptService.peekScript(7L, "")).thenReturn(null);
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, null, null, false));
+
+        assertEquals(204, resp.getStatusCode().value());
+        verify(scriptService, org.mockito.Mockito.never())
+                .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class));
     }
 
     @Test
@@ -105,8 +144,60 @@ class NarrationControllerTest {
     void scriptNotFound() {
         when(novelDatabase.getNovel(9L)).thenReturn(null);
         ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(9L, null, null, null));
+                new NarrationController.ScriptRequest(9L, null, null, null, null, null));
         assertEquals(404, resp.getStatusCode().value());
+    }
+
+    @Test
+    @DisplayName("/casts：列表 / 新建 / 本作默认 / 取某册 voices")
+    void castEndpoints() {
+        // 列表
+        when(castService.listAll()).thenReturn(List.of(
+                new NovelNarrationCast(3L, "甲册", null, 7L, 1L, 2L, 5),
+                new NovelNarrationCast(4L, "共享册", null, null, 1L, 2L, 0)));
+        NarrationController.CastListResponse list = controller.listCasts();
+        assertEquals(2, list.casts().size());
+        assertEquals(3L, list.casts().get(0).id());
+
+        // 新建（无绑定的共享册）
+        when(castService.create(eq("共享册"), nullable(Long.class), nullable(Long.class)))
+                .thenReturn(new NovelNarrationCast(8L, "共享册", null, null, 1L, 2L, 0));
+        ResponseEntity<NarrationController.CastSummary> created = controller.createCast(
+                new NarrationController.CreateCastRequest("共享册", null, null));
+        assertEquals(200, created.getStatusCode().value());
+        assertEquals(8L, created.getBody().id());
+
+        // 本作默认（已创建）
+        when(castService.resolveNovelDefaultCast(7L)).thenReturn(new NovelNarrationCastService.DefaultCast(
+                new NovelNarrationCast(3L, "甲册", null, 7L, 1L, 2L, 5), "甲册", null, 7L));
+        ResponseEntity<NarrationController.DefaultCastResponse> def = controller.novelDefaultCast(7L);
+        assertEquals(200, def.getStatusCode().value());
+        assertEquals(3L, def.getBody().castId());
+
+        // 本作默认（尚未创建 → castId null）
+        when(castService.resolveNovelDefaultCast(8L)).thenReturn(
+                new NovelNarrationCastService.DefaultCast(null, "novel-8", null, 8L));
+        assertNull(controller.novelDefaultCast(8L).getBody().castId());
+
+        // 取某册 voices（含音色画像）
+        when(castService.find(3L)).thenReturn(new NovelNarrationCast(3L, "甲册", null, 7L, 1L, 2L, 5));
+        when(castService.voices(3L)).thenReturn(List.of(
+                new NarrationCharacter(0, "Narrator", "unknown", "unknown", "N.", true, false),
+                new NarrationCharacter(1, "哀家", "female", "elderly", "An elderly woman.", false, true)));
+        ResponseEntity<NarrationController.CastResponse> voices = controller.castVoices(3L);
+        assertEquals(200, voices.getStatusCode().value());
+        assertEquals(2, voices.getBody().voices().size());
+        assertEquals("An elderly woman.", voices.getBody().voices().get(1).controlInstruction());
+    }
+
+    @Test
+    @DisplayName("/cast/voice：按 castId 编辑指定花名册角色音色")
+    void updateVoiceByCastId() {
+        when(castService.exists(3L)).thenReturn(true);
+        ResponseEntity<?> resp = controller.updateVoice(
+                new NarrationController.VoiceUpdateRequest(3L, null, 1, "A calm young man."));
+        assertEquals(200, resp.getStatusCode().value());
+        verify(castService).updateVoiceInstruction(3L, 1, "A calm young man.");
     }
 
     @Test

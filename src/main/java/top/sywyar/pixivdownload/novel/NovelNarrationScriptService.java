@@ -100,13 +100,26 @@ public class NovelNarrationScriptService {
      * @param maxChars     整章正文字数上限；新分析时正文超限抛 {@link ContentTooLargeException}
      */
     public ChapterScript getOrAnalyze(long novelId, String lang, int segmentSize, boolean force, int maxChars) {
+        return getOrAnalyze(novelId, lang, segmentSize, force, maxChars, null);
+    }
+
+    /**
+     * 同 {@link #getOrAnalyze(long, String, int, boolean, int)}，但允许调用方<b>显式指定花名册</b>用于本次分析：
+     * <ul>
+     *   <li>{@code castId == null} → 取本作默认花名册（现有行为）；</li>
+     *   <li>{@code castId != null && castId <= 0} → <b>纯旁白</b>：不调 LLM，全章逐句归旁白，落库 {@code cast_id=0}；</li>
+     *   <li>{@code castId != null && castId > 0} → 以该花名册为基底分析（借用别人的花名册即编辑那份共享册）。</li>
+     * </ul>
+     * 命中缓存且非 {@code force} 时仍直接返回旧脚本（不重算、忽略 {@code castId}）。
+     */
+    public ChapterScript getOrAnalyze(long novelId, String lang, int segmentSize, boolean force, int maxChars,
+                                      Long castId) {
         String langKey = lang == null ? "" : lang.trim();
         int normalizedSegment = Math.max(0, segmentSize);
         if (!force) {
-            NovelNarrationScriptRow row = novelMapper.findNarrationScript(novelId, langKey);
-            if (row != null) {
-                return new ChapterScript(parseLines(row.scriptJson()), row.castId(),
-                        castUpdatedTime(row.castId()), row.segmentSize(), row.analyzedTime(), List.of());
+            ChapterScript cached = peekScript(novelId, langKey);
+            if (cached != null) {
+                return cached;
             }
         }
         String raw = resolveRawContent(novelId, langKey);
@@ -114,20 +127,40 @@ public class NovelNarrationScriptService {
             throw new ContentTooLargeException(maxChars);
         }
         List<NarrationSentence> sentences = NarrationSentenceSplitter.split(raw);
-        ChapterNarration narration = castService.analyzeChapter(novelId, sentences, normalizedSegment);
-        NarrationScript script = narration.script();
 
-        List<ScriptLine> lines = new ArrayList<>(script.lines().size());
-        for (NarrationScript.Line l : script.lines()) {
-            int para = (l.index() >= 0 && l.index() < sentences.size())
-                    ? sentences.get(l.index()).paragraphIndex() : -1;
-            lines.add(new ScriptLine(l.index(), l.speakerId(), l.speakerName(),
-                    l.delivery() == null ? "" : l.delivery(), para, l.text()));
+        List<ScriptLine> lines;
+        long resolvedCastId;
+        List<NarrationConflictReport> conflicts;
+        if (castId != null && castId <= 0) {
+            // 纯旁白：不调 LLM，全章逐句归旁白（仍按句保留 paragraphIndex），落库 cast_id=0。
+            lines = narratorOnlyLines(sentences);
+            resolvedCastId = 0L;
+            conflicts = List.of();
+        } else {
+            ChapterNarration narration = castService.analyzeChapter(novelId, sentences, normalizedSegment, castId);
+            lines = toScriptLines(narration.script(), sentences);
+            resolvedCastId = narration.castId();
+            conflicts = narration.conflicts();
         }
-        long castId = resolveCastId(novelId);
+
         long now = TimestampUtils.nowMillis();
-        novelMapper.upsertNarrationScript(novelId, langKey, castId, normalizedSegment, now, writeLines(lines));
-        return new ChapterScript(lines, castId, castUpdatedTime(castId), normalizedSegment, now, narration.conflicts());
+        novelMapper.upsertNarrationScript(novelId, langKey, resolvedCastId, normalizedSegment, now, writeLines(lines));
+        return new ChapterScript(lines, resolvedCastId, castUpdatedTime(resolvedCastId), normalizedSegment, now,
+                conflicts);
+    }
+
+    /**
+     * 只读已持久化脚本（命中返回，<b>绝不</b>断句 / 调 LLM / 落库），供「点播放前探测是否已分析」与音色编辑后刷新
+     * {@code castUpdatedTime} 使用；无缓存返回 {@code null}。
+     */
+    public ChapterScript peekScript(long novelId, String lang) {
+        String langKey = lang == null ? "" : lang.trim();
+        NovelNarrationScriptRow row = novelMapper.findNarrationScript(novelId, langKey);
+        if (row == null) {
+            return null;
+        }
+        return new ChapterScript(parseLines(row.scriptJson()), row.castId(),
+                castUpdatedTime(row.castId()), row.segmentSize(), row.analyzedTime(), List.of());
     }
 
     /**
@@ -180,6 +213,29 @@ public class NovelNarrationScriptService {
 
     // ── 内部 ─────────────────────────────────────────────────────────────────
 
+    /** 把逐句脚本转成持久化行，paragraphIndex 由对应输入句补齐（越界归 -1）。 */
+    private static List<ScriptLine> toScriptLines(NarrationScript script, List<NarrationSentence> sentences) {
+        List<ScriptLine> lines = new ArrayList<>(script.lines().size());
+        for (NarrationScript.Line l : script.lines()) {
+            int para = (l.index() >= 0 && l.index() < sentences.size())
+                    ? sentences.get(l.index()).paragraphIndex() : -1;
+            lines.add(new ScriptLine(l.index(), l.speakerId(), l.speakerName(),
+                    l.delivery() == null ? "" : l.delivery(), para, l.text()));
+        }
+        return lines;
+    }
+
+    /** 纯旁白脚本：每句归旁白（id 0），无 delivery；不调 LLM。 */
+    private static List<ScriptLine> narratorOnlyLines(List<NarrationSentence> sentences) {
+        NarrationCharacter narrator = NarrationCharacter.defaultNarrator();
+        List<ScriptLine> lines = new ArrayList<>(sentences.size());
+        for (int i = 0; i < sentences.size(); i++) {
+            NarrationSentence s = sentences.get(i);
+            lines.add(new ScriptLine(i, narrator.id(), narrator.name(), "", s.paragraphIndex(), s.text()));
+        }
+        return lines;
+    }
+
     private String resolveRawContent(long novelId, String langKey) {
         NovelRecord rec = novelDatabase.getNovel(novelId);
         String original = (rec == null || rec.rawContent() == null) ? "" : rec.rawContent();
@@ -189,12 +245,6 @@ public class NovelNarrationScriptService {
         // 与详情页一致：该语言有非空译文则用译文（与渲染源同源，保证 paragraphIndex 对齐），否则回退原文。
         String translated = novelDatabase.getTranslationContent(novelId, langKey);
         return (translated != null && !translated.isBlank()) ? translated : original;
-    }
-
-    /** 分析后解析实际所用花名册 ID（analyzeChapter 已按需创建）；无花名册返回 0。 */
-    private long resolveCastId(long novelId) {
-        NovelNarrationCastService.DefaultCast def = castService.resolveNovelDefaultCast(novelId);
-        return (def != null && def.cast() != null) ? def.cast().id() : 0L;
     }
 
     private long castUpdatedTime(long castId) {

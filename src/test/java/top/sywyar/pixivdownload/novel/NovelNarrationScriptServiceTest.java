@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -62,7 +63,7 @@ class NovelNarrationScriptServiceTest {
         assertEquals(2, result.lines().get(0).paragraphIndex());
         assertEquals(99L, result.castUpdatedTime());
         assertEquals(1234L, result.analyzedTime());
-        verify(castService, never()).analyzeChapter(anyLong(), any(), anyInt());
+        verify(castService, never()).analyzeChapter(anyLong(), any(), anyInt(), nullable(Long.class));
         verify(mapper, never()).upsertNarrationScript(anyLong(), any(), anyLong(), anyInt(), anyLong(), any());
     }
 
@@ -81,11 +82,8 @@ class NovelNarrationScriptServiceTest {
         NarrationScript script = new NarrationScript(roster, List.of(
                 new NarrationScript.Line(0, "句子一。", 1, "甲", "calm", "A young man, calm"),
                 new NarrationScript.Line(1, "句子二。", 0, "Narrator", "", "N.")), true);
-        when(castService.analyzeChapter(eq(7L), any(), eq(0)))
-                .thenReturn(new ChapterNarration(script, List.of()));
-        NovelNarrationCastService.DefaultCast def =
-                new NovelNarrationCastService.DefaultCast(cast(5L, 100L), "册", null, 7L);
-        when(castService.resolveNovelDefaultCast(7L)).thenReturn(def);
+        when(castService.analyzeChapter(eq(7L), any(), eq(0), nullable(Long.class)))
+                .thenReturn(new ChapterNarration(script, List.of(), 5L));
         when(castService.find(5L)).thenReturn(cast(5L, 100L));
 
         NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
@@ -93,7 +91,7 @@ class NovelNarrationScriptServiceTest {
 
         assertEquals(2, result.lines().size());
         org.assertj.core.api.Assertions.assertThat(result.analyzedTime()).isGreaterThan(0L);
-        verify(castService).analyzeChapter(eq(7L), any(), eq(0));
+        verify(castService).analyzeChapter(eq(7L), any(), eq(0), nullable(Long.class));
         ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
         verify(mapper).upsertNarrationScript(eq(7L), eq(""), eq(5L), eq(0), anyLong(), jsonCaptor.capture());
         // script_json 存 speaker / paragraphIndex / text，不存 controlInstruction
@@ -101,6 +99,50 @@ class NovelNarrationScriptServiceTest {
         org.assertj.core.api.Assertions.assertThat(saved)
                 .contains("\"speaker\"").contains("\"paragraphIndex\"").contains("\"text\"")
                 .doesNotContain("controlInstruction");
+    }
+
+    @Test
+    @DisplayName("getOrAnalyze：castId<=0 走纯旁白（不调 LLM、逐句归旁白、落库 cast_id=0）")
+    void narratorOnlySkipsAnalysis() {
+        NovelNarrationCastService castService = mock(NovelNarrationCastService.class);
+        NovelDatabase db = mock(NovelDatabase.class);
+        NovelMapper mapper = mock(NovelMapper.class);
+        NarrationAudioService audio = mock(NarrationAudioService.class);
+
+        when(db.getNovel(7L)).thenReturn(novel(7L, "句子一。句子二。"));
+
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService.ChapterScript result = service.getOrAnalyze(7L, "", 0, true, 0, 0L);
+
+        assertEquals(0L, result.castId());
+        assertEquals(2, result.lines().size());
+        result.lines().forEach(l -> assertEquals(0, l.speakerId()));
+        verify(castService, never()).analyzeChapter(anyLong(), any(), anyInt(), nullable(Long.class));
+        verify(mapper).upsertNarrationScript(eq(7L), eq(""), eq(0L), eq(0), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("getOrAnalyze：显式 castId 透传给 analyzeChapter，落库脚本用其返回的 castId")
+    void castIdOverrideThreadedToAnalysis() {
+        NovelNarrationCastService castService = mock(NovelNarrationCastService.class);
+        NovelDatabase db = mock(NovelDatabase.class);
+        NovelMapper mapper = mock(NovelMapper.class);
+        NarrationAudioService audio = mock(NarrationAudioService.class);
+
+        when(db.getNovel(7L)).thenReturn(novel(7L, "句子一。"));
+        NarrationScript script = new NarrationScript(List.of(
+                new NarrationCharacter(0, "Narrator", "unknown", "unknown", "N.", true, false)),
+                List.of(new NarrationScript.Line(0, "句子一。", 0, "Narrator", "", "N.")), true);
+        when(castService.analyzeChapter(eq(7L), any(), eq(0), eq(9L)))
+                .thenReturn(new ChapterNarration(script, List.of(), 9L));
+        when(castService.find(9L)).thenReturn(cast(9L, 50L));
+
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, objectMapper);
+        NovelNarrationScriptService.ChapterScript result = service.getOrAnalyze(7L, "", 0, true, 0, 9L);
+
+        assertEquals(9L, result.castId());
+        verify(castService).analyzeChapter(eq(7L), any(), eq(0), eq(9L));
+        verify(mapper).upsertNarrationScript(eq(7L), eq(""), eq(9L), eq(0), anyLong(), any());
     }
 
     @Test

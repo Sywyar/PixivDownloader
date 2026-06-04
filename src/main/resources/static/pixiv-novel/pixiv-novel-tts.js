@@ -254,14 +254,12 @@
         }
     }
 
-    // 引擎切换时显隐对应设置 / 控制项：富感情朗读隐藏语音 / 语速，显示字幕 / 选角 / 分段 / 重新分析。
+    // 引擎切换时显隐对应设置 / 控制项：富感情朗读隐藏语音 / 语速，显示字幕 /「朗读分析设置」（分段字数与花名册在弹窗内）。
     function updateModeUi() {
         const narr = isNarration();
         if (els.voiceField) els.voiceField.style.display = narr ? 'none' : '';
         if (els.rateField) els.rateField.style.display = narr ? 'none' : '';
-        if (els.segmentField) els.segmentField.style.display = narr ? '' : 'none';
         if (els.regenerate) els.regenerate.style.display = narr ? '' : 'none';
-        if (els.castBtn) els.castBtn.style.display = narr ? '' : 'none';
         if (els.subtitle) els.subtitle.style.display = narr ? '' : 'none';
         els.prev.title = narr ? t('narration:bar.prev', '上一句') : t('tts.prev', '上一段');
         els.next.title = narr ? t('narration:bar.next', '下一句') : t('tts.next', '下一段');
@@ -743,13 +741,10 @@
         els.rate = document.getElementById('ttsRate');
         els.rateValue = document.getElementById('ttsRateValue');
         els.hint = document.getElementById('ttsEngineHint');
-        // 富感情朗读（多角色）相关的共享 / 专属控件
+        // 富感情朗读（多角色）相关的共享 / 专属控件（分段字数与花名册选择都在「朗读分析设置」弹窗内）
         els.subtitle = document.getElementById('ttsSubtitle');
-        els.castBtn = document.getElementById('ttsCastBtn');
         els.voiceField = document.getElementById('ttsVoiceField');
         els.rateField = document.getElementById('ttsRateField');
-        els.segmentField = document.getElementById('ttsSegmentField');
-        els.segmentSize = document.getElementById('ttsSegmentSize');
         els.regenerate = document.getElementById('ttsRegenerate');
         els.engineNarrationOpt = document.getElementById('ttsEngineNarrationOpt');
         const toggle = document.getElementById('ttsToggle');
@@ -789,8 +784,7 @@
                 novelId: state.novelId, lang: opts.narrationLang || '',
                 els: {
                     playPause: els.playPause, progress: els.progress, progressFill: els.progressFill,
-                    subtitle: els.subtitle, castBtn: els.castBtn,
-                    segmentSize: els.segmentSize, regenerate: els.regenerate,
+                    subtitle: els.subtitle, regenerate: els.regenerate,
                     castModal: document.getElementById('modalNarrationCast'),
                     castList: document.getElementById('narrationCastList'),
                     conflicts: document.getElementById('narrationConflicts')

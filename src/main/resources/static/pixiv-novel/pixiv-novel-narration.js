@@ -141,6 +141,8 @@
         lines: [],             // [{index, speakerId, speakerName, delivery, paragraphIndex, text}]
         cast: [],              // [{id, name, gender, age}]
         conflicts: [],         // [{characterId, name, type, reason, currentInstruction, suggestion}]
+        scriptCastId: 0,       // 当前脚本所用花名册 id（0=纯旁白/无花名册）；冲突解决 / 选角编辑以它为对象
+        editCastId: 0,         // 选角弹窗当前编辑的花名册 id（脚本册或弹窗内所选册）
         castUpdatedTime: 0,
         analyzedTime: 0,
         segmentSize: 0,
@@ -179,46 +181,62 @@
         return line.speakerName || t('narration:narrator', '旁白');
     }
 
-    // ---------- 脚本加载 ----------
-    function currentSegmentSize() {
-        const v = parseInt(els.segmentSize ? els.segmentSize.value : '0', 10);
-        return Number.isFinite(v) && v > 0 ? v : 0;
+    // ---------- 脚本加载 / 分析 ----------
+    // 低层：调 /api/narration/script。analyzeIfMissing=false 时仅取缓存（无缓存返回 null，对应 204），绝不分析。
+    async function requestScript(body) {
+        const r = await fetch('/api/narration/script', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign(
+                { novelId: Number(state.novelId), lang: state.lang || '' }, body))
+        });
+        if (r.status === 204) return null;
+        if (!r.ok) {
+            let msg = 'HTTP ' + r.status;
+            try { const j = await r.json(); if (j && j.message) msg = j.message; } catch {}
+            throw new Error(msg);
+        }
+        return r.json();
     }
 
-    async function loadScript(force, quiet) {
+    // 探测：仅取缓存脚本（绝不触发分析）；命中则 applyScript 并返回 true。
+    async function peekScript() {
+        const data = await requestScript({ analyzeIfMissing: false });
+        if (data) applyScript(data);
+        return !!data;
+    }
+
+    // 重新拉取已缓存脚本（音色编辑后刷新 castUpdatedTime 使音频缓存失效，不重算 LLM）。
+    async function reloadCachedScript() {
+        try {
+            const data = await requestScript({ analyzeIfMissing: false });
+            if (data) applyScript(data);
+        } catch {}
+    }
+
+    // 按所选设置分析（segmentSize + castId），完成后 applyScript；force 时清音频缓存。autoPlay 时分析完自动播放。
+    async function runAnalysis(segmentSize, castId, force, autoPlay) {
         if (state.loading) return;
         if (!state.blocks.length) state.blocks = buildBlocks();
+        stop();
         state.loading = true;
-        if (!quiet) { stop(); updateProgress(true); }
+        updateProgress(true);
+        let data = null;
         try {
-            const r = await fetch('/api/narration/script', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    novelId: Number(state.novelId),
-                    lang: state.lang || '',
-                    segmentSize: currentSegmentSize(),
-                    force: !!force
-                })
-            });
-            if (!r.ok) {
-                let msg = 'HTTP ' + r.status;
-                try { const j = await r.json(); if (j && j.message) msg = j.message; } catch {}
-                if (!quiet) state.toast && state.toast(t('narration:toast.generate-failed', '生成失败：{message}', { message: msg }), 'error');
-                return;
-            }
-            const data = await r.json();
-            applyScript(data);
-            if (force) await NarrationStore.deleteAudioForNovel(state.novelId);
-            if (force && !quiet) state.toast && state.toast(t('narration:toast.generated', '多角色朗读脚本已生成'), 'success');
-            if (!quiet && data.conflicts && data.conflicts.length) openCast();
+            data = await requestScript({ segmentSize: segmentSize, castId: castId, force: !!force });
         } catch (e) {
-            if (!quiet) state.toast && state.toast(t('narration:toast.generate-failed', '生成失败：{message}', { message: String(e && e.message ? e.message : e) }), 'error');
-        } finally {
-            state.loading = false;
-            updateProgress(false);
+            state.toast && state.toast(t('narration:toast.generate-failed', '生成失败：{message}',
+                { message: String(e && e.message ? e.message : e) }), 'error');
         }
+        state.loading = false;
+        updateProgress(false);
+        if (!data) return;
+        applyScript(data);
+        if (force) await NarrationStore.deleteAudioForNovel(state.novelId);
+        state.toast && state.toast(t('narration:toast.generated', '多角色朗读脚本已生成'), 'success');
+        if (data.conflicts && data.conflicts.length) openCast();
+        if (autoPlay && state.lines.length) start();
     }
 
     function applyScript(data) {
@@ -226,21 +244,15 @@
         state.lines = Array.isArray(data.lines) ? data.lines : [];
         state.cast = Array.isArray(data.cast) ? data.cast : [];
         state.conflicts = Array.isArray(data.conflicts) ? data.conflicts : [];
+        state.scriptCastId = data.castId || 0;
         state.castUpdatedTime = data.castUpdatedTime || 0;
         state.analyzedTime = data.analyzedTime || 0;
         state.segmentSize = data.segmentSize || 0;
         state.scriptLoaded = true;
-        if (els.segmentSize) setSegmentValue(state.segmentSize);
         if (state.index >= state.lines.length) state.index = -1;
         updateProgress(false);
         updateBar(0);
         if (state.index >= 0) highlight(state.index, false);
-    }
-
-    // 分段字数为手动数字输入：0（或留空）= 整章一次分析，故 0 时清空让占位符「整章（0）」显示。
-    function setSegmentValue(size) {
-        if (!els.segmentSize) return;
-        els.segmentSize.value = size > 0 ? String(size) : '';
     }
 
     // ---------- 高亮 / 进度 / 字幕 ----------
@@ -305,7 +317,7 @@
     // ---------- 播放控制 ----------
     function start() {
         if (state.loading) return;
-        if (!state.scriptLoaded) { loadScript(false).then(() => { if (state.lines.length) start(); }); return; }
+        if (!state.scriptLoaded) { peekThenStart(); return; }
         if (!state.lines.length) { state.toast && state.toast(t('narration:toast.no-content', '没有可朗读的正文'), 'error'); return; }
         if (state.paused) { resume(); return; }
         if (state.playing) return;
@@ -314,6 +326,19 @@
         state.paused = false;
         setPlayIcon(true);
         speak(startIndex);
+    }
+
+    // 首次点播放：先探测是否已有缓存脚本——命中直接播放/续播（重播不重算），未命中弹「朗读分析设置」弹窗
+    // （确认后才分析、分析完自动播放）。绝不在点播放时静默自动分析。
+    async function peekThenStart() {
+        if (state.loading) return;
+        if (!state.blocks.length) state.blocks = buildBlocks();
+        state.loading = true;
+        updateProgress(true);
+        let found = false;
+        try { found = await peekScript(); } catch {} finally { state.loading = false; updateProgress(false); }
+        if (found && state.lines.length) start();
+        else openAnalysisDialog(false, true);
     }
 
     function speak(i) {
@@ -498,7 +523,11 @@
     }
 
     // ---------- 选角 / 冲突面板 ----------
-    async function openCast() {
+    // 冲突触发时编辑「当前脚本所用花名册」；从设置弹窗触发时编辑「所选花名册」（借用别人的花名册即编辑那份共享册）。
+    async function openCast() { return openCastFor(state.scriptCastId); }
+
+    async function openCastFor(castId) {
+        state.editCastId = castId > 0 ? castId : 0;
         renderConflicts();
         await renderCastList();
         els.castModal.classList.add('open');
@@ -575,10 +604,13 @@
         const list = els.castList;
         if (!list) return;
         let voices = [];
-        try {
-            const r = await fetch('/api/narration/cast?novelId=' + encodeURIComponent(state.novelId), { credentials: 'same-origin' });
-            if (r.ok) { const data = await r.json(); voices = Array.isArray(data.voices) ? data.voices : []; }
-        } catch {}
+        if (state.editCastId > 0) {
+            try {
+                const r = await fetch('/api/narration/casts/' + encodeURIComponent(state.editCastId) + '/voices',
+                    { credentials: 'same-origin' });
+                if (r.ok) { const data = await r.json(); voices = Array.isArray(data.voices) ? data.voices : []; }
+            } catch {}
+        }
         if (!voices.length) {
             list.innerHTML = `<div class="narration-cast-empty">${escapeHtml(t('narration:cast.empty', '尚无角色，请先生成多角色朗读脚本。'))}</div>`;
             return;
@@ -702,13 +734,13 @@
                 method: 'PUT',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ novelId: Number(state.novelId), characterId, controlInstruction: instruction })
+                body: JSON.stringify({ castId: state.editCastId, characterId, controlInstruction: instruction })
             });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             state.toast && state.toast(t('narration:toast.saved', '已保存'), 'success');
             // 音色变更：清音频缓存并刷新 castUpdatedTime（重取已缓存脚本，不重算 LLM），使后续合成用新音色
             clearCache();
-            await loadScript(false, true);
+            await reloadCachedScript();
             return true;
         } catch (e) {
             state.toast && state.toast(t('narration:toast.save-failed', '保存失败'), 'error');
@@ -721,8 +753,247 @@
         return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     }
 
+    // ---------- 朗读分析设置弹窗（分段字数 + 花名册选择）----------
+    // 体验对齐翻译弹窗的「名词映射表」下拉：不使用（纯旁白）/ 本作默认（默认）/ 其它已有花名册 / 新建花名册；
+    // 「选角与音色」按钮编辑的是「当前所选花名册」（按 castId），借用别人的花名册即编辑那份共享册。
+    const CAST_OPT_NONE = '';            // 不使用（纯旁白）→ castId 0（不调 LLM）
+    const CAST_OPT_DEFAULT = '__default__';
+    const CAST_OPT_NEW = '__new__';
+    let dialogEl = null;
+    let dialogRefs = null;
+    let castCtx = { def: null, list: [] }; // def: {castId,name,seriesId,novelId}; list: [{id,name,...}]
+
+    async function castApi(url, options) {
+        const res = await fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
+        if (!res.ok) {
+            let msg = 'HTTP ' + res.status;
+            try { const j = await res.json(); if (j && j.message) msg = j.message; } catch {}
+            throw new Error(msg);
+        }
+        if (res.status === 204) return null;
+        return res.json();
+    }
+    function castListAll() { return castApi('/api/narration/casts').then((d) => (d && d.casts) || []); }
+    function castNovelDefault() {
+        return castApi('/api/narration/casts/novel/' + encodeURIComponent(state.novelId) + '/default');
+    }
+    function castCreate(body) {
+        return castApi('/api/narration/casts', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+    }
+
+    function buildDialog() {
+        const backdrop = document.createElement('div');
+        backdrop.className = 'pt-backdrop pt-narration-backdrop';
+        backdrop.innerHTML =
+            '<div class="pt-modal" role="dialog" aria-modal="true">' +
+            '  <div class="pt-head">' +
+            '    <span class="pt-title pt-nd-title"></span>' +
+            '    <button class="pt-close pt-nd-close" type="button" aria-label="close">×</button>' +
+            '  </div>' +
+            '  <div class="pt-body">' +
+            '    <label class="pt-field">' +
+            '      <span class="pt-label pt-nd-seg-label"></span>' +
+            '      <input class="pt-input pt-nd-seg-input" type="number" min="0" step="100" inputmode="numeric">' +
+            '    </label>' +
+            '    <div class="pt-hint pt-nd-seg-hint"></div>' +
+            '    <div class="pt-field">' +
+            '      <span class="pt-label pt-nd-cast-label"></span>' +
+            '      <div class="pt-glossary-row">' +
+            '        <select class="pt-input pt-glossary-select pt-nd-cast-select"></select>' +
+            '        <button class="pt-btn pt-nd-cast-edit" type="button"></button>' +
+            '      </div>' +
+            '    </div>' +
+            '    <div class="pt-hint pt-nd-cast-hint"></div>' +
+            '  </div>' +
+            '  <div class="pt-foot">' +
+            '    <button class="pt-btn pt-nd-cancel" type="button"></button>' +
+            '    <button class="pt-btn pt-btn-primary pt-nd-confirm" type="button"></button>' +
+            '  </div>' +
+            '</div>';
+        document.body.appendChild(backdrop);
+        dialogRefs = {
+            backdrop: backdrop,
+            title: backdrop.querySelector('.pt-nd-title'),
+            close: backdrop.querySelector('.pt-nd-close'),
+            segLabel: backdrop.querySelector('.pt-nd-seg-label'),
+            segInput: backdrop.querySelector('.pt-nd-seg-input'),
+            segHint: backdrop.querySelector('.pt-nd-seg-hint'),
+            castLabel: backdrop.querySelector('.pt-nd-cast-label'),
+            castSelect: backdrop.querySelector('.pt-nd-cast-select'),
+            castEdit: backdrop.querySelector('.pt-nd-cast-edit'),
+            castHint: backdrop.querySelector('.pt-nd-cast-hint'),
+            cancel: backdrop.querySelector('.pt-nd-cancel'),
+            confirm: backdrop.querySelector('.pt-nd-confirm')
+        };
+        return backdrop;
+    }
+
+    // 按当前 castCtx 重建花名册下拉
+    function rebuildCastSelect(selectValue) {
+        const sel = dialogRefs.castSelect;
+        const prev = selectValue != null ? selectValue : sel.value;
+        sel.innerHTML = '';
+        const none = document.createElement('option');
+        none.value = CAST_OPT_NONE;
+        none.textContent = t('narration:dialog.cast-none', '不使用（纯旁白）');
+        sel.appendChild(none);
+        const def = castCtx.def;
+        const defaultId = def && def.castId != null ? def.castId : null;
+        if (def) {
+            const o = document.createElement('option');
+            o.value = CAST_OPT_DEFAULT;
+            o.textContent = (def.name || '') + ' ' + t('narration:dialog.cast-default-suffix', '（默认）');
+            sel.appendChild(o);
+        }
+        (castCtx.list || []).forEach((c) => {
+            if (defaultId != null && c.id === defaultId) return; // 默认册已单列
+            const o = document.createElement('option');
+            o.value = String(c.id);
+            o.textContent = c.name || ('#' + c.id);
+            sel.appendChild(o);
+        });
+        const newOpt = document.createElement('option');
+        newOpt.value = CAST_OPT_NEW;
+        newOpt.textContent = t('narration:dialog.cast-new', '＋ 新建花名册');
+        sel.appendChild(newOpt);
+
+        const values = Array.prototype.map.call(sel.options, (o) => o.value);
+        if (prev != null && values.indexOf(prev) !== -1 && prev !== CAST_OPT_NEW) sel.value = prev;
+        else sel.value = def ? CAST_OPT_DEFAULT : CAST_OPT_NONE;
+    }
+
+    async function loadCastContext() {
+        castCtx = { def: null, list: [] };
+        try {
+            const [def, list] = await Promise.all([
+                castNovelDefault().catch(() => null),
+                castListAll().catch(() => [])
+            ]);
+            castCtx.def = def || null;
+            castCtx.list = list || [];
+        } catch {}
+        // 默认选中本作默认花名册（存在时），否则「不使用」。
+        rebuildCastSelect(castCtx.def ? CAST_OPT_DEFAULT : CAST_OPT_NONE);
+    }
+
+    // 解析下拉当前选择对应的 castId：不使用→0（纯旁白）；默认→默认册 id（未建则按需创建）；其它→该册 id。
+    async function resolveSelectedCastId() {
+        const v = dialogRefs.castSelect.value;
+        if (v === CAST_OPT_NONE || v === CAST_OPT_NEW) return 0;
+        if (v === CAST_OPT_DEFAULT) {
+            const def = castCtx.def;
+            if (!def) return 0;
+            if (def.castId != null) return def.castId;
+            const created = await castCreate({ name: def.name, seriesId: def.seriesId, novelId: def.novelId });
+            def.castId = created.id;
+            return created.id;
+        }
+        const n = Number(v);
+        return Number.isFinite(n) && n > 0 ? n : 0;
+    }
+
+    // 打开设置弹窗。返回 Promise：确认 → { segmentSize, castId }；取消 → null。
+    function openDialog(opts) {
+        opts = opts || {};
+        if (!dialogEl) dialogEl = buildDialog();
+        const r = dialogRefs;
+        r.title.textContent = t('narration:dialog.title', '朗读分析设置');
+        r.segLabel.textContent = t('narration:settings.segment-size', '分段字数');
+        r.segInput.placeholder = t('narration:settings.segment-whole', '整章（0）');
+        r.segHint.textContent = t('narration:settings.hint', '');
+        r.castLabel.textContent = t('narration:dialog.cast-label', '朗读花名册');
+        r.castEdit.textContent = t('narration:dialog.cast-edit', '选角与音色');
+        r.castHint.textContent = t('narration:dialog.cast-hint', '');
+        r.cancel.textContent = t('narration:dialog.cancel', '取消');
+        r.confirm.textContent = opts.reanalyze
+            ? t('narration:dialog.confirm-reanalyze', '重新分析')
+            : t('narration:dialog.confirm', '开始分析并播放');
+        const seg = parseInt(lsGet(LS.segment, '0'), 10);
+        r.segInput.value = Number.isFinite(seg) && seg >= 0 ? String(seg) : '0';
+        r.castSelect.innerHTML = '';
+        loadCastContext();
+
+        dialogEl.classList.add('open');
+        setTimeout(() => { r.segInput.focus(); }, 30);
+
+        return new Promise((resolve) => {
+            let lastCastValue = CAST_OPT_DEFAULT;
+            function cleanup(result) {
+                dialogEl.classList.remove('open');
+                r.close.onclick = null; r.cancel.onclick = null; r.confirm.onclick = null;
+                r.backdrop.onclick = null; r.castEdit.onclick = null; r.castSelect.onchange = null;
+                document.removeEventListener('keydown', onKey);
+                resolve(result);
+            }
+            function onKey(e) {
+                // 选角弹窗（叠在本弹窗之上）打开时让出键盘，避免一次 Escape 连关两层
+                if (els.castModal && els.castModal.classList.contains('open')) return;
+                if (e.key === 'Escape') cleanup(null);
+            }
+            async function confirmChoice() {
+                let segVal = parseInt(r.segInput.value, 10);
+                if (!Number.isFinite(segVal) || segVal < 0) segVal = 0;
+                r.confirm.disabled = true;
+                let castId;
+                try { castId = await resolveSelectedCastId(); }
+                catch (e) {
+                    state.toast && state.toast(t('narration:toast.save-failed', '保存失败'), 'error');
+                    r.confirm.disabled = false;
+                    return;
+                }
+                r.confirm.disabled = false;
+                cleanup({ segmentSize: segVal, castId: castId });
+            }
+            // 编辑当前所选花名册的角色音色（不使用 / 纯旁白时无册可编辑）
+            async function editSelectedCast() {
+                let castId;
+                try { castId = await resolveSelectedCastId(); } catch { return; }
+                if (castId > 0) { rebuildCastSelect(); openCastFor(castId); }
+            }
+            function onCastChange() {
+                const v = r.castSelect.value;
+                if (v === CAST_OPT_NEW) {
+                    const name = window.prompt(t('narration:dialog.new-name-prompt', '新花名册名称'),
+                        t('narration:dialog.new-name-default', '新花名册'));
+                    if (name == null || !name.trim()) { rebuildCastSelect(lastCastValue); return; }
+                    castCreate({ name: name.trim(), seriesId: null, novelId: null })
+                        .then((created) => castListAll().then((list) => {
+                            castCtx.list = list || [];
+                            rebuildCastSelect(String(created.id));
+                            lastCastValue = r.castSelect.value;
+                        }))
+                        .catch(() => {
+                            state.toast && state.toast(t('narration:toast.save-failed', '保存失败'), 'error');
+                            rebuildCastSelect(lastCastValue);
+                        });
+                } else {
+                    lastCastValue = v;
+                }
+            }
+            r.close.onclick = () => cleanup(null);
+            r.cancel.onclick = () => cleanup(null);
+            r.confirm.onclick = confirmChoice;
+            r.castEdit.onclick = editSelectedCast;
+            r.castSelect.onchange = onCastChange;
+            r.backdrop.onclick = (e) => { if (e.target === r.backdrop) cleanup(null); };
+            document.addEventListener('keydown', onKey);
+        });
+    }
+
+    // 打开设置弹窗并在确认后分析。force=true 表示「重新分析」入口（覆盖缓存、不自动播放）；
+    // autoPlay=true 表示首次点播放路径（分析完自动开始播放）。
+    async function openAnalysisDialog(force, autoPlay) {
+        if (state.loading) return;
+        const choice = await openDialog({ reanalyze: !!force });
+        if (!choice) return;
+        lsSet(LS.segment, String(choice.segmentSize));
+        await runAnalysis(choice.segmentSize, choice.castId, !!force, !!autoPlay);
+    }
+
     // ---------- 激活 / 停用（由听书宿主 pixiv-novel-tts.js 在引擎切换时调用） ----------
-    // 激活只刷新控制条 UI，<b>绝不</b>触发分析（不调 loadScript）：分析只在用户按播放 / 重新分析时发生。
+    // 激活只刷新控制条 UI，<b>绝不</b>触发分析或缓存探测：分析只在用户按播放（首次弹窗确认后）/「朗读分析设置」时发生。
     function activate() {
         state.active = true;
         if (!state.blocks.length) state.blocks = buildBlocks();
@@ -750,8 +1021,8 @@
     // ---------- 初始化（驱动模式） ----------
     // 本控制器不再拥有独立的控制条 / 入口按钮，而是作为听书（pixiv-novel-tts.js）的一个引擎被驱动：
     // 共享控制条元素（播放 / 进度 / 字幕等）由宿主在 opts.els 里传入，播放 / 上一句 / 下一句 / 停止 /
-    // 进度跳转等按钮事件由宿主统一分发到本控制器；本控制器只额外接管「选角 / 分段字数 / 重新分析 / 冲突」
-    // 这些朗读专属控件的监听。
+    // 进度跳转等按钮事件由宿主统一分发到本控制器；本控制器只额外接管「朗读分析设置 / 选角与音色 / 冲突」
+    // 这些朗读专属控件的监听（分段字数与花名册选择都在设置弹窗内）。
     function attach(opts) {
         state.i18n = opts.i18n;
         state.toast = opts.toast;
@@ -764,21 +1035,16 @@
         els.progress = shared.progress;
         els.progressFill = shared.progressFill;
         els.subtitle = shared.subtitle;
-        els.segmentSize = shared.segmentSize;
         els.regenerate = shared.regenerate;
-        els.castBtn = shared.castBtn;
         els.castModal = shared.castModal;
         els.castList = shared.castList;
         els.conflicts = shared.conflicts;
         if (!els.playPause || !els.progress) return;
 
         state.blocks = buildBlocks();
-        if (els.segmentSize) setSegmentValue(parseInt(lsGet(LS.segment, '0'), 10) || 0);
 
-        // 朗读专属控件（与浏览器 / Edge 引擎无冲突，由本控制器自行接管）
-        els.castBtn && els.castBtn.addEventListener('click', openCast);
-        els.segmentSize && els.segmentSize.addEventListener('change', () => lsSet(LS.segment, String(currentSegmentSize())));
-        els.regenerate && els.regenerate.addEventListener('click', () => loadScript(true));
+        // 朗读专属控件：「朗读分析设置」按钮打开设置弹窗（确认即按新设置 force 重新分析，不自动播放）。
+        els.regenerate && els.regenerate.addEventListener('click', () => openAnalysisDialog(true, false));
         if (els.castModal) {
             els.castModal.addEventListener('click', (e) => { if (e.target.id === 'modalNarrationCast') closeCast(); });
             const closeBtn = document.getElementById('narrationCastClose');

@@ -205,6 +205,18 @@ public class NovelNarrationCastService {
      * @param segmentSize 分段字数：{@code <=0} 整章一批；{@code >0} 按段落累积到约该字数切批
      */
     public ChapterNarration analyzeChapter(long novelId, List<NarrationSentence> sentences, int segmentSize) {
+        return analyzeChapter(novelId, sentences, segmentSize, null);
+    }
+
+    /**
+     * 同 {@link #analyzeChapter(long, List, int)}，但允许调用方<b>显式指定花名册</b>：{@code castIdOverride} 非
+     * {@code null} 且存在时，用该花名册作基底分析（新角色入册到它、逐句音色取它），借用别人的花名册即编辑那份共享册；
+     * 否则回退到「取本作默认花名册」（按需创建）。
+     *
+     * @param castIdOverride 指定花名册 ID；{@code null} 或不存在则取本作默认册
+     */
+    public ChapterNarration analyzeChapter(long novelId, List<NarrationSentence> sentences, int segmentSize,
+                                           Long castIdOverride) {
         List<NarrationSentence> safe = sentences == null ? List.of() : sentences;
         List<String> texts = new ArrayList<>(safe.size());
         for (NarrationSentence s : safe) {
@@ -213,17 +225,15 @@ public class NovelNarrationCastService {
         if (safe.isEmpty()) {
             NarrationScript empty = narrationScriptService.buildScript(
                     List.of(NarrationCharacter.defaultNarrator()), List.of(), List.of());
-            return new ChapterNarration(empty, List.of());
+            return new ChapterNarration(empty, List.of(), 0L);
         }
-        DefaultCast def = resolveNovelDefaultCast(novelId);
-        if (def == null) {
-            // 作品不存在：全篇单一默认旁白，不落任何花名册。
+        long castId = resolveAnalysisCastId(novelId, castIdOverride);
+        if (castId <= 0) {
+            // 作品不存在且无有效指定花名册：全篇单一默认旁白，不落任何花名册。
             NarrationScript script = narrationScriptService.buildScript(
                     List.of(NarrationCharacter.defaultNarrator()), texts, List.of());
-            return new ChapterNarration(script, List.of());
+            return new ChapterNarration(script, List.of(), 0L);
         }
-        long castId = def.cast() != null ? def.cast().id()
-                : create(def.suggestedName(), def.seriesId(), def.novelId()).id();
         ensureNarratorPersisted(castId);
 
         List<NarrationLineVoice> allLineVoices = new ArrayList<>(safe.size());
@@ -258,7 +268,23 @@ public class NovelNarrationCastService {
 
         List<NarrationCharacter> finalRoster = loadRoster(castId);
         NarrationScript script = narrationScriptService.buildScript(finalRoster, texts, allLineVoices);
-        return new ChapterNarration(script, new ArrayList<>(unresolved.values()));
+        return new ChapterNarration(script, new ArrayList<>(unresolved.values()), castId);
+    }
+
+    /**
+     * 解析本次分析所用花名册 ID：显式指定且存在 → 用它（借用别人的花名册）；否则取本作默认册（按需创建）。
+     * 返回 {@code 0} 表示无可用花名册（作品不存在且无有效指定），调用方应回退纯旁白。
+     */
+    private long resolveAnalysisCastId(long novelId, Long castIdOverride) {
+        if (castIdOverride != null && castIdOverride > 0 && exists(castIdOverride)) {
+            return castIdOverride;
+        }
+        DefaultCast def = resolveNovelDefaultCast(novelId);
+        if (def == null) {
+            return 0L;
+        }
+        return def.cast() != null ? def.cast().id()
+                : create(def.suggestedName(), def.seriesId(), def.novelId()).id();
     }
 
     /**
