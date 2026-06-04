@@ -70,7 +70,7 @@ public class NarrationTtsController {
 
     @PostMapping("/preview")
     public ResponseEntity<?> preview(@RequestBody NarrationTtsPreviewRequest request) {
-        String text = request.text() == null ? "" : request.text().trim();
+        String text = request == null || request.text() == null ? "" : request.text().trim();
         if (text.isEmpty()) {
             return ResponseEntity.badRequest().body(new ErrorResponse(messages.get("narration.tts.error.empty-text")));
         }
