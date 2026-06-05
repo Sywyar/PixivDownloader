@@ -96,7 +96,7 @@ class VoxCpmNarrationEngineTest {
     }
 
     @Test
-    @DisplayName("请求体：controlInstruction 非空时 input 为 (描述)正文，voice=default，model/response_format 来自配置")
+    @DisplayName("请求体：controlInstruction 非空时 input 为 (描述)正文，默认不下发 voice，model/response_format 来自配置")
     void requestBodyWithControlInstruction() throws Exception {
         when(direct.exchange(eq("http://127.0.0.1:8000/v1/audio/speech"), eq(HttpMethod.POST), any(), eq(byte[].class)))
                 .thenReturn(wav());
@@ -106,9 +106,33 @@ class VoxCpmNarrationEngineTest {
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("input")).isEqualTo("(An elderly woman, low and cold voice)你好世界");
-        assertThat(body.get("voice")).isEqualTo("default");
+        assertThat(body.containsKey("voice")).isFalse();
         assertThat(body.get("model")).isEqualTo("openbmb/VoxCPM2");
         assertThat(body.get("response_format")).isEqualTo("wav");
+    }
+
+    @Test
+    @DisplayName("请求体：配了 voice 名时透传该值")
+    void requestBodyUsesConfiguredVoice() throws Exception {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
+        NarrationTtsConfig cfg = config("http://h/v1", "");
+        cfg.getVoxcpm().setVoice("alloy");
+
+        engine(cfg).synthesize(NarrationVoiceRequest.of("t", "", null));
+
+        assertThat(capturedBody(direct).get("voice")).isEqualTo("alloy");
+    }
+
+    @Test
+    @DisplayName("请求体：voice 配置留空 / 空白时不下发 voice 字段")
+    void requestBodyBlankVoiceOmitsField() throws Exception {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
+        NarrationTtsConfig cfg = config("http://h/v1", "");
+        cfg.getVoxcpm().setVoice("   ");
+
+        engine(cfg).synthesize(NarrationVoiceRequest.of("t", "", null));
+
+        assertThat(capturedBody(direct).containsKey("voice")).isFalse();
     }
 
     @Test

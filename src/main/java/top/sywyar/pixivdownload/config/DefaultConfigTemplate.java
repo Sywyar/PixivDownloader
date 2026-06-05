@@ -173,6 +173,7 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "narration-tts.voxcpm.base-url:", "config.template.narration-tts.voxcpm.base-url.comment");
         appendSetting(config, messages, "narration-tts.voxcpm.api-key:", "config.template.narration-tts.voxcpm.api-key.comment");
         appendSetting(config, messages, "narration-tts.voxcpm.model: openbmb/VoxCPM2", "config.template.narration-tts.voxcpm.model.comment");
+        appendSetting(config, messages, "narration-tts.voxcpm.voice:", "config.template.narration-tts.voxcpm.voice.comment");
         appendSetting(config, messages, "narration-tts.voxcpm.response-format: wav", "config.template.narration-tts.voxcpm.response-format.comment");
         appendSetting(config, messages, "narration-tts.voxcpm.use-proxy: false", "config.template.narration-tts.voxcpm.use-proxy.comment");
         appendSetting(config, messages, "narration-tts.voxcpm.enable-clone: true", "config.template.narration-tts.voxcpm.enable-clone.comment");

@@ -26,6 +26,7 @@ public class NarrationTtsConfig {
     public static final String KEY_VOXCPM_BASE_URL = "narration-tts.voxcpm.base-url";
     public static final String KEY_VOXCPM_API_KEY = "narration-tts.voxcpm.api-key";
     public static final String KEY_VOXCPM_MODEL = "narration-tts.voxcpm.model";
+    public static final String KEY_VOXCPM_VOICE = "narration-tts.voxcpm.voice";
     public static final String KEY_VOXCPM_RESPONSE_FORMAT = "narration-tts.voxcpm.response-format";
     public static final String KEY_VOXCPM_USE_PROXY = "narration-tts.voxcpm.use-proxy";
     public static final String KEY_VOXCPM_ENABLE_CLONE = "narration-tts.voxcpm.enable-clone";
@@ -58,6 +59,14 @@ public class NarrationTtsConfig {
 
         /** 模型名（默认 {@code openbmb/VoxCPM2}）。 */
         private volatile String model = "openbmb/VoxCPM2";
+
+        /**
+         * OpenAI 兼容 {@code /audio/speech} 的 {@code voice} 字段。它<b>不决定音色</b>——VoxCPM 音色由内联
+         * voice-design 描述 / 参考音承载。VoxCPM 这类 voice-design / 克隆模型通常<b>没有任何预设音色</b>（服务端报
+         * {@code Invalid voice '...'. Supported: none} 即指预设列表为空），此时带上任何 {@code voice} 值都会被拒，
+         * 故<b>默认留空 → 不下发 {@code voice} 字段</b>；仅当某构建明确要求某个 voice 名时才填该名。
+         */
+        private volatile String voice = "";
 
         /** 音频输出格式（{@code wav} / {@code pcm}，默认 {@code wav}）。 */
         private volatile String responseFormat = "wav";

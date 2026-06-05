@@ -25,7 +25,9 @@ import java.util.regex.Pattern;
  * <p><b>一致性：内联 voice-design。</b> VoxCPM 没有独立的 control-instruction 字段，音色描述用其
  * {@code (描述)正文} voice-design 语法拼进 {@code input}：
  * <pre>input = (controlInstruction 非空 ? "(" + controlInstruction + ")" : "") + text</pre>
- * {@code voice} 固定 {@code default}。参考音克隆（{@code ref_audio}）本次不实现，留作一致性升级。
+ * {@code voice} 取自配置 {@code narration-tts.voxcpm.voice}：它不决定音色（VoxCPM 音色由内联描述 / 参考音承载）。
+ * voice-design / 克隆模型通常<b>没有任何预设音色</b>（服务端报 {@code Supported: none} 即指预设列表为空），此时带上
+ * 任何 {@code voice} 值都会被拒，故<b>默认留空 → 整个 {@code voice} 字段不下发</b>；仅当某构建明确要求某个 voice 名时才填。
  *
  * <p>是否走 HTTP 代理由 {@code narration-tts.voxcpm.use-proxy} 决定（per-config，独立于全局
  * {@code proxy.enabled}）：为 {@code true} 用经 {@link top.sywyar.pixivdownload.config.ProxyConfig} 的
@@ -41,8 +43,6 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
     private static final String SPEECH_PATH = "/audio/speech";
     /** OpenAI 兼容存活探测路径：GET {@code {base-url}/models}。 */
     private static final String MODELS_PATH = "/models";
-    /** 内联 voice-design 固定 voice id。 */
-    private static final String DEFAULT_VOICE = "default";
     /** 非 2xx 错误体摘要上限，避免超长正文进异常 / 日志。 */
     private static final int MAX_DETAIL_LENGTH = 500;
 
@@ -140,13 +140,14 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
         }
 
         String format = normalizeFormat(vox.getResponseFormat());
+        String voice = resolveVoice(vox.getVoice());
         String apiKey = vox.getApiKey();
         boolean useProxy = vox.isUseProxy();
         VoxCpmSpeechRequest body = clone
-                ? new VoxCpmSpeechRequest(vox.getModel(), input, DEFAULT_VOICE, format,
+                ? new VoxCpmSpeechRequest(vox.getModel(), input, voice, format,
                         toDataUri(req.referenceVoice()), normalizeRefText(req.referenceVoice().text()),
                         positiveOrNull(vox.getMaxNewTokens()))
-                : VoxCpmSpeechRequest.voiceDesign(vox.getModel(), input, DEFAULT_VOICE, format);
+                : VoxCpmSpeechRequest.voiceDesign(vox.getModel(), input, voice, format);
         HttpEntity<byte[]> entity = new HttpEntity<>(serialize(body, apiKey), buildHeaders(apiKey));
         RestTemplate restTemplate = useProxy ? proxyRestTemplate : directRestTemplate;
         String url = speechUrl(vox.getBaseUrl());
@@ -220,6 +221,18 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
     /** token 上限：{@code <=0} → {@code null}（不下发上限）。 */
     private static Integer positiveOrNull(int value) {
         return value > 0 ? value : null;
+    }
+
+    /**
+     * voice id 归一：空 / 空白 → {@code null}（{@code NON_NULL} 序列化下<b>不下发</b> {@code voice} 字段，
+     * 适配没有预设音色、带任何 voice 值都报 {@code Supported: none} 的 voice-design / 克隆服务端）。
+     */
+    static String resolveVoice(String voice) {
+        if (voice == null) {
+            return null;
+        }
+        String trimmed = voice.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /** 输出格式归一为受支持的 {@code wav} / {@code pcm}，未知 / 空回退 {@code wav}。 */

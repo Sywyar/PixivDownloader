@@ -774,6 +774,13 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
+                ConfigFieldSpec.builder("narration-tts.voxcpm.voice", message("gui.config.field.narration-tts.voxcpm.voice.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.voxcpm.voice.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "voxcpm"))
+                        .hotReloadable()
+                        .build(),
+
                 ConfigFieldSpec.builder("narration-tts.voxcpm.response-format", message("gui.config.field.narration-tts.voxcpm.response-format.label"), ENUM, groupNarrationTts)
                         .defaultValue("wav")
                         .enumValues("wav", "pcm")

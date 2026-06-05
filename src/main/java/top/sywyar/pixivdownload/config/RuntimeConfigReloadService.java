@@ -385,6 +385,11 @@ public class RuntimeConfigReloadService {
                 nextVox.getModel(),
                 () -> currentVox.setModel(nextVox.getModel()));
         applyIfChanged(applied,
+                "narration-tts.voxcpm.voice",
+                currentVox.getVoice(),
+                nextVox.getVoice(),
+                () -> currentVox.setVoice(nextVox.getVoice()));
+        applyIfChanged(applied,
                 "narration-tts.voxcpm.response-format",
                 currentVox.getResponseFormat(),
                 nextVox.getResponseFormat(),
