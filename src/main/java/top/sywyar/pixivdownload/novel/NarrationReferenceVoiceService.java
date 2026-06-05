@@ -30,8 +30,8 @@ import java.util.Map;
  *
  * <p>三种来源：
  * <ul>
- *   <li><b>自动生成的标准音</b>（{@code auto}）：用角色当前音色画像走 Voice Design 渲一段<b>中性种子句</b>（不叠 delivery），
- *       作为该角色跨章一致的「标准音」；过短 / 异常不自动采用，提示用户重试。</li>
+ *   <li><b>自动生成的标准音</b>（{@code auto}）：用角色当前音色画像走 Voice Design 渲一段<b>示例正文</b>（由用户决定、
+ *       不叠 delivery），作为该角色跨章一致的「标准音」；过短 / 异常不自动采用，提示用户重试。</li>
  *   <li><b>用户上传</b>（{@code upload}）：真人参考音（wav/mp3），可附转录。</li>
  *   <li><b>无</b>：退回内联 voice-design。</li>
  * </ul>
@@ -40,9 +40,6 @@ import java.util.Map;
 @Slf4j
 @Service
 public class NarrationReferenceVoiceService {
-
-    /** 自动生成标准音用的中性种子句（不叠情绪）：固定文本，同时作为参考音的转录（ref_text）。 */
-    static final String SEED_TEXT = "这是一段用于固定角色音色的示例朗读，语气保持自然、平稳、清晰。";
 
     /** 自动种子音最小可接受时长（秒）：低于此值视为生成异常、不自动采用。 */
     private static final double MIN_SEED_SECONDS = 1.0;
@@ -117,22 +114,25 @@ public class NarrationReferenceVoiceService {
     }
 
     /**
-     * 自动生成并采用某角色的「标准音」：用其当前音色画像走 Voice Design 渲种子句、落盘 + 落库。过短 / 异常不采用。
+     * 自动生成并采用某角色的「标准音」：用其当前音色画像走 Voice Design 渲 {@code seedText}、落盘 + 落库。
+     * {@code seedText} 是<b>用户决定</b>的示例正文（控制器在用户留空时回退 i18n 默认句），同时作为参考音的转录
+     * （ref_text）。过短 / 异常不采用。
      *
      * @throws top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException 引擎不可用 / 合成失败（控制器转 502）
      */
-    public GenerateResult generateSeed(long castId, int characterId) {
+    public GenerateResult generateSeed(long castId, int characterId, String seedText) {
         String base = baseInstruction(castId, characterId);
         if (base == null || base.isBlank()) {
             return new GenerateResult(Outcome.NO_BASE, null);
         }
-        NarrationAudio audio = narrationAudioService.synthesize(SEED_TEXT, base, null);
+        String text = seedText == null ? "" : seedText.trim();
+        NarrationAudio audio = narrationAudioService.synthesize(text, base, null);
         byte[] data = audio == null ? null : audio.data();
         String ext = extForContentType(audio == null ? null : audio.contentType());
         if (data == null || !acceptableSeed(data, ext)) {
             return new GenerateResult(Outcome.TOO_SHORT, null);
         }
-        store(castId, characterId, data, ext, SEED_TEXT, SOURCE_AUTO);
+        store(castId, characterId, data, ext, text, SOURCE_AUTO);
         return new GenerateResult(Outcome.ADOPTED, novelMapper.findNarrationVoiceRef(castId, characterId));
     }
 

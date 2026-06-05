@@ -860,6 +860,9 @@
         return t('narration:cast.ref.status.none', '无参考音（使用音色画像）');
     }
 
+    // 生成标准音用的默认示例正文（默认英文；中文等其它界面语言由 cast.ref.seed-text 的 i18n 覆盖）。
+    const REF_SEED_TEXT_DEFAULT = "This is a sample reading used to lock the character's timbre; keep the tone natural, steady, and clear.";
+
     function renderRefRow(v) {
         const box = document.createElement('div');
         box.className = 'narration-voice-ref';
@@ -875,7 +878,39 @@
         const delBtn = refButton(t('narration:cast.ref.delete', '删除'));
         playBtn.style.display = hasRef ? '' : 'none';
         delBtn.style.display = hasRef ? '' : 'none';
-        genBtn.addEventListener('click', () => generateRef(v, genBtn));
+
+        // 「生成标准音」展开正文输入框：预填本地化默认正文（默认英文），用户改完点「生成」才合成并采用。
+        const editor = document.createElement('div');
+        editor.className = 'narration-voice-ref-editor';
+        editor.style.display = 'none';
+        const seedLabel = document.createElement('div');
+        seedLabel.className = 'narration-voice-ref-seed-label';
+        seedLabel.textContent = t('narration:cast.ref.seed-label', '用于生成标准音的示例正文（可修改）');
+        const textarea = document.createElement('textarea');
+        textarea.className = 'narration-voice-ref-text';
+        textarea.rows = 2;
+        textarea.placeholder = t('narration:cast.ref.seed-placeholder', '输入用于生成标准音的示例正文');
+        const editorActions = document.createElement('span');
+        editorActions.className = 'narration-voice-ref-editor-actions';
+        const confirmBtn = refButton(t('narration:cast.ref.generate-confirm', '生成'));
+        const cancelBtn = refButton(t('narration:cast.ref.generate-cancel', '取消'));
+        editorActions.appendChild(confirmBtn);
+        editorActions.appendChild(cancelBtn);
+        editor.appendChild(seedLabel);
+        editor.appendChild(textarea);
+        editor.appendChild(editorActions);
+
+        genBtn.addEventListener('click', () => {
+            if (editor.style.display !== 'none') { editor.style.display = 'none'; return; }
+            if (!textarea.value.trim()) {
+                textarea.value = t('narration:cast.ref.seed-text', REF_SEED_TEXT_DEFAULT);
+            }
+            editor.style.display = '';
+            textarea.focus();
+        });
+        cancelBtn.addEventListener('click', () => { editor.style.display = 'none'; });
+        confirmBtn.addEventListener('click', () => generateRef(v, confirmBtn, textarea.value));
+
         playBtn.addEventListener('click', () => playRefAudio(playBtn, v.id));
         uploadBtn.addEventListener('click', () => uploadRef(v));
         delBtn.addEventListener('click', () => deleteRef(v));
@@ -885,6 +920,7 @@
         actions.appendChild(delBtn);
         box.appendChild(status);
         box.appendChild(actions);
+        box.appendChild(editor);
         return box;
     }
 
@@ -903,9 +939,13 @@
         await renderCastList();
     }
 
-    // 自动生成并采用该角色的标准音（后端用其音色画像走 Voice Design 渲中性种子句）。
-    async function generateRef(v, button) {
+    // 用输入框里的正文生成并采用该角色标准音（后端走 Voice Design，正文同时作参考音转录）；
+    // 留空则回退本地化默认正文（默认英文）。
+    async function generateRef(v, button, text) {
         if (!state.editCastId) return;
+        const seed = (text != null && text.trim())
+            ? text.trim()
+            : t('narration:cast.ref.seed-text', REF_SEED_TEXT_DEFAULT);
         button.disabled = true;
         button.textContent = t('narration:cast.ref.generating', '生成中…');
         let done = false;
@@ -913,7 +953,7 @@
             const r = await fetch('/api/narration/cast/voice/reference/generate', {
                 method: 'POST', credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ castId: state.editCastId, characterId: v.id })
+                body: JSON.stringify({ castId: state.editCastId, characterId: v.id, text: seed })
             });
             if (!r.ok) {
                 let msg = 'HTTP ' + r.status;
@@ -927,8 +967,8 @@
             state.toast && state.toast(t('narration:toast.ref.failed', '参考音操作失败：{message}',
                 { message: String(e && e.message ? e.message : e) }), 'error');
         } finally {
-            // 成功路径已 renderCastList 重建本行，无需复位；失败则恢复按钮。
-            if (!done) { button.disabled = false; button.textContent = t('narration:cast.ref.generate', '生成标准音'); }
+            // 成功路径已 renderCastList 重建本行（输入框随之关闭），无需复位；失败则恢复「生成」按钮。
+            if (!done) { button.disabled = false; button.textContent = t('narration:cast.ref.generate-confirm', '生成'); }
         }
     }
 

@@ -47,12 +47,12 @@ public class NarrationReferenceVoiceController {
     private final NarrationReferenceVoiceService referenceVoiceService;
     private final AppMessages messages;
 
-    public record GenerateRequest(Long castId, Integer characterId) {}
+    public record GenerateRequest(Long castId, Integer characterId, String text) {}
 
     /** 参考音状态（生成 / 上传后回传，供前端刷新该角色的「标准音 / 参考音」区）。 */
     public record ReferenceStatus(long castId, int characterId, String source, String ext, boolean hasText) {}
 
-    /** 自动生成并采用某角色的标准音（用其当前音色画像走 Voice Design 渲中性种子句）。 */
+    /** 自动生成并采用某角色的标准音（用其当前音色画像走 Voice Design 渲用户决定的示例正文，留空回退 i18n 默认句）。 */
     @PostMapping("/generate")
     public ResponseEntity<?> generate(@RequestBody GenerateRequest request) {
         if (request == null || request.castId() == null || request.characterId() == null) {
@@ -62,8 +62,11 @@ public class NarrationReferenceVoiceController {
             return ResponseEntity.notFound().build();
         }
         try {
+            String seedText = request.text() == null || request.text().isBlank()
+                    ? messages.get("narration.seed-text")
+                    : request.text().trim();
             NarrationReferenceVoiceService.GenerateResult result =
-                    referenceVoiceService.generateSeed(request.castId(), request.characterId());
+                    referenceVoiceService.generateSeed(request.castId(), request.characterId(), seedText);
             return switch (result.outcome()) {
                 case ADOPTED -> ResponseEntity.ok(status(result.ref()));
                 case TOO_SHORT -> ResponseEntity.unprocessableEntity()
