@@ -414,6 +414,151 @@ public class RuntimeConfigReloadService {
                 currentVox.getMaxNewTokens(),
                 nextVox.getMaxNewTokens(),
                 () -> currentVox.setMaxNewTokens(nextVox.getMaxNewTokens()));
+
+        applyNarrationMimo(next, applied);
+        applyNarrationCosyvoice(next, applied);
+        applyNarrationFish(next, applied);
+        applyNarrationMinimax(next, applied);
+        applyNarrationElevenlabs(next, applied);
+        applyNarrationQwen(next, applied);
+        applyNarrationDoubao(next, applied);
+    }
+
+    private void applyNarrationMimo(NarrationTtsConfig next, List<String> applied) {
+        NarrationTtsConfig.Mimo cur = ensureMimo(narrationTtsConfig);
+        NarrationTtsConfig.Mimo nxt = ensureMimo(next);
+        applyIfChanged(applied, "narration-tts.mimo.base-url", cur.getBaseUrl(), nxt.getBaseUrl(),
+                () -> cur.setBaseUrl(nxt.getBaseUrl()));
+        applyIfChanged(applied, "narration-tts.mimo.api-key", cur.getApiKey(), nxt.getApiKey(),
+                () -> cur.setApiKey(nxt.getApiKey()));
+        applyIfChanged(applied, "narration-tts.mimo.model", cur.getModel(), nxt.getModel(),
+                () -> cur.setModel(nxt.getModel()));
+        applyIfChanged(applied, "narration-tts.mimo.voice-design-model", cur.getVoiceDesignModel(), nxt.getVoiceDesignModel(),
+                () -> cur.setVoiceDesignModel(nxt.getVoiceDesignModel()));
+        applyIfChanged(applied, "narration-tts.mimo.voice-clone-model", cur.getVoiceCloneModel(), nxt.getVoiceCloneModel(),
+                () -> cur.setVoiceCloneModel(nxt.getVoiceCloneModel()));
+        applyIfChanged(applied, "narration-tts.mimo.voice", cur.getVoice(), nxt.getVoice(),
+                () -> cur.setVoice(nxt.getVoice()));
+        applyIfChanged(applied, "narration-tts.mimo.response-format", cur.getResponseFormat(), nxt.getResponseFormat(),
+                () -> cur.setResponseFormat(nxt.getResponseFormat()));
+        applyIfChanged(applied, "narration-tts.mimo.use-proxy", cur.isUseProxy(), nxt.isUseProxy(),
+                () -> cur.setUseProxy(nxt.isUseProxy()));
+        applyIfChanged(applied, "narration-tts.mimo.enable-clone", cur.isEnableClone(), nxt.isEnableClone(),
+                () -> cur.setEnableClone(nxt.isEnableClone()));
+    }
+
+    private void applyNarrationCosyvoice(NarrationTtsConfig next, List<String> applied) {
+        NarrationTtsConfig.Cosyvoice cur = ensureCosyvoice(narrationTtsConfig);
+        NarrationTtsConfig.Cosyvoice nxt = ensureCosyvoice(next);
+        applyIfChanged(applied, "narration-tts.cosyvoice.base-url", cur.getBaseUrl(), nxt.getBaseUrl(),
+                () -> cur.setBaseUrl(nxt.getBaseUrl()));
+        applyIfChanged(applied, "narration-tts.cosyvoice.api-key", cur.getApiKey(), nxt.getApiKey(),
+                () -> cur.setApiKey(nxt.getApiKey()));
+        applyIfChanged(applied, "narration-tts.cosyvoice.model", cur.getModel(), nxt.getModel(),
+                () -> cur.setModel(nxt.getModel()));
+        applyIfChanged(applied, "narration-tts.cosyvoice.voice", cur.getVoice(), nxt.getVoice(),
+                () -> cur.setVoice(nxt.getVoice()));
+        applyIfChanged(applied, "narration-tts.cosyvoice.response-format", cur.getResponseFormat(), nxt.getResponseFormat(),
+                () -> cur.setResponseFormat(nxt.getResponseFormat()));
+        applyIfChanged(applied, "narration-tts.cosyvoice.use-proxy", cur.isUseProxy(), nxt.isUseProxy(),
+                () -> cur.setUseProxy(nxt.isUseProxy()));
+        applyIfChanged(applied, "narration-tts.cosyvoice.enable-clone", cur.isEnableClone(), nxt.isEnableClone(),
+                () -> cur.setEnableClone(nxt.isEnableClone()));
+    }
+
+    private void applyNarrationFish(NarrationTtsConfig next, List<String> applied) {
+        NarrationTtsConfig.Fish cur = ensureFish(narrationTtsConfig);
+        NarrationTtsConfig.Fish nxt = ensureFish(next);
+        applyIfChanged(applied, "narration-tts.fish.base-url", cur.getBaseUrl(), nxt.getBaseUrl(),
+                () -> cur.setBaseUrl(nxt.getBaseUrl()));
+        applyIfChanged(applied, "narration-tts.fish.api-key", cur.getApiKey(), nxt.getApiKey(),
+                () -> cur.setApiKey(nxt.getApiKey()));
+        applyIfChanged(applied, "narration-tts.fish.model", cur.getModel(), nxt.getModel(),
+                () -> cur.setModel(nxt.getModel()));
+        applyIfChanged(applied, "narration-tts.fish.reference-id", cur.getReferenceId(), nxt.getReferenceId(),
+                () -> cur.setReferenceId(nxt.getReferenceId()));
+        applyIfChanged(applied, "narration-tts.fish.format", cur.getFormat(), nxt.getFormat(),
+                () -> cur.setFormat(nxt.getFormat()));
+        applyIfChanged(applied, "narration-tts.fish.use-proxy", cur.isUseProxy(), nxt.isUseProxy(),
+                () -> cur.setUseProxy(nxt.isUseProxy()));
+    }
+
+    private void applyNarrationMinimax(NarrationTtsConfig next, List<String> applied) {
+        NarrationTtsConfig.Minimax cur = ensureMinimax(narrationTtsConfig);
+        NarrationTtsConfig.Minimax nxt = ensureMinimax(next);
+        applyIfChanged(applied, "narration-tts.minimax.base-url", cur.getBaseUrl(), nxt.getBaseUrl(),
+                () -> cur.setBaseUrl(nxt.getBaseUrl()));
+        applyIfChanged(applied, "narration-tts.minimax.api-key", cur.getApiKey(), nxt.getApiKey(),
+                () -> cur.setApiKey(nxt.getApiKey()));
+        applyIfChanged(applied, "narration-tts.minimax.group-id", cur.getGroupId(), nxt.getGroupId(),
+                () -> cur.setGroupId(nxt.getGroupId()));
+        applyIfChanged(applied, "narration-tts.minimax.model", cur.getModel(), nxt.getModel(),
+                () -> cur.setModel(nxt.getModel()));
+        applyIfChanged(applied, "narration-tts.minimax.voice-id", cur.getVoiceId(), nxt.getVoiceId(),
+                () -> cur.setVoiceId(nxt.getVoiceId()));
+        applyIfChanged(applied, "narration-tts.minimax.emotion", cur.getEmotion(), nxt.getEmotion(),
+                () -> cur.setEmotion(nxt.getEmotion()));
+        applyIfChanged(applied, "narration-tts.minimax.format", cur.getFormat(), nxt.getFormat(),
+                () -> cur.setFormat(nxt.getFormat()));
+        applyIfChanged(applied, "narration-tts.minimax.sample-rate", cur.getSampleRate(), nxt.getSampleRate(),
+                () -> cur.setSampleRate(nxt.getSampleRate()));
+        applyIfChanged(applied, "narration-tts.minimax.use-proxy", cur.isUseProxy(), nxt.isUseProxy(),
+                () -> cur.setUseProxy(nxt.isUseProxy()));
+    }
+
+    private void applyNarrationElevenlabs(NarrationTtsConfig next, List<String> applied) {
+        NarrationTtsConfig.Elevenlabs cur = ensureElevenlabs(narrationTtsConfig);
+        NarrationTtsConfig.Elevenlabs nxt = ensureElevenlabs(next);
+        applyIfChanged(applied, "narration-tts.elevenlabs.base-url", cur.getBaseUrl(), nxt.getBaseUrl(),
+                () -> cur.setBaseUrl(nxt.getBaseUrl()));
+        applyIfChanged(applied, "narration-tts.elevenlabs.api-key", cur.getApiKey(), nxt.getApiKey(),
+                () -> cur.setApiKey(nxt.getApiKey()));
+        applyIfChanged(applied, "narration-tts.elevenlabs.model", cur.getModel(), nxt.getModel(),
+                () -> cur.setModel(nxt.getModel()));
+        applyIfChanged(applied, "narration-tts.elevenlabs.voice-id", cur.getVoiceId(), nxt.getVoiceId(),
+                () -> cur.setVoiceId(nxt.getVoiceId()));
+        applyIfChanged(applied, "narration-tts.elevenlabs.output-format", cur.getOutputFormat(), nxt.getOutputFormat(),
+                () -> cur.setOutputFormat(nxt.getOutputFormat()));
+        applyIfChanged(applied, "narration-tts.elevenlabs.use-proxy", cur.isUseProxy(), nxt.isUseProxy(),
+                () -> cur.setUseProxy(nxt.isUseProxy()));
+    }
+
+    private void applyNarrationQwen(NarrationTtsConfig next, List<String> applied) {
+        NarrationTtsConfig.Qwen cur = ensureQwen(narrationTtsConfig);
+        NarrationTtsConfig.Qwen nxt = ensureQwen(next);
+        applyIfChanged(applied, "narration-tts.qwen.base-url", cur.getBaseUrl(), nxt.getBaseUrl(),
+                () -> cur.setBaseUrl(nxt.getBaseUrl()));
+        applyIfChanged(applied, "narration-tts.qwen.api-key", cur.getApiKey(), nxt.getApiKey(),
+                () -> cur.setApiKey(nxt.getApiKey()));
+        applyIfChanged(applied, "narration-tts.qwen.model", cur.getModel(), nxt.getModel(),
+                () -> cur.setModel(nxt.getModel()));
+        applyIfChanged(applied, "narration-tts.qwen.voice", cur.getVoice(), nxt.getVoice(),
+                () -> cur.setVoice(nxt.getVoice()));
+        applyIfChanged(applied, "narration-tts.qwen.language-type", cur.getLanguageType(), nxt.getLanguageType(),
+                () -> cur.setLanguageType(nxt.getLanguageType()));
+        applyIfChanged(applied, "narration-tts.qwen.use-proxy", cur.isUseProxy(), nxt.isUseProxy(),
+                () -> cur.setUseProxy(nxt.isUseProxy()));
+    }
+
+    private void applyNarrationDoubao(NarrationTtsConfig next, List<String> applied) {
+        NarrationTtsConfig.Doubao cur = ensureDoubao(narrationTtsConfig);
+        NarrationTtsConfig.Doubao nxt = ensureDoubao(next);
+        applyIfChanged(applied, "narration-tts.doubao.base-url", cur.getBaseUrl(), nxt.getBaseUrl(),
+                () -> cur.setBaseUrl(nxt.getBaseUrl()));
+        applyIfChanged(applied, "narration-tts.doubao.app-id", cur.getAppId(), nxt.getAppId(),
+                () -> cur.setAppId(nxt.getAppId()));
+        applyIfChanged(applied, "narration-tts.doubao.access-token", cur.getAccessToken(), nxt.getAccessToken(),
+                () -> cur.setAccessToken(nxt.getAccessToken()));
+        applyIfChanged(applied, "narration-tts.doubao.cluster", cur.getCluster(), nxt.getCluster(),
+                () -> cur.setCluster(nxt.getCluster()));
+        applyIfChanged(applied, "narration-tts.doubao.voice-type", cur.getVoiceType(), nxt.getVoiceType(),
+                () -> cur.setVoiceType(nxt.getVoiceType()));
+        applyIfChanged(applied, "narration-tts.doubao.encoding", cur.getEncoding(), nxt.getEncoding(),
+                () -> cur.setEncoding(nxt.getEncoding()));
+        applyIfChanged(applied, "narration-tts.doubao.emotion", cur.getEmotion(), nxt.getEmotion(),
+                () -> cur.setEmotion(nxt.getEmotion()));
+        applyIfChanged(applied, "narration-tts.doubao.use-proxy", cur.isUseProxy(), nxt.isUseProxy(),
+                () -> cur.setUseProxy(nxt.isUseProxy()));
     }
 
     private static NarrationTtsConfig.Voxcpm ensureVoxcpm(NarrationTtsConfig config) {
@@ -423,6 +568,69 @@ public class RuntimeConfigReloadService {
             config.setVoxcpm(voxcpm);
         }
         return voxcpm;
+    }
+
+    private static NarrationTtsConfig.Mimo ensureMimo(NarrationTtsConfig config) {
+        NarrationTtsConfig.Mimo mimo = config.getMimo();
+        if (mimo == null) {
+            mimo = new NarrationTtsConfig.Mimo();
+            config.setMimo(mimo);
+        }
+        return mimo;
+    }
+
+    private static NarrationTtsConfig.Cosyvoice ensureCosyvoice(NarrationTtsConfig config) {
+        NarrationTtsConfig.Cosyvoice cosyvoice = config.getCosyvoice();
+        if (cosyvoice == null) {
+            cosyvoice = new NarrationTtsConfig.Cosyvoice();
+            config.setCosyvoice(cosyvoice);
+        }
+        return cosyvoice;
+    }
+
+    private static NarrationTtsConfig.Fish ensureFish(NarrationTtsConfig config) {
+        NarrationTtsConfig.Fish fish = config.getFish();
+        if (fish == null) {
+            fish = new NarrationTtsConfig.Fish();
+            config.setFish(fish);
+        }
+        return fish;
+    }
+
+    private static NarrationTtsConfig.Minimax ensureMinimax(NarrationTtsConfig config) {
+        NarrationTtsConfig.Minimax minimax = config.getMinimax();
+        if (minimax == null) {
+            minimax = new NarrationTtsConfig.Minimax();
+            config.setMinimax(minimax);
+        }
+        return minimax;
+    }
+
+    private static NarrationTtsConfig.Elevenlabs ensureElevenlabs(NarrationTtsConfig config) {
+        NarrationTtsConfig.Elevenlabs elevenlabs = config.getElevenlabs();
+        if (elevenlabs == null) {
+            elevenlabs = new NarrationTtsConfig.Elevenlabs();
+            config.setElevenlabs(elevenlabs);
+        }
+        return elevenlabs;
+    }
+
+    private static NarrationTtsConfig.Qwen ensureQwen(NarrationTtsConfig config) {
+        NarrationTtsConfig.Qwen qwen = config.getQwen();
+        if (qwen == null) {
+            qwen = new NarrationTtsConfig.Qwen();
+            config.setQwen(qwen);
+        }
+        return qwen;
+    }
+
+    private static NarrationTtsConfig.Doubao ensureDoubao(NarrationTtsConfig config) {
+        NarrationTtsConfig.Doubao doubao = config.getDoubao();
+        if (doubao == null) {
+            doubao = new NarrationTtsConfig.Doubao();
+            config.setDoubao(doubao);
+        }
+        return doubao;
     }
 
     private void applyPushConfig(PushConfig nextPush, BarkConfig nextBark, DingTalkConfig nextDingTalk,

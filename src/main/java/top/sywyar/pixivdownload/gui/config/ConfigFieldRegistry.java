@@ -752,7 +752,7 @@ public final class ConfigFieldRegistry {
                 // ── AI 听小说朗读 TTS 引擎 ──────────────────────────────────────────
                 ConfigFieldSpec.builder("narration-tts.engine", message("gui.config.field.narration-tts.engine.label"), ENUM, groupNarrationTts)
                         .defaultValue("voxcpm")
-                        .enumValues("voxcpm")
+                        .enumValues("voxcpm", "mimo", "cosyvoice", "fish", "minimax", "elevenlabs", "qwen", "doubao")
                         .help(message("gui.config.field.narration-tts.engine.help"))
                         .hotReloadable()
                         .build(),
@@ -826,6 +826,339 @@ public final class ConfigFieldRegistry {
                                 return message("gui.config.validation.valid-int");
                             }
                         })
+                        .hotReloadable()
+                        .build(),
+
+                // ── MiMo（小米，云 API）──────────────────────────────────────────
+                ConfigFieldSpec.builder("narration-tts.mimo.base-url", message("gui.config.field.narration-tts.mimo.base-url.label"), STRING, groupNarrationTts)
+                        .defaultValue("https://api.xiaomimimo.com/v1")
+                        .help(message("gui.config.field.narration-tts.mimo.base-url.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "mimo"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.mimo.api-key", message("gui.config.field.narration-tts.mimo.api-key.label"), PASSWORD, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.mimo.api-key.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "mimo"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.mimo.model", message("gui.config.field.narration-tts.mimo.model.label"), STRING, groupNarrationTts)
+                        .defaultValue("mimo-v2.5-tts")
+                        .help(message("gui.config.field.narration-tts.mimo.model.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "mimo"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.mimo.voice-design-model", message("gui.config.field.narration-tts.mimo.voice-design-model.label"), STRING, groupNarrationTts)
+                        .defaultValue("mimo-v2.5-tts-voicedesign")
+                        .help(message("gui.config.field.narration-tts.mimo.voice-design-model.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "mimo"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.mimo.voice-clone-model", message("gui.config.field.narration-tts.mimo.voice-clone-model.label"), STRING, groupNarrationTts)
+                        .defaultValue("mimo-v2.5-tts-voiceclone")
+                        .help(message("gui.config.field.narration-tts.mimo.voice-clone-model.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "mimo"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.mimo.voice", message("gui.config.field.narration-tts.mimo.voice.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.mimo.voice.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "mimo"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.mimo.response-format", message("gui.config.field.narration-tts.mimo.response-format.label"), ENUM, groupNarrationTts)
+                        .defaultValue("wav")
+                        .enumValues("wav", "pcm16")
+                        .help(message("gui.config.field.narration-tts.mimo.response-format.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "mimo"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.mimo.use-proxy", message("gui.config.field.narration-tts.mimo.use-proxy.label"), BOOL, groupNarrationTts)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.narration-tts.mimo.use-proxy.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "mimo"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.mimo.enable-clone", message("gui.config.field.narration-tts.mimo.enable-clone.label"), BOOL, groupNarrationTts)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.narration-tts.mimo.enable-clone.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "mimo"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── CosyVoice（自建，OpenAI 兼容 /audio/speech）────────────────────
+                ConfigFieldSpec.builder("narration-tts.cosyvoice.base-url", message("gui.config.field.narration-tts.cosyvoice.base-url.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.cosyvoice.base-url.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "cosyvoice"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.cosyvoice.api-key", message("gui.config.field.narration-tts.cosyvoice.api-key.label"), PASSWORD, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.cosyvoice.api-key.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "cosyvoice"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.cosyvoice.model", message("gui.config.field.narration-tts.cosyvoice.model.label"), STRING, groupNarrationTts)
+                        .defaultValue("CosyVoice2-0.5B")
+                        .help(message("gui.config.field.narration-tts.cosyvoice.model.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "cosyvoice"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.cosyvoice.voice", message("gui.config.field.narration-tts.cosyvoice.voice.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.cosyvoice.voice.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "cosyvoice"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.cosyvoice.response-format", message("gui.config.field.narration-tts.cosyvoice.response-format.label"), ENUM, groupNarrationTts)
+                        .defaultValue("wav")
+                        .enumValues("wav", "mp3", "pcm")
+                        .help(message("gui.config.field.narration-tts.cosyvoice.response-format.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "cosyvoice"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.cosyvoice.use-proxy", message("gui.config.field.narration-tts.cosyvoice.use-proxy.label"), BOOL, groupNarrationTts)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.narration-tts.cosyvoice.use-proxy.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "cosyvoice"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.cosyvoice.enable-clone", message("gui.config.field.narration-tts.cosyvoice.enable-clone.label"), BOOL, groupNarrationTts)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.narration-tts.cosyvoice.enable-clone.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "cosyvoice"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── Fish Audio（云 API）────────────────────────────────────────────
+                ConfigFieldSpec.builder("narration-tts.fish.base-url", message("gui.config.field.narration-tts.fish.base-url.label"), STRING, groupNarrationTts)
+                        .defaultValue("https://api.fish.audio")
+                        .help(message("gui.config.field.narration-tts.fish.base-url.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "fish"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.fish.api-key", message("gui.config.field.narration-tts.fish.api-key.label"), PASSWORD, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.fish.api-key.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "fish"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.fish.model", message("gui.config.field.narration-tts.fish.model.label"), STRING, groupNarrationTts)
+                        .defaultValue("s1")
+                        .help(message("gui.config.field.narration-tts.fish.model.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "fish"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.fish.reference-id", message("gui.config.field.narration-tts.fish.reference-id.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.fish.reference-id.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "fish"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.fish.format", message("gui.config.field.narration-tts.fish.format.label"), ENUM, groupNarrationTts)
+                        .defaultValue("mp3")
+                        .enumValues("mp3", "wav", "pcm", "opus")
+                        .help(message("gui.config.field.narration-tts.fish.format.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "fish"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.fish.use-proxy", message("gui.config.field.narration-tts.fish.use-proxy.label"), BOOL, groupNarrationTts)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.narration-tts.fish.use-proxy.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "fish"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── MiniMax（云 API）───────────────────────────────────────────────
+                ConfigFieldSpec.builder("narration-tts.minimax.base-url", message("gui.config.field.narration-tts.minimax.base-url.label"), STRING, groupNarrationTts)
+                        .defaultValue("https://api.minimax.io/v1")
+                        .help(message("gui.config.field.narration-tts.minimax.base-url.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "minimax"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.minimax.api-key", message("gui.config.field.narration-tts.minimax.api-key.label"), PASSWORD, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.minimax.api-key.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "minimax"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.minimax.group-id", message("gui.config.field.narration-tts.minimax.group-id.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.minimax.group-id.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "minimax"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.minimax.model", message("gui.config.field.narration-tts.minimax.model.label"), STRING, groupNarrationTts)
+                        .defaultValue("speech-2.8-hd")
+                        .help(message("gui.config.field.narration-tts.minimax.model.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "minimax"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.minimax.voice-id", message("gui.config.field.narration-tts.minimax.voice-id.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.minimax.voice-id.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "minimax"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.minimax.emotion", message("gui.config.field.narration-tts.minimax.emotion.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.minimax.emotion.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "minimax"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.minimax.format", message("gui.config.field.narration-tts.minimax.format.label"), ENUM, groupNarrationTts)
+                        .defaultValue("mp3")
+                        .enumValues("mp3", "wav", "pcm", "flac")
+                        .help(message("gui.config.field.narration-tts.minimax.format.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "minimax"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.minimax.sample-rate", message("gui.config.field.narration-tts.minimax.sample-rate.label"), INT, groupNarrationTts)
+                        .defaultValue("32000")
+                        .help(message("gui.config.field.narration-tts.minimax.sample-rate.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "minimax"))
+                        .validator(v -> {
+                            try {
+                                return Integer.parseInt(v) > 0 ? null : message("gui.config.validation.valid-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.minimax.use-proxy", message("gui.config.field.narration-tts.minimax.use-proxy.label"), BOOL, groupNarrationTts)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.narration-tts.minimax.use-proxy.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "minimax"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── ElevenLabs（云 API）────────────────────────────────────────────
+                ConfigFieldSpec.builder("narration-tts.elevenlabs.base-url", message("gui.config.field.narration-tts.elevenlabs.base-url.label"), STRING, groupNarrationTts)
+                        .defaultValue("https://api.elevenlabs.io")
+                        .help(message("gui.config.field.narration-tts.elevenlabs.base-url.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "elevenlabs"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.elevenlabs.api-key", message("gui.config.field.narration-tts.elevenlabs.api-key.label"), PASSWORD, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.elevenlabs.api-key.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "elevenlabs"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.elevenlabs.model", message("gui.config.field.narration-tts.elevenlabs.model.label"), STRING, groupNarrationTts)
+                        .defaultValue("eleven_v3")
+                        .help(message("gui.config.field.narration-tts.elevenlabs.model.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "elevenlabs"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.elevenlabs.voice-id", message("gui.config.field.narration-tts.elevenlabs.voice-id.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.elevenlabs.voice-id.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "elevenlabs"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.elevenlabs.output-format", message("gui.config.field.narration-tts.elevenlabs.output-format.label"), ENUM, groupNarrationTts)
+                        .defaultValue("mp3_44100_128")
+                        .enumValues("mp3_44100_128", "mp3_44100_64", "pcm_16000", "pcm_24000", "opus_48000_128", "ulaw_8000")
+                        .help(message("gui.config.field.narration-tts.elevenlabs.output-format.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "elevenlabs"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.elevenlabs.use-proxy", message("gui.config.field.narration-tts.elevenlabs.use-proxy.label"), BOOL, groupNarrationTts)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.narration-tts.elevenlabs.use-proxy.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "elevenlabs"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── Qwen3-TTS（阿里 DashScope / 百炼，云 API）──────────────────────
+                ConfigFieldSpec.builder("narration-tts.qwen.base-url", message("gui.config.field.narration-tts.qwen.base-url.label"), STRING, groupNarrationTts)
+                        .defaultValue("https://dashscope.aliyuncs.com/api/v1")
+                        .help(message("gui.config.field.narration-tts.qwen.base-url.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "qwen"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.qwen.api-key", message("gui.config.field.narration-tts.qwen.api-key.label"), PASSWORD, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.qwen.api-key.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "qwen"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.qwen.model", message("gui.config.field.narration-tts.qwen.model.label"), STRING, groupNarrationTts)
+                        .defaultValue("qwen3-tts-flash")
+                        .help(message("gui.config.field.narration-tts.qwen.model.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "qwen"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.qwen.voice", message("gui.config.field.narration-tts.qwen.voice.label"), STRING, groupNarrationTts)
+                        .defaultValue("Cherry")
+                        .help(message("gui.config.field.narration-tts.qwen.voice.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "qwen"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.qwen.language-type", message("gui.config.field.narration-tts.qwen.language-type.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.qwen.language-type.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "qwen"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.qwen.use-proxy", message("gui.config.field.narration-tts.qwen.use-proxy.label"), BOOL, groupNarrationTts)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.narration-tts.qwen.use-proxy.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "qwen"))
+                        .hotReloadable()
+                        .build(),
+
+                // ── 豆包 / Seed-TTS（字节火山引擎，云 API）─────────────────────────
+                ConfigFieldSpec.builder("narration-tts.doubao.base-url", message("gui.config.field.narration-tts.doubao.base-url.label"), STRING, groupNarrationTts)
+                        .defaultValue("https://openspeech.bytedance.com")
+                        .help(message("gui.config.field.narration-tts.doubao.base-url.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "doubao"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.doubao.app-id", message("gui.config.field.narration-tts.doubao.app-id.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.doubao.app-id.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "doubao"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.doubao.access-token", message("gui.config.field.narration-tts.doubao.access-token.label"), PASSWORD, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.doubao.access-token.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "doubao"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.doubao.cluster", message("gui.config.field.narration-tts.doubao.cluster.label"), STRING, groupNarrationTts)
+                        .defaultValue("volcano_tts")
+                        .help(message("gui.config.field.narration-tts.doubao.cluster.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "doubao"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.doubao.voice-type", message("gui.config.field.narration-tts.doubao.voice-type.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.doubao.voice-type.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "doubao"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.doubao.encoding", message("gui.config.field.narration-tts.doubao.encoding.label"), ENUM, groupNarrationTts)
+                        .defaultValue("mp3")
+                        .enumValues("mp3", "wav", "pcm", "ogg_opus")
+                        .help(message("gui.config.field.narration-tts.doubao.encoding.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "doubao"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.doubao.emotion", message("gui.config.field.narration-tts.doubao.emotion.label"), STRING, groupNarrationTts)
+                        .defaultValue("")
+                        .help(message("gui.config.field.narration-tts.doubao.emotion.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "doubao"))
+                        .hotReloadable()
+                        .build(),
+                ConfigFieldSpec.builder("narration-tts.doubao.use-proxy", message("gui.config.field.narration-tts.doubao.use-proxy.label"), BOOL, groupNarrationTts)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.narration-tts.doubao.use-proxy.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "doubao"))
                         .hotReloadable()
                         .build(),
 

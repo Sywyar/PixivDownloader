@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.tts.narration.engine;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -11,7 +10,6 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
-import java.util.Base64;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Set;
@@ -46,8 +44,6 @@ import java.util.Set;
  */
 @Component
 public class VoxCpmNarrationEngine extends AbstractHttpNarrationEngine implements NarrationVoiceEngine {
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final String SPEECH_PATH = "/audio/speech";
     /** OpenAI 兼容存活探测路径：GET {@code {base-url}/models}。 */
@@ -222,12 +218,6 @@ public class VoxCpmNarrationEngine extends AbstractHttpNarrationEngine implement
         return configured > 0 ? Math.min(configured, SHORT_INPUT_TOKEN_CAP) : SHORT_INPUT_TOKEN_CAP;
     }
 
-    /** 参考音转 {@code data:audio/...;base64,...} URI（不依赖服务端文件开关）。 */
-    private static String toDataUri(NarrationReferenceVoice ref) {
-        String mime = ref.mime() == null || ref.mime().isBlank() ? "audio/wav" : ref.mime().trim();
-        return "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(ref.audio());
-    }
-
     /** token 上限：{@code <=0} → {@code null}（不下发上限）。 */
     private static Integer positiveOrNull(int value) {
         return value > 0 ? value : null;
@@ -248,15 +238,6 @@ public class VoxCpmNarrationEngine extends AbstractHttpNarrationEngine implement
         }
         String f = responseFormat.trim().toLowerCase(Locale.ROOT);
         return "pcm".equals(f) ? "pcm" : "wav";
-    }
-
-    private byte[] serialize(VoxCpmSpeechRequest body, String apiKey) {
-        try {
-            return MAPPER.writeValueAsBytes(body);
-        } catch (Exception e) {
-            throw new NarrationVoiceException(localized("narration.tts.error.request-failed",
-                    redact(safeMessage(e), apiKey)), e);
-        }
     }
 
     /** 在 base-url 后拼接 {@code /audio/speech}，自动处理结尾斜杠。 */

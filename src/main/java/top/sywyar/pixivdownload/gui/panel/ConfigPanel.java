@@ -955,12 +955,78 @@ public class ConfigPanel extends JPanel {
         return sp;
     }
 
-    /** 「TTS 模型」卡片：{@code narration-tts.*} 字段（多角色听小说朗读的语音合成引擎）。 */
+    /** 「朗读引擎」下拉（友好名渲染，对齐文本模型服务商预设下拉）；切换仅改变当前编辑的引擎卡片。 */
+    private JComboBox<String> narrationEngineCombo;
+
+    /**
+     * 「TTS 模型」卡片：顶部「朗读引擎」下拉切换，下方按引擎分卡，仅显示并校验所选引擎的
+     * {@code narration-tts.<engine>.*} 参数（多角色听小说朗读的语音合成引擎）。所有引擎的配置同时持久化。
+     */
     private JComponent buildAiTtsCard() {
+        JPanel root = new JPanel(new BorderLayout(0, 6));
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        ConfigFieldSpec engineSpec = findSpec("narration-tts.engine");
+        JPanel enginePanel = buildNarrationEnginePanel(engineSpec);
+        enginePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        CardLayout cardLayout = new CardLayout();
+        JPanel cardHost = new JPanel(cardLayout);
+        for (String engine : engineSpec.enumValues()) {
+            cardHost.add(buildNarrationEngineCard(engine), engine);
+        }
+        narrationEngineCombo.addActionListener(e -> {
+            if (narrationEngineCombo.getSelectedItem() instanceof String engine) {
+                cardLayout.show(cardHost, engine);
+            }
+        });
+
+        root.add(enginePanel, BorderLayout.NORTH);
+        root.add(cardHost, BorderLayout.CENTER);
+        return root;
+    }
+
+    /**
+     * 「朗读引擎」下拉：用友好名（i18n）渲染各引擎，与文本模型「服务商预设」下拉格式一致；
+     * 选中值仍为引擎 id 并注册为 {@code narration-tts.engine} 的字段。
+     */
+    private JPanel buildNarrationEnginePanel(ConfigFieldSpec engineSpec) {
+        narrationEngineCombo = new JComboBox<>(engineSpec.enumValues().toArray(new String[0]));
+        narrationEngineCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof String id) {
+                    label.setText(message("gui.config.field.narration-tts.engine.value." + id));
+                }
+                return label;
+            }
+        });
+        narrationEngineCombo.setSelectedItem(engineSpec.defaultValue());
+
+        JPanel panel = FieldRenderer.fieldPanel(
+                engineSpec.label() + message("gui.punctuation.colon"),
+                narrationEngineCombo,
+                buildEffectLabel(engineSpec.requiresRestart()),
+                engineSpec.helpText());
+
+        FieldRenderer.RenderedField rf = new FieldRenderer.RenderedField(
+                panel,
+                () -> (String) narrationEngineCombo.getSelectedItem(),
+                value -> narrationEngineCombo.setSelectedItem(value),
+                narrationEngineCombo,
+                createHiddenValidationError());
+        registerRenderedField(engineSpec, rf);
+        return panel;
+    }
+
+    /** 单个朗读引擎的参数卡片：仅含 {@code narration-tts.<engine>.*} 字段。 */
+    private JComponent buildNarrationEngineCard(String engine) {
         JPanel content = new GroupContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        addFieldsTo(content, fieldsByGroup(narrationTtsGroup));
+        addFieldsTo(content, narrationFieldsByEngine(engine));
         content.add(Box.createVerticalGlue());
 
         JScrollPane sp = new JScrollPane(content);
@@ -968,6 +1034,15 @@ public class ConfigPanel extends JPanel {
         sp.getVerticalScrollBar().setUnitIncrement(16);
         resetScrollToTopOnFirstShow(sp);
         return sp;
+    }
+
+    /** 取某朗读引擎的全部参数字段（{@code narration-tts.<engine>.*}，不含 {@code narration-tts.engine} 自身）。 */
+    private List<ConfigFieldSpec> narrationFieldsByEngine(String engine) {
+        String prefix = "narration-tts." + engine + ".";
+        return allFields.stream()
+                .filter(f -> narrationTtsGroup.equals(f.group()))
+                .filter(f -> f.key().startsWith(prefix))
+                .toList();
     }
 
     // ── AI 分组特殊控件 ──────────────────────────────────────────────────────────
