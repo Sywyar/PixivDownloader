@@ -60,23 +60,28 @@ public class NovelNarrationCastService {
     private final NovelMapper novelMapper;
     private final NovelDatabase novelDatabase;
     private final NarrationScriptService narrationScriptService;
+    private final NarrationReferenceVoiceStore referenceVoiceStore;
     private final TransactionOperations transactionOperations;
 
     @Autowired
     public NovelNarrationCastService(NovelMapper novelMapper,
                                      NovelDatabase novelDatabase,
                                      NarrationScriptService narrationScriptService,
+                                     NarrationReferenceVoiceStore referenceVoiceStore,
                                      PlatformTransactionManager transactionManager) {
-        this(novelMapper, novelDatabase, narrationScriptService, new TransactionTemplate(transactionManager));
+        this(novelMapper, novelDatabase, narrationScriptService, referenceVoiceStore,
+                new TransactionTemplate(transactionManager));
     }
 
     NovelNarrationCastService(NovelMapper novelMapper,
                               NovelDatabase novelDatabase,
                               NarrationScriptService narrationScriptService,
+                              NarrationReferenceVoiceStore referenceVoiceStore,
                               TransactionOperations transactionOperations) {
         this.novelMapper = novelMapper;
         this.novelDatabase = novelDatabase;
         this.narrationScriptService = narrationScriptService;
+        this.referenceVoiceStore = referenceVoiceStore;
         this.transactionOperations = transactionOperations;
     }
 
@@ -140,17 +145,27 @@ public class NovelNarrationCastService {
     public void delete(long id) {
         novelMapper.deleteNarrationVoices(id);
         novelMapper.deleteNarrationCast(id);
+        // 同步清掉该册磁盘参考音目录，避免孤儿文件（最大努力）。
+        referenceVoiceStore.deleteCastDirectory(id);
     }
 
     /**
-     * 手动整册替换角色：清空后写入给定角色（同 {@code character_id} 覆盖）。用户手改的角色一律标记
-     * {@code edited_by_user=1}（AI 之后绝不覆盖其画像，只能以冲突形式弹给用户）。始终保留一名旁白（id 0）——
-     * 列表中未含旁白时补一名默认旁白（来源仍记为 AI 生成 {@code edited_by_user=0}，允许后续 AI 补充）。
+     * 手动整册替换角色：以给定角色为准重建名册（同 {@code character_id} 覆盖<b>音色画像列</b>、保留其既有参考音元数据；
+     * 不再出现的角色删行 + 删磁盘参考音文件）。用户手改的角色一律标记 {@code edited_by_user=1}（AI 之后绝不覆盖其
+     * 画像，只能以冲突形式弹给用户）。始终保留一名旁白（id 0）——列表中未含旁白时补一名默认旁白（来源仍记为 AI 生成
+     * {@code edited_by_user=0}，允许后续 AI 补充）。
+     *
+     * <p>用 {@code upsert}（{@code ON CONFLICT DO UPDATE} 只改画像列）而非「清空后整行重写」，因此已配参考音的角色被
+     * 保留时其 {@code ref_audio_*} 绑定与盘上文件均不丢失；只有真正被移除的角色才清理其参考音文件。
      */
     @Transactional
     public void replaceVoices(long castId, List<NarrationCharacter> roster) {
         long now = TimestampUtils.nowMillis();
-        novelMapper.deleteNarrationVoices(castId);
+        Set<Integer> existingIds = new LinkedHashSet<>();
+        for (NarrationCharacter c : novelMapper.findNarrationVoices(castId)) {
+            existingIds.add(c.id());
+        }
+        Set<Integer> keptIds = new LinkedHashSet<>();
         boolean hasNarrator = false;
         if (roster != null) {
             for (NarrationCharacter c : roster) {
@@ -158,6 +173,7 @@ public class NovelNarrationCastService {
                 if (c.controlInstruction() == null || c.controlInstruction().isBlank()) continue;
                 novelMapper.upsertNarrationVoice(castId, c.id(), c.name().trim(),
                         c.gender(), c.age(), c.controlInstruction().trim(), true, now);
+                keptIds.add(c.id());
                 hasNarrator |= c.id() == NarrationCharacter.NARRATOR_ID;
             }
         }
@@ -165,6 +181,14 @@ public class NovelNarrationCastService {
             NarrationCharacter n = NarrationCharacter.defaultNarrator();
             novelMapper.upsertNarrationVoice(castId, n.id(), n.name(), n.gender(), n.age(),
                     n.controlInstruction(), false, now);
+            keptIds.add(n.id());
+        }
+        // 被移除的角色：删行 + 删其磁盘参考音文件，避免参考音孤儿。
+        for (Integer id : existingIds) {
+            if (!keptIds.contains(id)) {
+                novelMapper.deleteNarrationVoice(castId, id);
+                referenceVoiceStore.deleteCharacterFiles(castId, id);
+            }
         }
         novelMapper.touchNarrationCast(castId, now);
     }

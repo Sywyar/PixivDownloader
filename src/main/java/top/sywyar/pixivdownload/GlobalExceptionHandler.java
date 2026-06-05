@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
@@ -62,6 +64,25 @@ public class GlobalExceptionHandler {
         String message = buildValidationMessage(e, locale, false);
         String logDetail = buildValidationMessage(e, Locale.getDefault(), true);
         log.warn(logMessage("error.log.request.param.validation-failed", logDetail));
+        return ResponseEntity.badRequest().body(new ErrorResponse(message));
+    }
+
+    /**
+     * 上传文件超过 {@code spring.servlet.multipart.max-*} 硬上限：返回受控的 413，而不是 Tomcat 原始错误页。
+     * 比 {@link MultipartException} 更具体，Spring 会优先匹配本处理器。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleMaxUpload(MaxUploadSizeExceededException e, Locale locale) {
+        String message = messages.getOrDefault(locale, "error.upload.too-large", "上传文件过大");
+        log.warn(logMessage("error.log.request.failed", fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(new ErrorResponse(message));
+    }
+
+    /** 其它 multipart 解析失败（请求体损坏 / 非 multipart 等）：返回受控的 400。 */
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<ErrorResponse> handleMultipart(MultipartException e, Locale locale) {
+        String message = messages.getOrDefault(locale, "error.upload.invalid", "上传请求格式错误");
+        log.warn(logMessage("error.log.request.failed", fallbackLogDetail(e.getMessage(), e.getClass().getSimpleName())));
         return ResponseEntity.badRequest().body(new ErrorResponse(message));
     }
 

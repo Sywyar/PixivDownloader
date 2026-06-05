@@ -102,6 +102,11 @@ public class NarrationReferenceVoiceController {
         try {
             NovelNarrationVoiceRef ref = referenceVoiceService.saveUpload(
                     castId, characterId, file.getBytes(), ext, refText);
+            if (ref == null) {
+                // 角色不在该花名册中（且非旁白）：服务已拒绝落盘，返回明确 404 而非 500。
+                return ResponseEntity.status(404)
+                        .body(new ErrorResponse(messages.get("narration.error.ref-character-not-found")));
+            }
             return ResponseEntity.ok(status(ref));
         } catch (IOException e) {
             log.warn("narration reference voice upload failed: castId={}, characterId={}, err={}",

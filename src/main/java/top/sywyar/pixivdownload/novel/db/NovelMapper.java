@@ -436,10 +436,18 @@ public interface NovelMapper {
                                       @Param("editedByUser") boolean editedByUser,
                                       @Param("createdTime") long createdTime);
 
-    /** 手动编辑写入：同 (cast_id, character_id) 直接覆盖音色等字段。{@code editedByUser=true} 标记用户锁定。 */
-    @Insert("INSERT OR REPLACE INTO novel_narration_voices"
+    /**
+     * 手动编辑写入：插入新角色或覆盖已有角色的<b>音色画像列</b>（name/gender/age/control_instruction/edited_by_user）。
+     * 用 {@code ON CONFLICT DO UPDATE} 而非 {@code INSERT OR REPLACE}，因此覆盖时<b>保留</b>该角色既有的参考音元数据
+     * （{@code ref_audio_*}）与 {@code created_time}——避免整册替换时把已配参考音的绑定连同行一起抹掉。
+     * {@code editedByUser=true} 标记用户锁定。
+     */
+    @Insert("INSERT INTO novel_narration_voices"
             + "(cast_id, character_id, name, gender, age, control_instruction, edited_by_user, created_time)"
-            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{editedByUser}, #{createdTime})")
+            + " VALUES(#{castId}, #{characterId}, #{name}, #{gender}, #{age}, #{controlInstruction}, #{editedByUser}, #{createdTime})"
+            + " ON CONFLICT(cast_id, character_id) DO UPDATE SET"
+            + " name = excluded.name, gender = excluded.gender, age = excluded.age,"
+            + " control_instruction = excluded.control_instruction, edited_by_user = excluded.edited_by_user")
     void upsertNarrationVoice(@Param("castId") long castId, @Param("characterId") int characterId,
                               @Param("name") String name, @Param("gender") String gender,
                               @Param("age") String age,
@@ -460,6 +468,10 @@ public interface NovelMapper {
 
     @Delete("DELETE FROM novel_narration_voices WHERE cast_id = #{castId}")
     void deleteNarrationVoices(@Param("castId") long castId);
+
+    /** 删除花名册中单个角色行（整册替换时移除不再保留的角色，连同其参考音元数据）。 */
+    @Delete("DELETE FROM novel_narration_voices WHERE cast_id = #{castId} AND character_id = #{characterId}")
+    void deleteNarrationVoice(@Param("castId") long castId, @Param("characterId") int characterId);
 
     /** 设置 / 覆盖某角色的参考音元数据（不动音色画像等其它列）；行不存在则影响 0 行。 */
     @Update("UPDATE novel_narration_voices SET ref_audio_ext = #{ext}, ref_audio_text = #{text},"
