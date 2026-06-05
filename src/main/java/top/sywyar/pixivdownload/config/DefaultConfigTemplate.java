@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.config;
 
+import top.sywyar.pixivdownload.notification.NotificationConfig;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
+
 import java.util.Locale;
 import java.util.function.Function;
 
@@ -280,6 +283,14 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "push.webhook.content-type: application/json", "config.template.push.webhook.content-type.comment");
         appendSetting(config, messages, "push.webhook.body-template:", "config.template.push.webhook.body-template.comment");
         appendSetting(config, messages, "push.webhook.use-proxy: false", "config.template.push.use-proxy.comment");
+        appendBlankLine(config);
+
+        appendSection(config, messages, "config.template.section.notification");
+        for (NotificationScenario scenario : NotificationScenario.values()) {
+            appendSetting(config, messages,
+                    NotificationConfig.scenarioEnabledKey(scenario.id()) + ": true",
+                    "config.template.notification.scenario.enabled.comment");
+        }
 
         return config.toString();
     }

@@ -2,8 +2,11 @@ package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
+import top.sywyar.pixivdownload.notification.NotificationConfig;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static top.sywyar.pixivdownload.gui.config.FieldType.*;
@@ -80,7 +83,7 @@ public final class ConfigFieldRegistry {
         String groupNarrationTts = message("gui.config.group.narration-tts");
         String groupNotification = message("gui.config.group.notification");
 
-        return List.of(
+        List<ConfigFieldSpec> baseFields = List.of(
 
                 // ── 服务器 ─────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("server.port", message("gui.config.field.server.port.label"), PORT, groupServer)
@@ -1363,6 +1366,21 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build()
         );
+
+        // 通知类型开关：每个 NotificationScenario 一项（默认开启），关闭后该类型的邮件与推送都不再发送
+        // （由 NotificationService.notify 统一裁剪）。从枚举派生，避免与场景单一事实源漂移。
+        List<ConfigFieldSpec> fields = new ArrayList<>(baseFields);
+        for (NotificationScenario scenario : NotificationScenario.values()) {
+            fields.add(ConfigFieldSpec.builder(
+                            NotificationConfig.scenarioEnabledKey(scenario.id()),
+                            message("gui.config.field.notification.scenario." + scenario.id() + ".label"),
+                            BOOL, groupNotification)
+                    .defaultValue("true")
+                    .help(message("gui.config.field.notification.scenario." + scenario.id() + ".help"))
+                    .hotReloadable()
+                    .build());
+        }
+        return List.copyOf(fields);
     }
 
     private static String message(String code, Object... args) {

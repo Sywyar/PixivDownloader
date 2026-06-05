@@ -14,6 +14,8 @@ import top.sywyar.pixivdownload.ai.AiConfig;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.mail.MailConfig;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
+import top.sywyar.pixivdownload.notification.NotificationConfig;
+import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.push.PushConfig;
 import top.sywyar.pixivdownload.push.channel.bark.BarkConfig;
 import top.sywyar.pixivdownload.push.channel.dingtalk.DingTalkConfig;
@@ -63,6 +65,7 @@ public class RuntimeConfigReloadService {
     private final PushPlusConfig pushPlusConfig;
     private final ServerChanConfig serverChanConfig;
     private final WebhookConfig webhookConfig;
+    private final NotificationConfig notificationConfig;
 
     public synchronized ReloadResult reloadHotConfig() throws IOException {
         Binder binder = loadBinder();
@@ -86,6 +89,7 @@ public class RuntimeConfigReloadService {
         PushPlusConfig nextPushPlus = bind(binder, "push.pushplus", PushPlusConfig::new, PushPlusConfig.class);
         ServerChanConfig nextServerChan = bind(binder, "push.serverchan", ServerChanConfig::new, ServerChanConfig.class);
         WebhookConfig nextWebhook = bind(binder, "push.webhook", WebhookConfig::new, WebhookConfig.class);
+        NotificationConfig nextNotification = bind(binder, "notification", NotificationConfig::new, NotificationConfig.class);
 
         List<String> applied = new ArrayList<>();
         applyDownloadConfig(nextDownload, applied);
@@ -101,6 +105,7 @@ public class RuntimeConfigReloadService {
         applyNarrationTtsConfig(nextNarrationTts, applied);
         applyPushConfig(nextPush, nextBark, nextDingTalk, nextTelegram, applied);
         applyPushChannels(nextFeishu, nextWecom, nextPushPlus, nextServerChan, nextWebhook, applied);
+        applyNotificationConfig(nextNotification, applied);
 
         if (!applied.isEmpty()) {
             log.info("Hot reloaded config keys: {}", applied);
@@ -807,6 +812,19 @@ public class RuntimeConfigReloadService {
             config.setQuota(quota);
         }
         return quota;
+    }
+
+    private void applyNotificationConfig(NotificationConfig next, List<String> applied) {
+        for (NotificationScenario scenario : NotificationScenario.values()) {
+            String id = scenario.id();
+            boolean current = notificationConfig.isScenarioEnabled(id);
+            boolean nextEnabled = next.isScenarioEnabled(id);
+            applyIfChanged(applied,
+                    NotificationConfig.scenarioEnabledKey(id),
+                    current,
+                    nextEnabled,
+                    () -> notificationConfig.setScenarioEnabled(id, nextEnabled));
+        }
     }
 
     private static void applyIfChanged(List<String> applied,

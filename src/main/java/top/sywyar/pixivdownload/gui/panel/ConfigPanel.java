@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.mail.preset.MailPreset;
 import top.sywyar.pixivdownload.mail.preset.MailPresetRegistry;
+import top.sywyar.pixivdownload.notification.NotificationConfig;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -255,31 +256,37 @@ public class ConfigPanel extends JPanel {
     }
 
     /**
-     * 通知分组面板：顶部提示 + 推送总开关 + 服务下拉；下方 CardLayout 显示所选服务的编辑卡片。
-     * 所有已启用的服务同时发送；下拉仅切换当前编辑的服务。
+     * 通知分组面板：与其它配置分组一样是「单页整体滚动」——提示、推送总开关、需要通知的类型、服务下拉与
+     * 所选服务的字段卡片全部放进同一个滚动容器，没有任何控件固定在顶部。服务下拉仅切换下方展示的卡片；
+     * 所有服务的字段在构建时就已注册，因此所有已启用的服务同时持久化、同时发送。
      */
     private JComponent buildNotificationPanel() {
-        JPanel root = new JPanel(new BorderLayout(0, 6));
-        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
-        JPanel top = new JPanel();
-        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        GroupContentPanel content = new GroupContentPanel();
+        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         JLabel hint = new JLabel(message("gui.config.notification.hint"));
         hint.setFont(hint.getFont().deriveFont(Font.PLAIN, 11f));
         hint.setForeground(new Color(0, 128, 96));
         hint.setAlignmentX(Component.LEFT_ALIGNMENT);
-        top.add(hint);
-        top.add(Box.createVerticalStrut(4));
+        content.add(hint);
+        content.add(Box.createVerticalStrut(4));
 
-        // 推送总开关（push.enabled）置顶，始终可见。
+        // 推送总开关（push.enabled）：随页面一同滚动，不再固定在顶部。
         ConfigFieldSpec pushEnabledSpec = findSpec("push.enabled");
         if (pushEnabledSpec != null) {
             FieldRenderer.RenderedField rf = FieldRenderer.render(pushEnabledSpec);
             registerRenderedField(pushEnabledSpec, rf);
             rf.panel().setAlignmentX(Component.LEFT_ALIGNMENT);
-            top.add(rf.panel());
-            top.add(Box.createVerticalStrut(2));
+            content.add(rf.panel());
+            content.add(Box.createVerticalStrut(2));
+        }
+
+        // 「需要通知的类型」：每个场景一个复选框，默认全部勾选；取消勾选后该类型的邮件与推送都不再发送。
+        JPanel scenarioPanel = buildNotificationScenarioPanel();
+        if (scenarioPanel != null) {
+            scenarioPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            content.add(scenarioPanel);
+            content.add(Box.createVerticalStrut(2));
         }
 
         JComboBox<NotificationService> serviceCombo =
@@ -299,28 +306,51 @@ public class ConfigPanel extends JPanel {
                 message("gui.config.notification.service.label") + message("gui.punctuation.colon"),
                 serviceCombo, null, message("gui.config.notification.service.help"));
         comboRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        top.add(comboRow);
+        content.add(comboRow);
+        content.add(Box.createVerticalStrut(2));
 
-        CardLayout cardLayout = new CardLayout();
-        JPanel cardHost = new JPanel(cardLayout);
+        // 预构建并注册所有服务卡片（字段对全部服务统一加载 / 保存），但同一时刻只在 cardHost 中展示所选的一张。
+        // 用「手动换卡」而非 CardLayout：CardLayout 会按最高的卡片（邮件）预留高度，切到字段较少的推送渠道时
+        // 会在统一滚动页里留下大片空白；逐张替换则让滚动高度始终贴合当前卡片。
+        Map<String, JComponent> cards = new LinkedHashMap<>();
         for (NotificationService s : notificationServices()) {
-            cardHost.add(buildServiceCard(s), s.id());
+            cards.put(s.id(), buildServiceCard(s));
         }
+        JPanel cardHost = new JPanel(new BorderLayout()) {
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+            }
+        };
+        cardHost.setOpaque(false);
+        cardHost.setAlignmentX(Component.LEFT_ALIGNMENT);
         serviceCombo.addActionListener(e -> {
             if (serviceCombo.getSelectedItem() instanceof NotificationService s) {
-                cardLayout.show(cardHost, s.id());
+                cardHost.removeAll();
+                cardHost.add(cards.get(s.id()), BorderLayout.CENTER);
+                cardHost.revalidate();
+                cardHost.repaint();
             }
         });
+        cardHost.add(cards.get(notificationServices().get(0).id()), BorderLayout.CENTER);
+        content.add(cardHost);
+        content.add(Box.createVerticalGlue());
 
-        root.add(top, BorderLayout.NORTH);
-        root.add(cardHost, BorderLayout.CENTER);
-        return root;
+        JScrollPane sp = new JScrollPane(content);
+        sp.setBorder(null);
+        sp.getVerticalScrollBar().setUnitIncrement(16);
+        // 邮件卡片预设锁定会在 init 阶段触发 scrollRectToVisible 让视口偏离 (0,0)；首次显示该分组时强制回到顶部。
+        resetScrollToTopOnFirstShow(sp);
+        return sp;
     }
 
-    /** 构建单个通知服务的编辑卡片（邮件含预设 + 测试；推送渠道含字段 + 单渠道测试）。 */
+    /**
+     * 构建单个通知服务的编辑卡片（邮件含预设 + 测试；推送渠道含字段 + 单渠道测试）。
+     * 卡片本身不再各自套滚动条：它会被嵌进 {@link #buildNotificationPanel()} 的统一滚动页，与上方控件一同滚动；
+     * 字段左对齐到与推送总开关相同的边距（外层容器已有 8px 内边距，卡片不再额外缩进）。
+     */
     private JComponent buildServiceCard(NotificationService service) {
         JPanel content = new GroupContentPanel();
-        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         if ("mail".equals(service.id())) {
             JPanel preset = buildMailPresetPanel();
@@ -347,14 +377,7 @@ public class ConfigPanel extends JPanel {
             content.add(testAll);
             content.add(Box.createVerticalStrut(2));
         }
-        content.add(Box.createVerticalGlue());
-
-        JScrollPane sp = new JScrollPane(content);
-        sp.setBorder(null);
-        sp.getVerticalScrollBar().setUnitIncrement(16);
-        // 邮件卡片含预设锁定，init 阶段会让视口偏离 (0,0)；首次显示该卡片时强制回到顶部。
-        resetScrollToTopOnFirstShow(sp);
-        return sp;
+        return content;
     }
 
     /** 渲染并注册一组字段到容器（供通知卡片复用，与 buildGroupPanel 的渲染循环一致）。 */
@@ -373,6 +396,50 @@ public class ConfigPanel extends JPanel {
                 .filter(f -> notificationGroup.equals(f.group()))
                 .filter(f -> f.key().startsWith(prefix))
                 .toList();
+    }
+
+    /**
+     * 「需要通知的类型」面板：把每个通知场景（{@code notification.scenario.<id>.enabled}）渲染成一个复选框，
+     * 默认全部勾选；取消某个勾选即停发该类型的全部通知（邮件 + 推送）。复用维护星期的多复选框布局，每个复选框
+     * 注册为独立字段以走统一的加载 / 保存 / 热重载流程。场景为空时返回 {@code null}（不渲染该行）。
+     */
+    private JPanel buildNotificationScenarioPanel() {
+        List<ConfigFieldSpec> specs = fieldsByPrefix(NotificationConfig.KEY_SCENARIO_PREFIX);
+        if (specs.isEmpty()) {
+            return null;
+        }
+
+        JPanel checkBoxGrid = new JPanel(new GridLayout(0, 2, 12, 2));
+        checkBoxGrid.setOpaque(false);
+
+        Map<ConfigFieldSpec, JCheckBox> checkBoxes = new LinkedHashMap<>();
+        for (ConfigFieldSpec spec : specs) {
+            JCheckBox checkBox = new JCheckBox(spec.label());
+            checkBox.setSelected("true".equalsIgnoreCase(spec.defaultValue()));
+            checkBox.setToolTipText(spec.helpText());
+            checkBox.setOpaque(false);
+            checkBoxes.put(spec, checkBox);
+            checkBoxGrid.add(checkBox);
+        }
+
+        JPanel panel = FieldRenderer.fieldPanel(
+                message("gui.config.notification.scenario.section.label") + message("gui.punctuation.colon"),
+                checkBoxGrid,
+                buildEffectLabel(false),
+                message("gui.config.notification.scenario.section.help"));
+
+        for (Map.Entry<ConfigFieldSpec, JCheckBox> entry : checkBoxes.entrySet()) {
+            JCheckBox checkBox = entry.getValue();
+            FieldRenderer.RenderedField rf = new FieldRenderer.RenderedField(
+                    panel,
+                    () -> Boolean.toString(checkBox.isSelected()),
+                    value -> checkBox.setSelected("true".equalsIgnoreCase(value)),
+                    checkBox,
+                    createHiddenValidationError());
+            registerRenderedField(entry.getKey(), rf);
+        }
+
+        return panel;
     }
 
     private List<ConfigFieldSpec> fieldsByGroup(String group) {
