@@ -913,7 +913,7 @@
 
         playBtn.addEventListener('click', () => playRefAudio(playBtn, v.id));
         uploadBtn.addEventListener('click', () => uploadRef(v));
-        delBtn.addEventListener('click', () => deleteRef(v));
+        delBtn.addEventListener('click', () => deleteRef(v, delBtn));
         actions.appendChild(genBtn);
         actions.appendChild(playBtn);
         actions.appendChild(uploadBtn);
@@ -1036,18 +1036,30 @@
         input.click();
     }
 
-    async function deleteRef(v) {
+    // 删除前先 i18n 确认（误删的参考音无法从前端恢复，属数据丢失风险）；提交期间禁用「删除」按钮避免重复点击。
+    async function deleteRef(v, button) {
         if (!state.editCastId) return;
+        if (!window.confirm(t('narration:cast.ref.delete-confirm',
+            '确定删除该角色的参考音吗？删除后将恢复使用音色画像，且无法从此处恢复。'))) return;
+        if (button) {
+            button.disabled = true;
+            button.textContent = t('narration:cast.ref.deleting', '删除中…');
+        }
+        let done = false;
         try {
             const r = await fetch('/api/narration/cast/voice/reference?castId='
                 + encodeURIComponent(state.editCastId) + '&characterId=' + encodeURIComponent(v.id),
                 { method: 'DELETE', credentials: 'same-origin' });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             state.toast && state.toast(t('narration:toast.ref.deleted', '参考音已删除'), 'success');
+            done = true;
             await afterRefChange();
         } catch (e) {
             state.toast && state.toast(t('narration:toast.ref.failed', '参考音操作失败：{message}',
                 { message: String(e && e.message ? e.message : e) }), 'error');
+        } finally {
+            // 成功路径已 renderCastList 重建本行（删除按钮随之移除），无需复位；失败则恢复「删除」按钮。
+            if (!done && button) { button.disabled = false; button.textContent = t('narration:cast.ref.delete', '删除'); }
         }
     }
 
@@ -1134,6 +1146,7 @@
     let dialogRefs = null;
     let castCtx = { def: null, list: [] }; // def: {castId,name,seriesId,novelId}; list: [{id,name,...}]
     let narratorPresets = null;          // [{id, instruction}]（后端固定英文画像，首次加载后缓存）
+    let narratorUserTouched = false;     // 用户是否显式动过旁白音色下拉：动过则切换花名册时不再自动改写其选择
 
     function narratorPresetById(id) {
         return (narratorPresets || []).find((p) => p.id === id) || null;
@@ -1208,11 +1221,17 @@
         const n = Number(v);
         return Number.isFinite(n) && n > 0 ? n : 0;
     }
-    // 旁白音色加载：默认选中——本作默认册尚不存在（首次分析）→ 预选默认预设（温和提示用户选）；否则「保持当前」。
+    // 旁白音色默认选中跟随「当前所选花名册」：已选中**已存在**的花名册（默认册已建 / 列表里的具体册）→「保持当前」
+    // （避免误改已有册的旁白；借用共享册时不殃及其它作品）；尚未创建的目标（纯旁白 / 默认册未建 / 新建）→ 预选默认
+    // 预设（温和提示用户选）。随花名册下拉变化重新派生；用户一旦显式动过旁白下拉则不再自动改写其选择。
+    function syncNarratorDefault() {
+        if (narratorUserTouched) return;
+        if (!dialogRefs || !dialogRefs.narratorSelect) return;
+        rebuildNarratorSelect(peekSelectedCastId() > 0 ? NARRATOR_KEEP : narratorDefaultId());
+    }
     async function loadNarratorContext() {
         await loadNarratorPresets();
-        const firstTime = !(castCtx.def && castCtx.def.castId != null);
-        rebuildNarratorSelect(firstTime ? narratorDefaultId() : NARRATOR_KEEP);
+        syncNarratorDefault();
     }
     // 旁白试听样例：优先脚本里旁白第一句；否则取正文首个可朗读段落；都没有时回退旁白标签。
     function sampleNarratorText() {
@@ -1410,7 +1429,8 @@
         r.segInput.value = Number.isFinite(seg) && seg >= 0 ? String(seg) : '0';
         r.castSelect.innerHTML = '';
         r.narratorSelect.innerHTML = '';
-        // 旁白音色默认选中依赖本作默认册是否已存在，故在花名册上下文加载完成后再建旁白下拉。
+        narratorUserTouched = false;
+        // 旁白音色默认选中跟随所选花名册（见 syncNarratorDefault），故在花名册上下文加载完成后再建旁白下拉。
         loadCastContext().then(loadNarratorContext);
 
         dialogEl.classList.add('open');
@@ -1453,24 +1473,32 @@
                 try { castId = await resolveSelectedCastId(); } catch { return; }
                 if (castId > 0) { rebuildCastSelect(); openCastFor(castId); }
             }
+            // 用户显式改动旁白音色后，切换花名册不再自动改写它（保住用户意图，也只在用户主动选时才下发 preset）。
+            function onNarratorChange() {
+                narratorUserTouched = true;
+                updateNarratorPreview();
+            }
             function onCastChange() {
                 const v = r.castSelect.value;
                 if (v === CAST_OPT_NEW) {
                     const name = window.prompt(t('narration:dialog.new-name-prompt', '新花名册名称'),
                         t('narration:dialog.new-name-default', '新花名册'));
-                    if (name == null || !name.trim()) { rebuildCastSelect(lastCastValue); return; }
+                    if (name == null || !name.trim()) { rebuildCastSelect(lastCastValue); syncNarratorDefault(); return; }
                     castCreate({ name: name.trim(), seriesId: null, novelId: null })
                         .then((created) => castListAll().then((list) => {
                             castCtx.list = list || [];
                             rebuildCastSelect(String(created.id));
                             lastCastValue = r.castSelect.value;
+                            syncNarratorDefault();
                         }))
                         .catch(() => {
                             state.toast && state.toast(t('narration:toast.save-failed', '保存失败'), 'error');
                             rebuildCastSelect(lastCastValue);
+                            syncNarratorDefault();
                         });
                 } else {
                     lastCastValue = v;
+                    syncNarratorDefault();
                 }
             }
             r.close.onclick = () => cleanup(null);
@@ -1478,7 +1506,7 @@
             r.confirm.onclick = confirmChoice;
             r.castEdit.onclick = editSelectedCast;
             r.castSelect.onchange = onCastChange;
-            r.narratorSelect.onchange = updateNarratorPreview;
+            r.narratorSelect.onchange = onNarratorChange;
             r.narratorTry.onclick = tryNarratorVoice;
             r.backdrop.onclick = (e) => { if (e.target === r.backdrop) cleanup(null); };
             document.addEventListener('keydown', onKey);
