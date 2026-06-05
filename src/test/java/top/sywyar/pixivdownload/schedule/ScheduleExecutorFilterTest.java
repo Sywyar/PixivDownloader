@@ -388,7 +388,7 @@ class ScheduleExecutorFilterTest {
                     pages, 98L, id -> false,
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
-            assertThat(r.dispatched()).isEqualTo(2);
+            assertThat(r.queued()).isEqualTo(2);
             assertThat(dispatched).containsExactly("100", "99");
             assertThat(r.newestSeen()).isEqualTo(100L);
         }
@@ -404,7 +404,7 @@ class ScheduleExecutorFilterTest {
                     pages, 0L, id -> true,
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
-            assertThat(r.dispatched()).isZero();
+            assertThat(r.queued()).isEqualTo(2);
             assertThat(dispatched).isEmpty();
             assertThat(calls.get()).isEqualTo(1); // 第 2 页未请求
             assertThat(r.newestSeen()).isEqualTo(100L);
@@ -419,12 +419,12 @@ class ScheduleExecutorFilterTest {
                     pages, 0L, id -> false,
                     (id, workId) -> true, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
-            assertThat(r.dispatched()).isEqualTo(4);
+            assertThat(r.queued()).isEqualTo(4);
             assertThat(r.newestSeen()).isEqualTo(50L);
         }
 
         @Test
-        @DisplayName("单作品被隔离（dispatcher 返 false）不计派发数，但 watermark 仍可推进")
+        @DisplayName("单作品被隔离（dispatcher 返 false）仍计入队列数，且 watermark 仍可推进")
         void isolatedWorkStillAdvancesWatermark() throws Exception {
             List<String> seen = new ArrayList<>();
             ScheduleExecutor.PageSupplier pages = supplier(
@@ -437,7 +437,7 @@ class ScheduleExecutorFilterTest {
                     }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
             assertThat(seen).containsExactly("3", "2", "1");
-            assertThat(r.dispatched()).isEqualTo(2);
+            assertThat(r.queued()).isEqualTo(3);
             assertThat(r.newestSeen()).isEqualTo(3L);
         }
 
@@ -468,11 +468,11 @@ class ScheduleExecutorFilterTest {
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
             assertThat(calls.get()).isEqualTo(4); // 第 4 页为空触发停止
             assertThat(pageDelays.get()).isEqualTo(3); // 只在继续翻下一页前延迟
-            assertThat(r.dispatched()).isEqualTo(3);
+            assertThat(r.queued()).isEqualTo(3);
         }
 
         @Test
-        @DisplayName("首轮封顶（dispatchLimit>0）：派发数达上限即停，newestSeen 仍为最新 ID（水位线推进到最新）")
+        @DisplayName("首轮封顶（queueLimit>0）：入队数达上限即停，newestSeen 仍为最新 ID（水位线推进到最新）")
         void firstRunLimitStopsAtCapButKeepsNewestSeen() throws Exception {
             List<String> dispatched = new ArrayList<>();
             ScheduleExecutor.PageSupplier pages = supplier(
@@ -481,14 +481,14 @@ class ScheduleExecutorFilterTest {
                     pages, 0L, id -> false,
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 2);
-            assertThat(r.dispatched()).isEqualTo(2);
+            assertThat(r.queued()).isEqualTo(2);
             assertThat(dispatched).containsExactly("100", "99"); // 只下最新 2 个
             assertThat(r.newestSeen()).isEqualTo(100L); // 水位线照常推进到最新，更老积压永久跳过
         }
 
         @Test
-        @DisplayName("首轮封顶不计已下载：跳过的不占额度，凑满上限个新下载才停")
-        void firstRunLimitCountsNewDispatchesOnly() throws Exception {
+        @DisplayName("首轮封顶按入队数计算：已下载跳过也占额度")
+        void firstRunLimitCountsQueuedWorks() throws Exception {
             List<String> dispatched = new ArrayList<>();
             ScheduleExecutor.PageSupplier pages = supplier(
                     List.of(List.of("100", "99", "98", "97", "96")), new AtomicInteger());
@@ -496,8 +496,8 @@ class ScheduleExecutorFilterTest {
                     pages, 0L, id -> id == 100L || id == 99L, // 最新两个已下载
                     (id, workId) -> { dispatched.add(id); return true; }, () -> {}, () -> {},
                     ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 2);
-            assertThat(r.dispatched()).isEqualTo(2);
-            assertThat(dispatched).containsExactly("98", "97"); // 已下载的不占额度
+            assertThat(r.queued()).isEqualTo(2);
+            assertThat(dispatched).isEmpty(); // 已下载已入队并占满额度，不再继续凑新下载
             assertThat(r.newestSeen()).isEqualTo(100L);
         }
     }
@@ -551,7 +551,7 @@ class ScheduleExecutorFilterTest {
         }
 
         @Test
-        @DisplayName("每轮上限（dispatchLimit>0）：派发数达上限即停本轮，剩余作品留待下一轮")
+        @DisplayName("每轮上限（queueLimit>0）：入队数达上限即停本轮，剩余作品留待下一轮")
         void perRunLimitStopsAtCap() throws Exception {
             AtomicInteger calls = new AtomicInteger();
             List<String> dispatched = new ArrayList<>();
@@ -566,6 +566,27 @@ class ScheduleExecutorFilterTest {
             assertThat(count).isEqualTo(2);
             assertThat(dispatched).containsExactly("100", "99");
             assertThat(calls.get()).isEqualTo(1); // 第 1 页内就凑满上限，未翻第 2 页
+        }
+
+        @Test
+        @DisplayName("每轮上限按入队数计算：单作品被隔离也占额度")
+        void perRunLimitCountsQueuedWorks() throws Exception {
+            AtomicInteger calls = new AtomicInteger();
+            List<String> attempted = new ArrayList<>();
+            ScheduleExecutor.PageSupplier pages = supplier(
+                    List.of(List.of("100", "99", "98"), List.of("97", "96")), calls);
+
+            int count = ScheduleExecutor.runDownloadedBoundaryScan(
+                    pages, id -> false,
+                    (id, workId) -> {
+                        attempted.add(id);
+                        return workId != 100L;
+                    },
+                    () -> {}, () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 2);
+
+            assertThat(count).isEqualTo(2);
+            assertThat(attempted).containsExactly("100", "99");
+            assertThat(calls.get()).isEqualTo(1);
         }
     }
 }

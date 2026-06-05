@@ -309,7 +309,7 @@ public class ScheduleExecutor {
         JsonNode source = root.path("source");
         Filters filters = parseFilters(root.path("filters"));
         Download download = parseDownload(root.path("download"));
-        // 抓取上限（0 = 不限 / 全量）。语义随来源是否「ID 单调可水位线」二分：
+        // 抓取上限（0 = 不限 / 全量）。上限按进入本轮运行队列的作品数计算；语义随来源是否「ID 单调可水位线」二分：
         //   · 水位线类（USER_NEW / FOLLOW_LATEST / date_d 翻页到底 SEARCH）：仅<b>首轮</b>（watermark 未建立）封顶，
         //     随后水位线推进到最新 ID、更老积压永久跳过；
         //   · 非水位线类（MY_BOOKMARKS / COLLECTION / 非 date_d 翻页到底 SEARCH）：作为<b>每轮上限</b>逐轮抽干积压。
@@ -365,14 +365,14 @@ public class ScheduleExecutor {
                 runDownloadedBoundarySearch(novel, source, cookie, runner, run, alreadyDownloaded, politeDelay, fetchLimit);
             } else {
                 // 全量发现 + 跳过已下载（SEARCH 固定页 / SERIES / MY_BOOKMARKS）。
-                // 仅 MY_BOOKMARKS 应用「每轮上限」（收藏顺序非单调、无水位线，故逐轮各抓 fetchLimit 个新下载抽干积压）；
+                // 仅 MY_BOOKMARKS 应用「每轮上限」（收藏顺序非单调、无水位线，故逐轮各抓 fetchLimit 个队列项抽干积压）；
                 // SERIES / 固定页 SEARCH 不封顶（前端也隐藏该字段，此处即便误带也不生效）。
                 boolean cap = task.type() == ScheduledTaskType.MY_BOOKMARKS && fetchLimit > 0;
                 List<String> ids = discoverIds(task.type(), novel, source, cookie);
                 if (!cap) {
                     ids.forEach(run::discovered);
                 }
-                int dispatched = 0;
+                int queued = 0;
                 for (String id : ids) {
                     long workId;
                     try {
@@ -381,19 +381,23 @@ public class ScheduleExecutor {
                         continue;
                     }
                     // 封顶路径在循环内逐个登记发现（越过上限的作品不入本轮运行队列、留待下一轮）。
+                    boolean reachedCap = false;
                     if (cap) {
                         run.discovered(id);
+                        reachedCap = ++queued >= fetchLimit;
                     }
                     if (alreadyDownloaded.test(workId)) {
                         run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
-                        continue;
-                    }
-                    if (runner.process(id, workId, false)) {
-                        if (cap && ++dispatched >= fetchLimit) {
+                        if (reachedCap) {
                             break;
                         }
+                        continue;
                     }
+                    runner.process(id, workId, false);
                     politeDelay.run();
+                    if (reachedCap) {
+                        break;
+                    }
                 }
             }
         } finally {
@@ -552,7 +556,7 @@ public class ScheduleExecutor {
             if (p.attempts() < max) pending.add(p.workId());
         }
 
-        // 珍藏集无水位线、ID 非单调 → 每轮上限：两遍（插画 + 小说）共享同一预算，本轮最多派发 fetchLimit 个<b>新</b>下载；
+        // 珍藏集无水位线、ID 非单调 → 每轮上限：两遍（插画 + 小说）共享同一预算，本轮最多登记 fetchLimit 个新队列项；
         // 隔离表重试不计入预算（属既有积压的恢复，且数量受上限约束）。-1 = 不限。
         int[] budget = {fetchLimit > 0 ? fetchLimit : -1};
 
@@ -566,7 +570,7 @@ public class ScheduleExecutor {
 
     /**
      * 珍藏集单 kind 一遍：跳过已下载 → 派发（命中隔离表则按 retry 语义），结束前 join 本遍在途下载。
-     * {@code budget[0]} 为两遍共享的每轮新下载预算（{@code -1} 不限，{@code 0} 已耗尽）：新作预算耗尽即跳过剩余新作、
+     * {@code budget[0]} 为两遍共享的每轮新队列项预算（{@code -1} 不限，{@code 0} 已耗尽）：预算耗尽即跳过剩余新作、
      * 不入本轮运行队列（留待下一轮）；重试不受预算约束。
      */
     private int runCollectionPass(ScheduledTask task, boolean novel, String cookie, Filters filters,
@@ -588,7 +592,7 @@ public class ScheduleExecutor {
                     continue;
                 }
                 boolean isRetry = pending.contains(workId);
-                // 每轮上限：新作预算耗尽即静默跳过（不登记发现、不入运行队列，下一轮再处理）；重试不受限。
+                // 每轮上限：队列项预算耗尽即静默跳过（不登记发现、不入运行队列，下一轮再处理）；重试不受限。
                 if (!isRetry && budget[0] == 0) {
                     continue;
                 }
@@ -601,13 +605,16 @@ public class ScheduleExecutor {
                 run.discovered(id, itemKind);
                 if (!isRetry && alreadyDownloaded.test(workId)) {
                     run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+                    if (budget[0] > 0) {
+                        budget[0]--;
+                    }
                     continue;
                 }
-                boolean ok = runner.process(id, workId, isRetry);
-                politeDelay.run();
-                if (!isRetry && ok && budget[0] > 0) {
+                if (!isRetry && budget[0] > 0) {
                     budget[0]--;
                 }
+                runner.process(id, workId, isRetry);
+                politeDelay.run();
             }
         } finally {
             runner.awaitAll();
@@ -636,11 +643,11 @@ public class ScheduleExecutor {
         }
         WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
         long watermark = task.watermarkId() == null ? 0L : task.watermarkId();
-        // 仅首轮（水位线未建立）封顶：达到上限即停，newestSeen 已记到最新 ID、水位线照常推进到最新，
+        // 仅首轮（水位线未建立）封顶：入队数达到上限即停，newestSeen 已记到最新 ID、水位线照常推进到最新，
         // 更老的积压会被永久跳过（这正是「只要最新 N 个、之后只追新」的预期语义）。
-        int dispatchLimit = (watermark == 0 && fetchLimit > 0) ? fetchLimit : 0;
+        int queueLimit = (watermark == 0 && fetchLimit > 0) ? fetchLimit : 0;
         WatermarkScanResult result = runWatermarkScan(
-                pages, watermark, alreadyDownloaded, dispatcher, politeDelay, pageDelay, run, dispatchLimit);
+                pages, watermark, alreadyDownloaded, dispatcher, politeDelay, pageDelay, run, queueLimit);
         // 扫描正常返回（无挂起异常）后，先等本轮在途下载完成再推进水位线：确保失败者已入隔离表、
         // watermark 推进不会越过尚未真正落盘的作品（崩溃抗空洞）。挂起异常上抛时本方法不会执行到这里。
         runner.awaitAll();
@@ -656,10 +663,10 @@ public class ScheduleExecutor {
                                              int fetchLimit) throws Exception {
         PageSupplier pages = searchPages(novel, source, cookie);
         WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
-        // 非 date_d 的「翻页到底」没有可靠的 ID 水位线 → 封顶按「每轮上限」语义（每轮最多派发 fetchLimit 个新下载）。
-        int dispatchLimit = fetchLimit > 0 ? fetchLimit : 0;
+        // 非 date_d 的「翻页到底」没有可靠的 ID 水位线 → 封顶按「每轮上限」语义（每轮最多登记 fetchLimit 个队列项）。
+        int queueLimit = fetchLimit > 0 ? fetchLimit : 0;
         runDownloadedBoundaryScan(
-                pages, alreadyDownloaded, dispatcher, politeDelay, this::watermarkPageDelay, run, dispatchLimit);
+                pages, alreadyDownloaded, dispatcher, politeDelay, this::watermarkPageDelay, run, queueLimit);
     }
 
     private PageSupplier searchPages(boolean novel, JsonNode source, String cookie) {
@@ -713,8 +720,8 @@ public class ScheduleExecutor {
     /** 水位线 SEARCH 翻到下一页前的强制礼貌延迟。 */
     static final long WATERMARK_PAGE_DELAY_MS = 10_000L;
 
-    /** 水位线扫描结果：派发数与发现到的最新 ID（正常返回即代表追到边界、可推进水位线）。 */
-    record WatermarkScanResult(int dispatched, long newestSeen) {
+    /** 水位线扫描结果：入队数与发现到的最新 ID（正常返回即代表追到边界、可推进水位线）。 */
+    record WatermarkScanResult(int queued, long newestSeen) {
     }
 
     /**
@@ -724,16 +731,16 @@ public class ScheduleExecutor {
      * 单作品的可恢复失败由 {@code dispatcher} 内部隔离、不影响 watermark 推进；
      * 挂起信号（过度访问 / 熔断）与发现阶段鉴权失效上抛，本方法不返回 → 不推进 watermark。
      *
-     * <p>{@code dispatchLimit > 0} 时为<b>首轮封顶</b>：成功派发数达到上限即停止整轮、正常返回。此时
+     * <p>{@code queueLimit > 0} 时为<b>首轮封顶</b>：入队数达到上限即停止整轮、正常返回。此时
      * {@code newestSeen} 已是本轮发现到的最大 ID（最新在前，故为来源最新作），调用方据此把水位线推进到最新，
-     * 更老的积压被永久跳过——「只要最新 N 个、之后只追新」。{@code dispatchLimit <= 0} 表示不限。
+     * 更老的积压被永久跳过——「只要最新 N 个、之后只追新」。{@code queueLimit <= 0} 表示不限。
      */
     static WatermarkScanResult runWatermarkScan(PageSupplier pages, long watermark,
                                                 java.util.function.LongPredicate alreadyDownloaded,
                                                 WorkDispatcher dispatcher, Runnable politeDelay,
                                                 Runnable pageDelay, ScheduleRunQueue.Run run,
-                                                int dispatchLimit) throws Exception {
-        int dispatched = 0;
+                                                int queueLimit) throws Exception {
+        int queued = 0;
         long newestSeen = 0L;
         for (int p = 1; ; p++) {
             List<String> ids = pages.get(p);
@@ -748,40 +755,43 @@ public class ScheduleExecutor {
                 }
                 newestSeen = Math.max(newestSeen, workId);
                 if (watermark > 0 && workId <= watermark) {
-                    return new WatermarkScanResult(dispatched, newestSeen);
+                    return new WatermarkScanResult(queued, newestSeen);
                 }
                 run.discovered(id);
+                queued++;
+                boolean reachedQueueLimit = queueLimit > 0 && queued >= queueLimit;
                 if (alreadyDownloaded.test(workId)) {
                     run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+                    if (reachedQueueLimit) {
+                        return new WatermarkScanResult(queued, newestSeen);
+                    }
                     continue;
                 }
                 wholePageAlreadyDownloaded = false;
-                if (dispatcher.dispatch(id, workId)) {
-                    dispatched++;
-                    if (dispatchLimit > 0 && dispatched >= dispatchLimit) {
-                        return new WatermarkScanResult(dispatched, newestSeen);
-                    }
+                dispatcher.dispatch(id, workId);
+                if (reachedQueueLimit) {
+                    return new WatermarkScanResult(queued, newestSeen);
                 }
                 politeDelay.run();
             }
             if (wholePageAlreadyDownloaded) break;
             pageDelay.run();
         }
-        return new WatermarkScanResult(dispatched, newestSeen);
+        return new WatermarkScanResult(queued, newestSeen);
     }
 
     /**
      * 非 date_d 增量搜索的纯逻辑：排序不保证 ID 单调，不用 watermark，逐页处理到命中第一个已下载作品即停。
      *
-     * <p>{@code dispatchLimit > 0} 时为<b>每轮上限</b>：成功派发数达到上限即停止本轮、正常返回（无水位线，
-     * 故每轮各抓不超过上限的新作，逐轮抽干）。{@code dispatchLimit <= 0} 表示不限。
+     * <p>{@code queueLimit > 0} 时为<b>每轮上限</b>：入队数达到上限即停止本轮、正常返回（无水位线，
+     * 故每轮各抓不超过上限的队列项，逐轮抽干）。{@code queueLimit <= 0} 表示不限。
      */
     static int runDownloadedBoundaryScan(PageSupplier pages,
                                          java.util.function.LongPredicate alreadyDownloaded,
                                          WorkDispatcher dispatcher, Runnable politeDelay,
                                          Runnable pageDelay, ScheduleRunQueue.Run run,
-                                         int dispatchLimit) throws Exception {
-        int dispatched = 0;
+                                         int queueLimit) throws Exception {
+        int queued = 0;
         for (int p = 1; ; p++) {
             List<String> ids = pages.get(p);
             if (ids == null || ids.isEmpty()) break;
@@ -793,20 +803,20 @@ public class ScheduleExecutor {
                     continue;
                 }
                 if (alreadyDownloaded.test(workId)) {
-                    return dispatched;
+                    return queued;
                 }
                 run.discovered(id);
-                if (dispatcher.dispatch(id, workId)) {
-                    dispatched++;
-                    if (dispatchLimit > 0 && dispatched >= dispatchLimit) {
-                        return dispatched;
-                    }
+                queued++;
+                boolean reachedQueueLimit = queueLimit > 0 && queued >= queueLimit;
+                dispatcher.dispatch(id, workId);
+                if (reachedQueueLimit) {
+                    return queued;
                 }
                 politeDelay.run();
             }
             pageDelay.run();
         }
-        return dispatched;
+        return queued;
     }
 
     /**

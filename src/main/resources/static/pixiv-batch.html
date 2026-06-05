@@ -502,8 +502,8 @@
             <div class="setting-item" id="sch-fetch-limit-row" style="display:none;">
                 <label data-i18n="schedule.field.fetch-limit">首次抓取上限：</label>
                 <input type="number" id="sch-fetch-limit" min="0" step="1" value="0">
-                <div class="schedule-field-hint" id="sch-fetch-limit-hint-watermark" data-i18n="schedule.field.fetch-limit.hint.watermark">仅计划任务生效。首次运行最多抓取最新的这么多个作品；之后每轮只增量追新，更早的历史不再补下。0 = 全量抓取：首次运行会尝试下完该来源的全部历史，作品很多时可能触发 Pixiv 过度访问警告甚至封号，保存时会提示确认。</div>
-                <div class="schedule-field-hint" id="sch-fetch-limit-hint-per-run" style="display:none;" data-i18n="schedule.field.fetch-limit.hint.per-run">仅计划任务生效。该来源没有可靠的「最新」次序，按「每轮上限」执行：每次运行最多抓取这么多个新作品，分多轮逐步抽干积压。若希望永远完整下载全部作品，设为 0 即可（不设上限）——但首轮 0 会一次性尝试下完全部，作品很多时可能触发 Pixiv 过度访问警告，保存时会提示确认。</div>
+                <div class="schedule-field-hint" id="sch-fetch-limit-hint-watermark" data-i18n="schedule.field.fetch-limit.hint.watermark">仅计划任务生效。首次运行最多把最新的这么多个作品纳入本轮队列（已下载跳过 / 筛选跳过也占额度）；之后每轮只增量追新，更早的历史不再补下。0 = 全量抓取：首次运行会尝试下完该来源的全部历史，作品很多时可能触发 Pixiv 过度访问警告甚至封号，保存时会提示确认。</div>
+                <div class="schedule-field-hint" id="sch-fetch-limit-hint-per-run" style="display:none;" data-i18n="schedule.field.fetch-limit.hint.per-run">仅计划任务生效。该来源没有可靠的「最新」次序，按「每轮上限」执行：每次运行最多把这么多个作品纳入本轮队列（已下载跳过 / 筛选跳过也占额度），分多轮逐步抽干积压。若希望永远完整下载全部作品，设为 0 即可（不设上限）——但首轮 0 会一次性尝试下完全部，作品很多时可能触发 Pixiv 过度访问警告，保存时会提示确认。</div>
             </div>
             <div id="sch-quick-source" class="schedule-save-source" style="display:none;"></div>
             <div id="sch-edit-source" class="schedule-save-source" style="display:none;"></div>
