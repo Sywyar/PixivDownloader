@@ -70,6 +70,7 @@ public class ConfigPanel extends JPanel {
     private final String multiModeGroup;
     private final String maintenanceGroup;
     private final String aiGroup;
+    private final String narrationTtsGroup;
     private final String notificationGroup;
 
     /** key → 渲染后的字段（含取值/赋值方法） */
@@ -120,6 +121,7 @@ public class ConfigPanel extends JPanel {
         this.multiModeGroup = ConfigFieldRegistry.groupMultiMode();
         this.maintenanceGroup = ConfigFieldRegistry.groupMaintenance();
         this.aiGroup = ConfigFieldRegistry.groupAi();
+        this.narrationTtsGroup = ConfigFieldRegistry.groupNarrationTts();
         this.notificationGroup = ConfigFieldRegistry.groupNotification();
         buildUi();
         loadCurrentValues();
@@ -168,6 +170,10 @@ public class ConfigPanel extends JPanel {
         if (notificationGroup.equals(group)) {
             return buildNotificationPanel();
         }
+        // 「AI」分组特殊：文本模型（ai.*）+ TTS 模型（narration-tts.*）合并，用「模态」下拉切换编辑，两类配置同时生效。
+        if (aiGroup.equals(group)) {
+            return buildAiPanel();
+        }
 
         JPanel content = new GroupContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -175,14 +181,6 @@ public class ConfigPanel extends JPanel {
         List<ConfigFieldSpec> fields = allFields.stream()
                 .filter(f -> group.equals(f.group()))
                 .toList();
-
-        // AI 服务商预设排在 ai.* 字段之前
-        if (aiGroup.equals(group)) {
-            JPanel aiPresetPanel = buildAiPresetPanel();
-            aiPresetPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            content.add(aiPresetPanel);
-            content.add(Box.createVerticalStrut(2));
-        }
 
         for (ConfigFieldSpec spec : fields) {
             if (maintenanceGroup.equals(group) && isMaintenanceDayEnabledKey(spec.key())) {
@@ -204,12 +202,6 @@ public class ConfigPanel extends JPanel {
             JPanel autoStartPanel = buildAutoStartPanel();
             autoStartPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(autoStartPanel);
-            content.add(Box.createVerticalStrut(2));
-        }
-        if (aiGroup.equals(group)) {
-            JPanel aiTestPanel = buildAiTestPanel();
-            aiTestPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            content.add(aiTestPanel);
             content.add(Box.createVerticalStrut(2));
         }
         content.add(Box.createVerticalGlue());
@@ -380,6 +372,12 @@ public class ConfigPanel extends JPanel {
         return allFields.stream()
                 .filter(f -> notificationGroup.equals(f.group()))
                 .filter(f -> f.key().startsWith(prefix))
+                .toList();
+    }
+
+    private List<ConfigFieldSpec> fieldsByGroup(String group) {
+        return allFields.stream()
+                .filter(f -> group.equals(f.group()))
                 .toList();
     }
 
@@ -877,6 +875,99 @@ public class ConfigPanel extends JPanel {
     /** mail-test-all 异步结果。reachable=false 表示后端连接不上；success=true 仅当全部模板都发信成功。 */
     private record MailTestAllOutcome(boolean reachable, boolean success, int total, int succeeded,
                                       String errorSummary) {
+    }
+
+    // ── AI 分组（文本模型 + TTS 模型，模态下拉切换编辑）────────────────────────────────
+
+    /** AI 模态项：id 用于 CardLayout 切换，displayKey 为 i18n 显示名。 */
+    private record AiModality(String id, String displayKey) {
+    }
+
+    private static List<AiModality> aiModalities() {
+        return List.of(
+                new AiModality("text", "gui.config.ai.modality.text"),
+                new AiModality("tts", "gui.config.ai.modality.tts"));
+    }
+
+    /**
+     * AI 分组面板：顶部「模态」下拉切换「文本模型」（{@code ai.*}）与「TTS 模型」（{@code narration-tts.*}）两张卡片。
+     * 两类配置同时持久化、同时生效；下拉仅切换当前编辑的模态。
+     */
+    private JComponent buildAiPanel() {
+        JPanel root = new JPanel(new BorderLayout(0, 6));
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JComboBox<AiModality> modalityCombo =
+                new JComboBox<>(aiModalities().toArray(new AiModality[0]));
+        modalityCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean isSelected, boolean cellHasFocus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof AiModality m) {
+                    label.setText(message(m.displayKey()));
+                }
+                return label;
+            }
+        });
+        JPanel comboRow = FieldRenderer.fieldPanel(
+                message("gui.config.ai.modality.label") + message("gui.punctuation.colon"),
+                modalityCombo, null, message("gui.config.ai.modality.help"));
+
+        CardLayout cardLayout = new CardLayout();
+        JPanel cardHost = new JPanel(cardLayout);
+        cardHost.add(buildAiTextCard(), "text");
+        cardHost.add(buildAiTtsCard(), "tts");
+        modalityCombo.addActionListener(e -> {
+            if (modalityCombo.getSelectedItem() instanceof AiModality m) {
+                cardLayout.show(cardHost, m.id());
+            }
+        });
+
+        root.add(comboRow, BorderLayout.NORTH);
+        root.add(cardHost, BorderLayout.CENTER);
+        return root;
+    }
+
+    /** 「文本模型」卡片：服务商预设 + {@code ai.*} 字段 + 连接测试。 */
+    private JComponent buildAiTextCard() {
+        JPanel content = new GroupContentPanel();
+        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        JPanel aiPresetPanel = buildAiPresetPanel();
+        aiPresetPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(aiPresetPanel);
+        content.add(Box.createVerticalStrut(2));
+
+        addFieldsTo(content, fieldsByGroup(aiGroup));
+
+        JPanel aiTestPanel = buildAiTestPanel();
+        aiTestPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        content.add(aiTestPanel);
+        content.add(Box.createVerticalStrut(2));
+        content.add(Box.createVerticalGlue());
+
+        JScrollPane sp = new JScrollPane(content);
+        sp.setBorder(null);
+        sp.getVerticalScrollBar().setUnitIncrement(16);
+        // 预设锁定会在 init 阶段让视口偏离 (0,0)；首次显示该卡片时强制回到顶部。
+        resetScrollToTopOnFirstShow(sp);
+        return sp;
+    }
+
+    /** 「TTS 模型」卡片：{@code narration-tts.*} 字段（多角色听小说朗读的语音合成引擎）。 */
+    private JComponent buildAiTtsCard() {
+        JPanel content = new GroupContentPanel();
+        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        addFieldsTo(content, fieldsByGroup(narrationTtsGroup));
+        content.add(Box.createVerticalGlue());
+
+        JScrollPane sp = new JScrollPane(content);
+        sp.setBorder(null);
+        sp.getVerticalScrollBar().setUnitIncrement(16);
+        resetScrollToTopOnFirstShow(sp);
+        return sp;
     }
 
     // ── AI 分组特殊控件 ──────────────────────────────────────────────────────────

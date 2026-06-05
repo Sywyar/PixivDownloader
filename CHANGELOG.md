@@ -20,6 +20,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - GUI 管家新增主题选择（跟随系统 / 浅色 / 深色），即时生效并写入 `config.yaml` 的 `app.theme`，下次启动保留；选择「跟随系统」时会自动跟随操作系统的浅 / 深色变化重涂界面。
 
 ### Changed
+- GUI 管家的 AI 配置整合为单个「AI 模型」页：顶部「模态」下拉可在「文本模型」（通用大语言模型）与「TTS 模型」（多角色听小说朗读引擎）两类设置间切换，两者同时保存并生效。
 - 计划任务绑定的 Cookie 被检测失效、但该任务的下载设置 / 范围无需 Cookie 时，现在会自动清除该失效 Cookie 快照并将任务转为受限模式（无 Cookie）继续运行，避免每轮再用失效 Cookie 反复探测、重复通知；之后如需抓取 R-18 / 受限内容需重新授权 Cookie。
 
 ### Bug Fixes

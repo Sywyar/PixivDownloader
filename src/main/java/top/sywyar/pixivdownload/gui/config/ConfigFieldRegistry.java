@@ -36,6 +36,11 @@ public final class ConfigFieldRegistry {
         return message("gui.config.group.ai");
     }
 
+    /** AI 听小说朗读 TTS 分组名（按当前 locale）。其字段并入 AI 配置页的「TTS 模型」模态卡片，不再单独成页。 */
+    public static String groupNarrationTts() {
+        return message("gui.config.group.narration-tts");
+    }
+
     /** 通知分组名（邮件 / SMTP + 多通道推送，按当前 locale）。 */
     public static String groupNotification() {
         return message("gui.config.group.notification");
@@ -55,7 +60,6 @@ public final class ConfigFieldRegistry {
                 message("gui.config.group.update"),
                 message("gui.config.group.schedule"),
                 message("gui.config.group.ai"),
-                message("gui.config.group.narration-tts"),
                 message("gui.config.group.notification")
         );
     }
