@@ -482,7 +482,7 @@ Click the **🎧 Listen** button at the top of the novel page to read the text a
 
 ### Multi-voice narration (admin only)
 
-Click **🎭 Multi-voice narration** on the novel page to have an LLM attribute every sentence of the chapter to a speaker (narrator / individual characters); each character is synthesized line by line with a fixed voice profile and played back continuously — unlike the single-voice **Listen** above. It requires an LLM and a narration engine that accepts a voice description (e.g. a self-hosted VoxCPM).
+Click **🎭 Multi-voice narration** on the novel page to have an LLM attribute every sentence of the chapter to a speaker (narrator / individual characters); each character is synthesized line by line with a fixed voice profile and played back continuously — unlike the single-voice **Listen** above. It requires an LLM and a narration engine — either a self-hosted one (e.g. VoxCPM) or one of several cloud TTS services, so you don't need a GPU of your own.
 
 - **Line-by-line playback with follow-along**: sentences are synthesized and played in order (the next one is prefetched); the **paragraph of the current sentence is highlighted and auto-scrolled**, and the bar shows a "Speaker: sentence" subtitle.
 - **Narrator voice**: the settings dialog shown before the first analysis lets you pick a voice for this work's narrator (warm female / calm male / neutral, with preview); once confirmed the narrator voice is **locked** so the AI won't rewrite it, avoiding cross-chapter drift. If you don't pick one (keep current), this work's existing / default narrator is used (the default is warm female).
