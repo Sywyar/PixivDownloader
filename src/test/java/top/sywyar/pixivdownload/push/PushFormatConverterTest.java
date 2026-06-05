@@ -74,6 +74,55 @@ class PushFormatConverterTest {
     }
 
     @Test
+    @DisplayName("转换：Cron 表达式里空格分隔的裸星号不被当作强调吞掉（→纯文本 / HTML / 透传 Markdown）")
+    void renderCronAsterisksSurviveAcrossFormats() {
+        String body = "触发方式：Cron：0 0 * * *";
+        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.PLAIN_TEXT).body())
+                .isEqualTo("触发方式：Cron：0 0 * * *");
+        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.HTML).body())
+                .isEqualTo("触发方式：Cron：0 0 * * *");
+        // MARKDOWN identity 透传：原样交给厂商渲染器（钉钉 / 企微等），不被本框架改写。
+        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.MARKDOWN).body())
+                .isEqualTo("触发方式：Cron：0 0 * * *");
+    }
+
+    @Test
+    @DisplayName("转换：反斜杠转义的字面元字符在转纯文本 / HTML 时脱去反斜杠按字面输出，透传 Markdown 时保留供厂商解析")
+    void renderBackslashEscapedLiteralsAreUnescaped() {
+        String body = "Cron：0 0 \\* \\* \\* 路径 a\\_b\\_c";
+        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.PLAIN_TEXT).body())
+                .isEqualTo("Cron：0 0 * * * 路径 a_b_c");
+        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.HTML).body())
+                .isEqualTo("Cron：0 0 * * * 路径 a_b_c");
+        assertThat(converter.render(PushMessage.markdown("", body, PushLevel.INFO), PushFormat.MARKDOWN).body())
+                .isEqualTo(body);
+    }
+
+    @Test
+    @DisplayName("转换：转义元字符嵌套在行内代码 / 链接内时正确还原，不泄漏哨兵占位符")
+    void renderEscapedLiteralNestedInCodeOrLinkRestoresCleanly() {
+        // `a\*b`：行内代码内的星号按字面输出，<code> 标签保留，且不残留 PUSHHTML 哨兵。
+        RenderedMessage code = converter.render(
+                PushMessage.markdown("", "`a\\*b`", PushLevel.INFO), PushFormat.HTML);
+        assertThat(code.body()).isEqualTo("<code>a*b</code>");
+        assertThat(code.body()).doesNotContain("PUSHHTML");
+        // [a\_b](https://x)：链接文字内的下划线按字面输出，<a href> 保留，且不残留哨兵。
+        RenderedMessage link = converter.render(
+                PushMessage.markdown("", "[a\\_b](https://x)", PushLevel.INFO), PushFormat.HTML);
+        assertThat(link.body()).isEqualTo("<a href=\"https://x\">a_b</a>");
+        assertThat(link.body()).doesNotContain("PUSHHTML");
+    }
+
+    @Test
+    @DisplayName("转换：转义不误伤真实的 **粗** / *斜*，仍正确剥离 / 转标签")
+    void renderRealEmphasisStillConverts() {
+        assertThat(converter.render(PushMessage.markdown("", "**粗** 与 *斜*", PushLevel.INFO),
+                PushFormat.PLAIN_TEXT).body()).isEqualTo("粗 与 斜");
+        assertThat(converter.render(PushMessage.markdown("", "**粗** 与 *斜*", PushLevel.INFO),
+                PushFormat.HTML).body()).isEqualTo("<b>粗</b> 与 <i>斜</i>");
+    }
+
+    @Test
     @DisplayName("转换：纯文本 → HTML，转义特殊字符并保留换行")
     void renderPlainTextToHtml() {
         RenderedMessage rm = converter.render(

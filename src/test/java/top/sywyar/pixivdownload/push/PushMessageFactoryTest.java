@@ -59,6 +59,39 @@ class PushMessageFactoryTest {
     }
 
     @Test
+    @DisplayName("正文数据占位符做 Markdown 字面转义（* / _），标题占位符不转义")
+    void bodyDataPlaceholdersEscapedTitleNot() {
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("task_name", "画*师_计划");
+        ph.put("task_id", "7");
+        ph.put("completed", "1*2");
+        ph.put("trigger_time", "2026-05-27 12:00:00");
+        ph.put("next_run_time", "2026-05-27 13:00:00");
+
+        PushMessage msg = factory.render("run-summary", PushLevel.INFO, Locale.SIMPLIFIED_CHINESE, ph);
+
+        // 正文：数据值里的 * / _ 被反斜杠转义，避免被推送渲染器吞掉。
+        assertThat(msg.content()).contains("画\\*师\\_计划").contains("1\\*2");
+        // 标题：不转义，星号原样保留（标题在各通道并非统一按 Markdown 渲染）。
+        assertThat(msg.title()).contains("1*2").doesNotContain("1\\*2");
+    }
+
+    @Test
+    @DisplayName("标记型占位符（*_md）原样代入、不转义，保留其 Markdown 结构")
+    void rawMarkdownPlaceholderNotEscaped() {
+        Map<String, String> ph = new LinkedHashMap<>();
+        ph.put("account_id", "42");
+        ph.put("tasks_count", "1");
+        ph.put("warning_time", "2026-05-27 12:00:00");
+        ph.put("trigger_time", "2026-05-27 12:01:00");
+        ph.put("tasks_list_md", "- 任务*A*（ID 1）\n- 任务_B_（ID 2）");
+
+        PushMessage msg = factory.render("overuse-paused", PushLevel.WARNING, Locale.SIMPLIFIED_CHINESE, ph);
+
+        assertThat(msg.content()).contains("- 任务*A*（ID 1）\n- 任务_B_（ID 2）");
+    }
+
+    @Test
     @DisplayName("缺失占位符兜底为空串，绝不外发裸 {{key}}")
     void missingPlaceholderFallsBackToEmpty() {
         PushMessage msg = factory.render("pending-exhausted", PushLevel.WARNING, Locale.SIMPLIFIED_CHINESE, Map.of());

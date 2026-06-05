@@ -175,7 +175,8 @@ public class MailTestController {
         placeholders.put("task_id", messages.get(locale, "mail.template.sample.task-id"));
         // 任务级通知共用：任务类型 / 触发方式 / 下次预定运行 / 本轮新下载
         placeholders.put("task_type", messages.get(locale, "mail.template.common.task-type.user-new"));
-        placeholders.put("task_trigger", messages.get(locale, "mail.template.common.trigger.interval", 60));
+        // 用 Cron 触发示例（含裸星号）作为预览样本，与推送预览保持一致。
+        placeholders.put("task_trigger", messages.get(locale, "mail.template.common.trigger.cron", "0 0 * * *"));
         placeholders.put("next_run_time", now.plusMinutes(60).format(TIME_FORMAT));
         placeholders.put("completed", messages.get(locale, "mail.template.sample.completed"));
         // circuit-breaker

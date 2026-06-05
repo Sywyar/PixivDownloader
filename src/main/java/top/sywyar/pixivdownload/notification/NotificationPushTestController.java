@@ -93,7 +93,8 @@ public class NotificationPushTestController {
         ph.put("task_name", messages.get(locale, "mail.template.sample.task-name"));
         ph.put("task_id", messages.get(locale, "mail.template.sample.task-id"));
         ph.put("task_type", messages.get(locale, "mail.template.common.task-type.user-new"));
-        ph.put("task_trigger", messages.get(locale, "mail.template.common.trigger.interval", 60));
+        // 用 Cron 触发示例（含裸星号）作为预览样本：可在各渠道直观验证 Cron 表达式的 * 不被渲染器吞掉。
+        ph.put("task_trigger", messages.get(locale, "mail.template.common.trigger.cron", "0 0 * * *"));
         ph.put("next_run_time", now.plusMinutes(60).format(TIME_FORMAT));
         ph.put("completed", messages.get(locale, "mail.template.sample.completed"));
         ph.put("consecutive_failures", messages.get(locale, "mail.template.sample.consecutive-failures"));

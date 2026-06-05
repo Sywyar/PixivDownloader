@@ -33,6 +33,12 @@ public class PushFormatConverter {
 
     private static final Pattern MARKDOWN_LINK = Pattern.compile("\\[([^\\]]*)\\]\\(([^)]*)\\)");
     private static final Pattern INLINE_CODE = Pattern.compile("`([^`]+)`");
+    /** 反斜杠转义的内联元字符 {@code \ ` * _ [ ]}（与 {@link MarkdownEscape} 同一集合）。 */
+    private static final Pattern MD_ESCAPE = Pattern.compile("\\\\([\\\\`*_\\[\\]])");
+    // 强调正则按 CommonMark 的 flanking 规则收紧：定界符紧邻处不得是空白，否则不构成强调。
+    // 这样空格分隔的裸星号（如 Cron 的 `* * *`）不会被误配对吞掉，仅真正的 **粗** / *斜* 才转换。
+    private static final String BOLD = "(\\*\\*|__)(?=\\S)(.+?)(?<=\\S)\\1";
+    private static final String ITALIC = "([*_])(?=\\S)(.+?)(?<=\\S)\\1";
 
     /**
      * 按通道<b>优先级顺序</b>选出第一个可从 {@code source} 转换到的目标格式。
@@ -109,27 +115,45 @@ public class PushFormatConverter {
     // ---- 具体转换（best-effort、bounded） ------------------------------------------------
 
     private static String markdownToText(String md) {
-        String t = md;
+        List<String> protectedLiterals = new ArrayList<>();
+        String t = protectEscapes(md, protectedLiterals);        // 反斜杠转义的字面元字符（脱去反斜杠）
         t = t.replaceAll("(?m)^\\s{0,3}#{1,6}\\s+", "");          // 标题标记
         t = t.replaceAll("!\\[([^\\]]*)\\]\\([^)]*\\)", "$1");    // 图片 → alt
         t = t.replaceAll("\\[([^\\]]*)\\]\\([^)]*\\)", "$1");     // 链接 → 文字
-        t = t.replaceAll("(\\*\\*|__)(.+?)\\1", "$2");            // 粗体
-        t = t.replaceAll("(\\*|_)(.+?)\\1", "$2");                // 斜体
+        t = t.replaceAll(BOLD, "$2");                            // 粗体
+        t = t.replaceAll(ITALIC, "$2");                          // 斜体
         t = t.replaceAll("`([^`]*)`", "$1");                      // 行内代码
         t = t.replaceAll("(?m)^\\s{0,3}>\\s?", "");               // 引用
-        return t;
+        return restoreProtectedHtml(t, protectedLiterals);
     }
 
     private static String markdownToHtml(String md) {
         List<String> protectedHtml = new ArrayList<>();
         String t = escapeHtml(md);
+        t = protectEscapes(t, protectedHtml);                                        // 反斜杠转义的字面元字符
         t = t.replaceAll("(?m)^\\s{0,3}#{1,6}\\s+", "");                              // 标题标记 → 去除
         t = protectInlineCode(t, protectedHtml);
         t = t.replaceAll("!\\[([^\\]]*)\\]\\([^)]*\\)", "$1");                        // 图片 → alt
         t = protectMarkdownLinks(t, protectedHtml);
-        t = t.replaceAll("(\\*\\*|__)(.+?)\\1", "<b>$2</b>");                         // 粗体
-        t = t.replaceAll("(\\*|_)(.+?)\\1", "<i>$2</i>");                             // 斜体
+        t = t.replaceAll(BOLD, "<b>$2</b>");                                          // 粗体
+        t = t.replaceAll(ITALIC, "<i>$2</i>");                                        // 斜体
         return restoreProtectedHtml(t, protectedHtml);
+    }
+
+    /**
+     * 把反斜杠转义的字面元字符（{@code \X}，X ∈ {@code \ ` * _ [ ]}）替换为受保护占位符、仅保留字面 X，
+     * 使其不参与后续的标题 / 链接 / 强调 / 行内代码解析；{@link #restoreProtectedHtml} 末尾再还原成字面 X。
+     * 这些字符在纯文本与 HTML 输出里都安全（无需 HTML 实体化），故文本 / HTML 两条转换路径共用。
+     */
+    private static String protectEscapes(String text, List<String> protectedLiterals) {
+        Matcher matcher = MD_ESCAPE.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            matcher.appendReplacement(sb,
+                    Matcher.quoteReplacement(protectHtml(matcher.group(1), protectedLiterals)));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
     }
 
     private static String textToHtml(String text) {
@@ -165,8 +189,12 @@ public class PushFormatConverter {
     }
 
     private static String restoreProtectedHtml(String text, List<String> protectedHtml) {
+        // 反向（高索引 → 低索引）还原：外层 token（code / link，注入较晚、索引较大）先展开，露出其内部
+        // 嵌套的转义 token（protectEscapes 最先注入、索引最小），再由后续更低索引的迭代还原。任何嵌套
+        // token 的索引必然小于其容器，故按索引降序处理可逐层向内展开，避免内层 token 在外层展开后残留为
+        // 哨兵占位符（如 `a\*b` / [a\_b](x) 转 HTML 时泄漏  PUSHHTML… ）。
         String restored = text;
-        for (int i = 0; i < protectedHtml.size(); i++) {
+        for (int i = protectedHtml.size() - 1; i >= 0; i--) {
             restored = restored.replace(htmlToken(i), protectedHtml.get(i));
         }
         return restored;

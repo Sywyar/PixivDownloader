@@ -39,17 +39,33 @@ public class PushMessageFactory {
      */
     public PushMessage render(String id, PushLevel level, Locale locale, Map<String, String> placeholders) {
         Map<String, String> values = placeholders == null ? Map.of() : placeholders;
-        String title = applyPlaceholders(messages.get(locale, KEY_PREFIX + id + ".title"), values);
-        String body = applyPlaceholders(messages.get(locale, KEY_PREFIX + id + ".body"), values);
+        // 标题不做 Markdown 转义：标题在各通道的渲染并不统一为 Markdown（钉钉 / 企微按 Markdown 标题、
+        // Telegram 以 HTML 加粗、飞书以 plain_text、Bark 纯文本），转义会在非 Markdown 渲染处留下可见反斜杠。
+        String title = applyPlaceholders(messages.get(locale, KEY_PREFIX + id + ".title"), values, false);
+        // 正文源格式恒为 Markdown：数据型占位符值先做 Markdown 字面转义，避免值里的 * / _ / [ ] 等与
+        // Markdown 语法冲突被渲染器吞掉（如企业微信吞 Cron 的 *）；标记型占位符（*_md / *_html）保持原样。
+        String body = applyPlaceholders(messages.get(locale, KEY_PREFIX + id + ".body"), values, true);
         return PushMessage.markdown(title, body, level);
     }
 
-    /** 单段 {@code {{key}}} 替换：缺失的 key 替换为空串，绝不保留裸占位符。 */
-    private static String applyPlaceholders(String text, Map<String, String> values) {
+    /**
+     * 单段 {@code {{key}}} 替换：缺失的 key 替换为空串，绝不保留裸占位符。
+     * {@code escapeMarkdown=true} 时，对<b>数据型</b>占位符值做 Markdown 字面转义（{@link #isRawMarkup}
+     * 标记型的 {@code *_md} / {@code *_html} 除外，其值本身就是 Markdown / HTML 片段）。
+     */
+    private static String applyPlaceholders(String text, Map<String, String> values, boolean escapeMarkdown) {
         if (text == null || text.isEmpty()) {
             return text == null ? "" : text;
         }
-        return substitute(text, key -> values.getOrDefault(key, ""));
+        return substitute(text, key -> {
+            String value = values.getOrDefault(key, "");
+            return escapeMarkdown && !isRawMarkup(key) ? MarkdownEscape.escape(value) : value;
+        });
+    }
+
+    /** 标记型占位符：键以 {@code _md} / {@code _html} 结尾的值本身即 Markdown / HTML 片段，原样代入、不转义。 */
+    private static boolean isRawMarkup(String key) {
+        return key.endsWith("_md") || key.endsWith("_html");
     }
 
     private static String substitute(String text, Function<String, String> resolver) {

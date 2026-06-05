@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.novel.NovelDownloader;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
+import top.sywyar.pixivdownload.push.MarkdownEscape;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
 import top.sywyar.pixivdownload.setup.SetupService;
@@ -1290,7 +1291,9 @@ public class ScheduleExecutor {
         ph.put("attempts", String.valueOf(event.attempts()));
         ph.put("trigger_time", formatTime(event.triggerTime()));
         ph.put("next_run_time", formatTime(nextRun));
-        ph.put("last_error_excerpt", event.reason() == null ? "" : event.reason());
+        // 隔离表 reason 列未折叠空白、可能多行；通知展示前折叠为单行，与其它摘要一致——
+        // 既避免多行破坏「- 最近失败：…」的单条结构，也避免换行后行首字符（# / > / - 等）被当作块级 Markdown。
+        ph.put("last_error_excerpt", collapseWhitespace(event.reason()));
         sendNotification(NotificationScenario.PENDING_EXHAUSTED, ph);
     }
 
@@ -1368,8 +1371,10 @@ public class ScheduleExecutor {
         for (int i = 0; i < limit; i++) {
             ScheduledTask t = tasks.get(i);
             String name = t.name() == null ? "-" : t.name();
+            // tasks_list_md 仅供推送（Markdown）消费，mail 用 tasks_list_html：md 分支对任务名做 Markdown
+            // 字面转义，避免名字里的 * / _ 等被推送通道渲染器吞掉（与标量占位符在 PushMessageFactory 处一致）。
             String item = messages.get(locale, "mail.template.overuse-paused.task-item",
-                    html ? escapeHtml(name) : name, t.id());
+                    html ? escapeHtml(name) : MarkdownEscape.escape(name), t.id());
             lines.add(html ? item : "- " + item);
         }
         if (tasks.size() > limit) {
@@ -1410,6 +1415,11 @@ public class ScheduleExecutor {
         return novel
                 ? "https://www.pixiv.net/novel/show.php?id=" + workId
                 : "https://www.pixiv.net/artworks/" + workId;
+    }
+
+    /** 把任意空白（含换行）折叠为单个空格并去除首尾空白；{@code null} 视作空串。用于通知展示前的单行化。 */
+    private static String collapseWhitespace(String s) {
+        return s == null ? "" : s.replaceAll("\\s+", " ").trim();
     }
 
     /** 最简 HTML 转义：避免任务名里的尖括号 / & 破坏邮件信息卡布局。 */
