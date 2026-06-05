@@ -29,6 +29,14 @@ import java.util.regex.Pattern;
  * voice-design / 克隆模型通常<b>没有任何预设音色</b>（服务端报 {@code Supported: none} 即指预设列表为空），此时带上
  * 任何 {@code voice} 值都会被拒，故<b>默认留空 → 整个 {@code voice} 字段不下发</b>；仅当某构建明确要求某个 voice 名时才填。
  *
+ * <p><b>克隆走可控克隆（Controllable Cloning），绝不下发 {@code ref_text}。</b> 角色配了参考音且未关闭克隆时，
+ * 只下发 {@code ref_audio}（不带转录），服务端按「隔离参考音」克隆音色、{@code input} 里的 {@code (情绪)} 控制指令
+ * 照常生效。一旦同时下发转录，VoxCPM2 会切到 Ultimate/Hi-Fi 音频续写模式——该模式忽略控制指令，且会因转录与
+ * 参考音错位而吞掉首句 / 产生空音频 / 跑飞，故本引擎不送转录。
+ *
+ * <p>送入模型的文本先经 {@link #normalizeSpeechText} 归一：纯标点 / 无可发音内容 → 跳过；省略号 / 悬挂标点结尾 →
+ * 替换为句号，给自回归停止符明确的句末线索，规避空音频 / 长噪音 / 呓语。
+ *
  * <p>是否走 HTTP 代理由 {@code narration-tts.voxcpm.use-proxy} 决定（per-config，独立于全局
  * {@code proxy.enabled}）：为 {@code true} 用经 {@link top.sywyar.pixivdownload.config.ProxyConfig} 的
  * 代理 RestTemplate，否则直连。响应是二进制音频，按 byte[] 读取；失败抛 {@link NarrationVoiceException}，
@@ -45,6 +53,13 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
     private static final String MODELS_PATH = "/models";
     /** 非 2xx 错误体摘要上限，避免超长正文进异常 / 日志。 */
     private static final int MAX_DETAIL_LENGTH = 500;
+
+    /** 句末干净终止符：核心文本已以此结尾就不再补句号（{@code 。}/{@code .} 会被悬挂剥离，故只需保留 {@code ！？!?}）。 */
+    private static final String SENTENCE_FINAL = "！？!?";
+    /** 末尾「悬挂」标记：省略号 / 点号 / 中点 / 破折号 / 波浪号——原样收尾会让 VoxCPM 自回归停止符不触发。 */
+    private static final String DANGLING_TAIL = "…⋯‥.。．・—–～~-";
+    /** 末尾右引号 / 右括号：先摘出、补完句号后再贴回，保持引号闭合。 */
+    private static final String TRAILING_CLOSERS = "」』）)】》〉〕｝}]”’\"'";
 
     private static final Pattern BEARER_PATTERN = Pattern.compile("(?i)Bearer\\s+[A-Za-z0-9._\\-]+");
 
@@ -143,11 +158,13 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
         String voice = resolveVoice(vox.getVoice());
         String apiKey = vox.getApiKey();
         boolean useProxy = vox.isUseProxy();
+        Integer maxNewTokens = positiveOrNull(vox.getMaxNewTokens());
+        // 克隆：只送 ref_audio、不送 ref_text → 走可控克隆（音色克隆 + 保留 (情绪) 控制），
+        // 而非会忽略控制指令并吞首句的 Hi-Fi 续写。两条路径都带 max_new_tokens 防跑飞。
         VoxCpmSpeechRequest body = clone
-                ? new VoxCpmSpeechRequest(vox.getModel(), input, voice, format,
-                        toDataUri(req.referenceVoice()), normalizeRefText(req.referenceVoice().text()),
-                        positiveOrNull(vox.getMaxNewTokens()))
-                : VoxCpmSpeechRequest.voiceDesign(vox.getModel(), input, voice, format);
+                ? VoxCpmSpeechRequest.controllableClone(vox.getModel(), input, voice, format,
+                        toDataUri(req.referenceVoice()), maxNewTokens)
+                : VoxCpmSpeechRequest.voiceDesign(vox.getModel(), input, voice, format, maxNewTokens);
         HttpEntity<byte[]> entity = new HttpEntity<>(serialize(body, apiKey), buildHeaders(apiKey));
         RestTemplate restTemplate = useProxy ? proxyRestTemplate : directRestTemplate;
         String url = speechUrl(vox.getBaseUrl());
@@ -194,7 +211,7 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
      * style 为空时仅正文。
      */
     static String buildInput(NarrationVoiceRequest req, boolean cloneMode) {
-        String text = req == null || req.text() == null ? "" : req.text().trim();
+        String text = normalizeSpeechText(req == null ? null : req.text());
         if (text.isEmpty()) {
             return "";
         }
@@ -203,19 +220,58 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
         return style.isEmpty() ? text : "(" + style + ")" + text;
     }
 
+    /**
+     * 归一化送给 VoxCPM 的待合成正文，规避自回归停止符在「省略号 / 悬挂标点结尾」「纯标点无可发音内容」上失灵导致的
+     * 空音频 / 长噪音 / 呓语：
+     * <ul>
+     *   <li>去首尾空白；不含任何可发音字符（字母 / 数字 / 表意文字 / 假名 / 谚文）→ 返回空串（上游按空文本跳过）；</li>
+     *   <li>仅当<b>末尾</b>带悬挂标点（省略号 / 连续点号 / 破折号 / 波浪号）时，把这段悬挂尾替换为一个句号，给模型明确
+     *       的句末停止线索；右引号 / 右括号收尾先摘出、补句号后再贴回以保持闭合。已带 {@code ！？!?} 等干净终止符、
+     *       或本就以普通字符结尾的正常句子<b>原样返回</b>，不打扰。</li>
+     * </ul>
+     */
+    static String normalizeSpeechText(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String s = raw.trim();
+        if (s.isEmpty() || !hasSpeakable(s)) {
+            return "";
+        }
+        int end = s.length();
+        while (end > 0 && TRAILING_CLOSERS.indexOf(s.charAt(end - 1)) >= 0) {
+            end--;
+        }
+        String closerTail = s.substring(end);
+        int afterClosers = end;
+        while (end > 0 && (Character.isWhitespace(s.charAt(end - 1)) || DANGLING_TAIL.indexOf(s.charAt(end - 1)) >= 0)) {
+            end--;
+        }
+        boolean strippedDangling = end < afterClosers;
+        if (!strippedDangling && closerTail.isEmpty()) {
+            return s;
+        }
+        String core = s.substring(0, end);
+        if (core.isEmpty() || !hasSpeakable(core)) {
+            return "";
+        }
+        char last = core.charAt(core.length() - 1);
+        if (strippedDangling && SENTENCE_FINAL.indexOf(last) < 0) {
+            String terminator = last <= 0x7F && Character.isLetterOrDigit(last) ? "." : "。";
+            return core + terminator + closerTail;
+        }
+        return core + closerTail;
+    }
+
+    /** 是否含至少一个可发音字符（字母 / 数字 / 表意文字 / 假名 / 谚文）。 */
+    private static boolean hasSpeakable(String s) {
+        return s.codePoints().anyMatch(Character::isLetterOrDigit);
+    }
+
     /** 参考音转 {@code data:audio/...;base64,...} URI（不依赖服务端文件开关）。 */
     private static String toDataUri(NarrationReferenceVoice ref) {
         String mime = ref.mime() == null || ref.mime().isBlank() ? "audio/wav" : ref.mime().trim();
         return "data:" + mime + ";base64," + java.util.Base64.getEncoder().encodeToString(ref.audio());
-    }
-
-    /** 转录文本归一：空 / 空白 → {@code null}（{@code NON_NULL} 序列化下不出现）。 */
-    private static String normalizeRefText(String text) {
-        if (text == null) {
-            return null;
-        }
-        String trimmed = text.trim();
-        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /** token 上限：{@code <=0} → {@code null}（不下发上限）。 */

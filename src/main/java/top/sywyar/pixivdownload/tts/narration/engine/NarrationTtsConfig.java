@@ -85,9 +85,9 @@ public class NarrationTtsConfig {
         private volatile boolean enableClone = true;
 
         /**
-         * 克隆时的生成 token 上限（兜底已知 bug vllm-omni#2896：{@code ref_audio} 克隆停止符可能不触发导致无限生成）。
-         * 仅在克隆请求中下发；{@code <=0} 表示不下发（不设上限）。默认 {@code 4096}：足够覆盖单句朗读，又能避免跑飞；
-         * 若克隆模式下长句被截断可调高。
+         * 生成 token 上限（兜底自回归停止符不触发导致的无限生成，含已知 bug vllm-omni#2896：{@code ref_audio}
+         * 克隆停止符可能不触发）。<b>克隆与 voice-design 请求都下发</b>；{@code <=0} 表示不下发（不设上限）。默认
+         * {@code 4096}：足够覆盖单句朗读，又能避免跑飞；若长句被截断可调高。
          */
         private volatile int maxNewTokens = 4096;
     }
