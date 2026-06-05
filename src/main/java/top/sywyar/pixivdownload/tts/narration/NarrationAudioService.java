@@ -4,49 +4,60 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationEngineRegistry;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationSpeechText;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationTtsConfig;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceMode;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 
-import java.util.List;
-
 /**
- * 多角色朗读音频合成服务：注入自动发现的 {@code List<NarrationVoiceEngine>} + {@link NarrationTtsConfig}，
- * 按 {@code narration-tts.engine} 选用引擎，把一条朗读脚本行（或裸文本 + 音色描述）合成为音频字节。
+ * 多角色朗读音频合成的<b>集中调用层</b>：注入 {@link NarrationEngineRegistry} + {@link NarrationTtsConfig}，按
+ * {@code narration-tts.engine} 选用引擎，把一条朗读脚本行（或裸文本 + 音色描述）在<b>显式 {@link NarrationVoiceMode}</b>
+ * 下合成为音频字节。
  *
- * <p>本服务是消费 {@link NarrationScript.Line} 的<b>引擎适配层入口</b>：把脚本行映射成语言无关的
- * {@link NarrationVoiceRequest} 后交给选中引擎，引擎与分析层 / DB 解耦。选中引擎不可用时抛
- * {@link NarrationVoiceException}（暂无降级链——Edge 等其它引擎是后续步骤）。
+ * <p>核心入口 {@link #synthesize(NarrationVoiceMode, NarrationVoiceRequest)} 统一做三件引擎无关的事：
+ * <ol>
+ *   <li><b>文本归一</b>（{@link NarrationSpeechText#normalize}）：省略号 / 悬挂标点 → 句号，纯标点 / 无可发音内容 →
+ *       空文本，直接抛 {@code empty-text}、<b>绝不调任何引擎</b>；否则用归一后的文本重建请求。</li>
+ *   <li><b>选引擎</b>：缺失 → {@code engine-not-found}；{@code isAvailable()} 关 → {@code unavailable}。</li>
+ *   <li><b>能力降级</b>：请求模式不在 {@link NarrationVoiceEngine#supportedModes()} 内 → 退回
+ *       {@link NarrationVoiceMode#VOICE_DESIGN}（记一条 debug）。</li>
+ * </ol>
+ * 便捷入口在调用处即显式表达模式：{@link #synthesizeVoiceDesign} 给预览 / 种子音；{@link #synthesizeLine} 按「有无
+ * 参考音」数据驱动选 {@code CLONE}/{@code VOICE_DESIGN}（Hi-Fi 由引擎按配置升级）。引擎与分析层 / DB 解耦，
+ * 不可用时抛 {@link NarrationVoiceException}（暂无降级链——Edge 等其它引擎是后续步骤）。
  */
 @Service
 @Slf4j
 public class NarrationAudioService {
 
-    private final List<NarrationVoiceEngine> engines;
+    private final NarrationEngineRegistry registry;
     private final NarrationTtsConfig config;
     private final AppMessages messages;
 
-    public NarrationAudioService(List<NarrationVoiceEngine> engines,
+    public NarrationAudioService(NarrationEngineRegistry registry,
                                  NarrationTtsConfig config,
                                  AppMessages messages) {
-        this.engines = engines;
+        this.registry = registry;
         this.config = config;
         this.messages = messages;
     }
 
     /**
-     * 合成脚本中的一行：用 line 的文本 / 已合成 Control Instruction / delivery 组
-     * {@link NarrationVoiceRequest}（gender / age 本次留空）后交给选中引擎。带上由上游（持久化层）解析好的
-     * 参考音 {@code referenceVoice}（可为空）——引擎据其是否存在决定走可控克隆还是内联 voice-design，本服务与
-     * 引擎都不直接读盘 / 查库，保持解耦。
+     * 合成脚本中的一行：用 line 的文本 / 已合成 Control Instruction / delivery 组 {@link NarrationVoiceRequest}（gender /
+     * age 本次留空），带上由上游（持久化层）解析好的参考音 {@code referenceVoice}（可为空）后<b>数据驱动选模式</b>：
+     * 有可用参考音 → {@link NarrationVoiceMode#CLONE}，否则 {@link NarrationVoiceMode#VOICE_DESIGN}；是否升级为
+     * Hi-Fi 续写由引擎按 {@code clone-mode} 配置自行决定。本服务与引擎都不直接读盘 / 查库，保持解耦。
      *
      * @param line           朗读脚本行（{@link NarrationScript.Line}）
-     * @param referenceVoice 该说话人的参考音（可为空）；非空且有音频时引擎走克隆
+     * @param referenceVoice 该说话人的参考音（可为空）；非空且有音频时走克隆
      * @param localeHint     文本 / 界面语言提示（可为空；VoxCPM 内联不使用）
      */
     public NarrationAudio synthesizeLine(NarrationScript.Line line,
-                                         top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice referenceVoice,
+                                         NarrationReferenceVoice referenceVoice,
                                          String localeHint) {
         if (line == null) {
             throw new NarrationVoiceException(messages.get("narration.tts.error.empty-text"), null);
@@ -54,18 +65,54 @@ public class NarrationAudioService {
         NarrationVoiceRequest req = new NarrationVoiceRequest(
                 line.text(), line.controlInstruction(), line.delivery(),
                 null, null, 0L, line.speakerId(), localeHint, referenceVoice);
-        return synthesize(req);
+        NarrationVoiceMode mode = referenceVoice != null && referenceVoice.hasAudio()
+                ? NarrationVoiceMode.CLONE : NarrationVoiceMode.VOICE_DESIGN;
+        return synthesize(mode, req);
     }
 
     /**
-     * 便捷入口：直接用裸文本 + 音色描述合成（便于联调 / 预览）。
+     * 便捷入口：用裸文本 + 音色描述走 {@link NarrationVoiceMode#VOICE_DESIGN}（无参考音）。用于试听预览与角色「标准音 /
+     * 种子音」生成。
      *
      * @param text               要朗读的文本
      * @param controlInstruction 音色描述（可为空）
      * @param localeHint         语言提示（可为空）
      */
-    public NarrationAudio synthesize(String text, String controlInstruction, String localeHint) {
-        return synthesize(NarrationVoiceRequest.of(text, controlInstruction, localeHint));
+    public NarrationAudio synthesizeVoiceDesign(String text, String controlInstruction, String localeHint) {
+        return synthesize(NarrationVoiceMode.VOICE_DESIGN,
+                NarrationVoiceRequest.of(text, controlInstruction, localeHint));
+    }
+
+    /**
+     * 核心入口：在指定模式下合成一条请求。先归一文本（空 → 抛 {@code empty-text}、不调引擎），再选引擎、按能力降级模式，
+     * 最后交给引擎合成。
+     */
+    public NarrationAudio synthesize(NarrationVoiceMode mode, NarrationVoiceRequest req) {
+        String normalized = NarrationSpeechText.normalize(req == null ? null : req.text());
+        if (normalized.isEmpty()) {
+            throw new NarrationVoiceException(messages.get("narration.tts.error.empty-text"), null);
+        }
+        NarrationVoiceEngine engine = registry.selected(config.getEngine()).orElse(null);
+        if (engine == null) {
+            log.warn(messages.getForLog("narration.tts.log.engine.not-found", config.getEngine(), registry.count()));
+            throw new NarrationVoiceException(
+                    messages.get("narration.tts.error.engine-not-found", config.getEngine()), null);
+        }
+        if (!engine.isAvailable()) {
+            log.warn(messages.getForLog("narration.tts.log.engine.unavailable", engine.id()));
+            throw new NarrationVoiceException(messages.get("narration.tts.error.unavailable"), null);
+        }
+        NarrationVoiceMode effectiveMode = mode;
+        if (!engine.supportedModes().contains(mode)) {
+            if (log.isDebugEnabled()) {
+                log.debug(messages.getForLog("narration.tts.log.mode.downgrade", mode, engine.id()));
+            }
+            effectiveMode = NarrationVoiceMode.VOICE_DESIGN;
+        }
+        if (log.isDebugEnabled()) {
+            log.debug(messages.getForLog("narration.tts.log.engine.selected", engine.id()));
+        }
+        return engine.synthesize(effectiveMode, req.withText(normalized));
     }
 
     /**
@@ -74,38 +121,8 @@ public class NarrationAudioService {
      * 可用性显隐 / 禁用「富感情朗读」入口，避免后端未配置 / 已宕机时仍可点开并触发分析。
      */
     public boolean isEngineAvailable() {
-        NarrationVoiceEngine engine = selectEngine();
-        return engine != null && engine.isReachable();
-    }
-
-    private NarrationAudio synthesize(NarrationVoiceRequest req) {
-        NarrationVoiceEngine engine = selectEngine();
-        if (engine == null) {
-            log.warn(messages.getForLog("narration.tts.log.engine.not-found", config.getEngine(), engines.size()));
-            throw new NarrationVoiceException(
-                    messages.get("narration.tts.error.engine-not-found", config.getEngine()), null);
-        }
-        if (!engine.isAvailable()) {
-            log.warn(messages.getForLog("narration.tts.log.engine.unavailable", engine.id()));
-            throw new NarrationVoiceException(messages.get("narration.tts.error.unavailable"), null);
-        }
-        if (log.isDebugEnabled()) {
-            log.debug(messages.getForLog("narration.tts.log.engine.selected", engine.id()));
-        }
-        return engine.synthesize(req);
-    }
-
-    /** 按 {@code narration-tts.engine} 在自动发现的引擎中匹配（大小写不敏感）；无匹配返回 null。 */
-    private NarrationVoiceEngine selectEngine() {
-        String id = config.getEngine();
-        if (id == null || id.isBlank()) {
-            return null;
-        }
-        for (NarrationVoiceEngine engine : engines) {
-            if (id.equalsIgnoreCase(engine.id())) {
-                return engine;
-            }
-        }
-        return null;
+        return registry.selected(config.getEngine())
+                .map(NarrationVoiceEngine::isReachable)
+                .orElse(false);
     }
 }

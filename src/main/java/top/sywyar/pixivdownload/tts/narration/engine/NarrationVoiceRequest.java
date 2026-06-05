@@ -42,6 +42,12 @@ public record NarrationVoiceRequest(
         return new NarrationVoiceRequest(text, controlInstruction, "", "", "", 0L, 0, localeHint, null);
     }
 
+    /** 返回仅替换 {@link #text} 的副本（record 不可变）：供派发器用归一后的文本重建请求。 */
+    public NarrationVoiceRequest withText(String newText) {
+        return new NarrationVoiceRequest(newText, controlInstruction, delivery,
+                gender, age, castId, characterId, localeHint, referenceVoice);
+    }
+
     /** 是否携带可用的参考音（用于克隆）。 */
     public boolean hasReferenceVoice() {
         return referenceVoice != null && referenceVoice.hasAudio();

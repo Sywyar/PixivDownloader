@@ -803,6 +803,14 @@ public final class ConfigFieldRegistry {
                         .hotReloadable()
                         .build(),
 
+                ConfigFieldSpec.builder("narration-tts.voxcpm.clone-mode", message("gui.config.field.narration-tts.voxcpm.clone-mode.label"), ENUM, groupNarrationTts)
+                        .defaultValue("controllable")
+                        .enumValues("controllable", "hifi")
+                        .help(message("gui.config.field.narration-tts.voxcpm.clone-mode.help"))
+                        .enabledWhen(snap -> snap.equals("narration-tts.engine", "voxcpm") && snap.isTrue("narration-tts.voxcpm.enable-clone"))
+                        .hotReloadable()
+                        .build(),
+
                 ConfigFieldSpec.builder("narration-tts.voxcpm.max-new-tokens", message("gui.config.field.narration-tts.voxcpm.max-new-tokens.label"), INT, groupNarrationTts)
                         .defaultValue("4096")
                         .help(message("gui.config.field.narration-tts.voxcpm.max-new-tokens.help"))

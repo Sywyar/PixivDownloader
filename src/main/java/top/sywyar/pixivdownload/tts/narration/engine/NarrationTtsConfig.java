@@ -30,10 +30,16 @@ public class NarrationTtsConfig {
     public static final String KEY_VOXCPM_RESPONSE_FORMAT = "narration-tts.voxcpm.response-format";
     public static final String KEY_VOXCPM_USE_PROXY = "narration-tts.voxcpm.use-proxy";
     public static final String KEY_VOXCPM_ENABLE_CLONE = "narration-tts.voxcpm.enable-clone";
+    public static final String KEY_VOXCPM_CLONE_MODE = "narration-tts.voxcpm.clone-mode";
     public static final String KEY_VOXCPM_MAX_NEW_TOKENS = "narration-tts.voxcpm.max-new-tokens";
 
     /** 引擎 id 常量：VoxCPM 外部 OpenAI 兼容引擎。 */
     public static final String ENGINE_VOXCPM = "voxcpm";
+
+    /** {@code clone-mode} 取值：可控克隆（只送参考音、保留逐句情绪），默认值。 */
+    public static final String CLONE_MODE_CONTROLLABLE = "controllable";
+    /** {@code clone-mode} 取值：Hi-Fi 续写（送参考音 + 转录、最高保真但忽略逐句情绪）。 */
+    public static final String CLONE_MODE_HIFI = "hifi";
 
     /** 当前使用的朗读引擎 id（默认 {@code voxcpm}）。 */
     private volatile String engine = ENGINE_VOXCPM;
@@ -83,6 +89,18 @@ public class NarrationTtsConfig {
          * 即便角色已有参考音也忽略、退回内联 voice-design（全局开关）。
          */
         private volatile boolean enableClone = true;
+
+        /**
+         * 克隆模式（仅在 {@link #enableClone} 开启且角色配了参考音时生效）：
+         * <ul>
+         *   <li>{@code controllable}（默认）：<b>可控克隆</b>，只送 {@code ref_audio}（不带转录），保住逐句
+         *       {@code (delivery)} 情绪控制——克隆音色又能演情绪，行为与历史一致；</li>
+         *   <li>{@code hifi}：<b>Hi-Fi 续写</b>，参考音<b>带转录</b>（{@code ref_text}，取自该角色参考音的已存转录）。
+         *       最高保真，但 VoxCPM2 在该模式下<b>忽略</b>括号里的 {@code (delivery)} 控制指令；若某角色参考音没有转录
+         *       则该句自动降回可控克隆。</li>
+         * </ul>
+         */
+        private volatile String cloneMode = CLONE_MODE_CONTROLLABLE;
 
         /**
          * 生成 token 上限（兜底自回归停止符不触发导致的无限生成，含已知 bug vllm-omni#2896：{@code ref_audio}

@@ -405,6 +405,11 @@ public class RuntimeConfigReloadService {
                 nextVox.isEnableClone(),
                 () -> currentVox.setEnableClone(nextVox.isEnableClone()));
         applyIfChanged(applied,
+                "narration-tts.voxcpm.clone-mode",
+                currentVox.getCloneMode(),
+                nextVox.getCloneMode(),
+                () -> currentVox.setCloneMode(nextVox.getCloneMode()));
+        applyIfChanged(applied,
                 "narration-tts.voxcpm.max-new-tokens",
                 currentVox.getMaxNewTokens(),
                 nextVox.getMaxNewTokens(),

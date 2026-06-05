@@ -177,6 +177,7 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "narration-tts.voxcpm.response-format: wav", "config.template.narration-tts.voxcpm.response-format.comment");
         appendSetting(config, messages, "narration-tts.voxcpm.use-proxy: false", "config.template.narration-tts.voxcpm.use-proxy.comment");
         appendSetting(config, messages, "narration-tts.voxcpm.enable-clone: true", "config.template.narration-tts.voxcpm.enable-clone.comment");
+        appendSetting(config, messages, "narration-tts.voxcpm.clone-mode: controllable", "config.template.narration-tts.voxcpm.clone-mode.comment");
         appendSetting(config, messages, "narration-tts.voxcpm.max-new-tokens: 4096", "config.template.narration-tts.voxcpm.max-new-tokens.comment");
         appendBlankLine(config);
 

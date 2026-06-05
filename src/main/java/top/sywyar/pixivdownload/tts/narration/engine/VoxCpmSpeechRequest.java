@@ -9,11 +9,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * VoxCPM 没有独立的「control instruction」字段，音色 / 风格描述用其 {@code (描述)正文} voice-design 语法拼进
  * {@link #input}（见 {@link VoxCpmNarrationEngine}）。
  * <p>
- * <b>克隆走「可控克隆」（Controllable Cloning），只下发 {@link #refAudio}、绝不下发 {@link #refText}。</b>
- * 只给 {@code ref_audio}（不带转录）时，VoxCPM2 按「隔离参考音」克隆音色，{@code input} 里的 {@code (情绪)}
- * 控制指令照常生效；一旦同时下发 {@code ref_text}，服务端会切到 Ultimate/Hi-Fi 音频续写模式——该模式<b>忽略</b>
- * 控制指令，且会因转录与参考音错位而吞掉首句 / 产生空音频 / 跑飞。{@link #refText} 字段为将来可能的 Hi-Fi
- * 续写开关保留，当前合成路径不填（保持 {@code null}）。
+ * <b>克隆有两条线缆形态，由 {@code clone-mode} 决定：</b>
+ * <ul>
+ *   <li><b>可控克隆</b>（{@link #controllableClone}，默认）：只给 {@link #refAudio}（<b>不带</b> {@link #refText}），
+ *       VoxCPM2 按「隔离参考音」克隆音色，{@code input} 里的 {@code (情绪)} 控制指令照常生效。</li>
+ *   <li><b>Hi-Fi 续写</b>（{@link #hifiClone}）：同时下发 {@link #refAudio} 与 {@link #refText}（参考音转录），
+ *       服务端切到 Ultimate/Hi-Fi 音频续写模式——保真度最高，但<b>忽略</b> {@code input} 里的控制指令；仅在角色参考音
+ *       确有转录、且配置 {@code clone-mode=hifi} 时使用。</li>
+ * </ul>
  * <p>
  * {@link #maxNewTokens} 是生成 token 上限（防跑飞兜底，含已知 bug vllm-omni#2896：克隆停止符可能不触发），
  * <b>克隆与 voice-design 两条路径都下发</b>。克隆字段与 {@code maxNewTokens} 均 {@link JsonInclude.Include#NON_NULL}，
@@ -24,8 +27,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * @param voice          voice id（可空：留空则不下发 {@code voice} 字段）
  * @param responseFormat 音频输出格式（{@code wav} / {@code pcm}），线缆字段名 {@code response_format}
  * @param refAudio       参考音（{@code data:audio/...;base64,...}），线缆字段名 {@code ref_audio}；非克隆时为 {@code null}
- * @param refText        参考音转录文本，线缆字段名 {@code ref_text}；可控克隆路径<b>不</b>下发（保持 {@code null}），
- *                       仅为将来的 Hi-Fi 续写开关保留
+ * @param refText        参考音转录文本，线缆字段名 {@code ref_text}；<b>仅</b> Hi-Fi 续写路径下发，可控克隆路径保持 {@code null}
  * @param maxNewTokens   生成 token 上限（停止符兜底），线缆字段名 {@code max_new_tokens}；{@code null} 表示不设上限
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -53,5 +55,15 @@ public record VoxCpmSpeechRequest(
     public static VoxCpmSpeechRequest controllableClone(String model, String input, String voice,
                                                         String responseFormat, String refAudio, Integer maxNewTokens) {
         return new VoxCpmSpeechRequest(model, input, voice, responseFormat, refAudio, null, maxNewTokens);
+    }
+
+    /**
+     * Hi-Fi 续写请求体：<b>同时</b>下发 {@code ref_audio} 与 {@code ref_text}（参考音转录），使 VoxCPM2 进入
+     * Ultimate/Hi-Fi 音频续写模式——保真度最高，但<b>忽略</b> {@code input} 里的 {@code (情绪)} 控制指令。仅在角色
+     * 参考音确有转录、且配置 {@code clone-mode=hifi} 时使用。
+     */
+    public static VoxCpmSpeechRequest hifiClone(String model, String input, String voice, String responseFormat,
+                                                String refAudio, String refText, Integer maxNewTokens) {
+        return new VoxCpmSpeechRequest(model, input, voice, responseFormat, refAudio, refText, maxNewTokens);
     }
 }
