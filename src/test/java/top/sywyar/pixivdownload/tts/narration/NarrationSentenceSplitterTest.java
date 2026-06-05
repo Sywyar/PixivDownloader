@@ -67,4 +67,27 @@ class NarrationSentenceSplitterTest {
         assertThat(NarrationSentenceSplitter.split("")).isEmpty();
         assertThat(NarrationSentenceSplitter.split("[newpage]\n[newpage]")).isEmpty();
     }
+
+    @Test
+    @DisplayName("split：单字超短句并入同段前一句（前句优先），段首短句并入后一句")
+    void mergesTinySentencesIntoNeighbor() {
+        // 「吗？」（仅 1 可发音字）并入同段前一句
+        assertThat(NarrationSentenceSplitter.split("你说得对。吗？后面继续。"))
+                .extracting(NarrationSentence::text)
+                .containsExactly("你说得对。吗？", "后面继续。");
+        // 段首单字句无前句 → 并入同段后一句
+        assertThat(NarrationSentenceSplitter.split("啊。这是正文。"))
+                .extracting(NarrationSentence::text)
+                .containsExactly("啊。这是正文。");
+    }
+
+    @Test
+    @DisplayName("split：同段内确无邻句可并的孤立单字句原样保留，paragraphIndex 不变")
+    void keepsIsolatedTinySentence() {
+        List<NarrationSentence> sentences = NarrationSentenceSplitter.split("前段。\n\n吗？\n\n后段。");
+        assertThat(sentences).extracting(NarrationSentence::text)
+                .containsExactly("前段。", "吗？", "后段。");
+        assertThat(sentences).extracting(NarrationSentence::paragraphIndex)
+                .containsExactly(0, 1, 2);
+    }
 }

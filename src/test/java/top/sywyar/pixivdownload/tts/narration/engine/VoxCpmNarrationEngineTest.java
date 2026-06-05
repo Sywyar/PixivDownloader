@@ -192,6 +192,16 @@ class VoxCpmNarrationEngineTest {
     }
 
     @Test
+    @DisplayName("超短输入（仅单字）收敛 max_new_tokens 上限，避免长时间空白")
+    void shortInputCapsMaxNewTokens() throws Exception {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(wav());
+
+        engine(config("http://h/v1", "")).synthesize(NarrationVoiceRequest.of("吗？", "", null));
+
+        assertThat(capturedBody(direct).get("max_new_tokens")).isEqualTo(1024);
+    }
+
+    @Test
     @DisplayName("文本净化：省略号 / 悬挂标点结尾替换为句号，纯标点 / 空白 → 空串跳过，正常句原样")
     void normalizeSpeechTextHandlesEllipsisAndPunctuationOnly() {
         assertThat(VoxCpmNarrationEngine.normalizeSpeechText("不……")).isEqualTo("不。");

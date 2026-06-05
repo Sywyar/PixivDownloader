@@ -24,6 +24,9 @@ public final class NarrationSentenceSplitter {
     /** 跟随句末、应与本句保持在一起的收尾字符（右引号 / 右括号等）。 */
     private static final String CLOSERS = "」』）)】》〉〕｝}]”’\"'";
 
+    /** 低于此可发音字符数（即仅 0~1 个字，如「吗？」「啊」）的句子视为「超短句」，合并进同段邻句。 */
+    private static final int MIN_SPEAKABLE_CHARS = 2;
+
     private NarrationSentenceSplitter() {
     }
 
@@ -44,7 +47,52 @@ public final class NarrationSentenceSplitter {
                 }
             }
         }
-        return out;
+        return mergeTinySentences(out);
+    }
+
+    /**
+     * 合并「超短句」：可发音字符数 &lt; {@link #MIN_SPEAKABLE_CHARS}（即仅 0~1 个字，如「吗？」「啊」）的句子并入
+     * <b>同一 {@code paragraphIndex}</b> 的相邻句（优先并入前一句，否则并入后一句）。VoxCPM 等自回归 TTS 在仅 1 个
+     * 可发音字的输入上会塌缩成长时间空白且不发声，合并到邻句即可规避。<b>只在同段内合并</b>，不改变任何
+     * {@code paragraphIndex} 的存在性，故不破坏与前端 DOM 块的逐一对齐；段内确无邻句可并的孤立短句原样保留
+     * （引擎侧另有短输入 token 上限兜底其空白时长）。
+     */
+    static List<NarrationSentence> mergeTinySentences(List<NarrationSentence> sentences) {
+        List<NarrationSentence> result = new ArrayList<>();
+        String carry = null;      // 暂存等待并入「后一同段句」的短句文本
+        int carryPara = -1;
+        for (NarrationSentence s : sentences) {
+            String text = s.text();
+            int para = s.paragraphIndex();
+            if (carry != null) {
+                if (carryPara == para) {
+                    text = carry + text;     // 前缀并入当前句
+                } else {
+                    result.add(new NarrationSentence(carry, carryPara)); // 无同段后继 → 原样保留
+                }
+                carry = null;
+            }
+            if (speakableCount(text) < MIN_SPEAKABLE_CHARS) {
+                if (!result.isEmpty() && result.get(result.size() - 1).paragraphIndex() == para) {
+                    NarrationSentence prev = result.remove(result.size() - 1);
+                    result.add(new NarrationSentence(prev.text() + text, para)); // 并入同段前一句
+                } else {
+                    carry = text;            // 段首短句：暂存，尝试并入后一同段句
+                    carryPara = para;
+                }
+            } else {
+                result.add(new NarrationSentence(text, para));
+            }
+        }
+        if (carry != null) {
+            result.add(new NarrationSentence(carry, carryPara));
+        }
+        return result;
+    }
+
+    /** 可发音字符数（字母 / 数字 / 表意文字 / 假名 / 谚文）。 */
+    static int speakableCount(String text) {
+        return text == null ? 0 : (int) text.codePoints().filter(Character::isLetterOrDigit).count();
     }
 
     /** 把一段纯文本按句末终止符 / 换行切成多句（已 trim、丢弃空白句）。 */

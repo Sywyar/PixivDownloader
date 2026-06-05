@@ -61,6 +61,11 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
     /** 末尾右引号 / 右括号：先摘出、补完句号后再贴回，保持引号闭合。 */
     private static final String TRAILING_CLOSERS = "」』）)】》〉〕｝}]”’\"'";
 
+    /** 视为「超短输入」的可发音字符数上限：≤ 此数即收敛 token 上限（VoxCPM 在仅 1 字输入上易塌缩成长空白且不发声）。 */
+    private static final int SHORT_INPUT_MAX_CHARS = 1;
+    /** 短输入的 {@code max_new_tokens} 收敛上限：把孤立单字输入的最坏空白从数分钟压成短促一瞬，仍足够覆盖 1 字发音。 */
+    private static final int SHORT_INPUT_TOKEN_CAP = 1024;
+
     private static final Pattern BEARER_PATTERN = Pattern.compile("(?i)Bearer\\s+[A-Za-z0-9._\\-]+");
 
     private final NarrationTtsConfig config;
@@ -158,7 +163,7 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
         String voice = resolveVoice(vox.getVoice());
         String apiKey = vox.getApiKey();
         boolean useProxy = vox.isUseProxy();
-        Integer maxNewTokens = positiveOrNull(vox.getMaxNewTokens());
+        Integer maxNewTokens = cappedMaxNewTokens(req == null ? null : req.text(), vox.getMaxNewTokens());
         // 克隆：只送 ref_audio、不送 ref_text → 走可控克隆（音色克隆 + 保留 (情绪) 控制），
         // 而非会忽略控制指令并吞首句的 Hi-Fi 续写。两条路径都带 max_new_tokens 防跑飞。
         VoxCpmSpeechRequest body = clone
@@ -266,6 +271,23 @@ public class VoxCpmNarrationEngine implements NarrationVoiceEngine {
     /** 是否含至少一个可发音字符（字母 / 数字 / 表意文字 / 假名 / 谚文）。 */
     private static boolean hasSpeakable(String s) {
         return s.codePoints().anyMatch(Character::isLetterOrDigit);
+    }
+
+    /** 可发音字符数（字母 / 数字 / 表意文字 / 假名 / 谚文）。 */
+    private static int speakableCount(String s) {
+        return s == null ? 0 : (int) s.codePoints().filter(Character::isLetterOrDigit).count();
+    }
+
+    /**
+     * 短输入 token 上限收敛：仅 ≤ {@value #SHORT_INPUT_MAX_CHARS} 个可发音字的超短文本（如孤立的「吗？」），
+     * 自回归模型易塌缩成长时间空白且不发声，强制一个低 {@code max_new_tokens} 上限把最坏空白压成短促一瞬而非数分钟；
+     * 普通长度维持配置上限（{@code <=0} 表示不限制）。按<b>原句文本</b>计可发音字数，<b>不含</b> {@code (style)} 控制前缀。
+     */
+    private static Integer cappedMaxNewTokens(String text, int configured) {
+        if (speakableCount(text) > SHORT_INPUT_MAX_CHARS) {
+            return positiveOrNull(configured);
+        }
+        return configured > 0 ? Math.min(configured, SHORT_INPUT_TOKEN_CAP) : SHORT_INPUT_TOKEN_CAP;
     }
 
     /** 参考音转 {@code data:audio/...;base64,...} URI（不依赖服务端文件开关）。 */
