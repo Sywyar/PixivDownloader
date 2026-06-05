@@ -35,7 +35,8 @@ import java.util.Set;
  *   <li>{@link NarrationVoiceMode#CLONE}（可控克隆）：括号只放 {@code delivery}，带 {@code ref_audio}、<b>不带</b>
  *       {@code ref_text}——克隆音色又保住逐句情绪；</li>
  *   <li>{@link NarrationVoiceMode#HIFI_CLONE}（Hi-Fi 续写）：带 {@code ref_audio} + {@code ref_text}，最高保真但
- *       VoxCPM2 在此模式下<b>忽略</b> {@code (delivery)} 控制。仅在 {@code clone-mode=hifi} 且参考音确有转录时启用。</li>
+ *       VoxCPM2 在此模式下<b>忽略</b> {@code (delivery)} 控制，故 {@code input} 用<b>干净正文</b>（不拼任何
+ *       {@code (style)} 控制前缀，避免被服务端当成目标文本）。仅在 {@code clone-mode=hifi} 且参考音确有转录时启用。</li>
  * </ul>
  * 实际模式由 {@link #resolveMode} 按「请求模式 + 是否配参考音 + {@code enable-clone} / {@code clone-mode} + 参考音
  * 是否带转录」收敛；无参考音 / {@code enable-clone=false} 一律退回 voice-design。
@@ -151,8 +152,13 @@ public class VoxCpmNarrationEngine extends AbstractHttpNarrationEngine implement
         }
 
         NarrationVoiceMode effective = resolveMode(mode, req, vox);
-        String style = effective == NarrationVoiceMode.VOICE_DESIGN
-                ? req.controlInstruction() : req.delivery();
+        // 三种模式的 input 互不污染：voice-design 拼基底画像、可控克隆只拼 delivery、Hi-Fi 续写<b>不拼任何控制前缀</b>
+        // （VoxCPM2 在续写模式下由参考音 + 转录主导、会忽略括号控制，混入 (delivery) 反而可能被当成目标文本干扰续写）。
+        String style = switch (effective) {
+            case VOICE_DESIGN -> req.controlInstruction();
+            case CLONE -> req.delivery();
+            case HIFI_CLONE -> null;
+        };
         String input = buildInput(text, style);
 
         String format = normalizeFormat(vox.getResponseFormat());

@@ -35,6 +35,14 @@ public abstract class AbstractHttpNarrationEngine {
 
     private static final Pattern BEARER_PATTERN = Pattern.compile("(?i)Bearer\\s+[A-Za-z0-9._\\-]+");
 
+    /** JSON 字段 {@code ref_audio} / {@code ref_text} 的值（用户上传的参考音 base64 与转录）：连值一并遮蔽。 */
+    private static final Pattern REF_FIELD_PATTERN =
+            Pattern.compile("(?i)\"(ref_audio|ref_text)\"\\s*:\\s*\"(?:\\\\.|[^\"\\\\])*\"");
+
+    /** {@code data:audio/...;base64,...} 数据 URI（参考音字节）：兜底遮蔽，避免参考音 base64 进日志 / 错误回显。 */
+    private static final Pattern AUDIO_DATA_URI_PATTERN =
+            Pattern.compile("(?i)data:audio/[^;,\\s\"]*;base64,[A-Za-z0-9+/=]+");
+
     protected final AppMessages messages;
 
     protected AbstractHttpNarrationEngine(AppMessages messages) {
@@ -126,7 +134,9 @@ public abstract class AbstractHttpNarrationEngine {
 
     /**
      * 对面向异常消息 / 日志的文本脱敏 + 截断：先把本次请求使用的 {@code secret}（api-key）字面量替换为 {@code ***}
-     * （防止部分服务在错误体中回显），再盖掉 Bearer token 碎片，最后压一行并截断到 {@link #MAX_DETAIL_LENGTH}。
+     * （防止部分服务在错误体中回显），再盖掉 Bearer token 碎片，接着遮蔽<b>克隆请求可能带出的参考音 / 转录</b>
+     * （{@code ref_audio} / {@code ref_text} 字段值与 {@code data:audio/...;base64,...} 数据 URI——上游回显请求体时
+     * 会把用户上传的音频 base64 与转录文本带进错误正文），最后压一行并截断到 {@link #MAX_DETAIL_LENGTH}。
      */
     protected static String redact(String text, String secret) {
         if (text == null) {
@@ -141,6 +151,8 @@ public abstract class AbstractHttpNarrationEngine {
             }
         }
         s = BEARER_PATTERN.matcher(s).replaceAll("Bearer ***");
+        s = REF_FIELD_PATTERN.matcher(s).replaceAll("\"$1\":\"***\"");
+        s = AUDIO_DATA_URI_PATTERN.matcher(s).replaceAll("data:audio/***");
         String oneLine = s.replaceAll("\\s+", " ").trim();
         return oneLine.length() > MAX_DETAIL_LENGTH ? oneLine.substring(0, MAX_DETAIL_LENGTH) + "…" : oneLine;
     }

@@ -184,6 +184,8 @@ class VoxCpmNarrationEngineTest {
         engine(cfg).synthesize(NarrationVoiceMode.CLONE, req);
 
         Map<String, Object> body = capturedBody(direct);
+        // Hi-Fi 续写忽略括号控制，input 必须是干净正文（不拼 (delivery) 控制前缀），三种请求体互不污染。
+        assertThat(body.get("input")).isEqualTo("原句");
         assertThat((String) body.get("ref_audio")).startsWith("data:audio/wav;base64,");
         assertThat(body.get("ref_text")).isEqualTo("种子句");
         assertThat(body.get("max_new_tokens")).isEqualTo(4096);
@@ -335,6 +337,27 @@ class VoxCpmNarrationEngineTest {
                 .isInstanceOf(NarrationVoiceException.class)
                 .hasMessageContaining("***")
                 .hasMessageNotContaining(apiKey);
+    }
+
+    @Test
+    @DisplayName("非 2xx 错误回显参考音 data URI / 转录时一并脱敏，不泄露 base64 与 ref_text")
+    void httpErrorRedactsReferenceAudioAndTranscript() {
+        String base64 = "QUJDREVGR0hJSktMTU5PUFFSU1Q=";
+        String transcript = "这是用户上传的参考音转录原话";
+        String echo = "{\"error\":\"bad\",\"ref_audio\":\"data:audio/wav;base64," + base64
+                + "\",\"ref_text\":\"" + transcript + "\"}";
+        RestClientResponseException ex = new RestClientResponseException(
+                "err", 400, "Bad Request", null, echo.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenThrow(ex);
+        NarrationReferenceVoice ref = new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", transcript);
+        NarrationVoiceRequest req = new NarrationVoiceRequest(
+                "原句", "An elderly woman", "angry", null, null, 9L, 1, null, ref);
+
+        assertThatThrownBy(() -> engine(config("http://h/v1", "")).synthesize(NarrationVoiceMode.CLONE, req))
+                .isInstanceOf(NarrationVoiceException.class)
+                .hasMessageContaining("***")
+                .hasMessageNotContaining(base64)
+                .hasMessageNotContaining(transcript);
     }
 
     @Test

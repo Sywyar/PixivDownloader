@@ -82,6 +82,19 @@ class NarrationSentenceSplitterTest {
     }
 
     @Test
+    @DisplayName("split：英文 / 拉丁超短句合并按边界补空格，避免单词粘连")
+    void mergesLatinTinySentencesWithSpace() {
+        // 段首单字母句 "A?" 并入后一同段句，边界补空格 → "A? Next."（而非粘连成 "A?Next."）
+        assertThat(NarrationSentenceSplitter.split("A? Next."))
+                .extracting(NarrationSentence::text)
+                .containsExactly("A? Next.");
+        // 换行分隔的单字母短句 "I" 并入前句，补空格不粘连 → "Really? I"（而非 "Really?I"）
+        assertThat(NarrationSentenceSplitter.split("Really?\nI\nagree."))
+                .extracting(NarrationSentence::text)
+                .containsExactly("Really? I", "agree.");
+    }
+
+    @Test
     @DisplayName("split：同段内确无邻句可并的孤立单字句原样保留，paragraphIndex 不变")
     void keepsIsolatedTinySentence() {
         List<NarrationSentence> sentences = NarrationSentenceSplitter.split("前段。\n\n吗？\n\n后段。");

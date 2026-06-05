@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationEngineRegistry;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationSilence;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationSpeechText;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationTtsConfig;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
@@ -52,6 +53,9 @@ public class NarrationAudioService {
      * 有可用参考音 → {@link NarrationVoiceMode#CLONE}，否则 {@link NarrationVoiceMode#VOICE_DESIGN}；是否升级为
      * Hi-Fi 续写由引擎按 {@code clone-mode} 配置自行决定。本服务与引擎都不直接读盘 / 查库，保持解耦。
      *
+     * <p>若该行<b>归一后为空文本</b>（纯标点 / 省略号等无可发音内容，如独立成段的「……」），返回
+     * {@link NarrationSilence#shortPause() 短静音}作为可跳过的停顿、<b>绝不调引擎</b>，避免这类行抛异常中断整条朗读。
+     *
      * @param line           朗读脚本行（{@link NarrationScript.Line}）
      * @param referenceVoice 该说话人的参考音（可为空）；非空且有音频时走克隆
      * @param localeHint     文本 / 界面语言提示（可为空；VoxCPM 内联不使用）
@@ -61,6 +65,14 @@ public class NarrationAudioService {
                                          String localeHint) {
         if (line == null) {
             throw new NarrationVoiceException(messages.get("narration.tts.error.empty-text"), null);
+        }
+        // 纯标点 / 无可发音内容的行（如小说里独立成段的「……」「！？」）归一后为空、无法合成：返回一段短静音作为
+        // 可跳过的停顿，让前端播放链路续到下一句，而不是抛 502 中断整条朗读（这类行被断句层按 paragraphIndex 对齐保留）。
+        if (NarrationSpeechText.normalize(line.text()).isEmpty()) {
+            if (log.isDebugEnabled()) {
+                log.debug(messages.getForLog("narration.tts.log.line.skip-blank", line.index()));
+            }
+            return NarrationSilence.shortPause();
         }
         NarrationVoiceRequest req = new NarrationVoiceRequest(
                 line.text(), line.controlInstruction(), line.delivery(),

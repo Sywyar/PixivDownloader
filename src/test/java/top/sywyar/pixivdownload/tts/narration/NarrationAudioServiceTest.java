@@ -57,6 +57,27 @@ class NarrationAudioServiceTest {
     }
 
     @Test
+    @DisplayName("断句保留的纯标点独立段落（……）→ synthesizeLine 返回短静音、可跳过、绝不调引擎")
+    void pureePunctuationLineFromSplitterReturnsSilence() {
+        // 断句层把独立成段的「……」按 paragraphIndex 对齐保留；合成阶段不应抛 502，而应返回可跳过的短静音。
+        List<NarrationSentence> sentences = NarrationSentenceSplitter.split("前段。\n\n……\n\n后段。");
+        NarrationSentence punct = sentences.stream()
+                .filter(s -> NarrationSentenceSplitter.speakableCount(s.text()) == 0)
+                .findFirst().orElseThrow();
+        assertThat(punct.text()).isEqualTo("……");
+        NarrationVoiceEngine voxcpm = availableEngine("voxcpm", NarrationVoiceMode.VOICE_DESIGN);
+        NarrationAudioService service = service(config("voxcpm"), voxcpm);
+        NarrationScript.Line line = new NarrationScript.Line(1, punct.text(), 0, "旁白", "", "Narrator voice");
+
+        NarrationAudio audio = service.synthesizeLine(line, null, null);
+
+        assertThat(audio).isNotNull();
+        assertThat(audio.contentType()).isEqualTo("audio/wav");
+        assertThat(audio.data()).isNotEmpty();
+        verify(voxcpm, never()).synthesize(any(), any());
+    }
+
+    @Test
     @DisplayName("请求模式不在引擎能力集时降级为 VOICE_DESIGN")
     void downgradesUnsupportedModeToVoiceDesign() {
         // 引擎仅支持 VOICE_DESIGN；synthesizeLine 带参考音 → 请求 CLONE，应被降级。

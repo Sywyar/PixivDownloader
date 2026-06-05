@@ -53,9 +53,9 @@ public final class NarrationSentenceSplitter {
     /**
      * 合并「超短句」：可发音字符数 &lt; {@link #MIN_SPEAKABLE_CHARS}（即仅 0~1 个字，如「吗？」「啊」）的句子并入
      * <b>同一 {@code paragraphIndex}</b> 的相邻句（优先并入前一句，否则并入后一句）。VoxCPM 等自回归 TTS 在仅 1 个
-     * 可发音字的输入上会塌缩成长时间空白且不发声，合并到邻句即可规避。<b>只在同段内合并</b>，不改变任何
-     * {@code paragraphIndex} 的存在性，故不破坏与前端 DOM 块的逐一对齐；段内确无邻句可并的孤立短句原样保留
-     * （引擎侧另有短输入 token 上限兜底其空白时长）。
+     * 可发音字的输入上会塌缩成长时间空白且不发声，合并到邻句即可规避。合并按 {@link #joinTiny} 在拉丁边界补空格，
+     * 避免英文 / 数字粘连。<b>只在同段内合并</b>，不改变任何 {@code paragraphIndex} 的存在性，故不破坏与前端 DOM 块的
+     * 逐一对齐；段内确无邻句可并的孤立短句原样保留（引擎侧另有短输入 token 上限兜底其空白时长）。
      */
     static List<NarrationSentence> mergeTinySentences(List<NarrationSentence> sentences) {
         List<NarrationSentence> result = new ArrayList<>();
@@ -66,7 +66,7 @@ public final class NarrationSentenceSplitter {
             int para = s.paragraphIndex();
             if (carry != null) {
                 if (carryPara == para) {
-                    text = carry + text;     // 前缀并入当前句
+                    text = joinTiny(carry, text);     // 前缀并入当前句（按边界补空格，避免拉丁文粘连）
                 } else {
                     result.add(new NarrationSentence(carry, carryPara)); // 无同段后继 → 原样保留
                 }
@@ -75,7 +75,7 @@ public final class NarrationSentenceSplitter {
             if (speakableCount(text) < MIN_SPEAKABLE_CHARS) {
                 if (!result.isEmpty() && result.get(result.size() - 1).paragraphIndex() == para) {
                     NarrationSentence prev = result.remove(result.size() - 1);
-                    result.add(new NarrationSentence(prev.text() + text, para)); // 并入同段前一句
+                    result.add(new NarrationSentence(joinTiny(prev.text(), text), para)); // 并入同段前一句
                 } else {
                     carry = text;            // 段首短句：暂存，尝试并入后一同段句
                     carryPara = para;
@@ -93,6 +93,32 @@ public final class NarrationSentenceSplitter {
     /** 可发音字符数（字母 / 数字 / 表意文字 / 假名 / 谚文）。 */
     static int speakableCount(String text) {
         return text == null ? 0 : (int) text.codePoints().filter(Character::isLetterOrDigit).count();
+    }
+
+    /**
+     * 合并两段超短句时<b>按边界字符补连接符</b>，避免直接相加把英文 / 拉丁单词粘连（如 {@code Really?}+{@code I} →
+     * {@code Really?I}、{@code A?}+{@code Next.} → {@code A?Next.}，会让 TTS 与 AI 归属读错边界）。当连接边界<b>任一侧</b>
+     * 是 ASCII 字母 / 数字时插入一个空格（恰好复原断句时 trim 掉的英文词间空白）；CJK / 全角标点之间不补空格（中文不用空格），
+     * 边界已是空白时也不重复补。
+     */
+    static String joinTiny(String left, String right) {
+        if (left == null || left.isEmpty()) {
+            return right == null ? "" : right;
+        }
+        if (right == null || right.isEmpty()) {
+            return left;
+        }
+        char l = left.charAt(left.length() - 1);
+        char r = right.charAt(0);
+        if (Character.isWhitespace(l) || Character.isWhitespace(r)) {
+            return left + right;
+        }
+        return (isAsciiWord(l) || isAsciiWord(r)) ? left + " " + right : left + right;
+    }
+
+    /** 是否 ASCII 字母 / 数字（拉丁词的构成字符；用于判断合并边界是否需要补空格）。 */
+    private static boolean isAsciiWord(char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
     }
 
     /** 把一段纯文本按句末终止符 / 换行切成多句（已 trim、丢弃空白句）。 */
