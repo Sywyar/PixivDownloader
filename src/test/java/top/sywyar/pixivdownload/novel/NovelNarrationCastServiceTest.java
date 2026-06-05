@@ -58,7 +58,7 @@ class NovelNarrationCastServiceTest {
     private static NarrationSegmentAnalysis analysis(List<NarrationCharacter> newChars,
                                                      Map<Integer, String> updated,
                                                      List<NarrationConflict> conflicts) {
-        return new NarrationSegmentAnalysis(List.of(), newChars, updated, conflicts);
+        return new NarrationSegmentAnalysis(List.of(), newChars, updated, Map.of(), conflicts);
     }
 
     private final NarrationReferenceVoiceStore fileStore = mock(NarrationReferenceVoiceStore.class);
@@ -168,6 +168,32 @@ class NovelNarrationCastServiceTest {
         assertEquals("suggested-2", report.suggestion());
     }
 
+    @Test
+    @DisplayName("受控改名：AI 生成角色按 id 改名（第一人称主角真实姓名后段揭晓并入同一音色）；用户锁定 / 旁白 / 重名跳过")
+    void renameRoutedByIdGuardsLockedAndCollisions() {
+        NovelMapper mapper = mock(NovelMapper.class);
+        // 在册：旁白 0、AI 生成的「我」(id 1)、用户锁定的「乙」(id 2)、AI 生成的「丙」(id 3)
+        List<NarrationCharacter> roster = List.of(
+                narrator("N"), aiChar(1, "我", "V1"), lockedChar(2, "乙", "LOCKED"), aiChar(3, "丙", "V3"));
+
+        Map<Integer, String> renamed = new java.util.LinkedHashMap<>();
+        renamed.put(1, "莱蒂西亚");  // AI 生成 → 真实姓名揭晓，按 id 改名（音色 id 不变）
+        renamed.put(2, "新乙");      // 用户锁定 → 跳过
+        renamed.put(3, "乙");        // 与另一个已有角色「乙」(id 2) 重名 → 跳过，避免塌成一个
+        renamed.put(0, "旁白别名");  // 旁白 → 跳过
+
+        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(7L, roster,
+                new NarrationSegmentAnalysis(List.of(), List.of(), Map.of(), renamed, List.of()));
+
+        // 仅「我」(id 1) 被改名
+        verify(mapper).updateNarrationVoiceName(7L, 1, "莱蒂西亚");
+        verify(mapper, never()).updateNarrationVoiceName(eq(7L), eq(2), any());
+        verify(mapper, never()).updateNarrationVoiceName(eq(7L), eq(3), any());
+        verify(mapper, never()).updateNarrationVoiceName(eq(7L), eq(NarrationCharacter.NARRATOR_ID), any());
+        verify(mapper).touchNarrationCast(eq(7L), anyLong());
+        assertTrue(res.unresolvedConflicts().isEmpty());
+    }
+
     private static NarrationSentence sent(String text, int paragraphIndex) {
         return new NarrationSentence(text, paragraphIndex);
     }
@@ -250,7 +276,7 @@ class NovelNarrationCastServiceTest {
         when(mapper.countNarrationCastById(9L)).thenReturn(1);
         when(mapper.findNarrationVoices(9L)).thenReturn(List.of(narrator("N")));
         when(scriptSvc.analyzeSegment(any(), any(), anyInt()))
-                .thenReturn(new NarrationSegmentAnalysis(List.of(), List.of(), Map.of(), List.of()));
+                .thenReturn(new NarrationSegmentAnalysis(List.of(), List.of(), Map.of(), Map.of(), List.of()));
         NarrationScript built = new NarrationScript(List.of(narrator("N")),
                 List.of(new NarrationScript.Line(0, "句。", 0, "Narrator", "", "N")), true);
         when(scriptSvc.buildScript(any(), any(), any())).thenReturn(built);

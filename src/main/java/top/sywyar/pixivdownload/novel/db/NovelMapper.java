@@ -466,6 +466,15 @@ public interface NovelMapper {
                                         @Param("controlInstruction") String controlInstruction,
                                         @Param("editedByUser") boolean editedByUser);
 
+    /**
+     * 受控改名：仅更新某角色的称谓（不动音色画像 / 来源标记 / 参考音元数据）。用于第一人称主角真实姓名在后段揭晓时，
+     * 按角色 id 把早期「I / 未命名」并入<b>同一</b>角色——保持其音色 id 不变（音色一致），只修正显示名。
+     */
+    @Update("UPDATE novel_narration_voices SET name = #{name}"
+            + " WHERE cast_id = #{castId} AND character_id = #{characterId}")
+    int updateNarrationVoiceName(@Param("castId") long castId, @Param("characterId") int characterId,
+                                 @Param("name") String name);
+
     @Delete("DELETE FROM novel_narration_voices WHERE cast_id = #{castId}")
     void deleteNarrationVoices(@Param("castId") long castId);
 

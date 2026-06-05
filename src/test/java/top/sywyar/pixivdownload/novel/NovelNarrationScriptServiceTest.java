@@ -200,6 +200,37 @@ class NovelNarrationScriptServiceTest {
     }
 
     @Test
+    @DisplayName("getOrAnalyze：显式 castId 已失效 + 旁白音色 → 在解析出的默认册上锁旁白并分析，绝不写孤儿到失效册")
+    void stalePresetLocksResolvedDefaultCastNotStaleId() {
+        NovelNarrationCastService castService = mock(NovelNarrationCastService.class);
+        NovelDatabase db = mock(NovelDatabase.class);
+        NovelMapper mapper = mock(NovelMapper.class);
+        NarrationAudioService audio = mock(NarrationAudioService.class);
+
+        when(db.getNovel(7L)).thenReturn(novel(7L, "句子一。"));
+        // 显式 castId=9 已被删除 / 不存在；本作默认册解析为 5
+        when(castService.exists(9L)).thenReturn(false);
+        when(castService.ensureDefaultCastId(7L)).thenReturn(5L);
+        NarrationScript script = new NarrationScript(List.of(
+                new NarrationCharacter(0, "Narrator", "unknown", "unknown", "N.", true, false)),
+                List.of(new NarrationScript.Line(0, "句子一。", 0, "Narrator", "", "N.")), true);
+        when(castService.analyzeChapter(eq(7L), any(), eq(0), eq(5L)))
+                .thenReturn(new ChapterNarration(script, List.of(), 5L));
+        when(castService.find(5L)).thenReturn(cast(5L, 80L));
+
+        NovelNarrationScriptService service = new NovelNarrationScriptService(castService, db, mapper, audio, mock(NarrationReferenceVoiceService.class), objectMapper);
+        NovelNarrationScriptService.ChapterScript result =
+                service.getOrAnalyze(7L, "", 0, true, 0, 9L, "A warm female narrator.");
+
+        // 旁白锁定落在解析出的默认册 5，而不是失效的 9（绝不在失效册上写孤儿旁白行）
+        verify(castService).updateVoiceInstruction(5L, NarrationCharacter.NARRATOR_ID, "A warm female narrator.");
+        verify(castService, never()).updateVoiceInstruction(eq(9L), anyInt(), any());
+        // 分析与锁定用同一册 5
+        verify(castService).analyzeChapter(eq(7L), any(), eq(0), eq(5L));
+        assertEquals(5L, result.castId());
+    }
+
+    @Test
     @DisplayName("synthesizeLine：按持久化行 speaker 从活花名册取基底、合并 delivery 后合成（音色编辑即时生效）")
     void synthesizeLineUsesActiveRosterBase() {
         NovelNarrationCastService castService = mock(NovelNarrationCastService.class);

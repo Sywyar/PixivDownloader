@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.tts.narration.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -157,6 +158,14 @@ public class NarrationController {
                 return ResponseEntity.noContent().build();
             }
             return ResponseEntity.ok(toScriptResponse(cached));
+        }
+
+        // 真正会触发「新分析」的路径（force，或本作 / 该语言尚无持久化脚本）需要朗读引擎可用：引擎不可用且非调试模式时
+        // 直接拒绝，避免「服务不可用仍跑 LLM 分析」产生无法播放的脚本与额外 AI 成本。缓存命中 / 上面的探测仍照常返回。
+        if (!narrationAudioService.isEngineAvailable() && !debugConfig.isEnabled()
+                && (force || scriptService.peekScript(novelId, lang) == null)) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(new ErrorResponse(messages.get("narration.error.engine-unavailable")));
         }
 
         // 旁白音色预设 id → 固定英文画像（未知 / 空=不改旁白）；画像文本始终由后端枚举提供，不信任客户端原文。

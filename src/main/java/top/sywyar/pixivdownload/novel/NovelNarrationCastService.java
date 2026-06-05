@@ -464,6 +464,28 @@ public class NovelNarrationCastService {
             tempToReal.put(c.id(), realId);
         }
 
+        // ①b 受控改名：第一人称主角等「先以临时称谓（I / 未命名）入册、真实姓名后段才揭晓」时，模型按<b>同一 id</b>
+        //    （保持音色一致）在 updatedCharacters 里带上更准确的 name。仅改 AI 生成（未锁定、非旁白）的角色；新名已
+        //    属于<b>另一个</b>已有角色时跳过，避免把两个不同角色塌成一个。
+        for (Map.Entry<Integer, String> e : analysis.renamedCharacters().entrySet()) {
+            NarrationCharacter ex = byId.get(e.getKey());
+            if (ex == null || ex.editedByUser() || ex.narrator()) {
+                continue;
+            }
+            String newName = e.getValue() == null ? "" : e.getValue().trim();
+            if (newName.isEmpty() || newName.equals(ex.name())) {
+                continue;
+            }
+            Integer holder = nameToId.get(normName(newName));
+            if (holder != null && holder != ex.id()) {
+                continue;
+            }
+            novelMapper.updateNarrationVoiceName(castId, ex.id(), newName);
+            nameToId.remove(normName(ex.name()));
+            nameToId.put(normName(newName), ex.id());
+            changed = true;
+        }
+
         // ② 兼容性补充：仅刷新 AI 生成（未锁定）的已有角色画像；用户锁定的忽略。
         for (Map.Entry<Integer, String> e : analysis.updatedCharacters().entrySet()) {
             NarrationCharacter ex = byId.get(e.getKey());

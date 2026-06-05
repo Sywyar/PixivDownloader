@@ -78,10 +78,11 @@ public class NarrationScriptService {
                 validSpeakerIds.add(c.id());
             }
             List<NarrationLineVoice> lines = response.normalizedTo(count, validSpeakerIds);
-            log.debug("narration segment analysis done: sentences={}, newCharacters={}, updated={}, conflicts={}",
-                    count, newCharacters.size(), response.updatedCharacters().size(), response.conflicts().size());
+            log.debug("narration segment analysis done: sentences={}, newCharacters={}, updated={}, renamed={}, conflicts={}",
+                    count, newCharacters.size(), response.updatedCharacters().size(),
+                    response.renamedCharacters().size(), response.conflicts().size());
             return new NarrationSegmentAnalysis(lines, newCharacters,
-                    response.updatedCharacters(), response.conflicts());
+                    response.updatedCharacters(), response.renamedCharacters(), response.conflicts());
         } catch (AiService.AiException | IllegalArgumentException e) {
             log.warn("narration segment analysis failed, falling back to narrator: count={}, err={}",
                     count, e.getMessage());

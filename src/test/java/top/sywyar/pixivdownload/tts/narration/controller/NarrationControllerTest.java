@@ -50,6 +50,12 @@ class NarrationControllerTest {
     private final NarrationTtsController ttsController =
             new NarrationTtsController(audioService, scriptService, TestI18nBeans.appMessages());
 
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        // 默认朗读引擎可用（多数 /script 用例的 happy path）；不可用 / 调试模式的用例各自覆盖。
+        when(audioService.isEngineAvailable()).thenReturn(true);
+    }
+
     private NovelRecord novel(long id) {
         return new NovelRecord(id, "标题", "f", 1, "txt", 1L, null, null, null, null,
                 1L, null, null, null, null, null, null, null, null, null, "正文。", null);
@@ -129,6 +135,73 @@ class NarrationControllerTest {
         assertEquals(204, resp.getStatusCode().value());
         verify(scriptService, org.mockito.Mockito.never())
                 .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
+    }
+
+    @Test
+    @DisplayName("/script：引擎不可用且非调试模式时 force 重分析被拒（503），绝不调用分析")
+    void scriptRejectsForceWhenEngineUnavailable() {
+        when(audioService.isEngineAvailable()).thenReturn(false);
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, true, null, null, null));
+
+        assertEquals(503, resp.getStatusCode().value());
+        verify(scriptService, org.mockito.Mockito.never())
+                .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
+    }
+
+    @Test
+    @DisplayName("/script：引擎不可用且非调试模式、无缓存脚本时新分析被拒（503），绝不调用分析")
+    void scriptRejectsNewAnalysisWhenUnavailableNoCache() {
+        when(audioService.isEngineAvailable()).thenReturn(false);
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+        when(scriptService.peekScript(7L, "")).thenReturn(null);
+
+        // analyzeIfMissing 默认 true、force 默认 false：缓存缺失即触发新分析 → 被守卫拦下
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, null, null, null, null));
+
+        assertEquals(503, resp.getStatusCode().value());
+        verify(scriptService, org.mockito.Mockito.never())
+                .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
+    }
+
+    @Test
+    @DisplayName("/script：引擎不可用但命中缓存脚本时仍正常返回（不触发新分析）")
+    void scriptAllowsCacheHitWhenUnavailable() {
+        when(audioService.isEngineAvailable()).thenReturn(false);
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+        List<NovelNarrationScriptService.ScriptLine> lines = List.of(
+                new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
+        NovelNarrationScriptService.ChapterScript cached =
+                new NovelNarrationScriptService.ChapterScript(lines, 5L, 1L, 0, 2L, List.of());
+        when(scriptService.peekScript(7L, "")).thenReturn(cached);
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class)))
+                .thenReturn(cached);
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, null, null, null, null));
+
+        assertEquals(200, resp.getStatusCode().value());
+    }
+
+    @Test
+    @DisplayName("/script：调试模式开启时即便引擎不可用也允许分析（仅运行 LLM 查看说话人 / 冲突）")
+    void scriptAllowsAnalysisInDebugModeWhenUnavailable() {
+        when(audioService.isEngineAvailable()).thenReturn(false);
+        debugConfig.setEnabled(true);
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+        List<NovelNarrationScriptService.ScriptLine> lines = List.of(
+                new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class)))
+                .thenReturn(new NovelNarrationScriptService.ChapterScript(lines, 5L, 1L, 0, 2L, List.of()));
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, true, null, null, null));
+
+        assertEquals(200, resp.getStatusCode().value());
+        verify(scriptService).getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
     }
 
     @Test

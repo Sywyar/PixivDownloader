@@ -89,6 +89,23 @@ class NarrationAnalysisResponseTest {
     }
 
     @Test
+    @DisplayName("renamedCharacters：解析 updatedCharacters 里可选 name，按 id 给出改名；缺 name 不计、instruction 仍独立解析")
+    void parseRenamedCharacters() {
+        NarrationAnalysisResponse r = NarrationAnalysisResponse.parse(
+                "{\"lines\":[],\"updatedCharacters\":["
+                        + "{\"id\":1,\"name\":\"莱蒂西亚\",\"instruction\":\"A young noblewoman.\"},"
+                        + "{\"id\":2,\"instruction\":\"only refine\"},"
+                        + "{\"id\":3,\"name\":\"  \"}]}");
+        Map<Integer, String> renamed = r.renamedCharacters();
+        assertEquals(1, renamed.size());
+        assertEquals("莱蒂西亚", renamed.get(1));
+        // 同条目的 instruction 仍走 updatedCharacters（改名与补充互不影响）
+        Map<Integer, String> updated = r.updatedCharacters();
+        assertEquals("A young noblewoman.", updated.get(1));
+        assertEquals("only refine", updated.get(2));
+    }
+
+    @Test
     @DisplayName("conflicts：保留合法 type + 非空 suggestion，丢弃非法 type / 空 suggestion")
     void parseConflicts() {
         NarrationAnalysisResponse r = NarrationAnalysisResponse.parse(

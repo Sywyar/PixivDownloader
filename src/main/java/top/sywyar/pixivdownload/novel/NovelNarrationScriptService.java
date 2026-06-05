@@ -149,10 +149,14 @@ public class NovelNarrationScriptService {
         log.info("narration script analyze: novelId={}, lang='{}', segmentSize={}, force={}, castId={}, sentences={}, pureNarrator={}",
                 novelId, langKey, normalizedSegment, force, castId, sentences.size(), pureNarrator);
 
-        // 旁白音色锁定：拿到本次所用花名册（>0），把旁白(id 0)锁定为所选画像，再分析（先锁后析 → AI 不漂移旁白）。
+        // 旁白音色锁定：先解析本次分析「实际」所用花名册，再仅对这个最终册锁定旁白(id 0)，最后分析（先锁后析 → AI 不漂移旁白）。
+        // 解析口径必须与 analyzeChapter 内部一致：显式正数 castId 仅在确实存在时使用，否则（含 stale / null / 纯旁白）回退本作默认册
+        // （按需创建）。绝不直接拿传入的原始 castId 去锁——stale 的正数 castId 会写出孤儿旁白行，且与 analyzeChapter 实际
+        // 落到的默认册不一致，导致所选旁白并未被真正锁定、可能被 AI 画像覆盖。
         long lockedCastId = 0L;
         if (!narratorVoice.isEmpty()) {
-            lockedCastId = (castId != null && castId > 0) ? castId : castService.ensureDefaultCastId(novelId);
+            lockedCastId = (castId != null && castId > 0 && castService.exists(castId))
+                    ? castId : castService.ensureDefaultCastId(novelId);
             if (lockedCastId > 0) {
                 castService.updateVoiceInstruction(lockedCastId, NarrationCharacter.NARRATOR_ID, narratorVoice);
             }

@@ -64,6 +64,7 @@ public record NarrationAnalysisResponse(
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RawUpdate(
             @JsonProperty("id") Integer id,
+            @JsonProperty("name") String name,
             @JsonProperty("instruction") String instruction
     ) {
     }
@@ -180,6 +181,29 @@ public record NarrationAnalysisResponse(
                 continue;
             }
             out.put(u.id(), u.instruction().trim());
+        }
+        return out;
+    }
+
+    /**
+     * 对已有角色的<b>受控改名</b>：「角色 id → 更准确的称谓（原文语言）」，复用 {@code updatedCharacters} 条目里
+     * 可选的 {@code name} 字段。典型场景是第一人称主角先以「I / 未命名」临时称谓入册、真实姓名在后段才揭晓——模型
+     * 据此按<b>同一 id</b>（保持音色一致）给出新名，落库层据此并入同一角色而非插入重复角色。忽略 id 为空、name
+     * 为空的条目；同一 id 取最后一条。
+     */
+    public Map<Integer, String> renamedCharacters() {
+        Map<Integer, String> out = new LinkedHashMap<>();
+        if (rawUpdatedCharacters == null) {
+            return out;
+        }
+        for (RawUpdate u : rawUpdatedCharacters) {
+            if (u == null || u.id() == null) {
+                continue;
+            }
+            if (u.name() == null || u.name().isBlank()) {
+                continue;
+            }
+            out.put(u.id(), u.name().trim());
         }
         return out;
     }

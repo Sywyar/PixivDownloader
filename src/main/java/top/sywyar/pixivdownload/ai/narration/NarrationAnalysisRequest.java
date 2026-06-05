@@ -63,9 +63,11 @@ public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<Str
               narrator. Attribute the protagonist's whole first-person stream — both their narration and
               their inner thoughts — to that ONE protagonist character so it stays a single consistent
               voice; reserve id 0 only for any genuinely detached / objective text (often there is little
-              or none). Name the protagonist by their own name once it becomes known, merging earlier
-              "I" / unnamed references into that SAME one character (rule 4); other characters still speak
-              and think in their own voices.
+              or none). Keep the protagonist as ONE character with a single stable id for the whole work.
+              If they were first enrolled before their name was known (e.g. as "I" or an unnamed label) and
+              their real name appears in this segment, do NOT create a second character — REUSE that same
+              id and correct the name via "updatedCharacters" (rule 5). Other characters still speak and
+              think in their own voices.
             - A voice "instruction" is a DETAILED English voice-design persona a TTS engine can
               synthesize as ONE stable voice. It MUST concretely specify EVERY trait below — never a
               vague one-liner: apparent gender; age or age-range; pitch register (low / mid / high);
@@ -114,11 +116,16 @@ public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<Str
                the SAME distinct voice every time. Make each character's voice clearly DISTINGUISHABLE
                from the narrator and from the other cast members (vary pitch, timbre, pace and
                temperament); do not give two characters near-identical instructions.
-            5. Use "updatedCharacters" ONLY for a COMPATIBLE refinement of an existing character: the same
-               person and the same direction as the GIVEN instruction, just richer and non-contradicting.
-               Provide "id" and a full, detailed refined English "instruction" covering all the traits
-               above. Do NOT change name, gender or age.
-               Be conservative — most segments need none.
+            5. Use "updatedCharacters" to refine an EXISTING character IN PLACE, keeping the SAME id (which
+               keeps their voice consistent). Each entry has "id" plus either or both of:
+                 - "instruction": a full, detailed refined English voice description — ONLY a COMPATIBLE
+                   refinement (same person, same direction as the GIVEN instruction, just richer and
+                   non-contradicting);
+                 - "name": a corrected / enriched appellation in the ORIGINAL language (rule 4's alias
+                   format) — use this ONLY when you now know a better name for the SAME person, e.g. a
+                   first-person or previously-unnamed character whose real name is revealed in this
+                   segment. NEVER use "name" to merge two genuinely DIFFERENT people.
+               Do NOT change gender or age. Be conservative — most segments need none.
             6. Use "conflicts" when the GIVEN instruction of an existing character is, on clear and
                significant evidence in THIS segment, either:
                  - "contradiction": directly contradicted (e.g. the text shows a different gender, age, or
@@ -136,7 +143,7 @@ public record NarrationAnalysisRequest(List<NarrationCharacter> roster, List<Str
             8. Output STRICT JSON ONLY (no markdown, no code fences, no commentary) with EXACTLY:
                {"lines":[{"i":0,"speaker":0,"delivery":""}],
                 "newCharacters":[{"id":3,"name":"<original-language label>","gender":"<male|female|unknown>","age":"<child|teen|young|middle|elderly|unknown>","instruction":"<english voice description>"}],
-                "updatedCharacters":[{"id":1,"instruction":"<refined english voice description>"}],
+                "updatedCharacters":[{"id":1,"name":"<optional corrected original-language name>","instruction":"<optional refined english voice description>"}],
                 "conflicts":[{"id":2,"type":"<contradiction|incomplete>","reason":"<short english reason>","suggestion":"<full english voice description>"}]}
                "lines" MUST cover every input sentence in ascending "i". Use empty arrays for
                "newCharacters" / "updatedCharacters" / "conflicts" when there are none.""";
