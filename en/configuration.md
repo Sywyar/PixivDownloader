@@ -21,6 +21,8 @@ download.root-folder: pixiv-download
 ```
 Download file storage root directory. Supports relative paths (relative to working directory) or absolute paths. **Requires restart** after change.
 
+> To relocate already-downloaded files to a new directory: move the files to the new location manually first, then use the GUI helper ("Status page → Migrate download directory") to rewrite the recorded download/classified directories to the new paths (**updates database records only; it does NOT move files on disk**, leave blank to keep, the new directory must already exist). If you change the current download root, you will be asked whether to also update `download.root-folder` here (otherwise new downloads still go to the old directory; takes effect after a restart).
+
 ```yaml
 download.user-flat-folder: false
 ```
