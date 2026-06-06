@@ -160,6 +160,29 @@ class NovelAutoTranslateServiceTest {
     }
 
     @Test
+    @DisplayName("源语言与目标一致时标记为 SAME_LANGUAGE 终态并按设置合订，但不翻译系列名")
+    void sameLanguageRefreshesMerge() throws Exception {
+        when(aiConfig.isEnabled()).thenReturn(true);
+        when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
+        when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(7L);
+        when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
+                nullable(String.class), nullable(Long.class), anyBoolean(), anyBoolean(), anyBoolean()))
+                .thenReturn(new NovelTranslationService.Result(
+                        NovelTranslationService.Status.SAME_LANGUAGE, "en-US", "same", false));
+        NovelAutoTranslateService s = service();
+
+        s.submit(100L, 500L, "english", 0, true, "epub");
+
+        NovelAutoTranslateService.StatusView v = s.getStatus(100L);
+        assertEquals("SAME_LANGUAGE", v.phase());
+        assertTrue(v.done());
+        assertEquals("en-US", v.langCode());
+        verify(mergeService).merge(eq(500L), eq(NovelDownloadService.NovelFormat.EPUB));
+        verify(translationService, never()).translateSeriesTitle(anyLong(), anyString(),
+                nullable(String.class), nullable(Long.class), anyBoolean(), anyBoolean());
+    }
+
+    @Test
     @DisplayName("翻译返回错误状态时标记为 FAILED 且不合订")
     void translateErrorMarksFailed() throws Exception {
         when(aiConfig.isEnabled()).thenReturn(true);

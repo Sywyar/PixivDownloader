@@ -1010,7 +1010,7 @@
         if (st.type === 'series') {
             progressRefs.statsText.textContent = tt(i18n, 'progress.series-stats',
                 '{ok} done {skipped} skipped {failed} failed',
-                { ok: st.ok, skipped: st.skipped, failed: st.failed });
+                { ok: st.ok, skipped: st.skipped + (st.sameLang || 0), failed: st.failed });
             progressRefs.statsText.style.display = '';
         } else {
             progressRefs.statsText.style.display = 'none';
@@ -1135,7 +1135,7 @@
             phaseStartedAt: Date.now(),
             currentIndex: 0,
             total: 0,
-            ok: 0, skipped: 0, failed: 0,
+            ok: 0, skipped: 0, sameLang: 0, failed: 0,
             warnings: [
                 tt(i18n, 'progress.warn-do-not-close',
                     'Do not close or refresh this tab; the progress will be interrupted.'),
@@ -1202,10 +1202,19 @@
                 var resp = await translateNovel(ids[i], Object.assign({}, opts.choice,
                     { langHint: langCode, signal: controller.signal }));
                 if (resp.status === 'INVALID_LANGUAGE') { invalid = true; break; }
-                if (resp.langCode && !langCode) langCode = resp.langCode;
-                if (resp.status === 'OK') state.ok++;
-                else if (resp.status === 'SKIPPED') state.skipped++;
-                else state.failed++;
+                if (resp.status === 'OK') {
+                    if (resp.langCode && !langCode) langCode = resp.langCode;
+                    state.ok++;
+                } else if (resp.status === 'SKIPPED') {
+                    if (resp.langCode && !langCode) langCode = resp.langCode;
+                    state.skipped++;
+                } else if (resp.status === 'SAME_LANGUAGE') {
+                    // 原文已是目标语言：计入「跳过」，但不贡献 langCode —— 该语言没有任何译文变体，
+                    // 不能触发合订（否则会对无译文的语言生成空/原文合订本）。
+                    state.sameLang++;
+                } else {
+                    state.failed++;
+                }
             } catch (e) {
                 if (cancelled || (e && e.name === 'AbortError')) break;
                 state.failed++;
@@ -1234,7 +1243,8 @@
         return {
             cancelled: cancelled,
             invalid: invalid,
-            ok: state.ok, skipped: state.skipped, failed: state.failed,
+            // 跳过数对外合并展示「已有译文跳过」与「源语言一致跳过」两类
+            ok: state.ok, skipped: state.skipped + state.sameLang, failed: state.failed,
             langCode: langCode,
             mergeFailed: mergeFailed
         };
@@ -1256,6 +1266,7 @@
         showActiveJob: showActiveJob,
         STATUS_OK: 'OK',
         STATUS_SKIPPED: 'SKIPPED',
+        STATUS_SAME_LANGUAGE: 'SAME_LANGUAGE',
         STATUS_INVALID_LANGUAGE: 'INVALID_LANGUAGE'
     };
 

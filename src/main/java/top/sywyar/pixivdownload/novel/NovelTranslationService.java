@@ -9,6 +9,8 @@ import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import top.sywyar.pixivdownload.ai.translation.GlossaryTerm;
 import top.sywyar.pixivdownload.ai.translation.LangProbeRequest;
 import top.sywyar.pixivdownload.ai.translation.LangProbeResponse;
+import top.sywyar.pixivdownload.ai.translation.SourceLanguageProbeRequest;
+import top.sywyar.pixivdownload.ai.translation.SourceLanguageProbeResponse;
 import top.sywyar.pixivdownload.ai.translation.TitleTranslationRequest;
 import top.sywyar.pixivdownload.ai.translation.TitleTranslationResponse;
 import top.sywyar.pixivdownload.ai.translation.TranslationRequest;
@@ -48,7 +50,10 @@ public class NovelTranslationService {
     private final NovelGlossaryService glossaryService;
     private final AppMessages messages;
 
-    public enum Status { OK, SKIPPED, INVALID_LANGUAGE, EMPTY, NOT_FOUND, ERROR }
+    public enum Status { OK, SKIPPED, SAME_LANGUAGE, INVALID_LANGUAGE, EMPTY, NOT_FOUND, ERROR }
+
+    /** 源语言探测样本最大字数（控制 token 体量；覆盖开头 / 中段 / 结尾后再判定）。 */
+    private static final int SAMPLE_MAX_CHARS = 200;
 
     /**
      * @param status    结果状态
@@ -94,13 +99,25 @@ public class NovelTranslationService {
         if (raw == null || raw.isBlank()) {
             return new Result(Status.EMPTY, null, messages.get("novel.translate.empty"), false);
         }
-        // 提示语言代码命中且选择跳过：只在<b>用户勾选的所有字段</b>都已有非空译文时跳过；
+        // 目标语言代码：优先用调用方已解析的 langHint；缺省时（如详情页单作品翻译）现解析一次，
+        // 与「先取目标语言代码 → 检测源语言 → 翻译」的顺序一致。
+        String targetCode = (langHint != null && !langHint.isBlank())
+                ? langHint.trim() : resolveLangCode(targetLanguage);
+
+        // 语言代码命中且选择跳过：只在<b>用户勾选的所有字段</b>都已有非空译文时跳过（连源语言探测都不必做）；
         // 否则即便该语言已有部分行（例如已译正文但缺标题）仍需继续翻译以补齐。
-        if (!overwrite && langHint != null && !langHint.isBlank()
-                && isAllRequestedFieldsTranslated(novelId, langHint,
+        if (!overwrite && targetCode != null && !targetCode.isBlank()
+                && isAllRequestedFieldsTranslated(novelId, targetCode,
                 translateBody, translateTitle, translateDescription)) {
-            return new Result(Status.SKIPPED, langHint.trim(),
+            return new Result(Status.SKIPPED, targetCode,
                     messages.get("novel.translate.skipped"), false);
+        }
+
+        // 源语言探测：把正文开头一小段连同目标语言代码发给模型，判断原文是否已是目标语言。
+        // 是则跳过整章翻译、省下一次完整翻译请求（best-effort：无法取得目标代码 / 探测失败 / 模型无法判定时照常翻译）。
+        if (targetCode != null && !targetCode.isBlank() && isSourceSameAsTarget(raw, targetCode)) {
+            return new Result(Status.SAME_LANGUAGE, targetCode,
+                    messages.get("novel.translate.same-language"), false);
         }
 
         // 注入给 AI 的映射表条目（含表内全部目标语言，模型仅对语言匹配项强制套用）。
@@ -407,6 +424,99 @@ public class NovelTranslationService {
             // AiService 已记过失败日志，这里仅静默回退
             return "";
         }
+    }
+
+    /**
+     * 源语言探测：把正文分布样本与目标语言代码发给模型，判定原文是否已是目标语言。
+     * best-effort —— 样本为空 / 探测失败 / 模型无法判定时一律返回 {@code false}（照常翻译，绝不漏译）。
+     */
+    private boolean isSourceSameAsTarget(String raw, String targetCode) {
+        String sample = languageProbeSample(raw, SAMPLE_MAX_CHARS);
+        if (sample.isBlank()) {
+            return false;
+        }
+        try {
+            AiChatResult chat = aiService.chat(
+                    SourceLanguageProbeRequest.CALL_TYPE,
+                    new SourceLanguageProbeRequest(targetCode, sample).toMessages(),
+                    AiChatOptions.json().withTemperature(0.0));
+            return SourceLanguageProbeResponse.parse(chat.content()).isSame();
+        } catch (AiService.AiException e) {
+            // AiService 已记失败日志；探测失败不阻断翻译
+            return false;
+        }
+    }
+
+    /**
+     * 取正文开头的一段可读文本作为语言探测样本：逐行累计，跳过空行与纯 Pixiv 标记行（如 {@code [newpage]}、
+     * {@code [pixivimage:...]}），去掉行内 {@code [[...]]} / {@code [...]} 标记后只保留自然语言文本，
+     * 累计到约 {@code maxChars} 字为止。
+     */
+    static String firstTextSample(String raw, int maxChars) {
+        String text = readableText(raw);
+        if (text.isBlank() || maxChars <= 0) {
+            return "";
+        }
+        return text.length() > maxChars ? text.substring(0, maxChars) : text;
+    }
+
+    /**
+     * 语言探测使用的保守样本：短正文直接使用全部自然语言文本；长正文从开头 / 中段 / 结尾各取一段。
+     * 这样可避免只看开头题记、作者说明或引用时，把后续主体语言不同的小说误判为已是目标语言。
+     */
+    static String languageProbeSample(String raw, int maxChars) {
+        String text = readableText(raw);
+        if (text.isBlank() || maxChars <= 0) {
+            return "";
+        }
+        if (text.length() <= maxChars) {
+            return text;
+        }
+        String sep = " ... ";
+        int separatorChars = sep.length() * 2;
+        if (maxChars <= separatorChars + 3) {
+            return text.substring(0, maxChars);
+        }
+        int section = (maxChars - separatorChars) / 3;
+        int firstLen = section;
+        int middleLen = section;
+        int lastLen = maxChars - separatorChars - firstLen - middleLen;
+        int middleStart = Math.max(firstLen, (text.length() - middleLen) / 2);
+        int latestMiddleStart = Math.max(firstLen, text.length() - lastLen - middleLen);
+        middleStart = Math.min(middleStart, latestMiddleStart);
+        return text.substring(0, firstLen)
+                + sep
+                + text.substring(middleStart, middleStart + middleLen)
+                + sep
+                + text.substring(text.length() - lastLen);
+    }
+
+    private static String readableText(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String line : raw.split("\n", -1)) {
+            String text = stripPixivMarkup(line).trim();
+            if (text.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(text);
+        }
+        return sb.toString();
+    }
+
+    /** 去掉 Pixiv markup 标记（{@code [[...]]} 与 {@code [...]}），仅留下用于语言判定的自然语言文本。 */
+    private static String stripPixivMarkup(String line) {
+        if (line == null) {
+            return "";
+        }
+        String s = line.replaceAll("\\[\\[[^\\]]*\\]\\]", " ");
+        s = s.replaceAll("\\[[^\\]]*\\]", " ");
+        return s;
     }
 
     /** 读取映射表条目并转换为发给 AI 的术语列表；{@code glossaryId} 为空或表不存在时返回空表。 */

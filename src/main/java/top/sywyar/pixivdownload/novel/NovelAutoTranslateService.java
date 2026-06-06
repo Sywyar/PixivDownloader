@@ -33,8 +33,8 @@ import java.util.concurrent.atomic.AtomicLong;
 @Service
 public class NovelAutoTranslateService {
 
-    /** 翻译阶段（原始枚举名透传给前端，由前端本地化文案）。 */
-    public enum Phase { QUEUED, WAITING_SERIES, RESOLVING, TRANSLATING, MERGING, DONE, FAILED }
+    /** 翻译阶段（原始枚举名透传给前端，由前端本地化文案）。{@code SAME_LANGUAGE} 为终态：原文已是目标语言、整章跳过。 */
+    public enum Phase { QUEUED, WAITING_SERIES, RESOLVING, TRANSLATING, MERGING, DONE, SAME_LANGUAGE, FAILED }
 
     /**
      * 终态（DONE / FAILED）状态保留时长：进入终态超过此时长即惰性清理。取与前端轮询窗口同量级——
@@ -152,6 +152,18 @@ public class NovelAutoTranslateService {
                     (langCode == null || langCode.isBlank()) ? null : langCode, glossaryId,
                     true, true, true);
             NovelTranslationService.Status st = result.status();
+            if (st == NovelTranslationService.Status.SAME_LANGUAGE) {
+                // 原文已是目标语言：跳过整章翻译；若开启系列合订，仍刷新原文基准与已有译文变体，
+                // 因为变体合订对缺失译文章节会回退原文，本章落库后仍可能影响最终合订内容。
+                status.langCode = result.langCode() == null ? "" : result.langCode();
+                if (status.seriesId != null && mergeAfter) {
+                    status.enter(Phase.MERGING);
+                    mergeSeriesBestEffort(status, mergeFormat);
+                }
+                status.done = true;
+                status.enter(Phase.SAME_LANGUAGE);
+                return;
+            }
             if (st != NovelTranslationService.Status.OK && st != NovelTranslationService.Status.SKIPPED) {
                 fail(status, st.name());
                 return;
@@ -171,14 +183,7 @@ public class NovelAutoTranslateService {
                 }
                 if (mergeAfter) {
                     status.enter(Phase.MERGING);
-                    try {
-                        mergeService.merge(status.seriesId,
-                                NovelDownloadService.NovelFormat.parse(mergeFormat));
-                    } catch (Exception e) {
-                        // 合订失败不算翻译失败：译文已落库，仅记日志。
-                        log.warn("Auto-translate series merge failed for series {}: {}",
-                                status.seriesId, e.getMessage());
-                    }
+                    mergeSeriesBestEffort(status, mergeFormat);
                 }
             }
             status.done = true;
@@ -191,6 +196,17 @@ public class NovelAutoTranslateService {
             if (status.seriesId != null) {
                 seriesDone.computeIfAbsent(status.seriesId, k -> new AtomicLong()).incrementAndGet();
             }
+        }
+    }
+
+    private void mergeSeriesBestEffort(JobStatus status, String mergeFormat) {
+        try {
+            mergeService.merge(status.seriesId,
+                    NovelDownloadService.NovelFormat.parse(mergeFormat));
+        } catch (Exception e) {
+            // 合订失败不算翻译失败：译文 / 原文已落库，仅记日志。
+            log.warn("Auto-translate series merge failed for series {}: {}",
+                    status.seriesId, e.getMessage());
         }
     }
 

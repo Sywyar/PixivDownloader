@@ -1288,8 +1288,9 @@
             item.translatePhase = st.phase;
             item.translateElapsed = st.elapsedSeconds || 0;
             item.translateSeriesPending = st.seriesPending || 0;
-            if (st.done || st.failed || st.phase === 'DONE' || st.phase === 'FAILED') {
-                item.translateDone = !!st.done || st.phase === 'DONE';
+            if (st.done || st.failed || st.phase === 'DONE' || st.phase === 'FAILED'
+                || st.phase === 'SAME_LANGUAGE') {
+                item.translateDone = !!st.done || st.phase === 'DONE' || st.phase === 'SAME_LANGUAGE';
                 item.translateFailed = !!st.failed || st.phase === 'FAILED';
                 saveQueue();
                 renderQueue();

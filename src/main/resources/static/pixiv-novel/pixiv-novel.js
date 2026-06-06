@@ -606,6 +606,10 @@ async function openTranslateDialog() {
     const resp = outcome.result;
     if (resp.status === PixivTranslate.STATUS_INVALID_LANGUAGE) {
         toast(resp.message || pageI18n.t('translate:toast.invalid-language', '该语言不存在或无法识别'), 'error');
+    } else if (resp.status === PixivTranslate.STATUS_SAME_LANGUAGE) {
+        // 原文已是目标语言：无译文变体，提示后不切换内容语言、不跳转。
+        toast(resp.message || pageI18n.t('translate:toast.same-language',
+            '原文已是目标语言，已跳过翻译'), 'success');
     } else if (resp.status === PixivTranslate.STATUS_OK || resp.status === PixivTranslate.STATUS_SKIPPED) {
         toast(resp.message || pageI18n.t('translate:toast.success', '翻译完成'), 'success');
         if (resp.langCode) {

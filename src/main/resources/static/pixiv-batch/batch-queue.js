@@ -72,6 +72,8 @@
                 return bt('queue.message.translating', 'AI 翻译中（{sec}s）', {sec: q.translateElapsed || 0});
             case 'MERGING':
                 return bt('queue.message.translate-merging', '生成译文合订本中...');
+            case 'SAME_LANGUAGE':
+                return bt('queue.message.translate-same-lang', '完成（源语言与目标一致，已跳过）');
             case 'DONE':
                 return bt('queue.message.translate-done', '完成（已翻译）');
             case 'FAILED':
@@ -86,7 +88,8 @@
         if (q.kind !== 'novel' || !q.translatePhase) return '';
         const msg = novelTranslateMessage(q);
         if (!msg) return '';
-        const terminal = q.translatePhase === 'DONE' || q.translatePhase === 'FAILED';
+        const terminal = q.translatePhase === 'DONE' || q.translatePhase === 'FAILED'
+            || q.translatePhase === 'SAME_LANGUAGE';
         const color = q.translatePhase === 'FAILED' ? '#dc3545' : (terminal ? '#28a745' : '#8b5cf6');
         return `<div class="q-translate" style="margin-top:4px;font-size:11px;color:${color};display:flex;align-items:center;gap:6px;">`
             + `<span style="background:${color};color:white;border-radius:3px;padding:0 5px;font-size:10px;">${esc(bt('queue.translate.label', 'AI 翻译'))}</span>`
@@ -603,7 +606,8 @@
                         q.lastMessageParts = null;
                     }
                     // 翻译轮询在刷新后不会自动恢复：清掉未结束的翻译态，避免残留「AI 翻译中」静态文案。
-                    if (q.translatePhase && q.translatePhase !== 'DONE' && q.translatePhase !== 'FAILED') {
+                    if (q.translatePhase && q.translatePhase !== 'DONE' && q.translatePhase !== 'FAILED'
+                        && q.translatePhase !== 'SAME_LANGUAGE') {
                         q.translatePhase = null;
                         q.translateElapsed = 0;
                         q.translateSeriesPending = 0;
