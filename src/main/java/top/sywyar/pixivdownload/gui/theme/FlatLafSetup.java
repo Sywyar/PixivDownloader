@@ -16,8 +16,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * FlatLaf 主题初始化、运行时切换与跨平台中文字体回退链。
- * <p>持有当前 {@link ThemePreference}；在 {@link ThemePreference#SYSTEM} 模式下启动一个 30s 间隔的
- * 轮询计时器跟踪操作系统浅/深变化并自动重涂。其它模式下计时器停止。
+ * <p>持有当前 {@link ThemePreference}；在 {@link ThemePreference#SYSTEM} 模式下监听操作系统桌面属性变化，
+ * 并保留一个 30s 间隔的兜底计时器跟踪浅/深变化并自动重涂。其它模式下监听与计时器均停止。
  */
 @Slf4j
 public final class FlatLafSetup {
@@ -40,13 +40,14 @@ public final class FlatLafSetup {
             "Dialog"
     };
 
-    // 仅用于捕捉用户在系统设置里手动切换浅 / 深色这类罕见事件；探测会 fork reg.exe / defaults，
+    // 监听器未覆盖或平台未上报桌面属性事件时的兜底；探测可能 fork reg.exe / defaults，
     // 间隔取 30s 在响应性与开销之间折中，避免长时间驻留托盘时持续 fork 外部进程。
     private static final int SYSTEM_POLL_INTERVAL_MS = 30_000;
 
     private static volatile ThemePreference currentPreference = ThemePreference.SYSTEM;
     private static volatile boolean currentDark;
-    private static Timer systemWatcher;
+    private static Timer systemFallbackWatcher;
+    private static SystemThemeChangeMonitor systemThemeChangeMonitor;
     /** 系统主题探测是否仍在进行，避免慢速 reg.exe / defaults 下后台线程逐 tick 堆积。 */
     private static final AtomicBoolean systemProbeInFlight = new AtomicBoolean(false);
     private static final List<Runnable> changeListeners = new ArrayList<>();
@@ -262,19 +263,37 @@ public final class FlatLafSetup {
     private static void updateSystemWatcher() {
         boolean shouldWatch = currentPreference == ThemePreference.SYSTEM;
         if (shouldWatch) {
-            if (systemWatcher == null) {
-                systemWatcher = new Timer(SYSTEM_POLL_INTERVAL_MS, e -> pollSystemTheme());
-                systemWatcher.setInitialDelay(SYSTEM_POLL_INTERVAL_MS);
-                systemWatcher.start();
-            } else if (!systemWatcher.isRunning()) {
-                systemWatcher.start();
-            }
-        } else if (systemWatcher != null && systemWatcher.isRunning()) {
-            systemWatcher.stop();
+            startSystemWatcher();
+        } else {
+            stopSystemWatcher();
         }
     }
 
-    private static void pollSystemTheme() {
+    private static void startSystemWatcher() {
+        if (systemThemeChangeMonitor == null) {
+            systemThemeChangeMonitor = new SystemThemeChangeMonitor(FlatLafSetup::requestSystemThemeRefresh);
+        }
+        systemThemeChangeMonitor.start();
+
+        if (systemFallbackWatcher == null) {
+            systemFallbackWatcher = new Timer(SYSTEM_POLL_INTERVAL_MS, e -> requestSystemThemeRefresh());
+            systemFallbackWatcher.setInitialDelay(SYSTEM_POLL_INTERVAL_MS);
+            systemFallbackWatcher.start();
+        } else if (!systemFallbackWatcher.isRunning()) {
+            systemFallbackWatcher.start();
+        }
+    }
+
+    private static void stopSystemWatcher() {
+        if (systemThemeChangeMonitor != null) {
+            systemThemeChangeMonitor.stop();
+        }
+        if (systemFallbackWatcher != null && systemFallbackWatcher.isRunning()) {
+            systemFallbackWatcher.stop();
+        }
+    }
+
+    private static void requestSystemThemeRefresh() {
         if (currentPreference != ThemePreference.SYSTEM) {
             return;
         }

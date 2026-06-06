@@ -37,6 +37,7 @@
         <app.release.version>${project.version}</app.release.version>
         <powershell.executable>pwsh</powershell.executable>
         <jacoco.version>0.8.12</jacoco.version>
+        <jna.version>5.17.0</jna.version>
     </properties>
     <dependencies>
         <dependency>
@@ -126,6 +127,18 @@
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf</artifactId>
             <version>3.5.4</version>
+        </dependency>
+
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>${jna.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>${jna.version}</version>
         </dependency>
     </dependencies>
 
