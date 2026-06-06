@@ -494,6 +494,24 @@ A universal channel: wraps the notification into your request-body template and 
 
 ---
 
+### Notification types
+
+> Between "Enable push" and "Notification service" on the **GUI Settings page → "Notification"** group, each notification type can be toggled individually. These switches apply to **both email and push**: unchecking a type stops it from being sent through any medium. All types are **enabled by default**, and changes are **hot-reloadable**.
+
+```yaml
+notification.scenario.overuse-paused.enabled: true
+notification.scenario.auth-expired.enabled: true
+notification.scenario.circuit-breaker.enabled: true
+notification.scenario.pending-exhausted.enabled: true
+notification.scenario.degraded-anonymous.enabled: true
+notification.scenario.run-failed.enabled: true
+notification.scenario.run-summary.enabled: true
+```
+
+Type meanings: `overuse-paused` overuse pause, `auth-expired` auth-expired suspension, `circuit-breaker` failure circuit-breaker suspension, `pending-exhausted` per-work retries exhausted, `degraded-anonymous` degraded anonymous run, `run-failed` whole run failed, `run-summary` successful run summary.
+
+---
+
 ## Hot Reload Reference
 
 The following settings can be changed via GUI and take effect **without restart**:
@@ -542,6 +560,7 @@ The following settings can be changed via GUI and take effect **without restart*
 | `schedule.tick-interval-ms` | ❌ Requires restart |
 | `mail.*` | ✅ |
 | `push.*` | ✅ |
+| `notification.scenario.*` | ✅ |
 | `server.port` | ❌ Requires restart |
 | `download.root-folder` | ❌ Requires restart |
 
@@ -684,4 +703,13 @@ push.webhook.url:
 push.webhook.content-type: application/json
 push.webhook.body-template:
 push.webhook.use-proxy: false
+
+# --- Notification types (apply to both email and push; unchecked types are not sent) ---
+notification.scenario.overuse-paused.enabled: true
+notification.scenario.auth-expired.enabled: true
+notification.scenario.circuit-breaker.enabled: true
+notification.scenario.pending-exhausted.enabled: true
+notification.scenario.degraded-anonymous.enabled: true
+notification.scenario.run-failed.enabled: true
+notification.scenario.run-summary.enabled: true
 ```

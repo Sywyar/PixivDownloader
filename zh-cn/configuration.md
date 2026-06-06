@@ -494,6 +494,24 @@ push.webhook.body-template:
 
 ---
 
+### 需要通知的类型
+
+> 在 **GUI 配置页 →「通知」** 的「启用推送」与「通知服务」之间，可按通知类型逐项开关。这些开关同时作用于**邮件与推送**：取消勾选某类型后，该类型的通知不再通过任何介质发送。所有类型**默认全部启用**，修改后**支持热重载**。
+
+```yaml
+notification.scenario.overuse-paused.enabled: true
+notification.scenario.auth-expired.enabled: true
+notification.scenario.circuit-breaker.enabled: true
+notification.scenario.pending-exhausted.enabled: true
+notification.scenario.degraded-anonymous.enabled: true
+notification.scenario.run-failed.enabled: true
+notification.scenario.run-summary.enabled: true
+```
+
+各类型含义：`overuse-paused` 过度访问暂停、`auth-expired` 登录失效挂起、`circuit-breaker` 失败熔断挂起、`pending-exhausted` 作品重试耗尽待处理、`degraded-anonymous` 降级匿名续跑、`run-failed` 整轮运行失败、`run-summary` 运行成功摘要。
+
+---
+
 ## 配置热重载说明
 
 以下配置项修改后可通过 GUI 保存**无需重启**：
@@ -542,6 +560,7 @@ push.webhook.body-template:
 | `schedule.tick-interval-ms` | ❌ 需重启 |
 | `mail.*` | ✅ |
 | `push.*` | ✅ |
+| `notification.scenario.*` | ✅ |
 | `server.port` | ❌ 需重启 |
 | `download.root-folder` | ❌ 需重启 |
 
@@ -684,4 +703,13 @@ push.webhook.url:
 push.webhook.content-type: application/json
 push.webhook.body-template:
 push.webhook.use-proxy: false
+
+# 通知类型开关（同时作用于邮件与推送，取消勾选的类型不再发送）
+notification.scenario.overuse-paused.enabled: true
+notification.scenario.auth-expired.enabled: true
+notification.scenario.circuit-breaker.enabled: true
+notification.scenario.pending-exhausted.enabled: true
+notification.scenario.degraded-anonymous.enabled: true
+notification.scenario.run-failed.enabled: true
+notification.scenario.run-summary.enabled: true
 ```
