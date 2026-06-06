@@ -71,13 +71,20 @@
     }
 
     function saveSettings() {
-        storeSet('pixiv_batch_settings', JSON.stringify(state.settings));
+        // 「收藏到」（收藏夹选择）不持久化：每次加载都默认为「不加入收藏夹」，仅在当前会话内生效。
+        const {collectionId, ...persisted} = state.settings;
+        storeSet('pixiv_batch_settings', JSON.stringify(persisted));
     }
 
     function loadSettings() {
         try {
             const raw = storeGet('pixiv_batch_settings');
-            if (raw) Object.assign(state.settings, JSON.parse(raw));
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                // 「收藏到」不从存储恢复：忽略历史遗留的持久化值，始终回到默认。
+                delete parsed.collectionId;
+                Object.assign(state.settings, parsed);
+            }
         } catch {
         }
         document.getElementById('s-interval').value = state.settings.interval;
@@ -94,10 +101,6 @@
         const imgUnit = state.settings.imageDelayUnit || 'ms';
         state.settings.imageDelayUnit = imgUnit;
         document.getElementById('s-image-delay-unit').textContent = imgUnit;
-        if (state.settings.collectionId) {
-            const sel = document.getElementById('s-collection');
-            sel.value = String(state.settings.collectionId);
-        }
         const fmtEl = document.getElementById('s-novel-format');
         if (fmtEl) fmtEl.value = (state.settings.novelFormat || 'txt');
         const mergeEl = document.getElementById('s-novel-merge');
