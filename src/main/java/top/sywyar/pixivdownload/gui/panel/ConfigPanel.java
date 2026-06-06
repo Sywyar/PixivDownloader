@@ -113,6 +113,16 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         showNotice(message("gui.config.notice.debug-unlocked"));
     }
 
+    /**
+     * 从磁盘重新加载配置值并刷新控件，用于外部改写了 config.yaml 之后
+     * （如「迁移下载目录」同步了 {@code download.root-folder}）让配置页立即反映新值。
+     * 必须在 EDT 上调用。
+     */
+    public void reloadFromDisk() {
+        loadCurrentValues();
+        updateEnabledStates();
+    }
+
     // ── UI 构建 ──────────────────────────────────────────────────────────────────
 
     private void buildUi() {

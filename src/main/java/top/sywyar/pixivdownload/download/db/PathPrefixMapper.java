@@ -25,6 +25,9 @@ public interface PathPrefixMapper {
     @Select("SELECT path FROM path_prefixes WHERE id = #{id}")
     String findPathById(@Param("id") long id);
 
+    @Update("UPDATE path_prefixes SET path = #{path} WHERE id = #{id}")
+    int updatePath(@Param("id") long id, @Param("path") String path);
+
     @Select("SELECT id, path FROM path_prefixes ORDER BY LENGTH(path) DESC, id ASC")
     List<PathPrefix> findAll();
 }

@@ -35,6 +35,7 @@ public class MainFrame extends JFrame {
     private WelcomePanel welcomePanel;
     private StatusPanel statusPanel;
     private ToolsPanel toolsPanel;
+    private ConfigPanel configPanel;
 
     public MainFrame(int serverPort, String rootFolder, Path configPath) {
         super(GuiMessages.get("app.name"));
@@ -81,7 +82,13 @@ public class MainFrame extends JFrame {
 
     private JTabbedPane buildTabs() {
         tabs = new JTabbedPane();
-        statusPanel = new StatusPanel(serverPort, rootFolder, configPath, this::reloadLocale);
+        // 迁移下载目录同步了 download.root-folder 后，刷新配置页让其立即显示新值。
+        Runnable onConfigChanged = () -> {
+            if (configPanel != null) {
+                configPanel.reloadFromDisk();
+            }
+        };
+        statusPanel = new StatusPanel(serverPort, rootFolder, configPath, this::reloadLocale, onConfigChanged);
 
         // 整套引导已走完后不再添加欢迎 tab，避免重复展示并消除针对后端的轮询请求。
         if (!OnboardingState.isComplete(rootFolder)) {
@@ -99,8 +106,9 @@ public class MainFrame extends JFrame {
         }
 
         toolsPanel = new ToolsPanel(configPath);
+        configPanel = new ConfigPanel(configPath, serverPort);
         tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
-        tabs.addTab(GuiMessages.get("gui.tab.config"), new ConfigPanel(configPath, serverPort));
+        tabs.addTab(GuiMessages.get("gui.tab.config"), configPanel);
         tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
         tabs.addTab(GuiMessages.get("gui.tab.security"), new SecurityPanel(serverPort));
         tabs.addTab(GuiMessages.get("gui.tab.about"), new AboutPanel());

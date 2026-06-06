@@ -89,6 +89,7 @@ public class StatusPanel extends JPanel {
     private final String rootFolder;
     private final Path configPath;
     private final Runnable onLocaleChanged;
+    private final Runnable onConfigChanged;
 
     private volatile String currentScheme = "http";
     private volatile String serverDomain = "localhost";
@@ -128,11 +129,13 @@ public class StatusPanel extends JPanel {
     private LocaleOption currentAppliedLanguageOption;
     private final java.awt.event.ActionListener languageActionListener = e -> applyLanguageSelection();
 
-    public StatusPanel(int serverPort, String rootFolder, Path configPath, Runnable onLocaleChanged) {
+    public StatusPanel(int serverPort, String rootFolder, Path configPath,
+                       Runnable onLocaleChanged, Runnable onConfigChanged) {
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
         this.configPath = configPath;
         this.onLocaleChanged = onLocaleChanged;
+        this.onConfigChanged = onConfigChanged;
         buildUi();
         BackendLifecycleManager.addListener(backendListener);
         startPolling();
@@ -293,9 +296,12 @@ public class StatusPanel extends JPanel {
         JButton checkUpdate = new JButton(message("gui.update.action.check"));
         checkUpdate.addActionListener(e -> triggerUpdateCheck(true));
 
+        JButton migrateDir = new JButton(message("gui.action.migrate-directory"));
+        migrateDir.addActionListener(e -> openMigrateDirectoryDialog());
+
         buttons.add(actionGroup(message("gui.action.group.navigation"), openBatch, openMonitor, openGallery));
         buttons.add(Box.createVerticalStrut(8));
-        buttons.add(actionGroup(message("gui.action.group.functions"), openFolder, restart, checkUpdate));
+        buttons.add(actionGroup(message("gui.action.group.functions"), openFolder, restart, checkUpdate, migrateDir));
         return buttons;
     }
 
@@ -1331,7 +1337,11 @@ public class StatusPanel extends JPanel {
         if (confirm != JOptionPane.YES_OPTION) {
             return;
         }
+        performRestart();
+    }
 
+    /** 触发后端重启（不含确认对话框）。供「重启服务」按钮与迁移下载目录后的同步流程复用。 */
+    private void performRestart() {
         Thread worker = new Thread(() -> {
             try {
                 if (!BackendLifecycleManager.restartAsync()) {
@@ -1350,6 +1360,363 @@ public class StatusPanel extends JPanel {
         }, "gui-restart");
         worker.setDaemon(true);
         worker.start();
+    }
+
+    // ── 迁移下载目录 ─────────────────────────────────────────────────────────────
+
+    /** 拉取 path_prefixes 列表后在 EDT 上弹出「迁移下载目录」对话框。 */
+    private void openMigrateDirectoryDialog() {
+        Thread worker = new Thread(() -> {
+            JsonNode node = callLocalGuiEndpoint("GET", "/api/gui/path-prefixes", null,
+                    10_000, "gui.status.log.path-prefix.call-failed");
+            SwingUtilities.invokeLater(() -> showMigrateDirectoryDialog(node));
+        }, "gui-path-prefixes-list");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void showMigrateDirectoryDialog(JsonNode listNode) {
+        if (listNode == null) {
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                    message("gui.migrate-dir.error.unreachable"));
+            return;
+        }
+        JsonNode prefixes = listNode.path("prefixes");
+        if (!prefixes.isArray() || prefixes.isEmpty()) {
+            JOptionPane.showMessageDialog(this, message("gui.migrate-dir.empty"),
+                    message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        java.util.List<PrefixRow> rows = new java.util.ArrayList<>();
+        WidthTrackingPanel list = new WidthTrackingPanel();
+        list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
+        list.setOpaque(false);
+        list.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+
+        boolean firstCard = true;
+        for (JsonNode p : prefixes) {
+            long id = p.path("id").asLong();
+            String path = p.path("path").asText("");
+            boolean isRoot = p.path("downloadRoot").asBoolean(false);
+
+            JTextField field = new JTextField();
+            field.setColumns(26);
+            field.putClientProperty("JTextField.placeholderText", message("gui.migrate-dir.new.placeholder"));
+            field.setToolTipText(message("gui.migrate-dir.new.placeholder"));
+
+            if (!firstCard) {
+                list.add(Box.createVerticalStrut(8));
+            }
+            firstCard = false;
+            list.add(buildPrefixCard(path, isRoot, field));
+            rows.add(new PrefixRow(id, path, isRoot, field));
+        }
+
+        JScrollPane scroll = new JScrollPane(list,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        scroll.setPreferredSize(new Dimension(620, Math.min(460, 24 + rows.size() * 104)));
+
+        JPanel content = new JPanel(new BorderLayout(0, 12));
+        content.setOpaque(false);
+        content.add(buildMigrateNotice(), BorderLayout.NORTH);
+        content.add(scroll, BorderLayout.CENTER);
+
+        JOptionPane pane = new JOptionPane(content, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+        JDialog dialog = pane.createDialog(this, message("gui.migrate-dir.title"));
+        dialog.setResizable(true);
+        try {
+            dialog.setVisible(true);
+        } finally {
+            dialog.dispose();
+        }
+        Object selected = pane.getValue();
+        if (!(selected instanceof Integer) || (Integer) selected != JOptionPane.OK_OPTION) {
+            return;
+        }
+
+        java.util.List<MigrationChange> changes = new java.util.ArrayList<>();
+        PrefixRow rootChange = null;
+        for (PrefixRow r : rows) {
+            String value = r.field().getText() == null ? "" : r.field().getText().trim();
+            if (value.isEmpty() || sameDirectory(value, r.original())) {
+                continue; // 留空或未改动 = 保持原值
+            }
+            changes.add(new MigrationChange(r.id(), value));
+            if (r.isRoot()) {
+                rootChange = r;
+            }
+        }
+        if (changes.isEmpty()) {
+            JOptionPane.showMessageDialog(this, message("gui.migrate-dir.no-change"),
+                    message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // 改动了当前下载根目录 → 询问是否同步 config.yaml 的 download.root-folder
+        String rootSyncPath = null;
+        String registerOldRoot = null;
+        if (rootChange != null) {
+            String newRoot = rootChange.field().getText().trim();
+            int answer = JOptionPane.showConfirmDialog(this,
+                    htmlLines(message("gui.migrate-dir.root-sync.message", rootChange.original(), newRoot)),
+                    message("gui.migrate-dir.title"),
+                    JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (answer == JOptionPane.CANCEL_OPTION || answer == JOptionPane.CLOSED_OPTION) {
+                return;
+            }
+            if (answer == JOptionPane.YES_OPTION) {
+                rootSyncPath = newRoot;
+            } else {
+                // 不同步 config.yaml：把旧下载根目录重新登记为一条新前缀，
+                // 让仍下到旧目录的新作品继续被编码压缩。
+                registerOldRoot = rootChange.original();
+            }
+        } else {
+            int answer = JOptionPane.showConfirmDialog(this,
+                    htmlLines(message("gui.migrate-dir.confirm", changes.size())),
+                    message("gui.migrate-dir.title"),
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (answer != JOptionPane.YES_OPTION) {
+                return;
+            }
+        }
+
+        applyDirectoryMigration(changes, rootSyncPath, registerOldRoot);
+    }
+
+    private void applyDirectoryMigration(java.util.List<MigrationChange> changes,
+                                         String rootSyncPath, String registerOldRoot) {
+        String payload;
+        try {
+            var root = MAPPER.createObjectNode();
+            var arr = root.putArray("updates");
+            for (MigrationChange c : changes) {
+                var o = arr.addObject();
+                o.put("id", c.id());
+                o.put("path", c.path());
+            }
+            if (registerOldRoot != null && !registerOldRoot.isBlank()) {
+                root.putArray("registerPaths").add(registerOldRoot);
+            }
+            payload = MAPPER.writeValueAsString(root);
+        } catch (Exception e) {
+            log.error(logMessage("gui.status.log.path-prefix.call-failed",
+                    "/api/gui/path-prefixes", safeText(e)), e);
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                    message("gui.migrate-dir.failed", safeText(e)));
+            return;
+        }
+
+        Thread worker = new Thread(() -> {
+            JsonNode node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes", payload,
+                    15_000, "gui.status.log.path-prefix.call-failed");
+            SwingUtilities.invokeLater(() -> applyDirectoryMigrationResult(node, rootSyncPath));
+        }, "gui-path-prefixes-apply");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void applyDirectoryMigrationResult(JsonNode node, String rootSyncPath) {
+        if (node == null) {
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                    message("gui.migrate-dir.error.unreachable"));
+            return;
+        }
+        if (!node.path("success").asBoolean(false)) {
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode err : node.path("errors")) {
+                sb.append("\n• ").append(migrateReason(err.path("reason").asText("")));
+            }
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                    message("gui.migrate-dir.failed", sb.toString()));
+            return;
+        }
+
+        int applied = node.path("applied").asInt(0);
+        if (rootSyncPath == null) {
+            JOptionPane.showMessageDialog(this, message("gui.migrate-dir.success", applied),
+                    message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        if (!persistDownloadRoot(rootSyncPath)) {
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                    message("gui.migrate-dir.root-sync.persist-failed", applied));
+            return;
+        }
+        // 配置页可能正展示旧的下载根目录：写回 config.yaml 后立即刷新它。
+        if (onConfigChanged != null) {
+            onConfigChanged.run();
+        }
+        int restart = JOptionPane.showConfirmDialog(this,
+                message("gui.migrate-dir.root-sync.success", applied),
+                message("gui.migrate-dir.title"), JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
+        if (restart == JOptionPane.YES_OPTION) {
+            performRestart();
+        }
+    }
+
+    /** 把改写下载根目录后的新路径写回 config.yaml 的 download.root-folder（去尾分隔符）。 */
+    private boolean persistDownloadRoot(String newRoot) {
+        if (configPath == null || !Files.exists(configPath)) {
+            return false;
+        }
+        try {
+            new ConfigFileEditor(configPath).write("download.root-folder",
+                    newRoot.replaceAll("[/\\\\]+$", ""));
+            return true;
+        } catch (Exception e) {
+            log.warn(logMessage("gui.status.log.path-prefix.root-persist-failed", safeText(e)), e);
+            return false;
+        }
+    }
+
+    /** 对话框顶部的醒目提示条：随浅 / 深主题切换配色，复用更新横幅的琥珀色风格。 */
+    private JComponent buildMigrateNotice() {
+        boolean dark = FlatLafSetup.isCurrentDark();
+        Color bg = dark ? new Color(0x17, 0x1a, 0x21) : new Color(255, 247, 220);
+        Color borderColor = dark ? new Color(200, 165, 70) : new Color(220, 190, 120);
+        Color fg = dark ? new Color(0xf4, 0xf7, 0xfb) : UIManager.getColor("Label.foreground");
+        if (fg == null) {
+            fg = dark ? new Color(0xf4, 0xf7, 0xfb) : Color.BLACK;
+        }
+
+        JLabel text = new JLabel(htmlLines(message("gui.migrate-dir.warning")));
+        text.setForeground(fg);
+        text.setIcon(UIManager.getIcon("OptionPane.warningIcon"));
+        text.setIconTextGap(12);
+
+        JPanel notice = new JPanel(new BorderLayout());
+        notice.setOpaque(true);
+        notice.setBackground(bg);
+        notice.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(borderColor),
+                BorderFactory.createEmptyBorder(10, 12, 10, 12)));
+        notice.add(text, BorderLayout.CENTER);
+        return notice;
+    }
+
+    /** 单个前缀卡片：是下载根则顶部带彩色标签；原目录只读可选中，新目录为带提示文案的输入框。 */
+    private JComponent buildPrefixCard(String path, boolean isRoot, JTextField input) {
+        Color borderColor = UIManager.getColor("Component.borderColor");
+        if (borderColor == null) {
+            borderColor = FlatLafSetup.isCurrentDark() ? new Color(0x2a, 0x30, 0x3b) : new Color(0xd0, 0xd5, 0xdd);
+        }
+        Color muted = UIManager.getColor("Label.disabledForeground");
+        if (muted == null) {
+            muted = Color.GRAY;
+        }
+
+        JPanel card = new JPanel(new GridBagLayout());
+        card.setOpaque(false);
+        card.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(borderColor),
+                BorderFactory.createEmptyBorder(10, 12, 10, 12)));
+        card.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        GridBagConstraints g = new GridBagConstraints();
+        g.anchor = GridBagConstraints.WEST;
+        g.insets = new Insets(0, 0, 0, 8);
+
+        int row = 0;
+        if (isRoot) {
+            g.gridx = 0;
+            g.gridy = row++;
+            g.gridwidth = 2;
+            g.weightx = 1;
+            g.fill = GridBagConstraints.NONE;
+            g.insets = new Insets(0, 0, 8, 0);
+            card.add(buildRootChip(), g);
+            g.insets = new Insets(0, 0, 0, 8);
+        }
+
+        g.gridwidth = 1;
+        g.gridx = 0;
+        g.gridy = row;
+        g.weightx = 0;
+        g.fill = GridBagConstraints.NONE;
+        JLabel originalKey = new JLabel(message("gui.migrate-dir.column.original"));
+        originalKey.setForeground(muted);
+        card.add(originalKey, g);
+
+        g.gridx = 1;
+        g.weightx = 1;
+        g.fill = GridBagConstraints.HORIZONTAL;
+        card.add(buildReadonlyPathField(path, muted), g);
+
+        g.gridx = 0;
+        g.gridy = row + 1;
+        g.weightx = 0;
+        g.fill = GridBagConstraints.NONE;
+        g.insets = new Insets(8, 0, 0, 8);
+        JLabel newKey = new JLabel(message("gui.migrate-dir.column.new"));
+        newKey.setForeground(muted);
+        card.add(newKey, g);
+
+        g.gridx = 1;
+        g.weightx = 1;
+        g.fill = GridBagConstraints.HORIZONTAL;
+        card.add(input, g);
+
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, card.getPreferredSize().height));
+        return card;
+    }
+
+    /** 「当前下载根目录」彩色标签（chip）。 */
+    private JComponent buildRootChip() {
+        boolean dark = FlatLafSetup.isCurrentDark();
+        Color chipBg = dark ? new Color(0x1f, 0x3a, 0x52) : new Color(0xe1, 0xf0, 0xff);
+        Color chipFg = dark ? new Color(0x9c, 0xd4, 0xff) : new Color(0x1f, 0x6f, 0xeb);
+        JLabel chip = new JLabel(message("gui.migrate-dir.root-chip"));
+        chip.setOpaque(true);
+        chip.setBackground(chipBg);
+        chip.setForeground(chipFg);
+        chip.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
+        chip.setFont(chip.getFont().deriveFont(Font.BOLD, chip.getFont().getSize2D() - 1f));
+        return chip;
+    }
+
+    /** 只读的原目录展示：看起来像文字但可选中复制、长路径可横向滚动。 */
+    private JTextField buildReadonlyPathField(String path, Color muted) {
+        JTextField field = new JTextField(path);
+        field.setColumns(26);
+        field.setEditable(false);
+        field.setOpaque(false);
+        field.setBorder(BorderFactory.createEmptyBorder());
+        field.setForeground(muted);
+        field.setToolTipText(path);
+        field.setCaretPosition(0);
+        return field;
+    }
+
+    private static String migrateReason(String code) {
+        return switch (code == null ? "" : code) {
+            case "invalid" -> message("gui.migrate-dir.reason.invalid");
+            case "not-absolute" -> message("gui.migrate-dir.reason.not-absolute");
+            case "not-exist" -> message("gui.migrate-dir.reason.not-exist");
+            case "not-directory" -> message("gui.migrate-dir.reason.not-directory");
+            case "duplicate" -> message("gui.migrate-dir.reason.duplicate");
+            case "conflict" -> message("gui.migrate-dir.reason.conflict");
+            case "unknown-id" -> message("gui.migrate-dir.reason.unknown-id");
+            default -> message("gui.migrate-dir.reason.unknown");
+        };
+    }
+
+    private static boolean sameDirectory(String a, String b) {
+        return normalizeDir(a).equals(normalizeDir(b));
+    }
+
+    private static String normalizeDir(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replaceAll("[/\\\\]+$", "").replace('\\', '/').toLowerCase(Locale.ROOT);
     }
 
     public String getWebUrl(String path) {
@@ -1804,12 +2171,36 @@ public class StatusPanel extends JPanel {
     }
 
     /**
-     * 调用本机 /api/gui/** 端点，参照 {@link #fetchStatus()} 的 scheme 探测策略。
+     * 调用本机 /api/gui/** 端点（表单编码 body），参照 {@link #fetchStatus()} 的 scheme 探测策略。
      * 返回 JSON 节点；HTTP 失败或异常时返回 null。
      */
     private JsonNode callLocalGuiEndpoint(String method,
                                           String path,
                                           String formBody,
+                                          int readTimeoutMs,
+                                          String failureLogCode) {
+        return callLocalGuiEndpoint(method, path, formBody,
+                "application/x-www-form-urlencoded", readTimeoutMs, failureLogCode);
+    }
+
+    /** 同上，但以 {@code application/json} 发送 body。 */
+    private JsonNode callLocalGuiEndpointJson(String method,
+                                              String path,
+                                              String jsonBody,
+                                              int readTimeoutMs,
+                                              String failureLogCode) {
+        return callLocalGuiEndpoint(method, path, jsonBody,
+                "application/json; charset=utf-8", readTimeoutMs, failureLogCode);
+    }
+
+    /**
+     * 调用本机 /api/gui/** 端点的核心实现，参照 {@link #fetchStatus()} 的 scheme 探测策略。
+     * 返回 JSON 节点；HTTP 失败或异常时返回 null。{@code contentType} 仅在 {@code body} 非空时生效。
+     */
+    private JsonNode callLocalGuiEndpoint(String method,
+                                          String path,
+                                          String body,
+                                          String contentType,
                                           int readTimeoutMs,
                                           String failureLogCode) {
         // 优先尝试当前已知可用的 scheme，避免将 TLS 握手字节发送到 HTTP 端口
@@ -1832,11 +2223,11 @@ public class StatusPanel extends JPanel {
                 if (guiToken != null) {
                     conn.setRequestProperty(GuiTokenHolder.HEADER_NAME, guiToken);
                 }
-                if (formBody != null) {
+                if (body != null) {
                     conn.setDoOutput(true);
-                    conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
+                    conn.setRequestProperty("Content-Type", contentType);
                     try (var os = conn.getOutputStream()) {
-                        os.write(formBody.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        os.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                     }
                 }
                 int code = conn.getResponseCode();
@@ -1895,4 +2286,19 @@ public class StatusPanel extends JPanel {
     }
 
     private record FfmpegProgress(String stage, long current, long total) {}
+
+    /** 「迁移下载目录」对话框中的一行：前缀 id、原绝对路径、是否为当前下载根、对应输入框。 */
+    private record PrefixRow(long id, String original, boolean isRoot, JTextField field) {}
+
+    /** 一条待提交的前缀改写：前缀 id 与用户填入的新路径。 */
+    private record MigrationChange(long id, String path) {}
+
+    /** 垂直列表容器：在 JScrollPane 中跟随视口宽度（仅纵向滚动），让卡片始终铺满可用宽度。 */
+    private static final class WidthTrackingPanel extends JPanel implements Scrollable {
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) { return 16; }
+        @Override public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) { return 80; }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
+    }
 }
