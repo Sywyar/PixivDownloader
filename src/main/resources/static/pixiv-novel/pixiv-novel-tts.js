@@ -289,15 +289,17 @@
         fetch('/api/narration/availability', { credentials: 'same-origin' })
             .then((r) => (r.ok ? r.json() : null))
             .then((data) => applyNarrationAvailability(
-                !!(data && data.available), !!(data && data.debug), wantNarration))
-            .catch(() => applyNarrationAvailability(false, false, wantNarration));
+                !!(data && data.available), !!(data && data.debug),
+                !!(data && data.textModelConfigured), wantNarration))
+            .catch(() => applyNarrationAvailability(false, false, false, wantNarration));
     }
 
-    // 选项是否可选：引擎可用，或调试模式开启（不可用时也允许选中以运行分析、查看结果）。
-    function applyNarrationAvailability(available, debug, wantNarration) {
+    // 选项是否可选：需文本模型(LLM)已配置（逐句分析依赖它），且 TTS 引擎可用或处于调试模式（不可达时也允许选中以
+    // 运行分析、查看结果）。文本模型未配置时分析无从谈起，无论 TTS 是否可达 / 是否调试模式一律隐藏。
+    function applyNarrationAvailability(available, debug, textModelConfigured, wantNarration) {
         state.narrationAvailable = available;
         state.narrationDebug = debug;
-        const selectable = available || debug;
+        const selectable = textModelConfigured && (available || debug);
         els.engineNarrationOpt.style.display = selectable ? '' : 'none';
         els.engineNarrationOpt.disabled = !selectable;
         updateEngineOptionLabels();

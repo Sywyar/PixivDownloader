@@ -19,6 +19,7 @@
     let pageI18n = null;
     let searchTimer = null;
     let isAdmin = false;
+    let aiConfigured = false;
     let activeContentLang = '';
     let seriesTranslatedLangs = [];
     let contentLangCtl = null;
@@ -213,17 +214,21 @@
             if (res.ok) {
                 document.body.classList.add('admin-mode');
                 isAdmin = true;
+                // 文本模型已配置才展示「翻译整个系列」入口：异步探测，拿到结果后再刷新按钮可见性。
+                if (window.PixivTranslate && PixivTranslate.isAiConfigured) {
+                    aiConfigured = await PixivTranslate.isAiConfigured();
+                }
                 refreshTranslateSeriesBtn();
             }
         } catch (_) {
         }
     }
 
-    // 「翻译整个系列」仅小说系列 + 管理员可见
+    // 「翻译整个系列」仅小说系列 + 管理员 + 已配置文本模型时可见
     function refreshTranslateSeriesBtn() {
         const btn = document.getElementById('translateSeriesBtn');
         if (!btn) return;
-        btn.style.display = (isAdmin && isNovelMode()) ? '' : 'none';
+        btn.style.display = (isAdmin && aiConfigured && isNovelMode()) ? '' : 'none';
     }
 
     // 「下载合订本」仅小说系列可见（任何能访问该系列的用户都可下载）

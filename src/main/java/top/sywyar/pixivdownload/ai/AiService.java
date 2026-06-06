@@ -100,6 +100,17 @@ public class AiService {
         return deliver(callType, settings, messages, options);
     }
 
+    /**
+     * 文本模型（LLM）是否已配置就绪：总开关开启且 base-url / model 均已填写。<b>纯配置检查、不触网、不读取密钥</b>，
+     * 与 {@link #chat} 的前置校验（启用 + base-url + model）一致。供前端按可用性显隐依赖 LLM 的入口
+     * （如「AI 翻译」按钮、「富感情朗读」选项），避免后端未配置时仍展示无法工作的入口。
+     */
+    public boolean isConfigured() {
+        return aiConfig.isEnabled()
+                && aiConfig.getBaseUrl() != null && !aiConfig.getBaseUrl().isBlank()
+                && aiConfig.getModel() != null && !aiConfig.getModel().isBlank();
+    }
+
     // ── 内部 ─────────────────────────────────────────────────────────────────
 
     private AiChatResult deliver(String callType, AiClientSettings settings,

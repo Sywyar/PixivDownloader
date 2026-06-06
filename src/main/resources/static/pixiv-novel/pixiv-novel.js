@@ -562,10 +562,14 @@ async function setupAdminMode() {
         document.body.classList.add('admin-mode');
         const btn = document.getElementById('deleteNovelBtn');
         if (btn) btn.style.display = '';
+        // 「AI 翻译」入口仅在后端已配置文本模型时展示：未配置时翻译无法工作，隐藏入口。
         const translateBtn = document.getElementById('aiTranslateBtn');
-        if (translateBtn) {
-            translateBtn.style.display = '';
-            translateBtn.addEventListener('click', openTranslateDialog);
+        if (translateBtn && window.PixivTranslate && PixivTranslate.isAiConfigured) {
+            const aiConfigured = await PixivTranslate.isAiConfigured();
+            if (aiConfigured) {
+                translateBtn.style.display = '';
+                translateBtn.addEventListener('click', openTranslateDialog);
+            }
         }
     } catch (_) { /* not admin */ }
 }

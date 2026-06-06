@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.tts.narration.controller;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import top.sywyar.pixivdownload.ai.AiService;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
 import top.sywyar.pixivdownload.ai.narration.NarratorVoicePreset;
 import top.sywyar.pixivdownload.config.DebugConfig;
@@ -43,10 +44,11 @@ class NarrationControllerTest {
     private final NovelDatabase novelDatabase = mock(NovelDatabase.class);
     private final NarrationAudioService audioService = mock(NarrationAudioService.class);
     private final DebugConfig debugConfig = new DebugConfig();
+    private final AiService aiService = mock(AiService.class);
 
     private final NarrationController controller =
             new NarrationController(scriptService, castService, referenceVoiceService, audioService, novelDatabase,
-                    TestI18nBeans.appMessages(), debugConfig);
+                    TestI18nBeans.appMessages(), debugConfig, aiService);
     private final NarrationTtsController ttsController =
             new NarrationTtsController(audioService, scriptService, TestI18nBeans.appMessages());
 
@@ -232,19 +234,24 @@ class NarrationControllerTest {
     }
 
     @Test
-    @DisplayName("/availability：透出当前朗读引擎是否可用 + 调试模式开关")
+    @DisplayName("/availability：透出朗读引擎是否可用 + 调试模式开关 + 文本模型是否已配置")
     void availabilityReflectsEngine() {
         when(audioService.isEngineAvailable()).thenReturn(true);
+        when(aiService.isConfigured()).thenReturn(true);
         ResponseEntity<?> on = controller.availability();
         assertEquals(200, on.getStatusCode().value());
         assertTrue(((NarrationController.AvailabilityResponse) on.getBody()).available());
+        assertTrue(((NarrationController.AvailabilityResponse) on.getBody()).textModelConfigured());
 
         when(audioService.isEngineAvailable()).thenReturn(false);
+        when(aiService.isConfigured()).thenReturn(false);
         ResponseEntity<?> off = controller.availability();
         assertEquals(200, off.getStatusCode().value());
         assertTrue(!((NarrationController.AvailabilityResponse) off.getBody()).available());
         // 调试模式默认关闭
         assertTrue(!((NarrationController.AvailabilityResponse) off.getBody()).debug());
+        // 文本模型未配置时透出 textModelConfigured=false（前端据此隐藏「富感情朗读」入口）
+        assertTrue(!((NarrationController.AvailabilityResponse) off.getBody()).textModelConfigured());
 
         // 调试模式开启时透出 debug=true（即便引擎不可用）
         debugConfig.setEnabled(true);

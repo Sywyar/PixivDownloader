@@ -809,6 +809,19 @@
 
     // ── 后端接口 ─────────────────────────────────────────────────────────────────
 
+    // 文本模型（LLM）是否已配置：admin-only 的 /api/admin/ai/status（纯配置检查、不触网）。结果按进程缓存，
+    // 供小说 / 系列详情页决定是否展示「AI 翻译」入口——未配置时不展示。非管理员 / 探测失败一律按未配置处理。
+    var aiConfiguredPromise = null;
+    function isAiConfigured() {
+        if (!aiConfiguredPromise) {
+            aiConfiguredPromise = fetch('/api/admin/ai/status', { credentials: 'same-origin' })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) { return !!(d && d.configured); })
+                .catch(function () { return false; });
+        }
+        return aiConfiguredPromise;
+    }
+
     async function translateNovel(novelId, opts) {
         opts = opts || {};
         // 翻译范围：未显式给出时默认全部 true（兼容旧调用方与外部脚本）
@@ -1232,6 +1245,7 @@
 
     global.PixivTranslate = {
         openDialog: openDialog,
+        isAiConfigured: isAiConfigured,
         translateNovel: translateNovel,
         translateSeriesTitle: translateSeriesTitle,
         mergeSeriesLang: mergeSeriesLang,
