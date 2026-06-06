@@ -41,7 +41,7 @@
   individually on the notification settings page, and unchecked types are no longer sent through any medium
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
 - Novel AI translation (requires an LLM configured): translate a novel or a whole series into a chosen language and store it locally, with a content-language switch between the original and translations
-- Novel AI multi-voice narration (requires an LLM and a narration engine configured): an LLM attributes every sentence of the chapter to a speaker, each character is synthesized line by line with a fixed voice and played back continuously with follow-along highlighting; on first analysis you can pick a locked voice for the narrator (warm female / calm male / neutral, with preview), edit each character's voice and resolve conflicts, and the analysis is cached for replay
+- Novel AI multi-voice narration (beta — usable but not yet stable; requires an LLM and a narration engine configured): an LLM attributes every sentence of the chapter to a speaker, each character is synthesized line by line with a fixed voice and played back continuously with follow-along highlighting; on first analysis you can pick a locked voice for the narrator (warm female / calm male / neutral, with preview), edit each character's voice and resolve conflicts, and the analysis is cached for replay
 
 - Animated image (Ugoira) auto-conversion to WebP
 - Custom file naming templates (11 variables)

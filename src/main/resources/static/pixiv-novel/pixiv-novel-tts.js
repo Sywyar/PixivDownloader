@@ -275,8 +275,8 @@
         if (!els.engineNarrationOpt) return;
         // 引擎可用时用常规文案；调试模式下引擎不可用但仍可选，用带「调试」标记的文案。
         els.engineNarrationOpt.textContent = (!state.narrationAvailable && state.narrationDebug)
-            ? t('tts.engine.narration-debug', '富感情朗读（多角色·调试）')
-            : t('tts.engine.narration', '富感情朗读（多角色）');
+            ? t('tts.engine.narration-debug', '富感情朗读（多角色·beta·调试）')
+            : t('tts.engine.narration', '富感情朗读（多角色·beta）');
     }
 
     // 探测后端朗读引擎可用性 + 管理员可见性：/api/narration/* 为 admin-only，非管理员请求被拦截（非 2xx）。

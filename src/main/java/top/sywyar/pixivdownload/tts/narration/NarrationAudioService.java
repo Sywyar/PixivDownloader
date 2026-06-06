@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.tts.narration;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -38,6 +40,9 @@ public class NarrationAudioService {
     private final NarrationEngineRegistry registry;
     private final NarrationTtsConfig config;
     private final AppMessages messages;
+
+    /** 进程内仅记一次的「beta 功能」提示守卫：首次真正发起合成时告知该功能可用但尚不稳定。 */
+    private final AtomicBoolean betaNoticeLogged = new AtomicBoolean(false);
 
     public NarrationAudioService(NarrationEngineRegistry registry,
                                  NarrationTtsConfig config,
@@ -100,6 +105,9 @@ public class NarrationAudioService {
      * 最后交给引擎合成。
      */
     public NarrationAudio synthesize(NarrationVoiceMode mode, NarrationVoiceRequest req) {
+        if (betaNoticeLogged.compareAndSet(false, true)) {
+            log.info(messages.getForLog("narration.tts.log.beta"));
+        }
         String normalized = NarrationSpeechText.normalize(req == null ? null : req.text());
         if (normalized.isEmpty()) {
             throw new NarrationVoiceException(messages.get("narration.tts.error.empty-text"), null);
