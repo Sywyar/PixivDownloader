@@ -290,6 +290,29 @@
         const nameCol = Math.min(Math.ceil(max) + 2, Math.round(cap));
         state.contentEl.style.setProperty('--nm-name-col', nameCol + 'px');
         state.contentEl.style.setProperty('--nm-gutter', (nameCol + MARK_GAP) + 'px');
+        enforceSentenceHeights();
+    }
+
+    // 说话人名字过长会在固定列宽内换成多行，而该句正文很短只占一行时，绝对定位的名字列会比句子高、
+    // 向下溢出并与下一句左侧重叠。为这类句子按名字实际渲染高度补一个 min-height，把这一行撑到能放下左侧说话人。
+    // 名字列宽由上面写入的 CSS 变量决定，故必须在变量写入后量；resize / 切换语言重算列宽时也会随之复算。
+    function enforceSentenceHeights() {
+        if (!markedBlocks.length) return;
+        const sentences = [];
+        markedBlocks.forEach((m) => {
+            m.el.querySelectorAll('.nm-sentence').forEach((sent) => {
+                if (sent.querySelector('.nm-label')) sentences.push(sent);
+            });
+        });
+        if (!sentences.length) return;
+        // 分三批读写，避免在长章节里逐句交替读 offsetHeight / 写 style 触发反复重排：
+        // 先清空上次补高（写），再统一量名字与句子高度（读），最后只给名字更高的句子补 min-height（写）。
+        sentences.forEach((sent) => { sent.style.minHeight = ''; });
+        const fixes = sentences.map((sent) => {
+            const labelH = sent.querySelector('.nm-label').offsetHeight;
+            return labelH > sent.offsetHeight ? labelH : 0;
+        });
+        sentences.forEach((sent, i) => { if (fixes[i]) sent.style.minHeight = fixes[i] + 'px'; });
     }
 
     function clearMarks() {
