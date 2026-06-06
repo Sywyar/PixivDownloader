@@ -65,6 +65,15 @@ public class AsyncConfig {
         return fixedPool(downloadConfig.getNovelMaxConcurrent(), "pixiv-novel-");
     }
 
+    /**
+     * 「新下载小说自动翻译」专用线程池，并发上限由 {@code download.novel-translate-max-concurrent} 控制。
+     * 与下载池隔离，避免分钟级的 AI 翻译挤占按 I/O 调优的下载线程。
+     */
+    @Bean("novelTranslateTaskExecutor")
+    public TaskExecutor novelTranslateTaskExecutor(DownloadConfig downloadConfig) {
+        return fixedPool(downloadConfig.getNovelTranslateMaxConcurrent(), "pixiv-novel-tr-");
+    }
+
     /** 配额归档打包专用线程池，并发上限由 {@code multi-mode.quota.archive-max-concurrent} 控制。 */
     @Bean("archiveTaskExecutor")
     public TaskExecutor archiveTaskExecutor(MultiModeConfig multiModeConfig) {

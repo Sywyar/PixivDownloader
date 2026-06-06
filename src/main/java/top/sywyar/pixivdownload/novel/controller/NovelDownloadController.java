@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.download.response.AlreadyDownloadedResponse;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.QuotaExceededResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.novel.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.NovelDownloadStatus;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -26,6 +27,7 @@ import top.sywyar.pixivdownload.setup.SetupService;
 public class NovelDownloadController {
 
     private final NovelDownloadService novelDownloadService;
+    private final NovelAutoTranslateService novelAutoTranslateService;
     private final NovelDatabase novelDatabase;
     private final SetupService setupService;
     private final UserQuotaService userQuotaService;
@@ -58,6 +60,7 @@ public class NovelDownloadController {
 
         boolean isAdmin = setupService.isAdminLoggedIn(httpRequest);
         stripUnauthorizedCollectionSelection(request, mode, isAdmin);
+        stripUnauthorizedAutoTranslate(request, mode, isAdmin);
 
         String userUuid = null;
         if (!isAdmin && "multi".equals(mode)) {
@@ -122,6 +125,24 @@ public class NovelDownloadController {
         ));
     }
 
+    /**
+     * 「下载即自动翻译」状态轮询（admin-only：solo，或 multi 管理员）。翻译跑在服务端独立队列、生命周期独立于下载，
+     * 前端下载完成后据此渲染「AI 翻译中 (Ns)」「等待前系列小说翻译完成，还有 n 个」。无该小说翻译记录时返回 204。
+     */
+    @GetMapping("/download/novel/translate-status/{novelId}")
+    public ResponseEntity<NovelAutoTranslateService.StatusView> getTranslateStatus(
+            @PathVariable Long novelId, HttpServletRequest httpRequest) {
+        boolean adminScope = !"multi".equals(setupService.getMode()) || setupService.isAdminLoggedIn(httpRequest);
+        if (!adminScope) {
+            return ResponseEntity.status(403).build();
+        }
+        NovelAutoTranslateService.StatusView view = novelAutoTranslateService.getStatus(novelId);
+        if (view == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(view);
+    }
+
     private static String statusMessageCode(NovelDownloadStatus s) {
         if (s.isCancelled()) return "download.status.cancelled";
         if (s.isFailed()) return "download.status.failed";
@@ -134,6 +155,15 @@ public class NovelDownloadController {
         if (other == null || other.getCollectionId() == null) return;
         if ("multi".equals(mode) && !isAdmin) {
             other.setCollectionId(null);
+        }
+    }
+
+    /** 翻译为 admin-only：multi 模式普通游客的请求一律不触发自动翻译。 */
+    private void stripUnauthorizedAutoTranslate(NovelDownloadRequest request, String mode, boolean isAdmin) {
+        NovelDownloadRequest.Other other = request.getOther();
+        if (other == null || !other.isAutoTranslate()) return;
+        if ("multi".equals(mode) && !isAdmin) {
+            other.setAutoTranslate(false);
         }
     }
 

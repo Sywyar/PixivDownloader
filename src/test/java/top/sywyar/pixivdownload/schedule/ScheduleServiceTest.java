@@ -6,9 +6,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.novel.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
+import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 
 import java.util.List;
 
@@ -34,9 +36,12 @@ class ScheduleServiceTest {
     private ScheduleExecutor executor;
     @Mock
     private ScheduleRunQueue runQueue;
+    @Mock
+    private NovelAutoTranslateService novelAutoTranslateService;
 
     private ScheduleService newService() {
-        return new ScheduleService(database, executor, new ScheduleConfig(), new ScheduleRunState(), runQueue);
+        return new ScheduleService(database, executor, new ScheduleConfig(), new ScheduleRunState(),
+                runQueue, novelAutoTranslateService);
     }
 
     private static ScheduledTask task(long id, String accountId, String status, String message) {
@@ -113,7 +118,7 @@ class ScheduleServiceTest {
 
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleService service = new ScheduleService(
-                database, executor, new ScheduleConfig(), runState, runQueue);
+                database, executor, new ScheduleConfig(), runState, runQueue, novelAutoTranslateService);
         // 模拟任务正在跑：先挂一个 Claim，pause 后该 Claim 应被标为待取消
         ScheduleRunState.Claim claim = runState.tryMarkQueued(42L);
         assertThat(claim).isNotNull();
@@ -133,7 +138,7 @@ class ScheduleServiceTest {
 
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleService service = new ScheduleService(
-                database, executor, new ScheduleConfig(), runState, runQueue);
+                database, executor, new ScheduleConfig(), runState, runQueue, novelAutoTranslateService);
 
         assertThatThrownBy(() -> service.pause(99L)).isInstanceOf(LocalizedException.class);
         verify(mapper, never()).setStatus(anyLong(), anyString());
@@ -147,7 +152,7 @@ class ScheduleServiceTest {
         ScheduleRunState runState = new ScheduleRunState();
         runState.tryMarkQueued(7L);
         ScheduleService service = new ScheduleService(
-                database, executor, new ScheduleConfig(), runState, runQueue);
+                database, executor, new ScheduleConfig(), runState, runQueue, novelAutoTranslateService);
 
         assertThatThrownBy(() -> service.manualRun(7L)).isInstanceOf(LocalizedException.class);
         verify(executor, never()).runTaskAsync(anyLong(), any());
@@ -233,6 +238,34 @@ class ScheduleServiceTest {
     }
 
     @Test
+    @DisplayName("queue：仅对本轮确实提交过自动翻译的小说条目叠加翻译状态，跳过 / 未提交条目不读旧状态")
+    void queueOverlaysTranslateOnlyForSubmittedItems() {
+        when(database.mapper()).thenReturn(mapper);
+        when(mapper.findById(1L)).thenReturn(task(1L, null, null, null));
+
+        ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_NOVEL);
+        // 111：本轮真正下载并提交了自动翻译 → 应叠加状态
+        run.discovered("111", ScheduleRunQueue.KIND_NOVEL);
+        run.mark("111", ScheduleRunQueue.STATUS_DOWNLOADED, null);
+        run.markAutoTranslateSubmitted("111");
+        // 222：已存在跳过（本轮未提交翻译）→ 即使该 novelId 历史译过也不得叠加旧状态
+        run.discovered("222", ScheduleRunQueue.KIND_NOVEL);
+        run.mark("222", ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+        when(runQueue.get(1L)).thenReturn(run);
+        when(novelAutoTranslateService.getStatus(111L)).thenReturn(
+                new NovelAutoTranslateService.StatusView("TRANSLATING", 5L, 0, "en-US", false, false, null));
+
+        List<ScheduleQueueView.Item> items = newService().queue(1L).items();
+
+        ScheduleQueueView.Item submitted = items.stream().filter(i -> i.id().equals("111")).findFirst().orElseThrow();
+        ScheduleQueueView.Item skipped = items.stream().filter(i -> i.id().equals("222")).findFirst().orElseThrow();
+        assertThat(submitted.translatePhase()).isEqualTo("TRANSLATING");
+        assertThat(skipped.translatePhase()).isNull();
+        verify(novelAutoTranslateService).getStatus(111L);
+        verify(novelAutoTranslateService, never()).getStatus(222L);
+    }
+
+    @Test
     @DisplayName("结构性操作（删除）在运行 / 排队中被拒绝")
     void deleteRejectedWhenBusy() {
         when(database.mapper()).thenReturn(mapper);
@@ -240,7 +273,7 @@ class ScheduleServiceTest {
         ScheduleRunState runState = new ScheduleRunState();
         runState.tryMarkRunning(11L);
         ScheduleService service = new ScheduleService(
-                database, executor, new ScheduleConfig(), runState, runQueue);
+                database, executor, new ScheduleConfig(), runState, runQueue, novelAutoTranslateService);
 
         assertThatThrownBy(() -> service.delete(11L)).isInstanceOf(LocalizedException.class);
         verify(mapper, never()).delete(anyLong());

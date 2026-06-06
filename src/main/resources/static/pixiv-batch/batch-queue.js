@@ -58,6 +58,41 @@
         return parts.filter(Boolean).join('');
     }
 
+    // 「下载即自动翻译」的状态文案：模型只存 raw（phase / 已耗时 / 系列待译数），此处按当前语言派生。
+    function novelTranslateMessage(q) {
+        switch (q.translatePhase) {
+            case 'QUEUED':
+                return bt('queue.message.translate-waiting', '排队等待翻译...');
+            case 'WAITING_SERIES':
+                return bt('queue.message.translate-wait-series', '等待前系列小说翻译完成，还有 {n} 个',
+                    {n: q.translateSeriesPending || 0});
+            case 'RESOLVING':
+                return bt('queue.message.translate-resolving', '识别目标语言中...');
+            case 'TRANSLATING':
+                return bt('queue.message.translating', 'AI 翻译中（{sec}s）', {sec: q.translateElapsed || 0});
+            case 'MERGING':
+                return bt('queue.message.translate-merging', '生成译文合订本中...');
+            case 'DONE':
+                return bt('queue.message.translate-done', '完成（已翻译）');
+            case 'FAILED':
+                return bt('queue.message.translate-failed', '完成（翻译失败）');
+            default:
+                return '';
+        }
+    }
+
+    // 在队列项底部渲染一行自动翻译状态（下载队列 / 计划队列共用）；无翻译态时不渲染。
+    function formatNovelTranslateHtml(q) {
+        if (q.kind !== 'novel' || !q.translatePhase) return '';
+        const msg = novelTranslateMessage(q);
+        if (!msg) return '';
+        const terminal = q.translatePhase === 'DONE' || q.translatePhase === 'FAILED';
+        const color = q.translatePhase === 'FAILED' ? '#dc3545' : (terminal ? '#28a745' : '#8b5cf6');
+        return `<div class="q-translate" style="margin-top:4px;font-size:11px;color:${color};display:flex;align-items:center;gap:6px;">`
+            + `<span style="background:${color};color:white;border-radius:3px;padding:0 5px;font-size:10px;">${esc(bt('queue.translate.label', 'AI 翻译'))}</span>`
+            + `<span>${esc(msg)}</span></div>`;
+    }
+
     function formatStatsText(pending, success, failed, active, skipped) {
         return bt(
             'status.stats',
@@ -470,7 +505,8 @@
          </div>` : '';
         const detailProg = formatImageDownloadProgressHtml(q.imageProgress, q.status)
             + formatUgoiraProgressHtml(q.ugoiraProgress, q.status)
-            + formatNovelProgressHtml(q);
+            + formatNovelProgressHtml(q)
+            + formatNovelTranslateHtml(q);
         const desc = q.lastMessage || queueStatusText(q.status);
         const descHtml = renderQueueMessageHtml(q, desc);
         const sourceTone = q.source === 'user'
@@ -565,6 +601,12 @@
                         q.status = 'failed';
                         q.lastMessage = bt('queue.message.failed-refresh', '失败 — 页面刷新导致中断');
                         q.lastMessageParts = null;
+                    }
+                    // 翻译轮询在刷新后不会自动恢复：清掉未结束的翻译态，避免残留「AI 翻译中」静态文案。
+                    if (q.translatePhase && q.translatePhase !== 'DONE' && q.translatePhase !== 'FAILED') {
+                        q.translatePhase = null;
+                        q.translateElapsed = 0;
+                        q.translateSeriesPending = 0;
                     }
                 });
                 state.isPaused = !!parsed.isPaused;

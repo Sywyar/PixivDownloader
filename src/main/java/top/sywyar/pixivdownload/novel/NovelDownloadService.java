@@ -86,6 +86,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
     private final AppMessages messages;
+    private final NovelAutoTranslateService novelAutoTranslateService;
 
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
 
@@ -99,7 +100,8 @@ public class NovelDownloadService implements NovelDownloader {
                                 @Nullable UserQuotaService userQuotaService,
                                 @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                 @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                                AppMessages messages) {
+                                AppMessages messages,
+                                NovelAutoTranslateService novelAutoTranslateService) {
         this.downloadConfig = downloadConfig;
         this.pixivDatabase = pixivDatabase;
         this.novelDatabase = novelDatabase;
@@ -111,6 +113,7 @@ public class NovelDownloadService implements NovelDownloader {
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
         this.messages = messages;
+        this.novelAutoTranslateService = novelAutoTranslateService;
     }
 
     @Async("novelDownloadTaskExecutor")
@@ -266,6 +269,19 @@ public class NovelDownloadService implements NovelDownloader {
             status.setEndTime(java.time.LocalDateTime.now());
             log.info("novel download completed: id={}, format={}, path={}", novelId, ext, downloadPath);
             succeeded = true;
+
+            // Best-effort 下载即自动翻译：提交到服务端翻译队列（独立线程池、同系列串行），
+            // 不阻塞本次下载收尾，失败绝不影响已完成的下载。
+            if (other.isAutoTranslate()) {
+                try {
+                    novelAutoTranslateService.submit(novelId, other.getSeriesId(),
+                            other.getAutoTranslateLanguage(),
+                            other.getAutoTranslateSegmentSize() == null ? 0 : other.getAutoTranslateSegmentSize(),
+                            other.isAutoTranslateMerge(), other.getAutoTranslateMergeFormat());
+                } catch (Exception e) {
+                    log.warn("submit auto-translate failed: novel={}: {}", novelId, e.getMessage());
+                }
+            }
         } catch (CancellationException e) {
             status.setCancelled(true);
             status.setCompleted(true);

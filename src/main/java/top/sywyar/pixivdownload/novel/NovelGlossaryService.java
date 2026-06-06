@@ -148,6 +148,22 @@ public class NovelGlossaryService {
                 novelDefaultName(record), null, novelId);
     }
 
+    /**
+     * 解析并按需创建某本小说的默认映射表，返回其 id。用于「下载即自动翻译」一律走默认表的场景：
+     * 属于系列则用系列默认表，否则用该小说自己的默认表（均按需创建）。小说不存在时返回 {@code null}。
+     */
+    public Long getOrCreateNovelDefaultId(long novelId) {
+        DefaultGlossary def = resolveNovelDefault(novelId);
+        if (def == null) {
+            return null;
+        }
+        if (def.glossary() != null) {
+            return def.glossary().id();
+        }
+        NovelGlossary created = create(def.suggestedName(), def.seriesId(), def.novelId());
+        return created == null ? null : created.id();
+    }
+
     /** 解析某小说系列的默认映射表（默认表可能尚未创建）。 */
     public DefaultGlossary resolveSeriesDefault(long seriesId) {
         return new DefaultGlossary(novelMapper.findGlossaryBySeriesId(seriesId),

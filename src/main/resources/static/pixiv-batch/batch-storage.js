@@ -111,6 +111,8 @@
         updateExtraFiltersCardVisibility();
         updateBatchLimitNote();
         updateBatchEndPageAdminGate();
+        // 自动翻译为管理员专用：管理员状态变化后刷新该行显隐
+        updateNovelTranslateVisibility();
     }
 
 

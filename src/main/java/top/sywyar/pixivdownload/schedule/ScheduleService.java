@@ -6,6 +6,7 @@ import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.novel.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskInsert;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
@@ -33,6 +34,7 @@ public class ScheduleService {
     private final ScheduleConfig config;
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
+    private final NovelAutoTranslateService novelAutoTranslateService;
 
     public List<ScheduleTaskView> list() {
         return database.mapper().findAll().stream()
@@ -132,11 +134,39 @@ public class ScheduleService {
             return new ScheduleQueueView(id, null, false, 0, List.of());
         }
         List<ScheduleQueueView.Item> items = run.snapshot().stream()
-                .map(it -> new ScheduleQueueView.Item(
-                        it.getId(), it.getTitle(), it.getKind(),
-                        it.getXRestrict(), it.getAi(), it.getStatus(), it.getMessage()))
+                .map(this::toQueueItem)
                 .toList();
         return new ScheduleQueueView(id, run.startedTime(), run.truncated(), items.size(), items);
+    }
+
+    /**
+     * 把内存队列条目映射为对外视图，并为小说叠加「下载即自动翻译」的实时状态（读取时取，非阻塞）。
+     *
+     * <p>仅对<b>本轮确实提交过自动翻译</b>的条目（{@link ScheduleRunQueue.Item#isAutoTranslateSubmitted()}）叠加：
+     * 翻译状态按 {@code novelId} 全局保存且终态不随轮次清理，若对所有小说一律叠加，会把同一 {@code novelId} 上一轮
+     * （甚至别的任务）译过的旧 DONE/FAILED 误显示到本轮「已存在跳过」「未开启翻译」的条目上。
+     */
+    private ScheduleQueueView.Item toQueueItem(ScheduleRunQueue.Item it) {
+        String translatePhase = null;
+        Long translateElapsed = null;
+        Integer translatePending = null;
+        if (ScheduleRunQueue.KIND_NOVEL.equals(it.getKind()) && it.isAutoTranslateSubmitted()) {
+            try {
+                long novelId = Long.parseLong(it.getId());
+                NovelAutoTranslateService.StatusView tv = novelAutoTranslateService.getStatus(novelId);
+                if (tv != null) {
+                    translatePhase = tv.phase();
+                    translateElapsed = tv.elapsedSeconds();
+                    translatePending = tv.seriesPending();
+                }
+            } catch (NumberFormatException ignored) {
+                // 非数字 ID（不应出现于小说）：跳过叠加
+            }
+        }
+        return new ScheduleQueueView.Item(
+                it.getId(), it.getTitle(), it.getKind(),
+                it.getXRestrict(), it.getAi(), it.getStatus(), it.getMessage(),
+                translatePhase, translateElapsed, translatePending);
     }
 
     /** PHPSESSID 形如 {@code {userId}_{session}}：下划线前缀即非敏感 Pixiv userId。 */

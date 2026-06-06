@@ -1063,6 +1063,7 @@
             renderQueue();
 
             const fmt = (state.settings.novelFormat || 'txt').toLowerCase();
+            const autoTranslate = !!(isAdmin && state.settings.novelAutoTranslate);
             const seriesInfo = (item.seriesId && item.seriesId > 0) ? {
                 seriesId: Number(item.seriesId),
                 seriesOrder: item.seriesOrder,
@@ -1108,7 +1109,13 @@
                     format: fmt,
                     uploadTimestamp: meta.uploadTimestamp || item.uploadTimestamp || null,
                     coverUrl: meta.coverUrl || item.coverUrl || '',
-                    embeddedImages: meta.textEmbeddedImages || {}
+                    embeddedImages: meta.textEmbeddedImages || {},
+                    // 下载即自动翻译（仅管理员；后端再次校验）。译文合订沿用「生成合订本」设置。
+                    autoTranslate,
+                    autoTranslateLanguage: state.settings.novelTranslateLang || defaultNovelTranslateLang(),
+                    autoTranslateSegmentSize: Math.max(0, parseInt(state.settings.novelTranslateSeg, 10) || 0),
+                    autoTranslateMerge: !!state.settings.mergeNovelSeries,
+                    autoTranslateMergeFormat: (state.settings.mergeNovelFormat || 'epub').toLowerCase()
                 }
             };
             item.lastMessage = bt('queue.message.waiting-completion', '下载中，等待完成...');
@@ -1164,6 +1171,11 @@
                     // 「生成合订本」实时生效：系列下载完成时按当前设置决定是否合订（而非入队时的设置）
                     if (item.status === 'completed' && item.mergeAfterSeriesId && state.settings.mergeNovelSeries) {
                         await maybeTriggerSeriesMerge(item.mergeAfterSeriesId);
+                    }
+                    // 下载即自动翻译：翻译在服务端独立队列异步进行，这里脱离下载 worker 单独轮询其状态，
+                    // 不占下载并发名额；下载本身已成功，翻译失败只在该项附提示、不改成功状态。
+                    if (item.status === 'completed' && autoTranslate) {
+                        pollNovelTranslateStatus(item, novelId);
                     }
                     return;
                 }
@@ -1234,6 +1246,64 @@
                 '小说系列合订本生成失败（系列 {id}）：{message}',
                 {id: seriesId, message: e.message || String(e)}), 'error');
         }
+    }
+
+    /* ============================================================
+       下载即自动翻译：脱离下载 worker 的状态轮询
+       —— 翻译生命周期在服务端，前端只可视化；写入队列项的 raw 字段，渲染时再本地化文案。
+    ============================================================ */
+    async function pollNovelTranslateStatus(item, novelId) {
+        item.translatePhase = 'QUEUED';
+        item.translateElapsed = 0;
+        item.translateSeriesPending = 0;
+        item.translateDone = false;
+        item.translateFailed = false;
+        renderQueue();
+        const startedAt = Date.now();
+        const MAX_POLL_MS = 30 * 60 * 1000;   // 安全上限：30 分钟后停止轮询
+        let consecutiveEmpty = 0;
+        while (Date.now() - startedAt < MAX_POLL_MS) {
+            await sleep(1500);
+            let res;
+            try {
+                res = await fetch(`${BASE}/api/download/novel/translate-status/${encodeURIComponent(novelId)}`,
+                    {credentials: 'same-origin'});
+            } catch {
+                continue;
+            }
+            if (res.status === 403) {
+                // 非管理员：清除翻译态，停止轮询
+                clearTranslateState(item);
+                return;
+            }
+            if (res.status === 204) {
+                // 尚未登记（下载完成与翻译提交之间的瞬时窗口）：容忍若干次后放弃
+                if (++consecutiveEmpty >= 10) { clearTranslateState(item); return; }
+                continue;
+            }
+            if (!res.ok) continue;
+            consecutiveEmpty = 0;
+            const st = await res.json().catch(() => null);
+            if (!st || !st.phase) continue;
+            item.translatePhase = st.phase;
+            item.translateElapsed = st.elapsedSeconds || 0;
+            item.translateSeriesPending = st.seriesPending || 0;
+            if (st.done || st.failed || st.phase === 'DONE' || st.phase === 'FAILED') {
+                item.translateDone = !!st.done || st.phase === 'DONE';
+                item.translateFailed = !!st.failed || st.phase === 'FAILED';
+                saveQueue();
+                renderQueue();
+                return;
+            }
+            renderQueue();
+        }
+    }
+
+    function clearTranslateState(item) {
+        item.translatePhase = null;
+        item.translateElapsed = 0;
+        item.translateSeriesPending = 0;
+        renderQueue();
     }
 
     /* ============================================================

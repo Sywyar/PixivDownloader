@@ -53,5 +53,15 @@ public class NovelDownloadRequest {
         private String coverUrl;
         /** [uploadedimage:id] → pximg 原图 URL；可选。 */
         private Map<String, String> embeddedImages;
+        /** 下载完成后是否自动 AI 翻译（admin-only；游客请求会被控制器置 false）。 */
+        private boolean autoTranslate;
+        /** 自动翻译的目标语言自由文本（如 {@code english}）；{@code autoTranslate} 为真时使用。 */
+        private String autoTranslateLanguage;
+        /** 自动翻译的分段字数阈值（{@code <=0}/null 整章一次性翻译）。 */
+        private Integer autoTranslateSegmentSize;
+        /** 自动翻译后是否重生该语言的系列译文合订本（取自下载设置的「生成合订本」）。 */
+        private boolean autoTranslateMerge;
+        /** 译文合订本格式（{@code epub}/{@code txt}/{@code html}）。 */
+        private String autoTranslateMergeFormat;
     }
 }

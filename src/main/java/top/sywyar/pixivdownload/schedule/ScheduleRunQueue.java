@@ -121,6 +121,18 @@ public class ScheduleRunQueue {
             item.message = message;
         }
 
+        /**
+         * 标记某小说本轮确实提交了「下载即自动翻译」（未登记的作品 ID 直接忽略）。
+         * 仅被此标记的条目在队列视图里才叠加翻译状态，避免读到 {@code novelId} 上一轮残留的终态。
+         */
+        public synchronized void markAutoTranslateSubmitted(String id) {
+            Item item = byId.get(id);
+            if (item == null) {
+                return;
+            }
+            item.autoTranslateSubmitted = true;
+        }
+
         public synchronized long startedTime() {
             return startedTime;
         }
@@ -149,6 +161,8 @@ public class ScheduleRunQueue {
         private Boolean ai;
         private String status = STATUS_PENDING;
         private String message;
+        // 本轮是否确实提交了「下载即自动翻译」（仅小说、真正下载完成并提交时置位）。
+        private boolean autoTranslateSubmitted;
 
         Item(String id, String kind) {
             this.id = id;
@@ -163,6 +177,7 @@ public class ScheduleRunQueue {
             this.ai = other.ai;
             this.status = other.status;
             this.message = other.message;
+            this.autoTranslateSubmitted = other.autoTranslateSubmitted;
         }
 
         Item copy() {
@@ -195,6 +210,10 @@ public class ScheduleRunQueue {
 
         public String getMessage() {
             return message;
+        }
+
+        public boolean isAutoTranslateSubmitted() {
+            return autoTranslateSubmitted;
         }
     }
 }

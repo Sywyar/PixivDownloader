@@ -19,6 +19,10 @@ public record ScheduleQueueView(
     /**
      * 队列条目。{@code status} ∈ pending / downloaded / skipped-downloaded / skipped-filter / failed；
      * {@code title} / {@code xRestrict} / {@code ai} 在抓到元数据前（如「已存在跳过」的作品）可能为 {@code null}。
+     *
+     * <p>{@code translatePhase} 等三项为「下载即自动翻译」的实时状态叠加（仅小说、且该项已提交翻译时非空，
+     * 读取时从服务端翻译队列实时取，故 {@code translateElapsedSeconds} 随轮询递增）：{@code translatePhase}
+     * 为原始枚举名（前端本地化），{@code translateSeriesPending} 为同系列待译前序数。
      */
     public record Item(
             String id,
@@ -27,7 +31,10 @@ public record ScheduleQueueView(
             Integer xRestrict,
             Boolean ai,
             String status,
-            String message
+            String message,
+            String translatePhase,
+            Long translateElapsedSeconds,
+            Integer translateSeriesPending
     ) {
     }
 }

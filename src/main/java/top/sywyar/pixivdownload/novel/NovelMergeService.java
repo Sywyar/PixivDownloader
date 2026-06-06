@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 把同一个小说系列内已下载的章节按 {@code series_order} 升序合订成一份输出文件。
@@ -41,23 +42,34 @@ public class NovelMergeService {
 
     public record MergeResult(boolean success, String message, String mergedPath, int chapterCount) {}
 
+    // 按系列串行化合订写盘：同一系列的「原文基准 + 各语言变体」合订共用文件区，下载链路 base 合订与
+    // 自动翻译 per-job 译文合订可能并发触发同一系列；不串行会并发写同名输出文件而损坏。锁按 seriesId 隔离，
+    // 不同系列互不阻塞；synchronized 可重入，使 mergeVariant 空 langCode 委托 merge 时不自锁。
+    private final ConcurrentHashMap<Long, Object> seriesMergeLocks = new ConcurrentHashMap<>();
+
+    private Object mergeLockFor(long seriesId) {
+        return seriesMergeLocks.computeIfAbsent(seriesId, k -> new Object());
+    }
+
     /**
      * 合订整个系列：先生成原文基准合订本 {@code {title}.{ext}}，再为该系列已存在译文的每种语言重新生成
      * 语言变体合订本（best-effort）。译文章节会被替换，未翻译章节仍以原文出现。返回原文基准合订本的结果。
      */
     public MergeResult merge(long seriesId, NovelDownloadService.NovelFormat format) throws IOException {
-        MergeResult base = writeMerge(seriesId, format, null);
-        if (base.success()) {
-            for (String lang : novelDatabase.getSeriesTranslatedLangs(seriesId)) {
-                try {
-                    writeMerge(seriesId, format, lang);
-                } catch (Exception e) {
-                    log.warn("novel series variant merge failed: seriesId={}, lang={}, err={}",
-                            seriesId, lang, e.getMessage());
+        synchronized (mergeLockFor(seriesId)) {
+            MergeResult base = writeMerge(seriesId, format, null);
+            if (base.success()) {
+                for (String lang : novelDatabase.getSeriesTranslatedLangs(seriesId)) {
+                    try {
+                        writeMerge(seriesId, format, lang);
+                    } catch (Exception e) {
+                        log.warn("novel series variant merge failed: seriesId={}, lang={}, err={}",
+                                seriesId, lang, e.getMessage());
+                    }
                 }
             }
+            return base;
         }
-        return base;
     }
 
     /**
@@ -69,7 +81,9 @@ public class NovelMergeService {
         if (langCode == null || langCode.isBlank()) {
             return merge(seriesId, format);
         }
-        return writeMerge(seriesId, format, langCode.trim());
+        synchronized (mergeLockFor(seriesId)) {
+            return writeMerge(seriesId, format, langCode.trim());
+        }
     }
 
     /**

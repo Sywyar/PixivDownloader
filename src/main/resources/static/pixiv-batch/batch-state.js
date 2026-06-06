@@ -35,6 +35,9 @@
             novelFormat: 'txt',
             mergeNovelSeries: false,
             mergeNovelFormat: 'epub',
+            novelAutoTranslate: false,   // 下载即自动翻译（仅管理员 + 已配置 AI 生效）
+            novelTranslateLang: '',      // 空 = 跟随页面语言的默认目标语言；非空 = 用户自定义
+            novelTranslateSeg: 0,
             userKind: 'illust',     // 'illust' | 'novel' — User 模式作品类型
             searchKind: 'illust'    // 'illust' | 'novel' — Search 模式作品类型
         }

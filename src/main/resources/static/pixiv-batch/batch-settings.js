@@ -67,6 +67,7 @@
             visible = false;
         }
         card.style.display = visible ? '' : 'none';
+        updateNovelTranslateVisibility();
     }
 
     function saveSettings() {
@@ -103,7 +104,14 @@
         if (mergeEl) mergeEl.checked = !!state.settings.mergeNovelSeries;
         const mergeFmtEl = document.getElementById('s-novel-merge-format');
         if (mergeFmtEl) mergeFmtEl.value = (state.settings.mergeNovelFormat || 'epub');
+        const autoTrEl = document.getElementById('s-novel-auto-translate');
+        if (autoTrEl) autoTrEl.checked = !!state.settings.novelAutoTranslate;
+        const trLangEl = document.getElementById('s-novel-translate-lang');
+        if (trLangEl) trLangEl.value = state.settings.novelTranslateLang || defaultNovelTranslateLang();
+        const trSegEl = document.getElementById('s-novel-translate-seg');
+        if (trSegEl) trSegEl.value = state.settings.novelTranslateSeg ?? 0;
         updateMergeFormatVisibility();
+        updateNovelTranslateVisibility();
         state.settings.userKind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
         state.settings.searchKind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';
         applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
@@ -163,7 +171,19 @@
         if (mergeEl) state.settings.mergeNovelSeries = !!mergeEl.checked;
         const mergeFmtEl = document.getElementById('s-novel-merge-format');
         if (mergeFmtEl) state.settings.mergeNovelFormat = (mergeFmtEl.value || 'epub').toLowerCase();
+        const autoTrEl = document.getElementById('s-novel-auto-translate');
+        if (autoTrEl) state.settings.novelAutoTranslate = !!autoTrEl.checked;
+        const trLangEl = document.getElementById('s-novel-translate-lang');
+        if (trLangEl) {
+            // 与当前页面语言的默认目标语言相同（或留空）时存空 = 「跟随页面语言」，不把默认译名烤进模型；
+            // 仅当用户填入不同文本时才记为自定义值。
+            const v = (trLangEl.value || '').trim();
+            state.settings.novelTranslateLang = (v && v !== defaultNovelTranslateLang()) ? v : '';
+        }
+        const trSegEl = document.getElementById('s-novel-translate-seg');
+        if (trSegEl) state.settings.novelTranslateSeg = Math.max(0, parseInt(trSegEl.value, 10) || 0);
         updateMergeFormatVisibility();
+        updateNovelTranslateVisibility();
         toggleSkipHistoryOptions();
         saveSettings();
         // 下载设置实时生效：运行中调高并发数时立即补足 worker（调低由 workerLoop 自行收敛）。
@@ -174,6 +194,26 @@
     function updateMergeFormatVisibility() {
         const on = !!(document.getElementById('s-novel-merge') || {}).checked;
         ['s-novel-merge-format-row', 's-novel-merge-format-hint'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = on ? '' : 'none';
+        });
+    }
+
+    // 语言切换 / 初次加载：用户未自定义目标语言（模型为空）时，让输入框跟随当前页面语言显示默认目标语言。
+    // 用户已自定义（模型非空）则保留其填写值，不被语言切换覆盖。
+    function refreshNovelTranslateLangDefault() {
+        if (state.settings.novelTranslateLang) return;
+        const el = document.getElementById('s-novel-translate-lang');
+        if (el) el.value = defaultNovelTranslateLang();
+    }
+
+    // 「新下载小说自动翻译」：整组仅管理员可见（翻译 admin-only + 需 AI）；目标语言 / 分段字数 / 提示
+    // 仅在管理员勾选后展开。
+    function updateNovelTranslateVisibility() {
+        const row = document.getElementById('s-novel-auto-translate-row');
+        if (row) row.style.display = isAdmin ? '' : 'none';
+        const on = isAdmin && !!(document.getElementById('s-novel-auto-translate') || {}).checked;
+        ['s-novel-translate-lang-row', 's-novel-translate-seg-row', 's-novel-translate-hint'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = on ? '' : 'none';
         });
@@ -294,4 +334,4 @@
 
 // ---- PixivBatch facade ----
 window.PixivBatch.settings = window.PixivBatch.settings || {};
-window.PixivBatch.settings = Object.assign(window.PixivBatch.settings, { syncSettings, getIntervalMs, getImageDelayMs, toggleIntervalUnit, toggleImageDelayUnit, applyNovelSettingsVisibility, refreshBatchCollections, updateBatchLimitNote, loadSettings, saveSettings });
+window.PixivBatch.settings = Object.assign(window.PixivBatch.settings, { syncSettings, getIntervalMs, getImageDelayMs, toggleIntervalUnit, toggleImageDelayUnit, applyNovelSettingsVisibility, updateNovelTranslateVisibility, refreshNovelTranslateLangDefault, refreshBatchCollections, updateBatchLimitNote, loadSettings, saveSettings });

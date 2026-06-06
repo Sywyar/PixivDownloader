@@ -265,7 +265,10 @@
             verifyFiles: !!state.settings.verifyHistoryFiles,
             novelFormat: state.settings.novelFormat || 'txt',
             novelMerge: !!state.settings.mergeNovelSeries,
-            novelMergeFormat: state.settings.mergeNovelFormat || 'epub'
+            novelMergeFormat: state.settings.mergeNovelFormat || 'epub',
+            novelAutoTranslate: !!state.settings.novelAutoTranslate,
+            novelTranslateLanguage: state.settings.novelTranslateLang || defaultNovelTranslateLang(),
+            novelTranslateSegmentSize: Math.max(0, parseInt(state.settings.novelTranslateSeg, 10) || 0)
         };
         // 首次抓取上限：仅对支持封顶的来源类型携带（0 = 全量 / 不限；后端按来源是否水位线决定「首轮封顶」或「每轮上限」）。
         let fetchLimit = 0;
@@ -492,6 +495,22 @@
         if (mg) mg.checked = !!d.novelMerge;
         const mgf = document.getElementById('s-novel-merge-format');
         if (mgf && d.novelMergeFormat) mgf.value = d.novelMergeFormat;
+        // 下载即自动翻译回灌（仅管理员可见该组；非管理员保存的快照不含或不显示）
+        const atr = document.getElementById('s-novel-auto-translate');
+        if (atr) {
+            atr.checked = !!d.novelAutoTranslate;
+            state.settings.novelAutoTranslate = !!d.novelAutoTranslate;
+        }
+        const atrLang = document.getElementById('s-novel-translate-lang');
+        if (atrLang && typeof d.novelTranslateLanguage === 'string' && d.novelTranslateLanguage) {
+            atrLang.value = d.novelTranslateLanguage;
+            state.settings.novelTranslateLang = d.novelTranslateLanguage;
+        }
+        const atrSeg = document.getElementById('s-novel-translate-seg');
+        if (atrSeg && Number.isFinite(d.novelTranslateSegmentSize) && d.novelTranslateSegmentSize >= 0) {
+            atrSeg.value = d.novelTranslateSegmentSize;
+            state.settings.novelTranslateSeg = d.novelTranslateSegmentSize;
+        }
         // 队列调度项回灌：最大并发数 / 作品间隔 / 图片间隔（快照存毫秒，统一以 ms 单位回填并把单位按钮切到 ms）/ 实际目录检测。
         const conc = document.getElementById('s-concurrent');
         if (conc && Number.isFinite(d.concurrent) && d.concurrent >= 1) {
@@ -522,6 +541,7 @@
             state.settings.verifyHistoryFiles = !!d.verifyFiles;
         }
         updateMergeFormatVisibility();
+        updateNovelTranslateVisibility();
     }
 
     function scheduleStatusLabel(code) {
@@ -897,6 +917,16 @@
         downloadRows.push([bt('novel:batch.format-label', '小说格式'), scheduleNovelFormatLabel(download.novelFormat)]);
         downloadRows.push([bt('novel:batch.merge-label', '系列下载完成后生成合订本'), scheduleBoolLabel(!!download.novelMerge)]);
         downloadRows.push([bt('novel:batch.merge-format-label', '合订本格式'), scheduleNovelFormatLabel(download.novelMergeFormat || 'epub')]);
+        downloadRows.push([bt('novel:batch.auto-translate-label', '新下载小说自动翻译'), scheduleBoolLabel(!!download.novelAutoTranslate)]);
+        if (download.novelAutoTranslate) {
+            downloadRows.push([bt('novel:batch.translate-lang-label', '目标语言:'),
+                scheduleValueOrUnset(download.novelTranslateLanguage)]);
+            const seg = download.novelTranslateSegmentSize;
+            downloadRows.push([bt('novel:batch.translate-seg-label', '分段字数:'),
+                (Number.isFinite(seg) && seg > 0)
+                    ? String(seg)
+                    : bt('schedule.snapshot.value.whole-chapter', '整章一次性')]);
+        }
         const downloadSection = scheduleSnapshotSection(
             bt('schedule.snapshot.section.download', '下载设置快照'),
             downloadRows
@@ -1366,7 +1396,11 @@
             totalImages: 0,
             downloadedCount: 0,
             imageProgress: null,
-            ugoiraProgress: null
+            ugoiraProgress: null,
+            // 「下载即自动翻译」实时态（仅小说、后端读取时叠加）：raw 字段，由共享渲染器本地化展示。
+            translatePhase: it.translatePhase || null,
+            translateElapsed: it.translateElapsedSeconds == null ? 0 : it.translateElapsedSeconds,
+            translateSeriesPending: it.translateSeriesPending == null ? 0 : it.translateSeriesPending
         };
     }
 

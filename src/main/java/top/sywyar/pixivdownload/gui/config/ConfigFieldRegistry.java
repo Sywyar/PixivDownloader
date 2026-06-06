@@ -144,6 +144,19 @@ public final class ConfigFieldRegistry {
                         })
                         .build(),
 
+                ConfigFieldSpec.builder("download.novel-translate-max-concurrent", message("gui.config.field.download.novel-translate-max-concurrent.label"), INT, groupDownload)
+                        .defaultValue("10")
+                        .help(message("gui.config.field.download.novel-translate-max-concurrent.help"))
+                        .validator(v -> {
+                            try {
+                                int n = Integer.parseInt(v);
+                                return n >= 1 ? null : message("gui.config.validation.positive-int");
+                            } catch (NumberFormatException e) {
+                                return message("gui.config.validation.valid-int");
+                            }
+                        })
+                        .build(),
+
                 // ── 代理 ───────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("proxy.enabled", message("gui.config.field.proxy.enabled.label"), BOOL, groupProxy)
                         .defaultValue("true")

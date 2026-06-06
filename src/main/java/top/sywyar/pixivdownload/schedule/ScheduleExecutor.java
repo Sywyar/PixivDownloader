@@ -932,6 +932,15 @@ public class ScheduleExecutor {
         o.setBookmark(download.bookmark());
         o.setCollectionId(download.collectionId());
         o.setFormat(download.novelFormat());
+        // 下载即自动翻译（admin 身份运行，恒可触发）：翻译走服务端独立队列、不阻塞调度 tick；
+        // 译文合订交由每本译完后的合订（沿用下载设置的「生成合订本」），与 web 链路一致。
+        if (download.novelAutoTranslate()) {
+            o.setAutoTranslate(true);
+            o.setAutoTranslateLanguage(download.novelTranslateLanguage());
+            o.setAutoTranslateSegmentSize(download.novelTranslateSegmentSize());
+            o.setAutoTranslateMerge(download.novelMerge());
+            o.setAutoTranslateMergeFormat(download.novelMergeFormat());
+        }
         // 系列富信息（简介 + 封面 + 系列标签）：与 web 链路一致，本轮按 seriesId 缓存、best-effort，失败不挡下载。
         if (d.seriesId() != null && d.seriesId() > 0) {
             PixivFetchService.NovelSeriesMeta sm = resolveNovelSeriesMeta(d.seriesId(), cookie, seriesCache);
@@ -1150,6 +1159,11 @@ public class ScheduleExecutor {
         private void onComplete(String id, long workId, boolean isRetry, boolean ok) {
             if (ok) {
                 run.mark(id, ScheduleRunQueue.STATUS_DOWNLOADED, null);
+                // 本轮确实下载完成、且开启了「下载即自动翻译」的小说才登记：队列视图据此只对本轮真正提交过翻译的条目
+                // 叠加翻译状态，不读 novelId 上一轮残留的终态（已下载跳过 / 关闭翻译的条目都不会被叠加）。
+                if (novel && download.novelAutoTranslate()) {
+                    run.markAutoTranslateSubmitted(id);
+                }
                 consecutiveFailures.set(0);
                 synchronized (pendingLock) {
                     database.mapper().deletePending(taskId, workId);
@@ -1577,7 +1591,10 @@ public class ScheduleExecutor {
                 d.path("verifyFiles").asBoolean(false),
                 d.path("novelFormat").asText("txt"),
                 d.path("novelMerge").asBoolean(false),
-                d.path("novelMergeFormat").asText("epub"));
+                d.path("novelMergeFormat").asText("epub"),
+                d.path("novelAutoTranslate").asBoolean(false),
+                d.path("novelTranslateLanguage").asText(""),
+                intOrNull(d.path("novelTranslateSegmentSize")));
     }
 
     private static List<String> readLoweredList(JsonNode arr) {
@@ -1664,6 +1681,8 @@ public class ScheduleExecutor {
      */
     record Download(String fileNameTemplate, boolean bookmark, Long collectionId,
                     int concurrent, Long intervalMs, Integer imageDelayMs, boolean verifyFiles,
-                    String novelFormat, boolean novelMerge, String novelMergeFormat) {
+                    String novelFormat, boolean novelMerge, String novelMergeFormat,
+                    boolean novelAutoTranslate, String novelTranslateLanguage,
+                    Integer novelTranslateSegmentSize) {
     }
 }
