@@ -480,7 +480,9 @@ Click the **🎧 Listen** button at the top of the novel page to read the text a
 > [!NOTE]
 > Visitors using an invite link can also use the online engine, but are rate-limited by `guest-invite.tts-request-limit-minute` (admins and the browser engine are not limited). Guest invites are independent of the solo/multi run mode — they work in both. The browser engine runs entirely in the frontend — no server resources, no network.
 
-### Multi-voice narration (admin only)
+### Multi-voice narration (beta · admin only)
+
+> **This feature is currently beta — usable but not yet stable; synthesis failures or inconsistent timbre may occur.**
 
 Click **🎭 Multi-voice narration** on the novel page to have an LLM attribute every sentence of the chapter to a speaker (narrator / individual characters); each character is synthesized line by line with a fixed voice profile and played back continuously — unlike the single-voice **Listen** above. It requires an LLM and a narration engine — either a self-hosted one (e.g. VoxCPM) or one of several cloud TTS services, so you don't need a GPU of your own.
 
