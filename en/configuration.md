@@ -573,7 +573,6 @@ The following settings can be changed via GUI and take effect **without restart*
 ```yaml
 # ========================================================
 # PixivDownloader Runtime Configuration
-# Most changes require a service restart to take effect
 # ========================================================
 
 server.port: 6999                          # HTTP service port

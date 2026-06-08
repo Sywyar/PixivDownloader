@@ -573,7 +573,6 @@ notification.scenario.run-summary.enabled: true
 ```yaml
 # ========================================================
 # PixivDownloader 运行时配置
-# 修改后需重启服务才能生效
 # ========================================================
 
 server.port: 6999                          # HTTP 服务端口

@@ -26,40 +26,48 @@
 
 ```
 PixivDownloader/
-├── src/main/java/top/sywyar/PixivDownloader/
-│   ├── author/          # Author metadata persistence
-│   ├── cli/             # Startup argument validation and CLI admin commands (--setup / --change-password / --reset-password / --help)
-│   ├── collection/      # Collection management
-│   ├── common/          # Common utilities
-│   ├── config/          # App configuration generation & binding
-│   ├── download/        # Core download logic
-│   │   └── db/          # SQLite database access (MyBatis)
-│   ├── ffmpeg/          # FFmpeg discovery & installation
-│   ├── gallery/         # Gallery API
-│   ├── gui/             # Swing GUI desktop manager
-│   ├── i18n/            # Internationalization
-│   ├── imageclassifier/ # Image classification tool
-│   ├── logback/         # Custom log formatting
-│   ├── maintenance/     # Maintenance task framework
-│   ├── migration/       # JSON → SQLite migration
-│   ├── novel/           # Novel download pipeline
-│   ├── onboarding/      # GUI setup wizard
-│   ├── quota/           # Quota & rate limiting
-│   ├── scripts/         # Userscript distribution
-│   ├── series/          # Series metadata
-│   ├── setup/           # Initial setup & authentication
-│   │   └── guest/       # Guest invite system
-│   ├── tools/           # CLI tools
-│   └── update/          # Online update
+├── src/main/java/top/sywyar/pixivdownload/
+│   ├── ai/             # AI/LLM calls (translation, connectivity probe, multi-char narration, etc.)
+│   ├── author/         # Author metadata persistence
+│   ├── cli/            # Startup argument validation and CLI admin commands (--setup / --change-password / --reset-password / --help)
+│   ├── collection/     # Collection management
+│   ├── common/         # Common utilities
+│   ├── config/         # App configuration generation & binding
+│   ├── download/       # Core download logic
+│   │   └── db/         # SQLite database access (MyBatis)
+│   ├── duplicate/      # Duplicate image detection
+│   ├── ffmpeg/         # FFmpeg discovery & installation
+│   ├── gallery/        # Gallery API
+│   ├── gui/            # Swing GUI desktop manager
+│   ├── i18n/           # Internationalization
+│   ├── imageclassifier/# Image classification tool
+│   ├── logback/        # Custom log formatting
+│   ├── mail/           # Email notifications (SMTP)
+│   ├── maintenance/    # Maintenance task framework
+│   ├── migration/      # JSON → SQLite migration
+│   ├── novel/          # Novel download pipeline
+│   ├── onboarding/     # GUI setup wizard
+│   ├── push/           # Push notifications (multi-channel)
+│   ├── quota/          # Quota & rate limiting
+│   ├── schedule/       # Scheduled task automation
+│   ├── scripts/        # Userscript distribution
+│   ├── series/         # Series metadata
+│   ├── setup/          # Initial setup & authentication
+│   │   └── guest/      # Guest invite system
+│   ├── stats/          # Statistics dashboard
+│   ├── tts/            # Online TTS (speech synthesis)
+│   ├── tools/          # CLI tools
+│   └── update/         # Online update
 ├── src/main/resources/
-│   ├── static/          # Web frontend resources (110+ files)
-│   ├── i18n/            # i18n resource files
+│   ├── static/         # Web frontend resources (110+ files)
+│   ├── i18n/           # i18n resource files
 │   └── application.properties
-├── scripts/             # Build & packaging scripts
+├── scripts/            # Build & packaging scripts
 ├── packaging/windows/inno/  # Inno Setup installer config
-├── config/              # Default configuration
-├── collection_icons/    # Collection icons
-└── pom.xml              # Maven build configuration
+├── docs/claude/        # Developer docs (per-domain volumes)
+├── config/             # Default configuration
+├── collection_icons/   # Collection icons
+└── pom.xml             # Maven build configuration
 ```
 
 ---

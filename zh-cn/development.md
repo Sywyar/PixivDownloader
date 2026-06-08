@@ -26,40 +26,48 @@
 
 ```
 PixivDownloader/
-├── src/main/java/top/sywyar/PixivDownloader/
-│   ├── author/          # 作者元数据持久化
-│   ├── cli/             # 启动参数校验与 CLI 管理命令（--setup / --change-password / --reset-password / --help）
-│   ├── collection/      # 收藏夹管理
-│   ├── common/          # 通用工具类
-│   ├── config/          # 应用配置生成与绑定
-│   ├── download/        # 核心下载逻辑
-│   │   └── db/          # SQLite 数据库访问 (MyBatis)
-│   ├── ffmpeg/          # FFmpeg 定位与安装
-│   ├── gallery/         # 画廊 API
-│   ├── gui/             # Swing GUI 桌面管家
-│   ├── i18n/            # 国际化
-│   ├── imageclassifier/ # 图片分类工具
-│   ├── logback/         # 自定义日志格式
-│   ├── maintenance/     # 维护任务框架
-│   ├── migration/       # JSON → SQLite 迁移
-│   ├── novel/           # 小说下载管线
-│   ├── onboarding/      # GUI 引导向导
-│   ├── quota/           # 配额与限流
-│   ├── scripts/         # 油猴脚本分发
-│   ├── series/          # 系列元数据
-│   ├── setup/           # 首次配置与鉴权
-│   │   └── guest/       # 访客邀请系统
-│   ├── tools/           # CLI 工具
-│   └── update/          # 在线更新
+├── src/main/java/top/sywyar/pixivdownload/
+│   ├── ai/             # AI/大模型调用（翻译、连通性探测、多角色朗读等）
+│   ├── author/         # 作者元数据持久化
+│   ├── cli/            # 启动参数校验与 CLI 管理命令（--setup / --change-password / --reset-password / --help）
+│   ├── collection/     # 收藏夹管理
+│   ├── common/         # 通用工具类
+│   ├── config/         # 应用配置生成与绑定
+│   ├── download/       # 核心下载逻辑
+│   │   └── db/         # SQLite 数据库访问 (MyBatis)
+│   ├── duplicate/      # 疑似重复图片检测
+│   ├── ffmpeg/         # FFmpeg 定位与安装
+│   ├── gallery/        # 画廊 API
+│   ├── gui/            # Swing GUI 桌面管家
+│   ├── i18n/           # 国际化
+│   ├── imageclassifier/# 图片分类工具
+│   ├── logback/        # 自定义日志格式
+│   ├── mail/           # 邮件通知（SMTP）
+│   ├── maintenance/    # 维护任务框架
+│   ├── migration/      # JSON → SQLite 迁移
+│   ├── novel/          # 小说下载管线
+│   ├── onboarding/     # GUI 引导向导
+│   ├── push/           # 推送通知（多通道）
+│   ├── quota/          # 配额与限流
+│   ├── schedule/       # 计划任务调度
+│   ├── scripts/        # 油猴脚本分发
+│   ├── series/         # 系列元数据
+│   ├── setup/          # 首次配置与鉴权
+│   │   └── guest/      # 访客邀请系统
+│   ├── stats/          # 统计仪表盘
+│   ├── tts/            # 在线 TTS（语音合成）
+│   ├── tools/          # CLI 工具
+│   └── update/         # 在线更新
 ├── src/main/resources/
-│   ├── static/          # Web 前端资源 (110+ 文件)
-│   ├── i18n/            # 国际化资源文件
+│   ├── static/         # Web 前端资源 (110+ 文件)
+│   ├── i18n/           # 国际化资源文件
 │   └── application.properties
-├── scripts/             # 构建与打包脚本
+├── scripts/            # 构建与打包脚本
 ├── packaging/windows/inno/  # Inno Setup 安装器配置
-├── config/              # 默认配置
-├── collection_icons/    # 收藏夹图标
-└── pom.xml              # Maven 构建配置
+├── docs/claude/        # 开发文档（按领域分册）
+├── config/             # 默认配置
+├── collection_icons/   # 收藏夹图标
+└── pom.xml             # Maven 构建配置
 ```
 
 ---

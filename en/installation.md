@@ -160,11 +160,10 @@ Run `docker compose restart app` to apply.
 | Host path | Purpose |
 |-----------|---------|
 | `./config/` | Runtime config `config.yaml` |
-| `./state/` | Session state, `setup_config.json`, batch download state |
-| `./data/` | SQLite database `pixiv_download.db` |
+| `./state/` | Session state, `setup_config.json`, batch download state, GUI onboarding markers |
+| `./data/` | SQLite database `pixiv_download.db`, collection icons, thumbnail cache, TTS cache, backfill state, narration reference audio |
 | `./pixiv-download/` | Downloaded artwork/novel/series files (incl. `_archives` packaging) |
-| `./collection_icons/` | User-defined collection icons |
-| `./_gui/`, `./_tts/`, `./log/` | Onboarding flag, TTS cache, runtime logs (optional) |
+| `./log/` | Runtime logs (optional) |
 
 ### 6. Health Check
 
@@ -262,18 +261,21 @@ Working Directory/
 │   └── image_classifier.properties  # Image classifier settings
 ├── state/                       # Runtime state directory
 │   ├── setup_config.json        # Account/setup configuration
-│   └── batch_state.json         # Batch download state
-├── data/                        # Database directory
-│   └── pixiv_download.db        # SQLite database
+│   ├── batch_state.json         # Batch download state
+│   └── gui/                     # GUI onboarding and proxy step state markers
+├── data/                        # Application data directory
+│   ├── pixiv_download.db        # SQLite database (+ -wal / -shm companions)
+│   ├── collection_icons/        # Custom collection icons
+│   ├── gallery_thumbs/          # Gallery binary thumbnail cache
+│   ├── tts/                     # TTS version cache
+│   ├── backfill/                # Data backfill tool state
+│   └── narration-voice/         # Multi-character narration reference audio
 ├── pixiv-download/              # Downloaded files (default root)
 │   ├── artwork-{id}/            # Artwork directories
 │   ├── novel-{id}/              # Novel directories
 │   ├── novel-series-{id}/       # Novel series
 │   └── ...
-├── log/                         # Runtime logs
-├── collection_icons/            # Custom collection icons
-├── _gui/                        # GUI onboarding state
-└── _tts/                        # TTS cache (optional)
+└── log/                         # Runtime logs
 ```
 
 ---
