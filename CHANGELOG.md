@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [Unreleased]
+
+### Features
+- 添加 Moonlight 主题支持
+
 ## [v1.12.0] - 2026.6.6
 
 ### Features

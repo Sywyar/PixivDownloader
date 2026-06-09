@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.theme;
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.FlatLightLaf;
+import com.formdev.flatlaf.intellijthemes.materialthemeuilite.FlatMoonlightIJTheme;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -75,13 +76,23 @@ public final class FlatLafSetup {
 
     /**
      * 运行时切换主题偏好：立即重新安装 LAF 并刷新所有已打开窗口；
-     * 必须在 EDT 上调用。
+     * 必须在 EDT 上调用。与 {@link #applyDarkInternal} 不同，此方法始终强制完整重装，
+     * 以支持在暗色主题之间切换（如 DARK → MOONLIGHT）。
      */
     public static void setPreference(ThemePreference preference) {
         ThemePreference next = preference == null ? ThemePreference.SYSTEM : preference;
+        if (next == currentPreference) return;
         currentPreference = next;
         boolean dark = resolveDarkFor(next);
-        applyDarkInternal(dark);
+        installLaf(dark);
+        applyChineseFont();
+        currentDark = dark;
+        try {
+            FlatLaf.updateUI();
+        } catch (Exception e) {
+            log.warn(logMessage("gui.theme.log.update-ui.failed", e.getMessage()));
+        }
+        notifyChange();
         updateSystemWatcher();
     }
 
@@ -110,7 +121,7 @@ public final class FlatLafSetup {
 
     private static boolean resolveDarkFor(ThemePreference preference) {
         return switch (preference) {
-            case DARK -> true;
+            case DARK, MOONLIGHT -> true;
             case LIGHT -> false;
             case SYSTEM -> SystemThemeDetector.isSystemDark();
         };
@@ -118,11 +129,15 @@ public final class FlatLafSetup {
 
     private static void installLaf(boolean dark) {
         try {
-            // 走 FlatLaf 自身的 globalExtraDefaults 机制：在 setup() 之前注入 / 清空，
-            // 让 FlatLaf 自己的属性解析器把 @background / @foreground 这类引用
-            // 级联到所有派生键（Panel.background、MenuItem.foreground、List.foreground、ComboBox.background 等）。
-            // 直接 UIManager.put 每个具体键无法覆盖到惰性创建的弹出菜单等组件，会出现
-            // 切到深色后弹出框文本仍为黑色的现象。
+            if (currentPreference.isNamedTheme()) {
+                FlatLaf.setGlobalExtraDefaults(null);
+                switch (currentPreference) {
+                    case MOONLIGHT -> FlatMoonlightIJTheme.setup();
+                    default -> {
+                    }
+                }
+                return;
+            }
             FlatLaf.setGlobalExtraDefaults(dark ? buildFrontendDarkExtras() : null);
             if (dark) {
                 FlatDarkLaf.setup();

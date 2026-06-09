@@ -8,7 +8,8 @@ package top.sywyar.pixivdownload.gui.theme;
 public enum ThemePreference {
     SYSTEM,
     LIGHT,
-    DARK;
+    DARK,
+    MOONLIGHT;
 
     public String toConfigValue() {
         return name().toLowerCase(java.util.Locale.ROOT);
@@ -21,7 +22,12 @@ public enum ThemePreference {
         return switch (normalized) {
             case "light" -> LIGHT;
             case "dark" -> DARK;
+            case "moonlight" -> MOONLIGHT;
             default -> SYSTEM;
         };
+    }
+
+    public boolean isNamedTheme() {
+        return this != SYSTEM && this != LIGHT && this != DARK;
     }
 }

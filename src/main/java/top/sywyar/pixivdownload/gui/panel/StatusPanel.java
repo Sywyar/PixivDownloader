@@ -450,6 +450,7 @@ public class StatusPanel extends JPanel {
                 new ThemeOption(ThemePreference.SYSTEM, message("gui.status.theme.option.system")),
                 new ThemeOption(ThemePreference.LIGHT, message("gui.status.theme.option.light")),
                 new ThemeOption(ThemePreference.DARK, message("gui.status.theme.option.dark")),
+                new ThemeOption(ThemePreference.MOONLIGHT, message("gui.status.theme.option.moonlight")),
         };
         for (ThemeOption option : options) {
             themeCombo.addItem(option);
