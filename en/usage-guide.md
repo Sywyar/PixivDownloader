@@ -297,10 +297,10 @@ A scheduled task is **not created from a separate form** — it snapshots your c
 
 1. Switch to **User / Search / Series** mode and configure the source (artist ID / keyword / series link) and download settings (filename template, bookmark-after-download, collection, **max concurrent**, **artwork interval**, **image interval**, **verify actual folder**, novel format & compilation, etc.) just like a normal download. The background runner borrows the download thread pool to download multiple works concurrently per "max concurrent" (shared with manual downloads), paces fetches via "artwork interval / image interval" (stored as integer milliseconds), and uses "verify actual folder" to decide whether dedup also checks that the files exist on disk (illustrations only; missing files trigger a re-download).
 2. Configure the "**extra filters**" (content rating, AI works, exact/fuzzy tags, bookmark count, page/word count, work type — see "Extra Filters" above). When an admin saves a scheduled task, this filter set is snapshotted and applied per-work in the background.
-3. In the "**⏰ Save as scheduled task**" card at the bottom of the page, enter a task name, pick a trigger (fixed interval minutes / cron expression), and click "Create task".
+3. In the "**⏰ Save as scheduled task**" card at the bottom of the page, enter a task name, pick a trigger (fixed interval minutes / cron expression), optionally tick "**Use a dedicated proxy**" / "**Use a dedicated cookie**" to give this task its own HTTP proxy (`host:port`, e.g. `127.0.0.1:7890`) and cookie (the cookie field has a "**Use currently saved cookie**" shortcut button), and click "Create task". With a dedicated proxy set, **all** Pixiv access of that task during each run (discovery, metadata, image/novel downloads, inbox overuse check) goes through it; unchecked items use the defaults (global proxy settings / the auto-bound cookie).
 4. What gets saved is exactly the settings a manual download would use — what you see is what runs; the background run applies the filters above per-work.
 
-> In **solo mode**, creating a scheduled task automatically authorizes it with the current Cookie from the top Cookie card (must contain `PHPSESSID`), so you don't need to click "Authorize Cookie" in the list afterward. If no usable Cookie is set at that time, the task is saved in "restricted mode" and can be authorized later from the management tab.
+> In **solo mode**, creating a scheduled task without ticking "Use a dedicated cookie" automatically binds it to the current Cookie from the top Cookie card (must contain `PHPSESSID`). If no usable Cookie is set at that time, the task is saved in "restricted mode" and a cookie can be bound later via "**Dedicated proxy/cookie**" in the management tab.
 
 > Series mode requires "Parse & preview" first to obtain series info before saving (editing an existing series task auto-fills the link and re-previews it). Single-work import mode has no matching source type, so the card is hidden there.
 
@@ -330,10 +330,10 @@ Series and fixed-page search are inherently bounded, so the field is hidden for 
 
 - **Trigger**: fixed interval (minutes) or a cron expression. Cron uses Spring's **6-field format** "second minute hour day month weekday" (note the leading seconds field — one more than the common 5-field Unix cron), e.g. `0 0 3 * * *` = 03:00:00 daily, `0 0 */6 * * *` = every 6 hours, `0 30 8 * * 1` = 08:30:00 every Monday.
 - A single global timer (default every 60s) checks for due tasks and runs them serially; the interval is measured from the last run's completion.
-- In the **management tab**, each task can be: run once, authorize cookie, enable/disable, view task snapshot, edit, delete. `View task snapshot` opens a dialog showing the source, filter, and download settings captured when the task was saved; to change them, use the task action area's Edit button.
+- In the **management tab**, each task can be: run once, set a dedicated proxy/cookie, enable/disable, view task snapshot, edit, delete. `View task snapshot` opens a dialog showing the source, filter, and download settings captured when the task was saved (including the dedicated proxy, if any); to change them, use the task action area's Edit button.
 - **Status light**: the top-right corner of each task card shows the live run status — gray (waiting for first run / disabled / manually paused `PAUSED`), green (running / succeeded, waiting for next run), yellow (multiple tasks due at once, queued serially), red (run failed with reason / cookie expired needing re-authorization / the previous run was forcibly interrupted before finishing and has been rescheduled to catch up / **overuse paused `OVERUSE_PAUSED`**). The list auto-refreshes periodically while the "Scheduled tasks" tab is open to reflect these transient states.
-- **Cookie authorization**: clicking "Authorize cookie" snapshots the current cookie from the top Cookie card (must contain `PHPSESSID`) and binds it to that task, so it fetches R18 / restricted works as the admin. Without authorization the task runs in "restricted mode" fetching only anonymously visible content. The cookie is used server-side only, never echoed back, and is cleared when the task is deleted. Authorization also extracts the **non-sensitive** Pixiv userId from the PHPSESSID prefix as `account_id`, used to group overuse pauses by account; that ID is public, but the cookie itself is never exposed.
-- **Login expiry**: when the cookie expires the task is marked "login expired" and actually suspended (no more empty retries each tick); an email notification is sent and the admin is asked to re-authorize. Re-authorization auto-resumes the task and retries the previously isolated works first.
+- **Dedicated proxy/cookie**: clicking "**Dedicated proxy/cookie**" on a task card opens a dialog with two checkboxes. "Use a dedicated cookie" binds a cookie (must contain `PHPSESSID`) to that task — paste any cookie or click "Use currently saved cookie" to fill in the one from the top Cookie card — so it fetches R18 / restricted works as that account. Without a bound cookie the task runs in "restricted mode" fetching only anonymously visible content. The cookie is used server-side only, never echoed back (when already bound, leaving the field empty keeps it unchanged; filling it replaces it), and is cleared when the task is deleted. Binding also extracts the **non-sensitive** Pixiv userId from the PHPSESSID prefix as `account_id`, used to group overuse pauses by account; that ID is public, but the cookie itself is never exposed. "Use a dedicated proxy" routes all of that task's Pixiv access through its own HTTP proxy (`host:port`); unchecking an active item and saving clears that setting after a confirmation (proxy falls back to the global settings; cookie unbinding switches the task to restricted mode).
+- **Login expiry**: when the cookie expires the task is marked "login expired" and actually suspended (no more empty retries each tick); an email notification is sent and the admin is asked to re-bind a valid cookie via the "Dedicated proxy/cookie" dialog (submitting the exact same expired cookie is rejected). Re-binding auto-resumes the task and retries the previously isolated works first.
 - **Overuse pause (account-level)**: cookie-bound tasks read the Pixiv message inbox at the start of each run and every N successfully downloaded works (default 500, adjust via `schedule.inbox-check-every`). When an "overuse" warning is detected, all scheduled tasks for that account are paused immediately (to avoid getting the account banned by continuing heavy downloads in a short window) and an email is sent. The management tab shows a banner for that account with two recovery buttons:
   - "Ignore the risk, keep downloading! (may get the account banned)" — marks the current warning as explicitly acknowledged and immediately resumes all tasks for that account (a newer warning will still trigger another pause).
   - "I understand, continue all tasks for this account in N minutes" (N defaults to 60, **minimum 60 minutes**) — defers the resume and also writes the ack as a safety net.
@@ -366,6 +366,11 @@ History author column supports:
 ## Artwork Gallery
 
 Visit `http://localhost:6999/pixiv-gallery.html`.
+
+Two buttons protrude from the right edge of the sidebar (also on the novel gallery, series, and statistics pages):
+
+- **Nav**: expands / collapses the left sidebar.
+- **Tasks** (admin only): shows background archive tasks (batch exports / packs) with progress and remaining validity. When a task finishes you can download the archive manually from the list; expired tasks are cleaned up automatically, and the list is cleared after a server restart. Starting a batch export opens this panel automatically.
 
 ### Search & Filter
 
@@ -409,9 +414,24 @@ Click a card to enter `pixiv-artwork.html?id=<artworkId>`:
 
 Enter `pixiv-showcase.html` from detail page for immersive browsing.
 
-### Delete (admin only)
+### Batch Management (admin only)
 
-Admins can delete downloaded artworks. On the detail page, click the red **Delete** button and confirm. In the gallery, click **Manage** in the top toolbar to enter multi-select mode, tick the artworks to remove, then **Delete selected** in the bottom bar. Deletion removes the local files and the database record (tags, collection links and thumbnail cache included) and **cannot be undone**.
+Click **Manage** in the top toolbar to enter multi-select mode, then run batch actions from the **Actions** menu in the bottom bar. Selection options:
+
+- **Select page / Clear**: applies to the current page only.
+- **Select all results**: selects **every** work matching the current filters (you can still untick individual works), and the selection survives pagination.
+
+The **Actions** menu offers three operations:
+
+- **Export**: a dialog lets you pick the **packaging** (group by author / work, or one folder per work ID), the **archive format** (currently ZIP), and whether to **delete source files after export**. Packaging runs in the background: the **Tasks** panel opens automatically to show progress, the download starts automatically when ready, and the archive can also be downloaded manually from the task list. The archive includes a `manifest.json` recording work metadata and original paths. With "delete after export" checked, source files and download records are removed **only after the archive is created successfully**.
+- **Add to collection**: adds the selected works to a collection in one go.
+- **Delete**: batch-deletes the selected works.
+
+#### Deleting artworks
+
+Admins can delete downloaded artworks. On the detail page, click the red **Delete** button and confirm; in the gallery, use batch management and pick **Delete** from the Actions menu. Deletion removes the local files and derived data (tags, collection links and thumbnail cache); the files **cannot be recovered**.
+
+Deleted works keep a **deletion mark** in the download history: they become invisible to the gallery, filters and statistics, but the "skip downloaded works" check in batch downloads, userscripts and scheduled tasks still recognizes them as "downloaded before, but deleted" and will not re-download them by default. To download such a work again, enable **"Allow re-downloading deleted works"** in the download settings (the setting is also captured by "Save as scheduled task"; tasks created by older versions get it backfilled as unchecked on first startup after upgrading). A successful re-download clears the mark and the work reappears in the gallery.
 
 ---
 
@@ -456,7 +476,7 @@ Visit `http://localhost:6999/pixiv-novel-gallery.html`.
 
 Supports search, filter, and sort with a similar interaction pattern to the artwork gallery. In addition to the artwork gallery's search scopes, it offers a **"Body text"** scope: full-text search over downloaded novel bodies (backed by a local full-text index), combinable with age-rating / AI / tag / author / series filters.
 
-Novels can be deleted the same way as artworks (admin only): a **Delete** button on the novel page, and **Manage** multi-select in the gallery. Deletion removes the local files (body / cover / etc.) and the database record, and **cannot be undone**.
+The novel gallery offers the same batch management as the artwork gallery (admin only): **Select all results** for whole-filter selection, and an **Actions** menu with **Export** (packaging, archive format, optional delete-after-export; packaged in the background and tracked in the **Tasks** panel), **Add to collection**, and **Delete**. Novels can also be deleted individually via the **Delete** button on the novel page. Deletion removes the local files (body / cover / etc.); the files **cannot be recovered**, and the same **deletion mark** behavior as artworks applies (deleted novels stay invisible but are skipped as "downloaded before, but deleted" unless "Allow re-downloading deleted works" is enabled).
 
 ### Novel Reading
 
