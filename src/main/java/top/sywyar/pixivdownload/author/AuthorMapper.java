@@ -50,7 +50,7 @@ public interface AuthorMapper {
     @Select("SELECT COUNT(*) FROM ("
             + " SELECT a.author_id FROM artworks a"
             + " LEFT JOIN authors au ON au.author_id = a.author_id"
-            + " WHERE a.author_id IS NOT NULL"
+            + " WHERE a.author_id IS NOT NULL AND a.deleted = 0"
             + " AND (au.name LIKE #{search} OR CAST(a.author_id AS TEXT) LIKE #{search})"
             + " GROUP BY a.author_id)")
     long countAuthorsWithArtworks(@Param("search") String search);
@@ -60,7 +60,7 @@ public interface AuthorMapper {
             + " COUNT(*) AS artworkCount"
             + " FROM artworks a"
             + " LEFT JOIN authors au ON au.author_id = a.author_id"
-            + " WHERE a.author_id IS NOT NULL"
+            + " WHERE a.author_id IS NOT NULL AND a.deleted = 0"
             + " AND (au.name LIKE #{search} OR CAST(a.author_id AS TEXT) LIKE #{search})"
             + " GROUP BY a.author_id, au.name"
             + " ORDER BY"

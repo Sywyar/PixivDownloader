@@ -51,8 +51,9 @@ public class NovelDownloadController {
         String mode = setupService.getMode();
         if ("multi".equals(mode)) {
             String pdMode = multiModeConfig.getPostDownloadMode();
+            // 软删除的小说文件已不在磁盘，视为未下载放行（是否真正重下由客户端的下载设置决定）
             if (("never-delete".equals(pdMode) || "timed-delete".equals(pdMode))
-                    && novelDatabase.hasNovel(request.getNovelId())) {
+                    && novelDatabase.hasActiveNovel(request.getNovelId())) {
                 return ResponseEntity.ok(new AlreadyDownloadedResponse(
                         true, true, messages.get("download.already-downloaded")));
             }

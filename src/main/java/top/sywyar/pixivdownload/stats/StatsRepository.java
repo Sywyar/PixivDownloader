@@ -30,11 +30,11 @@ public class StatsRepository {
                         ? new StatsDto.Overview(rs.getLong("total_artworks"), rs.getLong("total_images"),
                                 rs.getLong("total_moved"), 0, 0, 0, 0)
                         : new StatsDto.Overview(0, 0, 0, 0, 0, 0, 0));
-        long totalNovels = queryCount("SELECT COUNT(*) FROM novels");
+        long totalNovels = queryCount("SELECT COUNT(*) FROM novels WHERE deleted = 0");
         long totalAuthors = queryCount("SELECT COUNT(DISTINCT author_id) FROM ("
-                + " SELECT author_id FROM artworks WHERE author_id IS NOT NULL"
+                + " SELECT author_id FROM artworks WHERE author_id IS NOT NULL AND deleted = 0"
                 + " UNION"
-                + " SELECT author_id FROM novels WHERE author_id IS NOT NULL"
+                + " SELECT author_id FROM novels WHERE author_id IS NOT NULL AND deleted = 0"
                 + ")");
         long totalTags = queryCount("SELECT COUNT(DISTINCT tag_id) FROM ("
                 + " SELECT tag_id FROM artwork_tags"
@@ -42,9 +42,11 @@ public class StatsRepository {
                 + " SELECT tag_id FROM novel_tags"
                 + ")");
         long totalSeries = queryCount("SELECT COUNT(*) FROM ("
-                + " SELECT series_id FROM artworks WHERE series_id IS NOT NULL AND series_id > 0 GROUP BY series_id"
+                + " SELECT series_id FROM artworks WHERE series_id IS NOT NULL AND series_id > 0 AND deleted = 0"
+                + " GROUP BY series_id"
                 + " UNION ALL"
-                + " SELECT series_id FROM novels WHERE series_id IS NOT NULL AND series_id > 0 GROUP BY series_id"
+                + " SELECT series_id FROM novels WHERE series_id IS NOT NULL AND series_id > 0 AND deleted = 0"
+                + " GROUP BY series_id"
                 + ")");
         return new StatsDto.Overview(
                 fromStatsRow.totalArtworks(), fromStatsRow.totalImages(), fromStatsRow.totalMoved(),
@@ -60,9 +62,9 @@ public class StatsRepository {
     public List<StatsDto.AuthorStat> topAuthors(int limit) {
         String sql = "SELECT works.author_id AS author_id, au.name AS name, COUNT(*) AS cnt"
                 + " FROM ("
-                + " SELECT author_id FROM artworks WHERE author_id IS NOT NULL"
+                + " SELECT author_id FROM artworks WHERE author_id IS NOT NULL AND deleted = 0"
                 + " UNION ALL"
-                + " SELECT author_id FROM novels WHERE author_id IS NOT NULL"
+                + " SELECT author_id FROM novels WHERE author_id IS NOT NULL AND deleted = 0"
                 + " ) works"
                 + " LEFT JOIN authors au ON au.author_id = works.author_id"
                 + " GROUP BY works.author_id, au.name"
@@ -103,9 +105,9 @@ public class StatsRepository {
     public List<StatsDto.MonthlyStat> monthlyArtworkCounts() {
         String sql = "SELECT strftime('%Y-%m', time / 1000, 'unixepoch', 'localtime') AS ym, COUNT(*) AS cnt"
                 + " FROM ("
-                + " SELECT time FROM artworks WHERE time > 0"
+                + " SELECT time FROM artworks WHERE time > 0 AND deleted = 0"
                 + " UNION ALL"
-                + " SELECT time FROM novels WHERE time > 0"
+                + " SELECT time FROM novels WHERE time > 0 AND deleted = 0"
                 + " )"
                 + " GROUP BY ym ORDER BY ym ASC";
         return jdbc.getJdbcTemplate().query(sql, (rs, rowNum) ->

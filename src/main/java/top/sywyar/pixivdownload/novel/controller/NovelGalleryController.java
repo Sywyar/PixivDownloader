@@ -146,6 +146,22 @@ public class NovelGalleryController {
     }
 
     /**
+     * 下载判重专用的三态查询：未下载 / 已下载 / 已下载但被画廊删除（软删除）。
+     * 画廊详情对软删除返回 404，批量下载的「跳过已下载」需要据 {@code deleted} 区分
+     * 「从未下载」与「已删除」，故单独提供本端点。
+     */
+    @GetMapping("/novel/{novelId}/downloaded")
+    public ResponseEntity<NovelDownloadedStateResponse> novelDownloadedState(@PathVariable long novelId,
+                                                                             HttpServletRequest httpRequest) {
+        guestAccessGuard.requireNovelVisible(httpRequest, novelId);
+        NovelRecord record = novelDatabase.getNovel(novelId);
+        return ResponseEntity.ok(new NovelDownloadedStateResponse(
+                record != null, record != null && record.deleted()));
+    }
+
+    public record NovelDownloadedStateResponse(boolean downloaded, boolean deleted) {}
+
+    /**
      * 删除单本小说（含磁盘文件与全部 DB 留存数据）。仅管理员可用：{@code /api/gallery/} 由
      * {@code AuthFilter} 按 monitor 语义保护，访客邀请白名单只放行 GET，DELETE 永远命中管理员校验。
      */

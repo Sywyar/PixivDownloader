@@ -409,6 +409,11 @@
                 <label for="s-verify-files" style="cursor:pointer;" data-i18n="label.settings.verify">实际目录检测</label>
                 <span class="setting-help-icon" data-i18n-title="dialog.verify-files" title="通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载">?</span>
             </div>
+            <div class="setting-item" id="s-redownload-deleted-wrap" style="display:none;">
+                <input type="checkbox" id="s-redownload-deleted">
+                <label for="s-redownload-deleted" style="cursor:pointer;" data-i18n="label.settings.redownload-deleted">允许已删除的作品被重新下载</label>
+                <span class="setting-help-icon" data-i18n-title="dialog.redownload-deleted" title="通过画廊删除的作品会保留删除标记：不勾选（默认）时视为已下载而跳过，原因为「已经下载过，但被删除」；勾选后视为未下载并重新下载，成功后删除标记自动清除">?</span>
+            </div>
             <div class="setting-item">
                 <input type="checkbox" id="s-bookmark">
                 <label for="s-bookmark" style="cursor:pointer;" data-i18n="label.settings.bookmark">下载后自动收藏</label>

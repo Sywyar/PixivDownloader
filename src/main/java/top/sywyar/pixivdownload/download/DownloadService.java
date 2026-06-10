@@ -742,6 +742,11 @@ public class DownloadService implements ArtworkDownloader {
     public ArtworkRecord getDownloadedRecord(Long artworkId, boolean verifyFiles) {
         ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
         if (artwork != null) {
+            // 软删除标记的记录磁盘文件本就已删：跳过实际目录检测，更不能当陈旧记录清掉
+            // （那会抹掉「已下载过，但被删除」的判重依据）。原样返回，由调用方按 deleted 决策。
+            if (artwork.deleted()) {
+                return artwork;
+            }
             if (!verifyFiles) {
                 return artwork;
             }
@@ -778,6 +783,10 @@ public class DownloadService implements ArtworkDownloader {
         ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
         String normalizedDescription = PixivDescriptionHtml.normalizeLinks(meta.getDescription());
         if (existing != null) {
+            // 软删除标记的记录不做元数据回填：文件已删，记录只承担「已下载过，但被删除」的判重职责
+            if (existing.deleted()) {
+                return existing;
+            }
             if (StringUtils.hasText(existing.title())) {
                 return existing;
             }

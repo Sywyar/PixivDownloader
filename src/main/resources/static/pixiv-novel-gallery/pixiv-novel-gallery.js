@@ -1024,7 +1024,7 @@ function openBatchDeleteModal() {
     const count = batchSelectedCount();
     if (count === 0) return;
     document.getElementById('batchDeleteMessage').textContent = pageI18n.t('novel:manage.confirm-message',
-        '确定要删除选中的 {count} 本小说吗？这些小说的正文、封面等文件与下载记录都会被永久删除，且无法恢复。',
+        '确定要删除选中的 {count} 本小说吗？这些小说的正文、封面等文件会被永久删除且无法恢复；下载记录将保留删除标记，默认不会被重新下载。',
         { count });
     document.getElementById('modalBatchDelete').classList.add('open');
 }

@@ -390,6 +390,7 @@ public class ArtworksBackFill {
         addColumnIfMissing(conn, "ALTER TABLE artworks ADD COLUMN description TEXT DEFAULT NULL");
         addColumnIfMissing(conn, "ALTER TABLE artworks ADD COLUMN series_id INTEGER DEFAULT NULL");
         addColumnIfMissing(conn, "ALTER TABLE artworks ADD COLUMN series_order INTEGER DEFAULT NULL");
+        addColumnIfMissing(conn, "ALTER TABLE artworks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
     }
 
     private static void addColumnIfMissing(Connection conn, String ddl) {
@@ -410,9 +411,10 @@ public class ArtworksBackFill {
                 + " a.series_id,"
                 + " (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id LIMIT 1) AS has_tags"
                 + " FROM artworks a"
-                + " WHERE a.author_id IS NULL OR a.\"R18\" IS NULL OR a.is_ai IS NULL OR a.description IS NULL"
+                + " WHERE a.deleted = 0"
+                + " AND (a.author_id IS NULL OR a.\"R18\" IS NULL OR a.is_ai IS NULL OR a.description IS NULL"
                 + " OR a.series_id IS NULL"
-                + " OR NOT EXISTS (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id)"
+                + " OR NOT EXISTS (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id))"
                 + " ORDER BY a.artwork_id";
 
         List<Candidate> list = new ArrayList<>();

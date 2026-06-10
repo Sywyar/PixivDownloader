@@ -91,6 +91,7 @@
         document.getElementById('s-concurrent').value = state.settings.concurrent;
         document.getElementById('s-skip').checked = state.settings.skipHistory;
         document.getElementById('s-verify-files').checked = state.settings.verifyHistoryFiles ?? false;
+        document.getElementById('s-redownload-deleted').checked = state.settings.redownloadDeleted ?? false;
         document.getElementById('s-bookmark').checked = state.settings.bookmark ?? false;
         document.getElementById('s-image-delay').value = state.settings.imageDelay ?? 0;
         state.settings.fileNameTemplate = normalizeFileNameTemplate(state.settings.fileNameTemplate);
@@ -164,6 +165,7 @@
         state.settings.concurrent = Math.max(1, parseInt(document.getElementById('s-concurrent').value) || 1);
         state.settings.skipHistory = document.getElementById('s-skip').checked;
         state.settings.verifyHistoryFiles = document.getElementById('s-verify-files').checked;
+        state.settings.redownloadDeleted = document.getElementById('s-redownload-deleted').checked;
         state.settings.bookmark = document.getElementById('s-bookmark').checked;
         state.settings.fileNameTemplate = normalizeFileNameTemplate(document.getElementById('s-file-name-template').value);
         const sel = document.getElementById('s-collection');
@@ -223,9 +225,11 @@
     }
 
     function toggleSkipHistoryOptions() {
-        const wrap = document.getElementById('s-verify-files-wrap');
-        if (!wrap) return;
-        wrap.style.display = document.getElementById('s-skip').checked ? '' : 'none';
+        const visible = document.getElementById('s-skip').checked ? '' : 'none';
+        ['s-verify-files-wrap', 's-redownload-deleted-wrap'].forEach(id => {
+            const wrap = document.getElementById(id);
+            if (wrap) wrap.style.display = visible;
+        });
     }
 
     function updateBatchLimitNote() {

@@ -80,7 +80,7 @@ public interface MangaSeriesMapper {
             + " SELECT a.series_id FROM artworks a"
             + " LEFT JOIN manga_series ms ON ms.series_id = a.series_id"
             + " LEFT JOIN authors au ON au.author_id = ms.author_id"
-            + " WHERE a.series_id IS NOT NULL AND a.series_id > 0"
+            + " WHERE a.series_id IS NOT NULL AND a.series_id > 0 AND a.deleted = 0"
             + " AND (ms.title LIKE #{search} OR au.name LIKE #{search} OR CAST(a.series_id AS TEXT) LIKE #{search})"
             + " GROUP BY a.series_id)")
     long countSeriesWithArtworks(@Param("search") String search);
@@ -93,7 +93,7 @@ public interface MangaSeriesMapper {
             + " FROM artworks a"
             + " LEFT JOIN manga_series ms ON ms.series_id = a.series_id"
             + " LEFT JOIN authors au ON au.author_id = ms.author_id"
-            + " WHERE a.series_id IS NOT NULL AND a.series_id > 0"
+            + " WHERE a.series_id IS NOT NULL AND a.series_id > 0 AND a.deleted = 0"
             + " AND (ms.title LIKE #{search} OR au.name LIKE #{search} OR CAST(a.series_id AS TEXT) LIKE #{search})"
             + " GROUP BY a.series_id, ms.title, ms.author_id, au.name"
             + " ORDER BY"
@@ -120,7 +120,7 @@ public interface MangaSeriesMapper {
             + " FROM artworks a"
             + " LEFT JOIN manga_series ms ON ms.series_id = a.series_id"
             + " LEFT JOIN authors au ON au.author_id = ms.author_id"
-            + " WHERE a.series_id = #{seriesId} AND a.series_id > 0"
+            + " WHERE a.series_id = #{seriesId} AND a.series_id > 0 AND a.deleted = 0"
             + " GROUP BY a.series_id, ms.title, ms.author_id, au.name,"
             + " ms.updated_time, ms.description, ms.cover_ext, ms.cover_folder")
     MangaSeriesDetail findSeriesDetailById(@Param("seriesId") long seriesId);

@@ -142,7 +142,8 @@ class ImageHashMapperTest {
                     count INTEGER NOT NULL,
                     time INTEGER NOT NULL,
                     author_id INTEGER,
-                    "R18" INTEGER
+                    "R18" INTEGER,
+                    deleted INTEGER NOT NULL DEFAULT 0
                 )
                 """);
         jdbc.execute("""

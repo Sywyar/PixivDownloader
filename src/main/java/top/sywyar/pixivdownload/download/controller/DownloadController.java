@@ -77,11 +77,12 @@ public class DownloadController {
             for (String url : request.getImageUrls()) DownloadService.validatePixivUrl(url);
         }
 
-        // 多人模式：never-delete/timed-delete 模式下，已下载过的作品直接返回成功，不消耗配额
+        // 多人模式：never-delete/timed-delete 模式下，已下载过的作品直接返回成功，不消耗配额。
+        // 软删除的作品文件已不在磁盘，视为未下载放行（是否真正重下由客户端的下载设置决定）。
         if ("multi".equals(mode)) {
             String pdMode = multiModeConfig.getPostDownloadMode();
             if ("never-delete".equals(pdMode) || "timed-delete".equals(pdMode)) {
-                if (pixivDatabase.hasArtwork(request.getArtworkId())) {
+                if (pixivDatabase.hasActiveArtwork(request.getArtworkId())) {
                     return ResponseEntity.ok(new AlreadyDownloadedResponse(
                             true, true, messages.get("download.already-downloaded")));
                 }
@@ -273,7 +274,8 @@ public class DownloadController {
         List<ArtworkRecord> artworks = new LinkedList<>();
         for (Long artworkId : request.getArtworkIds()) {
             ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
-            if (artwork == null) {
+            // 软删除的作品对历史读取面不可见（页面「已下载」标记不应命中）
+            if (artwork == null || artwork.deleted()) {
                 continue;
             }
             artworks.add(artwork);
@@ -523,6 +525,7 @@ public class DownloadController {
                 .fileName(artwork.fileName())
                 .fileNameTemplate(pixivDatabase.getFileNameTemplate(resolveFileNameId(artwork)))
                 .tags(tags)
+                .deleted(artwork.deleted())
                 .build();
     }
 

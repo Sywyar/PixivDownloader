@@ -214,7 +214,8 @@ class GalleryRepositoryTest {
                     description TEXT DEFAULT NULL,
                     moved INTEGER DEFAULT 0,
                     move_folder TEXT,
-                    move_time INTEGER
+                    move_time INTEGER,
+                    deleted INTEGER NOT NULL DEFAULT 0
                 )
                 """);
         jdbc.execute("""

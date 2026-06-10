@@ -311,13 +311,16 @@
         }
     }
 
+    // 三态判重：null = 未下载；{downloaded:true, deleted:false} = 已下载；{downloaded:true, deleted:true} = 已下载但被画廊删除
     async function checkNovelDownloaded(novelId) {
         try {
-            const res = await fetch(`${BASE}/api/gallery/novel/${encodeURIComponent(novelId)}`,
+            const res = await fetch(`${BASE}/api/gallery/novel/${encodeURIComponent(novelId)}/downloaded`,
                 {credentials: 'same-origin'});
-            return res.ok;
+            if (!res.ok) return null;
+            const data = await res.json();
+            return data && data.downloaded ? data : null;
         } catch {
-            return false;
+            return null;
         }
     }
 
@@ -699,7 +702,17 @@
 
         if (state.settings.skipHistory) {
             const downloaded = await checkDownloaded(item.id);
-            if (downloaded) {
+            if (downloaded && downloaded.deleted && state.settings.redownloadDeleted) {
+                // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
+            } else if (downloaded && downloaded.deleted) {
+                item.status = 'skipped';
+                item.lastMessage = bt('queue.message.skipped-deleted', '跳过 — 已经下载过，但被删除');
+                item.endTime = new Date().toISOString();
+                updateStats();
+                saveQueue();
+                renderQueue();
+                return;
+            } else if (downloaded) {
                 // 若 verifyFiles=true 时是从磁盘恢复出来的裸记录（title 为空），
                 // 拉 Pixiv meta 补齐后再跳过，避免画廊里这些恢复出的作品没有标题/作者/简介。
                 let recoveredMeta = false;
@@ -1010,9 +1023,12 @@
 
             if (state.settings.skipHistory) {
                 const downloaded = await checkNovelDownloaded(novelId);
-                if (downloaded) {
+                // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
+                if (downloaded && !(downloaded.deleted && state.settings.redownloadDeleted)) {
                     item.status = 'skipped';
-                    item.lastMessage = bt('queue.message.skipped-history', '跳过 — 历史记录中已存在');
+                    item.lastMessage = downloaded.deleted
+                        ? bt('queue.message.skipped-deleted', '跳过 — 已经下载过，但被删除')
+                        : bt('queue.message.skipped-history', '跳过 — 历史记录中已存在');
                     item.endTime = new Date().toISOString();
                     updateStats();
                     saveQueue();

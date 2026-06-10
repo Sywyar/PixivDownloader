@@ -91,7 +91,8 @@ class AuthorMapperTest {
                         count INTEGER NOT NULL,
                         extensions TEXT NOT NULL,
                         time INTEGER NOT NULL,
-                        author_id INTEGER
+                        author_id INTEGER,
+                        deleted INTEGER NOT NULL DEFAULT 0
                     )
                     """);
 

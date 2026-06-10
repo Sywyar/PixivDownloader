@@ -1589,6 +1589,7 @@ public class ScheduleExecutor {
                 longOrNull(d.path("intervalMs")),
                 intOrNull(d.path("imageDelayMs")),
                 d.path("verifyFiles").asBoolean(false),
+                d.path("redownloadDeleted").asBoolean(false),
                 d.path("novelFormat").asText("txt"),
                 d.path("novelMerge").asBoolean(false),
                 d.path("novelMergeFormat").asText("epub"),
@@ -1630,10 +1631,20 @@ public class ScheduleExecutor {
         return null;
     }
 
-    /** 插画去重谓词：按「实际目录检测」开关选 isArtworkDownloaded(verify) 或裸 hasArtwork；小说恒为 hasNovel。 */
+    /**
+     * 插画去重谓词：按「实际目录检测」开关选 isArtworkDownloaded(verify) 或裸 hasArtwork；小说恒为 hasNovel。
+     * 「允许已删除的作品被重新下载」开启时，软删除标记的记录视为未下载（重新下载落库会替换残留行、标记复位）；
+     * 关闭（默认）时软删除记录照样命中「已下载」而被跳过。verify 对软删除行无意义（文件本就已删），
+     * 且 {@code isArtworkDownloaded} 对软删除行短路返回已下载，故开启重下时先按 deleted 排除。
+     */
     private LongPredicate alreadyDownloadedPredicate(boolean novel, Download download) {
         if (novel) {
-            return novelDatabase::hasNovel;
+            return download.redownloadDeleted() ? novelDatabase::hasActiveNovel : novelDatabase::hasNovel;
+        }
+        if (download.redownloadDeleted()) {
+            return download.verifyFiles()
+                    ? id -> !pixivDatabase.isArtworkDeleted(id) && artworkDownloader.isArtworkDownloaded(id, true)
+                    : pixivDatabase::hasActiveArtwork;
         }
         return download.verifyFiles()
                 ? id -> artworkDownloader.isArtworkDownloaded(id, true)
@@ -1674,13 +1685,16 @@ public class ScheduleExecutor {
     /**
      * 任务快照的下载设置（来自 params_json 的 {@code download} 段）。
      *
-     * @param concurrent   最大并发数（作品级），实际取 {@code min(该值, 对应下载池大小)}
-     * @param intervalMs   作品间隔（毫秒，礼貌延迟），{@code null} / 0 不延迟
-     * @param imageDelayMs 图片间隔（毫秒，仅插画多图相邻图片间），{@code null} / 0 不延迟
-     * @param verifyFiles  实际目录检测（仅插画）：去重时校验磁盘文件是否存在
+     * @param concurrent        最大并发数（作品级），实际取 {@code min(该值, 对应下载池大小)}
+     * @param intervalMs        作品间隔（毫秒，礼貌延迟），{@code null} / 0 不延迟
+     * @param imageDelayMs      图片间隔（毫秒，仅插画多图相邻图片间），{@code null} / 0 不延迟
+     * @param verifyFiles       实际目录检测（仅插画）：去重时校验磁盘文件是否存在
+     * @param redownloadDeleted 允许已删除的作品被重新下载：软删除标记的记录视为未下载；
+     *                          关闭（默认）时视为已下载跳过
      */
     record Download(String fileNameTemplate, boolean bookmark, Long collectionId,
                     int concurrent, Long intervalMs, Integer imageDelayMs, boolean verifyFiles,
+                    boolean redownloadDeleted,
                     String novelFormat, boolean novelMerge, String novelMergeFormat,
                     boolean novelAutoTranslate, String novelTranslateLanguage,
                     Integer novelTranslateSegmentSize) {

@@ -272,6 +272,14 @@ class ScheduleExecutorFilterTest {
             assertThat(ScheduleExecutor.parseDownload(MAPPER.readTree("{\"concurrent\":0}")).concurrent())
                     .isEqualTo(1);
         }
+
+        @Test
+        @DisplayName("parseDownload：redownloadDeleted 缺省为 false（旧任务快照按不允许重下已删除作品处理），显式 true 可解析")
+        void parseDownloadRedownloadDeleted() throws Exception {
+            assertThat(ScheduleExecutor.parseDownload(MAPPER.readTree("{}")).redownloadDeleted()).isFalse();
+            assertThat(ScheduleExecutor.parseDownload(MAPPER.readTree("{\"redownloadDeleted\":true}"))
+                    .redownloadDeleted()).isTrue();
+        }
     }
 
     @Nested

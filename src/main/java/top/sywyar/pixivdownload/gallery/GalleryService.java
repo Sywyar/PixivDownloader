@@ -66,7 +66,7 @@ public class GalleryService {
 
     public DownloadedResponse findArtwork(long artworkId) {
         ArtworkRecord rec = downloadService.getDownloadedRecord(artworkId);
-        if (rec == null) return null;
+        if (rec == null || rec.deleted()) return null;
         Map<Long, String> authorNames = resolveAuthorNames(List.of(rec));
         Map<Long, String> seriesTitles = resolveSeriesTitles(List.of(rec));
         return toDownloadedResponse(rec, authorNames, seriesTitles);
@@ -103,13 +103,15 @@ public class GalleryService {
     }
 
     /**
-     * 删除单个作品：先删磁盘文件（图片 / 缩略图 / 图库缓存 / 空目录），再删全部 DB 留存数据。
-     * 作品不存在时返回 {@code false}。磁盘文件删除失败（被锁定 / 权限不足等）会立即抛出，
-     * 不再继续删 DB，避免 DB 与磁盘状态不一致出现孤儿文件。
+     * 删除单个作品：先删磁盘文件（图片 / 缩略图 / 图库缓存 / 空目录），再清理 DB 派生数据并标记软删除
+     * （感知哈希 / 标签关联 / 收藏夹关联照旧清理，主行保留并置 {@code deleted = 1}，见
+     * {@link PixivDatabase#markArtworkDeleted}）——使下载判重能识别「已下载过，但被删除」、
+     * 避免被当作未下载重新下载。作品不存在或已被标记删除时返回 {@code false}。磁盘文件删除失败
+     * （被锁定 / 权限不足等）会立即抛出，不再继续动 DB，避免 DB 与磁盘状态不一致出现孤儿文件。
      */
     public boolean deleteArtwork(long artworkId) {
         ArtworkRecord record = pixivDatabase.getArtwork(artworkId);
-        if (record == null) {
+        if (record == null || record.deleted()) {
             return false;
         }
         if (!artworkFileLocator.deleteArtworkFiles(record)) {
@@ -118,7 +120,7 @@ public class GalleryService {
                     "作品 {0} 的磁盘文件未能全部删除，已中止数据库清理",
                     artworkId);
         }
-        pixivDatabase.deleteArtwork(artworkId);
+        pixivDatabase.markArtworkDeleted(artworkId);
         log.info(logMessage("gallery.log.deleted", artworkId));
         return true;
     }
@@ -258,6 +260,7 @@ public class GalleryService {
                 .seriesId(seriesId == null || seriesId <= 0 ? null : seriesId)
                 .seriesOrder(artwork.seriesOrder())
                 .seriesTitle(seriesTitle)
+                .deleted(artwork.deleted())
                 .build();
     }
 }

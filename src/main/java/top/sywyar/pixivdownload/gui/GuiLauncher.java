@@ -82,15 +82,17 @@ public class GuiLauncher {
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
 
     /**
-     * artworks 表中由后端在启动时通过 {@code ALTER TABLE ... ADD COLUMN} 自动补齐的列
-     * （带安全默认值、无需联网抓取即可迁移，见 {@code PixivDatabase.init()}）。
+     * artworks / novels 表中由后端在启动时通过 {@code ALTER TABLE ... ADD COLUMN} 自动补齐的列
+     * （带安全默认值、无需联网抓取即可迁移，见 {@code PixivDatabase.init()} / {@code NovelDatabase.init()}）。
      * <p>这些列在旧库里缺失只是后端首启前的暂时状态，会被自动迁移补齐，不应阻断
      * {@link #supportsStartupAutoBackfill} 的整段元数据自动回填判定。与
      * {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 区分：后者是必须联网抓取才能填充的列。
      */
     private static final Set<ArtworksBackFill.DatabaseColumn> RUNTIME_AUTO_MIGRATED_COLUMNS = Set.of(
             new ArtworksBackFill.DatabaseColumn("artworks", "file_name"),
-            new ArtworksBackFill.DatabaseColumn("artworks", "file_author_name_id")
+            new ArtworksBackFill.DatabaseColumn("artworks", "file_author_name_id"),
+            new ArtworksBackFill.DatabaseColumn("artworks", "deleted"),
+            new ArtworksBackFill.DatabaseColumn("novels", "deleted")
     );
 
     /**

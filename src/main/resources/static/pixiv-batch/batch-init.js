@@ -120,7 +120,7 @@
         }
 
         // Settings change → auto-save
-        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-bookmark', 's-collection', 's-file-name-template', 's-novel-format', 's-novel-merge', 's-novel-merge-format', 's-novel-auto-translate', 's-novel-translate-lang', 's-novel-translate-seg'].forEach(id => {
+        ['s-interval', 's-image-delay', 's-concurrent', 's-skip', 's-verify-files', 's-redownload-deleted', 's-bookmark', 's-collection', 's-file-name-template', 's-novel-format', 's-novel-merge', 's-novel-merge-format', 's-novel-auto-translate', 's-novel-translate-lang', 's-novel-translate-seg'].forEach(id => {
             const el = document.getElementById(id);
             if (!el) return;
             el.addEventListener('change', syncSettings);

@@ -29,7 +29,8 @@ class StatsRepositoryTest {
         jdbc.execute("INSERT INTO statistics(id, total_artworks, total_images, total_moved) VALUES (1, 5, 20, 2)");
         jdbc.execute("CREATE TABLE authors (author_id INTEGER PRIMARY KEY, name TEXT, updated_time INTEGER)");
         jdbc.execute("INSERT INTO authors(author_id, name, updated_time) VALUES (100, 'Alice', 0), (200, 'Bob', 0), (300, 'Carol', 0)");
-        jdbc.execute("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY, author_id INTEGER, series_id INTEGER, time INTEGER, count INTEGER)");
+        jdbc.execute("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY, author_id INTEGER, series_id INTEGER, time INTEGER, count INTEGER,"
+                + " deleted INTEGER NOT NULL DEFAULT 0)");
         // Alice 有 3 件，Bob 1 件，1 件无作者
         long ts = 1714521600000L; // 2024-05 (UTC)
         jdbc.update("INSERT INTO artworks(artwork_id, author_id, series_id, time, count) VALUES (?,?,?,?,?)", 1, 100, 9, ts, 2);
@@ -41,7 +42,8 @@ class StatsRepositoryTest {
         jdbc.execute("INSERT INTO tags(tag_id, name, translated_name) VALUES (1, 'tagA', '甲'), (2, 'tagB', NULL), (3, 'tagC', NULL)");
         jdbc.execute("CREATE TABLE artwork_tags (artwork_id INTEGER, tag_id INTEGER)");
         jdbc.execute("INSERT INTO artwork_tags(artwork_id, tag_id) VALUES (1,1),(2,1),(3,1),(4,2)");
-        jdbc.execute("CREATE TABLE novels (novel_id INTEGER PRIMARY KEY, author_id INTEGER, series_id INTEGER, time INTEGER, raw_content TEXT)");
+        jdbc.execute("CREATE TABLE novels (novel_id INTEGER PRIMARY KEY, author_id INTEGER, series_id INTEGER, time INTEGER, raw_content TEXT,"
+                + " deleted INTEGER NOT NULL DEFAULT 0)");
         jdbc.update("INSERT INTO novels(novel_id, author_id, series_id, time, raw_content) VALUES (?,?,?,?,?)", 1000, 200, 99, ts + 5000, "x");
         jdbc.update("INSERT INTO novels(novel_id, author_id, series_id, time, raw_content) VALUES (?,?,?,?,?)", 1001, 300, 88, ts + 2678400000L, "y");
         jdbc.execute("CREATE TABLE novel_tags (novel_id INTEGER, tag_id INTEGER)");

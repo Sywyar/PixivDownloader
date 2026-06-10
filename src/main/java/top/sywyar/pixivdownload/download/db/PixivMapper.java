@@ -10,7 +10,7 @@ public interface PixivMapper {
 
     String SELECT_ARTWORK = "SELECT artwork_id, title, folder, count, extensions, time, moved,"
             + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name, file_author_name_id,"
-            + " series_id, series_order FROM artworks";
+            + " series_id, series_order, deleted FROM artworks";
 
     // ── DDL ────────────────────────────────────────────────────────────────────
 
@@ -31,7 +31,8 @@ public interface PixivMapper {
             + "series_order INTEGER DEFAULT NULL,"
             + "moved INTEGER DEFAULT 0,"
             + "move_folder TEXT,"
-            + "move_time INTEGER)")
+            + "move_time INTEGER,"
+            + "deleted INTEGER NOT NULL DEFAULT 0)")
     void createArtworksTable();
 
     @Update("CREATE TABLE IF NOT EXISTS file_author_names ("
@@ -117,6 +118,9 @@ public interface PixivMapper {
     @Update("ALTER TABLE artworks ADD COLUMN series_order INTEGER DEFAULT NULL")
     void addSeriesOrderColumn();
 
+    @Update("ALTER TABLE artworks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+    void addDeletedColumn();
+
     @Update("UPDATE artworks SET time = time * 1000"
             + " WHERE time > 0 AND time < 1000000000000")
     int migrateArtworkTimestampsToMillis();
@@ -192,7 +196,7 @@ public interface PixivMapper {
                         @Param("seriesId") Long seriesId,
                         @Param("seriesOrder") Long seriesOrder);
 
-    @Select(SELECT_ARTWORK + " WHERE RTRIM(RTRIM(move_folder, '/'), '\\') = #{moveFolder}")
+    @Select(SELECT_ARTWORK + " WHERE RTRIM(RTRIM(move_folder, '/'), '\\') = #{moveFolder} AND deleted = 0")
     ArtworkRecord findByNormalizedMoveFolder(String moveFolder);
 
     @Update("UPDATE artworks SET moved = 1, move_folder = #{movePath}, move_time = #{moveTime}"
@@ -220,6 +224,14 @@ public interface PixivMapper {
     @Delete("DELETE FROM artworks WHERE artwork_id = #{artworkId}")
     void deleteById(long artworkId);
 
+    /** 软删除标记：主行保留（供下载判重识别「已下载但被删除」），仅置 deleted 位。 */
+    @Update("UPDATE artworks SET deleted = 1 WHERE artwork_id = #{artworkId}")
+    void markDeletedById(long artworkId);
+
+    /** 仅清除软删除残留行：重新下载落库前调用，使 INSERT OR IGNORE 能写入全新行（deleted 复位）。 */
+    @Delete("DELETE FROM artworks WHERE artwork_id = #{artworkId} AND deleted = 1")
+    int deleteIfMarkedDeleted(long artworkId);
+
     @Delete("DELETE FROM artwork_image_hashes WHERE artwork_id = #{artworkId}")
     void deleteImageHashesByArtwork(long artworkId);
 
@@ -229,43 +241,51 @@ public interface PixivMapper {
     @Select("SELECT COUNT(*) FROM artworks WHERE artwork_id = #{artworkId}")
     int countById(long artworkId);
 
+    /** 未被软删除的存量判定；deleted 行视为不存在。 */
+    @Select("SELECT COUNT(*) FROM artworks WHERE artwork_id = #{artworkId} AND deleted = 0")
+    int countActiveById(long artworkId);
+
+    @Select("SELECT COUNT(*) FROM artworks WHERE artwork_id = #{artworkId} AND deleted = 1")
+    int countDeletedById(long artworkId);
+
     @Select("SELECT COUNT(*) FROM artworks WHERE time = #{time}")
     int countByTime(long time);
 
     @Select("SELECT MAX(time) FROM artworks")
     Long findMaxTime();
 
-    @Select("SELECT COUNT(*) FROM artworks")
+    @Select("SELECT COUNT(*) FROM artworks WHERE deleted = 0")
     long countAll();
 
-    @Select("SELECT artwork_id FROM artworks")
+    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0")
     List<Long> findAllIds();
 
-    @Select("SELECT artwork_id FROM artworks ORDER BY time DESC")
+    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0 ORDER BY time DESC")
     List<Long> findAllIdsSortedByTimeDesc();
 
     /**
      * 按 author_id 升序、time 降序排列。NULL author_id 用 Long.MAX_VALUE 作为哨兵排到末尾。
      */
-    @Select("SELECT artwork_id FROM artworks"
+    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0"
             + " ORDER BY COALESCE(author_id, 9223372036854775807), time DESC")
     List<Long> findAllIdsSortedByAuthorIdAsc();
 
-    @Select("SELECT artwork_id FROM artworks ORDER BY time DESC LIMIT #{size} OFFSET #{offset}")
+    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0"
+            + " ORDER BY time DESC LIMIT #{size} OFFSET #{offset}")
     List<Long> findIdsSortedByTimeDescPaged(@Param("size") int size, @Param("offset") int offset);
 
-    @Select("SELECT artwork_id FROM artworks"
+    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0"
             + " ORDER BY COALESCE(author_id, 9223372036854775807), time DESC"
             + " LIMIT #{size} OFFSET #{offset}")
     List<Long> findIdsSortedByAuthorIdAscPaged(@Param("size") int size, @Param("offset") int offset);
 
-    @Select(SELECT_ARTWORK + " WHERE time < #{beforeTime}")
+    @Select(SELECT_ARTWORK + " WHERE time < #{beforeTime} AND deleted = 0")
     List<ArtworkRecord> findByTimeBefore(long beforeTime);
 
     @Update("UPDATE artworks SET author_id = #{authorId} WHERE artwork_id = #{artworkId}")
     void updateAuthorId(@Param("artworkId") long artworkId, @Param("authorId") long authorId);
 
-    @Select("SELECT artwork_id FROM artworks WHERE author_id IS NULL")
+    @Select("SELECT artwork_id FROM artworks WHERE author_id IS NULL AND deleted = 0")
     List<Long> findIdsMissingAuthor();
 
     @Update("UPDATE artworks SET series_id = #{seriesId}, series_order = #{seriesOrder}"
@@ -284,7 +304,7 @@ public interface PixivMapper {
      *
      * <p>NULL 与"无系列"哨兵 {@code 0} 的区分见 {@link top.sywyar.pixivdownload.series.MangaSeriesService#NO_SERIES_SENTINEL}。
      */
-    @Select("SELECT artwork_id FROM artworks WHERE series_id IS NULL")
+    @Select("SELECT artwork_id FROM artworks WHERE series_id IS NULL AND deleted = 0")
     List<Long> findIdsMissingSeries();
 
     // ── Tags ────────────────────────────────────────────────────────────────────

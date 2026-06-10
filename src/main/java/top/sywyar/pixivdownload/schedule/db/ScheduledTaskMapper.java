@@ -158,6 +158,10 @@ public interface ScheduledTaskMapper {
     @Delete("DELETE FROM scheduled_tasks WHERE id = #{id}")
     int delete(@Param("id") long id);
 
+    /** 仅覆盖 params_json（启动期补字段迁移用），不动其它列、不清水位线。 */
+    @Update("UPDATE scheduled_tasks SET params_json = #{paramsJson} WHERE id = #{id}")
+    int updateParamsJson(@Param("id") long id, @Param("paramsJson") String paramsJson);
+
     // ── 读取（无 cookie） ────────────────────────────────────────────────────────
 
     @Select(SELECT_TASK + " ORDER BY id DESC")

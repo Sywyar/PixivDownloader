@@ -263,6 +263,7 @@
             intervalMs: getIntervalMs(),
             imageDelayMs: getImageDelayMs(),
             verifyFiles: !!state.settings.verifyHistoryFiles,
+            redownloadDeleted: !!state.settings.redownloadDeleted,
             novelFormat: state.settings.novelFormat || 'txt',
             novelMerge: !!state.settings.mergeNovelSeries,
             novelMergeFormat: state.settings.mergeNovelFormat || 'epub',
@@ -539,6 +540,11 @@
         if (vf) {
             vf.checked = !!d.verifyFiles;
             state.settings.verifyHistoryFiles = !!d.verifyFiles;
+        }
+        const rd = document.getElementById('s-redownload-deleted');
+        if (rd) {
+            rd.checked = !!d.redownloadDeleted;
+            state.settings.redownloadDeleted = !!d.redownloadDeleted;
         }
         updateMergeFormatVisibility();
         updateNovelTranslateVisibility();
@@ -903,6 +909,7 @@
         );
         const downloadRows = [
             [bt('label.settings.skip', '跳过已下载作品'), bt('schedule.snapshot.value.always-on', '始终开启')],
+            [bt('label.settings.redownload-deleted', '允许已删除的作品被重新下载'), scheduleBoolLabel(!!download.redownloadDeleted)],
             [bt('label.settings.filename-template', '文件名格式:'), scheduleValueOrUnset(download.fileNameTemplate)],
             [bt('label.settings.bookmark', '下载后自动收藏'), scheduleBoolLabel(!!download.bookmark)],
             [bt('label.settings.collection', '收藏到:'), scheduleCollectionLabel(download.collectionId)],

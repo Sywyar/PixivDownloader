@@ -54,6 +54,7 @@ public class PixivDatabase {
         addColumnIfMissing(pixivMapper::addFileAuthorNameIdColumn);
         addColumnIfMissing(pixivMapper::addSeriesIdColumn);
         addColumnIfMissing(pixivMapper::addSeriesOrderColumn);
+        addColumnIfMissing(pixivMapper::addDeletedColumn);
         pixivMapper.createArtworksAuthorTimeIndex();
         pixivMapper.createArtworksSeriesOrderIndex();
         pixivMapper.migrateArtworkTimestampsToMillis();
@@ -91,10 +92,14 @@ public class PixivDatabase {
         return candidate;
     }
 
+    @Transactional
     public void insertArtwork(long artworkId, String title, String folder, int count,
                               String extensions, long time, Integer xRestrict, Boolean isAi, Long authorId,
                               String description, long fileName, Long fileAuthorNameId,
                               Long seriesId, Long seriesOrder) {
+        // 软删除残留行的 folder/time 已失效，先清掉再写入全新行，重新下载即复位 deleted 标记；
+        // 普通已下载行不受影响（INSERT OR IGNORE 保持原有的不覆盖语义）。
+        pixivMapper.deleteIfMarkedDeleted(artworkId);
         pixivMapper.insertOrIgnore(artworkId, title, encodePath(folder),
                 count, extensions, time, xRestrict, isAi, authorId, description, fileName, fileAuthorNameId,
                 seriesId, seriesOrder);
@@ -217,7 +222,8 @@ public class PixivDatabase {
                 record.fileName(),
                 record.fileAuthorNameId(),
                 record.seriesId(),
-                record.seriesOrder()
+                record.seriesOrder(),
+                record.deleted()
         );
     }
 
@@ -276,6 +282,19 @@ public class PixivDatabase {
     }
 
     /**
+     * 软删除：派生/关联数据（感知哈希、标签关联、收藏夹关联）照 {@link #deleteArtwork} 清理，
+     * 但主行保留并置 {@code deleted = 1}，使下载判重能识别「已下载过，但被删除」。
+     * 重新下载成功后由 {@link #insertArtwork} 路径替换主行、标记自动复位。
+     */
+    @Transactional
+    public void markArtworkDeleted(long artworkId) {
+        pixivMapper.deleteImageHashesByArtwork(artworkId);
+        pixivMapper.deleteArtworkTags(artworkId);
+        pixivMapper.deleteArtworkCollections(artworkId);
+        pixivMapper.markDeletedById(artworkId);
+    }
+
+    /**
      * 仅在对应字段当前为 NULL / 空字符串时填入新值，不覆盖已有数据。
      * 用于 pixiv-batch 的两阶段恢复：先用磁盘文件写一条裸记录（{@link #insertArtwork} 时 meta 为空），
      * 再用前端拉到的 Pixiv 元数据补齐。
@@ -287,6 +306,16 @@ public class PixivDatabase {
 
     public boolean hasArtwork(long artworkId) {
         return pixivMapper.countById(artworkId) > 0;
+    }
+
+    /** 是否存在未被软删除的记录；deleted 行视为不存在（可重新下载）。 */
+    public boolean hasActiveArtwork(long artworkId) {
+        return pixivMapper.countActiveById(artworkId) > 0;
+    }
+
+    /** 是否为软删除残留行（已下载过，但被画廊删除）。 */
+    public boolean isArtworkDeleted(long artworkId) {
+        return pixivMapper.countDeletedById(artworkId) > 0;
     }
 
     public ArtworkRecord getArtwork(long artworkId) {

@@ -339,8 +339,23 @@ public class FolderChecker {
     }
 
     private List<ArtworkInfo> loadAllArtworks() throws SQLException {
+        // 软删除的作品磁盘文件已删，目录必然不可达，不应作为「文件夹异常」误报；
+        // 旧库可能还没有 deleted 列（由后端启动迁移补齐），缺列时回退为全量查询。
+        String sql = "SELECT artwork_id, title, folder, moved, move_folder FROM artworks"
+                + " WHERE deleted = 0 ORDER BY time DESC";
+        try {
+            return loadArtworks(sql);
+        } catch (SQLException e) {
+            String message = String.valueOf(e.getMessage());
+            if (!message.contains("no such column")) {
+                throw e;
+            }
+        }
+        return loadArtworks("SELECT artwork_id, title, folder, moved, move_folder FROM artworks ORDER BY time DESC");
+    }
+
+    private List<ArtworkInfo> loadArtworks(String sql) throws SQLException {
         List<ArtworkInfo> list = new ArrayList<>();
-        String sql = "SELECT artwork_id, title, folder, moved, move_folder FROM artworks ORDER BY time DESC";
         try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
                 list.add(new ArtworkInfo(

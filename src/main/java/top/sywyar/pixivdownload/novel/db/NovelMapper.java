@@ -22,7 +22,7 @@ public interface NovelMapper {
             + " word_count AS wordCount, text_length AS textLength,"
             + " reading_time_seconds AS readingTimeSeconds, page_count AS pageCount,"
             + " is_original AS isOriginal, x_language AS xLanguage, raw_content AS rawContent,"
-            + " cover_ext AS coverExt"
+            + " cover_ext AS coverExt, deleted"
             + " FROM novels";
 
     @Update("CREATE TABLE IF NOT EXISTS novels ("
@@ -47,7 +47,8 @@ public interface NovelMapper {
             + "is_original INTEGER DEFAULT NULL,"
             + "x_language TEXT DEFAULT NULL,"
             + "raw_content TEXT DEFAULT NULL,"
-            + "cover_ext TEXT DEFAULT NULL)")
+            + "cover_ext TEXT DEFAULT NULL,"
+            + "deleted INTEGER NOT NULL DEFAULT 0)")
     void createNovelsTable();
 
     @Update("CREATE INDEX IF NOT EXISTS idx_novels_author_id ON novels(author_id)")
@@ -62,6 +63,9 @@ public interface NovelMapper {
 
     @Update("ALTER TABLE novels ADD COLUMN reading_time_seconds INTEGER DEFAULT NULL")
     void addReadingTimeSecondsColumn();
+
+    @Update("ALTER TABLE novels ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+    void addDeletedColumn();
 
     @Update("UPDATE novels SET time = time * 1000"
             + " WHERE time > 0 AND time < 1000000000000")
@@ -196,7 +200,7 @@ public interface NovelMapper {
 
     @Select("SELECT DISTINCT t.lang_code FROM novel_translations t"
             + " JOIN novels n ON n.novel_id = t.novel_id"
-            + " WHERE n.series_id = #{seriesId} AND n.series_id > 0"
+            + " WHERE n.series_id = #{seriesId} AND n.series_id > 0 AND n.deleted = 0"
             + " ORDER BY t.lang_code")
     List<String> findSeriesTranslatedLangs(@Param("seriesId") long seriesId);
 
@@ -554,10 +558,10 @@ public interface NovelMapper {
     @Update("CREATE VIRTUAL TABLE IF NOT EXISTS novels_fts USING fts5(content, tokenize='trigram')")
     void createNovelFtsTable();
 
-    /** 把尚未建立索引的小说正文补进 FTS（首次启用本功能或旧库升级时回填）。 */
+    /** 把尚未建立索引的小说正文补进 FTS（首次启用本功能或旧库升级时回填）；软删除的小说不回填。 */
     @Update("INSERT INTO novels_fts(rowid, content)"
             + " SELECT novel_id, COALESCE(raw_content, '') FROM novels"
-            + " WHERE novel_id NOT IN (SELECT rowid FROM novels_fts)")
+            + " WHERE deleted = 0 AND novel_id NOT IN (SELECT rowid FROM novels_fts)")
     void backfillNovelFts();
 
     @Insert("INSERT INTO novels_fts(rowid, content) VALUES(#{novelId}, #{content})")
@@ -571,7 +575,7 @@ public interface NovelMapper {
     List<Long> searchNovelFtsIds(@Param("query") String query);
 
     /** 短关键词（trigram 无法索引）回退：直接对 raw_content 做 LIKE 子串扫描。 */
-    @Select("SELECT novel_id FROM novels WHERE raw_content LIKE #{like} ESCAPE '\\'")
+    @Select("SELECT novel_id FROM novels WHERE deleted = 0 AND raw_content LIKE #{like} ESCAPE '\\'")
     List<Long> findNovelIdsByContentLike(@Param("like") String like);
 
     @Update("UPDATE novel_series SET updated_time = updated_time * 1000"
@@ -601,16 +605,20 @@ public interface NovelMapper {
     @Select("SELECT COUNT(*) FROM novels WHERE novel_id = #{novelId}")
     int countById(@Param("novelId") long novelId);
 
+    /** 未被软删除的存量判定；deleted 行视为不存在。 */
+    @Select("SELECT COUNT(*) FROM novels WHERE novel_id = #{novelId} AND deleted = 0")
+    int countActiveById(@Param("novelId") long novelId);
+
     @Select("SELECT COUNT(*) FROM novels WHERE time = #{time}")
     int countByTime(@Param("time") long time);
 
     @Select("SELECT MAX(time) FROM novels")
     Long findMaxTime();
 
-    @Select("SELECT COUNT(*) FROM novels")
+    @Select("SELECT COUNT(*) FROM novels WHERE deleted = 0")
     long countAll();
 
-    @Select("SELECT novel_id FROM novels ORDER BY time DESC")
+    @Select("SELECT novel_id FROM novels WHERE deleted = 0 ORDER BY time DESC")
     List<Long> findAllIdsSortedByTimeDesc();
 
     @Insert("INSERT OR REPLACE INTO novels"
@@ -650,6 +658,10 @@ public interface NovelMapper {
     @Delete("DELETE FROM novels WHERE novel_id = #{novelId}")
     void deleteById(@Param("novelId") long novelId);
 
+    /** 软删除标记：主行保留（供下载判重识别「已下载但被删除」），仅置 deleted 位。 */
+    @Update("UPDATE novels SET deleted = 1 WHERE novel_id = #{novelId}")
+    void markDeletedById(@Param("novelId") long novelId);
+
     @Update("UPDATE novels SET extensions = #{extensions} WHERE novel_id = #{novelId}")
     void updateExtensions(@Param("novelId") long novelId, @Param("extensions") String extensions);
 
@@ -659,14 +671,14 @@ public interface NovelMapper {
                           @Param("seriesId") Long seriesId,
                           @Param("seriesOrder") Long seriesOrder);
 
-    @Select(SELECT_NOVEL + " WHERE series_id = #{seriesId} AND series_id > 0"
+    @Select(SELECT_NOVEL + " WHERE series_id = #{seriesId} AND series_id > 0 AND deleted = 0"
             + " ORDER BY series_order ASC, time ASC")
     List<NovelRecord> findBySeriesId(@Param("seriesId") long seriesId);
 
-    @Select("SELECT novel_id FROM novels WHERE series_id IS NULL")
+    @Select("SELECT novel_id FROM novels WHERE series_id IS NULL AND deleted = 0")
     List<Long> findIdsMissingSeries();
 
-    @Select("SELECT novel_id FROM novels WHERE author_id IS NULL")
+    @Select("SELECT novel_id FROM novels WHERE author_id IS NULL AND deleted = 0")
     List<Long> findIdsMissingAuthor();
 
     @Update("UPDATE novels SET author_id = #{authorId} WHERE novel_id = #{novelId}")
@@ -796,7 +808,7 @@ public interface NovelMapper {
 
     @Select({
             "<script>",
-            "SELECT novel_id FROM novels WHERE novel_id IN",
+            "SELECT novel_id FROM novels WHERE deleted = 0 AND novel_id IN",
             "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
             "</script>"
     })
@@ -812,7 +824,7 @@ public interface NovelMapper {
             + " COUNT(*) AS novelCount"
             + " FROM novels n"
             + " LEFT JOIN authors au ON au.author_id = n.author_id"
-            + " WHERE n.author_id IS NOT NULL"
+            + " WHERE n.author_id IS NOT NULL AND n.deleted = 0"
             + " AND (au.name LIKE #{search} OR CAST(n.author_id AS TEXT) LIKE #{search})"
             + " GROUP BY n.author_id, au.name"
             + " ORDER BY"
@@ -830,7 +842,7 @@ public interface NovelMapper {
     @Select("SELECT COUNT(*) FROM ("
             + " SELECT n.author_id FROM novels n"
             + " LEFT JOIN authors au ON au.author_id = n.author_id"
-            + " WHERE n.author_id IS NOT NULL"
+            + " WHERE n.author_id IS NOT NULL AND n.deleted = 0"
             + " AND (au.name LIKE #{search} OR CAST(n.author_id AS TEXT) LIKE #{search})"
             + " GROUP BY n.author_id)")
     long countAuthorsWithNovels(@Param("search") String search);
@@ -843,7 +855,7 @@ public interface NovelMapper {
             + " FROM novels n"
             + " LEFT JOIN novel_series ns ON ns.series_id = n.series_id"
             + " LEFT JOIN authors au ON au.author_id = ns.author_id"
-            + " WHERE n.series_id IS NOT NULL AND n.series_id > 0"
+            + " WHERE n.series_id IS NOT NULL AND n.series_id > 0 AND n.deleted = 0"
             + " AND (ns.title LIKE #{search} OR au.name LIKE #{search} OR CAST(n.series_id AS TEXT) LIKE #{search})"
             + " GROUP BY n.series_id, ns.title, ns.author_id, au.name"
             + " ORDER BY"
@@ -862,7 +874,7 @@ public interface NovelMapper {
             + " SELECT n.series_id FROM novels n"
             + " LEFT JOIN novel_series ns ON ns.series_id = n.series_id"
             + " LEFT JOIN authors au ON au.author_id = ns.author_id"
-            + " WHERE n.series_id IS NOT NULL AND n.series_id > 0"
+            + " WHERE n.series_id IS NOT NULL AND n.series_id > 0 AND n.deleted = 0"
             + " AND (ns.title LIKE #{search} OR au.name LIKE #{search} OR CAST(n.series_id AS TEXT) LIKE #{search})"
             + " GROUP BY n.series_id)")
     long countSeriesWithNovels(@Param("search") String search);

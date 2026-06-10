@@ -34,4 +34,6 @@ public class DownloadedResponse {
     private final Long seriesId;
     private final Long seriesOrder;
     private final String seriesTitle;
+    /** 已被画廊删除（软删除标记）：记录仍在但磁盘文件已删，客户端据此决定跳过或允许重新下载。 */
+    private final boolean deleted;
 }

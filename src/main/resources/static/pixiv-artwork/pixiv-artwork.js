@@ -38,7 +38,7 @@
             deleteBtn.title = wt('button.delete', 'Delete');
         }
         document.getElementById('deleteArtworkTitle').textContent = wt('delete.title', 'Delete Artwork');
-        document.getElementById('deleteArtworkMessage').textContent = wt('delete.message', 'Delete this artwork? Its image files and download record will be permanently removed and cannot be recovered.');
+        document.getElementById('deleteArtworkMessage').textContent = wt('delete.message', 'Delete this artwork? Its image files will be permanently removed and cannot be recovered; the download record keeps a deletion mark, so it will not be re-downloaded by default.');
         document.getElementById('deleteArtworkCancel').textContent = wt('delete.cancel', 'Cancel');
         document.getElementById('deleteArtworkConfirm').textContent = wt('delete.confirm', 'Delete');
         document.getElementById('viewerLoading').textContent = wt('status.loading', 'Loading...');

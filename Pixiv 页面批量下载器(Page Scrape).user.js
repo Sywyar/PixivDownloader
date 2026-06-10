@@ -183,6 +183,7 @@
         STORAGE_KEY: 'pixiv_page_batch_v1',
         KEY_SKIP_HISTORY: 'pixiv_global_skip_history',
         KEY_VERIFY_HISTORY_FILES: 'pixiv_global_verify_history_files',
+        KEY_REDOWNLOAD_DELETED: 'pixiv_global_redownload_deleted',
         KEY_R18_ONLY: 'pixiv_global_r18_only',
         KEY_INTERVAL: 'pixiv_global_interval',
         KEY_INTERVAL_UNIT: 'pixiv_global_interval_unit',
@@ -504,6 +505,7 @@
             'common.dialog.unauthorized': 'Backend requires login. Opening login page...',
             'common.dialog.connect-notice': 'Pixiv download script first-run hint\n\nIf you use an external server instead of localhost, replace this userscript header line:\n  // @connect      YOUR_SERVER_HOST\nwith your real server IP or domain, for example:\n  // @connect      192.168.1.100\n\nPath: Tampermonkey dashboard -> target script -> Edit -> Save\n\nOr use the web UI directly:\n{serverBase}/login.html\n\n(This hint is shown only once)',
             'common.option.verify-history-files.tooltip': 'Checks whether the recorded directory exists, whether it is empty, and whether it contains image files. Invalid records will be downloaded again.',
+            'common.option.redownload-deleted.tooltip': 'Works deleted from the gallery keep a deletion mark. When unchecked (default) they are treated as already downloaded and skipped with the reason "downloaded before, but deleted"; when checked they are re-downloaded and the mark is cleared on success.',
             'common.status.ready': 'Ready',
             'common.queue.empty': 'Queue is empty',
             'common.current.none': 'None',
@@ -551,6 +553,7 @@
             'page.frame.style-dashed': 'Dashed',
             'page.frame.style-double': 'Double',
             'page.setting.verify-history-files': 'Verify saved directory',
+            'page.setting.redownload-deleted': 'Allow re-downloading deleted works',
             'page.setting.server': 'Server URL:',
             'page.button.scrape': '📷 Scrape artworks on this page',
             'page.button.scrape-current': '🎯 Queue current artwork',
@@ -599,6 +602,7 @@
             'page.msg.reset-on-refresh': 'Reset after refresh',
             'page.msg.checking-history': 'Checking download history...',
             'page.msg.skip-history-exists': 'Skipped — already in download history',
+            'page.msg.skip-deleted': 'Skipped — downloaded before, but deleted',
             'page.msg.fetching-meta': 'Fetching artwork info...',
             'page.msg.skip-non-r18': 'Skipped — not R18 content',
             'page.msg.submitting': 'Submitting download...',
@@ -651,6 +655,7 @@
             'common.dialog.unauthorized': '后端服务需要登录验证，即将为您打开登录页面...',
             'common.dialog.connect-notice': 'Pixiv 下载脚本初始化提示\n\n如果您使用外部服务器（非 localhost），需将脚本头部的：\n  // @connect      YOUR_SERVER_HOST\n替换为实际的服务器 IP 或域名，例如：\n  // @connect      192.168.1.100\n\n修改路径：Tampermonkey 管理面板 -> 对应脚本 -> 编辑 -> 保存\n\n或者直接通过网页端下载作品（无需脚本）：\n{serverBase}/login.html\n\n（此提示只显示一次）',
             'common.option.verify-history-files.tooltip': '通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载',
+            'common.option.redownload-deleted.tooltip': '通过画廊删除的作品会保留删除标记：不勾选（默认）时视为已下载而跳过，原因为「已经下载过，但被删除」；勾选后重新下载，成功后删除标记自动清除',
             'common.status.ready': '准备就绪',
             'common.queue.empty': '队列为空',
             'common.current.none': '无',
@@ -698,6 +703,7 @@
             'page.frame.style-dashed': '虚线',
             'page.frame.style-double': '双线',
             'page.setting.verify-history-files': '实际目录检测',
+            'page.setting.redownload-deleted': '允许已删除的作品被重新下载',
             'page.setting.server': '服务器地址:',
             'page.button.scrape': '📷 抓取当前页面作品',
             'page.button.scrape-current': '🎯 抓取当前作品',
@@ -746,6 +752,7 @@
             'page.msg.reset-on-refresh': '刷新后重置',
             'page.msg.checking-history': '正在检查历史记录...',
             'page.msg.skip-history-exists': '跳过 — 历史记录中已存在',
+            'page.msg.skip-deleted': '跳过 — 已经下载过，但被删除',
             'page.msg.fetching-meta': '正在获取作品信息...',
             'page.msg.skip-non-r18': '跳过 — 非 R18 内容',
             'page.msg.submitting': '正在提交下载...',
@@ -847,6 +854,7 @@
         [/^刷新后重置$/, () => t('page.msg.reset-on-refresh', '刷新后重置')],
         [/^正在检查历史记录\.\.\.$/, () => t('page.msg.checking-history', '正在检查历史记录...')],
         [/^跳过 — 历史记录中已存在$/, () => t('page.msg.skip-history-exists', '跳过 — 历史记录中已存在')],
+        [/^跳过 — 已经下载过，但被删除$/, () => t('page.msg.skip-deleted', '跳过 — 已经下载过，但被删除')],
         [/^正在获取作品信息\.\.\.$/, () => t('page.msg.fetching-meta', '正在获取作品信息...')],
         [/^跳过 — 非 R18 内容$/, () => t('page.msg.skip-non-r18', '跳过 — 非 R18 内容')],
         [/^正在提交下载\.\.\.$/, () => t('page.msg.submitting', '正在提交下载...')],
@@ -1669,6 +1677,7 @@
                 });
             });
         },
+        // 三态判重：null = 未下载；{deleted:false} = 已下载；{deleted:true} = 已下载但被画廊删除（软删除）
         checkDownloaded(artworkId, verifyFiles = false) {
             return new Promise((resolve) => {
                 const query = verifyFiles ? '?verifyFiles=true' : '';
@@ -1676,12 +1685,17 @@
                     method: 'GET', url: `${serverBase}/api/downloaded/${artworkId}${query}`,
                     onload: (res) => {
                         try {
-                            resolve(res.status === 200 && !!JSON.parse(res.responseText).artworkId);
+                            if (res.status !== 200) {
+                                resolve(null);
+                                return;
+                            }
+                            const data = JSON.parse(res.responseText);
+                            resolve(data.artworkId ? {deleted: !!data.deleted} : null);
                         } catch {
-                            resolve(false);
+                            resolve(null);
                         }
                     },
-                    onerror: () => resolve(false), ontimeout: () => resolve(false)
+                    onerror: () => resolve(null), ontimeout: () => resolve(null)
                 });
             });
         },
@@ -1715,13 +1729,25 @@
                 });
             });
         },
+        // 三态判重：null = 未下载；{deleted:false} = 已下载；{deleted:true} = 已下载但被画廊删除（软删除）
         checkNovelDownloaded(novelId) {
             return new Promise((resolve) => {
                 GM_xmlhttpRequest({
                     method: 'GET',
-                    url: `${serverBase}/api/gallery/novel/${encodeURIComponent(novelId)}`,
-                    onload: (res) => resolve(res.status === 200),
-                    onerror: () => resolve(false), ontimeout: () => resolve(false)
+                    url: `${serverBase}/api/gallery/novel/${encodeURIComponent(novelId)}/downloaded`,
+                    onload: (res) => {
+                        try {
+                            if (res.status !== 200) {
+                                resolve(null);
+                                return;
+                            }
+                            const data = JSON.parse(res.responseText);
+                            resolve(data.downloaded ? {deleted: !!data.deleted} : null);
+                        } catch {
+                            resolve(null);
+                        }
+                    },
+                    onerror: () => resolve(null), ontimeout: () => resolve(null)
                 });
             });
         },
@@ -2115,6 +2141,7 @@
                 concurrent: GM_getValue(CONFIG.KEY_CONCURRENT, CONFIG.DEFAULT_CONCURRENT) || CONFIG.DEFAULT_CONCURRENT,
                 skipHistory: GM_getValue(CONFIG.KEY_SKIP_HISTORY, false),
                 verifyHistoryFiles: GM_getValue(CONFIG.KEY_VERIFY_HISTORY_FILES, false),
+                redownloadDeleted: GM_getValue(CONFIG.KEY_REDOWNLOAD_DELETED, false),
                 r18Only: GM_getValue(CONFIG.KEY_R18_ONLY, false),
                 bookmark: GM_getValue(CONFIG.KEY_BOOKMARK, false),
                 novelFormat: GM_getValue(CONFIG.KEY_NOVEL_FORMAT, 'txt'),
@@ -2180,6 +2207,11 @@
         setVerifyHistoryFiles(val) {
             this.globalSettings.verifyHistoryFiles = val;
             GM_setValue(CONFIG.KEY_VERIFY_HISTORY_FILES, val);
+        }
+
+        setRedownloadDeleted(val) {
+            this.globalSettings.redownloadDeleted = val;
+            GM_setValue(CONFIG.KEY_REDOWNLOAD_DELETED, val);
         }
 
         setR18Only(val) {
@@ -2517,9 +2549,10 @@
             try {
                 if (this.globalSettings.skipHistory) {
                     const downloaded = await Api.checkNovelDownloaded(novelId);
-                    if (downloaded) {
+                    // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
+                    if (downloaded && !(downloaded.deleted && this.globalSettings.redownloadDeleted)) {
                         item.status = 'skipped';
-                        item.lastMessage = '跳过 — 历史记录中已存在';
+                        item.lastMessage = downloaded.deleted ? '跳过 — 已经下载过，但被删除' : '跳过 — 历史记录中已存在';
                         item.endTime = new Date().toISOString();
                         this.updateStats();
                         this.saveToStorage();
@@ -2724,10 +2757,11 @@
             this.ui.renderQueue(this.queue);
 
             if (this.globalSettings.skipHistory) {
-                const isDownloaded = await Api.checkDownloaded(item.id, this.globalSettings.verifyHistoryFiles);
-                if (isDownloaded) {
+                const downloaded = await Api.checkDownloaded(item.id, this.globalSettings.verifyHistoryFiles);
+                // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
+                if (downloaded && !(downloaded.deleted && this.globalSettings.redownloadDeleted)) {
                     item.status = 'skipped';
-                    item.lastMessage = '跳过 — 历史记录中已存在';
+                    item.lastMessage = downloaded.deleted ? '跳过 — 已经下载过，但被删除' : '跳过 — 历史记录中已存在';
                     item.endTime = new Date().toISOString();
                     this.updateStats();
                     this.saveToStorage();
@@ -3251,6 +3285,10 @@
                         <input type="checkbox" id="pbd-verify-history-files" style="vertical-align: middle;"> ${t('page.setting.verify-history-files', '实际目录检测')}
                         <span title="${t('common.option.verify-history-files.tooltip', VERIFY_HISTORY_FILES_TOOLTIP)}" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid #999;border-radius:50%;color:#666;font-size:10px;font-weight:700;line-height:1;cursor:help;user-select:none;vertical-align:middle;margin-left:4px;">?</span>
                     </label>
+                    <label id="pbd-redownload-deleted-row" style="display:none; font-size: 12px; cursor:pointer; margin-right: 10px;">
+                        <input type="checkbox" id="pbd-redownload-deleted" style="vertical-align: middle;"> ${t('page.setting.redownload-deleted', '允许已删除的作品被重新下载')}
+                        <span title="${t('common.option.redownload-deleted.tooltip', '通过画廊删除的作品会保留删除标记：不勾选（默认）时视为已下载而跳过，原因为「已经下载过，但被删除」；勾选后重新下载，成功后删除标记自动清除')}" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid #999;border-radius:50%;color:#666;font-size:10px;font-weight:700;line-height:1;cursor:help;user-select:none;vertical-align:middle;margin-left:4px;">?</span>
+                    </label>
                     <input type="text" id="pbd-server-url" value="${serverBase}" placeholder="http://localhost:6999"
                            style="flex: 1; padding: 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px;">
                 </div>
@@ -3421,6 +3459,8 @@
                 skipHistory: container.querySelector('#pbd-skip-history'),
                 verifyHistoryFiles: container.querySelector('#pbd-verify-history-files'),
                 verifyHistoryFilesRow: container.querySelector('#pbd-verify-history-files-row'),
+                redownloadDeleted: container.querySelector('#pbd-redownload-deleted'),
+                redownloadDeletedRow: container.querySelector('#pbd-redownload-deleted-row'),
                 r18Only: container.querySelector('#pbd-r18-only'),
                 bookmark: container.querySelector('#pbd-bookmark'),
                 queueFrame: container.querySelector('#pbd-queue-frame'),
@@ -3450,6 +3490,7 @@
                 this.updateSkipHistoryVisibility(e.target.checked);
             });
             bindChange(this.elements.verifyHistoryFiles, (e) => this.manager && this.manager.setVerifyHistoryFiles(e.target.checked));
+            bindChange(this.elements.redownloadDeleted, (e) => this.manager && this.manager.setRedownloadDeleted(e.target.checked));
             bindChange(this.elements.r18Only, (e) => this.manager && this.manager.setR18Only(e.target.checked));
             bindChange(this.elements.bookmark, (e) => this.manager && this.manager.setBookmark(e.target.checked));
             if (this.elements.queueFrame) {
@@ -3533,8 +3574,13 @@
         }
 
         updateSkipHistoryVisibility(enabled) {
-            if (!this.elements || !this.elements.verifyHistoryFilesRow) return;
-            this.elements.verifyHistoryFilesRow.style.display = enabled ? 'flex' : 'none';
+            if (!this.elements) return;
+            if (this.elements.verifyHistoryFilesRow) {
+                this.elements.verifyHistoryFilesRow.style.display = enabled ? 'flex' : 'none';
+            }
+            if (this.elements.redownloadDeletedRow) {
+                this.elements.redownloadDeletedRow.style.display = enabled ? 'flex' : 'none';
+            }
         }
 
         updateFrameSettingsVisibility(enabled) {
@@ -3547,6 +3593,7 @@
             const s = this.manager.globalSettings;
             this.elements.skipHistory.checked = s.skipHistory;
             this.elements.verifyHistoryFiles.checked = s.verifyHistoryFiles ?? false;
+            if (this.elements.redownloadDeleted) this.elements.redownloadDeleted.checked = s.redownloadDeleted ?? false;
             this.elements.r18Only.checked = s.r18Only;
             this.elements.bookmark.checked = s.bookmark;
             if (this.elements.queueFrame) this.elements.queueFrame.checked = s.queueFrame !== false;

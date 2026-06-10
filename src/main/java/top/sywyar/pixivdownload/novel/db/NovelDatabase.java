@@ -35,6 +35,8 @@ public class NovelDatabase {
     @PostConstruct
     public void init() {
         novelMapper.createNovelsTable();
+        // deleted 列必须先于 FTS 回填补齐——backfillNovelFts 的 SQL 引用该列，旧库缺列会让回填失败
+        addColumnIfMissing(novelMapper::addDeletedColumn);
         novelMapper.createNovelsAuthorIndex();
         novelMapper.createNovelsSeriesOrderIndex();
         novelMapper.createNovelSeriesTable();
@@ -191,6 +193,11 @@ public class NovelDatabase {
         return novelMapper.countById(novelId) > 0;
     }
 
+    /** 是否存在未被软删除的记录；deleted 行视为不存在（可重新下载）。 */
+    public boolean hasActiveNovel(long novelId) {
+        return novelMapper.countActiveById(novelId) > 0;
+    }
+
     public NovelRecord getNovel(long novelId) {
         return resolveNovel(novelMapper.findById(novelId));
     }
@@ -221,7 +228,8 @@ public class NovelDatabase {
                 record.isOriginal(),
                 record.xLanguage(),
                 record.rawContent(),
-                record.coverExt()
+                record.coverExt(),
+                record.deleted()
         );
     }
 
@@ -248,6 +256,25 @@ public class NovelDatabase {
         novelMapper.deleteTranslations(novelId);
         novelMapper.deleteNarrationScripts(novelId);
         novelMapper.deleteById(novelId);
+        try { novelMapper.deleteNovelFts(novelId); } catch (Exception e) {
+            log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
+        }
+    }
+
+    /**
+     * 软删除：派生/关联数据（标签关联、收藏夹关联、内嵌插图、译文、朗读脚本、全文索引行）照
+     * {@link #deleteNovel} 清理，但主行保留并置 {@code deleted = 1}，使下载判重能识别
+     * 「已下载过，但被删除」。重新下载时 {@link #insertNovel} 的 INSERT OR REPLACE 会写入
+     * 全新行，标记自动复位。
+     */
+    @Transactional
+    public void markNovelDeleted(long novelId) {
+        novelMapper.deleteNovelTags(novelId);
+        novelMapper.deleteAllNovelCollections(novelId);
+        novelMapper.deleteNovelImages(novelId);
+        novelMapper.deleteTranslations(novelId);
+        novelMapper.deleteNarrationScripts(novelId);
+        novelMapper.markDeletedById(novelId);
         try { novelMapper.deleteNovelFts(novelId); } catch (Exception e) {
             log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
         }

@@ -52,7 +52,7 @@ public class GalleryRepository {
     }
 
     private QueryParts buildFilteredQuery(GalleryQuery q) {
-        StringBuilder where = new StringBuilder(" WHERE 1=1");
+        StringBuilder where = new StringBuilder(" WHERE a.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
 
         if (q.getSearch() != null) {
@@ -162,7 +162,7 @@ public class GalleryRepository {
      */
     public List<Long> findByAuthor(long authorId, long excludeArtworkId, int limit) {
         String sql = "SELECT artwork_id FROM artworks"
-                + " WHERE author_id = :authorId AND artwork_id <> :excludeId"
+                + " WHERE author_id = :authorId AND artwork_id <> :excludeId AND deleted = 0"
                 + " ORDER BY time DESC LIMIT :limit";
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("authorId", authorId)
@@ -176,7 +176,7 @@ public class GalleryRepository {
      */
     public List<Long> findBySeries(long seriesId, long excludeArtworkId, int limit) {
         String sql = "SELECT artwork_id FROM artworks"
-                + " WHERE series_id = :seriesId AND series_id > 0 AND artwork_id <> :excludeId"
+                + " WHERE series_id = :seriesId AND series_id > 0 AND artwork_id <> :excludeId AND deleted = 0"
                 + " ORDER BY COALESCE(series_order, 0) ASC, artwork_id ASC LIMIT :limit";
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("seriesId", seriesId)
@@ -194,7 +194,7 @@ public class GalleryRepository {
                 + " ms.title AS series_title"
                 + " FROM artworks a"
                 + " LEFT JOIN manga_series ms ON ms.series_id = a.series_id"
-                + " WHERE a.artwork_id = :id";
+                + " WHERE a.artwork_id = :id AND a.deleted = 0";
         MapSqlParameterSource params = new MapSqlParameterSource().addValue("id", artworkId);
         List<SeriesContext> ctx = jdbc.query(sql, params, (rs, rowNum) -> {
             long sid = rs.getLong("series_id");
@@ -221,6 +221,7 @@ public class GalleryRepository {
         String dir = prev ? "DESC" : "ASC";
         String sql = "SELECT artwork_id, title, COALESCE(series_order, 0) AS series_order FROM artworks"
                 + " WHERE series_id = :seriesId AND series_id > 0 AND series_order " + op + " :order"
+                + " AND deleted = 0"
                 + " ORDER BY series_order " + dir + " LIMIT 1";
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("seriesId", seriesId)
@@ -246,7 +247,7 @@ public class GalleryRepository {
         String sql = "SELECT a.artwork_id FROM artworks a"
                 + " JOIN artwork_tags at ON at.artwork_id = a.artwork_id"
                 + " WHERE at.tag_id IN (SELECT tag_id FROM artwork_tags WHERE artwork_id = :id)"
-                + " AND a.artwork_id <> :id"
+                + " AND a.artwork_id <> :id AND a.deleted = 0"
                 + " GROUP BY a.artwork_id"
                 + " ORDER BY COUNT(at.tag_id) DESC, a.time DESC"
                 + " LIMIT :limit";
@@ -484,7 +485,7 @@ public class GalleryRepository {
         if (r == null) return Collections.emptySet();
         StringBuilder sql = new StringBuilder(
                 "SELECT DISTINCT at.tag_id FROM artwork_tags at"
-                        + " JOIN artworks a ON a.artwork_id = at.artwork_id WHERE 1=1");
+                        + " JOIN artworks a ON a.artwork_id = at.artwork_id WHERE a.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Tag");
         List<Long> ids = jdbc.query(sql.toString(), params, (rs, rowNum) -> rs.getLong(1));
@@ -496,7 +497,7 @@ public class GalleryRepository {
         if (r == null) return Collections.emptySet();
         StringBuilder sql = new StringBuilder(
                 "SELECT DISTINCT a.author_id FROM artworks a"
-                        + " WHERE a.author_id IS NOT NULL");
+                        + " WHERE a.author_id IS NOT NULL AND a.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Author");
         List<Long> ids = jdbc.query(sql.toString(), params, (rs, rowNum) -> rs.getLong(1));
@@ -508,7 +509,7 @@ public class GalleryRepository {
         if (r == null) return Collections.emptySet();
         StringBuilder sql = new StringBuilder(
                 "SELECT DISTINCT a.series_id FROM artworks a"
-                        + " WHERE a.series_id IS NOT NULL AND a.series_id > 0");
+                        + " WHERE a.series_id IS NOT NULL AND a.series_id > 0 AND a.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Series");
         List<Long> ids = jdbc.query(sql.toString(), params, (rs, rowNum) -> rs.getLong(1));
@@ -518,7 +519,8 @@ public class GalleryRepository {
     /** 系列内对该访客可见的作品数。{@code r == null} 时返回系列总数。 */
     public long countArtworksInSeries(long seriesId, GuestRestriction r) {
         StringBuilder sql = new StringBuilder(
-                "SELECT COUNT(*) FROM artworks a WHERE a.series_id = :seriesId AND a.series_id > 0");
+                "SELECT COUNT(*) FROM artworks a"
+                        + " WHERE a.series_id = :seriesId AND a.series_id > 0 AND a.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource().addValue("seriesId", seriesId);
         if (r != null) {
             appendVisibilityClauses(sql, params, r, "SeriesCount");
@@ -534,7 +536,7 @@ public class GalleryRepository {
                 "SELECT COUNT(*) AS artwork_count,"
                         + " COALESCE(SUM(CASE WHEN a.count > 0 THEN a.count ELSE 0 END), 0) AS image_count,"
                         + " SUM(CASE WHEN a.moved = 1 THEN 1 ELSE 0 END) AS moved_count"
-                        + " FROM artworks a WHERE 1=1");
+                        + " FROM artworks a WHERE a.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Stats");
         return jdbc.query(sql.toString(), params, rs -> {
@@ -555,7 +557,7 @@ public class GalleryRepository {
         if (r == null) return Collections.emptySet();
         StringBuilder sql = new StringBuilder(
                 "SELECT DISTINCT ac.collection_id FROM artwork_collections ac"
-                        + " JOIN artworks a ON a.artwork_id = ac.artwork_id WHERE 1=1");
+                        + " JOIN artworks a ON a.artwork_id = ac.artwork_id WHERE a.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Collection");
         List<Long> ids = jdbc.query(sql.toString(), params, (rs, rowNum) -> rs.getLong(1));

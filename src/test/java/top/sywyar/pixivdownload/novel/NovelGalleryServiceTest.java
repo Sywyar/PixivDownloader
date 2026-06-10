@@ -45,25 +45,38 @@ class NovelGalleryServiceTest {
     }
 
     @Test
-    @DisplayName("小说不存在时返回 false，且不删除数据库记录")
+    @DisplayName("小说不存在时返回 false，且不标记数据库记录")
     void shouldNotDeleteWhenNovelMissing() {
         when(novelDatabase.getNovel(1L)).thenReturn(null);
 
         assertThat(novelGalleryService.deleteNovel(1L)).isFalse();
 
-        verify(novelDatabase, never()).deleteNovel(anyLong());
+        verify(novelDatabase, never()).markNovelDeleted(anyLong());
     }
 
     @Test
-    @DisplayName("删除小说应清理全部数据库留存（NovelDatabase.deleteNovel）")
+    @DisplayName("已被标记删除的小说返回 false，不再重复标记")
+    void shouldNotDeleteWhenAlreadyMarkedDeleted() {
+        NovelRecord record = mock(NovelRecord.class);
+        when(record.deleted()).thenReturn(true);
+        when(novelDatabase.getNovel(1L)).thenReturn(record);
+
+        assertThat(novelGalleryService.deleteNovel(1L)).isFalse();
+
+        verify(novelDatabase, never()).markNovelDeleted(anyLong());
+    }
+
+    @Test
+    @DisplayName("删除小说应清理派生数据并标记软删除（NovelDatabase.markNovelDeleted，主行保留）")
     void shouldDeleteNovelDatabaseRows() {
-        // folder() 返回 null 时跳过文件删除，仅验证 DB 清理被触发
+        // folder() 返回 null 时跳过文件删除，仅验证 DB 标记被触发
         NovelRecord record = mock(NovelRecord.class);
         when(novelDatabase.getNovel(100L)).thenReturn(record);
 
         assertThat(novelGalleryService.deleteNovel(100L)).isTrue();
 
-        verify(novelDatabase).deleteNovel(100L);
+        verify(novelDatabase).markNovelDeleted(100L);
+        verify(novelDatabase, never()).deleteNovel(anyLong());
     }
 
     @Test
@@ -76,8 +89,8 @@ class NovelGalleryServiceTest {
         int deleted = novelGalleryService.deleteNovels(List.of(1L, 2L, 1L));
 
         assertThat(deleted).isEqualTo(1);
-        verify(novelDatabase, times(1)).deleteNovel(1L);
-        verify(novelDatabase, never()).deleteNovel(2L);
+        verify(novelDatabase, times(1)).markNovelDeleted(1L);
+        verify(novelDatabase, never()).markNovelDeleted(2L);
     }
 
     @Test
@@ -85,6 +98,6 @@ class NovelGalleryServiceTest {
     void shouldReturnZeroForEmptyBatch() {
         assertThat(novelGalleryService.deleteNovels(null)).isZero();
         assertThat(novelGalleryService.deleteNovels(List.of())).isZero();
-        verify(novelDatabase, never()).deleteNovel(anyLong());
+        verify(novelDatabase, never()).markNovelDeleted(anyLong());
     }
 }

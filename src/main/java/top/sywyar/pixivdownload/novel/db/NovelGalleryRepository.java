@@ -32,7 +32,7 @@ public class NovelGalleryRepository {
     /** 对该访客可见的所有 novelId，按 time 倒序。 */
     public List<Long> findVisibleNovelIds(GuestRestriction r) {
         if (r == null) return Collections.emptyList();
-        StringBuilder sql = new StringBuilder("SELECT n.novel_id FROM novels n WHERE 1=1");
+        StringBuilder sql = new StringBuilder("SELECT n.novel_id FROM novels n WHERE n.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Main");
         sql.append(" ORDER BY n.time DESC");
@@ -42,7 +42,7 @@ public class NovelGalleryRepository {
     /** 该访客可见的所有 novelId 的数量。 */
     public long countVisibleNovels(GuestRestriction r) {
         if (r == null) return 0;
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM novels n WHERE 1=1");
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM novels n WHERE n.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Count");
         Long total = jdbc.queryForObject(sql.toString(), params, Long.class);
@@ -54,7 +54,7 @@ public class NovelGalleryRepository {
         if (r == null) return List.of();
         StringBuilder sql = new StringBuilder(
                 "SELECT n.author_id AS author_id, COUNT(*) AS cnt FROM novels n"
-                        + " WHERE n.author_id IS NOT NULL AND n.author_id > 0");
+                        + " WHERE n.author_id IS NOT NULL AND n.author_id > 0 AND n.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Author");
         sql.append(" GROUP BY n.author_id");
@@ -69,7 +69,7 @@ public class NovelGalleryRepository {
         if (r == null) return List.of();
         StringBuilder sql = new StringBuilder(
                 "SELECT n.series_id AS series_id, COUNT(*) AS cnt FROM novels n"
-                        + " WHERE n.series_id IS NOT NULL AND n.series_id > 0");
+                        + " WHERE n.series_id IS NOT NULL AND n.series_id > 0 AND n.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Series");
         sql.append(" GROUP BY n.series_id");
@@ -90,7 +90,7 @@ public class NovelGalleryRepository {
                         + " FROM novel_tags nt"
                         + " JOIN novels n ON n.novel_id = nt.novel_id"
                         + " JOIN tags t ON t.tag_id = nt.tag_id"
-                        + " WHERE 1=1");
+                        + " WHERE n.deleted = 0");
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendVisibilityClauses(sql, params, r, "Tag");
         if (search != null && !search.isBlank()) {

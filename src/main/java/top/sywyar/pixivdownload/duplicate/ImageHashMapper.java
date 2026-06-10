@@ -64,7 +64,7 @@ public interface ImageHashMapper {
     Long maxCreatedTime();
 
     @Select("WITH RECURSIVE expected_pages(artwork_id, page, max_page) AS ("
-            + " SELECT artwork_id, 0, count - 1 FROM artworks WHERE count > 0"
+            + " SELECT artwork_id, 0, count - 1 FROM artworks WHERE count > 0 AND deleted = 0"
             + " UNION ALL"
             + " SELECT artwork_id, page + 1, max_page FROM expected_pages WHERE page < max_page"
             + ")"
@@ -77,7 +77,7 @@ public interface ImageHashMapper {
     int countArtworksMissingHashes();
 
     @Select("WITH RECURSIVE expected_pages(artwork_id, page, max_page, time) AS ("
-            + " SELECT artwork_id, 0, count - 1, time FROM artworks WHERE count > 0"
+            + " SELECT artwork_id, 0, count - 1, time FROM artworks WHERE count > 0 AND deleted = 0"
             + " UNION ALL"
             + " SELECT artwork_id, page + 1, max_page, time FROM expected_pages WHERE page < max_page"
             + ")"

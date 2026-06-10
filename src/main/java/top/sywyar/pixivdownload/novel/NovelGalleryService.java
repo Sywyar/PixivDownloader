@@ -176,18 +176,20 @@ public class NovelGalleryService {
 
     public NovelView find(long novelId) {
         NovelRecord r = novelDatabase.getNovel(novelId);
-        return r == null ? null : toView(r);
+        return r == null || r.deleted() ? null : toView(r);
     }
 
     /**
-     * 删除单本小说：先删磁盘文件（正文 TXT/HTML/EPUB、封面、内嵌图、独占目录），再删全部 DB 留存数据
-     * （{@code novel_tags} / {@code novel_collections} / {@code novel_images} / 主行 / FTS，见
-     * {@link NovelDatabase#deleteNovel}）。系列封面与合订文件属于系列、不在此删除。小说不存在返回 {@code false}。
-     * 磁盘文件删除失败（被锁定 / 权限不足等）会立即抛出，不再继续删 DB，避免 DB 与磁盘状态不一致。
+     * 删除单本小说：先删磁盘文件（正文 TXT/HTML/EPUB、封面、内嵌图、独占目录），再清理 DB 派生数据并
+     * 标记软删除（{@code novel_tags} / {@code novel_collections} / {@code novel_images} / 译文 / 朗读脚本 / FTS
+     * 照旧清理，主行保留并置 {@code deleted = 1}，见 {@link NovelDatabase#markNovelDeleted}）——使下载判重
+     * 能识别「已下载过，但被删除」、避免被当作未下载重新下载。系列封面与合订文件属于系列、不在此删除。
+     * 小说不存在或已被标记删除时返回 {@code false}。磁盘文件删除失败（被锁定 / 权限不足等）会立即抛出，
+     * 不再继续动 DB，避免 DB 与磁盘状态不一致。
      */
     public boolean deleteNovel(long novelId) {
         NovelRecord record = novelDatabase.getNovel(novelId);
-        if (record == null) {
+        if (record == null || record.deleted()) {
             return false;
         }
         if (!deleteNovelFiles(record)) {
@@ -196,7 +198,7 @@ public class NovelGalleryService {
                     "小说 {0} 的磁盘文件未能全部删除，已中止数据库清理",
                     novelId);
         }
-        novelDatabase.deleteNovel(novelId);
+        novelDatabase.markNovelDeleted(novelId);
         log.info(logMessage("novel.gallery.log.deleted", novelId));
         return true;
     }

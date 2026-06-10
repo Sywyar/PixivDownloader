@@ -233,6 +233,84 @@ class PixivDatabaseTest {
         }
     }
 
+    // ========== markArtworkDeleted（软删除） ==========
+
+    @Test
+    @DisplayName("软删除标记后主行保留：hasArtwork 仍命中、hasActiveArtwork 不命中、记录带 deleted 标志")
+    void shouldMarkArtworkDeletedKeepingRow() {
+        pixivDatabase.insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
+        assertThat(pixivDatabase.hasActiveArtwork(12345L)).isTrue();
+        assertThat(pixivDatabase.isArtworkDeleted(12345L)).isFalse();
+
+        pixivDatabase.markArtworkDeleted(12345L);
+
+        assertThat(pixivDatabase.hasArtwork(12345L)).isTrue();
+        assertThat(pixivDatabase.hasActiveArtwork(12345L)).isFalse();
+        assertThat(pixivDatabase.isArtworkDeleted(12345L)).isTrue();
+        ArtworkRecord record = pixivDatabase.getArtwork(12345L);
+        assertThat(record).isNotNull();
+        assertThat(record.deleted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("软删除标记应照旧清理标签关联与收藏夹关联")
+    void shouldMarkArtworkDeletedAndCleanSatelliteRows() throws Exception {
+        pixivDatabase.insertArtwork(12345L, "test", "/path", 1, "jpg", 1700000011L, 0);
+        pixivDatabase.saveArtworkTags(12345L, List.of(new TagDto(null, "tag-a", null)));
+        try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
+            st.execute("INSERT INTO artwork_collections(collection_id, artwork_id, added_time) VALUES (1, 12345, 0)");
+        }
+
+        pixivDatabase.markArtworkDeleted(12345L);
+
+        assertThat(pixivDatabase.getArtworkTags(12345L)).isEmpty();
+        try (var conn = dataSource.getConnection(); var st = conn.createStatement();
+             var rs = st.executeQuery("SELECT COUNT(*) FROM artwork_collections WHERE artwork_id = 12345")) {
+            rs.next();
+            assertThat(rs.getInt(1)).isZero();
+        }
+    }
+
+    @Test
+    @DisplayName("软删除的作品被重新下载落库后删除标记复位，记录被全新行替换")
+    void shouldReviveDeletedArtworkOnReinsert() {
+        pixivDatabase.insertArtwork(12345L, "old", "/old", 1, "jpg", 1700000011L, 0);
+        pixivDatabase.markArtworkDeleted(12345L);
+
+        pixivDatabase.insertArtwork(12345L, "new", "/new", 2, "png", 1700000012L, 1);
+
+        ArtworkRecord record = pixivDatabase.getArtwork(12345L);
+        assertThat(record).isNotNull();
+        assertThat(record.deleted()).isFalse();
+        assertThat(record.title()).isEqualTo("new");
+        assertThat(record.folder()).isEqualTo("/new");
+        assertThat(pixivDatabase.hasActiveArtwork(12345L)).isTrue();
+    }
+
+    @Test
+    @DisplayName("未被软删除的已有记录重新插入时保持原行不被覆盖（INSERT OR IGNORE 语义不变）")
+    void shouldKeepActiveRowOnReinsert() {
+        pixivDatabase.insertArtwork(12345L, "old", "/old", 1, "jpg", 1700000011L, 0);
+
+        pixivDatabase.insertArtwork(12345L, "new", "/new", 2, "png", 1700000012L, 1);
+
+        ArtworkRecord record = pixivDatabase.getArtwork(12345L);
+        assertThat(record).isNotNull();
+        assertThat(record.title()).isEqualTo("old");
+        assertThat(record.folder()).isEqualTo("/old");
+    }
+
+    @Test
+    @DisplayName("软删除的作品不再出现在历史 ID 列表中")
+    void shouldExcludeDeletedFromIdLists() {
+        pixivDatabase.insertArtwork(1L, "a", "/a", 1, "jpg", 1700000020L, 0);
+        pixivDatabase.insertArtwork(2L, "b", "/b", 1, "jpg", 1700000021L, 0);
+        pixivDatabase.markArtworkDeleted(2L);
+
+        assertThat(pixivDatabase.getAllArtworkIds()).containsExactly(1L);
+        assertThat(pixivDatabase.countArtworks()).isEqualTo(1);
+    }
+
     // ========== getAllArtworkIds ==========
 
     @Test
