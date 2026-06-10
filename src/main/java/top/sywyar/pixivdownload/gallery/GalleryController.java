@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
@@ -17,6 +18,7 @@ import java.util.*;
 public class GalleryController {
 
     private final GalleryService galleryService;
+    private final GalleryBatchService galleryBatchService;
     private final GuestAccessGuard guestAccessGuard;
 
     @GetMapping("/artworks")
@@ -184,15 +186,41 @@ public class GalleryController {
 
     /** 批量删除作品。POST 不在访客白名单内，仅管理员可用。 */
     @PostMapping("/artworks/delete")
-    public ResponseEntity<DeleteResponse> deleteArtworks(@RequestBody DeleteRequest request) {
-        int deleted = galleryService.deleteArtworks(
-                request == null ? null : request.ids());
+    public ResponseEntity<DeleteResponse> deleteArtworks(@RequestBody ArtworkBatchRequest request) {
+        int deleted = galleryService.deleteArtworks(galleryBatchService.resolveArtworkIds(request));
         return ResponseEntity.ok(new DeleteResponse(deleted));
     }
 
-    public record DeleteRequest(List<Long> ids) {}
+    @PostMapping("/artworks/collect")
+    public ResponseEntity<BatchCollectResponse> collectArtworks(
+            @RequestBody ArtworkBatchRequest request) {
+        List<Long> ids = galleryBatchService.resolveArtworkIds(request);
+        long collectionId = request == null || request.collectionId() == null ? 0L : request.collectionId();
+        int changed = galleryBatchService.collectArtworks(ids, collectionId);
+        return ResponseEntity.ok(new BatchCollectResponse(ids.size(), changed));
+    }
+
+    /** 批量导出作品。打包方式 / 格式 / 是否导出后删除由请求体决定。 */
+    @PostMapping("/artworks/export")
+    public ResponseEntity<BatchExportResponse> exportArtworks(
+            @RequestBody ArtworkBatchRequest request) {
+        ArchiveExportSupport.ExportResult result = galleryBatchService.exportArtworks(
+                galleryBatchService.resolveArtworkIds(request),
+                request == null ? null : request.groupBy(),
+                request == null ? null : request.format(),
+                request != null && Boolean.TRUE.equals(request.deleteAfter()));
+        if (result.emptyArchive()) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(new BatchExportResponse(
+                result.archiveToken(), result.archiveExpireSeconds(), result.workCount(), result.fileCount()));
+    }
 
     public record DeleteResponse(int deleted) {}
+
+    public record BatchCollectResponse(int count, int changed) {}
+
+    public record BatchExportResponse(String archiveToken, long archiveExpireSeconds, int count, int fileCount) {}
 
     private List<DownloadedResponse> filterForGuest(List<DownloadedResponse> items, GuestInviteSession session) {
         if (session == null || items == null || items.isEmpty()) return items;

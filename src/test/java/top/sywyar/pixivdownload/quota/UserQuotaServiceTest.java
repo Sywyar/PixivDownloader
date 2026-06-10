@@ -466,4 +466,81 @@ class UserQuotaServiceTest {
             assertThat(quota.getArtworksUsed().get()).isEqualTo(3); // 不受影响
         }
     }
+    // ========== triggerAdminFileArchive / listAdminArchives ==========
+
+    @Nested
+    @DisplayName("triggerAdminFileArchive / listAdminArchives - 管理员压缩任务")
+    class AdminFileArchiveTests {
+
+        @Test
+        @DisplayName("应打包文件与字节条目，记录元数据并在成功后执行回调")
+        void shouldArchiveItemsAndRunAfterReady() throws Exception {
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            Path src = Files.writeString(tempDir.resolve("a.txt"), "hello");
+            java.util.concurrent.atomic.AtomicBoolean ran = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+            String token = userQuotaService.triggerAdminFileArchive(List.of(
+                    UserQuotaService.ArchiveItem.file(src, "works/a.txt", 11L),
+                    UserQuotaService.ArchiveItem.bytes("manifest.json", "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+            ), "artworks", 1, () -> ran.set(true));
+
+            UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
+            assertThat(entry.getStatus()).isEqualTo("ready");
+            assertThat(entry.getExportType()).isEqualTo("artworks");
+            assertThat(entry.getWorkCount()).isEqualTo(1);
+            assertThat(entry.getProcessedWorks()).isEqualTo(1);
+            assertThat(entry.getFileCount()).isEqualTo(2);
+            assertThat(entry.getArchivePath()).exists();
+            assertThat(ran).isTrue();
+        }
+
+        @Test
+        @DisplayName("打包进度应按不同作品 ID 去重累计")
+        void shouldTrackProcessedWorksByDistinctWorkId() throws Exception {
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            Path a = Files.writeString(tempDir.resolve("a.txt"), "a");
+            Path b = Files.writeString(tempDir.resolve("b.txt"), "b");
+            Path c = Files.writeString(tempDir.resolve("c.txt"), "c");
+
+            String token = userQuotaService.triggerAdminFileArchive(List.of(
+                    UserQuotaService.ArchiveItem.file(a, "w1/a.txt", 1L),
+                    UserQuotaService.ArchiveItem.file(b, "w1/b.txt", 1L),
+                    UserQuotaService.ArchiveItem.file(c, "w2/c.txt", 2L),
+                    UserQuotaService.ArchiveItem.bytes("manifest.json", "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+            ), "artworks", 2, null);
+
+            UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
+            assertThat(entry.getStatus()).isEqualTo("ready");
+            assertThat(entry.getProcessedWorks()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("无可写入条目时应标记为 empty 且不执行回调")
+        void shouldMarkEmptyWhenNothingWritten() {
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            java.util.concurrent.atomic.AtomicBoolean ran = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+            String token = userQuotaService.triggerAdminFileArchive(List.of(
+                    UserQuotaService.ArchiveItem.file(tempDir.resolve("missing.png"), "x/missing.png")
+            ), "artworks", 1, () -> ran.set(true));
+
+            assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("empty");
+            assertThat(ran).isFalse();
+        }
+
+        @Test
+        @DisplayName("listAdminArchives 应仅包含管理员任务，不包含访客压缩包")
+        void shouldListOnlyAdminArchives() {
+            String userToken = userQuotaService.triggerArchive("user1");
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            String adminToken = userQuotaService.triggerAdminFileArchive(List.of(
+                    UserQuotaService.ArchiveItem.bytes("manifest.json", "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+            ), "novels", 2, null);
+
+            List<String> tokens = userQuotaService.listAdminArchives().stream()
+                    .map(UserQuotaService.ArchiveEntry::getToken)
+                    .toList();
+            assertThat(tokens).contains(adminToken).doesNotContain(userToken);
+        }
+    }
 }

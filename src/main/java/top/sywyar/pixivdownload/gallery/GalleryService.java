@@ -40,6 +40,10 @@ public class GalleryService {
                 query.getPage(), query.getSize(), totalPages);
     }
 
+    public List<Long> findArtworkIds(GalleryQuery query) {
+        return galleryRepository.findAllArtworkIds(query);
+    }
+
     public List<GalleryRepository.TagOption> listTags(String search, int limit, GuestRestriction restriction) {
         int clamped = limit <= 0 ? 500 : Math.min(limit, 2000);
         List<GalleryRepository.TagOption> all = galleryRepository.findTagsWithCounts(search, clamped);

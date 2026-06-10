@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.quota.request.AdminPackRequest;
+import top.sywyar.pixivdownload.quota.response.AdminArchiveTasksResponse;
 import top.sywyar.pixivdownload.quota.response.ArchiveStatusResponse;
 import top.sywyar.pixivdownload.quota.response.PackRateLimitResponse;
 import top.sywyar.pixivdownload.quota.response.QuotaInitResponse;
@@ -162,6 +163,30 @@ public class ArchiveController {
         String token = userQuotaService.triggerAdminArchive(folders);
         long expireSeconds = (long) multiModeConfig.getQuota().getArchiveExpireMinutes() * 60;
         return ResponseEntity.ok(new TriggerPackResponse(token, expireSeconds));
+    }
+
+    /**
+     * 管理员压缩任务列表：返回所有未过期的导出/打包任务，供任务列表模块展示。
+     * 仅管理员可用（多人模式下访客请求会被拒绝）。
+     */
+    @GetMapping("/api/archive/list")
+    public ResponseEntity<?> listAdminArchives(HttpServletRequest request) {
+        if (!setupService.isAdminLoggedIn(request)) {
+            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("auth.unauthorized")));
+        }
+        long now = System.currentTimeMillis();
+        List<AdminArchiveTasksResponse.Task> tasks = userQuotaService.listAdminArchives().stream()
+                .map(entry -> new AdminArchiveTasksResponse.Task(
+                        entry.getToken(),
+                        entry.getStatus(),
+                        entry.getExportType(),
+                        entry.getWorkCount(),
+                        entry.getProcessedWorks(),
+                        entry.getFileCount(),
+                        entry.getCreatedTime(),
+                        Math.max(0, (entry.getExpireTime() - now) / 1000)))
+                .toList();
+        return ResponseEntity.ok(new AdminArchiveTasksResponse(tasks));
     }
 
     /**

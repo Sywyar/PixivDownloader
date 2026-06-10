@@ -12,6 +12,8 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
+import top.sywyar.pixivdownload.novel.NovelBatchService;
+import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.NovelGalleryService;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
@@ -22,6 +24,7 @@ import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.novel.db.NovelSeriesSummary;
+import top.sywyar.pixivdownload.novel.request.NovelBatchRequest;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
@@ -42,6 +45,7 @@ import java.util.concurrent.TimeUnit;
 public class NovelGalleryController {
 
     private final NovelGalleryService novelGalleryService;
+    private final NovelBatchService novelBatchService;
     private final NovelMergeService novelMergeService;
     private final NovelSeriesService novelSeriesService;
     private final NovelTranslationService novelTranslationService;
@@ -156,14 +160,41 @@ public class NovelGalleryController {
 
     /** 批量删除小说。POST 不在访客白名单内，仅管理员可用。 */
     @PostMapping("/novels/delete")
-    public ResponseEntity<DeleteResponse> deleteNovels(@RequestBody DeleteRequest request) {
-        int deleted = novelGalleryService.deleteNovels(request == null ? null : request.ids());
+    public ResponseEntity<DeleteResponse> deleteNovels(@RequestBody NovelBatchRequest request) {
+        int deleted = novelGalleryService.deleteNovels(novelBatchService.resolveNovelIds(request));
         return ResponseEntity.ok(new DeleteResponse(deleted));
     }
 
-    public record DeleteRequest(List<Long> ids) {}
+    @PostMapping("/novels/collect")
+    public ResponseEntity<BatchCollectResponse> collectNovels(
+            @RequestBody NovelBatchRequest request) {
+        List<Long> ids = novelBatchService.resolveNovelIds(request);
+        long collectionId = request == null || request.collectionId() == null ? 0L : request.collectionId();
+        int changed = novelBatchService.collectNovels(ids, collectionId);
+        return ResponseEntity.ok(new BatchCollectResponse(ids.size(), changed));
+    }
+
+    /** 批量导出小说。打包方式 / 格式 / 是否导出后删除由请求体决定。 */
+    @PostMapping("/novels/export")
+    public ResponseEntity<BatchExportResponse> exportNovels(
+            @RequestBody NovelBatchRequest request) {
+        ArchiveExportSupport.ExportResult result = novelBatchService.exportNovels(
+                novelBatchService.resolveNovelIds(request),
+                request == null ? null : request.groupBy(),
+                request == null ? null : request.format(),
+                request != null && Boolean.TRUE.equals(request.deleteAfter()));
+        if (result.emptyArchive()) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(new BatchExportResponse(
+                result.archiveToken(), result.archiveExpireSeconds(), result.workCount(), result.fileCount()));
+    }
 
     public record DeleteResponse(int deleted) {}
+
+    public record BatchCollectResponse(int count, int changed) {}
+
+    public record BatchExportResponse(String archiveToken, long archiveExpireSeconds, int count, int fileCount) {}
 
     @GetMapping("/novel/{novelId}/by-series")
     public ResponseEntity<List<NovelGalleryService.NovelView>> bySeries(

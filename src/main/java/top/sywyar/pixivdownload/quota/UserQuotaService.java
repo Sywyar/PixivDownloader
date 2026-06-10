@@ -226,9 +226,37 @@ public class UserQuotaService {
         long expireTime = System.currentTimeMillis()
                 + (long) config.getQuota().getArchiveExpireMinutes() * 60_000;
         ArchiveEntry entry = new ArchiveEntry(token, null, expireTime);
+        entry.setExportType("pack");
+        entry.setWorkCount(folders == null ? 0 : folders.size());
         archiveMap.put(token, entry);
         archiveTaskExecutor.execute(() -> buildAdminArchive(token, folders));
         return token;
+    }
+
+    /**
+     * 管理员按文件清单打包。exportType 标注任务来源（如 artworks / novels），
+     * 供任务列表展示；afterReady 仅在打包成功后执行（如导出后删除源文件）。
+     */
+    public String triggerAdminFileArchive(List<ArchiveItem> items, String exportType, int workCount,
+                                          Runnable afterReady) {
+        String token = UUID.randomUUID().toString();
+        long expireTime = System.currentTimeMillis()
+                + (long) config.getQuota().getArchiveExpireMinutes() * 60_000;
+        ArchiveEntry entry = new ArchiveEntry(token, null, expireTime);
+        entry.setExportType(exportType);
+        entry.setWorkCount(workCount);
+        archiveMap.put(token, entry);
+        archiveTaskExecutor.execute(() -> buildAdminFileArchive(token, items, afterReady));
+        return token;
+    }
+
+    /** 管理员侧所有未过期的压缩任务（含导出与打包），按创建时间倒序。 */
+    public List<ArchiveEntry> listAdminArchives() {
+        long now = System.currentTimeMillis();
+        return archiveMap.values().stream()
+                .filter(e -> e.getUserUuid() == null && e.getExpireTime() > now)
+                .sorted(Comparator.comparingLong(ArchiveEntry::getCreatedTime).reversed())
+                .toList();
     }
 
     private void buildArchive(String token, String uuid) {
@@ -315,7 +343,10 @@ public class UserQuotaService {
                             64 * 1024))) {
                 zos.setLevel(Deflater.BEST_COMPRESSION);
 
+                int processed = 0;
                 for (Path folder : folders) {
+                    processed++;
+                    entry.setProcessedWorks(processed);
                     if (folder == null || !Files.exists(folder)) continue;
                     String folderName = folder.getFileName().toString();
                     try (var stream = Files.walk(folder)) {
@@ -340,6 +371,123 @@ public class UserQuotaService {
             entry.setStatus("error");
             log.error(message("archive.log.admin.create.failed", token), e);
         }
+    }
+
+    private void buildAdminFileArchive(String token, List<ArchiveItem> items, Runnable afterReady) {
+        ArchiveEntry entry = archiveMap.get(token);
+        if (entry == null) return;
+
+        entry.setStatus("creating");
+
+        if (items == null || items.isEmpty()) {
+            entry.setStatus("empty");
+            return;
+        }
+
+        try {
+            Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives");
+            Files.createDirectories(archiveDir);
+            Path archivePath = archiveDir.resolve(token + ".zip");
+            Set<String> entryNames = new HashSet<>();
+            Set<Long> startedWorks = new HashSet<>();
+            int written = 0;
+
+            try (ZipOutputStream zos = new ZipOutputStream(
+                    new BufferedOutputStream(new FileOutputStream(archivePath.toFile()),
+                            64 * 1024))) {
+                zos.setLevel(Deflater.BEST_COMPRESSION);
+
+                for (ArchiveItem item : items) {
+                    if (item == null) continue;
+                    if (item.workId() != null && startedWorks.add(item.workId())) {
+                        entry.setProcessedWorks(startedWorks.size());
+                    }
+                    String entryName = uniqueEntryName(safeZipEntryName(item.entryName()), entryNames);
+                    if (entryName == null) continue;
+                    try {
+                        if (item.bytes() != null) {
+                            zos.putNextEntry(new ZipEntry(entryName));
+                            zos.write(item.bytes());
+                            zos.closeEntry();
+                            written++;
+                        } else if (item.path() != null && Files.isRegularFile(item.path())) {
+                            zos.putNextEntry(new ZipEntry(entryName));
+                            Files.copy(item.path(), zos);
+                            zos.closeEntry();
+                            written++;
+                        }
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                }
+            }
+
+            if (written == 0) {
+                Files.deleteIfExists(archivePath);
+                entry.setStatus("empty");
+                return;
+            }
+
+            if (afterReady != null) {
+                try {
+                    afterReady.run();
+                } catch (Exception e) {
+                    log.warn(message("archive.log.admin.post-action.failed", token), e);
+                }
+            }
+
+            entry.setArchivePath(archivePath);
+            entry.setFileCount(written);
+            entry.setStatus("ready");
+            log.info(message("archive.log.admin.file-archive.created", token, archivePath, written));
+        } catch (Exception e) {
+            entry.setStatus("error");
+            log.error(message("archive.log.admin.create.failed", token), e);
+        }
+    }
+
+    private String safeZipEntryName(String entryName) {
+        if (entryName == null || entryName.isBlank()) {
+            return null;
+        }
+        String normalized = entryName.replace('\\', '/');
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        if (normalized.isBlank()) {
+            return null;
+        }
+        String[] parts = normalized.split("/");
+        List<String> safeParts = new ArrayList<>(parts.length);
+        for (String part : parts) {
+            if (part == null || part.isBlank() || ".".equals(part) || "..".equals(part)) {
+                continue;
+            }
+            safeParts.add(part);
+        }
+        return safeParts.isEmpty() ? null : String.join("/", safeParts);
+    }
+
+    private String uniqueEntryName(String entryName, Set<String> used) {
+        if (entryName == null || used == null) {
+            return entryName;
+        }
+        if (used.add(entryName)) {
+            return entryName;
+        }
+        int slash = entryName.lastIndexOf('/');
+        String dir = slash >= 0 ? entryName.substring(0, slash + 1) : "";
+        String name = slash >= 0 ? entryName.substring(slash + 1) : entryName;
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        String ext = dot > 0 ? name.substring(dot) : "";
+        for (int i = 2; i < 10_000; i++) {
+            String candidate = dir + base + " (" + i + ")" + ext;
+            if (used.add(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     public ArchiveEntry getArchive(String token) {
@@ -514,6 +662,13 @@ public class UserQuotaService {
         @Setter private volatile Path archivePath;
         @Setter private volatile String status = "pending";
         private final long expireTime;
+        private final long createdTime = System.currentTimeMillis();
+        /** 任务来源标注（artworks / novels / pack），用于管理员任务列表展示。 */
+        @Setter private volatile String exportType;
+        @Setter private volatile int workCount;
+        /** 打包过程中已开始处理的作品数（≤ workCount），用于任务列表进度条。 */
+        @Setter private volatile int processedWorks;
+        @Setter private volatile int fileCount;
 
         public ArchiveEntry(String token, String userUuid, long expireTime) {
             this.token = token;
@@ -525,4 +680,19 @@ public class UserQuotaService {
     public record QuotaCheckResult(boolean allowed, int artworksUsed, int maxArtworks, long resetSeconds) {}
     public record QuotaStatusResult(int artworksUsed, int maxArtworks, long resetSeconds, ArchiveInfo archive) {}
     public record ArchiveInfo(String token, String status, long expireSeconds) {}
+
+    /** workId 标注条目所属作品（manifest 等附加条目为 null），用于打包进度统计。 */
+    public record ArchiveItem(Path path, String entryName, byte[] bytes, Long workId) {
+        public static ArchiveItem file(Path path, String entryName) {
+            return new ArchiveItem(path, entryName, null, null);
+        }
+
+        public static ArchiveItem file(Path path, String entryName, Long workId) {
+            return new ArchiveItem(path, entryName, null, workId);
+        }
+
+        public static ArchiveItem bytes(String entryName, byte[] bytes) {
+            return new ArchiveItem(null, entryName, bytes, null);
+        }
+    }
 }

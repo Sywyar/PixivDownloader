@@ -1252,7 +1252,6 @@
         document.getElementById('mobileOverlay').classList.remove('active');
     }
 
-    document.getElementById('sidebarToggle').addEventListener('click', toggleSidebar);
     document.getElementById('mobileMenuBtn').addEventListener('click', openMobileSidebar);
     document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
     document.getElementById('translateSeriesBtn').addEventListener('click', translateSeries);

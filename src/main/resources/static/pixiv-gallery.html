@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pixiv Gallery</title>
     <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-side-modules.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
     <script src="/js/invite-modals.js"></script>
@@ -13,6 +14,7 @@
     <link rel="stylesheet" href="/css/pixiv-onboarding.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
+    <link rel="stylesheet" href="/css/pixiv-side-modules.css">
     <link rel="stylesheet" href="/pixiv-gallery/pixiv-gallery.css">
 </head>
 <body>
@@ -25,11 +27,6 @@
                 </svg>
             </div>
             <span class="sidebar-brand" data-i18n="sidebar.brand">Pixiv Gallery</span>
-            <button class="sidebar-toggle" onclick="toggleSidebar()" data-i18n-title="sidebar.toggle.title" title="Toggle sidebar">
-                <svg viewBox="0 0 24 24">
-                    <polyline points="15 18 9 12 15 6"/>
-                </svg>
-            </button>
         </div>
 
         <div class="section-header">
@@ -455,8 +452,16 @@
 <div class="batch-action-bar" id="batchActionBar">
     <span class="batch-count" id="batchCount"></span>
     <button class="btn" id="batchSelectAll" type="button" data-i18n="manage.select-all">全选本页</button>
+    <button class="btn" id="batchSelectAllResults" type="button" data-i18n="manage.select-all-results">全选所有结果</button>
     <button class="btn" id="batchClear" type="button" data-i18n="manage.clear">清除选择</button>
-    <button class="btn btn-danger" id="batchDelete" type="button" data-i18n="manage.delete">删除选中</button>
+    <div class="batch-menu-wrap">
+        <button class="btn btn-primary" id="batchActionMenuToggle" type="button" data-i18n="manage.action-menu">操作</button>
+        <div class="batch-menu" id="batchActionMenu">
+            <button type="button" data-action="export" data-i18n="manage.export">导出</button>
+            <button type="button" data-action="collect" data-i18n="manage.collect">添加到收藏夹</button>
+            <button type="button" data-action="delete" class="danger" data-i18n="manage.delete">删除</button>
+        </div>
+    </div>
     <button class="btn" id="batchExit" type="button" data-i18n="manage.exit">退出管理</button>
 </div>
 
@@ -472,6 +477,55 @@
         <div class="modal-foot">
             <button class="btn" id="batchDeleteCancel" type="button" data-i18n="manage.confirm-cancel">取消</button>
             <button class="btn btn-danger" id="batchDeleteConfirm" type="button" data-i18n="manage.confirm-delete">删除</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="modalBatchExport">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title" data-i18n="manage.export-title">导出选中的作品</span>
+            <button class="modal-close" id="batchExportClose" type="button">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="export-option-row">
+                <label class="export-option-label" for="batchExportGroupBy" data-i18n="manage.export-group-by">打包方式</label>
+                <select class="export-option-select" id="batchExportGroupBy">
+                    <option value="author" data-i18n="manage.export-group-author">按作者 / 作品分类</option>
+                    <option value="id" data-i18n="manage.export-group-id">以作品 ID 为文件夹名</option>
+                </select>
+            </div>
+            <div class="export-option-row">
+                <label class="export-option-label" for="batchExportFormat" data-i18n="manage.export-format">打包格式</label>
+                <select class="export-option-select" id="batchExportFormat">
+                    <option value="zip">ZIP</option>
+                </select>
+            </div>
+            <label class="export-delete-check">
+                <input type="checkbox" id="batchExportDeleteAfter">
+                <span data-i18n="manage.export-delete-source">导出后删除源文件与下载记录</span>
+            </label>
+            <p class="delete-modal-text export-delete-hint" id="batchExportDeleteHint" hidden
+               data-i18n="manage.export-delete-hint">只有打包成功后才会删除源文件和下载记录；删除不可恢复，压缩包按归档过期时间保留。</p>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" id="batchExportCancel" type="button" data-i18n="manage.confirm-cancel">取消</button>
+            <button class="btn btn-primary" id="batchExportConfirm" type="button" data-i18n="manage.export-start">开始导出</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="modalBatchCollection">
+    <div class="modal">
+        <div class="modal-head">
+            <span class="modal-title" data-i18n="manage.collect-title">添加到收藏夹</span>
+            <button class="modal-close" id="batchCollectionClose" type="button">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="collection-list" id="batchCollectionList"></div>
+        </div>
+        <div class="modal-foot">
+            <button class="btn" id="batchCollectionCancel" type="button" data-i18n="manage.confirm-cancel">取消</button>
         </div>
     </div>
 </div>

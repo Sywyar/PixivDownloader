@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -137,5 +138,36 @@ class ArchiveControllerTest {
 
     private ArgumentMatcher<List<Path>> pathListContains(Path expected) {
         return paths -> paths != null && paths.size() == 1 && expected.equals(paths.get(0));
+    }
+    @Test
+    @DisplayName("未登录时压缩任务列表接口应返回 401")
+    void shouldRejectArchiveListWhenNotLoggedIn() throws Exception {
+        when(setupService.isAdminLoggedIn(any())).thenReturn(false);
+
+        mockMvc.perform(get("/api/archive/list"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("管理员应能获取未过期压缩任务列表及元数据")
+    void shouldListAdminArchivesForAdmin() throws Exception {
+        when(setupService.isAdminLoggedIn(any())).thenReturn(true);
+        UserQuotaService.ArchiveEntry entry = new UserQuotaService.ArchiveEntry(
+                "token-9", null, System.currentTimeMillis() + 60_000);
+        entry.setStatus("ready");
+        entry.setExportType("artworks");
+        entry.setWorkCount(3);
+        entry.setProcessedWorks(2);
+        entry.setFileCount(8);
+        when(userQuotaService.listAdminArchives()).thenReturn(List.of(entry));
+
+        mockMvc.perform(get("/api/archive/list"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tasks[0].token").value("token-9"))
+                .andExpect(jsonPath("$.tasks[0].status").value("ready"))
+                .andExpect(jsonPath("$.tasks[0].exportType").value("artworks"))
+                .andExpect(jsonPath("$.tasks[0].workCount").value(3))
+                .andExpect(jsonPath("$.tasks[0].processedWorks").value(2))
+                .andExpect(jsonPath("$.tasks[0].fileCount").value(8));
     }
 }

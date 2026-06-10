@@ -42,10 +42,6 @@
     }
 
     // ---------- sidebar ----------
-    function toggleSidebar() {
-        document.getElementById('sidebar').classList.toggle('collapsed');
-    }
-
     function openMobileSidebar() {
         document.getElementById('sidebar').classList.add('mobile-open');
         document.getElementById('mobileOverlay').classList.add('active');
@@ -335,8 +331,6 @@
     }
 
     function wireSidebar() {
-        var toggle = document.getElementById('sidebarToggle');
-        if (toggle) toggle.addEventListener('click', toggleSidebar);
         var menuBtn = document.getElementById('mobileMenuBtn');
         if (menuBtn) menuBtn.addEventListener('click', openMobileSidebar);
         var overlay = document.getElementById('mobileOverlay');

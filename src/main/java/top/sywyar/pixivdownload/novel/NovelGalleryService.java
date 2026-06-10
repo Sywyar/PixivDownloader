@@ -151,6 +151,29 @@ public class NovelGalleryService {
         return new PagedNovels(pageContent, total, q.page(), q.size(), totalPages);
     }
 
+    public List<Long> findNovelIds(NovelGalleryQuery q) {
+        NovelGalleryQuery all = new NovelGalleryQuery(
+                0,
+                Integer.MAX_VALUE,
+                q.sort(),
+                q.order(),
+                q.search(),
+                q.searchType(),
+                q.r18(),
+                q.ai(),
+                q.collectionIds(),
+                q.tagIds(),
+                q.notTagIds(),
+                q.orTagIds(),
+                q.authorIds(),
+                q.notAuthorIds(),
+                q.orAuthorIds(),
+                q.seriesIds(),
+                q.notSeriesIds(),
+                q.guestSession());
+        return query(all).content().stream().map(NovelView::novelId).toList();
+    }
+
     public NovelView find(long novelId) {
         NovelRecord r = novelDatabase.getNovel(novelId);
         return r == null ? null : toView(r);

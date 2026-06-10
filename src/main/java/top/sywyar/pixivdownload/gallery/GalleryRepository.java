@@ -28,6 +28,30 @@ public class GalleryRepository {
     }
 
     public QueryResult findArtworkIds(GalleryQuery q) {
+        QueryParts parts = buildFilteredQuery(q);
+        Long total = jdbc.queryForObject(parts.countSql(), parts.params(), Long.class);
+        long totalElements = total == null ? 0 : total;
+
+        if (totalElements == 0) {
+            return new QueryResult(List.of(), 0);
+        }
+
+        MapSqlParameterSource params = parts.params();
+        params.addValue("limit", q.getSize());
+        params.addValue("offset", q.getPage() * q.getSize());
+
+        List<Long> ids = jdbc.query(parts.pageSql(), params,
+                (rs, rowNum) -> rs.getLong("artwork_id"));
+        return new QueryResult(ids, totalElements);
+    }
+
+    public List<Long> findAllArtworkIds(GalleryQuery q) {
+        QueryParts parts = buildFilteredQuery(q);
+        return jdbc.query(parts.allSql(), parts.params(),
+                (rs, rowNum) -> rs.getLong("artwork_id"));
+    }
+
+    private QueryParts buildFilteredQuery(GalleryQuery q) {
         StringBuilder where = new StringBuilder(" WHERE 1=1");
         MapSqlParameterSource params = new MapSqlParameterSource();
 
@@ -117,12 +141,6 @@ public class GalleryRepository {
         String countSql = "SELECT COUNT(*) FROM artworks a"
                 + " LEFT JOIN authors au ON au.author_id = a.author_id"
                 + where;
-        Long total = jdbc.queryForObject(countSql, params, Long.class);
-        long totalElements = total == null ? 0 : total;
-
-        if (totalElements == 0) {
-            return new QueryResult(List.of(), 0);
-        }
 
         String orderBy = buildOrderBy(q);
         String pageSql = "SELECT a.artwork_id FROM artworks a"
@@ -130,13 +148,14 @@ public class GalleryRepository {
                 + where
                 + " ORDER BY " + orderBy
                 + " LIMIT :limit OFFSET :offset";
-        params.addValue("limit", q.getSize());
-        params.addValue("offset", q.getPage() * q.getSize());
-
-        List<Long> ids = jdbc.query(pageSql, params,
-                (rs, rowNum) -> rs.getLong("artwork_id"));
-        return new QueryResult(ids, totalElements);
+        String allSql = "SELECT a.artwork_id FROM artworks a"
+                + " LEFT JOIN authors au ON au.author_id = a.author_id"
+                + where
+                + " ORDER BY " + orderBy;
+        return new QueryParts(countSql, pageSql, allSql, params);
     }
+
+    private record QueryParts(String countSql, String pageSql, String allSql, MapSqlParameterSource params) {}
 
     /**
      * 同作者的其他作品 ID，按 time 倒序，排除自身。

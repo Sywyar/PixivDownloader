@@ -1,0 +1,363 @@
+/*
+ * 侧边模块（外凸切换按钮 + 注册式侧边栏内容模块）的共享样式。
+ * 由 pixiv-gallery / pixiv-novel-gallery / pixiv-series / pixiv-stats 复用。
+ * 依赖页面主题变量：--sidebar-width / --sidebar-collapsed / --surface / --line / --text / --brand。
+ * 按钮栈以 #sidebar 的相邻兄弟节点插入，借助兄弟选择器跟随收起状态平移。
+ * 非 nav 模块激活时 #sidebar 附加 pixiv-side-module-active，
+ * 隐藏原有内容、只显示激活的模块面板。
+ * 模块紧凑态：面板附加 compact、侧边栏收起为窄条，只显示简要信息；
+ * 悬浮简要信息时由 body 下的 .pixiv-side-module-flyout 浮层展示详细信息。
+ */
+
+.pixiv-side-tabs {
+    position: fixed;
+    top: 96px;
+    left: var(--sidebar-width, 300px);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 60;
+    transition: left 0.25s ease;
+}
+
+.sidebar.collapsed + .pixiv-side-tabs {
+    left: var(--sidebar-collapsed, 64px);
+}
+
+.pixiv-side-tab {
+    writing-mode: vertical-rl;
+    padding: 8px 3px;
+    border: 1px solid var(--line, #e0e0e0);
+    border-left: none;
+    border-radius: 0 8px 8px 0;
+    background: var(--surface, #ffffff);
+    color: var(--text, #111111);
+    font-size: 12px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
+    transition: background 0.15s, color 0.15s;
+}
+
+.pixiv-side-tab:hover {
+    color: var(--brand, #0096fa);
+}
+
+.pixiv-side-tab.active {
+    color: var(--brand, #0096fa);
+    border-color: var(--brand, #0096fa);
+}
+
+.pixiv-side-tab[hidden] {
+    display: none;
+}
+
+.pixiv-side-tab .pixiv-side-tab-badge {
+    display: inline-block;
+    margin-top: 4px;
+    min-height: 14px;
+    min-width: 14px;
+    border-radius: 7px;
+    background: var(--brand, #0096fa);
+    color: #ffffff;
+    font-size: 10px;
+    line-height: 14px;
+    text-align: center;
+    writing-mode: horizontal-tb;
+}
+
+.pixiv-side-tab .pixiv-side-tab-badge[hidden] {
+    display: none;
+}
+
+/* ---- 模块面板：替换侧边栏原有内容 ---- */
+
+.sidebar.pixiv-side-module-active > :not(.pixiv-side-module-panel) {
+    display: none !important;
+}
+
+.pixiv-side-module-panel {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    color: var(--text, #111111);
+}
+
+.pixiv-side-module-panel.active {
+    display: flex;
+    animation: pixiv-side-module-in 0.2s ease;
+}
+
+@keyframes pixiv-side-module-in {
+    from {
+        transform: translateX(-12px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.pixiv-side-module-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line, #e0e0e0);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pixiv-side-module-close {
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.pixiv-side-module-close:hover {
+    opacity: 1;
+}
+
+.pixiv-side-module-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ---- 模块紧凑态（侧边栏窄条 + 简要信息） ---- */
+
+.pixiv-side-module-panel.compact .pixiv-side-module-head,
+.pixiv-side-module-panel.compact .pixiv-side-module-body {
+    display: none;
+}
+
+.pixiv-side-module-compact {
+    display: none;
+}
+
+.pixiv-side-module-panel.compact .pixiv-side-module-compact {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 4px;
+    overflow: hidden;
+    cursor: default;
+}
+
+.pixiv-side-compact-task {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    line-height: 1;
+}
+
+.pixiv-side-compact-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--line, #e0e0e0);
+}
+
+.pixiv-side-compact-task.is-creating .pixiv-side-compact-dot {
+    background: var(--brand, #0096fa);
+    animation: pixiv-side-compact-pulse 1.2s ease infinite;
+}
+
+.pixiv-side-compact-task.is-ready .pixiv-side-compact-dot {
+    background: #16a34a;
+}
+
+.pixiv-side-compact-task.is-error .pixiv-side-compact-dot {
+    background: #dc2626;
+}
+
+@keyframes pixiv-side-compact-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+.pixiv-side-compact-text {
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+.pixiv-side-compact-bar {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line, #e0e0e0);
+    overflow: hidden;
+}
+
+.pixiv-side-compact-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--brand, #0096fa);
+    transition: width 0.3s ease;
+}
+
+/* ---- 悬浮详细信息浮层 ---- */
+
+.pixiv-side-module-flyout {
+    position: fixed;
+    width: 320px;
+    max-width: calc(100vw - 96px);
+    max-height: calc(100vh - 32px);
+    display: none;
+    flex-direction: column;
+    border: 1px solid var(--line, #e0e0e0);
+    border-radius: 12px;
+    background: var(--surface, #ffffff);
+    color: var(--text, #111111);
+    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+    z-index: 70;
+    overflow: hidden;
+}
+
+.pixiv-side-module-flyout.open {
+    display: flex;
+}
+
+.pixiv-side-module-flyout-title {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line, #e0e0e0);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.pixiv-side-module-flyout-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ---- tasks 模块（压缩任务队列） ---- */
+
+.pixiv-side-tasks-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.pixiv-side-task-item {
+    padding: 10px 10px 12px;
+    border-radius: 8px;
+}
+
+.pixiv-side-task-item + .pixiv-side-task-item {
+    border-top: 1px solid var(--line, #e0e0e0);
+    border-radius: 0;
+}
+
+.pixiv-side-task-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pixiv-side-task-status {
+    font-size: 12px;
+    font-weight: 400;
+    white-space: nowrap;
+}
+
+.pixiv-side-task-status.is-creating {
+    color: var(--brand, #0096fa);
+}
+
+.pixiv-side-task-status.is-error {
+    color: #dc2626;
+}
+
+.pixiv-side-task-meta {
+    margin-top: 4px;
+    font-size: 12px;
+    opacity: 0.72;
+}
+
+.pixiv-side-task-progress {
+    margin-top: 8px;
+}
+
+.pixiv-side-task-progress-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--line, #e0e0e0);
+    overflow: hidden;
+}
+
+.pixiv-side-task-progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--brand, #0096fa);
+    transition: width 0.3s ease;
+}
+
+.pixiv-side-task-progress-text {
+    margin-top: 4px;
+    font-size: 11px;
+    opacity: 0.72;
+}
+
+.pixiv-side-task-actions {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pixiv-side-task-download {
+    padding: 6px 12px;
+    border: 1px solid var(--brand, #0096fa);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--brand, #0096fa);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.pixiv-side-task-download:hover {
+    background: var(--brand, #0096fa);
+    color: #ffffff;
+}
+
+.pixiv-side-tasks-empty {
+    padding: 28px 12px;
+    text-align: center;
+    font-size: 13px;
+    opacity: 0.65;
+}
+
+.pixiv-side-tasks-hint {
+    padding: 8px 14px 12px;
+    border-top: 1px solid var(--line, #e0e0e0);
+    font-size: 11px;
+    line-height: 1.6;
+    opacity: 0.6;
+}
+
+@media (max-width: 768px) {
+    /* 移动端侧边栏为抽屉式（默认收起到屏幕外），按钮栈固定在屏幕左缘。 */
+    .pixiv-side-tabs,
+    .sidebar.collapsed + .pixiv-side-tabs {
+        left: 0;
+        top: 120px;
+    }
+}

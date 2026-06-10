@@ -155,44 +155,6 @@
             display: none;
         }
 
-        .sidebar-toggle {
-            margin-left: auto;
-            width: 28px;
-            height: 28px;
-            border: none;
-            background: #f5f5f5;
-            border-radius: 6px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            transition: background 0.15s;
-        }
-
-        .sidebar-toggle:hover {
-            background: #eeeeee;
-        }
-
-        .sidebar-toggle svg {
-            width: 16px;
-            height: 16px;
-            stroke: #666;
-            fill: none;
-            stroke-width: 2;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            transition: transform 0.25s;
-        }
-
-        .sidebar.collapsed .sidebar-toggle svg {
-            transform: rotate(180deg);
-        }
-
-        .sidebar.collapsed .sidebar-toggle {
-            margin-left: 0;
-        }
-
         .sidebar-nav {
             padding: 0 8px;
         }
@@ -1649,6 +1611,98 @@
             margin-right: 4px;
         }
 
+        .batch-menu-wrap {
+            position: relative;
+        }
+
+        .batch-menu {
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 8px);
+            transform: translateX(-50%) translateY(4px);
+            min-width: 160px;
+            padding: 6px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s ease;
+        }
+
+        .batch-menu.open {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .batch-menu button {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            color: var(--text);
+            border-radius: 6px;
+            padding: 9px 10px;
+            text-align: left;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .batch-menu button:hover {
+            background: var(--hover-bg);
+        }
+
+        .batch-menu button.danger {
+            color: var(--danger);
+        }
+
+        .batch-menu button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        .export-option-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .export-option-label {
+            flex-shrink: 0;
+            width: 72px;
+            font-size: 13px;
+            color: var(--text);
+        }
+
+        .export-option-select {
+            flex: 1;
+            min-width: 0;
+            padding: 8px 10px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--text);
+            font-size: 13px;
+        }
+
+        .export-delete-check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text);
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+
+        .export-delete-hint {
+            color: var(--danger);
+        }
+
         .delete-modal-text {
             margin: 0;
             font-size: 13px;
@@ -1671,6 +1725,13 @@
             padding: 8px 10px;
             border-radius: 8px;
             cursor: pointer;
+        }
+
+        .collection-row.batch-collection-choice {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            text-align: left;
         }
 
         .collection-row:hover {
@@ -2134,7 +2195,6 @@
             text-align: center;
         }
 
-        html[data-theme="dark"] .sidebar-toggle,
         html[data-theme="dark"] .filter-btn,
         html[data-theme="dark"] .chip,
         html[data-theme="dark"] .filter-mode-btn,
@@ -2239,7 +2299,6 @@
         }
 
         html[data-theme="dark"] .thumb-heart svg,
-        html[data-theme="dark"] .sidebar-toggle svg,
         html[data-theme="dark"] .mobile-menu-btn svg {
             stroke: var(--text-secondary);
         }

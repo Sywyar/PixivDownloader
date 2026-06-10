@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.novel.NovelMergeService;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.NovelTranslationService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.NovelBatchService;
 import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.when;
 class NovelGalleryControllerMergeDownloadTest {
 
     @Mock private NovelGalleryService novelGalleryService;
+    @Mock private NovelBatchService novelBatchService;
     @Mock private NovelMergeService novelMergeService;
     @Mock private NovelSeriesService novelSeriesService;
     @Mock private NovelTranslationService novelTranslationService;
@@ -49,7 +51,7 @@ class NovelGalleryControllerMergeDownloadTest {
 
     private NovelGalleryController controller() {
         return new NovelGalleryController(
-                novelGalleryService, novelMergeService, novelSeriesService, novelTranslationService,
+                novelGalleryService, novelBatchService, novelMergeService, novelSeriesService, novelTranslationService,
                 novelDatabase, novelGalleryRepository, pixivDatabase, guestAccessGuard, messages);
     }
 

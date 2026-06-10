@@ -146,46 +146,6 @@ button, input {
     display: none;
 }
 
-.sidebar-toggle {
-    margin-left: auto;
-    width: 28px;
-    height: 28px;
-    border: none;
-    background: var(--control-muted-bg);
-    border-radius: 6px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    transition: background 0.15s, color 0.15s;
-}
-
-.sidebar-toggle:hover {
-    background: var(--hover-bg);
-    color: var(--brand);
-}
-
-.sidebar-toggle svg {
-    width: 16px;
-    height: 16px;
-    stroke: currentColor;
-    fill: none;
-    stroke-width: 2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    transition: transform 0.25s;
-}
-
-.sidebar.collapsed .sidebar-toggle {
-    margin-left: 0;
-}
-
-.sidebar.collapsed .sidebar-toggle svg {
-    transform: rotate(180deg);
-}
-
 .section-header {
     display: flex;
     align-items: center;
