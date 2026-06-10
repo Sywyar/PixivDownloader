@@ -218,9 +218,26 @@ public class DownloadService implements ArtworkDownloader {
 
             ensureNotCancelled(status);
 
-            // 多人模式：记录已下载的文件夹（用于配额超出时打包）
-            if (userUuid != null && userQuotaService != null) {
+            // 多人模式：记录已下载的文件夹（用于配额超出时打包）；部分失败时已落盘的文件同样要纳入打包/清理
+            if (userUuid != null && userQuotaService != null && successCount.get() > 0) {
                 userQuotaService.recordFolder(userUuid, downloadPath);
+            }
+
+            int expectedCount = other.isUgoira() && other.getUgoiraZipUrl() != null ? 1 : imageUrls.size();
+            if (successCount.get() < expectedCount) {
+                // 有图片未下载成功时绝不写下载历史：一旦入库就会被「跳过已下载」判重挡住，缺页再也补不齐
+                status.setSuccessCount(successCount.get());
+                status.setFailedCount(expectedCount - successCount.get());
+                status.setCurrentImageIndex(-1);
+                status.setCompleted(true);
+                status.setFailed(true);
+                status.setErrorMessage(messages.get("download.incomplete",
+                        text(successCount.get()), text(expectedCount)));
+                status.setEndTime(java.time.LocalDateTime.now());
+                log.warn(logMessage("download.log.incomplete",
+                        id(artworkId), text(successCount.get()), text(expectedCount), downloadPath));
+                eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+                return false;
             }
 
             // 记录下载信息
@@ -229,7 +246,7 @@ public class DownloadService implements ArtworkDownloader {
                     fileNamePlan.templateId(), fileNamePlan.recordTime(), fileNamePlan.fileAuthorNameId(),
                     other.getSeriesId(), other.getSeriesOrder());
 
-            recordStatistics(imageUrls.size());
+            recordStatistics(successCount.get());
             recordAuthorInfo(artworkId, other, cookie);
             recordSeriesInfo(artworkId, other, cookie);
 
@@ -812,7 +829,12 @@ public class DownloadService implements ArtworkDownloader {
         if (pageExt.isEmpty()) {
             return null;
         }
-        int count = Collections.max(pageExt.keySet()) + 1;
+        int count = contiguousPageCount(pageExt);
+        if (count <= 0) {
+            log.info(logMessage("download.log.stale-record.incomplete",
+                    id(artworkId), flatDir.toAbsolutePath()));
+            return null;
+        }
         LinkedHashSet<String> uniqueExts = new LinkedHashSet<>(new TreeMap<>(pageExt).values());
         String extensions = String.join(",", uniqueExts);
         String absoluteFolder = flatDir.toAbsolutePath().toString();
@@ -854,7 +876,12 @@ public class DownloadService implements ArtworkDownloader {
         if (pageExt.isEmpty()) {
             return null;
         }
-        int count = Collections.max(pageExt.keySet()) + 1;
+        int count = contiguousPageCount(pageExt);
+        if (count <= 0) {
+            log.info(logMessage("download.log.stale-record.incomplete",
+                    id(artworkId), flatDir.toAbsolutePath()));
+            return null;
+        }
         // 按页号升序收集，使 extensions 顺序稳定（便于排查与单测断言）
         LinkedHashSet<String> uniqueExts = new LinkedHashSet<>(new TreeMap<>(pageExt).values());
         String extensions = String.join(",", uniqueExts);
@@ -864,6 +891,17 @@ public class DownloadService implements ArtworkDownloader {
         pixivDatabase.insertArtwork(artworkId, "", absoluteFolder, count, extensions,
                 pixivDatabase.getUniqueTime(), null, null, null, "");
         return pixivDatabase.getArtwork(artworkId);
+    }
+
+    /**
+     * 磁盘文件页号必须从 0 连续到最大页号才视为完整作品集合；
+     * 缺页（如部分下载失败的残留文件）不得恢复为已下载记录，否则判重会挡住补齐下载。
+     *
+     * @return 连续时返回页数（最大页号 + 1），有缺页时返回 -1
+     */
+    private static int contiguousPageCount(Map<Integer, String> pageExt) {
+        int maxPage = Collections.max(pageExt.keySet());
+        return pageExt.size() == maxPage + 1 ? maxPage + 1 : -1;
     }
 
     private Map<Integer, String> scanDefaultTemplateFiles(File directory, long artworkId) {

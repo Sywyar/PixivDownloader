@@ -536,21 +536,31 @@ class DownloadServiceTest {
         }
 
         @Test
-        @DisplayName("有缺页时 count 取最大页号+1")
-        void shouldUseMaxPagePlusOneAsCountWhenPagesHaveGap() throws Exception {
+        @DisplayName("页号有空洞时不应恢复为已下载记录")
+        void shouldNotRecoverWhenPagesHaveGap() throws Exception {
             long artworkId = 88888L;
             Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
             Files.write(dir.resolve("88888_p0.jpg"), new byte[]{1});
             Files.write(dir.resolve("88888_p3.jpg"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
-                    new ArtworkRecord(artworkId, "", absolute, 4, "jpg",
-                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
 
-            downloadService.getDownloadedRecord(artworkId, true);
+            assertThat(downloadService.getDownloadedRecord(artworkId, true)).isNull();
+            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
+                    anyString(), anyLong(), any(), any(), any(), anyString());
+        }
 
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 4, "jpg",
-                    1700000200L, null, null, null, "");
+        @Test
+        @DisplayName("缺第 0 页（部分失败残留）时不应恢复为已下载记录")
+        void shouldNotRecoverWhenFirstPageMissing() throws Exception {
+            long artworkId = 88889L;
+            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
+            Files.write(dir.resolve("88889_p1.jpg"), new byte[]{1});
+            Files.write(dir.resolve("88889_p2.jpg"), new byte[]{1});
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
+
+            assertThat(downloadService.getDownloadedRecord(artworkId, true)).isNull();
+            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
+                    anyString(), anyLong(), any(), any(), any(), anyString());
         }
 
         @Test
@@ -642,6 +652,22 @@ class DownloadServiceTest {
             verify(pixivDatabase).insertArtwork(artworkId, "Pixiv 标题", absolute, 2, "jpg",
                     1700000300L, 1, true, 5678L, "简介");
             verify(authorService).observe(5678L, "auth");
+        }
+
+        @Test
+        @DisplayName("DB 无记录且磁盘文件缺第 0 页时应返回 null 视为未下载")
+        void shouldReturnNullWhenDiskFilesIncomplete() throws Exception {
+            long artworkId = 66667L;
+            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
+            Files.write(dir.resolve("66667_p1.jpg"), new byte[]{1});
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
+            RecoverMetadataRequest req = new RecoverMetadataRequest(
+                    "标题", 1234L, "auth", 0, false, "简介");
+
+            assertThat(downloadService.recoverMetadata(artworkId, req)).isNull();
+            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
+                    anyString(), anyLong(), any(), any(), any(), anyString());
+            verify(authorService, never()).observe(anyLong(), any());
         }
 
         @Test
@@ -1057,6 +1083,57 @@ class DownloadServiceTest {
                 assertThat(finalFile.getFileName().toString()).doesNotEndWith(".part");
                 assertThat(Files.readAllBytes(finalFile)).containsExactly(payload);
             }
+        }
+    }
+
+    @Nested
+    @DisplayName("部分图片下载失败")
+    class PartialFailureTests {
+
+        private static final String OK_URL =
+                "https://i.pximg.net/img-original/img/2024/01/01/00/00/00/67890_p0.jpg";
+        private static final String FAIL_URL =
+                "https://i.pximg.net/img-original/img/2024/01/01/00/00/00/67890_p1.jpg";
+
+        @Test
+        @DisplayName("有图片下载失败时不写下载历史且状态标记为失败")
+        void shouldNotRecordHistoryWhenAnyImageFails() {
+            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(false);
+            lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000200L);
+            byte[] payload = {1, 2, 3};
+            when(downloadRestTemplate.execute(eq(OK_URL), eq(HttpMethod.GET), any(), any()))
+                    .thenAnswer(invocation -> {
+                        ResponseExtractor<Boolean> extractor = invocation.getArgument(3);
+                        ClientHttpResponse response = mock(ClientHttpResponse.class);
+                        lenient().when(response.getStatusCode()).thenReturn(HttpStatus.OK);
+                        HttpHeaders headers = new HttpHeaders();
+                        headers.setContentLength(payload.length);
+                        lenient().when(response.getHeaders()).thenReturn(headers);
+                        lenient().when(response.getBody()).thenReturn(new ByteArrayInputStream(payload));
+                        return extractor.extractData(response);
+                    });
+            when(downloadRestTemplate.execute(eq(FAIL_URL), eq(HttpMethod.GET), any(), any()))
+                    .thenAnswer(invocation -> {
+                        ResponseExtractor<Boolean> extractor = invocation.getArgument(3);
+                        ClientHttpResponse response = mock(ClientHttpResponse.class);
+                        lenient().when(response.getStatusCode()).thenReturn(HttpStatus.NOT_FOUND);
+                        return extractor.extractData(response);
+                    });
+
+            boolean succeeded = downloadService.downloadImagesBlocking(67890L, "title",
+                    List.of(OK_URL, FAIL_URL), "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);
+
+            assertThat(succeeded).isFalse();
+            DownloadStatus status = downloadService.getDownloadStatus(67890L);
+            assertThat(status.isFailed()).isTrue();
+            assertThat(status.isCompleted()).isTrue();
+            assertThat(status.getSuccessCount()).isEqualTo(1);
+            assertThat(status.getFailedCount()).isEqualTo(1);
+            assertThat(status.getErrorMessage()).contains("1/2");
+            verify(pixivDatabase, never()).insertArtwork(anyLong(), any(), any(), anyInt(), any(),
+                    anyLong(), any(), any(), any(), any(), anyLong(), any(), any(), any());
+            verify(pixivDatabase, never()).incrementStats(anyInt());
         }
     }
 }
