@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.quota;
 
+import jakarta.annotation.PostConstruct;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -502,6 +503,37 @@ public class UserQuotaService {
             } catch (Exception e) {
                 log.warn(message("archive.log.file.delete.failed", entry.getArchivePath()), e);
             }
+        }
+    }
+
+    /** 启动时扫描并清理上次运行遗留的孤儿压缩包 */
+    @PostConstruct
+    public void cleanupOrphanArchivesOnStartup() {
+        Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives");
+        if (!Files.isDirectory(archiveDir)) {
+            return;
+        }
+        log.info(message("archive.log.startup.cleanup.scanning", archiveDir));
+        int deleted = 0;
+        try (var stream = Files.list(archiveDir)) {
+            for (Path file : stream.toList()) {
+                String name = file.getFileName().toString().toLowerCase();
+                if (name.endsWith(".zip") || name.endsWith(".zip.part")) {
+                    try {
+                        Files.deleteIfExists(file);
+                        deleted++;
+                        log.info(message("archive.log.startup.cleanup.deleted", file.getFileName()));
+                    } catch (Exception e) {
+                        log.warn(message("archive.log.startup.cleanup.delete.failed", file.getFileName()), e);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn(message("archive.log.startup.cleanup.scan.failed", archiveDir), e);
+            return;
+        }
+        if (deleted == 0) {
+            log.info(message("archive.log.startup.cleanup.none"));
         }
     }
 
