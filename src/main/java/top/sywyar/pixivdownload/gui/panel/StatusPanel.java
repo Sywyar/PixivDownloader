@@ -141,6 +141,7 @@ public class StatusPanel extends JPanel {
         startPolling();
         refreshFfmpegState();
         scheduleInitialUpdateLookup();
+        scheduleSymbolicOrphanCheck();
     }
 
     private void buildUi() {
@@ -1395,11 +1396,13 @@ public class StatusPanel extends JPanel {
         list.setOpaque(false);
         list.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
 
+        String appRoot = listNode.path("appRoot").asText("");
         boolean firstCard = true;
         for (JsonNode p : prefixes) {
             long id = p.path("id").asLong();
             String path = p.path("path").asText("");
             boolean isRoot = p.path("downloadRoot").asBoolean(false);
+            boolean symbolic = p.path("symbolic").asBoolean(false);
 
             JTextField field = new JTextField();
             field.setColumns(26);
@@ -1410,8 +1413,8 @@ public class StatusPanel extends JPanel {
                 list.add(Box.createVerticalStrut(8));
             }
             firstCard = false;
-            list.add(buildPrefixCard(path, isRoot, field));
-            rows.add(new PrefixRow(id, path, isRoot, field));
+            list.add(buildPrefixCard(path, isRoot, symbolic, field));
+            rows.add(new PrefixRow(id, path, isRoot, symbolic, field));
         }
 
         JScrollPane scroll = new JScrollPane(list,
@@ -1462,7 +1465,32 @@ public class StatusPanel extends JPanel {
         // 改动了当前下载根目录 → 询问是否同步 config.yaml 的 download.root-folder
         String rootSyncPath = null;
         String registerOldRoot = null;
-        if (rootChange != null) {
+        if (rootChange != null && rootChange.symbolic()) {
+            // 符号根 {0}：新目录在软件目录内且同步配置时，只改 config（写相对路径）、不动数据库记录，
+            // 让记录继续跟随软件目录；其余分支都把 {0} 固定为新目录的绝对路径前缀。
+            String newRoot = rootChange.field().getText().trim();
+            String relative = relativeToAppRoot(newRoot, appRoot);
+            boolean inside = relative != null;
+            String messageKey = inside
+                    ? "gui.migrate-dir.symbolic-sync.inside.message"
+                    : "gui.migrate-dir.symbolic-sync.outside.message";
+            int answer = JOptionPane.showConfirmDialog(this,
+                    htmlLines(message(messageKey, rootChange.original(), newRoot, relative)),
+                    message("gui.migrate-dir.title"),
+                    JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (answer == JOptionPane.CANCEL_OPTION || answer == JOptionPane.CLOSED_OPTION) {
+                return;
+            }
+            if (answer == JOptionPane.YES_OPTION) {
+                if (inside) {
+                    changes.removeIf(c -> c.id() == 0L);
+                    rootSyncPath = relative;
+                } else {
+                    rootSyncPath = newRoot;
+                }
+            }
+            // 选「否」：仅改写记录，config 不动；旧根仍由符号根跟踪，无需重新登记
+        } else if (rootChange != null) {
             String newRoot = rootChange.field().getText().trim();
             int answer = JOptionPane.showConfirmDialog(this,
                     htmlLines(message("gui.migrate-dir.root-sync.message", rootChange.original(), newRoot)),
@@ -1489,6 +1517,27 @@ public class StatusPanel extends JPanel {
         }
 
         applyDirectoryMigration(changes, rootSyncPath, registerOldRoot);
+    }
+
+    /**
+     * 新下载根是否仍在软件根目录（后端工作目录）内：是则返回正斜杠形式的相对路径（写入
+     * config.yaml 后保持可携带），否则返回 null。与软件根目录本身相同也视为「不在内」——
+     * 下载根不应直接等于工作目录。
+     */
+    private static String relativeToAppRoot(String newRoot, String appRoot) {
+        if (appRoot == null || appRoot.isBlank() || newRoot == null || newRoot.isBlank()) {
+            return null;
+        }
+        try {
+            Path app = Path.of(appRoot).toAbsolutePath().normalize();
+            Path target = Path.of(newRoot).toAbsolutePath().normalize();
+            if (target.equals(app) || !target.startsWith(app)) {
+                return null;
+            }
+            return app.relativize(target).toString().replace('\\', '/');
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void applyDirectoryMigration(java.util.List<MigrationChange> changes,
@@ -1555,8 +1604,12 @@ public class StatusPanel extends JPanel {
         if (onConfigChanged != null) {
             onConfigChanged.run();
         }
+        // applied == 0 仅出现在符号根「根内 + 同步配置」分支：数据库记录不动、只改了 config.yaml
+        String successMessage = applied > 0
+                ? message("gui.migrate-dir.root-sync.success", applied)
+                : message("gui.migrate-dir.symbolic-sync.config-only.success", rootSyncPath);
         int restart = JOptionPane.showConfirmDialog(this,
-                message("gui.migrate-dir.root-sync.success", applied),
+                successMessage,
                 message("gui.migrate-dir.title"), JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
         if (restart == JOptionPane.YES_OPTION) {
             performRestart();
@@ -1603,8 +1656,8 @@ public class StatusPanel extends JPanel {
         return notice;
     }
 
-    /** 单个前缀卡片：是下载根则顶部带彩色标签；原目录只读可选中，新目录为带提示文案的输入框。 */
-    private JComponent buildPrefixCard(String path, boolean isRoot, JTextField input) {
+    /** 单个前缀卡片：是下载根则顶部带彩色标签（符号根用「跟随软件目录」文案）；原目录只读可选中，新目录为带提示文案的输入框。 */
+    private JComponent buildPrefixCard(String path, boolean isRoot, boolean symbolic, JTextField input) {
         Color borderColor = UIManager.getColor("Component.borderColor");
         if (borderColor == null) {
             borderColor = FlatLafSetup.isCurrentDark() ? new Color(0x2a, 0x30, 0x3b) : new Color(0xd0, 0xd5, 0xdd);
@@ -1633,7 +1686,7 @@ public class StatusPanel extends JPanel {
             g.weightx = 1;
             g.fill = GridBagConstraints.NONE;
             g.insets = new Insets(0, 0, 8, 0);
-            card.add(buildRootChip(), g);
+            card.add(buildRootChip(symbolic), g);
             g.insets = new Insets(0, 0, 0, 8);
         }
 
@@ -1669,12 +1722,12 @@ public class StatusPanel extends JPanel {
         return card;
     }
 
-    /** 「当前下载根目录」彩色标签（chip）。 */
-    private JComponent buildRootChip() {
+    /** 「当前下载根目录」彩色标签（chip）；符号根虚拟行使用「跟随软件目录」文案。 */
+    private JComponent buildRootChip(boolean symbolic) {
         boolean dark = FlatLafSetup.isCurrentDark();
         Color chipBg = dark ? new Color(0x1f, 0x3a, 0x52) : new Color(0xe1, 0xf0, 0xff);
         Color chipFg = dark ? new Color(0x9c, 0xd4, 0xff) : new Color(0x1f, 0x6f, 0xeb);
-        JLabel chip = new JLabel(message("gui.migrate-dir.root-chip"));
+        JLabel chip = new JLabel(message(symbolic ? "gui.migrate-dir.symbolic-chip" : "gui.migrate-dir.root-chip"));
         chip.setOpaque(true);
         chip.setBackground(chipBg);
         chip.setForeground(chipFg);
@@ -1749,6 +1802,108 @@ public class StatusPanel extends JPanel {
         stopLiveStatusTimer();
         BackendLifecycleManager.removeListener(backendListener);
         FlatLafSetup.removeChangeListener(themeChangeListener);
+    }
+
+    // ── 启动检查：孤儿符号根记录 ─────────────────────────────────────────────────
+
+    /**
+     * 后端就绪后检查是否存在「孤儿符号根」记录：download.root-folder 已是绝对路径（不再跟随软件目录），
+     * 但数据库仍有 {0} 形式的旧记录（典型成因：直接手改 config.yaml 而未走配置页 / 迁移工具，旧记录
+     * 会随新配置解析到错误位置）。检测到则弹窗引导输入作品实际所在的旧下载根目录，把记录固定为绝对
+     * 路径前缀。轮询预算与初始更新检查一致（24 次 × 2.5s + 初始 3s 延迟）。
+     */
+    private void scheduleSymbolicOrphanCheck() {
+        final int maxAttempts = 24;
+        final int[] attempts = {0};
+        final boolean[] inFlight = {false};
+        Timer poll = new Timer(2500, null);
+        poll.setInitialDelay(3000);
+        poll.addActionListener(e -> {
+            if (inFlight[0]) {
+                return;
+            }
+            attempts[0]++;
+            boolean lastAttempt = attempts[0] >= maxAttempts;
+            inFlight[0] = true;
+            Thread worker = new Thread(() -> {
+                JsonNode node = callLocalGuiEndpoint("GET", "/api/gui/path-prefixes", null,
+                        10_000, "gui.status.log.path-prefix.call-failed");
+                SwingUtilities.invokeLater(() -> {
+                    inFlight[0] = false;
+                    if (node != null) {
+                        poll.stop();
+                        if (node.path("symbolicOrphan").asBoolean(false)) {
+                            promptSymbolicOrphanRepair(node.path("symbolicOrphanSuggestedPath").asText(""));
+                        }
+                    } else if (lastAttempt) {
+                        poll.stop();
+                    }
+                });
+            }, "gui-symbolic-orphan-check");
+            worker.setDaemon(true);
+            worker.start();
+        });
+        poll.start();
+    }
+
+    /** 孤儿符号根修复弹窗：输入旧下载根目录（预填 marker 建议值），确定后调 pin 端点固定记录。 */
+    private void promptSymbolicOrphanRepair(String suggestedPath) {
+        JTextField field = new JTextField(suggestedPath == null ? "" : suggestedPath, 36);
+        JPanel panel = new JPanel(new BorderLayout(0, 8));
+        panel.setOpaque(false);
+        panel.add(new JLabel(message("gui.startup.symbolic-orphan.message")), BorderLayout.NORTH);
+        panel.add(field, BorderLayout.SOUTH);
+        int answer = JOptionPane.showConfirmDialog(this, panel,
+                message("gui.startup.symbolic-orphan.title"),
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (answer != JOptionPane.OK_OPTION) {
+            // 取消前二次确认：放弃修复意味着这部分记录继续指向错误位置
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    message("gui.startup.symbolic-orphan.cancel-confirm"),
+                    message("gui.startup.symbolic-orphan.title"),
+                    JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (confirm == JOptionPane.YES_OPTION) {
+                return; // 确认取消：记录保持原样，下次启动会再次提示
+            }
+            promptSymbolicOrphanRepair(field.getText()); // 保留已输入的路径重新弹出
+            return;
+        }
+        String path = field.getText() == null ? "" : field.getText().trim();
+        if (path.isEmpty()) {
+            promptSymbolicOrphanRepair(suggestedPath);
+            return;
+        }
+        String payload;
+        try {
+            var root = MAPPER.createObjectNode();
+            root.put("path", path);
+            payload = MAPPER.writeValueAsString(root);
+        } catch (Exception ex) {
+            log.error(logMessage("gui.status.log.path-prefix.call-failed",
+                    "/api/gui/path-prefixes/pin", safeText(ex)), ex);
+            return;
+        }
+        Thread worker = new Thread(() -> {
+            JsonNode node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes/pin", payload,
+                    15_000, "gui.status.log.path-prefix.call-failed");
+            SwingUtilities.invokeLater(() -> {
+                if (node != null && node.path("success").asBoolean(false)) {
+                    JOptionPane.showMessageDialog(this,
+                            message("gui.startup.symbolic-orphan.success", path),
+                            message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                String reason = node == null
+                        ? message("gui.migrate-dir.error.unreachable")
+                        : migrateReason(node.path("errors").path(0).path("reason").asText(""));
+                GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                        message("gui.startup.symbolic-orphan.failed", reason));
+                // 失败后重新弹出，便于更正路径；取消即退出
+                promptSymbolicOrphanRepair(path);
+            });
+        }, "gui-symbolic-orphan-pin");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     /**
@@ -2288,8 +2443,8 @@ public class StatusPanel extends JPanel {
 
     private record FfmpegProgress(String stage, long current, long total) {}
 
-    /** 「迁移下载目录」对话框中的一行：前缀 id、原绝对路径、是否为当前下载根、对应输入框。 */
-    private record PrefixRow(long id, String original, boolean isRoot, JTextField field) {}
+    /** 「迁移下载目录」对话框中的一行：前缀 id、原绝对路径、是否为当前下载根、是否为符号根虚拟行、对应输入框。 */
+    private record PrefixRow(long id, String original, boolean isRoot, boolean symbolic, JTextField field) {}
 
     /** 一条待提交的前缀改写：前缀 id 与用户填入的新路径。 */
     private record MigrationChange(long id, String path) {}

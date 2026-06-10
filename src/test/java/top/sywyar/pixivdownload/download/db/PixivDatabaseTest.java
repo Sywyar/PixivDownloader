@@ -36,7 +36,12 @@ class PixivDatabaseTest {
         PixivMapper mapper = sqlSession.getMapper(PixivMapper.class);
         PathPrefixMapper pathPrefixMapper = sqlSession.getMapper(PathPrefixMapper.class);
 
-        PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper, TestI18nBeans.appMessages());
+        // 绝对路径 root → 符号根 {0} 不启用，编码行为与历史一致
+        top.sywyar.pixivdownload.download.config.DownloadConfig downloadConfig =
+                new top.sywyar.pixivdownload.download.config.DownloadConfig();
+        downloadConfig.setRootFolder(
+                java.nio.file.Path.of("pixiv-download").toAbsolutePath().normalize().toString());
+        PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper, downloadConfig, TestI18nBeans.appMessages());
         codec.init();
 
         pixivDatabase = new PixivDatabase(mapper, TestI18nBeans.appMessages(), codec);

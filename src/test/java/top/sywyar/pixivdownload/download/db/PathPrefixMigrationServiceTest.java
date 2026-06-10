@@ -31,6 +31,7 @@ class PathPrefixMigrationServiceTest {
     private SingleConnectionDataSource dataSource;
     private SqlSession sqlSession;
     private PathPrefixMapper mapper;
+    private PathPrefixCodec codec;
     private PathPrefixMigrationService service;
 
     private long idA;
@@ -58,8 +59,12 @@ class PathPrefixMigrationServiceTest {
         sqlSession = factory.openSession(true); // auto-commit
         mapper = sqlSession.getMapper(PathPrefixMapper.class);
 
-        PathPrefixCodec codec = new PathPrefixCodec(mapper, TestI18nBeans.appMessages());
+        // 默认相对 root → 符号根 {0} 启用
+        codec = new PathPrefixCodec(mapper, new DownloadConfig(), TestI18nBeans.appMessages());
         codec.init();
+
+        // 符号根改写需要触达全部路径前缀列：补建最小化的内容表
+        createPathColumnTables();
 
         // 真实存在的目录：validatePath 要求目标必须是已存在的绝对目录
         dirA = Files.createDirectory(tempDir.resolve("a"));
@@ -74,7 +79,19 @@ class PathPrefixMigrationServiceTest {
 
         // 不依赖真实事务管理器：withoutTransaction 直接执行回调，足以验证两阶段写入避免瞬时 UNIQUE 冲突
         service = new PathPrefixMigrationService(codec, mapper, new DownloadConfig(),
-                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction());
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+    }
+
+    private void createPathColumnTables() {
+        try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
+            st.execute("CREATE TABLE IF NOT EXISTS artworks (artwork_id INTEGER PRIMARY KEY, folder TEXT, move_folder TEXT)");
+            st.execute("CREATE TABLE IF NOT EXISTS novels (novel_id INTEGER PRIMARY KEY, folder TEXT)");
+            st.execute("CREATE TABLE IF NOT EXISTS manga_series (series_id INTEGER PRIMARY KEY, cover_folder TEXT)");
+            st.execute("CREATE TABLE IF NOT EXISTS novel_series (series_id INTEGER PRIMARY KEY, cover_folder TEXT)");
+            st.execute("CREATE TABLE IF NOT EXISTS collections (id INTEGER PRIMARY KEY, download_root TEXT)");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @AfterEach
@@ -126,6 +143,150 @@ class PathPrefixMigrationServiceTest {
         // 未写入任何记录
         assertThat(stored(idA)).isEqualTo(strip(dirA));
         assertThat(stored(idB)).isEqualTo(strip(dirB));
+    }
+
+    @Test
+    @DisplayName("符号根启用时 list 应置顶返回 id 0 的虚拟行")
+    void shouldListSymbolicRootFirst() {
+        var views = service.list();
+
+        assertThat(views).isNotEmpty();
+        assertThat(views.get(0).id()).isZero();
+        assertThat(views.get(0).symbolic()).isTrue();
+        assertThat(views.get(0).downloadRoot()).isTrue();
+        assertThat(views.get(0).path()).isEqualTo(codec.getSymbolicRootPath());
+        assertThat(views.stream().skip(1)).allMatch(v -> !v.symbolic());
+    }
+
+    @Test
+    @DisplayName("改写符号根应把全部路径前缀列中的 {0} 引用替换为新前缀 {N}")
+    void shouldRewriteSymbolicRootReferencesToNewPrefix() {
+        execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(1, '{0}/100', '{0}')");
+        execute("INSERT INTO novels(novel_id, folder) VALUES(2, '{0}/novel-2')");
+        execute("INSERT INTO collections(id, download_root) VALUES(3, '{0}/col')");
+
+        PathPrefixMigrationResult result = service.apply(List.of(
+                new PathPrefixUpdate(0L, dirD.toString())), List.of());
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.applied()).isEqualTo(1);
+        Long newId = mapper.findIdByPath(strip(dirD));
+        assertThat(newId).isNotNull();
+        String token = "{" + newId + "}";
+        assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id = 1")).isEqualTo(token + "/100");
+        assertThat(queryString("SELECT move_folder FROM artworks WHERE artwork_id = 1")).isEqualTo(token);
+        assertThat(queryString("SELECT folder FROM novels WHERE novel_id = 2")).isEqualTo(token + "/novel-2");
+        assertThat(queryString("SELECT download_root FROM collections WHERE id = 3")).isEqualTo(token + "/col");
+    }
+
+    @Test
+    @DisplayName("符号根目标与现有前缀行同路径时应合并复用该行而不报错")
+    void shouldMergeSymbolicRootIntoExistingPrefixRow() {
+        execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(1, '{0}/100', NULL)");
+
+        PathPrefixMigrationResult result = service.apply(List.of(
+                new PathPrefixUpdate(0L, dirA.toString())), List.of());
+
+        assertThat(result.success()).isTrue();
+        assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id = 1"))
+                .isEqualTo("{" + idA + "}/100");
+    }
+
+    @Test
+    @DisplayName("符号根新路径与当前解析结果相同应视为未改动")
+    void shouldIgnoreSymbolicRootUpdateToSamePath() {
+        PathPrefixMigrationResult result = service.apply(List.of(
+                new PathPrefixUpdate(0L, codec.getSymbolicRootPath())), List.of());
+
+        assertThat(result.success()).isTrue();
+        assertThat(result.applied()).isZero();
+    }
+
+    @Test
+    @DisplayName("符号根未启用（绝对 root）时对 id 0 的改写应报 unknown-id")
+    void shouldRejectSymbolicRootUpdateWhenInactive(@TempDir Path absRoot) {
+        DownloadConfig absConfig = new DownloadConfig();
+        absConfig.setRootFolder(absRoot.toString());
+        PathPrefixCodec absCodec = new PathPrefixCodec(mapper, absConfig, TestI18nBeans.appMessages());
+        absCodec.init();
+        PathPrefixMigrationService absService = new PathPrefixMigrationService(absCodec, mapper, absConfig,
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+
+        PathPrefixMigrationResult result = absService.apply(List.of(
+                new PathPrefixUpdate(0L, dirD.toString())), List.of());
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.errors()).extracting(PathPrefixMigrationService.PrefixError::reason)
+                .containsExactly("unknown-id");
+    }
+
+    @Test
+    @DisplayName("pin 符号根到任意已存在目录应改写全部 {0} 引用")
+    void shouldPinSymbolicRootToGivenPath() {
+        execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(1, '{0}/100', '{0}')");
+        execute("INSERT INTO novels(novel_id, folder) VALUES(2, '{0}/novel-2')");
+
+        PathPrefixMigrationResult result = service.pinSymbolicRoot(dirD.toString());
+
+        assertThat(result.success()).isTrue();
+        Long newId = mapper.findIdByPath(strip(dirD));
+        assertThat(newId).isNotNull();
+        assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id = 1"))
+                .isEqualTo("{" + newId + "}/100");
+        assertThat(queryString("SELECT folder FROM novels WHERE novel_id = 2"))
+                .isEqualTo("{" + newId + "}/novel-2");
+    }
+
+    @Test
+    @DisplayName("pin 到符号根当前解析路径应强制建行（冻结旧记录场景）")
+    void shouldPinSymbolicRootToItsOwnResolutionByForceCreatingRow() {
+        // root 设为已存在的相对目录 target → 符号根启用且解析路径真实存在，满足 validatePath
+        DownloadConfig relConfig = new DownloadConfig();
+        relConfig.setRootFolder("target");
+        PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
+        relCodec.init();
+        PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, relConfig,
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+        String rootPath = relCodec.getSymbolicRootPath();
+        execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(9, '{0}/900', NULL)");
+
+        PathPrefixMigrationResult result = relService.pinSymbolicRoot(rootPath);
+
+        assertThat(result.success()).isTrue();
+        Long newId = mapper.findIdByPath(rootPath);
+        assertThat(newId).isNotNull(); // getOrCreatePrefixId 守卫会返回 0，pin 必须强制建行
+        assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id = 9"))
+                .isEqualTo("{" + newId + "}/900");
+    }
+
+    @Test
+    @DisplayName("pin 到不存在的目录应报 not-exist 且不改写任何记录")
+    void shouldRejectPinToMissingDirectory() {
+        execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(1, '{0}/100', NULL)");
+
+        PathPrefixMigrationResult result = service.pinSymbolicRoot(dirD.resolve("missing").toString());
+
+        assertThat(result.success()).isFalse();
+        assertThat(result.errors()).extracting(PathPrefixMigrationService.PrefixError::reason)
+                .containsExactly("not-exist");
+        assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id = 1")).isEqualTo("{0}/100");
+    }
+
+    private void execute(String sql) {
+        try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
+            st.execute(sql);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private String queryString(String sql) {
+        try (var conn = dataSource.getConnection(); var st = conn.createStatement();
+             var rs = st.executeQuery(sql)) {
+            return rs.next() ? rs.getString(1) : null;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private String stored(long id) {

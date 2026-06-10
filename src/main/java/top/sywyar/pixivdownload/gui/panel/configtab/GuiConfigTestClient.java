@@ -49,8 +49,27 @@ public final class GuiConfigTestClient {
         for (String scheme : SCHEMES) {
             HttpURLConnection conn = null;
             try {
-                conn = open(scheme, endpoint, readTimeoutMs, true);
+                conn = open(scheme, endpoint, readTimeoutMs, "POST", true);
                 conn.getOutputStream().write(body);
+                int status = conn.getResponseCode();
+                return new Response(true, status, readResponseBody(conn, status));
+            } catch (Exception ignored) {
+                // try the other scheme
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }
+        return new Response(false, 0, null);
+    }
+
+    /** 向 {@code /api/gui/<endpoint>} 发 GET 并取回 JSON 正文；连接不上返回 reachable=false。 */
+    public Response getJson(String endpoint, int readTimeoutMs) {
+        for (String scheme : SCHEMES) {
+            HttpURLConnection conn = null;
+            try {
+                conn = open(scheme, endpoint, readTimeoutMs, "GET", false);
                 int status = conn.getResponseCode();
                 return new Response(true, status, readResponseBody(conn, status));
             } catch (Exception ignored) {
@@ -69,7 +88,7 @@ public final class GuiConfigTestClient {
         for (String scheme : SCHEMES) {
             HttpURLConnection conn = null;
             try {
-                conn = open(scheme, endpoint, readTimeoutMs, false);
+                conn = open(scheme, endpoint, readTimeoutMs, "POST", false);
                 int status = conn.getResponseCode();
                 if (status >= 200 && status < 300) {
                     return true;
@@ -85,7 +104,7 @@ public final class GuiConfigTestClient {
         return false;
     }
 
-    private HttpURLConnection open(String scheme, String endpoint, int readTimeoutMs, boolean withBody)
+    private HttpURLConnection open(String scheme, String endpoint, int readTimeoutMs, String method, boolean withBody)
             throws IOException, java.net.URISyntaxException {
         URL url = new URI(scheme + "://localhost:" + serverPort + "/api/gui/" + endpoint).toURL();
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -95,7 +114,7 @@ public final class GuiConfigTestClient {
         }
         conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
         conn.setReadTimeout(readTimeoutMs);
-        conn.setRequestMethod("POST");
+        conn.setRequestMethod(method);
         if (withBody) {
             conn.setDoOutput(true);
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");

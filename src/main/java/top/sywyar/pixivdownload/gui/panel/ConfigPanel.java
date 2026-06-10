@@ -508,6 +508,14 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         boolean hasHotReloadChanges = hasChangedField(changedKeys, false);
         boolean hasRestartRequiredChanges = hasChangedField(changedKeys, true);
 
+        // 下载根目录原本以符号根（跟随软件目录）方式记录时，改目录前必须先把旧记录固定为绝对路径，
+        // 否则旧作品会随新配置解析到错误位置。用户取消或固定失败 → 整个保存中止。
+        if (changedKeys.contains("download.root-folder")
+                && !confirmAndPinSymbolicRoot(before.get("download.root-folder"),
+                        values.get("download.root-folder"))) {
+            return;
+        }
+
         try {
             editor.writeAll(values);
             log.info(logMessage("gui.config.log.saved", configPath));
@@ -525,6 +533,78 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     message("gui.dialog.error.title"),
                     message("gui.config.dialog.save-failed.message", e.getMessage()));
         }
+    }
+
+    /**
+     * 下载根目录变更前的符号根处理：原配置为相对路径（旧记录以 {@code {0}} 跟随软件目录）且数据库确有
+     * {@code {0}} 引用时，弹窗告知「改目录会把旧作品固定为绝对路径、失去随软件搬迁的能力」；
+     * 确定 → 调后端 pin 端点把 {@code {0}} 固定为当前解析路径后放行保存；取消 / 固定失败 → 返回 false 中止保存。
+     * 后端不可达时放行保存（无法转换，孤儿 {@code {0}} 由启动检查兜底提示修复）。
+     */
+    private boolean confirmAndPinSymbolicRoot(String oldValue, String newValue) {
+        String oldRoot = RuntimeFiles.normalizeRootFolder(oldValue);
+        try {
+            if (Path.of(oldRoot).isAbsolute()) {
+                return true; // 旧配置已是绝对路径，符号根未启用
+            }
+            // 解析结果未变（如「pixiv-download」与「./pixiv-download」）→ 与 {0} 无关
+            Path oldAbs = Path.of(oldRoot).toAbsolutePath().normalize();
+            Path newAbs = Path.of(RuntimeFiles.normalizeRootFolder(newValue)).toAbsolutePath().normalize();
+            if (oldAbs.equals(newAbs)) {
+                return true;
+            }
+        } catch (Exception e) {
+            return true; // 路径无法解析时不拦截，交由后端校验
+        }
+
+        GuiConfigTestClient.Response resp = testClient.getJson("path-prefixes", 10_000);
+        if (!resp.reachable() || !resp.is2xx() || resp.body() == null || resp.body().isEmpty()) {
+            log.warn(logMessage("gui.config.log.symbolic-pin.status-unavailable"));
+            return true; // 后端不可达：先保存，孤儿记录由下次启动检查提示修复
+        }
+        boolean referenced;
+        String currentResolved = null;
+        try {
+            var node = MAPPER.readTree(resp.body());
+            referenced = node.path("symbolicReferenced").asBoolean(false);
+            for (var p : node.path("prefixes")) {
+                if (p.path("symbolic").asBoolean(false)) {
+                    currentResolved = p.path("path").asText(null);
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            log.warn(logMessage("gui.config.log.symbolic-pin.status-unavailable"));
+            return true;
+        }
+        if (!referenced || currentResolved == null || currentResolved.isEmpty()) {
+            return true; // 没有 {0} 记录，改根目录无后顾之忧
+        }
+
+        int answer = JOptionPane.showConfirmDialog(this,
+                message("gui.config.symbolic-pin.message", currentResolved),
+                message("gui.config.symbolic-pin.title"),
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (answer != JOptionPane.OK_OPTION) {
+            showNotice(message("gui.config.symbolic-pin.cancelled"));
+            return false;
+        }
+
+        try {
+            byte[] body = MAPPER.writeValueAsBytes(Map.of("path", currentResolved));
+            GuiConfigTestClient.Response pin = testClient.postJson("path-prefixes/pin", body, 15_000);
+            if (pin.reachable() && pin.is2xx() && pin.body() != null
+                    && MAPPER.readTree(pin.body()).path("success").asBoolean(false)) {
+                return true;
+            }
+            log.warn(logMessage("gui.config.log.symbolic-pin.failed",
+                    pin.reachable() ? String.valueOf(pin.status()) : "unreachable"));
+        } catch (Exception e) {
+            log.warn(logMessage("gui.config.log.symbolic-pin.failed", e.getMessage()));
+        }
+        GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                message("gui.config.symbolic-pin.failed"));
+        return false;
     }
 
     private Set<String> changedKeys(Map<String, String> before, Map<String, String> after) {

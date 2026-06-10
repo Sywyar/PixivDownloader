@@ -48,6 +48,7 @@ public final class RuntimeFiles {
     public static final String EDGE_TTS_CHROMIUM_VERSION = "chromium-version.txt";
     public static final String BACKFILL_DIR = "backfill";
     public static final String BACKFILL_UNREACHABLE_FILE = "unreachable.json";
+    public static final String DOWNLOAD_ROOT_MARKER = "download_root_marker.txt";
     public static final String NARRATION_VOICE_DIR = "narration-voice";
     private static final String LEGACY_COLLECTION_ICONS_DIR = "_collection_icons";
     private static final String LEGACY_GUI_STATE_DIR = "_gui";
@@ -110,6 +111,14 @@ public final class RuntimeFiles {
 
     public static Path resolveBackfillUnreachablePath() {
         return backfillDirectory().resolve(BACKFILL_UNREACHABLE_FILE).normalize();
+    }
+
+    /**
+     * 符号根 {@code {0}} 上次解析结果的标记文件：{@code state/download_root_marker.txt}。
+     * 启动时与本次解析结果比对，用于发现「配置被直接修改但文件未迁移」的失联场景（不自动创建文件）。
+     */
+    public static Path resolveDownloadRootMarkerPath() {
+        return stateDirectory().resolve(DOWNLOAD_ROOT_MARKER).normalize();
     }
 
     /**

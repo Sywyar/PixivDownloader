@@ -4,9 +4,12 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -25,24 +28,60 @@ import java.util.regex.Pattern;
  *
  * <p>路径匹配：按段对齐 —— 例如前缀 {@code D:\foo} 不会匹配 {@code D:\fooBar/x}。
  * 匹配时大小写不敏感且 {@code /} 与 {@code \} 等价，以兼容 Windows 用户混用的写法。
+ *
+ * <p><b>符号根 {@code {0}}：</b>当 {@code download.root-folder} 配置为<b>相对路径</b>时启用。
+ * {@code {0}} 不入 {@code path_prefixes} 表，运行期固定解析为
+ * {@code Path.of(rootFolder).toAbsolutePath().normalize()}，使整个软件目录被复制 / 搬迁后
+ * 既有记录自动跟随新位置。root-folder 为绝对路径时 {@code {0}} 不参与编码（但仍可解码，
+ * 兜底用户绕过迁移工具直接改配置的场景）。编码时 {@code {0}} 与普通前缀一样按路径长度参与最长匹配。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class PathPrefixCodec {
 
+    /** 符号根的固定 id：{@code {0}}，不入 {@code path_prefixes}。 */
+    public static final long SYMBOLIC_ROOT_ID = 0L;
+    /** 符号根的编码形态：{@code {0}}。 */
+    public static final String SYMBOLIC_ROOT_TOKEN = "{0}";
+
     private static final Pattern ENCODED_PATTERN = Pattern.compile("^\\{(\\d+)}(?:[/\\\\](.*))?$");
 
     private final PathPrefixMapper mapper;
+    private final DownloadConfig downloadConfig;
     private final AppMessages messages;
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private volatile List<PathPrefix> cachedPrefixes = List.of();
+    /** 编码候选：DB 前缀 + （启用时）符号根，按路径长度降序、id 升序排序。 */
+    private volatile List<PathPrefix> encodeCandidates = List.of();
+    /** 符号根是否启用（root-folder 为相对路径）。启动时确定，运行期不变。 */
+    private volatile boolean symbolicRootActive;
+    /** 符号根的当前解析结果（绝对路径，去尾分隔符）。启动时解析一次并缓存。 */
+    private volatile String symbolicRootPath;
 
     @PostConstruct
     public void init() {
         mapper.createTable();
+        initSymbolicRoot();
         reload();
+    }
+
+    private void initSymbolicRoot() {
+        String rootFolder = downloadConfig.getRootFolder();
+        Path root = Path.of(rootFolder);
+        symbolicRootActive = !root.isAbsolute();
+        symbolicRootPath = stripTrailingSeparators(root.toAbsolutePath().normalize().toString());
+    }
+
+    /** 符号根 {@code {0}} 是否启用（root-folder 为相对路径）。 */
+    public boolean isSymbolicRootActive() {
+        return symbolicRootActive;
+    }
+
+    /** 符号根 {@code {0}} 的当前解析结果（绝对路径，去尾分隔符）。无论是否启用都有值。 */
+    public String getSymbolicRootPath() {
+        return symbolicRootPath;
     }
 
     /**
@@ -53,6 +92,14 @@ public class PathPrefixCodec {
         try {
             List<PathPrefix> all = mapper.findAll();
             cachedPrefixes = all == null ? List.of() : List.copyOf(all);
+            List<PathPrefix> candidates = new ArrayList<>(cachedPrefixes);
+            if (symbolicRootActive && symbolicRootPath != null && !symbolicRootPath.isEmpty()) {
+                candidates.add(new PathPrefix(SYMBOLIC_ROOT_ID, symbolicRootPath));
+            }
+            // 与 findAll 的 ORDER BY LENGTH(path) DESC, id ASC 一致：符号根按长度参与最长匹配
+            candidates.sort(Comparator.comparingInt((PathPrefix p) -> p.path().length()).reversed()
+                    .thenComparingLong(PathPrefix::id));
+            encodeCandidates = List.copyOf(candidates);
         } finally {
             lock.writeLock().unlock();
         }
@@ -60,8 +107,26 @@ public class PathPrefixCodec {
 
     /**
      * 注册或复用一个绝对路径前缀，返回对应 id。已存在的同名前缀直接返回原 id。
+     * 符号根启用时，与符号根同路径的注册请求直接返回 {@link #SYMBOLIC_ROOT_ID}，不建行 ——
+     * 避免 {@code path_prefixes} 中出现与 {@code {0}} 重复的前缀。
      */
     public long getOrCreatePrefixId(String absolutePath) {
+        String stripped = stripTrailingSeparators(absolutePath);
+        if (stripped == null || stripped.isEmpty()) {
+            throw new IllegalArgumentException("path must not be empty");
+        }
+        if (symbolicRootActive && normalizeForCompare(stripped).equals(normalizeForCompare(symbolicRootPath))) {
+            return SYMBOLIC_ROOT_ID;
+        }
+        return forceCreatePrefixId(stripped);
+    }
+
+    /**
+     * 与 {@link #getOrCreatePrefixId} 相同，但<b>不做</b>符号根同路径守卫：即使路径与当前符号根
+     * 解析结果相同也照常建行。仅供「固定符号根」（pin，把 {@code {0}} 引用钉死为 {@code {N}}）使用 ——
+     * 该场景恰恰需要为符号根的当前路径登记一条真实前缀行。
+     */
+    public long forceCreatePrefixId(String absolutePath) {
         String stripped = stripTrailingSeparators(absolutePath);
         if (stripped == null || stripped.isEmpty()) {
             throw new IllegalArgumentException("path must not be empty");
@@ -86,7 +151,7 @@ public class PathPrefixCodec {
         if (looksEncoded(stripped)) return stripped;
 
         String inputNorm = normalizeForCompare(stripped);
-        for (PathPrefix prefix : currentPrefixes()) {
+        for (PathPrefix prefix : currentEncodeCandidates()) {
             String prefixStripped = stripTrailingSeparators(prefix.path());
             if (prefixStripped == null || prefixStripped.isEmpty()) continue;
             String prefixNorm = normalizeForCompare(prefixStripped);
@@ -118,6 +183,14 @@ public class PathPrefixCodec {
             id = Long.parseLong(matcher.group(1));
         } catch (NumberFormatException e) {
             return storedValue;
+        }
+        if (id == SYMBOLIC_ROOT_ID) {
+            // 符号根不入表：固定解析为当前下载根目录的绝对路径
+            String rest0 = matcher.group(2);
+            if (rest0 == null || rest0.isEmpty()) {
+                return symbolicRootPath;
+            }
+            return symbolicRootPath + "/" + rest0;
         }
         String prefix = lookupPrefix(id);
         if (prefix == null) {
@@ -171,6 +244,15 @@ public class PathPrefixCodec {
         lock.readLock().lock();
         try {
             return cachedPrefixes;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    private List<PathPrefix> currentEncodeCandidates() {
+        lock.readLock().lock();
+        try {
+            return encodeCandidates;
         } finally {
             lock.readLock().unlock();
         }

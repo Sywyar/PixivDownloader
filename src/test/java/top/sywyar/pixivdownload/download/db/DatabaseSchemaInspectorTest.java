@@ -397,7 +397,8 @@ class DatabaseSchemaInspectorTest {
                 PixivMapper mapper = session.getMapper(PixivMapper.class);
                 PathPrefixMapper pathPrefixMapper = session.getMapper(PathPrefixMapper.class);
                 PathPrefixCodec codec = new PathPrefixCodec(
-                        pathPrefixMapper, top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages());
+                        pathPrefixMapper, new top.sywyar.pixivdownload.download.config.DownloadConfig(),
+                        top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages());
                 codec.init();
                 PixivDatabase database = new PixivDatabase(
                         mapper, top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), codec);

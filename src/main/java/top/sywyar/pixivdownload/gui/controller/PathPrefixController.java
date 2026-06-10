@@ -38,7 +38,24 @@ public class PathPrefixController {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        return ResponseEntity.ok(new PathPrefixListResponse(migrationService.list()));
+        PathPrefixMigrationService.SymbolicRootStatus symbolic = migrationService.symbolicRootStatus();
+        return ResponseEntity.ok(new PathPrefixListResponse(
+                migrationService.list(), migrationService.appRootAbsolute(),
+                symbolic.referenced(), symbolic.orphan(), symbolic.suggestedOldPath()));
+    }
+
+    /**
+     * 把全部符号根 {@code {0}} 引用固定为指向给定路径的 {@code {N}} 前缀（pin）。
+     * 两个调用场景：GUI 配置页修改下载根目录前冻结旧记录（路径 = 符号根当前解析结果）；
+     * GUI 启动检查发现孤儿 {@code {0}} 行后按使用者输入的旧路径修复。
+     */
+    @PostMapping("/pin")
+    public ResponseEntity<PathPrefixMigrationResult> pin(@RequestBody(required = false) PinRequest body,
+                                                         HttpServletRequest req) {
+        if (!NetworkUtils.isTrustedLocalRequest(req)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        return ResponseEntity.ok(migrationService.pinSymbolicRoot(body == null ? null : body.path()));
     }
 
     @PostMapping
@@ -52,9 +69,20 @@ public class PathPrefixController {
         return ResponseEntity.ok(migrationService.apply(updates, registerPaths));
     }
 
-    public record PathPrefixListResponse(List<PathPrefixView> prefixes) {
+    /**
+     * {@code appRoot}：软件根目录（后端工作目录）绝对路径，供 GUI 判断新下载根是否仍在软件目录内。
+     * {@code symbolicReferenced}：数据库是否存在 {@code {0}} 引用行（决定改下载根目录时是否需要弹「固定旧记录」确认）。
+     * {@code symbolicOrphan}：root-folder 已不满足符号根条件但仍有 {@code {0}} 行（GUI 启动检查据此引导修复）。
+     * {@code symbolicOrphanSuggestedPath}：marker 记录的上次解析路径，作为修复时的预填建议（可能为 null）。
+     */
+    public record PathPrefixListResponse(List<PathPrefixView> prefixes, String appRoot,
+                                         boolean symbolicReferenced, boolean symbolicOrphan,
+                                         String symbolicOrphanSuggestedPath) {
     }
 
     public record PathPrefixMigrationRequest(List<PathPrefixUpdate> updates, List<String> registerPaths) {
+    }
+
+    public record PinRequest(String path) {
     }
 }
