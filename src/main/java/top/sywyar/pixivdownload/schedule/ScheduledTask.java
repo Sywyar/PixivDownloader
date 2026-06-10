@@ -15,6 +15,8 @@ package top.sywyar.pixivdownload.schedule;
  * @param intervalMinutes 固定周期分钟数（{@code triggerKind=interval} 时有效）
  * @param cronExpr        Spring Cron 表达式（{@code triggerKind=cron} 时有效）
  * @param cookieMode      {@code bound}（绑定管理员快照 Cookie）或 {@code restricted}（无 Cookie，仅匿名内容）
+ * @param proxySnapshot   任务级单独代理（{@code host:port}，非凭证）；{@code null} = 使用全局代理设置。
+ *                        本轮运行中该任务对 Pixiv 的全部出站请求（发现 / 元数据 / 下载 / 站内信检测）都改走它
  * @param lastStatus      上轮运行结果标记（如 {@code OK} / {@code AUTH_EXPIRED} / {@code ERROR}）
  * @param lastMessage     上轮失败原因摘要（仅 {@code ERROR} 时有值，已截断、绝不含 Cookie）；其余状态为 {@code null}
  * @param watermarkId     水位线：上一轮完整跑完时发现到的最新作品 ID（仅 USER_NEW / 增量 SEARCH 用，全量跑完才更新）；首次为 {@code null}
@@ -33,6 +35,7 @@ public record ScheduledTask(
         Integer intervalMinutes,
         String cronExpr,
         String cookieMode,
+        String proxySnapshot,
         Long nextRunTime,
         Long lastRunTime,
         String lastStatus,

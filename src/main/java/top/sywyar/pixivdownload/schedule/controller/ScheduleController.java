@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.CookieAuthorizeRequest;
+import top.sywyar.pixivdownload.schedule.dto.ProxyOverrideRequest;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
@@ -83,6 +84,13 @@ public class ScheduleController {
     @PostMapping("/tasks/{id}/revoke-cookie")
     public ScheduleTaskView revokeCookie(@PathVariable long id) {
         return scheduleService.revokeCookie(id);
+    }
+
+    /** 设置 / 清除任务级单独代理（host:port；body 的 proxy 为空 = 清除并回退全局代理设置）。 */
+    @PostMapping("/tasks/{id}/proxy")
+    public ScheduleTaskView updateProxy(@PathVariable long id,
+                                        @RequestBody ProxyOverrideRequest req) {
+        return scheduleService.updateProxy(id, req.getProxy());
     }
 
     @PostMapping("/tasks/{id}/run")

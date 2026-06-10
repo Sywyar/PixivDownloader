@@ -459,6 +459,7 @@ public final class ManagedDatabaseSchema {
                         column("cron_expr", "TEXT", false, null, 0),
                         column("cookie_mode", "TEXT", true, null, 0),
                         column("cookie_snapshot", "TEXT", false, null, 0),
+                        column("proxy_snapshot", "TEXT", false, null, 0),
                         column("next_run_time", "INTEGER", false, null, 0),
                         column("last_run_time", "INTEGER", false, null, 0),
                         column("last_status", "TEXT", false, null, 0),

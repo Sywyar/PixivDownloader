@@ -8,6 +8,7 @@ import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
+import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
@@ -174,7 +175,14 @@ public class ScheduleExecutor {
         try {
             // 落库本轮开始时刻：正常结束（含干净挂起）时 updateRunResult 会清为 NULL；进程被强杀则残留 → 中断红灯。
             database.mapper().updateRunStarted(task.id(), System.currentTimeMillis());
-            completedCount = runTask(task, pendingNotifications, degraded);
+            // 任务级单独代理：覆盖调度主线程上本轮的全部 Pixiv 请求（发现 / 元数据 / 站内信检测）；
+            // 提交到下载池的阻塞下载在 WorkRunner.submit 内对池线程做同样的覆盖。
+            OutboundProxyOverride.set(task.proxySnapshot());
+            try {
+                completedCount = runTask(task, pendingNotifications, degraded);
+            } finally {
+                OutboundProxyOverride.clear();
+            }
             status = STATUS_OK;
             log.info("Scheduled task {} ({}) completed {} new download(s)", task.id(), task.name(), completedCount);
         } catch (OveruseWarningException e) {
@@ -1015,6 +1023,8 @@ public class ScheduleExecutor {
         private final Long ackWarningTime;
         private final boolean novel;
         private final String cookie;
+        /** 任务级单独代理（host:port，可空）：池线程上的阻塞下载也要套用同一覆盖。 */
+        private final String proxy;
         private final Filters filters;
         private final Download download;
         private final ScheduleRunQueue.Run run;
@@ -1038,6 +1048,7 @@ public class ScheduleExecutor {
             this.ackWarningTime = task.ackWarningTime();
             this.novel = novel;
             this.cookie = cookie;
+            this.proxy = task.proxySnapshot();
             this.filters = filters;
             this.download = download;
             this.run = run;
@@ -1138,6 +1149,9 @@ public class ScheduleExecutor {
             }
             CompletableFuture<Void> f = CompletableFuture.runAsync(() -> {
                 boolean ok;
+                // 任务级单独代理：阻塞下载在池线程上执行（图片 / 动图 ZIP / 小说封面与内嵌图 / 下载后收藏
+                // 全部内联其中），与调度主线程同样以 try/finally 套用线程级覆盖。
+                OutboundProxyOverride.set(proxy);
                 try {
                     ok = job.run();
                 } catch (Exception e) {
@@ -1145,6 +1159,9 @@ public class ScheduleExecutor {
                     log.warn("Scheduled task {} download work {} threw: {}",
                             taskId, workId, redactCookies(String.valueOf(e.getMessage())));
                     ok = false;
+                } finally {
+                    // 池线程是共享下载池，必须清除覆盖，避免污染后续交互式下载的代理路由。
+                    OutboundProxyOverride.clear();
                 }
                 try {
                     onComplete(id, workId, isRetry, ok);

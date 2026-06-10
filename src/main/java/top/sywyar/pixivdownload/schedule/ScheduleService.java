@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
@@ -70,6 +71,7 @@ public class ScheduleService {
         // 创建时默认受限模式（无 cookie）；管理员可随后授权 cookie 升级为 bound
         row.setCookieMode(ScheduledTask.COOKIE_RESTRICTED);
         row.setCookieSnapshot(null);
+        row.setProxySnapshot(null);
         row.setNextRunTime(ScheduleTiming.computeNextRun(
                 triggerKind, req.getIntervalMinutes(), req.getCronExpr(), now));
         row.setLastRunTime(null);
@@ -229,6 +231,23 @@ public class ScheduleService {
         requireExisting(id);
         requireNotBusy(id);
         database.mapper().updateCookie(id, null, ScheduledTask.COOKIE_RESTRICTED);
+        return get(id);
+    }
+
+    /**
+     * 设置 / 清除「任务级单独代理」（{@code host:port}，非凭证）。设置后该任务每轮运行中对 Pixiv 的全部
+     * 出站请求（发现 / 元数据 / 下载 / 站内信检测）都改走它；{@code null} / 空白 = 清除并回退全局代理设置。
+     */
+    @Transactional
+    public ScheduleTaskView updateProxy(long id, String proxy) {
+        requireExisting(id);
+        requireNotBusy(id);
+        String normalized = emptyToNull(proxy);
+        if (normalized != null && OutboundProxyOverride.parse(normalized) == null) {
+            throw LocalizedException.badRequest(
+                    "schedule.error.proxy-invalid", "代理格式无效，应为 host:port（例如 127.0.0.1:7890）");
+        }
+        database.mapper().updateProxy(id, normalized);
         return get(id);
     }
 

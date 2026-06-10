@@ -101,6 +101,24 @@ class ScheduledTaskMapperTest {
     }
 
     @Test
+    @DisplayName("updateProxy 设置 / 清除任务级单独代理，行投影能读回")
+    void shouldUpdateAndClearProxySnapshot() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            ScheduledTaskInsert row = sample("任务P", 1000L, null);
+            mapper.insert(row);
+            long id = row.getId();
+            assertThat(mapper.findById(id).proxySnapshot()).isNull();
+
+            mapper.updateProxy(id, "127.0.0.1:7890");
+            assertThat(mapper.findById(id).proxySnapshot()).isEqualTo("127.0.0.1:7890");
+
+            mapper.updateProxy(id, null);
+            assertThat(mapper.findById(id).proxySnapshot()).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("findDue 只返回 enabled 且 next_run_time<=now 的任务")
     void shouldFilterDueTasks() {
         try (SqlSession session = factory.openSession(true)) {

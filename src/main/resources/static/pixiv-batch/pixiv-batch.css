@@ -1788,6 +1788,78 @@
     min-height: 18px;
 }
 
+/* 「设置单独的代理 / cookie」复选框与展开输入区（存为计划任务卡片与指定弹窗共用） */
+.schedule-override-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text);
+    min-width: 0;
+}
+
+.schedule-override-row {
+    flex-basis: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.schedule-override-row input[type="text"],
+.schedule-override-row input[type="password"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 5px 8px;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font-size: 13px;
+    background: var(--control-bg);
+    color: var(--text);
+}
+
+.schedule-cookie-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.schedule-cookie-input-row input[type="text"],
+.schedule-cookie-input-row input[type="password"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.schedule-cookie-input-row .btn {
+    flex: none;
+    padding: 6px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* 指定单独的 代理/cookie 弹窗：表单纵向排布 + 底部操作按钮 */
+.schedule-override-dialog {
+    width: min(560px, 100%);
+}
+
+.schedule-override-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    overflow-y: auto;
+}
+
+.schedule-override-intro {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+}
+
+.schedule-override-footer-actions {
+    display: flex;
+    gap: 10px;
+}
+
 .schedule-save-source {
     font-size: 12px;
     color: var(--muted);

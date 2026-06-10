@@ -7,7 +7,8 @@ import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
  * 计划任务对外视图（列表 / 详情）。
  *
  * <p><b>不含</b> {@code cookieSnapshot}：只用 {@code cookieBound} 布尔位告知前端是否已绑定凭证，
- * 凭证本身绝不回显。
+ * 凭证本身绝不回显。{@code proxy} 是任务级单独代理（{@code host:port}，非凭证、不含账号口令），
+ * 可回显供前端「指定单独的 代理/cookie」弹窗预填编辑；{@code null} = 使用全局代理设置。
  *
  * <p>{@code runState} 是<b>瞬时运行态</b>（{@code QUEUED} / {@code RUNNING} / {@code null}），来自内存中的
  * {@link top.sywyar.pixivdownload.schedule.ScheduleRunState}，不落库；前端据它与持久化的 {@code lastStatus} /
@@ -31,6 +32,7 @@ public record ScheduleTaskView(
         String cronExpr,
         String cookieMode,
         boolean cookieBound,
+        String proxy,
         Long nextRunTime,
         Long lastRunTime,
         String lastStatus,
@@ -47,6 +49,7 @@ public record ScheduleTaskView(
                 t.id(), t.name(), t.enabled(), t.type(), t.paramsJson(),
                 t.triggerKind(), t.intervalMinutes(), t.cronExpr(), t.cookieMode(),
                 ScheduledTask.COOKIE_BOUND.equals(t.cookieMode()),
+                t.proxySnapshot(),
                 t.nextRunTime(), t.lastRunTime(), t.lastStatus(), t.lastMessage(),
                 t.runStartedTime(), t.accountId(), t.ackWarningTime(),
                 t.pendingRetryArmed() == 1, runState, t.createdTime());

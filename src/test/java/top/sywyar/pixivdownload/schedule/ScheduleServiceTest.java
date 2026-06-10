@@ -46,7 +46,7 @@ class ScheduleServiceTest {
 
     private static ScheduledTask task(long id, String accountId, String status, String message) {
         return new ScheduledTask(id, "t", true, ScheduledTaskType.USER_NEW, "{}",
-                ScheduledTask.TRIGGER_INTERVAL, 60, null, ScheduledTask.COOKIE_BOUND,
+                ScheduledTask.TRIGGER_INTERVAL, 60, null, ScheduledTask.COOKIE_BOUND, null,
                 1000L, null, status, message, null, null, accountId, null, 0, 0L);
     }
 
@@ -163,7 +163,7 @@ class ScheduleServiceTest {
     void manualRunRejectedWhenDisabled() {
         when(database.mapper()).thenReturn(mapper);
         ScheduledTask disabled = new ScheduledTask(8L, "t", false, ScheduledTaskType.USER_NEW, "{}",
-                ScheduledTask.TRIGGER_INTERVAL, 60, null, ScheduledTask.COOKIE_BOUND,
+                ScheduledTask.TRIGGER_INTERVAL, 60, null, ScheduledTask.COOKIE_BOUND, null,
                 1000L, null, null, null, null, null, null, null, 0, 0L);
         when(mapper.findById(8L)).thenReturn(disabled);
 
@@ -224,6 +224,42 @@ class ScheduleServiceTest {
         newService().authorizeCookie(7L, "PHPSESSID=999_abc");
 
         verify(mapper).updateCookie(7L, "PHPSESSID=999_abc", ScheduledTask.COOKIE_BOUND);
+    }
+
+    @Test
+    @DisplayName("updateProxy：合法 host:port 去空白后写入任务级单独代理")
+    void updateProxySavesValidHostPort() {
+        when(database.mapper()).thenReturn(mapper);
+        when(mapper.findById(11L)).thenReturn(task(11L, null, null, null));
+
+        newService().updateProxy(11L, " 127.0.0.1:7890 ");
+
+        verify(mapper).updateProxy(11L, "127.0.0.1:7890");
+    }
+
+    @Test
+    @DisplayName("updateProxy：格式非法（缺端口 / 端口越界）直接拒绝、不写库")
+    void updateProxyRejectsInvalidFormat() {
+        when(database.mapper()).thenReturn(mapper);
+        when(mapper.findById(12L)).thenReturn(task(12L, null, null, null));
+
+        ScheduleService service = newService();
+        assertThatThrownBy(() -> service.updateProxy(12L, "127.0.0.1"))
+                .isInstanceOf(LocalizedException.class);
+        assertThatThrownBy(() -> service.updateProxy(12L, "127.0.0.1:0"))
+                .isInstanceOf(LocalizedException.class);
+        verify(mapper, never()).updateProxy(anyLong(), anyString());
+    }
+
+    @Test
+    @DisplayName("updateProxy：空值清除单独代理（回退全局代理设置）")
+    void updateProxyClearsWhenBlank() {
+        when(database.mapper()).thenReturn(mapper);
+        when(mapper.findById(13L)).thenReturn(task(13L, null, null, null));
+
+        newService().updateProxy(13L, "  ");
+
+        verify(mapper).updateProxy(13L, null);
     }
 
     @Test

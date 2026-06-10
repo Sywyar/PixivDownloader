@@ -293,11 +293,24 @@
             setScheduleFormStatus(e.message, 'error');
             return;
         }
+        // 单独代理 / 单独 cookie 的输入先行校验（创建与编辑共用一套规则，避免任务保存后才发现设置失败）。
+        const editing = scheduleEditingId != null;
+        const prevTask = editing ? scheduleTaskById(scheduleEditingId) : null;
+        const ov = readScheduleOverrideInputs('sch');
+        const ovError = validateScheduleOverrideInputs(ov, prevTask);
+        if (ovError) {
+            setScheduleFormStatus(ovError, 'error');
+            return;
+        }
         // N=0（全量）风险确认：仅对支持封顶的来源类型提示——首轮全量可能触发 Pixiv 过度访问警告甚至封号。
         if (scheduleTypeSupportsFetchLimit(snap.type, snap.params.source)
             && !(snap.params.fetchLimit > 0)
             && !uiConfirmKey('schedule.confirm.full-fetch',
                 '「首次抓取上限」为 0 表示首次运行会尝试抓取该来源的全部历史作品。作品很多时可能触发 Pixiv 的过度访问警告甚至封号风险。确定要全量抓取吗？')) {
+            return;
+        }
+        // 编辑时取消勾选 = 清除已生效的单独代理 / Cookie：先确认后果再保存。
+        if (!confirmScheduleOverrideClears(ov, prevTask)) {
             return;
         }
         const triggerKind = document.getElementById('sch-trigger').value;
@@ -307,7 +320,6 @@
         } else {
             body.cronExpr = (document.getElementById('sch-cron').value || '').trim();
         }
-        const editing = scheduleEditingId != null;
         const url = editing ? `${BASE}/api/schedule/tasks/${scheduleEditingId}` : `${BASE}/api/schedule/tasks`;
         try {
             const res = await fetch(url, {
@@ -323,21 +335,32 @@
                 setScheduleFormStatus(err.error || err.message || bt('schedule.error.save', '保存失败'), 'error');
                 return;
             }
-            // solo 模式下新建任务时，用当前输入框里的 Cookie 自动授权绑定，省去手动「授权 Cookie」一步。
+            const saved = await res.json().catch(() => null);
+            const taskId = editing ? scheduleEditingId : (saved && saved.id != null ? saved.id : null);
+            // 应用单独代理 / 单独 cookie（任务本体已保存，失败不回滚，提示去列表弹窗重试）。
+            let overrideResult = {ok: true, applied: false};
+            if (taskId != null) {
+                overrideResult = await applyScheduleOverrides(taskId, ov, prevTask);
+            }
+            // solo 模式下新建任务且未指定单独 cookie 时，用当前输入框里的 Cookie 自动授权绑定，
+            // 省去手动绑定一步（指定了单独 cookie 则以 applyScheduleOverrides 的绑定为准）。
             let autoAuthResult = null;
-            if (!editing && appMode === 'solo') {
-                const created = await res.json().catch(() => null);
-                if (created && created.id != null) {
-                    autoAuthResult = await autoAuthorizeScheduleCookie(created.id);
-                }
+            if (!editing && appMode === 'solo' && !ov.cookieChecked && taskId != null) {
+                autoAuthResult = await autoAuthorizeScheduleCookie(taskId);
             }
             // 先重置表单（resetScheduleForm 末尾会清空状态），再写入成功提示，
             // 否则成功提示会被 resetScheduleForm 的 setScheduleFormStatus('') 立刻清掉。
             resetScheduleForm();
-            if (autoAuthResult === 'authorized') {
+            if (!overrideResult.ok) {
+                setScheduleFormStatus(bt('schedule.status.saved-override-failed',
+                    '任务已保存，但单独 代理/Cookie 设置失败：{reason}；请在任务列表中用「指定单独的 代理/cookie」重试',
+                    {reason: overrideResult.error}), 'error');
+            } else if (ov.cookieChecked && ov.cookieValue && overrideResult.applied) {
+                setScheduleFormStatus(bt('schedule.status.saved-overrides', '已保存，单独的 代理/Cookie 设置已应用'), 'success');
+            } else if (autoAuthResult === 'authorized') {
                 setScheduleFormStatus(bt('schedule.status.saved-authorized', '已保存并自动授权 Cookie'), 'success');
             } else if (autoAuthResult === 'no-cookie') {
-                setScheduleFormStatus(bt('schedule.status.saved-no-cookie', '已保存；当前无含 PHPSESSID 的 Cookie，任务将以受限模式运行，请在列表中「授权 Cookie」'), 'success');
+                setScheduleFormStatus(bt('schedule.status.saved-no-cookie', '已保存；当前无含 PHPSESSID 的 Cookie，任务将以受限模式运行，请在列表中「指定单独的 代理/cookie」绑定'), 'success');
             } else {
                 setScheduleFormStatus(bt('schedule.status.saved', '已保存'), 'success');
             }
@@ -369,10 +392,183 @@
             srcEl.style.display = 'none';
             srcEl.textContent = '';
         }
+        // 单独代理 / 单独 cookie 控件复位（取消勾选、清空输入、恢复默认占位符）。
+        const proxyEn = document.getElementById('sch-proxy-enabled');
+        if (proxyEn) proxyEn.checked = false;
+        const proxyIn = document.getElementById('sch-proxy');
+        if (proxyIn) proxyIn.value = '';
+        const cookieEn = document.getElementById('sch-cookie-enabled');
+        if (cookieEn) cookieEn.checked = false;
+        setScheduleCookieInput('sch-cookie', false);
+        onScheduleOverrideToggle('sch');
         onScheduleTriggerChange();
         setScheduleFormStatus('');
         // 退出编辑后刷新卡片显隐 / 来源提示 / 创建按钮禁用态（scheduleEditingId 已置空，不会重入本函数）。
         updateSaveScheduleCardVisibility();
+    }
+
+    // ── 单独代理 / 单独 cookie（存为计划任务卡片与「指定单独的 代理/cookie」弹窗共用） ─────────────
+
+    // 复选框联动：勾选才显示输入区（prefix='sch' 卡片 / 'sch-ov' 弹窗）。
+    function onScheduleOverrideToggle(prefix) {
+        [['proxy-enabled', 'proxy-row'], ['cookie-enabled', 'cookie-row']].forEach(([cb, row]) => {
+            const checkbox = document.getElementById(`${prefix}-${cb}`);
+            const rowEl = document.getElementById(`${prefix}-${row}`);
+            if (checkbox && rowEl) rowEl.style.display = checkbox.checked ? '' : 'none';
+        });
+    }
+
+    // cookie 输入框复位：凭证绝不回显，已绑定时仅用占位符说明「留空保持不变」。
+    function setScheduleCookieInput(inputId, bound) {
+        const el = document.getElementById(inputId);
+        if (!el) return;
+        el.value = '';
+        el.placeholder = bound
+            ? bt('schedule.field.cookie.placeholder-bound', '已绑定 Cookie（不回显）；留空保持不变，填写则替换')
+            : bt('schedule.field.cookie.placeholder', '粘贴含 PHPSESSID 的 Cookie，或点右侧按钮填入');
+    }
+
+    // 「使用当前保存的cookie」：把 Cookie 卡片当前保存的 cookie 填入指定输入框。
+    function fillScheduleCookieFromSaved(inputId) {
+        const el = document.getElementById(inputId);
+        if (!el) return;
+        const report = inputId === 'sch-ov-cookie' ? setScheduleOverrideStatus : setScheduleFormStatus;
+        const cookie = getCookieInputHeaderString().trim();
+        if (!cookie || !/(?:^|;\s*)PHPSESSID=/.test(cookie)) {
+            report(bt('schedule.error.no-cookie', '请先在上方 Cookie 卡片保存含 PHPSESSID 的 Cookie'), 'error');
+            return;
+        }
+        el.value = cookie;
+        report('');
+    }
+
+    // 与后端 OutboundProxyOverride.parse 同口径：host:port，端口 1-65535。
+    function isValidProxyHostPort(value) {
+        if (!value) return false;
+        const colon = value.lastIndexOf(':');
+        if (colon <= 0 || colon === value.length - 1) return false;
+        const host = value.slice(0, colon).trim();
+        const port = Number(value.slice(colon + 1));
+        return !!host && Number.isInteger(port) && port >= 1 && port <= 65535;
+    }
+
+    function readScheduleOverrideInputs(prefix) {
+        return {
+            proxyChecked: !!(document.getElementById(`${prefix}-proxy-enabled`) || {}).checked,
+            proxyValue: ((document.getElementById(`${prefix}-proxy`) || {}).value || '').trim(),
+            cookieChecked: !!(document.getElementById(`${prefix}-cookie-enabled`) || {}).checked,
+            cookieValue: ((document.getElementById(`${prefix}-cookie`) || {}).value || '').trim()
+        };
+    }
+
+    // 输入合法性：代理须为 host:port；勾选单独 cookie 时，要么填了含 PHPSESSID 的值，
+    // 要么任务此前已绑定（留空 = 保持不变）。返回错误文案或 null。
+    function validateScheduleOverrideInputs(ov, prevTask) {
+        if (ov.proxyChecked && !isValidProxyHostPort(ov.proxyValue)) {
+            return bt('schedule.error.proxy-format', '代理格式无效，应为 host:port（例如 127.0.0.1:7890）');
+        }
+        if (ov.cookieChecked && ov.cookieValue && !/(?:^|;\s*)PHPSESSID=/.test(ov.cookieValue)) {
+            return bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权');
+        }
+        if (ov.cookieChecked && !ov.cookieValue && !(prevTask && prevTask.cookieBound)) {
+            return bt('schedule.error.override-cookie-empty', '请填写单独的 Cookie（或点「使用当前保存的cookie」），或取消勾选');
+        }
+        return null;
+    }
+
+    // 取消勾选 = 清除已生效的单独设置：弹窗确认后果（回退全局代理 / 解除 Cookie 转受限模式）。
+    function confirmScheduleOverrideClears(ov, prevTask) {
+        if (!prevTask) return true;
+        if (!ov.proxyChecked && prevTask.proxy
+            && !uiConfirmKey('schedule.confirm.clear-proxy',
+                '将清除该任务的单独代理，此后该任务回退使用全局代理设置访问 Pixiv。确定吗？')) {
+            return false;
+        }
+        if (!ov.cookieChecked && prevTask.cookieBound
+            && !uiConfirmKey('schedule.confirm.clear-cookie',
+                '将解除该任务绑定的 Cookie，任务转为受限（匿名）模式运行：R-18 等受限内容将无法抓取，「我的收藏 / 已关注用户的新作 / 珍藏集」类任务将无法运行。确定吗？')) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 把单独 代理/cookie 的选择落到后端（只发必要的请求）。返回 {ok, applied, error}：
+     * applied=true 表示至少发生了一次变更。任何一步失败即中止后续调用（任务本体的保存不回滚）。
+     * cookie 留空且此前已绑定 = 保持不变；代理值与现状相同也不重复提交。
+     */
+    async function applyScheduleOverrides(taskId, ov, prevTask) {
+        const hadProxy = !!(prevTask && prevTask.proxy);
+        const wasBound = !!(prevTask && prevTask.cookieBound);
+        let applied = false;
+        if (ov.proxyChecked && ov.proxyValue && (!prevTask || prevTask.proxy !== ov.proxyValue)) {
+            const err = await postScheduleProxy(taskId, ov.proxyValue);
+            if (err) return {ok: false, applied, error: err};
+            applied = true;
+        } else if (!ov.proxyChecked && hadProxy) {
+            const err = await postScheduleProxy(taskId, null);
+            if (err) return {ok: false, applied, error: err};
+            applied = true;
+        }
+        if (ov.cookieChecked && ov.cookieValue) {
+            const err = await postScheduleCookie(taskId, ov.cookieValue);
+            if (err) return {ok: false, applied, error: err};
+            applied = true;
+        } else if (!ov.cookieChecked && wasBound) {
+            const err = await postScheduleRevokeCookie(taskId);
+            if (err) return {ok: false, applied, error: err};
+            applied = true;
+        }
+        return {ok: true, applied};
+    }
+
+    // 设置 / 清除任务级单独代理（proxy=null 即清除）。成功返回 null，失败返回错误文案。
+    async function postScheduleProxy(taskId, proxy) {
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${taskId}/proxy`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({proxy})
+            });
+            if (res.ok) return null;
+            const err = await res.json().catch(() => ({}));
+            return err.error || err.message || bt('schedule.error.proxy-save', '单独代理设置失败');
+        } catch (e) {
+            return bt('schedule.error.proxy-save', '单独代理设置失败');
+        }
+    }
+
+    // 授权绑定单独 cookie。成功返回 null，失败返回错误文案（含后端「与已绑定相同」等原因）。
+    async function postScheduleCookie(taskId, cookie) {
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({cookie})
+            });
+            if (res.ok) return null;
+            const err = await res.json().catch(() => ({}));
+            return err.error || err.message || bt('schedule.error.authorize', '授权失败');
+        } catch (e) {
+            return bt('schedule.error.authorize', '授权失败');
+        }
+    }
+
+    // 解除绑定的 cookie（任务转受限模式）。成功返回 null，失败返回错误文案。
+    async function postScheduleRevokeCookie(taskId) {
+        try {
+            const res = await fetch(`${BASE}/api/schedule/tasks/${taskId}/revoke-cookie`, {
+                method: 'POST',
+                credentials: 'same-origin'
+            });
+            if (res.ok) return null;
+            const err = await res.json().catch(() => ({}));
+            return err.error || err.message || bt('schedule.error.revoke-cookie', '解除 Cookie 失败');
+        } catch (e) {
+            return bt('schedule.error.revoke-cookie', '解除 Cookie 失败');
+        }
     }
 
     function setScheduleRadio(name, value) {
@@ -467,6 +663,15 @@
         document.getElementById('sch-cron').value = task.cronExpr || '';
         const flEl = document.getElementById('sch-fetch-limit');
         if (flEl) flEl.value = (Number.isFinite(params.fetchLimit) && params.fetchLimit > 0) ? params.fetchLimit : 0;
+        // 单独代理 / 单独 cookie 回灌：代理可回显；cookie 凭证不回显，仅恢复勾选态（留空保存 = 保持不变）。
+        const proxyEn = document.getElementById('sch-proxy-enabled');
+        if (proxyEn) proxyEn.checked = !!task.proxy;
+        const proxyIn = document.getElementById('sch-proxy');
+        if (proxyIn) proxyIn.value = task.proxy || '';
+        const cookieEn = document.getElementById('sch-cookie-enabled');
+        if (cookieEn) cookieEn.checked = !!task.cookieBound;
+        setScheduleCookieInput('sch-cookie', !!task.cookieBound);
+        onScheduleOverrideToggle('sch');
         document.getElementById('sch-submit').textContent = bt('schedule.action.save', '💾 保存修改');
         document.getElementById('sch-cancel').style.display = '';
         const srcEl = document.getElementById('sch-edit-source');
@@ -869,6 +1074,7 @@
             [bt('schedule.snapshot.field.kind', '作品类型'), scheduleKindLabel(kind)],
             [bt('schedule.snapshot.field.trigger', '触发方式'), scheduleTriggerLabel(t)],
             [bt('schedule.snapshot.field.cookie', 'Cookie 模式'), t.cookieBound ? bt('schedule.cookie.bound', '已绑定 Cookie') : bt('schedule.cookie.restricted', '受限模式（无 Cookie）')],
+            [bt('schedule.snapshot.field.proxy', '单独代理'), t.proxy ? t.proxy : bt('schedule.snapshot.value.global-proxy', '使用全局代理设置')],
             [bt('schedule.snapshot.field.enabled', '启用状态'), t.enabled ? bt('schedule.state.enabled', '已启用') : bt('schedule.state.disabled', '已停用')],
             [bt('schedule.snapshot.field.next-run', '下次运行'), fmtScheduleTime(t.nextRunTime)],
             [bt('schedule.snapshot.field.last-run', '上次运行'), fmtScheduleTime(t.lastRunTime)],
@@ -965,8 +1171,80 @@
     }
 
     document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape') closeScheduleSnapshotModal();
+        if (e.key === 'Escape') {
+            closeScheduleSnapshotModal();
+            closeScheduleOverrideModal();
+        }
     });
+
+    // ── 「指定单独的 代理/cookie」弹窗（计划任务卡片入口） ─────────────────────────────
+
+    function setScheduleOverrideStatus(msg, type = 'info') {
+        const el = document.getElementById('sch-ov-status');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.style.color = STATUS_COLORS[type] || '#666';
+    }
+
+    // 打开弹窗并按任务现状预填：代理可回显；cookie 仅恢复勾选态（凭证不回显，留空保存 = 保持不变）。
+    function showScheduleOverrideModal(id) {
+        const task = scheduleTaskById(id);
+        const modal = document.getElementById('schedule-override-modal');
+        if (!task || !modal) return;
+        modal.dataset.taskId = String(Number(id));
+        const proxyEn = document.getElementById('sch-ov-proxy-enabled');
+        if (proxyEn) proxyEn.checked = !!task.proxy;
+        const proxyIn = document.getElementById('sch-ov-proxy');
+        if (proxyIn) proxyIn.value = task.proxy || '';
+        const cookieEn = document.getElementById('sch-ov-cookie-enabled');
+        if (cookieEn) cookieEn.checked = !!task.cookieBound;
+        setScheduleCookieInput('sch-ov-cookie', !!task.cookieBound);
+        onScheduleOverrideToggle('sch-ov');
+        setScheduleOverrideStatus('');
+        modal.hidden = false;
+        document.body.classList.add('schedule-modal-open');
+    }
+
+    function closeScheduleOverrideModal() {
+        const modal = document.getElementById('schedule-override-modal');
+        if (!modal) return;
+        modal.hidden = true;
+        delete modal.dataset.taskId;
+        document.body.classList.remove('schedule-modal-open');
+    }
+
+    // 弹窗保存：校验 → 取消勾选的清除确认 → 逐项调用后端。失败把原因留在弹窗里（不关闭），
+    // 成功关闭弹窗并在卡片 tips 区给出反馈。
+    async function saveScheduleOverride() {
+        const modal = document.getElementById('schedule-override-modal');
+        if (!modal || modal.hidden) return;
+        const id = Number(modal.dataset.taskId);
+        const task = scheduleTaskById(id);
+        if (!task) {
+            setScheduleOverrideStatus(bt('schedule.snapshot.error.not-found', '未找到任务，请重新加载列表'), 'error');
+            return;
+        }
+        const ov = readScheduleOverrideInputs('sch-ov');
+        const error = validateScheduleOverrideInputs(ov, task);
+        if (error) {
+            setScheduleOverrideStatus(error, 'error');
+            return;
+        }
+        if (!confirmScheduleOverrideClears(ov, task)) {
+            return;
+        }
+        const result = await applyScheduleOverrides(id, ov, task);
+        if (!result.ok) {
+            setScheduleOverrideStatus(result.error, 'error');
+            loadScheduleTasks();
+            return;
+        }
+        closeScheduleOverrideModal();
+        setScheduleCardTip(id, result.applied
+            ? bt('schedule.status.override-saved', '已更新该任务的单独 代理/Cookie 设置')
+            : bt('schedule.status.override-unchanged', '单独 代理/Cookie 设置没有变化'), 'success');
+        loadScheduleTasks();
+    }
 
     // 整列渲染所依据的卡片级数据签名：仅当这些字段变化时才需要重建整列 DOM。
     // 不含队列正文 / 展开态——它们由 SSE / 快照单独更新、由用户操作单独切换，不应触发整列重建。
@@ -974,7 +1252,7 @@
     // 不含队列正文 / 待重试面板内容——那两个面板的 DOM 在 diff 替换时被「内 HTML + 滚动位置」整体迁移到新卡片上。
     function scheduleCardRenderSignature(t) {
         return JSON.stringify([
-            t.name, t.enabled, t.type, t.cookieBound, t.runState,
+            t.name, t.enabled, t.type, t.cookieBound, t.proxy, t.runState,
             t.lastStatus, t.lastMessage, t.runStartedTime, t.nextRunTime, t.lastRunTime, t.paramsJson,
             t.accountId, t.ackWarningTime, t.pendingRetryArmed
         ]);
@@ -1032,7 +1310,6 @@
                 }
                 renderScheduleBannersDiff(list);
                 renderScheduleCardsDiff(list);
-                applyCookieDependentUi();
                 if (langChanged) {
                     // 展开的「本轮队列详情」：先用 localizer 即时重渲染（已含 rawStatus 的新模型立即切语言），
                     // 再异步触发一次 fetchScheduleQueue 让后端有新数据时重建模型；旧版本 bake 过翻译的
@@ -1218,6 +1495,7 @@
                     <span class="schedule-badge">${escHtml(typeLabel)}</span>
                     <span class="schedule-badge">${escHtml(kindLabel)}</span>
                     <span class="schedule-badge${t.cookieBound ? ' schedule-badge-ok' : ''}">${escHtml(cookieLabel)}</span>
+                    ${t.proxy ? `<span class="schedule-badge schedule-badge-ok" title="${escHtml(t.proxy)}">${escHtml(bt('schedule.badge.custom-proxy', '单独代理'))}</span>` : ''}
                     <span class="schedule-badge${t.enabled ? ' schedule-badge-ok' : ' schedule-badge-disabled'}">${escHtml(enabledLabel)}</span>
                 </div>
                 <span class="schedule-status-light schedule-status-light-${light.tone}${light.live ? ' schedule-status-light-live' : ''}" title="${escHtml(light.text)}">
@@ -1235,7 +1513,7 @@
             </div>
             <div class="schedule-card-actions">
                 <button class="btn btn-cyan" ${runAttr} onclick="runScheduleTask(${t.id})">${escHtml(bt('schedule.action.run', '▶ 立即运行'))}</button>
-                <span class="cookie-dependent-action"><button class="btn btn-blue js-authorize-cookie-btn" data-busy="${busy ? '1' : '0'}" onclick="authorizeScheduleCookie(${t.id})">${escHtml(bt('schedule.action.authorize', '🔑 授权 Cookie'))}</button></span>
+                <button class="btn btn-blue" ${busyAttr} onclick="showScheduleOverrideModal(${t.id})">${escHtml(bt('schedule.action.override', '🔑 指定单独的 代理/cookie'))}</button>
                 ${paused
                     ? `<button class="btn btn-green" ${resumeAttr} onclick="resumeScheduleTask(${t.id})">${escHtml(bt('schedule.action.resume', '▶ 恢复'))}</button>`
                     : `<button class="btn btn-yellow" ${pauseAttr} onclick="pauseScheduleTask(${t.id})">${escHtml(bt('schedule.action.pause', '⏸ 暂停'))}</button>`}
@@ -1980,35 +2258,6 @@
             await fetch(`${BASE}/api/schedule/tasks/${id}`, {method: 'DELETE', credentials: 'same-origin'});
             loadScheduleTasks();
         } catch (e) { /* ignore */ }
-    }
-
-    async function authorizeScheduleCookie(id) {
-        const cookie = getCookieInputHeaderString().trim();
-        if (!cookie) {
-            setScheduleCardTip(id, bt('schedule.error.no-cookie', '请先在上方 Cookie 卡片保存含 PHPSESSID 的 Cookie'), 'error');
-            return;
-        }
-        if (!/(?:^|;\s*)PHPSESSID=/.test(cookie)) {
-            setScheduleCardTip(id, bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权'), 'error');
-            return;
-        }
-        try {
-            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/authorize-cookie`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({cookie})
-            });
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({}));
-                setScheduleCardTip(id, err.error || err.message || bt('schedule.error.authorize', '授权失败'), 'error');
-                return;
-            }
-            setScheduleCardTip(id, bt('schedule.status.authorized', 'Cookie 已授权绑定到该任务'), 'success');
-            loadScheduleTasks();
-        } catch (e) {
-            setScheduleCardTip(id, bt('schedule.error.authorize', '授权失败'), 'error');
-        }
     }
 
     // solo 模式创建任务后自动用当前输入框里的 Cookie 绑定该任务；best-effort，不阻断创建流程。

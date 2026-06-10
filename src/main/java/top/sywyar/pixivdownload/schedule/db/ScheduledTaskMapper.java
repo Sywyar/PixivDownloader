@@ -27,6 +27,7 @@ public interface ScheduledTaskMapper {
     String SELECT_TASK = "SELECT id, name, enabled, type, params_json AS paramsJson,"
             + " trigger_kind AS triggerKind, interval_minutes AS intervalMinutes,"
             + " cron_expr AS cronExpr, cookie_mode AS cookieMode,"
+            + " proxy_snapshot AS proxySnapshot,"
             + " next_run_time AS nextRunTime, last_run_time AS lastRunTime,"
             + " last_status AS lastStatus, last_message AS lastMessage,"
             + " watermark_id AS watermarkId, run_started_time AS runStartedTime,"
@@ -48,6 +49,7 @@ public interface ScheduledTaskMapper {
             + "cron_expr TEXT,"
             + "cookie_mode TEXT NOT NULL,"
             + "cookie_snapshot TEXT,"
+            + "proxy_snapshot TEXT,"
             + "next_run_time INTEGER,"
             + "last_run_time INTEGER,"
             + "last_status TEXT,"
@@ -78,6 +80,10 @@ public interface ScheduledTaskMapper {
     @Update("ALTER TABLE scheduled_tasks ADD COLUMN pending_retry_armed INTEGER DEFAULT 0")
     void addPendingRetryArmedColumn();
 
+    /** 幂等迁移：旧库 scheduled_tasks 表补 proxy_snapshot 列（任务级单独代理 host:port）；列已存在时调用方需吞掉异常 */
+    @Update("ALTER TABLE scheduled_tasks ADD COLUMN proxy_snapshot TEXT DEFAULT NULL")
+    void addProxySnapshotColumn();
+
     /**
      * 隔离表（待重试）：每个因可恢复失败被跳过的单作品一行，{@code task_id} 区分多任务。
      * 解耦 watermark 与单作品重试——watermark 在有零星可恢复失败时照常推进，失败作品在此单独追踪。
@@ -96,12 +102,12 @@ public interface ScheduledTaskMapper {
     // ── 写入 ────────────────────────────────────────────────────────────────────
 
     @Insert("INSERT INTO scheduled_tasks(name, enabled, type, params_json, trigger_kind,"
-            + " interval_minutes, cron_expr, cookie_mode, cookie_snapshot,"
+            + " interval_minutes, cron_expr, cookie_mode, cookie_snapshot, proxy_snapshot,"
             + " next_run_time, last_run_time, last_status, last_message,"
             + " watermark_id, run_started_time, account_id, ack_warning_time,"
             + " pending_retry_armed, created_time)"
             + " VALUES(#{name}, #{enabled}, #{type}, #{paramsJson}, #{triggerKind},"
-            + " #{intervalMinutes}, #{cronExpr}, #{cookieMode}, #{cookieSnapshot},"
+            + " #{intervalMinutes}, #{cronExpr}, #{cookieMode}, #{cookieSnapshot}, #{proxySnapshot},"
             + " #{nextRunTime}, #{lastRunTime}, #{lastStatus}, #{lastMessage},"
             + " #{watermarkId}, #{runStartedTime}, #{accountId}, #{ackWarningTime},"
             + " #{pendingRetryArmed}, #{createdTime})")
@@ -129,6 +135,10 @@ public interface ScheduledTaskMapper {
     int updateCookie(@Param("id") long id,
                      @Param("cookieSnapshot") String cookieSnapshot,
                      @Param("cookieMode") String cookieMode);
+
+    /** 设置 / 清除任务级单独代理（host:port，非凭证；{@code null} = 回退全局代理设置）。 */
+    @Update("UPDATE scheduled_tasks SET proxy_snapshot = #{proxySnapshot} WHERE id = #{id}")
+    int updateProxy(@Param("id") long id, @Param("proxySnapshot") String proxySnapshot);
 
     /**
      * 本轮跑完落库结果。<b>CASE 保留运行中被手动设置的 {@code PAUSED}</b>：

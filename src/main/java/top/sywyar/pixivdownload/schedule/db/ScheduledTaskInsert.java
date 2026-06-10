@@ -22,6 +22,8 @@ public class ScheduledTaskInsert {
     private String cookieMode;
     /** 完整登录凭证，敏感：绝不写日志 / 回显。 */
     private String cookieSnapshot;
+    /** 任务级单独代理（host:port，非凭证）；创建时为 null = 使用全局代理设置。 */
+    private String proxySnapshot;
     private Long nextRunTime;
     private Long lastRunTime;
     private String lastStatus;

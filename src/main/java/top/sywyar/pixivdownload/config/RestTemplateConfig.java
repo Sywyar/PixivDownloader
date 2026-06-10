@@ -161,6 +161,9 @@ public class RestTemplateConfig {
      *
      * <p>注意：连接池中已经建立的 keep-alive 连接仍会沿用旧代理，直到自然过期或被回收；
      * 新建立的连接会立即应用新配置。
+     *
+     * <p><b>线程级覆盖优先</b>：当前线程存在 {@link OutboundProxyOverride}（计划任务的「任务级单独代理」）时，
+     * 无论全局 {@code proxy.enabled} 与否都改走覆盖代理。HttpClient 连接池按路由（含代理）区分连接，不会串用。
      */
     private static final class DynamicProxyRoutePlanner extends DefaultRoutePlanner {
 
@@ -173,6 +176,10 @@ public class RestTemplateConfig {
 
         @Override
         protected HttpHost determineProxy(HttpHost target, HttpContext context) throws HttpException {
+            HttpHost override = OutboundProxyOverride.current();
+            if (override != null) {
+                return override;
+            }
             if (!proxyConfig.isEnabled()) {
                 return null;
             }

@@ -31,6 +31,7 @@ public class ScheduledTaskDatabase {
         addColumnIfMissing(mapper::addAccountIdColumn);
         addColumnIfMissing(mapper::addAckWarningTimeColumn);
         addColumnIfMissing(mapper::addPendingRetryArmedColumn);
+        addColumnIfMissing(mapper::addProxySnapshotColumn);
         mapper.createScheduledTasksNextRunIndex();
         mapper.createScheduledTasksAccountIndex();
         mapper.createScheduledTaskPendingTable();

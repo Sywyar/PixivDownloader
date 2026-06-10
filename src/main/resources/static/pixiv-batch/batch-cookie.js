@@ -80,8 +80,9 @@
 
     /**
      * 根据是否有含 PHPSESSID 的有效登录 Cookie，启用/禁用依赖登录态才有意义的组件：
-     * 下载后自动收藏、内容分级里的 R-18+/R-18/R-18G 选项、计划列表的「授权 Cookie」按钮。
-     * 禁用时统一加悬停提示。Cookie 变化（保存/清除/导入）与列表重渲染后都应调用本函数。
+     * 下载后自动收藏、内容分级里的 R-18+/R-18/R-18G 选项。禁用时统一加悬停提示。
+     * Cookie 变化（保存/清除/导入）后都应调用本函数。
+     * 计划任务的「指定单独的 代理/cookie」弹窗不依赖已保存的 Cookie（可直接粘贴任意 Cookie），不在此门控。
      */
     function applyCookieDependentUi() {
         const ok = cookieHasPhpsessid();
@@ -117,22 +118,12 @@
                 handleSearchFilterChange();
             }
         }
-        // 3) 计划列表里每个任务的「授权 Cookie」按钮（动态渲染，按 class 重扫）。
-        //    禁用条件 = 无有效 Cookie 或任务运行 / 排队中（data-busy 由卡片渲染时写入）。
-        document.querySelectorAll('.js-authorize-cookie-btn').forEach(btn => {
-            const busy = btn.dataset.busy === '1';
-            const reason = busy ? bt('schedule.disabled.busy', '任务运行 / 排队中，暂不可操作') : title;
-            btn.disabled = !ok || busy;
-            btn.title = reason;
-            const wrapper = btn.closest('.cookie-dependent-action');
-            if (wrapper) wrapper.title = reason;
-        });
-        // 4) 快捷获取 Tab 的所有动作按钮（基于「我的」数据，必须有 PHPSESSID）
+        // 3) 快捷获取 Tab 的所有动作按钮（基于「我的」数据，必须有 PHPSESSID）
         document.querySelectorAll('.quick-action').forEach(btn => {
             btn.disabled = !ok;
             btn.title = title;
         });
-        // 5) 帐号栏的提示文本（无 Cookie 时显示「未检测到登录 Cookie...」）
+        // 4) 帐号栏的提示文本（无 Cookie 时显示「未检测到登录 Cookie...」）
         updateQuickAccountBar();
     }
 
