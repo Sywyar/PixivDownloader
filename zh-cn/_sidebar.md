@@ -16,6 +16,7 @@
 
 - **参考**
   - [⚙️ 配置参考](/zh-cn/configuration)
+  - [💾 存储原理](/zh-cn/storage)
   - [❓ 常见问题](/zh-cn/faq)
   - [🛠️ 开发指南](/zh-cn/development)
 

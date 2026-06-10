@@ -52,6 +52,7 @@ PixivDownloader 是一款**本地 Pixiv 作品批量下载工具**，基于 Spri
 | 定时自动下载新作品 | [计划任务](/zh-cn/scheduled-tasks) |
 | 在 Pixiv 网页上直接下载 | [油猴脚本](/zh-cn/userscripts) |
 | 查看所有配置项说明 | [配置参考](/zh-cn/configuration) |
+| 了解文件存在哪里、如何搬迁备份 | [存储原理](/zh-cn/storage) |
 | 解决常见问题 | [常见问题](/zh-cn/faq) |
 
 ---
