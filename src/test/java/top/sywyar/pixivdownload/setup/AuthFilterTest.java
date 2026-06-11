@@ -156,7 +156,7 @@ class AuthFilterTest {
             when(staticResourceRateLimitService.isAllowedForInvite("invite:invite-code")).thenReturn(true);
 
             request.setMethod("GET");
-            request.setRequestURI("/pixiv-gallery/pixiv-gallery.js");
+            request.setRequestURI("/pixiv-gallery/gallery-core.js");
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
 
@@ -515,7 +515,7 @@ class AuthFilterTest {
                 "/pixiv-gallery.html",
                 "/pixiv-artwork.html",
                 "/pixiv-gallery/pixiv-gallery.css",
-                "/pixiv-artwork/pixiv-artwork.js",
+                "/pixiv-artwork/artwork-core.js",
                 "/monitor/monitor-core.js",
                 "/pixiv-duplicates.html",
                 "/pixiv-duplicates/pixiv-duplicates.css",
@@ -544,7 +544,7 @@ class AuthFilterTest {
             )));
 
             request.setMethod("GET");
-            request.setRequestURI("/pixiv-gallery/pixiv-gallery.js");
+            request.setRequestURI("/pixiv-gallery/gallery-core.js");
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
 
