@@ -32,4 +32,15 @@ public class AppInfo {
     public static String dashedUserAgent(String component) {
         return NAME + "-" + component;
     }
+
+    /**
+     * 当前进程是否由 jpackage 原生启动器（安装版 / 便携版的 {@code PixivDownload.exe}）拉起。
+     * <p>jpackage 启动器会注入 {@code jpackage.app-version} 系统属性；以 {@code java -jar} 直接
+     * 运行 fat-jar 时该属性缺失。在线更新「下载安装包并覆盖安装」只对 exe 启动有效——jar 启动
+     * 需引导用户手动到 GitHub 发布页下载。
+     */
+    public static boolean isLaunchedFromExe() {
+        String version = System.getProperty("jpackage.app-version");
+        return version != null && !version.isBlank();
+    }
 }

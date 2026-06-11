@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.gui.theme.ThemePreference;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
+import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
@@ -124,8 +125,8 @@ public class StatusPanel extends JPanel {
     private volatile String savedBannerVersionText;
     private volatile Timer downloadProgressTimer;
 
-    /** 一份待安装的更新选项：URL、安装包大小、发布说明、最新版本号。 */
-    private record PendingInstall(String url, long size, String releaseNotes, String latestVersion) {}
+    /** 一份待安装的更新选项：URL、安装包大小、发布说明、发布页 URL、最新版本号。 */
+    private record PendingInstall(String url, long size, String releaseNotes, String releaseNotesUrl, String latestVersion) {}
     private LocaleOption currentAppliedLanguageOption;
     private final java.awt.event.ActionListener languageActionListener = e -> applyLanguageSelection();
 
@@ -2041,6 +2042,7 @@ public class StatusPanel extends JPanel {
                 node.path("assetUrl").asText(null),
                 node.path("assetSizeBytes").asLong(0L),
                 node.path("releaseNotes").asText(null),
+                node.path("releaseNotesUrl").asText(null),
                 node.path("latestVersion").asText(""));
     }
 
@@ -2050,6 +2052,13 @@ public class StatusPanel extends JPanel {
         }
         PendingInstall target = nightlyChannel ? pendingNightly : pendingOfficial;
         if (target == null) {
+            return;
+        }
+
+        // jar 启动（java -jar）无法走「下载安装包静默覆盖安装」流程——那只对 jpackage 的 exe 启动有效。
+        // 此时改为引导用户到 GitHub 发布页手动下载最新版本，不发起任何安装包下载。
+        if (!AppInfo.isLaunchedFromExe()) {
+            promptManualDownloadForJarLaunch(target);
             return;
         }
 
@@ -2168,6 +2177,35 @@ public class StatusPanel extends JPanel {
             }
         };
         worker.execute();
+    }
+
+    /**
+     * jar 启动场景下点击「立即更新」的处理：提示用户自动安装仅适用于安装版（exe），
+     * 并在确认后打开 GitHub 发布页（优先该版本的发布页 URL，缺失时回退到 releases 列表页）。
+     */
+    private void promptManualDownloadForJarLaunch(PendingInstall target) {
+        int confirm = JOptionPane.showConfirmDialog(this,
+                message("gui.update.dialog.jar-launch.message", target.latestVersion()),
+                message("gui.update.dialog.install.title"),
+                JOptionPane.YES_NO_OPTION, JOptionPane.INFORMATION_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+        String url = target.releaseNotesUrl() != null && !target.releaseNotesUrl().isBlank()
+                ? target.releaseNotesUrl()
+                : AppInfo.RELEASES_URL;
+        openExternalUrl(url);
+    }
+
+    /** 在系统默认浏览器中打开一个绝对外部 URL（区别于 {@link #openWebPage}：后者拼接本机服务地址）。 */
+    private void openExternalUrl(String url) {
+        try {
+            Desktop.getDesktop().browse(new URI(url));
+        } catch (Exception e) {
+            log.warn(logMessage("gui.status.log.open-browser-failed", url, e.getMessage()), e);
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                    message("gui.error.open-browser", e.getMessage()));
+        }
     }
 
     /**
