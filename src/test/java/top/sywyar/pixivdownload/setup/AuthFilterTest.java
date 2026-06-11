@@ -516,7 +516,7 @@ class AuthFilterTest {
                 "/pixiv-artwork.html",
                 "/pixiv-gallery/pixiv-gallery.css",
                 "/pixiv-artwork/pixiv-artwork.js",
-                "/monitor/monitor.js",
+                "/monitor/monitor-core.js",
                 "/pixiv-duplicates.html",
                 "/pixiv-duplicates/pixiv-duplicates.css",
                 "/pixiv-duplicates/pixiv-duplicates.js",
