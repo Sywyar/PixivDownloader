@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
-import top.sywyar.pixivdownload.gui.GuiTokenService;
+import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.Optional;
@@ -50,7 +50,7 @@ class AuthFilterTest {
     @Mock
     private GuestInviteService guestInviteService;
     @Mock
-    private GuiTokenService guiTokenService;
+    private GuiTokenProvider guiTokenProvider;
 
     private AuthFilter authFilter;
     private MockHttpServletRequest request;
@@ -59,7 +59,7 @@ class AuthFilterTest {
     @BeforeEach
     void setUp() {
         authFilter = new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
-                localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenService);
+                localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider);
         request = new MockHttpServletRequest();
         response = new MockHttpServletResponse();
         lenient().when(staticResourceRateLimitService.isAllowed(any())).thenReturn(true);
@@ -1027,7 +1027,7 @@ class AuthFilterTest {
         })
         @DisplayName("/api/gui/** 在本地请求 + 有效 GUI 令牌时应直接放行")
         void shouldPassThroughGuiApiPaths(String path) throws Exception {
-            when(guiTokenService.getToken()).thenReturn("gui-token");
+            when(guiTokenProvider.getToken()).thenReturn("gui-token");
 
             request.setMethod("GET");
             request.setRequestURI(path);
@@ -1046,7 +1046,7 @@ class AuthFilterTest {
         })
         @DisplayName("/api/gui/** 缺少有效 GUI 令牌时应返回 403")
         void shouldRejectGuiApiPathsWithoutToken(String path) throws Exception {
-            when(guiTokenService.getToken()).thenReturn("gui-token");
+            when(guiTokenProvider.getToken()).thenReturn("gui-token");
 
             request.setMethod("GET");
             request.setRequestURI(path);

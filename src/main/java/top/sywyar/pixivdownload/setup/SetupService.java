@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.common.ServerStateProvider;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
@@ -26,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Slf4j
-public class SetupService {
+public class SetupService implements ServerStateProvider {
 
     private final Path configFile;
     private final ObjectMapper objectMapper;

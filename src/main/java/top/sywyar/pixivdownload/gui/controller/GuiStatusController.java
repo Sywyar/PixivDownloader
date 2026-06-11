@@ -10,11 +10,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.PixivConnectivityProbe;
+import top.sywyar.pixivdownload.common.ServerStateProvider;
 import top.sywyar.pixivdownload.config.RuntimeConfigReloadService;
 import top.sywyar.pixivdownload.config.SslConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.onboarding.OnboardingProgressService;
-import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -37,7 +37,7 @@ import java.util.List;
 @Slf4j
 public class GuiStatusController {
 
-    private final SetupService setupService;
+    private final ServerStateProvider serverState;
     private final Environment environment;
     private final SslConfig sslConfig;
     private final RuntimeConfigReloadService runtimeConfigReloadService;
@@ -72,7 +72,7 @@ public class GuiStatusController {
         boolean https = isSslEnabled();
         GuiStatusResponse resp = GuiStatusResponse.builder()
                 .port(resolvePort())
-                .mode(setupService.getMode())
+                .mode(serverState.getMode())
                 .startTime(startTimeStr)
                 .httpsEnabled(https)
                 .domain(sslConfig.getDomain())
@@ -168,8 +168,8 @@ public class GuiStatusController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
         return ResponseEntity.ok(new OnboardingStatusResponse(
-                setupService.isSetupComplete(),
-                setupService.getMode() != null ? setupService.getMode() : "",
+                serverState.isSetupComplete(),
+                serverState.getMode() != null ? serverState.getMode() : "",
                 onboardingProgressService.isBatchVisited(),
                 onboardingProgressService.isGalleryVisited(),
                 onboardingProgressService.isGalleryGuideCompleted()));
@@ -187,8 +187,8 @@ public class GuiStatusController {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        if (setupService.isSetupComplete()) {
-            return ResponseEntity.ok(new GuiSetupInitResponse(true, setupService.getMode(), null));
+        if (serverState.isSetupComplete()) {
+            return ResponseEntity.ok(new GuiSetupInitResponse(true, serverState.getMode(), null));
         }
         String username = body == null || body.username() == null ? "" : body.username().trim();
         String password = body == null || body.password() == null ? "" : body.password();
@@ -198,7 +198,7 @@ public class GuiStatusController {
             return ResponseEntity.badRequest()
                     .body(new GuiSetupInitResponse(false, null, "invalid"));
         }
-        setupService.init(username, password, mode);
+        serverState.init(username, password, mode);
         return ResponseEntity.ok(new GuiSetupInitResponse(true, mode, null));
     }
 
@@ -213,7 +213,7 @@ public class GuiStatusController {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        if (!setupService.isSetupComplete()) {
+        if (!serverState.isSetupComplete()) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(new GuiChangePasswordResponse(false, "setup-incomplete"));
         }
@@ -228,7 +228,7 @@ public class GuiStatusController {
                     .body(new GuiChangePasswordResponse(false, "same-password"));
         }
         try {
-            setupService.changePassword(oldPwd, newPwd);
+            serverState.changePassword(oldPwd, newPwd);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new GuiChangePasswordResponse(false, "invalid-current"));

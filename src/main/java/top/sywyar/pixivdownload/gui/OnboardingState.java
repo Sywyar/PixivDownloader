@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.gui;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.setup.SetupConfig;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -98,8 +97,7 @@ public final class OnboardingState {
             return false;
         }
         try {
-            SetupConfig config = MAPPER.readValue(path.toFile(), SetupConfig.class);
-            return config.isSetupComplete();
+            return MAPPER.readTree(path.toFile()).path("setupComplete").asBoolean(false);
         } catch (Exception e) {
             log.debug("Failed to read setup_config.json: {}", e.getMessage());
             return false;

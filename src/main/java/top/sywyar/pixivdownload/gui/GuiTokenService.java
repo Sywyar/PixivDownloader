@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.common.GuiTokenProvider;
 
 import java.security.SecureRandom;
 
@@ -12,7 +13,7 @@ import java.security.SecureRandom;
  */
 @Service
 @Slf4j
-public class GuiTokenService {
+public class GuiTokenService implements GuiTokenProvider {
 
     private String token;
 
@@ -29,6 +30,7 @@ public class GuiTokenService {
         log.debug("GUI token initialized");
     }
 
+    @Override
     public String getToken() {
         return token;
     }

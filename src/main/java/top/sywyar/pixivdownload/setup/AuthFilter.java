@@ -16,12 +16,11 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.beans.factory.ObjectProvider;
+import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.response.ErrorResponse;
-import top.sywyar.pixivdownload.gui.GuiTokenHolder;
-import top.sywyar.pixivdownload.gui.GuiTokenService;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
@@ -180,7 +179,7 @@ public class AuthFilter extends OncePerRequestFilter {
     private final AppMessages messages;
     private final ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider;
     private final GuestInviteService guestInviteService;
-    private final GuiTokenService guiTokenService;
+    private final GuiTokenProvider guiTokenProvider;
 
     @Value("${server.ssl.enabled:false}")
     private boolean sslEnabled;
@@ -467,11 +466,11 @@ public class AuthFilter extends OncePerRequestFilter {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return false;
         }
-        String token = guiTokenService.getToken();
+        String token = guiTokenProvider.getToken();
         if (token == null) {
             return false;
         }
-        return token.equals(req.getHeader(GuiTokenHolder.HEADER_NAME));
+        return token.equals(req.getHeader(GuiTokenProvider.HEADER_NAME));
     }
 
     private boolean isDefaultPublicPath(String path) {
