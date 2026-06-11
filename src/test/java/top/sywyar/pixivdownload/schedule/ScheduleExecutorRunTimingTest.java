@@ -86,7 +86,7 @@ class ScheduleExecutorRunTimingTest {
                 artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
                 overuseWarningService, notificationService, appMessages, setupService,
-                new top.sywyar.pixivdownload.download.config.DownloadConfig(), imagePool, novelPool);
+                new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(), imagePool, novelPool);
     }
 
     @Test

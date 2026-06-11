@@ -15,7 +15,7 @@ import top.sywyar.pixivdownload.core.db.PathPrefix;
 import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.PathPrefixColumns;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.series.MangaSeriesService;

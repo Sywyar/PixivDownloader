@@ -6,7 +6,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.download.request.BatchStateRequest;
 import top.sywyar.pixivdownload.download.response.BatchStateResponse;
 import top.sywyar.pixivdownload.setup.SetupService;

@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.common.SafePathSegment;
 import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.download.DownloadActionResult;
 import top.sywyar.pixivdownload.download.PixivBookmarkService;
-import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;

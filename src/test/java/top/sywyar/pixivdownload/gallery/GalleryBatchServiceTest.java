@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
-import top.sywyar.pixivdownload.quota.MultiModeConfig;
+import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import java.io.File;

@@ -7,7 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.io.IOException;

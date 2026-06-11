@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport.ExportResult;
-import top.sywyar.pixivdownload.quota.MultiModeConfig;
+import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import java.io.File;

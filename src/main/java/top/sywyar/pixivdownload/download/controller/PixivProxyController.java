@@ -25,7 +25,7 @@ import top.sywyar.pixivdownload.novel.response.NovelMetaResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSearchResponse;
 import top.sywyar.pixivdownload.novel.response.NovelSeriesResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.quota.MultiModeConfig;
+import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.quota.response.ProxyRateLimitResponse;
 import top.sywyar.pixivdownload.setup.SetupService;

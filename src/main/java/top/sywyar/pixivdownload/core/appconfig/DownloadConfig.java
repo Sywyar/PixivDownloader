@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.config;
+package top.sywyar.pixivdownload.core.appconfig;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;

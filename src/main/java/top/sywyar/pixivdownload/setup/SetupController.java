@@ -18,7 +18,7 @@ import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.quota.MultiModeConfig;
+import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.request.LoginRequest;
 import top.sywyar.pixivdownload.setup.request.SetupInitRequest;
 import top.sywyar.pixivdownload.setup.response.AuthCheckResponse;
