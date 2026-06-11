@@ -18,7 +18,8 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
- * Reads the on-disk SQLite schema and compares it with {@link ManagedDatabaseSchema#SPEC}.
+ * 读取磁盘上的 SQLite schema，并与期望的 {@link ManagedDatabaseSchema.DatabaseSchema}
+ * （通常为 {@code plugin.DatabaseSchemaRegistry} 的合并结果）比对。
  */
 public final class DatabaseSchemaInspector {
 
@@ -27,10 +28,6 @@ public final class DatabaseSchemaInspector {
             "_segments", "_segdir", "_stat");
 
     private DatabaseSchemaInspector() {}
-
-    public static SchemaComparison compare(Path databasePath) throws SQLException {
-        return compare(databasePath, ManagedDatabaseSchema.SPEC);
-    }
 
     public static SchemaComparison compare(Path databasePath,
                                            ManagedDatabaseSchema.DatabaseSchema expectedSchema) throws SQLException {

@@ -50,18 +50,37 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("空插件暂不声明任何 contribution")
+    @DisplayName("除 core 声明核心 schema 外，各插件暂不声明任何 contribution")
     void emptyPluginsContributeNothing() {
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins()).allSatisfy(plugin -> {
-                assertThat(plugin.schema()).isEmpty();
+                if (plugin.id().equals("core")) {
+                    assertThat(plugin.schema())
+                            .singleElement()
+                            .satisfies(contribution ->
+                                    assertThat(contribution.ownerPluginId()).isEqualTo("core"));
+                } else {
+                    assertThat(plugin.schema()).isEmpty();
+                }
                 assertThat(plugin.coreColumnUsages()).isEmpty();
                 assertThat(plugin.routes()).isEmpty();
                 assertThat(plugin.staticResources()).isEmpty();
                 assertThat(plugin.i18n()).isEmpty();
                 assertThat(plugin.navigation()).isEmpty();
             });
+        });
+    }
+
+    @Test
+    @DisplayName("BuiltInPlugins 组合根清单与 Spring 注册的插件集合一致")
+    void builtInPluginsMirrorSpringRegistration() {
+        runner.run(context -> {
+            PluginRegistry registry = context.getBean(PluginRegistry.class);
+            assertThat(BuiltInPlugins.createAll())
+                    .extracting(PixivFeaturePlugin::id)
+                    .containsExactlyInAnyOrderElementsOf(
+                            registry.plugins().stream().map(PixivFeaturePlugin::id).toList());
         });
     }
 }

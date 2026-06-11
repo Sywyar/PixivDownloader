@@ -44,9 +44,13 @@ class DatabaseSchemaInspectorTest {
         return new ManagedDatabaseSchema.DatabaseSchema(Map.copyOf(map));
     }
 
+    /** 受管 schema 的期望形态：内置插件 contribution 经 DatabaseSchemaRegistry 合并的结果。 */
+    private static final ManagedDatabaseSchema.DatabaseSchema MERGED_SPEC =
+            top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema();
+
     private ManagedDatabaseSchema.DatabaseSchema specSubset(Set<String> tableNames) {
         java.util.LinkedHashMap<String, ManagedDatabaseSchema.TableSpec> subset = new java.util.LinkedHashMap<>();
-        for (Map.Entry<String, ManagedDatabaseSchema.TableSpec> e : ManagedDatabaseSchema.SPEC.tables().entrySet()) {
+        for (Map.Entry<String, ManagedDatabaseSchema.TableSpec> e : MERGED_SPEC.tables().entrySet()) {
             if (tableNames.contains(e.getKey())) {
                 subset.put(e.getKey(), e.getValue());
             }
@@ -372,11 +376,11 @@ class DatabaseSchemaInspectorTest {
     }
 
     @Nested
-    @DisplayName("ManagedDatabaseSchema.SPEC 与运行时 init 后 schema 一致")
+    @DisplayName("受管 schema 合并结果与运行时 init 后 schema 一致")
     class ProductionSchemaTests {
 
         @Test
-        @DisplayName("PixivDatabase.init() 后由其管理的所有表都应与 SPEC 完全匹配")
+        @DisplayName("PixivDatabase.init() 后由其管理的所有表都应与受管 schema 完全匹配")
         void shouldMatchProductionSchemaAfterInit() throws Exception {
             org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                     new org.springframework.jdbc.datasource.SingleConnectionDataSource();
@@ -415,13 +419,13 @@ class DatabaseSchemaInspectorTest {
                     DatabaseSchemaInspector.SchemaComparison comparison =
                             DatabaseSchemaInspector.compare(c, sub);
 
-                    // SPEC 之外的表（这里没有）才会被报为 UNMANAGED_TABLE；过滤掉以聚焦缺失/漂移
+                    // 受管 schema 之外的表（这里没有）才会被报为 UNMANAGED_TABLE；过滤掉以聚焦缺失/漂移
                     java.util.List<DatabaseSchemaInspector.SchemaDifference> drift =
                             comparison.details().stream()
                                     .filter(d -> d.kind() != DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE)
                                     .toList();
                     assertThat(drift)
-                            .as("init() 创建的表与 SPEC 之间不应有漂移：%s", drift)
+                            .as("init() 创建的表与受管 schema 之间不应有漂移：%s", drift)
                             .isEmpty();
                 }
             } finally {
@@ -430,7 +434,7 @@ class DatabaseSchemaInspectorTest {
         }
 
         @Test
-        @DisplayName("NovelDatabase.init() 后由其管理的所有表都应与 SPEC 完全匹配")
+        @DisplayName("NovelDatabase.init() 后由其管理的所有表都应与受管 schema 完全匹配")
         void shouldMatchNovelProductionSchemaAfterInit() throws Exception {
             org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                     new org.springframework.jdbc.datasource.SingleConnectionDataSource();
@@ -468,7 +472,7 @@ class DatabaseSchemaInspectorTest {
                                     .filter(d -> d.kind() != DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE)
                                     .toList();
                     assertThat(drift)
-                            .as("init() 创建的小说表与 SPEC 之间不应有漂移：%s", drift)
+                            .as("init() 创建的小说表与受管 schema 之间不应有漂移：%s", drift)
                             .isEmpty();
                 }
             } finally {
@@ -477,7 +481,7 @@ class DatabaseSchemaInspectorTest {
         }
 
         @Test
-        @DisplayName("ScheduledTaskDatabase.init() 后 scheduled_tasks 应与 SPEC 完全匹配")
+        @DisplayName("ScheduledTaskDatabase.init() 后 scheduled_tasks 应与受管 schema 完全匹配")
         void shouldMatchScheduledTaskProductionSchemaAfterInit() throws Exception {
             org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                     new org.springframework.jdbc.datasource.SingleConnectionDataSource();
@@ -512,7 +516,7 @@ class DatabaseSchemaInspectorTest {
                                     .filter(d -> d.kind() != DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE)
                                     .toList();
                     assertThat(drift)
-                            .as("init() 创建的计划任务表与 SPEC 之间不应有漂移：%s", drift)
+                            .as("init() 创建的计划任务表与受管 schema 之间不应有漂移：%s", drift)
                             .isEmpty();
                 }
             } finally {

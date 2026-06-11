@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.gui.theme.FlatLafSetup;
 import top.sywyar.pixivdownload.gui.theme.ThemePreference;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
+import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 
 import javax.swing.*;
@@ -385,7 +386,8 @@ public class GuiLauncher {
 
         DatabaseSchemaInspector.SchemaComparison comparison;
         try {
-            comparison = DatabaseSchemaInspector.compare(databasePath);
+            comparison = DatabaseSchemaInspector.compare(databasePath,
+                    DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema());
         } catch (Throwable error) {
             log.warn(logMessage("gui.launcher.log.startup.schema-check.compare-failed"), error);
             SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
@@ -509,8 +511,9 @@ public class GuiLauncher {
                     && RUNTIME_AUTO_MIGRATED_COLUMNS.contains(
                             new ArtworksBackFill.DatabaseColumn(difference.tableName(), difference.columnName()));
         }
-        // 缺表（MISSING_TABLE）一律放行：ManagedDatabaseSchema.SPEC 登记的每张表都由后端在启动时
-        // CREATE TABLE IF NOT EXISTS 自建（FTS 虚拟表不入 SPEC），旧库缺表只是后端首启前的暂时状态，
+        // 缺表（MISSING_TABLE）一律放行：受管 schema（DatabaseSchemaRegistry 合并结果）登记的每张表
+        // 都由后端在启动时 CREATE TABLE IF NOT EXISTS 自建（FTS 虚拟表不入受管 schema），
+        // 旧库缺表只是后端首启前的暂时状态，
         // 会自动补齐，不应阻断元数据自动回填。其余差异（列类型/默认值/主键不一致、索引差异、
         // 未受管的表/列等）属于无法自动消解的真实漂移，保持阻断并提示用户。
         return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE;
