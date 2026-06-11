@@ -358,7 +358,8 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (path.startsWith("/api/downloaded/") || path.equals("/api/download/status")) {
+        if (path.startsWith("/api/downloaded/") || path.equals("/api/download/status")
+                || isNovelDownloadedCheck(path)) {
             if ("POST".equalsIgnoreCase(method) && path.contains("/downloaded/move/")) {
                 if (!NetworkUtils.isLocalRequest(req)) {
                     sendJsonError(req, res, 403, "auth.local-only", "Forbidden: local access only");
@@ -399,6 +400,11 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isMonitorProtected(String path) {
+        // 小说下载判重端点与作品侧 /api/downloaded/{id} 同属批量下载器的「跳过已下载」判重面，
+        // 不纳入 monitor 保护，按 /api/downloaded/{id} 同等规则放行（见 isNovelDownloadedCheck）。
+        if (isNovelDownloadedCheck(path)) {
+            return false;
+        }
         if (MONITOR_EXACT_PATHS.contains(path)) {
             return true;
         }
@@ -408,6 +414,18 @@ public class AuthFilter extends OncePerRequestFilter {
             }
         }
         return false;
+    }
+
+    /**
+     * 小说下载判重端点 {@code GET /api/gallery/novel/{novelId}/downloaded}：只读，仅返回
+     * {@code downloaded}/{@code deleted} 两个布尔，供批量下载器「跳过已下载」判重。它与作品侧
+     * {@code /api/downloaded/{id}} 语义对等，但位于 {@code /api/gallery/} 前缀下，若按 monitor
+     * 保护处理，multi 模式非管理员会在进入控制器前收到 401，导致 skipHistory 失效、已软删除小说被重下。
+     * 故从 monitor 保护中排除并按 {@code /api/downloaded/} 同等规则放行（本地直通 + multi 非管理员限流放行）；
+     * 控制器内仍有 {@code requireNovelVisible} 守卫，访客邀请会话则照旧经 {@code /api/gallery/} 白名单放行。
+     */
+    private boolean isNovelDownloadedCheck(String path) {
+        return path.startsWith("/api/gallery/novel/") && path.endsWith("/downloaded");
     }
 
     private boolean isPublic(String path) {

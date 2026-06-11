@@ -460,6 +460,31 @@ class AuthFilterTest {
         }
 
         @Test
+        @DisplayName("GET /api/gallery/novel/{id}/downloaded 本地 IP 应直接放行")
+        void shouldAllowLocalNovelDownloadedCheck() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/api/gallery/novel/12345/downloaded");
+            request.setRemoteAddr("127.0.0.1");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("小说下载判重豁免不应波及其它 /api/gallery/novel 端点（本地无 session 仍 401）")
+        void shouldStillProtectOtherNovelGalleryApis() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/api/gallery/novel/12345");
+            request.setRemoteAddr("127.0.0.1");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
         @DisplayName("monitor 专用 API 即使来自本地 IP 也应要求登录")
         void shouldRequireLoginForMonitorApiFromLocalAddress() throws Exception {
             request.setMethod("GET");
@@ -813,6 +838,18 @@ class AuthFilterTest {
 
             verify(filterChain).doFilter(request, response);
             verify(guestInviteService).recordHit(1L);
+        }
+
+        @Test
+        @DisplayName("多人模式非管理员可调用小说下载判重端点（按 /api/downloaded/{id} 同等放行）")
+        void shouldAllowNovelDownloadedCheckForAnonymousMultiUser() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/api/gallery/novel/12345/downloaded");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
         }
 
         @Test
