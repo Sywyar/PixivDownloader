@@ -319,6 +319,7 @@ public class UserQuotaService {
 
         } catch (Exception e) {
             entry.setStatus("error");
+            deletePartialArchive(token);
             log.error(message("archive.log.create.failed", token, uuid), e);
         }
     }
@@ -370,6 +371,7 @@ public class UserQuotaService {
             log.info(message("archive.log.admin.created", token, archivePath, folders.size()));
         } catch (Exception e) {
             entry.setStatus("error");
+            deletePartialArchive(token);
             log.error(message("archive.log.admin.create.failed", token), e);
         }
     }
@@ -443,6 +445,7 @@ public class UserQuotaService {
             log.info(message("archive.log.admin.file-archive.created", token, archivePath, written));
         } catch (Exception e) {
             entry.setStatus("error");
+            deletePartialArchive(token);
             log.error(message("archive.log.admin.create.failed", token), e);
         }
     }
@@ -503,6 +506,19 @@ public class UserQuotaService {
             } catch (Exception e) {
                 log.warn(message("archive.log.file.delete.failed", entry.getArchivePath()), e);
             }
+        }
+    }
+
+    /**
+     * 归档构建失败时删除可能已部分写入的 zip。失败的条目永远不会 {@code setArchivePath}，
+     * 因此残留文件不会被运行期或过期清理触达，必须在此就地删除，避免留到下次启动清理。
+     */
+    private void deletePartialArchive(String token) {
+        try {
+            Path archivePath = Paths.get(downloadConfig.getRootFolder(), "_archives", token + ".zip");
+            Files.deleteIfExists(archivePath);
+        } catch (Exception e) {
+            log.warn(message("archive.log.partial.delete.failed", token), e);
         }
     }
 
