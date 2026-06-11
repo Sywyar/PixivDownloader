@@ -557,7 +557,9 @@ class AuthFilterTest {
         @ParameterizedTest
         @ValueSource(strings = {
                 "/css/admin-visibility.css",
-                "/js/pixiv-novel-render.js"
+                "/js/pixiv-novel-render.js",
+                "/css/pixiv-side-modules.css",
+                "/js/pixiv-side-modules.js"
         })
         @DisplayName("访客邀请会话应能加载画廊/小说页共享静态依赖")
         void shouldAllowGuestInviteToLoadSharedStaticResource(String path) throws Exception {
