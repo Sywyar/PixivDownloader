@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
-## [Unreleased]
+## [v1.13.0] - 2026.6.11
 
 ### Features
 - 计划任务支持按任务指定单独的代理与 Cookie：「存为计划任务」卡片新增「设置单独的代理」「设置单独的cookie」复选框（cookie 输入框带「使用当前保存的cookie」快捷填入），计划任务管理页原「授权 Cookie」按钮改为「指定单独的 代理/cookie」弹窗，可随时为任务绑定 / 替换 / 清除独立的 HTTP 代理（host:port）与 Cookie。设置后该任务每轮运行中对 Pixiv 的全部访问（发现、元数据、图片 / 小说下载、站内信过度访问检测）都改走指定代理与 Cookie；未设置的项沿用默认行为（全局代理设置 / solo 模式自动绑定的 Cookie），取消勾选并保存会在确认后果后清除对应设置。
