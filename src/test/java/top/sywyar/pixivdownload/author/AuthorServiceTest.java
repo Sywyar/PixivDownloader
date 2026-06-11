@@ -13,7 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.web.client.RestTemplate;
-import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.time.Instant;

@@ -17,8 +17,8 @@ import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
-import top.sywyar.pixivdownload.download.db.PathPrefixCodec;
-import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 

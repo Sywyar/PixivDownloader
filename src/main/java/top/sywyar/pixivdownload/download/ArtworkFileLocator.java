@@ -7,8 +7,9 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
-import top.sywyar.pixivdownload.download.db.ArtworkRecord;
-import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
+import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
 
 import java.io.File;
 import java.io.IOException;

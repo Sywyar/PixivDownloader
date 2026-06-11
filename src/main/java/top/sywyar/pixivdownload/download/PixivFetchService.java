@@ -12,7 +12,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
-import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.core.db.TagDto;
 
 import java.io.IOException;
 import java.net.URI;

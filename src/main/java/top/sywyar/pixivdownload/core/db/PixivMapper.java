@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.db;
+package top.sywyar.pixivdownload.core.db;
 
 import org.apache.ibatis.annotations.*;
 

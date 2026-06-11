@@ -7,7 +7,7 @@ import top.sywyar.pixivdownload.cli.CliSetupCommand;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.download.db.DatabaseSchemaInspector;
+import top.sywyar.pixivdownload.core.db.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.FlatLafSetup;

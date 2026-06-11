@@ -11,6 +11,10 @@ import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.db.PathPrefix;
+import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.PathPrefixColumns;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -76,7 +80,7 @@ public class PathPrefixStartupMigration {
                 pixivDatabase, novelDatabase, mangaSeriesService, collectionService);
     }
 
-    PathPrefixStartupMigration(DataSource dataSource, PathPrefixCodec codec,
+    public PathPrefixStartupMigration(DataSource dataSource, PathPrefixCodec codec,
                                DownloadConfig downloadConfig, AppMessages messages,
                                TransactionOperations transactionOperations,
                                PixivDatabase pixivDatabase, NovelDatabase novelDatabase,
@@ -226,7 +230,8 @@ public class PathPrefixStartupMigration {
                 int n = 0;
                 for (PathPrefixColumns.TableColumns tc : PathPrefixColumns.ALL) {
                     for (String column : tc.columns()) {
-                        n += retargetColumn(jdbc, tc.table(), column, token, PathPrefixCodec.SYMBOLIC_ROOT_TOKEN);
+                        n += PathPrefixColumns.retargetColumn(jdbc, tc.table(), column,
+                                token, PathPrefixCodec.SYMBOLIC_ROOT_TOKEN);
                     }
                 }
                 jdbc.update("DELETE FROM path_prefixes WHERE id = :id",
@@ -241,26 +246,6 @@ public class PathPrefixStartupMigration {
             codec.reload();
         }
         return total;
-    }
-
-    /** 把某路径列中 {@code fromToken} / {@code fromToken/...} / {@code fromToken\...} 的引用改写为 {@code toToken} 开头。 */
-    static int retargetColumn(NamedParameterJdbcTemplate jdbc, String table, String column,
-                              String fromToken, String toToken) {
-        // 表名/列名来自 PathPrefixColumns 白名单常量，无外部输入。
-        // PathPrefixCodec 承认 / 与 \ 两种编码分隔符（见 ENCODED_PATTERN），故 {N}/sub 与 {N}\sub 都要覆盖，
-        // 否则删除前缀行后会留下悬空的 {N}\... 引用。SUBSTR 自 fromToken 之后切片、保留原始分隔符，
-        // 结果如 {0}\sub 仍是合法编码、解码无碍。
-        String sql = "UPDATE " + table + " SET " + column + " = :to || SUBSTR(" + column + ", :cut)"
-                + " WHERE " + column + " = :from"
-                + " OR " + column + " LIKE :fromSlash"
-                + " OR " + column + " LIKE :fromBackslash";
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("to", toToken)
-                .addValue("cut", fromToken.length() + 1)
-                .addValue("from", fromToken)
-                .addValue("fromSlash", fromToken + "/%")
-                .addValue("fromBackslash", fromToken + "\\%");
-        return jdbc.update(sql, params);
     }
 
     /**

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.db;
+package top.sywyar.pixivdownload.core.db;
 
 import org.sqlite.SQLiteConfig;
 import top.sywyar.pixivdownload.i18n.MessageBundles;

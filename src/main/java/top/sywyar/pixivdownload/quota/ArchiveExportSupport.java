@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
-import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 
 import java.nio.charset.StandardCharsets;

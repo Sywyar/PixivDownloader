@@ -5,9 +5,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
-import top.sywyar.pixivdownload.download.db.PathPrefixCodec;
-import top.sywyar.pixivdownload.download.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.Collection;

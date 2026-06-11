@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.db;
+package top.sywyar.pixivdownload.core.db;
 
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.Configuration;
@@ -16,6 +16,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.support.TransactionOperations;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
+import top.sywyar.pixivdownload.download.db.PathPrefixStartupMigration;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.nio.charset.StandardCharsets;

@@ -6,7 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
-import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;

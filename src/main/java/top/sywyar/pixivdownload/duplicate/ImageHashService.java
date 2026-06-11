@@ -5,7 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.download.ArtworkFileLocator;
-import top.sywyar.pixivdownload.download.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.util.ArrayList;

@@ -10,8 +10,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.download.DownloadService;
-import top.sywyar.pixivdownload.download.db.ArtworkRecord;
-import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 

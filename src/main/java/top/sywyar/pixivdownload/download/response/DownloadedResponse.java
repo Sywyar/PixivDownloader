@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
-import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.core.db.TagDto;
 
 import java.util.List;
 

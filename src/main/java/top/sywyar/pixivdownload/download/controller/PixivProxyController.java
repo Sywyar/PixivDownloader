@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.download.response.*;
 import top.sywyar.pixivdownload.novel.NovelCoverUrlResolver;
 import top.sywyar.pixivdownload.novel.response.NovelBookmarkCountResponse;

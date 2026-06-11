@@ -9,7 +9,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.NovelGalleryService;

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.novel.request;
 
 import lombok.Data;
-import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.core.db.TagDto;
 
 import java.util.List;
 import java.util.Map;

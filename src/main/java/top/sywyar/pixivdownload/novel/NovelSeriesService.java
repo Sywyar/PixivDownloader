@@ -6,7 +6,7 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
-import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;

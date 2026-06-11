@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download.db;
+package top.sywyar.pixivdownload.core.db;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

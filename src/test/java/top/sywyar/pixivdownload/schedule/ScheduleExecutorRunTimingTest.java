@@ -11,7 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
-import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationService;

@@ -1,11 +1,10 @@
-package top.sywyar.pixivdownload.download.db;
+package top.sywyar.pixivdownload.core.db;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
-import top.sywyar.pixivdownload.download.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 

@@ -11,10 +11,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.NetworkUtils;
-import top.sywyar.pixivdownload.download.db.PathPrefixMigrationService;
-import top.sywyar.pixivdownload.download.db.PathPrefixMigrationService.PathPrefixMigrationResult;
-import top.sywyar.pixivdownload.download.db.PathPrefixMigrationService.PathPrefixUpdate;
-import top.sywyar.pixivdownload.download.db.PathPrefixMigrationService.PathPrefixView;
+import top.sywyar.pixivdownload.core.db.PathPrefixMigrationService;
+import top.sywyar.pixivdownload.core.db.PathPrefixMigrationService.PathPrefixMigrationResult;
+import top.sywyar.pixivdownload.core.db.PathPrefixMigrationService.PathPrefixUpdate;
+import top.sywyar.pixivdownload.core.db.PathPrefixMigrationService.PathPrefixView;
 
 import java.util.List;
 

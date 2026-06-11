@@ -10,8 +10,8 @@ import org.springframework.core.task.TaskExecutor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.download.config.DownloadConfig;
-import top.sywyar.pixivdownload.download.db.ArtworkRecord;
-import top.sywyar.pixivdownload.download.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.nio.file.Files;

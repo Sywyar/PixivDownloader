@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.download;
+package top.sywyar.pixivdownload.core.db;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -182,7 +182,7 @@ public final class ArtworkFileNameFormatter {
         return value.toLowerCase(Locale.ROOT);
     }
 
-    static String sanitize(String value) {
+    public static String sanitize(String value) {
         if (value == null) {
             return "";
         }

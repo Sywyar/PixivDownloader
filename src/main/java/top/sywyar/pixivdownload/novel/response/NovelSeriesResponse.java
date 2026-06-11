@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel.response;
 
-import top.sywyar.pixivdownload.download.db.TagDto;
+import top.sywyar.pixivdownload.core.db.TagDto;
 
 import java.util.List;
 
