@@ -351,9 +351,10 @@ class ScheduleExecutorFilterTest {
         }
 
         @Test
-        @DisplayName("USER_NEW 与 FOLLOW_LATEST 恒走 ID 水位线（最新在前 + 只追加 + ID 单调）")
+        @DisplayName("USER_NEW / USER_REQUEST / FOLLOW_LATEST 恒走 ID 水位线（最新在前 + 只追加 + ID 单调）")
         void userNewAndFollowLatestAlwaysWatermark() throws Exception {
             assertThat(wm(ScheduledTaskType.USER_NEW, "{}")).isTrue();
+            assertThat(wm(ScheduledTaskType.USER_REQUEST, "{}")).isTrue();
             assertThat(wm(ScheduledTaskType.FOLLOW_LATEST, "{}")).isTrue();
         }
 
@@ -595,6 +596,69 @@ class ScheduleExecutorFilterTest {
             assertThat(count).isEqualTo(2);
             assertThat(attempted).containsExactly("100", "99");
             assertThat(calls.get()).isEqualTo(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("全量来源每轮上限扫描 runFullDiscoveryCapScan")
+    class FullDiscoveryCapScan {
+
+        @Test
+        @DisplayName("已下载跳过不占额度：免费推进窗口，每轮下满 N 个尚未下载的新作")
+        void downloadedSkipsAreFree() throws Exception {
+            // 表头 2 个已下载、其后 3 个未下载；queueLimit=2 应免费跳过已下载、再下满 2 个新作（103、102）
+            List<String> attempted = new ArrayList<>();
+            java.util.function.LongPredicate downloaded = id -> id == 105L || id == 104L;
+            int queued = ScheduleExecutor.runFullDiscoveryCapScan(
+                    List.of("105", "104", "103", "102", "101"), downloaded,
+                    (id, workId) -> { attempted.add(id); return true; },
+                    () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 2);
+
+            assertThat(queued).isEqualTo(2);
+            assertThat(attempted).containsExactly("103", "102");
+        }
+
+        @Test
+        @DisplayName("第二轮从已下载的表头免费滑过、继续抽干更早的积压（不再卡在第一批）")
+        void drainsBacklogAcrossRounds() throws Exception {
+            // 模拟第二轮：表头 50 个已下载（其后还有未下载积压），queueLimit=2 不应被已下载吃满而空跑
+            java.util.function.LongPredicate downloaded = id -> id >= 51L; // 100..51 已下载，50..1 未下载
+            List<String> ids = new ArrayList<>();
+            for (long i = 100; i >= 1; i--) ids.add(String.valueOf(i));
+            List<String> attempted = new ArrayList<>();
+            int queued = ScheduleExecutor.runFullDiscoveryCapScan(
+                    ids, downloaded,
+                    (id, workId) -> { attempted.add(id); return true; },
+                    () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 2);
+
+            assertThat(queued).isEqualTo(2);
+            assertThat(attempted).containsExactly("50", "49"); // 跳过表头 50 个已下载、抽到最旧积压
+        }
+
+        @Test
+        @DisplayName("queueLimit<=0 不限：全部未下载作品都派发")
+        void unlimitedDispatchesAll() throws Exception {
+            List<String> attempted = new ArrayList<>();
+            int queued = ScheduleExecutor.runFullDiscoveryCapScan(
+                    List.of("105", "104", "103"), id -> false,
+                    (id, workId) -> { attempted.add(id); return true; },
+                    () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 0);
+
+            assertThat(queued).isEqualTo(3);
+            assertThat(attempted).containsExactly("105", "104", "103");
+        }
+
+        @Test
+        @DisplayName("筛选跳过仍占额度：dispatcher 返 false（被筛选）也累计每轮额度")
+        void filterSkipsConsumeBudget() throws Exception {
+            List<String> attempted = new ArrayList<>();
+            int queued = ScheduleExecutor.runFullDiscoveryCapScan(
+                    List.of("105", "104", "103", "102"), id -> false,
+                    (id, workId) -> { attempted.add(id); return false; }, // 全部被筛选跳过
+                    () -> {}, ScheduleRunQueue.detachedRun(ScheduleRunQueue.KIND_ILLUST), 2);
+
+            assertThat(queued).isEqualTo(2);
+            assertThat(attempted).containsExactly("105", "104");
         }
     }
 }

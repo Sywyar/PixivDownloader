@@ -318,10 +318,11 @@ public class ScheduleExecutor {
         JsonNode source = root.path("source");
         Filters filters = parseFilters(root.path("filters"));
         Download download = parseDownload(root.path("download"));
-        // 抓取上限（0 = 不限 / 全量）。上限按进入本轮运行队列的作品数计算；语义随来源是否「ID 单调可水位线」二分：
-        //   · 水位线类（USER_NEW / FOLLOW_LATEST / date_d 翻页到底 SEARCH）：仅<b>首轮</b>（watermark 未建立）封顶，
-        //     随后水位线推进到最新 ID、更老积压永久跳过；
-        //   · 非水位线类（MY_BOOKMARKS / COLLECTION / 非 date_d 翻页到底 SEARCH）：作为<b>每轮上限</b>逐轮抽干积压。
+        // 抓取上限（0 = 不限 / 全量）。语义随来源是否「ID 单调可水位线」二分：
+        //   · 水位线类（USER_NEW / USER_REQUEST / FOLLOW_LATEST / date_d 翻页到底 SEARCH）：仅<b>首轮</b>（watermark 未建立）封顶，
+        //     按进入本轮运行队列的作品数计（已下载 / 筛选跳过也占额度）；随后水位线推进到最新 ID、更老积压永久跳过；
+        //   · 非水位线类（MY_BOOKMARKS / COLLECTION / 非 date_d 翻页到底 SEARCH）：作为<b>每轮上限</b>逐轮抽干积压，
+        //     只数实际进入派发的新作（已下载跳过免费推进、不占额度；筛选跳过仍占额度以限住每轮元数据请求量）；
         //   · SERIES / 固定页 SEARCH 不应用（前端也隐藏该字段）。
         int fetchLimit = Math.max(0, root.path("fetchLimit").asInt(0));
 
@@ -375,42 +376,13 @@ public class ScheduleExecutor {
             } else if (isDownloadedBoundarySearchMode(task.type(), source)) {
                 runDownloadedBoundarySearch(novel, source, cookie, runner, run, alreadyDownloaded, politeDelay, fetchLimit);
             } else {
-                // 全量发现 + 跳过已下载（SEARCH 固定页 / SERIES / MY_BOOKMARKS / USER_REQUEST）。
-                // MY_BOOKMARKS 与 USER_REQUEST 应用「每轮上限」（顺序非单调、无水位线，故逐轮各抓 fetchLimit 个队列项抽干积压）；
+                // 全量发现 + 跳过已下载（SEARCH 固定页 / SERIES / MY_BOOKMARKS）。
+                // 仅 MY_BOOKMARKS 应用「每轮上限」（收藏顺序非单调、无水位线，逐轮各抓 fetchLimit 个新作抽干积压）；
                 // SERIES / 固定页 SEARCH 不封顶（前端也隐藏该字段，此处即便误带也不生效）。
-                boolean cap = (task.type() == ScheduledTaskType.MY_BOOKMARKS
-                        || task.type() == ScheduledTaskType.USER_REQUEST) && fetchLimit > 0;
+                int queueLimit = task.type() == ScheduledTaskType.MY_BOOKMARKS && fetchLimit > 0 ? fetchLimit : 0;
                 List<String> ids = discoverIds(task.type(), novel, source, cookie);
-                if (!cap) {
-                    ids.forEach(run::discovered);
-                }
-                int queued = 0;
-                for (String id : ids) {
-                    long workId;
-                    try {
-                        workId = Long.parseLong(id);
-                    } catch (NumberFormatException e) {
-                        continue;
-                    }
-                    // 封顶路径在循环内逐个登记发现（越过上限的作品不入本轮运行队列、留待下一轮）。
-                    boolean reachedCap = false;
-                    if (cap) {
-                        run.discovered(id);
-                        reachedCap = ++queued >= fetchLimit;
-                    }
-                    if (alreadyDownloaded.test(workId)) {
-                        run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
-                        if (reachedCap) {
-                            break;
-                        }
-                        continue;
-                    }
-                    runner.process(id, workId, false);
-                    politeDelay.run();
-                    if (reachedCap) {
-                        break;
-                    }
-                }
+                WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
+                runFullDiscoveryCapScan(ids, alreadyDownloaded, dispatcher, politeDelay, run, queueLimit);
             }
         } finally {
             // 等本轮所有在途下载完成：保证挂起 / 异常 unwind 时已派发的下载跑完、失败者已入隔离表，
@@ -469,11 +441,8 @@ public class ScheduleExecutor {
                 yield novel ? pixivFetchService.discoverUserNovelIds(userId, cookie)
                             : pixivFetchService.discoverUserArtworkIds(userId, cookie);
             }
-            case USER_REQUEST -> {
-                // 约稿成品仅插画；novel 恒 false（kind 锁 illust）。
-                String userId = source.path("userId").asText("");
-                yield pixivFetchService.discoverUserRequestArtworkIds(userId, cookie);
-            }
+            // USER_REQUEST 走 ID 水位线增量（runWatermarkMode），不经此全量入口。
+            case USER_REQUEST -> throw new IllegalStateException("USER_REQUEST handled by runWatermarkMode");
             case SEARCH -> {
                 String word = source.path("word").asText("");
                 String order = source.path("order").asText("date_d");
@@ -503,12 +472,14 @@ public class ScheduleExecutor {
      * 「最新在前 + 只追加 + ID 单调」的来源走 ID 水位线增量发现：
      * <ul>
      *   <li>USER_NEW —— 单画师全量发现（ID 降序）；</li>
+     *   <li>USER_REQUEST —— 单画师约稿成品全量发现（{@code parseRequestArtworkIds} 已按 ID 降序，与 USER_NEW 同构）；</li>
      *   <li>FOLLOW_LATEST —— 已关注用户的新作 feed（按发布时间倒序 ≈ ID 降序，仅头部追加）；</li>
      *   <li>SEARCH —— 仅 {@code date_d + maxPages==-1} 的增量搜索（按时间倒序、逐页翻到追平历史）。</li>
      * </ul>
      */
     static boolean isWatermarkMode(ScheduledTaskType type, JsonNode source) {
         if (type == ScheduledTaskType.USER_NEW) return true;
+        if (type == ScheduledTaskType.USER_REQUEST) return true;
         if (type == ScheduledTaskType.FOLLOW_LATEST) return true;
         return type == ScheduledTaskType.SEARCH
                 && source.path("maxPages").asInt(3) == -1
@@ -573,8 +544,8 @@ public class ScheduleExecutor {
             if (p.attempts() < max) pending.add(p.workId());
         }
 
-        // 珍藏集无水位线、ID 非单调 → 每轮上限：两遍（插画 + 小说）共享同一预算，本轮最多登记 fetchLimit 个新队列项；
-        // 隔离表重试不计入预算（属既有积压的恢复，且数量受上限约束）。-1 = 不限。
+        // 珍藏集无水位线、ID 非单调 → 每轮上限：两遍（插画 + 小说）共享同一预算，本轮最多派发 fetchLimit 个新作
+        // （已下载跳过免费推进、不占预算，逐轮抽干积压）；隔离表重试不计入预算（属既有积压的恢复）。-1 = 不限。
         int[] budget = {fetchLimit > 0 ? fetchLimit : -1};
 
         int completed = 0;
@@ -587,8 +558,9 @@ public class ScheduleExecutor {
 
     /**
      * 珍藏集单 kind 一遍：跳过已下载 → 派发（命中隔离表则按 retry 语义），结束前 join 本遍在途下载。
-     * {@code budget[0]} 为两遍共享的每轮新队列项预算（{@code -1} 不限，{@code 0} 已耗尽）：预算耗尽即跳过剩余新作、
-     * 不入本轮运行队列（留待下一轮）；重试不受预算约束。
+     * {@code budget[0]} 为两遍共享的每轮预算（{@code -1} 不限，{@code 0} 已耗尽），<b>只数实际进入派发的新作</b>
+     * （含被筛选跳过的；已下载跳过免费推进、不占预算，否则窗口永远停在已下载的表头、旧积压永不补下）：预算耗尽即
+     * 跳过剩余新作、不入本轮运行队列（留待下一轮）；重试不受预算约束。
      */
     private int runCollectionPass(ScheduledTask task, boolean novel, String cookie, Filters filters,
                                   Download download, ScheduleRunQueue.Run run, List<String> ids,
@@ -609,24 +581,24 @@ public class ScheduleExecutor {
                     continue;
                 }
                 boolean isRetry = pending.contains(workId);
-                // 每轮上限：队列项预算耗尽即静默跳过（不登记发现、不入运行队列，下一轮再处理）；重试不受限。
-                if (!isRetry && budget[0] == 0) {
-                    continue;
-                }
                 // 重试条目若已经在别处被下载（手动 / 别的任务）：清隔离条目、跳过 dispatch，避免重复下载。
                 if (isRetry && alreadyDownloaded.test(workId)) {
                     database.mapper().deletePending(task.id(), workId);
                     pending.remove(workId);
                     continue;
                 }
-                run.discovered(id, itemKind);
+                // 已下载免费跳过：登记 + 跳过、不占预算（且不受预算是否耗尽影响），否则窗口永远停在已下载的表头、旧积压永不补下。
                 if (!isRetry && alreadyDownloaded.test(workId)) {
+                    run.discovered(id, itemKind);
                     run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
-                    if (budget[0] > 0) {
-                        budget[0]--;
-                    }
                     continue;
                 }
+                // 每轮上限：预算耗尽即静默跳过剩余新作（不登记发现、不入运行队列，下一轮再处理）；重试不受限。
+                if (!isRetry && budget[0] == 0) {
+                    continue;
+                }
+                run.discovered(id, itemKind);
+                // 上限只数实际进入派发的新作（含被筛选跳过的）；重试不占预算。
                 if (!isRetry && budget[0] > 0) {
                     budget[0]--;
                 }
@@ -649,6 +621,12 @@ public class ScheduleExecutor {
             String userId = source.path("userId").asText("");
             List<String> all = novel ? pixivFetchService.discoverUserNovelIds(userId, cookie)
                                      : pixivFetchService.discoverUserArtworkIds(userId, cookie);
+            pages = p -> p == 1 ? all : List.of();
+            pageDelay = () -> {}; // 单次全量发现，无翻页
+        } else if (task.type() == ScheduledTaskType.USER_REQUEST) {
+            // 约稿成品仅插画（kind 锁 illust）：单次全量发现（已按 ID 降序），与 USER_NEW 同构。
+            String userId = source.path("userId").asText("");
+            List<String> all = pixivFetchService.discoverUserRequestArtworkIds(userId, cookie);
             pages = p -> p == 1 ? all : List.of();
             pageDelay = () -> {}; // 单次全量发现，无翻页
         } else if (task.type() == ScheduledTaskType.FOLLOW_LATEST) {
@@ -832,6 +810,45 @@ public class ScheduleExecutor {
                 politeDelay.run();
             }
             pageDelay.run();
+        }
+        return queued;
+    }
+
+    /**
+     * 非水位线「全量发现」来源（MY_BOOKMARKS / SERIES / 固定页 SEARCH）的每轮扫描纯逻辑
+     * （package-private + static，便于单测）：按发现顺序逐个登记、已下载免费跳过、未下载者派发。
+     *
+     * <p>{@code queueLimit > 0} 时为<b>每轮上限</b>：只数实际进入派发的新作（含被筛选跳过的——它们已耗一次
+     * 元数据请求），达上限即停本轮、剩余留待下一轮。<b>已下载跳过不占额度</b>——否则在稳定排序的来源上，
+     * 表头那批已下载作品会把每轮额度吃满、窗口永远停在原地，上限之外更早的积压永远不被补下；免费推进后
+     * 每轮真正下满 N 个尚未下载的新作，分多轮逐步抽干积压。{@code queueLimit <= 0} 表示不限（全量）。
+     *
+     * @return 本轮实际派发的新作数。
+     */
+    static int runFullDiscoveryCapScan(List<String> ids,
+                                       java.util.function.LongPredicate alreadyDownloaded,
+                                       WorkDispatcher dispatcher, Runnable politeDelay,
+                                       ScheduleRunQueue.Run run, int queueLimit)
+            throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException {
+        int queued = 0;
+        for (String id : ids) {
+            long workId;
+            try {
+                workId = Long.parseLong(id);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            run.discovered(id);
+            if (alreadyDownloaded.test(workId)) {
+                run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
+                continue;
+            }
+            dispatcher.dispatch(id, workId);
+            queued++;
+            if (queueLimit > 0 && queued >= queueLimit) {
+                break;
+            }
+            politeDelay.run();
         }
         return queued;
     }

@@ -65,12 +65,12 @@
     }
 
     // 「首次抓取上限」对某来源的封顶语义：
-    //   'watermark' = 首轮封顶（USER_NEW / FOLLOW_LATEST / date_d 翻页到底 SEARCH，有 ID 水位线，首轮抓最新 N 个后只追新）；
-    //   'per-run'   = 每轮上限（MY_BOOKMARKS / COLLECTION / USER_REQUEST / 非 date_d 翻页到底 SEARCH，无水位线，每轮各抓 N 个新作抽干积压）；
+    //   'watermark' = 首轮封顶（USER_NEW / USER_REQUEST / FOLLOW_LATEST / date_d 翻页到底 SEARCH，有 ID 水位线，首轮抓最新 N 个后只追新）；
+    //   'per-run'   = 每轮上限（MY_BOOKMARKS / COLLECTION / 非 date_d 翻页到底 SEARCH，无水位线，每轮各抓 N 个新作抽干积压）；
     //   null        = 不支持（SERIES / 固定页 SEARCH，前端隐藏该字段）。
     function scheduleFetchLimitMode(type, source) {
-        if (type === 'USER_NEW' || type === 'FOLLOW_LATEST') return 'watermark';
-        if (type === 'MY_BOOKMARKS' || type === 'COLLECTION' || type === 'USER_REQUEST') return 'per-run';
+        if (type === 'USER_NEW' || type === 'USER_REQUEST' || type === 'FOLLOW_LATEST') return 'watermark';
+        if (type === 'MY_BOOKMARKS' || type === 'COLLECTION') return 'per-run';
         if (type === 'SEARCH' && source && source.maxPages === -1) {
             return (source.order || 'date_d') === 'date_d' ? 'watermark' : 'per-run';
         }
