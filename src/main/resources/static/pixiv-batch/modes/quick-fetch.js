@@ -136,6 +136,15 @@
                 label: bt('quick.schedule.source.self', '我自己（账号 {uid}）', {uid: quickState.uid})
             };
         }
+        // 我的约稿作品 → USER_REQUEST（账号自身 uid，成品恒插画）
+        if (action === 'my-request-artworks' && quickState.uid) {
+            return {
+                type: 'USER_REQUEST',
+                source: {userId: String(quickState.uid)},
+                kind: 'illust',
+                label: bt('quick.schedule.source.self-request', '我的约稿作品（账号 {uid}）', {uid: quickState.uid})
+            };
+        }
         // 已关注用户的新作 → FOLLOW_LATEST（Pixiv 仅插画/漫画/动图）
         if (action === 'my-following-new') {
             return {
@@ -364,6 +373,12 @@
                     quickState.pageSize = QUICK_PAGE_SIZE_NOVEL;
                     await loadQuickMyWorks('novel', 1);
                     break;
+                case 'my-request-artworks':
+                    quickState.viewType = 'illust-list';
+                    quickState.kind = 'illust';
+                    quickState.pageSize = QUICK_PAGE_SIZE_ILLUST;
+                    await loadQuickMyRequest(1);
+                    break;
                 case 'my-following-show':
                 case 'my-following-hide':
                     quickState.viewType = 'following-list';
@@ -474,6 +489,44 @@
         quickShowToolbar({showBack: false, showAdd: items.length > 0, showSearch: false, showKindSwitcher: false});
         await quickRenderOuterWorks();
         renderQuickPagination(safePage, totalPages, p => loadQuickMyWorks(kind, p));
+        updateExtraFiltersCardVisibility();
+        updateSaveScheduleCardVisibility();
+        applyNovelSettingsVisibility();
+    }
+
+    // 我的约稿作品（账号自身已完成并公开的约稿成品）：先拉全 ID（约稿发现端点）再本地分页取 illust 卡片，渲染同插画。
+    async function loadQuickMyRequest(page) {
+        if (!quickState.uid) {
+            const data = await quickFetchJson(`${BASE}/api/pixiv/me/uid`);
+            quickState.uid = String(data.uid);
+            const uidEl = document.getElementById('quick-account-uid');
+            if (uidEl) uidEl.textContent = quickState.uid;
+        }
+        const uid = quickState.uid;
+        if (!quickState.allIds.length || quickState.action.endsWith('-refresh')) {
+            const data = await quickFetchJson(`${BASE}/api/pixiv/user/${uid}/request-artworks`);
+            quickState.allIds = data.ids || [];
+        }
+        const pageSize = QUICK_PAGE_SIZE_ILLUST;
+        const total = quickState.allIds.length;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const safePage = Math.min(Math.max(1, page), totalPages);
+        const slice = quickState.allIds.slice((safePage - 1) * pageSize, safePage * pageSize);
+        let items = [];
+        if (slice.length > 0) {
+            const idsQuery = slice.map(id => `ids=${encodeURIComponent(id)}`).join('&');
+            const data = await quickFetchJson(`${BASE}/api/pixiv/user/${uid}/illust-cards?${idsQuery}`);
+            items = data.items || [];
+        }
+        quickState.kind = 'illust';
+        quickState.rawItems = items;
+        quickState.total = total;
+        quickState.page = safePage;
+        quickState.pageSize = pageSize;
+        quickSetTitle(`${bt('quick.title.my-request', '我的约稿作品')} · ${bt('quick.title.count', '{count} 件', {count: total.toLocaleString()})}`);
+        quickShowToolbar({showBack: false, showAdd: items.length > 0, showSearch: false, showKindSwitcher: false});
+        await quickRenderOuterWorks();
+        renderQuickPagination(safePage, totalPages, p => loadQuickMyRequest(p));
         updateExtraFiltersCardVisibility();
         updateSaveScheduleCardVisibility();
         applyNovelSettingsVisibility();
@@ -894,8 +947,9 @@
             }
             return;
         }
-        // 「我的作品」可直接按全量 ID 入队（无须逐页拉 cards）
-        if (quickState.action === 'my-illusts' || quickState.action === 'my-novels') {
+        // 「我的作品 / 我的约稿」可直接按全量 ID 入队（无须逐页拉 cards；约稿恒插画）
+        if (quickState.action === 'my-illusts' || quickState.action === 'my-novels'
+            || quickState.action === 'my-request-artworks') {
             if (!uiConfirmKey('quick.confirm.add-all-my-works',
                 '将把你的全部 {total} 个作品（含 hide）加入队列，确认继续？',
                 {total: quickState.allIds.length})) return;

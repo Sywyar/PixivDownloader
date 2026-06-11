@@ -373,10 +373,11 @@ public class ScheduleExecutor {
             } else if (isDownloadedBoundarySearchMode(task.type(), source)) {
                 runDownloadedBoundarySearch(novel, source, cookie, runner, run, alreadyDownloaded, politeDelay, fetchLimit);
             } else {
-                // 全量发现 + 跳过已下载（SEARCH 固定页 / SERIES / MY_BOOKMARKS）。
-                // 仅 MY_BOOKMARKS 应用「每轮上限」（收藏顺序非单调、无水位线，故逐轮各抓 fetchLimit 个队列项抽干积压）；
+                // 全量发现 + 跳过已下载（SEARCH 固定页 / SERIES / MY_BOOKMARKS / USER_REQUEST）。
+                // MY_BOOKMARKS 与 USER_REQUEST 应用「每轮上限」（顺序非单调、无水位线，故逐轮各抓 fetchLimit 个队列项抽干积压）；
                 // SERIES / 固定页 SEARCH 不封顶（前端也隐藏该字段，此处即便误带也不生效）。
-                boolean cap = task.type() == ScheduledTaskType.MY_BOOKMARKS && fetchLimit > 0;
+                boolean cap = (task.type() == ScheduledTaskType.MY_BOOKMARKS
+                        || task.type() == ScheduledTaskType.USER_REQUEST) && fetchLimit > 0;
                 List<String> ids = discoverIds(task.type(), novel, source, cookie);
                 if (!cap) {
                     ids.forEach(run::discovered);
@@ -465,6 +466,11 @@ public class ScheduleExecutor {
                 String userId = source.path("userId").asText("");
                 yield novel ? pixivFetchService.discoverUserNovelIds(userId, cookie)
                             : pixivFetchService.discoverUserArtworkIds(userId, cookie);
+            }
+            case USER_REQUEST -> {
+                // 约稿成品仅插画；novel 恒 false（kind 锁 illust）。
+                String userId = source.path("userId").asText("");
+                yield pixivFetchService.discoverUserRequestArtworkIds(userId, cookie);
             }
             case SEARCH -> {
                 String word = source.path("word").asText("");
@@ -1422,6 +1428,7 @@ public class ScheduleExecutor {
         }
         String key = switch (type) {
             case USER_NEW -> "mail.template.common.task-type.user-new";
+            case USER_REQUEST -> "mail.template.common.task-type.user-request";
             case SEARCH -> "mail.template.common.task-type.search";
             case SERIES -> "mail.template.common.task-type.series";
             case MY_BOOKMARKS -> "mail.template.common.task-type.my-bookmarks";

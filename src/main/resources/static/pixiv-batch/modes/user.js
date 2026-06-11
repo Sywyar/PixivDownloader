@@ -11,6 +11,13 @@
         return data.ids || [];
     }
 
+    // 约稿作品（リクエスト 成品）：本质是普通插画，发现到 ID 后与插画同走 illust-cards 预览 / 下载链路。
+    async function getUserRequestArtworks(userId) {
+        const data = await apiGet(`/api/pixiv/user/${userId}/request-artworks`);
+        if (data.error) throw new Error(data.error);
+        return data.ids || [];
+    }
+
     async function getUserMeta(userId) {
         const data = await apiGet(`/api/pixiv/user/${userId}/meta`);
         if (data.error) throw new Error(data.error);
@@ -100,13 +107,23 @@
 
     async function loadUserPreview() {
         const input = document.getElementById('user-id-input');
-        const userId = parseUserIdInput(input.value);
+        const rawInput = input.value;
+        const userId = parseUserIdInput(rawInput);
         if (!userId) {
             uiAlertKey('alert.invalid-user-id', '请输入有效的用户 ID 或画师主页链接');
             return;
         }
+        // 粘贴 .../users/{id}/request/artworks 这类约稿页链接时，自动切到「约稿」类别。
+        if (/\/request\b/.test(rawInput) && state.settings.userKind !== 'request') {
+            state.settings.userKind = 'request';
+            applyKindSwitcherUI('user-kind-switcher', 'request');
+            applyNovelSettingsVisibility();
+            applySearchKindUI();
+            saveSettings();
+        }
         if (input.value.trim() !== userId) input.value = userId;
-        const kind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
+        const userKind = state.settings.userKind;
+        const kind = userKind === 'novel' ? 'novel' : 'illust'; // 约稿成品按插画渲染 / 入队
         resetUserState(kind);
         userState.userId = userId;
         state.userId = userId;
@@ -121,7 +138,9 @@
                 ? bt('status.user-display', '用户：{name}（ID: {id}）', {name: userState.username, id: userId})
                 : bt('status.user-display-fetch-failed', 'ID: {id}（获取用户名失败）', {id: userId});
 
-            const ids = kind === 'novel' ? await getUserNovels(userId) : await getUserArtworks(userId);
+            const ids = userKind === 'request' ? await getUserRequestArtworks(userId)
+                : kind === 'novel' ? await getUserNovels(userId)
+                : await getUserArtworks(userId);
             userState.allIds = Array.isArray(ids) ? ids.map(String) : [];
             userState.totalPages = Math.max(1, Math.ceil(userState.allIds.length / USER_PAGE_SIZE));
             if (!userState.allIds.length) {

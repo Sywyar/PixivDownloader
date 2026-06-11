@@ -98,6 +98,24 @@ class PixivFetchServiceDiscoveryTest {
             assertThat(ids.illustIds()).containsExactly("100", "500");
             assertThat(ids.novelIds()).containsExactly("200");
         }
+
+        @Test
+        @DisplayName("parseRequestArtworkIds 递归取 postWork.postWorkId，去重 / 跳过非正数 / 按 ID 倒序")
+        void parseRequestArtworkIds() throws Exception {
+            // 约稿成品 ID 承载在 postWork.postWorkId；进行中的约稿（无 postWork）不计；wrapper key 名不敏感（递归）。
+            JsonNode body = MAPPER.readTree("""
+                    {"requests":[
+                      {"requestId":"a","postWork":{"postWorkId":"100"}},
+                      {"requestId":"b","postWork":{"postWorkId":"300"}},
+                      {"requestId":"c","requestProposal":{"requestOriginalProposalHtml":"x"}},
+                      {"requestId":"d","postWork":{"postWorkId":"100"}},
+                      {"requestId":"e","postWork":{"postWorkId":"0"}},
+                      {"requestId":"f","postWork":{"postWorkId":""}}
+                    ]}
+                    """);
+            assertThat(PixivFetchService.parseRequestArtworkIds(body)).containsExactly("300", "100");
+            assertThat(PixivFetchService.parseRequestArtworkIds(MAPPER.readTree("{}"))).isEmpty();
+        }
     }
 
     @Nested

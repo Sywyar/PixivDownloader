@@ -90,6 +90,44 @@ public class PixivFetchService {
     }
 
     /**
+     * 发现某画师已完成并公开的「约稿作品」（リクエスト 成品）ID，按 ID 倒序（新作在前）。
+     * 约稿成品本质是普通插画，拿到 ID 后复用既有插画下载 / 判重管线。
+     *
+     * @throws PixivFetchException Pixiv 返回 error（含 Cookie 失效 / 被限制）时抛出，供调度区分鉴权失效
+     */
+    public List<String> discoverUserRequestArtworkIds(String userId, String cookie) throws IOException {
+        JsonNode body = requireBody(proxyGet(
+                "https://www.pixiv.net/ajax/commission/page/users/" + userId + "/request?lang=zh", cookie));
+        return parseRequestArtworkIds(body);
+    }
+
+    /**
+     * 把 {@code /ajax/commission/page/users/{id}/request/creator} 的 {@code body} 解析为约稿成品的插画 ID 列表。
+     * 已完成约稿条目以 {@code postWork.postWorkId} 承载成品作品 ID（进行中的约稿无 postWork）；递归收集 {@code body}
+     * 内全部 {@code postWork.postWorkId}（去重、过滤空 / 非正数），按 ID 倒序。纯函数，便于单测。
+     */
+    static List<String> parseRequestArtworkIds(JsonNode body) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        collectPostWorkIds(body, ids);
+        List<String> result = new ArrayList<>(ids);
+        result.sort((a, b) -> Long.compare(Long.parseLong(b), Long.parseLong(a)));
+        return result;
+    }
+
+    private static void collectPostWorkIds(JsonNode node, Set<String> out) {
+        if (node == null) return;
+        if (node.isObject()) {
+            JsonNode postWork = node.get("postWork");
+            if (postWork != null && postWork.isObject() && parsePositiveLong(postWork.path("postWorkId").asText("")) != null) {
+                out.add(postWork.path("postWorkId").asText(""));
+            }
+            node.fields().forEachRemaining(e -> collectPostWorkIds(e.getValue(), out));
+        } else if (node.isArray()) {
+            for (JsonNode child : node) collectPostWorkIds(child, out);
+        }
+    }
+
+    /**
      * 拉取单作品元数据（标题 / R18 / AI / 作者 / 系列 / 收藏数 / 页数 / 标签），
      * 供落库、文件名模板与计划任务的服务端筛选使用。
      */

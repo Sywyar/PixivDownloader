@@ -85,6 +85,18 @@ class ScheduledTaskMapperTest {
     }
 
     @Test
+    @DisplayName("USER_REQUEST 类型经 EnumTypeHandler 按名往返（新增枚举值无需 DDL）")
+    void shouldRoundTripUserRequestType() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            ScheduledTaskInsert row = sample("约稿任务", 1000L, null);
+            row.setType(ScheduledTaskType.USER_REQUEST);
+            mapper.insert(row);
+            assertThat(mapper.findById(row.getId()).type()).isEqualTo(ScheduledTaskType.USER_REQUEST);
+        }
+    }
+
+    @Test
     @DisplayName("findCookieSnapshot 是取 cookie 的唯一通道，findAll 投影不含 cookie")
     void shouldExposeCookieOnlyViaDedicatedAccessor() {
         try (SqlSession session = factory.openSession(true)) {

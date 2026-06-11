@@ -53,7 +53,7 @@
     // 编辑回灌时的目标模式：USER_NEW/SEARCH/SERIES 有专属标签页；收藏 / 关注新作 / 珍藏集这三类
     // 无专属标签页，回到「快捷获取」并锁定来源（scheduleEditingQuickSource）。
     const SCHEDULE_TYPE_MODE = {
-        USER_NEW: 'user', SEARCH: 'search', SERIES: 'series',
+        USER_NEW: 'user', USER_REQUEST: 'user', SEARCH: 'search', SERIES: 'series',
         MY_BOOKMARKS: QUICK_FETCH_MODE, FOLLOW_LATEST: QUICK_FETCH_MODE, COLLECTION: QUICK_FETCH_MODE
     };
 
@@ -66,11 +66,11 @@
 
     // 「首次抓取上限」对某来源的封顶语义：
     //   'watermark' = 首轮封顶（USER_NEW / FOLLOW_LATEST / date_d 翻页到底 SEARCH，有 ID 水位线，首轮抓最新 N 个后只追新）；
-    //   'per-run'   = 每轮上限（MY_BOOKMARKS / COLLECTION / 非 date_d 翻页到底 SEARCH，无水位线，每轮各抓 N 个新作抽干积压）；
+    //   'per-run'   = 每轮上限（MY_BOOKMARKS / COLLECTION / USER_REQUEST / 非 date_d 翻页到底 SEARCH，无水位线，每轮各抓 N 个新作抽干积压）；
     //   null        = 不支持（SERIES / 固定页 SEARCH，前端隐藏该字段）。
     function scheduleFetchLimitMode(type, source) {
         if (type === 'USER_NEW' || type === 'FOLLOW_LATEST') return 'watermark';
-        if (type === 'MY_BOOKMARKS' || type === 'COLLECTION') return 'per-run';
+        if (type === 'MY_BOOKMARKS' || type === 'COLLECTION' || type === 'USER_REQUEST') return 'per-run';
         if (type === 'SEARCH' && source && source.maxPages === -1) {
             return (source.order || 'date_d') === 'date_d' ? 'watermark' : 'per-run';
         }
@@ -101,8 +101,9 @@
             const qs = scheduleEditingQuickSource || quickScheduleSource();
             return qs ? {type: qs.type, source: qs.source || {}} : null;
         }
-        const type = SCHEDULE_MODE_TYPE[state.mode];
+        let type = SCHEDULE_MODE_TYPE[state.mode];
         if (!type) return null;
+        if (state.mode === 'user' && state.settings.userKind === 'request') type = 'USER_REQUEST';
         if (type === 'SEARCH') {
             return {type, source: {maxPages: currentScheduleSearchMaxPages(), order: currentScheduleSearchOrder()}};
         }
@@ -219,7 +220,9 @@
         } else if (!type) {
             throw new Error(bt('schedule.error.mode', '当前模式不支持创建计划任务'));
         } else if (mode === 'user') {
-            kind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
+            const uk = state.settings.userKind;
+            type = uk === 'request' ? 'USER_REQUEST' : 'USER_NEW';
+            kind = uk === 'novel' ? 'novel' : 'illust'; // 约稿（request）成品按插画
             const userId = parseUserIdInput(document.getElementById('user-id-input').value);
             if (!userId) throw new Error(bt('schedule.error.user-id', '请填写有效的画师 ID 或画师主页链接'));
             source = {userId};
@@ -578,7 +581,10 @@
     }
 
     function applyScheduleKind(modePrefix, kind) {
-        const k = kind === 'novel' ? 'novel' : 'illust';
+        // User 模式支持第三态 'request'（约稿）；Search 仅插画/小说。
+        const k = modePrefix === 'user'
+            ? (['novel', 'request'].includes(kind) ? kind : 'illust')
+            : (kind === 'novel' ? 'novel' : 'illust');
         if (modePrefix === 'user') state.settings.userKind = k;
         else state.settings.searchKind = k;
         const radio = document.querySelector(`input[name="${modePrefix}-kind"][value="${k}"]`);
@@ -607,6 +613,10 @@
         // 1) 来源 + kind
         if (task.type === 'USER_NEW') {
             applyScheduleKind('user', kind);
+            const u = document.getElementById('user-id-input');
+            if (u) u.value = source.userId || '';
+        } else if (task.type === 'USER_REQUEST') {
+            applyScheduleKind('user', 'request');
             const u = document.getElementById('user-id-input');
             if (u) u.value = source.userId || '';
         } else if (task.type === 'SEARCH') {
@@ -833,6 +843,7 @@
     function scheduleTypeLabel(type) {
         return {
             USER_NEW: bt('mode.user', '👤 User 模式'),
+            USER_REQUEST: bt('schedule.type.user-request', '🎁 画师约稿作品'),
             SEARCH: bt('mode.search', '🔍 Search 模式'),
             SERIES: bt('mode.series', '📚 系列下载'),
             MY_BOOKMARKS: bt('schedule.type.my-bookmarks', '⭐ 我的收藏'),

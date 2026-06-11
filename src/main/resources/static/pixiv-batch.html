@@ -97,6 +97,7 @@
             <button class="btn btn-purple quick-action" data-quick="my-novel-bookmarks-hide" onclick="quickLoad('my-novel-bookmarks-hide')" data-i18n="quick.action.novel-bookmarks-hide">🔒 我的收藏（小说，不公开）</button>
             <button class="btn btn-green quick-action" data-quick="my-illusts" onclick="quickLoad('my-illusts')" data-i18n="quick.action.my-illusts">🎨 我自己的作品（插画/漫画，含 hide）</button>
             <button class="btn btn-green quick-action" data-quick="my-novels" onclick="quickLoad('my-novels')" data-i18n="quick.action.my-novels">✍ 我自己的作品（小说，含 hide）</button>
+            <button class="btn btn-green quick-action" data-quick="my-request-artworks" onclick="quickLoad('my-request-artworks')" data-i18n="quick.action.my-request">🎁 我的约稿作品</button>
             <button class="btn btn-cyan quick-action" data-quick="my-following-show" onclick="quickLoad('my-following-show')" data-i18n="quick.action.following-show">👥 我的关注（公开）</button>
             <button class="btn btn-purple quick-action" data-quick="my-following-hide" onclick="quickLoad('my-following-hide')" data-i18n="quick.action.following-hide">🔒 我的关注（不公开）</button>
             <button class="btn btn-orange quick-action" data-quick="my-following-new" onclick="quickLoad('my-following-new')" data-i18n="quick.action.following-new">📰 已关注的用户的新作</button>
@@ -167,6 +168,10 @@
             <label data-kind="novel">
                 <input type="radio" name="user-kind" value="novel">
                 <span data-i18n="novel:batch.user.kind-novel">小说</span>
+            </label>
+            <label data-kind="request">
+                <input type="radio" name="user-kind" value="request">
+                <span data-i18n="novel:batch.user.kind-request">约稿</span>
             </label>
         </div>
         <div class="search-controls">

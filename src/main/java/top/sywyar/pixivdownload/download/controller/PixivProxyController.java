@@ -128,6 +128,25 @@ public class PixivProxyController {
         return ResponseEntity.ok(new UserArtworksResponse(ids));
     }
 
+    /**
+     * 发现某画师已完成并公开的「约稿作品」（リクエスト 成品）ID 列表。成品本质是普通插画，
+     * 前端预览/入队/下载复用 illust 链路（卡片走 {@code /user/{id}/illust-cards}）。
+     */
+    @GetMapping("/user/{userId}/request-artworks")
+    public ResponseEntity<?> getUserRequestArtworks(
+            @PathVariable String userId,
+            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
+            HttpServletRequest request) throws IOException {
+        ResponseEntity<?> deny = checkMultiModeAccess(request);
+        if (deny != null) return deny;
+        try {
+            return ResponseEntity.ok(new UserArtworksResponse(
+                    pixivFetchService.discoverUserRequestArtworkIds(userId, cookie)));
+        } catch (PixivFetchService.PixivFetchException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
     @GetMapping("/user/{userId}/meta")
     public ResponseEntity<?> getUserMeta(
             @PathVariable String userId,

@@ -116,7 +116,7 @@
         if (trSegEl) trSegEl.value = state.settings.novelTranslateSeg ?? 0;
         updateMergeFormatVisibility();
         updateNovelTranslateVisibility();
-        state.settings.userKind = state.settings.userKind === 'novel' ? 'novel' : 'illust';
+        state.settings.userKind = ['novel', 'request'].includes(state.settings.userKind) ? state.settings.userKind : 'illust';
         state.settings.searchKind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';
         applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
         applyKindSwitcherUI('search-kind-switcher', state.settings.searchKind);
@@ -141,7 +141,9 @@
         if (!root) return;
         root.querySelectorAll('label').forEach(lbl => {
             lbl.addEventListener('click', () => {
-                const next = lbl.dataset.kind === 'novel' ? 'novel' : 'illust';
+                // 标签声明什么 kind 就用什么（User 模式新增 'request' = 约稿，发现走约稿接口、渲染按插画）；
+                // Search 切换器只有 illust/novel，行为不变。
+                const next = lbl.dataset.kind || 'illust';
                 if (state.settings[settingKey] === next) return;
                 state.settings[settingKey] = next;
                 applyKindSwitcherUI(switcherId, next);
