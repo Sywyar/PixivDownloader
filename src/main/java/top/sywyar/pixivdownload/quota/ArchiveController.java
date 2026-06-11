@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.db.ArtworkRecord;
 import top.sywyar.pixivdownload.download.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.quota.request.AdminPackRequest;
 import top.sywyar.pixivdownload.quota.response.AdminArchiveTasksResponse;

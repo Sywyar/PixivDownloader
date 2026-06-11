@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import top.sywyar.pixivdownload.tts.EdgeTtsClient;

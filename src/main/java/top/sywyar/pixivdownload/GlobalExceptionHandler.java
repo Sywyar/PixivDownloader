@@ -17,7 +17,7 @@ import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.server.ResponseStatusException;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 

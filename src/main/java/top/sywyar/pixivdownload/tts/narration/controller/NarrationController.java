@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.ai.AiService;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
 import top.sywyar.pixivdownload.ai.narration.NarratorVoicePreset;
 import top.sywyar.pixivdownload.config.DebugConfig;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.NarrationConflictReport;
 import top.sywyar.pixivdownload.novel.NarrationReferenceVoiceService;

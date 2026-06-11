@@ -3,13 +3,17 @@ package top.sywyar.pixivdownload.common;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.experimental.UtilityClass;
-import top.sywyar.pixivdownload.quota.UserQuotaService;
+import lombok.extern.slf4j.Slf4j;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
  * UUID 相关工具方法和共享常量。
  */
+@Slf4j
 @UtilityClass
 public class UuidUtils {
 
@@ -44,7 +48,22 @@ public class UuidUtils {
     public static String extractOrGenerateUuid(HttpServletRequest request) {
         String existing = extractExistingUuid(request);
         if (existing != null) return existing;
-        return UserQuotaService.generateUuidFromFingerprint(
+        return generateUuidFromFingerprint(
                 request.getRemoteAddr(), request.getHeader("User-Agent"));
+    }
+
+    /**
+     * 基于 IP + User-Agent 生成稳定 UUID（相同输入始终得到相同 UUID）。
+     */
+    public static String generateUuidFromFingerprint(String ip, String userAgent) {
+        try {
+            String input = (ip != null ? ip : "") + "|" + (userAgent != null ? userAgent : "");
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            return UUID.nameUUIDFromBytes(hash).toString();
+        } catch (Exception e) {
+            log.warn("Failed to generate UUID fingerprint, falling back to random UUID", e);
+            return UUID.randomUUID().toString();
+        }
     }
 }

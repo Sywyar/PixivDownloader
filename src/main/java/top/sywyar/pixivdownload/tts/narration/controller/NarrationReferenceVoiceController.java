@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.NovelNarrationCastService;

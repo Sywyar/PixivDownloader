@@ -14,9 +14,7 @@ import top.sywyar.pixivdownload.download.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -645,23 +643,6 @@ public class UserQuotaService {
         } catch (NumberFormatException ignored) {
             // 文件夹名不是纯数字（如用户名子目录），跳过
             return null;
-        }
-    }
-
-    // ---- UUID 工具 ---------------------------------------------------------------
-
-    /**
-     * 基于 IP + User-Agent 生成稳定 UUID（相同输入始终得到相同 UUID）。
-     */
-    public static String generateUuidFromFingerprint(String ip, String userAgent) {
-        try {
-            String input = (ip != null ? ip : "") + "|" + (userAgent != null ? userAgent : "");
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            return UUID.nameUUIDFromBytes(hash).toString();
-        } catch (Exception e) {
-            log.warn("Failed to generate UUID fingerprint, falling back to random UUID", e);
-            return UUID.randomUUID().toString();
         }
     }
 

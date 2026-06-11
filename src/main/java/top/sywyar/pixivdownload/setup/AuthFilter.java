@@ -20,7 +20,7 @@ import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.common.UuidUtils;
-import top.sywyar.pixivdownload.download.response.ErrorResponse;
+import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
