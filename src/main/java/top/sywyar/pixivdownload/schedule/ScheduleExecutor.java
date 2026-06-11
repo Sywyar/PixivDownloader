@@ -336,7 +336,9 @@ public class ScheduleExecutor {
                 }
                 // 非依赖型：失效 Cookie 已无价值，自动清除快照转受限模式——避免每轮再用死 cookie 探测站内信、
                 // 也避免每轮重复发降级通知；本轮降级匿名续跑（全年龄作品照样抓全、不丢、不浪费），运行成功后发一次降级通知。
-                database.mapper().updateCookie(task.id(), null, ScheduledTask.COOKIE_RESTRICTED);
+                // 连带清除由 Cookie 派生的账号绑定（account_id / ack_warning_time）：任务已转受限、不再使用该账号凭证，
+                // 残留账号标识会让它仍被同账号其它任务的过度访问冻结牵连、被账号级恢复 / 通知按原账号归类。
+                database.mapper().clearCookieAndAccount(task.id(), ScheduledTask.COOKIE_RESTRICTED);
                 cookie = null;
                 degraded[0] = true;
             } else if (result.isWarned()) {

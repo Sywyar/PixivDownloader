@@ -41,6 +41,34 @@ class OutboundProxyOverrideTest {
     }
 
     @Test
+    @DisplayName("parse：带 scheme / 用户名密码 / 路径 / 空白 / IPv6 的非纯 host:port 一律拒绝")
+    void rejectsNonHostPortForms() {
+        // 带 scheme：会被「最后一个冒号」切成 host=http://127.0.0.1，运行时解析失败
+        assertThat(OutboundProxyOverride.parse("http://127.0.0.1:7890")).isNull();
+        assertThat(OutboundProxyOverride.parse("https://proxy.example.com:8080")).isNull();
+        // 含用户名密码：会被切成 host=user:pass@127.0.0.1
+        assertThat(OutboundProxyOverride.parse("user:pass@127.0.0.1:7890")).isNull();
+        // 含路径
+        assertThat(OutboundProxyOverride.parse("127.0.0.1:7890/path")).isNull();
+        assertThat(OutboundProxyOverride.parse("127.0.0.1/path:7890")).isNull();
+        // 内嵌空白
+        assertThat(OutboundProxyOverride.parse("127.0.0.1 :7890")).isNull();
+        assertThat(OutboundProxyOverride.parse("127.0 .0.1:7890")).isNull();
+        // IPv6（host 段含额外冒号）
+        assertThat(OutboundProxyOverride.parse("[::1]:7890")).isNull();
+        assertThat(OutboundProxyOverride.parse("::1:7890")).isNull();
+    }
+
+    @Test
+    @DisplayName("parse：合法主机名 host:port（非 IP）也接受")
+    void acceptsHostnameHostPort() {
+        HttpHost host = OutboundProxyOverride.parse("proxy.example.com:8080");
+        assertThat(host).isNotNull();
+        assertThat(host.getHostName()).isEqualTo("proxy.example.com");
+        assertThat(host.getPort()).isEqualTo(8080);
+    }
+
+    @Test
     @DisplayName("set/clear：覆盖只对当前线程可见，clear 后消失")
     void setAndClearArePerThread() throws Exception {
         OutboundProxyOverride.set("10.0.0.1:8080");

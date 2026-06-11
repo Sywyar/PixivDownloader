@@ -136,6 +136,21 @@ public interface ScheduledTaskMapper {
                      @Param("cookieSnapshot") String cookieSnapshot,
                      @Param("cookieMode") String cookieMode);
 
+    /**
+     * 解除授权 / 失效自动降级共用：清空 Cookie 凭证（转受限匿名模式），并清除由 Cookie 派生的
+     * {@code account_id} 与 {@code ack_warning_time}。
+     *
+     * <p>{@code account_id}（PHPSESSID 下划线前缀的非敏感 Pixiv userId）是「同账号过度访问冻结 /
+     * 横幅分组 / 账号级恢复」的分组键。Cookie 一旦清除，账号绑定即失去依据：若残留，这个已转受限
+     * （不再使用该账号凭证）的任务仍会被同账号其它任务触发的过度访问冻结牵连、在通知 / 横幅里错误
+     * 归到该账号、并被账号级恢复误命中。{@code ack_warning_time}（管理员对该账号「无视风险」的放行
+     * 记录）同属账号维度，一并清除，避免日后改用别的账号重新授权时沿用旧账号的放行记录而吞掉新账号
+     * 的首次警告。
+     */
+    @Update("UPDATE scheduled_tasks SET cookie_snapshot = NULL, cookie_mode = #{cookieMode},"
+            + " account_id = NULL, ack_warning_time = NULL WHERE id = #{id}")
+    int clearCookieAndAccount(@Param("id") long id, @Param("cookieMode") String cookieMode);
+
     /** 设置 / 清除任务级单独代理（host:port，非凭证；{@code null} = 回退全局代理设置）。 */
     @Update("UPDATE scheduled_tasks SET proxy_snapshot = #{proxySnapshot} WHERE id = #{id}")
     int updateProxy(@Param("id") long id, @Param("proxySnapshot") String proxySnapshot);

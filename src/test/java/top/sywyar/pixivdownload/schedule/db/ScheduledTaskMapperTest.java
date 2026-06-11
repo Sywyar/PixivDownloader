@@ -287,6 +287,41 @@ class ScheduledTaskMapperTest {
     }
 
     @Test
+    @DisplayName("clearCookieAndAccount：清 Cookie 转受限的同时清除 account_id 与 ack_warning_time，此后账号级冻结不再命中")
+    void clearCookieAlsoClearsAccountBinding() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            // 绑定 Cookie 的任务：带账号标识 + 管理员「无视风险」放行记录
+            ScheduledTaskInsert boundRow = sample("绑定任务", 1000L, "PHPSESSID=12345_abc");
+            mapper.insert(boundRow);
+            long bound = boundRow.getId();
+            mapper.updateAccountId(bound, "12345");
+            mapper.updateAckWarning("12345", 999000L);
+            // 同账号另一任务，用来在解绑后触发账号级过度访问冻结
+            ScheduledTaskInsert siblingRow = sample("同账号兄弟", 1000L, "PHPSESSID=12345_def");
+            mapper.insert(siblingRow);
+            long sibling = siblingRow.getId();
+            mapper.updateAccountId(sibling, "12345");
+
+            // 解除授权 / 失效自动降级：清 Cookie 转受限，账号绑定一并清除
+            mapper.clearCookieAndAccount(bound, ScheduledTask.COOKIE_RESTRICTED);
+
+            ScheduledTask read = mapper.findById(bound);
+            assertThat(read.cookieMode()).isEqualTo(ScheduledTask.COOKIE_RESTRICTED);
+            assertThat(read.accountId()).isNull();
+            assertThat(read.ackWarningTime()).isNull();
+            assertThat(mapper.findCookieSnapshot(bound)).isNull();
+
+            // 兄弟任务触发同账号过度访问冻结：已解绑的任务不再被牵连
+            mapper.freezeAccount("12345", ScheduledTask.STATUS_OVERUSE_PAUSED, "888");
+            assertThat(mapper.findById(bound).lastStatus()).isNull();
+            assertThat(mapper.findById(sibling).lastStatus()).isEqualTo(ScheduledTask.STATUS_OVERUSE_PAUSED);
+            assertThat(mapper.findByAccountId("12345"))
+                    .extracting(ScheduledTask::id).containsExactly(sibling);
+        }
+    }
+
+    @Test
     @DisplayName("updateAckWarning / armRetry / clearRetryArmed 写读一致")
     void ackAndRetryArming() {
         try (SqlSession session = factory.openSession(true)) {

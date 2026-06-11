@@ -445,14 +445,16 @@
         report('');
     }
 
-    // 与后端 OutboundProxyOverride.parse 同口径：host:port，端口 1-65535。
+    // 与后端 OutboundProxyOverride.parse 同口径：严格 host:port——host 段只允许主机名 / IPv4 字符，
+    // 借此拒绝带 scheme（http://…）、用户名密码（user:pass@…）、路径、空白、IPv6 等「貌似 host:port」的串；端口 1-65535。
     function isValidProxyHostPort(value) {
         if (!value) return false;
         const colon = value.lastIndexOf(':');
         if (colon <= 0 || colon === value.length - 1) return false;
-        const host = value.slice(0, colon).trim();
+        const host = value.slice(0, colon);
+        if (!/^[A-Za-z0-9._-]+$/.test(host)) return false;
         const port = Number(value.slice(colon + 1));
-        return !!host && Number.isInteger(port) && port >= 1 && port <= 65535;
+        return Number.isInteger(port) && port >= 1 && port <= 65535;
     }
 
     function readScheduleOverrideInputs(prefix) {

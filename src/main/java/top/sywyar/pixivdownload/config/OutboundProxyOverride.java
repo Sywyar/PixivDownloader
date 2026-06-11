@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.config;
 
 import org.apache.hc.core5.http.HttpHost;
 
+import java.util.regex.Pattern;
+
 /**
  * 线程级出站代理覆盖（{@code host:port}）。
  *
@@ -16,6 +18,14 @@ import org.apache.hc.core5.http.HttpHost;
 public final class OutboundProxyOverride {
 
     private static final ThreadLocal<HttpHost> OVERRIDE = new ThreadLocal<>();
+
+    /**
+     * host 段允许的字符：主机名 / IPv4（字母、数字、{@code .}、{@code -}、{@code _}）。
+     * 借此一并拒绝带 scheme（{@code http://…}，含 {@code /} 与额外 {@code :}）、用户名密码
+     * （{@code user:pass@…}，含 {@code @} 与额外 {@code :}）、路径（{@code …/path}）、内嵌空白、
+     * IPv6（含 {@code :}）等「非纯 host:port」形式。
+     */
+    private static final Pattern HOST_PATTERN = Pattern.compile("[A-Za-z0-9._-]+");
 
     private OutboundProxyOverride() {
     }
@@ -44,8 +54,12 @@ public final class OutboundProxyOverride {
     }
 
     /**
-     * 把 {@code host:port} 解析为 HTTP 代理 {@link HttpHost}；
+     * 把<b>严格</b> {@code host:port} 解析为 HTTP 代理 {@link HttpHost}；
      * {@code null} / 空白 / 缺少端口 / 端口非法（不在 1-65535）返回 {@code null}。
+     *
+     * <p>host 段必须为纯主机名 / IPv4（{@link #HOST_PATTERN}）：带 scheme（{@code http://127.0.0.1:7890}）、
+     * 用户名密码（{@code user:pass@host:7890}）、路径、空白或 IPv6 等形式一律拒绝——它们虽能被「最后一个
+     * 冒号」切出貌似合法的 host，却会在运行时被当作错误主机名解析、连接失败。
      */
     public static HttpHost parse(String hostPort) {
         if (hostPort == null || hostPort.isBlank()) {
@@ -57,13 +71,16 @@ public final class OutboundProxyOverride {
             return null;
         }
         String host = trimmed.substring(0, colon);
+        if (!HOST_PATTERN.matcher(host).matches()) {
+            return null;
+        }
         int port;
         try {
             port = Integer.parseInt(trimmed.substring(colon + 1));
         } catch (NumberFormatException e) {
             return null;
         }
-        if (host.isBlank() || port < 1 || port > 65535) {
+        if (port < 1 || port > 65535) {
             return null;
         }
         return new HttpHost("http", host, port);

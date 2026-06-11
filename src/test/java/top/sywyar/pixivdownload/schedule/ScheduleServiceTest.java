@@ -227,6 +227,19 @@ class ScheduleServiceTest {
     }
 
     @Test
+    @DisplayName("revokeCookie：清 Cookie 转受限的同时清除账号绑定（account_id / ack_warning_time），不走普通 updateCookie")
+    void revokeCookieClearsAccountBinding() {
+        when(database.mapper()).thenReturn(mapper);
+        when(mapper.findById(20L)).thenReturn(task(20L, "12345", null, null));
+
+        newService().revokeCookie(20L);
+
+        verify(mapper).clearCookieAndAccount(20L, ScheduledTask.COOKIE_RESTRICTED);
+        // 不能再用「仅清 cookie」的旧路径——那会残留 account_id 让任务仍被同账号冻结
+        verify(mapper, never()).updateCookie(anyLong(), any(), anyString());
+    }
+
+    @Test
     @DisplayName("updateProxy：合法 host:port 去空白后写入任务级单独代理")
     void updateProxySavesValidHostPort() {
         when(database.mapper()).thenReturn(mapper);
@@ -238,7 +251,7 @@ class ScheduleServiceTest {
     }
 
     @Test
-    @DisplayName("updateProxy：格式非法（缺端口 / 端口越界）直接拒绝、不写库")
+    @DisplayName("updateProxy：格式非法（缺端口 / 端口越界 / 带 scheme / 含用户名密码）直接拒绝、不写库")
     void updateProxyRejectsInvalidFormat() {
         when(database.mapper()).thenReturn(mapper);
         when(mapper.findById(12L)).thenReturn(task(12L, null, null, null));
@@ -247,6 +260,11 @@ class ScheduleServiceTest {
         assertThatThrownBy(() -> service.updateProxy(12L, "127.0.0.1"))
                 .isInstanceOf(LocalizedException.class);
         assertThatThrownBy(() -> service.updateProxy(12L, "127.0.0.1:0"))
+                .isInstanceOf(LocalizedException.class);
+        // 带 scheme / 用户名密码：会被「最后一个冒号」切出貌似合法的 host，必须拒绝
+        assertThatThrownBy(() -> service.updateProxy(12L, "http://127.0.0.1:7890"))
+                .isInstanceOf(LocalizedException.class);
+        assertThatThrownBy(() -> service.updateProxy(12L, "user:pass@127.0.0.1:7890"))
                 .isInstanceOf(LocalizedException.class);
         verify(mapper, never()).updateProxy(anyLong(), anyString());
     }
