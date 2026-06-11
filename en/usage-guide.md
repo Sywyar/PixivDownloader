@@ -223,6 +223,7 @@ The first tab, shown by default. Using the saved Cookie it auto-detects the curr
 
 - My bookmarks (illust/manga, novel — including private)
 - My own works (illust/manga, novel — including private)
+- My commission works (your completed, public commission/request deliverables — handled as illustrations)
 - My following list (including private), with live filtering by username / user ID
 - My collections (コレクション)
 
@@ -256,11 +257,12 @@ artwork:
 
 ### 👤 User Mode
 
-Enter a Pixiv user ID, or paste an artist profile URL (e.g. `https://www.pixiv.net/users/123456`, including variants with `/artworks`, `/illustrations`, `/novels` suffixes and locale prefixes), to batch download all their artwork. When a URL is pasted, the numeric ID is extracted automatically and used by the preview and the "Save as scheduled task" flow.
+Enter a Pixiv user ID, or paste an artist profile URL (e.g. `https://www.pixiv.net/users/123456`, including variants with `/artworks`, `/illustrations`, `/novels`, `/request/artworks` suffixes and locale prefixes), to batch download all their artwork. When a URL is pasted, the numeric ID is extracted automatically and used by the preview and the "Save as scheduled task" flow.
 
 Switch download scope:
 - Illustrations + Manga + Ugoira
 - Novels
+- Commission works — the artist's **completed, public commissions (リクエスト)**; deliverables are ordinary illustrations and flow through the same download / dedup / naming pipeline. Pasting a `https://www.pixiv.net/users/{id}/request/artworks` link auto-selects this scope.
 
 ### 🔍 Search Mode
 
@@ -307,6 +309,7 @@ A scheduled task is **not created from a separate form** — it snapshots your c
 #### Discovery scope per source type (each round)
 
 - **Artist new works (User mode)**: fetches the artist's works, skipping already-downloaded ones. The first round roughly downloads all matching undownloaded works; later rounds use **watermark-based incremental discovery** — each round only scans down to the newest work processed in the previous round and stops there, picking up just the works above it rather than rescanning the entire history every time.
+- **Artist commission works (User mode "Commission" scope / Quick Fetch "My commission works")**: each round lists the artist's **completed, public commissions (リクエスト)** and downloads the not-yet-downloaded ones. Deliverables are ordinary illustrations (handled via the illustration pipeline). **No watermark is used** (commission ordering is not reliably monotonic) — it does a full discovery + skip-already-downloaded, and the first-run fetch limit acts as a **per-run cap**.
 - **Saved search (Search mode)**: fetches the **latest N pages** of results, where the page count depends on the search submode selected when saving:
     - **🔍 Search submode**: takes only the first page.
     - **📦 Batch-fetch submode**: takes the number of pages from the "End page" field (default 3).
@@ -320,7 +323,7 @@ In all cases each round is "discover → skip already-downloaded → filter per 
 For sources that could pull a large backlog at once, the "**⏰ Save as scheduled task**" card offers a **first-run fetch limit** to cap how many works are fetched and reduce the risk of triggering Pixiv's "over-access" warning. `0` means a full fetch (no cap). The behavior splits by whether the source has a reliable "newest" ordering (the on-page hint shows only the matching one):
 
 - **First-run cap** (artist new works / followed-users' latest / "newest sort + end page -1" search): **only the first run** fetches at most the newest N works; the watermark then advances to the newest, and later rounds only pick up newly posted works incrementally (older backlog is not back-filled). Use it when you only want the most recent N and then keep tracking new posts.
-- **Per-run cap** (my bookmarks / collections / non-newest "end page -1" search): these sources have no reliable "newest" ordering, so the limit acts as a **per-run cap** — each run fetches at most N new works, draining the backlog over successive runs. **Set the limit to `0` if you want it to eventually fetch every work in full** (no per-run cap).
+- **Per-run cap** (my bookmarks / collections / artist commission works / non-newest "end page -1" search): these sources have no reliable "newest" ordering, so the limit acts as a **per-run cap** — each run fetches at most N new works, draining the backlog over successive runs. **Set the limit to `0` if you want it to eventually fetch every work in full** (no per-run cap).
 
 Series and fixed-page search are inherently bounded, so the field is hidden for them.
 

@@ -26,6 +26,7 @@ https://www.pixiv.net/users/123456
 https://www.pixiv.net/users/123456/artworks
 https://www.pixiv.net/users/123456/illustrations
 https://www.pixiv.net/users/123456/novels
+https://www.pixiv.net/users/123456/request/artworks   ← 约稿页链接（自动切到「约稿」范围）
 https://www.pixiv.net/en/users/123456
 123456                                       ← 只填数字 ID 也可以
 ```
@@ -38,8 +39,11 @@ https://www.pixiv.net/en/users/123456
 |------|---------|
 | **插画 + 漫画 + 动图** | 该画师所有图片类作品 |
 | **小说** | 该画师所有小说 |
+| **约稿** | 该画师**已完成并公开的约稿（リクエスト）成品**——约稿成品本质是普通插画，按插画的预览 / 入队 / 下载 / 判重链路处理 |
 
 预览区**一次只能获取一种类型**——切换后旧预览结果会清空。但下载队列不受影响，可以先把插画加入队列，再切换到小说获取一次、再入队，最后一并下载。
+
+> 直接粘贴约稿页链接（`https://www.pixiv.net/users/{id}/request/artworks`）时会**自动切到「约稿」范围**，无需手动选择。
 
 ---
 
