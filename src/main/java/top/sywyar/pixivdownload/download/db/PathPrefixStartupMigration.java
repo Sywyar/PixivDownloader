@@ -243,17 +243,23 @@ public class PathPrefixStartupMigration {
         return total;
     }
 
-    /** 把某路径列中 {@code fromToken} / {@code fromToken/...} 的引用改写为 {@code toToken} 开头。 */
+    /** 把某路径列中 {@code fromToken} / {@code fromToken/...} / {@code fromToken\...} 的引用改写为 {@code toToken} 开头。 */
     static int retargetColumn(NamedParameterJdbcTemplate jdbc, String table, String column,
                               String fromToken, String toToken) {
-        // 表名/列名来自 PathPrefixColumns 白名单常量，无外部输入
+        // 表名/列名来自 PathPrefixColumns 白名单常量，无外部输入。
+        // PathPrefixCodec 承认 / 与 \ 两种编码分隔符（见 ENCODED_PATTERN），故 {N}/sub 与 {N}\sub 都要覆盖，
+        // 否则删除前缀行后会留下悬空的 {N}\... 引用。SUBSTR 自 fromToken 之后切片、保留原始分隔符，
+        // 结果如 {0}\sub 仍是合法编码、解码无碍。
         String sql = "UPDATE " + table + " SET " + column + " = :to || SUBSTR(" + column + ", :cut)"
-                + " WHERE " + column + " = :from OR " + column + " LIKE :fromLike";
+                + " WHERE " + column + " = :from"
+                + " OR " + column + " LIKE :fromSlash"
+                + " OR " + column + " LIKE :fromBackslash";
         MapSqlParameterSource params = new MapSqlParameterSource()
                 .addValue("to", toToken)
                 .addValue("cut", fromToken.length() + 1)
                 .addValue("from", fromToken)
-                .addValue("fromLike", fromToken + "/%");
+                .addValue("fromSlash", fromToken + "/%")
+                .addValue("fromBackslash", fromToken + "\\%");
         return jdbc.update(sql, params);
     }
 

@@ -155,8 +155,12 @@ public class PathPrefixMigrationService {
             return new PathPrefixMigrationResult(false, 0,
                     List.of(new PrefixError(PathPrefixCodec.SYMBOLIC_ROOT_ID, "conflict")));
         }
-        codec.reload();
-        if (!codec.isSymbolicRootActive()) {
+        boolean wasActive = codec.isSymbolicRootActive();
+        // pin 已把全部 {0} 引用固定为真实 {N} 行：从运行期编码候选中摘除符号根，避免「改了
+        // download.root-folder 但尚未重启」的窗口里新下载仍被编码成 {0}（重启后会解析到新 root 的错误目录）。
+        codec.deactivateSymbolicRootEncoding();
+        if (!wasActive) {
+            // 孤儿修复（符号根本就未启用）：marker 已完成使命，删除以免日后误报
             deleteMarkerQuietly();
         }
         return new PathPrefixMigrationResult(true, 1, List.of());

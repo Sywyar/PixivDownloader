@@ -24,7 +24,11 @@ final class PathPrefixColumns {
             new TableColumns("novel_series", "series_id", List.of("cover_folder")),
             new TableColumns("collections", "id", List.of("download_root")));
 
-    /** 任意路径前缀列中是否存在符号根 {@code {0}} 的引用行。 */
+    /**
+     * 任意路径前缀列中是否存在符号根 {@code {0}} 的引用行。
+     * {@code /} 与 {@code \} 两种编码分隔符都要覆盖（与 {@link PathPrefixCodec} 承认的编码形态一致），
+     * 否则 {@code {0}\...} 引用会被漏判，孤儿检测与折叠告警会误报「无 {0} 行」。
+     */
     static boolean hasSymbolicRootRows(NamedParameterJdbcTemplate jdbc) {
         StringBuilder sql = new StringBuilder("SELECT ");
         boolean first = true;
@@ -33,8 +37,9 @@ final class PathPrefixColumns {
                 if (!first) sql.append(" OR ");
                 first = false;
                 sql.append("EXISTS(SELECT 1 FROM ").append(tc.table())
-                        .append(" WHERE ").append(column).append(" = '{0}' OR ")
-                        .append(column).append(" LIKE '{0}/%')");
+                        .append(" WHERE ").append(column).append(" = '{0}'")
+                        .append(" OR ").append(column).append(" LIKE '{0}/%'")
+                        .append(" OR ").append(column).append(" LIKE '{0}\\%')");
             }
         }
         Boolean exists = jdbc.queryForObject(sql.toString(), new MapSqlParameterSource(), Boolean.class);

@@ -181,6 +181,25 @@ class PathPrefixSymbolicRootTest {
         }
 
         @Test
+        @DisplayName("折叠应覆盖反斜杠分隔的 {N}\\... 引用，删除前缀行后不留悬空引用")
+        void shouldFoldBackslashSeparatedReferences() {
+            mapper.insertIfAbsent(rootPath);
+            Long oldId = mapper.findIdByPath(rootPath);
+            assertThat(oldId).isNotNull();
+            codec.reload();
+            // 反斜杠分隔的编码值：encode 不产出，但 codec 承认其合法，可能来自手改 / 旧数据
+            execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(1, '{" + oldId + "}\\100', '{" + oldId + "}')");
+            execute("INSERT INTO novels(novel_id, folder) VALUES(2, '{" + oldId + "}\\novel-2')");
+
+            migration().migrate();
+
+            assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id = 1")).isEqualTo("{0}\\100");
+            assertThat(queryString("SELECT move_folder FROM artworks WHERE artwork_id = 1")).isEqualTo("{0}");
+            assertThat(queryString("SELECT folder FROM novels WHERE novel_id = 2")).isEqualTo("{0}\\novel-2");
+            assertThat(mapper.findPathById(oldId)).isNull();
+        }
+
+        @Test
         @DisplayName("折叠后应写入 download_root_marker 标记文件")
         void shouldWriteRootMarkerAfterMigrate() throws Exception {
             migration().migrate();

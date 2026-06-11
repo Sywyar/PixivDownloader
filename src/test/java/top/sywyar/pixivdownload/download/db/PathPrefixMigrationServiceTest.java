@@ -260,6 +260,43 @@ class PathPrefixMigrationServiceTest {
     }
 
     @Test
+    @DisplayName("pin 冻结符号根后应停用 {0} 编码，新记录改用固定后的 {N}（未重启窗口防误写）")
+    void shouldStopEncodingAsSymbolicRootAfterPin() {
+        // root 设为已存在的相对目录 target → 符号根启用且解析路径真实存在，满足 validatePath
+        DownloadConfig relConfig = new DownloadConfig();
+        relConfig.setRootFolder("target");
+        PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
+        relCodec.init();
+        PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, relConfig,
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+        String rootPath = relCodec.getSymbolicRootPath();
+        execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(9, '{0}/900', NULL)");
+        assertThat(relCodec.isSymbolicRootActive()).isTrue();
+        assertThat(relCodec.encode(rootPath + "/new")).isEqualTo("{0}/new");
+
+        PathPrefixMigrationResult result = relService.pinSymbolicRoot(rootPath);
+
+        assertThat(result.success()).isTrue();
+        // pin 后符号根停用，list / 状态不再把 {0} 当作可编码候选
+        assertThat(relCodec.isSymbolicRootActive()).isFalse();
+        Long newId = mapper.findIdByPath(rootPath);
+        assertThat(newId).isNotNull();
+        // 旧记录已固定为 {N}
+        assertThat(queryString("SELECT folder FROM artworks WHERE artwork_id = 9"))
+                .isEqualTo("{" + newId + "}/900");
+        // 关键：尚未重启时新下载（仍落在旧 root）应编码成固定后的 {N}，而不是会随新配置漂移的 {0}
+        assertThat(relCodec.encode(rootPath + "/new")).isEqualTo("{" + newId + "}/new");
+    }
+
+    @Test
+    @DisplayName("hasSymbolicRootRows 应识别反斜杠分隔的 {0}\\... 引用")
+    void shouldDetectBackslashSeparatedSymbolicRows() {
+        assertThat(service.symbolicRootStatus().referenced()).isFalse();
+        execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(7, '{0}\\deep', NULL)");
+        assertThat(service.symbolicRootStatus().referenced()).isTrue();
+    }
+
+    @Test
     @DisplayName("pin 到不存在的目录应报 not-exist 且不改写任何记录")
     void shouldRejectPinToMissingDirectory() {
         execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(1, '{0}/100', NULL)");

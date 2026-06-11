@@ -85,6 +85,22 @@ public class PathPrefixCodec {
     }
 
     /**
+     * 把符号根从运行期<b>编码</b>候选中摘除：仅供「pin（冻结）符号根」之后调用。
+     *
+     * <p>pin 已把数据库中全部 {@code {0}} 引用固定为真实的 {@code {N}} 前缀行，此后新记录不应再被编码为
+     * {@code {0}}。否则在「{@code download.root-folder} 配置已改但服务尚未重启」的窗口里，新下载仍会按
+     * <b>旧</b> root 编码成 {@code {0}}，重启后 {@code {0}} 解析到<b>新</b> root，导致这批记录指向错误目录。
+     * 摘除后新下载改命中固定出来的 {@code {N}}（仍指向旧 root，与文件实际落点一致）。
+     *
+     * <p>仅影响编码：{@link #resolve} 仍保留 {@code {0}} → 旧 root 的解析能力以兜底任何残留引用。
+     * 这是运行期变更，不写配置；重启后由 {@link #init()} 依据最新配置重新判定符号根是否启用。
+     */
+    public void deactivateSymbolicRootEncoding() {
+        symbolicRootActive = false;
+        reload();
+    }
+
+    /**
      * 重新加载前缀缓存。新增/更新前缀后调用即可让 {@link #encode} 立即看到最新数据。
      */
     public void reload() {
