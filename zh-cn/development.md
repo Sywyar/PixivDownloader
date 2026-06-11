@@ -64,7 +64,6 @@ PixivDownloader/
 │   └── application.properties
 ├── scripts/            # 构建与打包脚本
 ├── packaging/windows/inno/  # Inno Setup 安装器配置
-├── docs/claude/        # 开发文档（按领域分册）
 ├── config/             # 默认配置
 ├── collection_icons/   # 收藏夹图标
 └── pom.xml             # Maven 构建配置
@@ -215,7 +214,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.
 ### 提交规范
 
 - 使用清晰的 commit message
-- **不要**在 commit message 中包含 `Co-Authored-By` 行
 - 不要提交 `target/`、`build/` 等构建产物
 
 ### 发起 PR
@@ -278,10 +276,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.
 - 所有新页面支持深色模式（使用 CSS 变量方案）
 - HTML、CSS、JavaScript 拆分为独立文件
 - 复用已有 CSS 变量（`--bg`、`--surface`、`--line`、`--text`、`--muted`、`--brand` 等）
-
-### 新增油猴脚本规范
-
-参见 `CLAUDE.md` 中的详细规范（UserScript 头部格式、i18n 共享运行时、PromptGuard 弹窗去重、面板/FAB/菜单规范等）。
 
 ### 数据库 Schema
 

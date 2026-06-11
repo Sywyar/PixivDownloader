@@ -64,7 +64,6 @@ PixivDownloader/
 │   └── application.properties
 ├── scripts/            # Build & packaging scripts
 ├── packaging/windows/inno/  # Inno Setup installer config
-├── docs/claude/        # Developer docs (per-domain volumes)
 ├── config/             # Default configuration
 ├── collection_icons/   # Collection icons
 └── pom.xml             # Maven build configuration
@@ -215,7 +214,6 @@ Building installers requires [Inno Setup 6](https://jrsoftware.org/isdl.php). Th
 ### Commit Conventions
 
 - Use clear commit messages
-- **Do not** include `Co-Authored-By` lines in commit messages
 - Do not commit build artifacts (`target/`, `build/`, etc.)
 
 ### Submitting a PR
@@ -278,10 +276,6 @@ When modifying backend behavior, the following must be preserved:
 - All new pages must support dark mode (use CSS variable approach)
 - HTML, CSS, JavaScript in separate files
 - Reuse existing CSS variables (`--bg`, `--surface`, `--line`, `--text`, `--muted`, `--brand`, etc.)
-
-### Userscript Standards
-
-See `CLAUDE.md` for detailed specifications (UserScript header format, shared i18n runtime, PromptGuard deduplication, panel/FAB/menu conventions, etc.).
 
 ### Database Schema
 
