@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.plugin.api.SeriesNeighbors;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
@@ -137,24 +138,24 @@ public class GalleryController {
             HttpServletRequest httpRequest) {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
         GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
-        GalleryRepository.SeriesNeighbors neighbors = galleryService.seriesNeighbors(artworkId);
+        SeriesNeighbors neighbors = galleryService.seriesNeighbors(artworkId);
         if (neighbors == null) {
             return ResponseEntity.ok(new SeriesNavResponse(null, null, null, null, null));
         }
         SeriesNavResponse.NeighborView prev = neighbors.prev() == null
                 ? null
-                : (session != null && !guestAccessGuard.isVisibleToGuest(neighbors.prev().artworkId(), session)
+                : (session != null && !guestAccessGuard.isVisibleToGuest(neighbors.prev().workId(), session)
                     ? null
                     : new SeriesNavResponse.NeighborView(
-                        neighbors.prev().artworkId(),
+                        neighbors.prev().workId(),
                         neighbors.prev().title(),
                         neighbors.prev().seriesOrder()));
         SeriesNavResponse.NeighborView next = neighbors.next() == null
                 ? null
-                : (session != null && !guestAccessGuard.isVisibleToGuest(neighbors.next().artworkId(), session)
+                : (session != null && !guestAccessGuard.isVisibleToGuest(neighbors.next().workId(), session)
                     ? null
                     : new SeriesNavResponse.NeighborView(
-                        neighbors.next().artworkId(),
+                        neighbors.next().workId(),
                         neighbors.next().title(),
                         neighbors.next().seriesOrder()));
         return ResponseEntity.ok(new SeriesNavResponse(

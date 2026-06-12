@@ -39,6 +39,8 @@ import top.sywyar.pixivdownload.plugin.api.WorkQuery;
 import top.sywyar.pixivdownload.plugin.api.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.WorkSummary;
 import top.sywyar.pixivdownload.plugin.api.WorkType;
+import top.sywyar.pixivdownload.series.MangaSeries;
+import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -64,6 +66,7 @@ class CoreWorkQueryServiceTest {
     private PixivDatabase pixivDatabase;
     private NovelDatabase novelDatabase;
     private AuthorService authorService;
+    private MangaSeriesService mangaSeriesService;
     private CoreWorkQueryService service;
 
     @BeforeEach
@@ -103,12 +106,14 @@ class CoreWorkQueryServiceTest {
         novelDatabase.init();
 
         authorService = mock(AuthorService.class);
+        mangaSeriesService = mock(MangaSeriesService.class);
         service = new CoreWorkQueryService(
                 new GalleryRepository(dataSource),
                 new NovelGalleryRepository(dataSource),
                 pixivDatabase,
                 novelDatabase,
-                authorService);
+                authorService,
+                mangaSeriesService);
     }
 
     @AfterEach
@@ -359,6 +364,80 @@ class CoreWorkQueryServiceTest {
         }
 
         @Test
+        @DisplayName("插画作者目录无限制时统计全部未删除作品，补全作者名、缺名以 id 字符串兜底")
+        void shouldListArtworkAuthorCountsWithNames() {
+            insertArtwork(1L, 100L, 801L);
+            insertArtwork(2L, 200L, 801L);
+            insertArtwork(3L, 300L, 802L);
+            insertArtwork(4L, 400L, 802L);
+            pixivDatabase.markArtworkDeleted(4L);
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
+
+            List<AuthorSummary> authors = service.authors(new AuthorQuery(WorkType.ARTWORK, null));
+
+            assertThat(authors).containsExactlyInAnyOrder(
+                    new AuthorSummary(801L, "作者甲", 2L),
+                    new AuthorSummary(802L, "802", 1L));
+        }
+
+        @Test
+        @DisplayName("插画作者目录带访客限制：仅统计对该访客可见的作品")
+        void shouldListArtworkAuthorCountsWithRestriction() {
+            insertArtwork(1L, 100L, 801L);
+            insertArtwork(2L, 200L, 801L);
+            insertArtwork(3L, 300L, 802L);
+            pixivDatabase.saveArtworkTags(1L, List.of(new TagDto("魔法", null)));
+            pixivDatabase.saveArtworkTags(2L, List.of(new TagDto("魔法", null), new TagDto("禁止", null)));
+            pixivDatabase.saveArtworkTags(3L, List.of(new TagDto("魔法", null)));
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
+
+            List<AuthorSummary> authors = service.authors(new AuthorQuery(
+                    WorkType.ARTWORK, tagWhitelist(List.of(tagId("魔法")))));
+
+            assertThat(authors).containsExactlyInAnyOrder(
+                    new AuthorSummary(801L, "801", 1L),
+                    new AuthorSummary(802L, "802", 1L));
+        }
+
+        @Test
+        @DisplayName("插画系列目录补全系列标题与作者，缺行以 id 字符串兜底")
+        void shouldListArtworkSeriesCountsWithTitles() {
+            insertArtwork(1L, 100L, 801L);
+            insertArtwork(2L, 200L, 801L);
+            insertArtwork(3L, 300L, 802L);
+            pixivDatabase.updateSeriesInfo(1L, 700L, 1L);
+            pixivDatabase.updateSeriesInfo(2L, 700L, 2L);
+            pixivDatabase.updateSeriesInfo(3L, 701L, 1L);
+            when(mangaSeriesService.getSeriesByIds(anyCollection())).thenReturn(List.of(
+                    new MangaSeries(700L, "系列甲", 801L, 1L, null, null, null)));
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
+
+            List<SeriesSummary> series = service.series(new SeriesQuery(WorkType.ARTWORK, null));
+
+            assertThat(series).containsExactlyInAnyOrder(
+                    new SeriesSummary(700L, "系列甲", 801L, "作者甲", 2L),
+                    new SeriesSummary(701L, "701", null, null, 1L));
+        }
+
+        @Test
+        @DisplayName("插画系列目录带访客限制：仅统计对该访客可见的作品")
+        void shouldListArtworkSeriesCountsWithRestriction() {
+            insertArtwork(1L, 100L, null);
+            insertArtwork(2L, 200L, null);
+            pixivDatabase.updateSeriesInfo(1L, 700L, 1L);
+            pixivDatabase.updateSeriesInfo(2L, 700L, 2L);
+            pixivDatabase.saveArtworkTags(1L, List.of(new TagDto("魔法", null)));
+            pixivDatabase.saveArtworkTags(2L, List.of(new TagDto("魔法", null), new TagDto("禁止", null)));
+            when(mangaSeriesService.getSeriesByIds(anyCollection())).thenReturn(List.of());
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
+
+            List<SeriesSummary> series = service.series(new SeriesQuery(
+                    WorkType.ARTWORK, tagWhitelist(List.of(tagId("魔法")))));
+
+            assertThat(series).containsExactly(new SeriesSummary(700L, "700", null, null, 1L));
+        }
+
+        @Test
         @DisplayName("小说作者目录补全作者名，缺名以 id 字符串兜底")
         void shouldListNovelAuthorCountsWithNames() {
             insertNovel(11L, 100L, 801L, null);
@@ -414,15 +493,6 @@ class CoreWorkQueryServiceTest {
                     .isInstanceOf(UnsupportedOperationException.class);
             assertThatThrownBy(() -> service.tagByName(WorkType.NOVEL, "魔法", null))
                     .isInstanceOf(UnsupportedOperationException.class);
-        }
-
-        @Test
-        @DisplayName("插画作者 / 系列计数目录尚未接入：抛 UnsupportedOperationException")
-        void shouldRejectArtworkCatalogs() {
-            assertThatThrownBy(() -> service.authors(new AuthorQuery(WorkType.ARTWORK, null)))
-                    .isInstanceOf(UnsupportedOperationException.class).hasMessageContaining("ARTWORK");
-            assertThatThrownBy(() -> service.series(new SeriesQuery(WorkType.ARTWORK, null)))
-                    .isInstanceOf(UnsupportedOperationException.class).hasMessageContaining("ARTWORK");
         }
 
         @Test

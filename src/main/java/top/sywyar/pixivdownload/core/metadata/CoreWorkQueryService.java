@@ -26,6 +26,8 @@ import top.sywyar.pixivdownload.plugin.api.WorkQueryService;
 import top.sywyar.pixivdownload.plugin.api.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.WorkSummary;
 import top.sywyar.pixivdownload.plugin.api.WorkType;
+import top.sywyar.pixivdownload.series.MangaSeries;
+import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -37,15 +39,16 @@ import java.util.Set;
 
 /**
  * {@link WorkQueryService} 的核心实现：插画侧代理 {@link GalleryRepository}（id 查询 /
- * 标签目录 / 关联查询）与 {@link PixivDatabase}（三态判重），小说侧代理
+ * 标签 / 作者 / 系列目录 / 关联查询）、{@link PixivDatabase}（三态判重）与
+ * {@link MangaSeriesService}（系列池补全），小说侧代理
  * {@link NovelGalleryRepository}（访客计数目录）与 {@link NovelDatabase}（三态判重），
  * 查询语义与直接调用被代理类逐条一致。
  *
  * <p>过渡期本类持有对 gallery / novel.db 包内 SQL 仓库的 import：两个仓库今天还住在
  * 各自页面包里，待画廊与小说画廊改走核心接口、仓库收编进核心数据层后消除。
  *
- * <p>尚未接入的方法 × 类型组合（小说侧列表 / 关联、插画侧作者 / 系列目录）见接口
- * javadoc，统一抛 {@link UnsupportedOperationException}。
+ * <p>尚未接入的方法 × 类型组合（小说侧列表 / 关联与无限制目录）见接口 javadoc，
+ * 统一抛 {@link UnsupportedOperationException}。
  */
 @Component
 @RequiredArgsConstructor
@@ -56,6 +59,7 @@ public class CoreWorkQueryService implements WorkQueryService {
     private final PixivDatabase pixivDatabase;
     private final NovelDatabase novelDatabase;
     private final AuthorService authorService;
+    private final MangaSeriesService mangaSeriesService;
 
     @Override
     public PagedResult<WorkSummary> search(WorkQuery query) {
@@ -145,10 +149,68 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public List<AuthorSummary> authors(AuthorQuery query) {
-        if (query.workType() != WorkType.NOVEL) {
-            throw unsupported(query.workType(),
-                    "authors：插画侧无作者计数目录查询，待画廊作者目录改走核心接口时接入");
+        return switch (query.workType()) {
+            case ARTWORK -> artworkAuthors(query);
+            case NOVEL -> novelAuthors(query);
+        };
+    }
+
+    @Override
+    public List<SeriesSummary> series(SeriesQuery query) {
+        return switch (query.workType()) {
+            case ARTWORK -> artworkSeries(query);
+            case NOVEL -> novelSeries(query);
+        };
+    }
+
+    /** 插画作者目录：可见作品计数 + 作者池补名，缺名以 id 字符串兜底。 */
+    private List<AuthorSummary> artworkAuthors(AuthorQuery query) {
+        List<GalleryRepository.AuthorCount> counts =
+                galleryRepository.findAuthorCounts(toGuestRestriction(query.restriction()));
+        Set<Long> authorIds = new LinkedHashSet<>();
+        for (GalleryRepository.AuthorCount item : counts) {
+            authorIds.add(item.authorId());
         }
+        Map<Long, String> names = authorService.getAuthorNames(authorIds);
+        List<AuthorSummary> out = new ArrayList<>(counts.size());
+        for (GalleryRepository.AuthorCount item : counts) {
+            out.add(new AuthorSummary(
+                    item.authorId(),
+                    names.getOrDefault(item.authorId(), String.valueOf(item.authorId())),
+                    item.artworkCount()));
+        }
+        return out;
+    }
+
+    /** 插画系列目录：可见作品计数 + 系列池补标题 / 作者，缺行以 id 字符串兜底。 */
+    private List<SeriesSummary> artworkSeries(SeriesQuery query) {
+        List<GalleryRepository.SeriesCount> counts =
+                galleryRepository.findSeriesCounts(toGuestRestriction(query.restriction()));
+        Set<Long> seriesIds = new LinkedHashSet<>();
+        for (GalleryRepository.SeriesCount item : counts) {
+            seriesIds.add(item.seriesId());
+        }
+        Map<Long, MangaSeries> seriesById = new LinkedHashMap<>();
+        Set<Long> authorIds = new LinkedHashSet<>();
+        for (MangaSeries seriesRow : mangaSeriesService.getSeriesByIds(seriesIds)) {
+            seriesById.put(seriesRow.seriesId(), seriesRow);
+            if (seriesRow.authorId() != null && seriesRow.authorId() > 0) {
+                authorIds.add(seriesRow.authorId());
+            }
+        }
+        Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
+        List<SeriesSummary> out = new ArrayList<>(counts.size());
+        for (GalleryRepository.SeriesCount item : counts) {
+            MangaSeries seriesRow = seriesById.get(item.seriesId());
+            String title = seriesRow == null ? String.valueOf(item.seriesId()) : seriesRow.title();
+            Long authorId = seriesRow == null ? null : seriesRow.authorId();
+            String authorName = authorId == null ? null : authorNames.get(authorId);
+            out.add(new SeriesSummary(item.seriesId(), title, authorId, authorName, item.artworkCount()));
+        }
+        return out;
+    }
+
+    private List<AuthorSummary> novelAuthors(AuthorQuery query) {
         GuestRestriction restriction = requireNovelRestriction(query.restriction(), "authors");
         List<NovelAuthorSummary> counts = novelGalleryRepository.findVisibleNovelAuthorCounts(restriction);
         Set<Long> authorIds = new LinkedHashSet<>();
@@ -166,12 +228,7 @@ public class CoreWorkQueryService implements WorkQueryService {
         return out;
     }
 
-    @Override
-    public List<SeriesSummary> series(SeriesQuery query) {
-        if (query.workType() != WorkType.NOVEL) {
-            throw unsupported(query.workType(),
-                    "series：插画侧无系列计数目录查询，待画廊系列目录改走核心接口时接入");
-        }
+    private List<SeriesSummary> novelSeries(SeriesQuery query) {
         GuestRestriction restriction = requireNovelRestriction(query.restriction(), "series");
         List<NovelSeriesSummary> counts = novelGalleryRepository.findVisibleNovelSeriesCounts(restriction);
         Set<Long> seriesIds = new LinkedHashSet<>();

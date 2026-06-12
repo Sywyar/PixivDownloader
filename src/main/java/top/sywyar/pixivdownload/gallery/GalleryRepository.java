@@ -516,6 +516,36 @@ public class GalleryRepository {
         return new LinkedHashSet<>(ids);
     }
 
+    /** 作者 ID 与对应可见作品数。{@code r == null} 时不附加访客条件，统计全部未删除作品。 */
+    public List<AuthorCount> findAuthorCounts(GuestRestriction r) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT a.author_id AS author_id, COUNT(*) AS cnt FROM artworks a"
+                        + " WHERE a.author_id IS NOT NULL AND a.deleted = 0");
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        appendVisibilityClauses(sql, params, r, "AuthorCount");
+        sql.append(" GROUP BY a.author_id");
+        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new AuthorCount(
+                rs.getLong("author_id"),
+                rs.getLong("cnt")));
+    }
+
+    public record AuthorCount(long authorId, long artworkCount) {}
+
+    /** 系列 ID 与对应可见作品数。{@code r == null} 时不附加访客条件，统计全部未删除作品。 */
+    public List<SeriesCount> findSeriesCounts(GuestRestriction r) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT a.series_id AS series_id, COUNT(*) AS cnt FROM artworks a"
+                        + " WHERE a.series_id IS NOT NULL AND a.series_id > 0 AND a.deleted = 0");
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        appendVisibilityClauses(sql, params, r, "SeriesCounts");
+        sql.append(" GROUP BY a.series_id");
+        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new SeriesCount(
+                rs.getLong("series_id"),
+                rs.getLong("cnt")));
+    }
+
+    public record SeriesCount(long seriesId, long artworkCount) {}
+
     /** 系列内对该访客可见的作品数。{@code r == null} 时返回系列总数。 */
     public long countArtworksInSeries(long seriesId, GuestRestriction r) {
         StringBuilder sql = new StringBuilder(

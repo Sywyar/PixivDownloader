@@ -19,9 +19,7 @@ import java.util.Optional;
  *       {@link #relatedByTags} / {@link #byAuthor} / {@link #bySeries} /
  *       {@link #seriesNeighbors} / {@link #tagByName}，以及 {@code restriction == null}
  *       的 {@link #tags} / {@link #authors} / {@link #series}（小说列表筛选与无限制目录
- *       现为小说画廊侧内存实现，待小说画廊改走核心接口时下沉接入）；</li>
- *   <li>{@link WorkType#ARTWORK} 的 {@link #authors} / {@link #series}（插画侧无
- *       作者 / 系列计数目录查询，待画廊目录页改走核心接口时接入）。</li>
+ *       现为小说画廊侧内存实现，待小说画廊改走核心接口时下沉接入）。</li>
  * </ul>
  */
 public interface WorkQueryService {
