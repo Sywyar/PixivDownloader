@@ -65,6 +65,9 @@ public class DatabaseSchemaRegistry {
             throw new IllegalStateException(
                     "standalone cross-table index contributions are not supported yet (plugin: " + ownerPluginId + ")");
         }
+        for (TableSpec table : contribution.tables()) {
+            validateAutoIncrement(table, ownerPluginId);
+        }
         List<ManagedDatabaseSchema.TableSpec> tables = contribution.tables().stream()
                 .map(DatabaseSchemaRegistry::convertTable)
                 .toList();
@@ -219,6 +222,26 @@ public class DatabaseSchemaRegistry {
         List<ManagedDatabaseSchema.ColumnSpec> columns = new ArrayList<>(table.columns());
         columns.add(column);
         tables.put(tableName, new ManagedDatabaseSchema.TableSpec(table.name(), columns, table.indexes()));
+    }
+
+    /**
+     * {@code AUTOINCREMENT} 只能出现在单列 INTEGER 主键上（SQLite 语法约束，
+     * 也是 DDL 生成器的渲染前提），违规声明在注册期拒绝。
+     */
+    private static void validateAutoIncrement(TableSpec table, String ownerPluginId) {
+        long primaryKeyColumns = table.columns().stream()
+                .filter(column -> column.primaryKeyPosition() > 0)
+                .count();
+        for (ColumnSpec column : table.columns()) {
+            if (!column.autoIncrement()) {
+                continue;
+            }
+            if (column.primaryKeyPosition() != 1 || primaryKeyColumns != 1
+                    || !"INTEGER".equalsIgnoreCase(column.type().trim())) {
+                throw new IllegalStateException("AUTOINCREMENT requires a single-column INTEGER primary key: "
+                        + table.name() + "." + column.name() + " (plugin: " + ownerPluginId + ")");
+            }
+        }
     }
 
     private static ManagedDatabaseSchema.TableSpec convertTable(TableSpec table) {

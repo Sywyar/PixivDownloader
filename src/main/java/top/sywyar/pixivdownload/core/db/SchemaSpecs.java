@@ -22,6 +22,11 @@ public final class SchemaSpecs {
         return new ColumnSpec(name, type, notNull, defaultValue, primaryKeyPosition);
     }
 
+    /** {@code <name> INTEGER PRIMARY KEY AUTOINCREMENT} 形态的单列自增主键。 */
+    public static ColumnSpec autoIncrementPrimaryKey(String name) {
+        return new ColumnSpec(name, "INTEGER", false, null, 1, true);
+    }
+
     public static IndexSpec explicitIndex(String name, boolean unique, String... columns) {
         return new IndexSpec(name, IndexOrigin.CREATE_INDEX, unique, List.of(columns));
     }

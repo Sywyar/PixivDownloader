@@ -38,7 +38,14 @@ class NovelFtsSearchTest {
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
         mapper = sqlSession.getMapper(NovelMapper.class);
-        mapper.createNovelsTable();
+        // novels 等受管表建表已统一由 DatabaseInitializer 执行；FTS 虚拟表仍由 NovelMapper 维护
+        top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry registry =
+                top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry.forBuiltInPlugins();
+        new top.sywyar.pixivdownload.core.db.DatabaseInitializer(
+                new org.springframework.jdbc.core.JdbcTemplate(dataSource),
+                registry.contributions(), registry.mergedSchema(),
+                top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), event -> {})
+                .initialize();
         mapper.createNovelFtsTable();
     }
 
@@ -96,7 +103,7 @@ class NovelFtsSearchTest {
         insertNovel(31L, "100 percent");
         insertNovel(32L, "A_B literal");
         insertNovel(33L, "ACB literal");
-        NovelDatabase database = new NovelDatabase(mapper, null, null);
+        NovelDatabase database = new NovelDatabase(mapper, null, null, null);
 
         assertThat(database.searchNovelContentIds("%")).containsExactly(30L);
         assertThat(database.searchNovelContentIds("_")).containsExactly(32L);

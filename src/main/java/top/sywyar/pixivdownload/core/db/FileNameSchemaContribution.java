@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.TableSpec;
 
 import java.util.List;
 
+import static top.sywyar.pixivdownload.core.db.SchemaSpecs.autoIncrementPrimaryKey;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.uniqueConstraint;
 
@@ -23,7 +24,7 @@ public final class FileNameSchemaContribution {
                 new TableSpec(
                         "file_name_templates",
                         List.of(
-                                column("id", "INTEGER", false, null, 1),
+                                autoIncrementPrimaryKey("id"),
                                 column("template", "TEXT", true, null, 0)
                         ),
                         List.of(
@@ -33,7 +34,7 @@ public final class FileNameSchemaContribution {
                 new TableSpec(
                         "file_author_names",
                         List.of(
-                                column("id", "INTEGER", false, null, 1),
+                                autoIncrementPrimaryKey("id"),
                                 column("name", "TEXT", true, null, 0)
                         ),
                         List.of(

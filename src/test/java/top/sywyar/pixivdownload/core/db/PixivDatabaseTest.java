@@ -36,6 +36,15 @@ class PixivDatabaseTest {
         PixivMapper mapper = sqlSession.getMapper(PixivMapper.class);
         PathPrefixMapper pathPrefixMapper = sqlSession.getMapper(PathPrefixMapper.class);
 
+        // 建表 / 补列 / 索引统一由 DatabaseInitializer 执行（含 deleteArtwork 清理的 artwork_collections）
+        top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry registry =
+                top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry.forBuiltInPlugins();
+        DatabaseInitializer initializer = new DatabaseInitializer(
+                new org.springframework.jdbc.core.JdbcTemplate(dataSource),
+                registry.contributions(), registry.mergedSchema(),
+                TestI18nBeans.appMessages(), event -> {});
+        initializer.initialize();
+
         // 绝对路径 root → 符号根 {0} 不启用，编码行为与历史一致
         top.sywyar.pixivdownload.core.appconfig.DownloadConfig downloadConfig =
                 new top.sywyar.pixivdownload.core.appconfig.DownloadConfig();
@@ -44,20 +53,8 @@ class PixivDatabaseTest {
         PathPrefixCodec codec = new PathPrefixCodec(pathPrefixMapper, downloadConfig, TestI18nBeans.appMessages());
         codec.init();
 
-        pixivDatabase = new PixivDatabase(mapper, TestI18nBeans.appMessages(), codec);
+        pixivDatabase = new PixivDatabase(mapper, TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
-
-        // artwork_collections 由 CollectionMapper 建表，不在 PixivMapper.init() 范围内；
-        // deleteArtwork 会清理该表，故测试库需手动补建，模拟生产环境的完整 schema。
-        try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
-            st.execute("CREATE TABLE IF NOT EXISTS artwork_collections ("
-                    + "collection_id INTEGER NOT NULL,"
-                    + "artwork_id INTEGER NOT NULL,"
-                    + "added_time INTEGER NOT NULL,"
-                    + "PRIMARY KEY (collection_id, artwork_id))");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
     }
 
     @AfterEach

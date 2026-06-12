@@ -25,138 +25,19 @@ public interface NovelMapper {
             + " cover_ext AS coverExt, deleted"
             + " FROM novels";
 
-    @Update("CREATE TABLE IF NOT EXISTS novels ("
-            + "novel_id INTEGER PRIMARY KEY,"
-            + "title TEXT NOT NULL,"
-            + "folder TEXT NOT NULL,"
-            + "count INTEGER NOT NULL,"
-            + "extensions TEXT NOT NULL,"
-            + "time INTEGER NOT NULL UNIQUE,"
-            + "\"R18\" INTEGER DEFAULT NULL,"
-            + "is_ai INTEGER DEFAULT NULL,"
-            + "author_id INTEGER DEFAULT NULL,"
-            + "description TEXT DEFAULT NULL,"
-            + "file_name INTEGER NOT NULL DEFAULT 1,"
-            + "file_author_name_id INTEGER,"
-            + "series_id INTEGER DEFAULT NULL,"
-            + "series_order INTEGER DEFAULT NULL,"
-            + "word_count INTEGER DEFAULT NULL,"
-            + "text_length INTEGER DEFAULT NULL,"
-            + "reading_time_seconds INTEGER DEFAULT NULL,"
-            + "page_count INTEGER DEFAULT NULL,"
-            + "is_original INTEGER DEFAULT NULL,"
-            + "x_language TEXT DEFAULT NULL,"
-            + "raw_content TEXT DEFAULT NULL,"
-            + "cover_ext TEXT DEFAULT NULL,"
-            + "deleted INTEGER NOT NULL DEFAULT 0)")
-    void createNovelsTable();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_novels_author_id ON novels(author_id)")
-    void createNovelsAuthorIndex();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_novels_series_order ON novels(series_id, series_order)")
-    void createNovelsSeriesOrderIndex();
-
-    /** 幂等迁移：旧库为已存在的 novels 表补 cover_ext 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE novels ADD COLUMN cover_ext TEXT DEFAULT NULL")
-    void addCoverExtColumn();
-
-    @Update("ALTER TABLE novels ADD COLUMN reading_time_seconds INTEGER DEFAULT NULL")
-    void addReadingTimeSecondsColumn();
-
-    @Update("ALTER TABLE novels ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
-    void addDeletedColumn();
+    // ── 幂等数据迁移（建表 / 补列 / 索引 DDL 统一由 DatabaseInitializer 执行）──────
 
     @Update("UPDATE novels SET time = time * 1000"
             + " WHERE time > 0 AND time < 1000000000000")
     int migrateNovelTimestampsToMillis();
 
-    @Update("CREATE TABLE IF NOT EXISTS novel_series ("
-            + "series_id INTEGER PRIMARY KEY,"
-            + "title TEXT NOT NULL,"
-            + "author_id INTEGER,"
-            + "updated_time INTEGER NOT NULL,"
-            + "description TEXT DEFAULT NULL,"
-            + "cover_ext TEXT DEFAULT NULL,"
-            + "cover_folder TEXT DEFAULT NULL)")
-    void createNovelSeriesTable();
-
-    /** 幂等迁移：旧库 novel_series 表补 description 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE novel_series ADD COLUMN description TEXT DEFAULT NULL")
-    void addNovelSeriesDescriptionColumn();
-
-    /** 幂等迁移：旧库 novel_translations 表补 title 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE novel_translations ADD COLUMN title TEXT DEFAULT NULL")
-    void addNovelTranslationsTitleColumn();
-
-    /** 幂等迁移：旧库 novel_translations 表补 description 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE novel_translations ADD COLUMN description TEXT DEFAULT NULL")
-    void addNovelTranslationsDescriptionColumn();
-
-    /** 幂等迁移：旧库 novel_series_title_translations 表补 description 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE novel_series_title_translations ADD COLUMN description TEXT DEFAULT NULL")
-    void addNovelSeriesTitleTranslationsDescriptionColumn();
-
-    /** 幂等迁移：旧库 novel_series 表补 cover_ext 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE novel_series ADD COLUMN cover_ext TEXT DEFAULT NULL")
-    void addNovelSeriesCoverExtColumn();
-
-    /** 幂等迁移：旧库 novel_series 表补 cover_folder 列（落盘封面的绝对目录）；列已存在抛异常吞掉 */
-    @Update("ALTER TABLE novel_series ADD COLUMN cover_folder TEXT DEFAULT NULL")
-    void addNovelSeriesCoverFolderColumn();
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_tags ("
-            + "novel_id INTEGER NOT NULL,"
-            + "tag_id INTEGER NOT NULL,"
-            + "PRIMARY KEY (novel_id, tag_id))")
-    void createNovelTagsTable();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_novel_tags_tag_id ON novel_tags(tag_id)")
-    void createNovelTagsTagIndex();
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_series_tags ("
-            + "series_id INTEGER NOT NULL,"
-            + "tag_id INTEGER NOT NULL,"
-            + "PRIMARY KEY (series_id, tag_id))")
-    void createNovelSeriesTagsTable();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_novel_series_tags_tag_id ON novel_series_tags(tag_id)")
-    void createNovelSeriesTagsTagIndex();
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_collections ("
-            + "collection_id INTEGER NOT NULL,"
-            + "novel_id INTEGER NOT NULL,"
-            + "added_time INTEGER NOT NULL,"
-            + "PRIMARY KEY (collection_id, novel_id))")
-    void createNovelCollectionsTable();
-
     @Update("UPDATE novel_collections SET added_time = added_time * 1000"
             + " WHERE added_time > 0 AND added_time < 1000000000000")
     int migrateNovelCollectionTimestampsToMillis();
 
-    @Update("CREATE INDEX IF NOT EXISTS idx_novel_collections_novel ON novel_collections(novel_id)")
-    void createNovelCollectionsNovelIndex();
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_images ("
-            + "novel_id INTEGER NOT NULL,"
-            + "image_id TEXT NOT NULL,"
-            + "ext TEXT NOT NULL,"
-            + "PRIMARY KEY (novel_id, image_id))")
-    void createNovelImagesTable();
-
     // ── AI translations ───────────────────────────────────────────────────────────
     // 每本小说每种语言一行的 AI 译文：raw_content 保留翻译后的原始 Pixiv markup，
     // 供详情页按语言渲染、系列合订生成语言变体，避免重复请求 AI。
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_translations ("
-            + "novel_id INTEGER NOT NULL,"
-            + "lang_code TEXT NOT NULL,"
-            + "raw_content TEXT NOT NULL,"
-            + "title TEXT DEFAULT NULL,"
-            + "description TEXT DEFAULT NULL,"
-            + "created_time INTEGER NOT NULL,"
-            + "PRIMARY KEY (novel_id, lang_code))")
-    void createNovelTranslationsTable();
 
     @Insert("INSERT INTO novel_translations(novel_id, lang_code, raw_content, title, description, created_time)"
             + " VALUES(#{novelId}, #{langCode}, #{rawContent}, #{title}, #{description}, #{createdTime})"
@@ -211,15 +92,6 @@ public interface NovelMapper {
     // 系列名按语言独立存储；与 novel_translations 平行，但 series_id 不一定对应已下载小说的 series_id
     // （某一系列尚未下载任何章节时也可只是把系列名翻译出来用于 UI 显示）。
 
-    @Update("CREATE TABLE IF NOT EXISTS novel_series_title_translations ("
-            + "series_id INTEGER NOT NULL,"
-            + "lang_code TEXT NOT NULL,"
-            + "title TEXT NOT NULL,"
-            + "description TEXT DEFAULT NULL,"
-            + "created_time INTEGER NOT NULL,"
-            + "PRIMARY KEY (series_id, lang_code))")
-    void createNovelSeriesTitleTranslationsTable();
-
     @Insert("INSERT INTO novel_series_title_translations(series_id, lang_code, title, description, created_time)"
             + " VALUES(#{seriesId}, #{langCode}, #{title}, #{description}, #{createdTime})"
             + " ON CONFLICT(series_id, lang_code) DO UPDATE SET"
@@ -244,30 +116,6 @@ public interface NovelMapper {
     // 一张映射表（novel_glossaries）默认绑定到某个系列或某本单独小说（series_id / novel_id 二选一），
     // 也可被任意作品复用；条目（novel_glossary_entries）按 (glossary_id, source, lang_code) 一行，
     // 一表内同一原文可对多种目标语言各有译名。翻译时把条目发给 AI 统一专有名词，AI 返回的新名词自动并入。
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_glossaries ("
-            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            + "name TEXT NOT NULL,"
-            + "series_id INTEGER DEFAULT NULL,"
-            + "novel_id INTEGER DEFAULT NULL,"
-            + "created_time INTEGER NOT NULL,"
-            + "updated_time INTEGER NOT NULL)")
-    void createNovelGlossariesTable();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_novel_glossaries_series ON novel_glossaries(series_id)")
-    void createNovelGlossariesSeriesIndex();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_novel_glossaries_novel ON novel_glossaries(novel_id)")
-    void createNovelGlossariesNovelIndex();
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_glossary_entries ("
-            + "glossary_id INTEGER NOT NULL,"
-            + "source TEXT NOT NULL,"
-            + "lang_code TEXT NOT NULL,"
-            + "target TEXT NOT NULL,"
-            + "created_time INTEGER NOT NULL,"
-            + "PRIMARY KEY (glossary_id, source, lang_code))")
-    void createNovelGlossaryEntriesTable();
 
     String SELECT_GLOSSARY = "SELECT g.id, g.name,"
             + " g.series_id AS seriesId, g.novel_id AS novelId,"
@@ -335,54 +183,6 @@ public interface NovelMapper {
     // 一份花名册（novel_narration_casts）默认绑定到某个系列或某本单独小说（series_id / novel_id 二选一），
     // 也可被任意作品复用；角色（novel_narration_voices）按 (cast_id, character_id) 一行，character_id 0 恒为旁白。
     // 选角时把已有角色名发给 AI 复用，AI 发现的新角色自动并入（INSERT OR IGNORE，不覆盖已有 / 用户改过的音色）。
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_narration_casts ("
-            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            + "name TEXT NOT NULL,"
-            + "series_id INTEGER DEFAULT NULL,"
-            + "novel_id INTEGER DEFAULT NULL,"
-            + "created_time INTEGER NOT NULL,"
-            + "updated_time INTEGER NOT NULL)")
-    void createNovelNarrationCastsTable();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_novel_narration_casts_series ON novel_narration_casts(series_id)")
-    void createNovelNarrationCastsSeriesIndex();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_novel_narration_casts_novel ON novel_narration_casts(novel_id)")
-    void createNovelNarrationCastsNovelIndex();
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_narration_voices ("
-            + "cast_id INTEGER NOT NULL,"
-            + "character_id INTEGER NOT NULL,"
-            + "name TEXT NOT NULL,"
-            + "gender TEXT,"
-            + "age TEXT,"
-            + "control_instruction TEXT NOT NULL,"
-            + "edited_by_user INTEGER NOT NULL DEFAULT 0,"
-            + "ref_audio_ext TEXT DEFAULT NULL,"
-            + "ref_audio_text TEXT DEFAULT NULL,"
-            + "ref_audio_source TEXT DEFAULT NULL,"
-            + "ref_audio_time INTEGER DEFAULT NULL,"
-            + "created_time INTEGER NOT NULL,"
-            + "PRIMARY KEY (cast_id, character_id))")
-    void createNovelNarrationVoicesTable();
-
-    /** 幂等迁移：旧库 novel_narration_voices 表补 edited_by_user 列（0=AI 生成 / 1=用户手改锁定）；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE novel_narration_voices ADD COLUMN edited_by_user INTEGER NOT NULL DEFAULT 0")
-    void addNarrationVoiceEditedByUserColumn();
-
-    /** 幂等迁移：旧库 novel_narration_voices 表补参考音列（扩展名 / 转录 / 来源 / 时间）；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE novel_narration_voices ADD COLUMN ref_audio_ext TEXT DEFAULT NULL")
-    void addNarrationVoiceRefAudioExtColumn();
-
-    @Update("ALTER TABLE novel_narration_voices ADD COLUMN ref_audio_text TEXT DEFAULT NULL")
-    void addNarrationVoiceRefAudioTextColumn();
-
-    @Update("ALTER TABLE novel_narration_voices ADD COLUMN ref_audio_source TEXT DEFAULT NULL")
-    void addNarrationVoiceRefAudioSourceColumn();
-
-    @Update("ALTER TABLE novel_narration_voices ADD COLUMN ref_audio_time INTEGER DEFAULT NULL")
-    void addNarrationVoiceRefAudioTimeColumn();
 
     String SELECT_NARRATION_CAST = "SELECT c.id, c.name,"
             + " c.series_id AS seriesId, c.novel_id AS novelId,"
@@ -518,16 +318,6 @@ public interface NovelMapper {
     // 一本小说每种语言一行的整章逐句朗读脚本（lang ''=原文）。LLM 分析昂贵，逐句归属持久化、重播不重算，
     // 只在用户主动「重新分析」（force）时重算。script_json 不存 controlInstruction —— 合成时按 speaker
     // 从活花名册取基底再合并 delivery，使音色编辑 / 冲突解决即时生效。
-
-    @Update("CREATE TABLE IF NOT EXISTS novel_narration_scripts ("
-            + "novel_id INTEGER NOT NULL,"
-            + "lang TEXT NOT NULL,"
-            + "cast_id INTEGER NOT NULL,"
-            + "segment_size INTEGER NOT NULL,"
-            + "analyzed_time INTEGER NOT NULL,"
-            + "script_json TEXT NOT NULL,"
-            + "PRIMARY KEY (novel_id, lang))")
-    void createNovelNarrationScriptsTable();
 
     @Insert("INSERT INTO novel_narration_scripts(novel_id, lang, cast_id, segment_size, analyzed_time, script_json)"
             + " VALUES(#{novelId}, #{lang}, #{castId}, #{segmentSize}, #{analyzedTime}, #{scriptJson})"

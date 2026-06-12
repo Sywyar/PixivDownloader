@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.TableSpec;
 
 import java.util.List;
 
+import static top.sywyar.pixivdownload.core.db.SchemaSpecs.autoIncrementPrimaryKey;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.explicitIndex;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.uniqueConstraint;
@@ -138,7 +139,7 @@ public final class NovelSchemaContribution {
                 new TableSpec(
                         "novel_glossaries",
                         List.of(
-                                column("id", "INTEGER", false, null, 1),
+                                autoIncrementPrimaryKey("id"),
                                 column("name", "TEXT", true, null, 0),
                                 column("series_id", "INTEGER", false, null, 0),
                                 column("novel_id", "INTEGER", false, null, 0),
@@ -164,7 +165,7 @@ public final class NovelSchemaContribution {
                 new TableSpec(
                         "novel_narration_casts",
                         List.of(
-                                column("id", "INTEGER", false, null, 1),
+                                autoIncrementPrimaryKey("id"),
                                 column("name", "TEXT", true, null, 0),
                                 column("series_id", "INTEGER", false, null, 0),
                                 column("novel_id", "INTEGER", false, null, 0),

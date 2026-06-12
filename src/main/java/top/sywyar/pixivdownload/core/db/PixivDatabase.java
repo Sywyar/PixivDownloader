@@ -22,6 +22,8 @@ public class PixivDatabase {
     private final PixivMapper pixivMapper;
     private final AppMessages messages;
     private final PathPrefixCodec pathPrefixCodec;
+    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
+    private final DatabaseInitializer databaseInitializer;
 
     /**
      * 进程内已分配但可能尚未持久化的最大时间戳。
@@ -31,31 +33,14 @@ public class PixivDatabase {
      */
     private final AtomicLong lastIssuedTime = new AtomicLong(0);
 
+    /**
+     * 非 DDL 初始化：建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行，
+     * 这里只保留种子数据与幂等数据迁移。
+     */
     @PostConstruct
     public void init() {
-        pixivMapper.createFileAuthorNamesTable();
-        pixivMapper.createFileNameTemplatesTable();
         pixivMapper.ensureDefaultFileNameTemplate(ArtworkFileNameFormatter.DEFAULT_TEMPLATE);
-        pixivMapper.createArtworksTable();
-        pixivMapper.createStatisticsTable();
         pixivMapper.initStatistics();
-        pixivMapper.createTagsTable();
-        pixivMapper.createArtworkTagsTable();
-        pixivMapper.createArtworkTagsTagIndex();
-        pixivMapper.createArtworkImageHashesTable();
-        pixivMapper.createArtworkImageHashesDHashIndex();
-        // 幂等迁移：为无 R18 列的旧库补列，已有数据行该列为 NULL
-        addColumnIfMissing(pixivMapper::addR18Column);
-        addColumnIfMissing(pixivMapper::addIsAiColumn);
-        addColumnIfMissing(pixivMapper::addAuthorIdColumn);
-        addColumnIfMissing(pixivMapper::addDescriptionColumn);
-        addColumnIfMissing(pixivMapper::addFileNameColumn);
-        addColumnIfMissing(pixivMapper::addFileAuthorNameIdColumn);
-        addColumnIfMissing(pixivMapper::addSeriesIdColumn);
-        addColumnIfMissing(pixivMapper::addSeriesOrderColumn);
-        addColumnIfMissing(pixivMapper::addDeletedColumn);
-        pixivMapper.createArtworksAuthorTimeIndex();
-        pixivMapper.createArtworksSeriesOrderIndex();
         pixivMapper.migrateArtworkTimestampsToMillis();
         pixivMapper.migrateArtworkMoveTimestampsToMillis();
         Long maxTime = pixivMapper.findMaxTime();
@@ -374,15 +359,6 @@ public class PixivDatabase {
 
     public List<Long> getArtworkIdsMissingSeries() {
         return pixivMapper.findIdsMissingSeries();
-    }
-
-    private void addColumnIfMissing(Runnable addColumn) {
-        try { addColumn.run(); } catch (Exception e) {
-            String msg = String.valueOf(e.getMessage());
-            if (!msg.toLowerCase().contains("duplicate column")) {
-                log.warn("Unexpected error adding column: {}", msg, e);
-            }
-        }
     }
 
     /**

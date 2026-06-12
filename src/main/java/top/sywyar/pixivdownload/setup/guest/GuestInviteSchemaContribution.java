@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.TableSpec;
 
 import java.util.List;
 
+import static top.sywyar.pixivdownload.core.db.SchemaSpecs.autoIncrementPrimaryKey;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.explicitIndex;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.uniqueConstraint;
@@ -24,7 +25,7 @@ public final class GuestInviteSchemaContribution {
                 new TableSpec(
                         "guest_invites",
                         List.of(
-                                column("id", "INTEGER", false, null, 1),
+                                autoIncrementPrimaryKey("id"),
                                 column("code", "TEXT", true, null, 0),
                                 column("name", "TEXT", true, null, 0),
                                 column("expire_time", "INTEGER", false, null, 0),

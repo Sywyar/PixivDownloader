@@ -379,8 +379,17 @@ class DatabaseSchemaInspectorTest {
     @DisplayName("受管 schema 合并结果与运行时 init 后 schema 一致")
     class ProductionSchemaTests {
 
+        private DatabaseInitializer newInitializer(javax.sql.DataSource ds) {
+            top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry registry =
+                    top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry.forBuiltInPlugins();
+            return new DatabaseInitializer(
+                    new org.springframework.jdbc.core.JdbcTemplate(ds),
+                    registry.contributions(), registry.mergedSchema(),
+                    top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), event -> {});
+        }
+
         @Test
-        @DisplayName("PixivDatabase.init() 后由其管理的所有表都应与受管 schema 完全匹配")
+        @DisplayName("DatabaseInitializer + PixivDatabase.init() 后由其管理的所有表都应与受管 schema 完全匹配")
         void shouldMatchProductionSchemaAfterInit() throws Exception {
             org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                     new org.springframework.jdbc.datasource.SingleConnectionDataSource();
@@ -400,12 +409,14 @@ class DatabaseSchemaInspectorTest {
             try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
                 PixivMapper mapper = session.getMapper(PixivMapper.class);
                 PathPrefixMapper pathPrefixMapper = session.getMapper(PathPrefixMapper.class);
+                DatabaseInitializer initializer = newInitializer(ds);
+                initializer.initialize();
                 PathPrefixCodec codec = new PathPrefixCodec(
                         pathPrefixMapper, new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(),
                         top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages());
                 codec.init();
                 PixivDatabase database = new PixivDatabase(
-                        mapper, top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), codec);
+                        mapper, top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), codec, initializer);
                 database.init();
 
                 // 仅比对 PixivDatabase.init() 实际建的 6 张表；authors / collections / artwork_collections
@@ -434,7 +445,7 @@ class DatabaseSchemaInspectorTest {
         }
 
         @Test
-        @DisplayName("NovelDatabase.init() 后由其管理的所有表都应与受管 schema 完全匹配")
+        @DisplayName("DatabaseInitializer + NovelDatabase.init() 后由其管理的所有表都应与受管 schema 完全匹配")
         void shouldMatchNovelProductionSchemaAfterInit() throws Exception {
             org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                     new org.springframework.jdbc.datasource.SingleConnectionDataSource();
@@ -453,8 +464,10 @@ class DatabaseSchemaInspectorTest {
             try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
                 top.sywyar.pixivdownload.novel.db.NovelMapper mapper =
                         session.getMapper(top.sywyar.pixivdownload.novel.db.NovelMapper.class);
+                DatabaseInitializer initializer = newInitializer(ds);
+                initializer.initialize();
                 top.sywyar.pixivdownload.novel.db.NovelDatabase database =
-                        new top.sywyar.pixivdownload.novel.db.NovelDatabase(mapper, null, null);
+                        new top.sywyar.pixivdownload.novel.db.NovelDatabase(mapper, null, null, initializer);
                 database.init();
 
                 // 仅比对 NovelDatabase.init() 实际建的表；共享 tags 表由 PixivDatabase 负责。

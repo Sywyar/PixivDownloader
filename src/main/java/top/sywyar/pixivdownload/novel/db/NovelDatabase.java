@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
@@ -24,6 +25,8 @@ public class NovelDatabase {
     private final NovelMapper novelMapper;
     private final PixivDatabase pixivDatabase;
     private final PathPrefixCodec pathPrefixCodec;
+    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
+    private final DatabaseInitializer databaseInitializer;
 
     /**
      * 进程内已分配但可能尚未持久化的最大 novel time。
@@ -32,54 +35,18 @@ public class NovelDatabase {
      */
     private final AtomicLong lastIssuedTime = new AtomicLong(0);
 
+    /**
+     * 非 DDL 初始化：受管表的建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行
+     * （含 backfillNovelFts 所依赖的 deleted 列），这里只保留 FTS 虚拟表维护与幂等数据迁移
+     * —— {@code novels_fts} 不入受管 schema，其 DDL 留在本类。
+     */
     @PostConstruct
     public void init() {
-        novelMapper.createNovelsTable();
-        // deleted 列必须先于 FTS 回填补齐——backfillNovelFts 的 SQL 引用该列，旧库缺列会让回填失败
-        addColumnIfMissing(novelMapper::addDeletedColumn);
-        novelMapper.createNovelsAuthorIndex();
-        novelMapper.createNovelsSeriesOrderIndex();
-        novelMapper.createNovelSeriesTable();
-        novelMapper.createNovelTagsTable();
-        novelMapper.createNovelTagsTagIndex();
-        novelMapper.createNovelSeriesTagsTable();
-        novelMapper.createNovelSeriesTagsTagIndex();
-        novelMapper.createNovelCollectionsTable();
-        novelMapper.createNovelCollectionsNovelIndex();
-        novelMapper.createNovelImagesTable();
-        novelMapper.createNovelTranslationsTable();
-        novelMapper.createNovelSeriesTitleTranslationsTable();
-        novelMapper.createNovelGlossariesTable();
-        novelMapper.createNovelGlossariesSeriesIndex();
-        novelMapper.createNovelGlossariesNovelIndex();
-        novelMapper.createNovelGlossaryEntriesTable();
-        novelMapper.createNovelNarrationCastsTable();
-        novelMapper.createNovelNarrationCastsSeriesIndex();
-        novelMapper.createNovelNarrationCastsNovelIndex();
-        novelMapper.createNovelNarrationVoicesTable();
-        novelMapper.createNovelNarrationScriptsTable();
         novelMapper.createNovelFtsTable();
         // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
         try { novelMapper.backfillNovelFts(); } catch (Exception e) {
             log.warn("Failed to backfill novel full-text index: {}", e.getMessage());
         }
-        // 幂等迁移：旧库 novels 表补 cover_ext 列；列已存在抛异常吞掉
-        addColumnIfMissing(novelMapper::addCoverExtColumn);
-        addColumnIfMissing(novelMapper::addReadingTimeSecondsColumn);
-        // 幂等迁移：novel_series 表补 description/cover_ext/cover_folder 列；列已存在抛异常吞掉
-        addColumnIfMissing(novelMapper::addNovelSeriesDescriptionColumn);
-        addColumnIfMissing(novelMapper::addNovelSeriesCoverExtColumn);
-        addColumnIfMissing(novelMapper::addNovelSeriesCoverFolderColumn);
-        addColumnIfMissing(novelMapper::addNovelTranslationsTitleColumn);
-        addColumnIfMissing(novelMapper::addNovelTranslationsDescriptionColumn);
-        addColumnIfMissing(novelMapper::addNovelSeriesTitleTranslationsDescriptionColumn);
-        // 幂等迁移：旧 dev 库 novel_narration_voices 表补 edited_by_user 列；列已存在抛异常吞掉
-        addColumnIfMissing(novelMapper::addNarrationVoiceEditedByUserColumn);
-        // 幂等迁移：旧 dev 库 novel_narration_voices 表补参考音列；列已存在抛异常吞掉
-        addColumnIfMissing(novelMapper::addNarrationVoiceRefAudioExtColumn);
-        addColumnIfMissing(novelMapper::addNarrationVoiceRefAudioTextColumn);
-        addColumnIfMissing(novelMapper::addNarrationVoiceRefAudioSourceColumn);
-        addColumnIfMissing(novelMapper::addNarrationVoiceRefAudioTimeColumn);
         novelMapper.migrateNovelTimestampsToMillis();
         novelMapper.migrateNovelCollectionTimestampsToMillis();
         novelMapper.migrateNovelSeriesTimestampsToMillis();
@@ -91,15 +58,6 @@ public class NovelDatabase {
 
     public long getUniqueTime() {
         return getUniqueTime(TimestampUtils.nowMillis());
-    }
-
-    private void addColumnIfMissing(Runnable addColumn) {
-        try { addColumn.run(); } catch (Exception e) {
-            String msg = String.valueOf(e.getMessage());
-            if (!msg.toLowerCase().contains("duplicate column")) {
-                log.warn("Unexpected error adding column: {}", msg, e);
-            }
-        }
     }
 
     public long getUniqueTime(long preferredTime) {

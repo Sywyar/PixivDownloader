@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.TableSpec;
 
 import java.util.List;
 
+import static top.sywyar.pixivdownload.core.db.SchemaSpecs.autoIncrementPrimaryKey;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.uniqueConstraint;
 
@@ -23,7 +24,7 @@ public final class TagSchemaContribution {
                 new TableSpec(
                         "tags",
                         List.of(
-                                column("tag_id", "INTEGER", false, null, 1),
+                                autoIncrementPrimaryKey("tag_id"),
                                 column("name", "TEXT", true, null, 0),
                                 column("translated_name", "TEXT", false, null, 0)
                         ),

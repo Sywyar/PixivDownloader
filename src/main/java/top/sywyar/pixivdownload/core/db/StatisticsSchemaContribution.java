@@ -27,7 +27,9 @@ public final class StatisticsSchemaContribution {
                                 column("total_images", "INTEGER", false, "0", 0),
                                 column("total_moved", "INTEGER", false, "0", 0)
                         ),
-                        List.of()
+                        List.of(),
+                        // 单行表守卫：id 恒为 1（与历史 DDL 的列内 CHECK 等价，表级表达）
+                        "id = 1"
                 )
         );
 

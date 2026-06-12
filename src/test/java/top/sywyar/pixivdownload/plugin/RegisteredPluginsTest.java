@@ -16,6 +16,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RegisteredPluginsTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
+            // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages：
+            // 用内存 SQLite 与测试 i18n 兜底（@PostConstruct 会真实建表，库随上下文丢弃）
+            .withBean(org.springframework.jdbc.core.JdbcTemplate.class, () -> {
+                org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
+                        new org.springframework.jdbc.datasource.SingleConnectionDataSource(
+                                "jdbc:sqlite::memory:", true);
+                ds.setDriverClassName("org.sqlite.JDBC");
+                return new org.springframework.jdbc.core.JdbcTemplate(ds);
+            })
+            .withBean(top.sywyar.pixivdownload.i18n.AppMessages.class,
+                    top.sywyar.pixivdownload.i18n.TestI18nBeans::appMessages)
             .withUserConfiguration(
                     CorePluginConfiguration.class,
                     DownloadWorkbenchPluginConfiguration.class,

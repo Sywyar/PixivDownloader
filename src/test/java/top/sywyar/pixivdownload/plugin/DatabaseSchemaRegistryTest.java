@@ -130,6 +130,54 @@ class DatabaseSchemaRegistryTest {
     }
 
     @Test
+    @DisplayName("AUTOINCREMENT 声明在单列 INTEGER 主键上应注册成功")
+    void autoIncrementOnSingleIntegerPrimaryKeySucceeds() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+
+        registry.register(contribution("demo", table("demo_items",
+                new ColumnSpec("id", "INTEGER", false, null, 1, true),
+                col("name", "TEXT", true, null, 0))));
+
+        assertThat(registry.contributions()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("AUTOINCREMENT 声明在非主键列上应注册抛错")
+    void autoIncrementOnNonPrimaryKeyColumnFails() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+
+        assertThatThrownBy(() -> registry.register(contribution("demo", table("demo_items",
+                col("id", "INTEGER", false, null, 1),
+                new ColumnSpec("seq", "INTEGER", false, null, 0, true)))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AUTOINCREMENT")
+                .hasMessageContaining("demo_items.seq");
+    }
+
+    @Test
+    @DisplayName("AUTOINCREMENT 声明在复合主键列上应注册抛错")
+    void autoIncrementOnCompositePrimaryKeyFails() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+
+        assertThatThrownBy(() -> registry.register(contribution("demo", table("demo_items",
+                new ColumnSpec("a", "INTEGER", true, null, 1, true),
+                col("b", "INTEGER", true, null, 2)))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AUTOINCREMENT");
+    }
+
+    @Test
+    @DisplayName("AUTOINCREMENT 声明在非 INTEGER 主键上应注册抛错")
+    void autoIncrementOnNonIntegerPrimaryKeyFails() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+
+        assertThatThrownBy(() -> registry.register(contribution("demo", table("demo_items",
+                new ColumnSpec("id", "TEXT", false, null, 1, true)))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AUTOINCREMENT");
+    }
+
+    @Test
     @DisplayName("安全补列规则应合并进目标表的期望形态")
     void columnMigrationAppendsColumn() {
         DatabaseSchemaRegistry registry = emptyRegistry();

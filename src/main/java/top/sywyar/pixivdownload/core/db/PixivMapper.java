@@ -12,114 +12,14 @@ public interface PixivMapper {
             + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name, file_author_name_id,"
             + " series_id, series_order, deleted FROM artworks";
 
-    // ── DDL ────────────────────────────────────────────────────────────────────
-
-    @Update("CREATE TABLE IF NOT EXISTS artworks ("
-            + "artwork_id INTEGER PRIMARY KEY,"
-            + "title TEXT NOT NULL,"
-            + "folder TEXT NOT NULL,"
-            + "count INTEGER NOT NULL,"
-            + "extensions TEXT NOT NULL,"
-            + "time INTEGER NOT NULL UNIQUE,"
-            + "\"R18\" INTEGER DEFAULT NULL,"
-            + "is_ai INTEGER DEFAULT NULL,"
-            + "author_id INTEGER DEFAULT NULL,"
-            + "description TEXT DEFAULT NULL,"
-            + "file_name INTEGER NOT NULL DEFAULT 1,"
-            + "file_author_name_id INTEGER,"
-            + "series_id INTEGER DEFAULT NULL,"
-            + "series_order INTEGER DEFAULT NULL,"
-            + "moved INTEGER DEFAULT 0,"
-            + "move_folder TEXT,"
-            + "move_time INTEGER,"
-            + "deleted INTEGER NOT NULL DEFAULT 0)")
-    void createArtworksTable();
-
-    @Update("CREATE TABLE IF NOT EXISTS file_author_names ("
-            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            + "name TEXT NOT NULL UNIQUE)")
-    void createFileAuthorNamesTable();
-
-    @Update("CREATE TABLE IF NOT EXISTS file_name_templates ("
-            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            + "template TEXT NOT NULL UNIQUE)")
-    void createFileNameTemplatesTable();
+    // ── 种子数据与幂等数据迁移（建表 / 补列 / 索引 DDL 统一由 DatabaseInitializer 执行）──
 
     @Insert("INSERT OR IGNORE INTO file_name_templates(id, template) VALUES(1, #{template})")
     void ensureDefaultFileNameTemplate(@Param("template") String template);
 
-    @Update("CREATE TABLE IF NOT EXISTS statistics ("
-            + "id INTEGER PRIMARY KEY CHECK (id = 1),"
-            + "total_artworks INTEGER DEFAULT 0,"
-            + "total_images INTEGER DEFAULT 0,"
-            + "total_moved INTEGER DEFAULT 0)")
-    void createStatisticsTable();
-
     @Insert("INSERT OR IGNORE INTO statistics (id, total_artworks, total_images, total_moved)"
             + " VALUES (1, 0, 0, 0)")
     void initStatistics();
-
-    @Update("CREATE TABLE IF NOT EXISTS tags ("
-            + "tag_id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            + "name TEXT NOT NULL UNIQUE,"
-            + "translated_name TEXT)")
-    void createTagsTable();
-
-    @Update("CREATE TABLE IF NOT EXISTS artwork_tags ("
-            + "artwork_id INTEGER NOT NULL,"
-            + "tag_id INTEGER NOT NULL,"
-            + "PRIMARY KEY (artwork_id, tag_id))")
-    void createArtworkTagsTable();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_artwork_tags_tag_id ON artwork_tags(tag_id)")
-    void createArtworkTagsTagIndex();
-
-    @Update("CREATE TABLE IF NOT EXISTS artwork_image_hashes ("
-            + "artwork_id INTEGER NOT NULL,"
-            + "page INTEGER NOT NULL,"
-            + "ext TEXT NOT NULL,"
-            + "dhash INTEGER NOT NULL,"
-            + "ahash INTEGER,"
-            + "created_time INTEGER NOT NULL,"
-            + "PRIMARY KEY (artwork_id, page))")
-    void createArtworkImageHashesTable();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_artwork_image_hashes_dhash ON artwork_image_hashes(dhash)")
-    void createArtworkImageHashesDHashIndex();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_artworks_author_time ON artworks(author_id, time)")
-    void createArtworksAuthorTimeIndex();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_artworks_series_order ON artworks(series_id, series_order)")
-    void createArtworksSeriesOrderIndex();
-
-    /** 幂等迁移：为旧库补 R18 列，列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE artworks ADD COLUMN \"R18\" INTEGER DEFAULT NULL")
-    void addR18Column();
-
-    @Update("ALTER TABLE artworks ADD COLUMN is_ai INTEGER DEFAULT NULL")
-    void addIsAiColumn();
-
-    @Update("ALTER TABLE artworks ADD COLUMN author_id INTEGER DEFAULT NULL")
-    void addAuthorIdColumn();
-
-    @Update("ALTER TABLE artworks ADD COLUMN description TEXT DEFAULT NULL")
-    void addDescriptionColumn();
-
-    @Update("ALTER TABLE artworks ADD COLUMN file_name INTEGER NOT NULL DEFAULT 1")
-    void addFileNameColumn();
-
-    @Update("ALTER TABLE artworks ADD COLUMN file_author_name_id INTEGER")
-    void addFileAuthorNameIdColumn();
-
-    @Update("ALTER TABLE artworks ADD COLUMN series_id INTEGER DEFAULT NULL")
-    void addSeriesIdColumn();
-
-    @Update("ALTER TABLE artworks ADD COLUMN series_order INTEGER DEFAULT NULL")
-    void addSeriesOrderColumn();
-
-    @Update("ALTER TABLE artworks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
-    void addDeletedColumn();
 
     @Update("UPDATE artworks SET time = time * 1000"
             + " WHERE time > 0 AND time < 1000000000000")

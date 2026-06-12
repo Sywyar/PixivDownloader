@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.api.TableSpec;
 
 import java.util.List;
 
+import static top.sywyar.pixivdownload.core.db.SchemaSpecs.autoIncrementPrimaryKey;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
 import static top.sywyar.pixivdownload.core.db.SchemaSpecs.explicitIndex;
 
@@ -26,7 +27,7 @@ public final class CollectionSchemaContribution {
                 new TableSpec(
                         "collections",
                         List.of(
-                                column("id", "INTEGER", false, null, 1),
+                                autoIncrementPrimaryKey("id"),
                                 column("name", "TEXT", true, null, 0),
                                 column("icon_ext", "TEXT", false, null, 0),
                                 column("download_root", "TEXT", false, null, 0),
