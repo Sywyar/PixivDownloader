@@ -3,13 +3,13 @@ package top.sywyar.pixivdownload.gallery;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.PagedResult;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.SeriesNeighbors;
 import top.sywyar.pixivdownload.plugin.api.TagOption;
 import top.sywyar.pixivdownload.plugin.api.TagQuery;
@@ -33,7 +33,7 @@ import java.util.*;
  * 标记软删除，不再直接依赖底层数据库与下载侧文件定位。
  */
 @Slf4j
-@Service
+@PluginManagedBean
 @RequiredArgsConstructor
 public class GalleryService {
 

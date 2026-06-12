@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.gallery;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.stereotype.Repository;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
@@ -16,9 +16,12 @@ import java.util.Set;
 /**
  * 画廊查询的动态 SQL 仓库。使用 {@link NamedParameterJdbcTemplate} 拼装可选筛选条件。
  * 仅返回作品 ID 列表和总数，再由上层转换成完整响应。
+ * <p>
+ * Bean 被 {@code @PluginManagedBean} 排除出根包扫描，由 {@link GalleryPluginConfiguration}
+ * 提供；除画廊侧外仍被核心查询服务与多个核心 controller 注入使用。
  */
 @Slf4j
-@Repository
+@PluginManagedBean
 public class GalleryRepository {
 
     private final NamedParameterJdbcTemplate jdbc;

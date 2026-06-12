@@ -3,13 +3,18 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import top.sywyar.pixivdownload.core.db.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPluginConfiguration;
 import top.sywyar.pixivdownload.duplicate.DuplicatePluginConfiguration;
 import top.sywyar.pixivdownload.gallery.GalleryPluginConfiguration;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
+import top.sywyar.pixivdownload.plugin.api.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.PluginKind;
 import top.sywyar.pixivdownload.stats.StatsPluginConfiguration;
+
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,7 +24,7 @@ class RegisteredPluginsTest {
             // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages，
             // StatsPluginConfiguration 的 statsRepository bean 需要 DataSource：
             // 用内存 SQLite 与测试 i18n 兜底（@PostConstruct 会真实建表，库随上下文丢弃）；
-            // DuplicatePluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
+            // Duplicate / Gallery PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
             .withBean("applicationTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean(top.sywyar.pixivdownload.duplicate.ImageHashMapper.class,
@@ -30,6 +35,24 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.db.PixivDatabase.class))
             .withBean(org.springframework.transaction.PlatformTransactionManager.class,
                     () -> org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class))
+            .withBean(top.sywyar.pixivdownload.plugin.api.WorkQueryService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.WorkQueryService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository.class))
+            .withBean(top.sywyar.pixivdownload.plugin.api.WorkAssetService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.WorkAssetService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.api.WorkDeletionService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.WorkDeletionService.class))
+            .withBean(top.sywyar.pixivdownload.collection.CollectionService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.collection.CollectionService.class))
+            .withBean(top.sywyar.pixivdownload.quota.UserQuotaService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.quota.UserQuotaService.class))
+            .withBean(top.sywyar.pixivdownload.setup.guest.GuestAccessGuard.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.setup.guest.GuestAccessGuard.class))
+            .withBean(top.sywyar.pixivdownload.core.appconfig.MultiModeConfig.class,
+                    top.sywyar.pixivdownload.core.appconfig.MultiModeConfig::new)
+            .withBean(com.fasterxml.jackson.databind.ObjectMapper.class,
+                    com.fasterxml.jackson.databind.ObjectMapper::new)
             .withBean(javax.sql.DataSource.class, () -> {
                 org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                         new org.springframework.jdbc.datasource.SingleConnectionDataSource(
@@ -81,8 +104,9 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("除 core 声明各领域 schema、stats/duplicate 声明 web contribution 外，其余插件暂不声明任何 contribution")
+    @DisplayName("除 core 声明各领域 schema、stats/duplicate/gallery 声明 web contribution 外，其余插件暂不声明任何 contribution")
     void emptyPluginsContributeNothing() {
+        Set<String> webContributingPlugins = Set.of("stats", "duplicate", "gallery");
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins()).allSatisfy(plugin -> {
@@ -94,10 +118,15 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.schema()).isEmpty();
                 }
-                assertThat(plugin.coreColumnUsages()).isEmpty();
-                if (plugin.id().equals("stats") || plugin.id().equals("duplicate")) {
-                    // 试点插件已声明路由 / 静态资源 / i18n / 导航（无私有表，statistics 与
-                    // artwork_image_hashes 均按卸载投影测试归 core）
+                if (plugin.id().equals("gallery")) {
+                    // 画廊声明包内直接 SQL 仓库触及的核心列（只读使用契约，无私有表）
+                    assertThat(plugin.coreColumnUsages()).isNotEmpty();
+                } else {
+                    assertThat(plugin.coreColumnUsages()).isEmpty();
+                }
+                if (webContributingPlugins.contains(plugin.id())) {
+                    // 已声明路由 / 静态资源 / i18n / 导航（无私有表，statistics、
+                    // artwork_image_hashes 与 artworks 系均按卸载投影测试归 core）
                     assertThat(plugin.routes()).isNotEmpty();
                     assertThat(plugin.staticResources()).isNotEmpty();
                     assertThat(plugin.i18n()).isNotEmpty();
@@ -110,6 +139,34 @@ class RegisteredPluginsTest {
                 }
             });
         });
+    }
+
+    @Test
+    @DisplayName("插件声明的核心列使用均能在受管 schema 中找到对应表列（归一化比对）")
+    void coreColumnUsagesResolveAgainstManagedSchema() {
+        ManagedDatabaseSchema.DatabaseSchema schema =
+                DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema();
+        for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
+            for (CoreColumnUsage usage : plugin.coreColumnUsages()) {
+                ManagedDatabaseSchema.TableSpec table = schema.tables().values().stream()
+                        .filter(spec -> spec.name()
+                                .equals(ManagedDatabaseSchema.normalizeIdentifier(usage.table())))
+                        .findFirst()
+                        .orElse(null);
+                assertThat(table)
+                        .as("插件 %s 声明的核心表 %s 应在受管 schema 中", plugin.id(), usage.table())
+                        .isNotNull();
+                Set<String> columns = table.columns().stream()
+                        .map(ManagedDatabaseSchema.ColumnSpec::name)
+                        .collect(Collectors.toSet());
+                for (String column : usage.columns()) {
+                    assertThat(columns)
+                            .as("插件 %s 声明的核心列 %s.%s 应在受管 schema 中",
+                                    plugin.id(), usage.table(), column)
+                            .contains(ManagedDatabaseSchema.normalizeIdentifier(column));
+                }
+            }
+        }
     }
 
     @Test

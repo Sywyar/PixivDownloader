@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.SeriesNeighbors;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
@@ -13,6 +14,11 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.*;
 
+/**
+ * {@code @RestController} 仅供 Spring MVC handler 检测；Bean 本身被
+ * {@code @PluginManagedBean} 排除出根包扫描，由 {@link GalleryPluginConfiguration} 提供。
+ */
+@PluginManagedBean
 @RestController
 @RequestMapping("/api/gallery")
 @RequiredArgsConstructor

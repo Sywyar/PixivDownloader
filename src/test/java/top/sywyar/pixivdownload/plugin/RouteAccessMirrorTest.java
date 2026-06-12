@@ -32,26 +32,54 @@ class RouteAccessMirrorTest {
     /** 已由插件声明接管的 AuthFilter 精确路径条目 → 声明方插件。 */
     private static final Map<String, String> PLUGIN_OWNED_MONITOR_EXACT = Map.of(
             "/pixiv-stats.html", "stats",
-            "/pixiv-duplicates.html", "duplicate");
+            "/pixiv-duplicates.html", "duplicate",
+            "/pixiv-gallery.html", "gallery",
+            "/pixiv-artwork.html", "gallery",
+            "/pixiv-showcase.html", "gallery",
+            "/pixiv-series.html", "gallery");
 
     /** 已由插件声明接管的 AuthFilter 前缀路径条目 → 声明方插件。 */
     private static final Map<String, String> PLUGIN_OWNED_MONITOR_PREFIX = Map.of(
             "/pixiv-stats/", "stats",
             "/api/stats/", "stats",
             "/pixiv-duplicates/", "duplicate",
-            "/api/duplicates/", "duplicate");
+            "/api/duplicates/", "duplicate",
+            "/pixiv-gallery/", "gallery",
+            "/pixiv-artwork/", "gallery",
+            "/pixiv-showcase/", "gallery",
+            "/pixiv-series/", "gallery",
+            "/api/gallery/", "gallery");
+
+    /** 已由插件声明接管的 AuthFilter 访客精确条目 → 声明方插件（GUEST_READ 路由的访客侧镜像）。 */
+    private static final Map<String, String> PLUGIN_OWNED_GUEST_EXACT = Map.of(
+            "/pixiv-gallery.html", "gallery",
+            "/pixiv-artwork.html", "gallery",
+            "/pixiv-showcase.html", "gallery",
+            "/pixiv-series.html", "gallery");
+
+    /** 已由插件声明接管的 AuthFilter 访客前缀条目 → 声明方插件（GUEST_READ 路由的访客侧镜像）。 */
+    private static final Map<String, String> PLUGIN_OWNED_GUEST_PREFIX = Map.of(
+            "/pixiv-gallery/", "gallery",
+            "/pixiv-artwork/", "gallery",
+            "/pixiv-showcase/", "gallery",
+            "/pixiv-series/", "gallery",
+            "/api/gallery/", "gallery");
 
     @Test
-    @DisplayName("registry 中每条 ADMIN_OR_SOLO 路由都能在 AuthFilter monitor 清单中找到对应条目")
+    @DisplayName("registry 中每条路由都能在 AuthFilter 清单中找到对应条目（GUEST_READ 须同时命中 monitor 与访客清单）")
     void everyRegisteredRouteIsMirroredInAuthFilter() {
         Collection<String> monitorExact = authFilterPaths("MONITOR_EXACT_PATHS");
         Collection<String> monitorPrefix = authFilterPaths("MONITOR_PREFIX_PATHS");
+        Collection<String> guestExact = authFilterPaths("GUEST_ALLOWED_EXACT");
+        Collection<String> guestPrefix = authFilterPaths("GUEST_ALLOWED_PREFIX");
         for (RouteAccessRegistry.RegisteredRoute registered : REGISTRY.routes()) {
             WebRouteContribution route = registered.route();
-            if (route.accessLevel() != AccessLevel.ADMIN_OR_SOLO) {
+            if (route.accessLevel() != AccessLevel.ADMIN_OR_SOLO
+                    && route.accessLevel() != AccessLevel.GUEST_READ) {
                 fail("访问级别 %s 尚无 AuthFilter 镜像映射，登记 %s 路由前先扩展本测试框架"
                         .formatted(route.accessLevel(), registered.pluginId()));
             }
+            // 两级路由都受 monitor 语义保护
             if (isPrefixPattern(route.pathPattern())) {
                 assertThat(monitorPrefix)
                         .as("插件 %s 的前缀路由 %s 应在 MONITOR_PREFIX_PATHS 中",
@@ -62,6 +90,20 @@ class RouteAccessMirrorTest {
                         .as("插件 %s 的精确路由 %s 应在 MONITOR_EXACT_PATHS 中",
                                 registered.pluginId(), route.pathPattern())
                         .contains(route.pathPattern());
+            }
+            // GUEST_READ 额外要求出现在访客邀请清单（访客仅 GET/HEAD 的收窄由 AuthFilter 统一执行）
+            if (route.accessLevel() == AccessLevel.GUEST_READ) {
+                if (isPrefixPattern(route.pathPattern())) {
+                    assertThat(guestPrefix)
+                            .as("插件 %s 的 GUEST_READ 前缀路由 %s 应在 GUEST_ALLOWED_PREFIX 中",
+                                    registered.pluginId(), route.pathPattern())
+                            .contains(toPrefix(route.pathPattern()));
+                } else {
+                    assertThat(guestExact)
+                            .as("插件 %s 的 GUEST_READ 精确路由 %s 应在 GUEST_ALLOWED_EXACT 中",
+                                    registered.pluginId(), route.pathPattern())
+                            .contains(route.pathPattern());
+                }
             }
         }
     }
@@ -77,6 +119,18 @@ class RouteAccessMirrorTest {
                 assertThat(findRoute(pluginId, prefix + "**"))
                         .as("AuthFilter 前缀条目 %s 应由插件 %s 声明", prefix, pluginId)
                         .isNotEmpty());
+        PLUGIN_OWNED_GUEST_EXACT.forEach((path, pluginId) ->
+                assertThat(findRoute(pluginId, path))
+                        .as("AuthFilter 访客精确条目 %s 应由插件 %s 以 GUEST_READ 声明", path, pluginId)
+                        .isNotEmpty()
+                        .allSatisfy(registered -> assertThat(registered.route().accessLevel())
+                                .isEqualTo(AccessLevel.GUEST_READ)));
+        PLUGIN_OWNED_GUEST_PREFIX.forEach((prefix, pluginId) ->
+                assertThat(findRoute(pluginId, prefix + "**"))
+                        .as("AuthFilter 访客前缀条目 %s 应由插件 %s 以 GUEST_READ 声明", prefix, pluginId)
+                        .isNotEmpty()
+                        .allSatisfy(registered -> assertThat(registered.route().accessLevel())
+                                .isEqualTo(AccessLevel.GUEST_READ)));
     }
 
     @Test
@@ -86,6 +140,33 @@ class RouteAccessMirrorTest {
                 .containsAll(PLUGIN_OWNED_MONITOR_EXACT.keySet());
         assertThat(authFilterPaths("MONITOR_PREFIX_PATHS"))
                 .containsAll(PLUGIN_OWNED_MONITOR_PREFIX.keySet());
+        assertThat(authFilterPaths("GUEST_ALLOWED_EXACT"))
+                .containsAll(PLUGIN_OWNED_GUEST_EXACT.keySet());
+        assertThat(authFilterPaths("GUEST_ALLOWED_PREFIX"))
+                .containsAll(PLUGIN_OWNED_GUEST_PREFIX.keySet());
+    }
+
+    @Test
+    @DisplayName("GUEST_READ 路由不得出现在无会话即放行的 isPublic 清单（访客放行必须经 invite session 校验）")
+    void guestReadRoutesNeverAppearInPublicLists() {
+        Collection<String> publicExact = authFilterPaths("PUBLIC_STATIC_EXACT_PATHS");
+        Collection<String> publicPrefixes = authFilterPaths("PUBLIC_PAGE_STATIC_PREFIX_PATHS");
+        for (RouteAccessRegistry.RegisteredRoute registered : REGISTRY.routes()) {
+            WebRouteContribution route = registered.route();
+            if (route.accessLevel() != AccessLevel.GUEST_READ) {
+                continue;
+            }
+            String path = isPrefixPattern(route.pathPattern())
+                    ? toPrefix(route.pathPattern()) : route.pathPattern();
+            assertThat(publicExact)
+                    .as("GUEST_READ 路由 %s 不得出现在公开精确清单", path)
+                    .doesNotContain(path);
+            for (String prefix : publicPrefixes) {
+                assertThat(path)
+                        .as("GUEST_READ 路由 %s 不得被公开静态前缀 %s 覆盖", path, prefix)
+                        .doesNotStartWith(prefix);
+            }
+        }
     }
 
     @Test

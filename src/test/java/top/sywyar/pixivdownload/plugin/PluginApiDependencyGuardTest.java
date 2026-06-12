@@ -89,6 +89,22 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("gallery 插件包不得依赖核心实现类：数据与文件访问只能走 plugin.api 核心接口")
+    void galleryDependsOnlyOnCoreInterfaces() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
+                .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
+                        top.sywyar.pixivdownload.download.DownloadService.class,
+                        top.sywyar.pixivdownload.core.db.PixivDatabase.class,
+                        top.sywyar.pixivdownload.download.ArtworkFileLocator.class,
+                        top.sywyar.pixivdownload.author.AuthorService.class,
+                        top.sywyar.pixivdownload.series.MangaSeriesService.class))
+                .because("画廊已接口化：查询走 WorkQueryService/WorkMetadataRepository、删除走 "
+                        + "WorkAssetService/WorkDeletionService，禁止回潮直连核心实现类")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("common 不得依赖业务包：项目内仅允许 common/config/i18n")
     void commonDependsOnlyOnInfrastructure() {
         noClasses()
