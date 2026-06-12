@@ -1,0 +1,31 @@
+package top.sywyar.pixivdownload.plugin.api;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * 作品元数据核心接口：插件按 {@code (WorkType, workId)} 取作品的完整元数据视图
+ * （规范化 meta + 本地文件记录 + 作者名 / 系列标题 / 标签补全），存储形态藏在接口后。
+ *
+ * <p><b>软删除语义。</b>两个读取方法默认过滤软删除行：软删作品视为不存在
+ * （返回 {@link Optional#empty()} / 不出现在结果中）；「曾经下载过（含软删）」判定走
+ * {@link WorkQueryService#hasWork}。
+ *
+ * <p><b>批量契约。</b>{@link #findAll} 的行读取与各关联补全（作者名 / 系列标题 /
+ * 标签 / 文件名模板）必须按入参整体批量执行，禁止退化为每 id 一查的 N+1。
+ *
+ * <p>{@link WorkType#NOVEL} 的 {@link #findAll} 尚未接入：小说侧今天没有批量行查询
+ * 可代理，调用抛 {@link UnsupportedOperationException}（配契约单测），待小说画廊改走
+ * 核心接口时接入并翻转；单条 {@link #find} 两种类型均可用。
+ */
+public interface WorkMetadataRepository {
+
+    /** 取单个作品的元数据；无记录或已软删除时返回 {@link Optional#empty()}。 */
+    Optional<WorkMetadata> find(WorkType workType, long workId);
+
+    /**
+     * 批量取作品元数据。<b>返回顺序与传入 id 顺序一致</b>（排序是查询侧的职责，
+     * 本方法不得打乱）；无记录或已软删除的 id 直接跳过，不占位。
+     */
+    List<WorkMetadata> findAll(WorkType workType, List<Long> workIds);
+}
