@@ -3,18 +3,18 @@ package top.sywyar.pixivdownload.duplicate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.maintenance.MaintenanceTask;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 
 import java.util.List;
 
 @Slf4j
-@Component
+@PluginManagedBean
 @Order(150)
 @RequiredArgsConstructor
 public class DuplicateHashBackfillTask implements MaintenanceTask {

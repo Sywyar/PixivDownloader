@@ -31,12 +31,15 @@ class RouteAccessMirrorTest {
 
     /** 已由插件声明接管的 AuthFilter 精确路径条目 → 声明方插件。 */
     private static final Map<String, String> PLUGIN_OWNED_MONITOR_EXACT = Map.of(
-            "/pixiv-stats.html", "stats");
+            "/pixiv-stats.html", "stats",
+            "/pixiv-duplicates.html", "duplicate");
 
     /** 已由插件声明接管的 AuthFilter 前缀路径条目 → 声明方插件。 */
     private static final Map<String, String> PLUGIN_OWNED_MONITOR_PREFIX = Map.of(
             "/pixiv-stats/", "stats",
-            "/api/stats/", "stats");
+            "/api/stats/", "stats",
+            "/pixiv-duplicates/", "duplicate",
+            "/api/duplicates/", "duplicate");
 
     @Test
     @DisplayName("registry 中每条 ADMIN_OR_SOLO 路由都能在 AuthFilter monitor 清单中找到对应条目")

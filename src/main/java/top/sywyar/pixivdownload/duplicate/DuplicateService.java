@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.duplicate;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-@Service
+@PluginManagedBean
 @RequiredArgsConstructor
 public class DuplicateService {
 

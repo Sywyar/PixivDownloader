@@ -1,17 +1,16 @@
 package top.sywyar.pixivdownload.duplicate;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
-import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
-@Service
+@PluginManagedBean
 public class DuplicateScanService {
 
     private final ImageHashMapper imageHashMapper;
@@ -32,7 +31,7 @@ public class DuplicateScanService {
                                 DuplicateService duplicateService,
                                 PixivDatabase pixivDatabase,
                                 AppMessages messages,
-                                @Qualifier("applicationTaskExecutor") TaskExecutor taskExecutor) {
+                                TaskExecutor taskExecutor) {
         this.imageHashMapper = imageHashMapper;
         this.imageHashService = imageHashService;
         this.duplicateService = duplicateService;

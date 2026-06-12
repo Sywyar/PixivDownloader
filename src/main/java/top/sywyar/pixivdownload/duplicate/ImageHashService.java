@@ -1,19 +1,23 @@
 package top.sywyar.pixivdownload.duplicate;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * 图片 Hash 的计算与落库。下载后即时算 Hash 链路（{@code DownloadService} 直接注入本类）
+ * 属核心资产索引能力，不随 duplicate 插件禁用——该核心侧依赖是包依赖守卫的既定例外。
+ */
 @Slf4j
-@Service
+@PluginManagedBean
 public class ImageHashService {
 
     private final ImageHashMapper imageHashMapper;

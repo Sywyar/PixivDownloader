@@ -45,6 +45,34 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("核心不得反向依赖 duplicate 插件包（组合根 BuiltInPlugins 与下载即时算 Hash 链路除外）")
+    void coreDoesNotDependOnDuplicatePlugin() {
+        noClasses()
+                .that().resideOutsideOfPackage("top.sywyar.pixivdownload.duplicate..")
+                .and().doNotHaveFullyQualifiedName(BuiltInPlugins.class.getName())
+                .and().doNotHaveFullyQualifiedName("top.sywyar.pixivdownload.download.DownloadService")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.duplicate..")
+                .because("duplicate 是功能插件，核心只能经 PluginRegistry 间接使用其 contribution；"
+                        + "BuiltInPlugins 是既定的组合根例外，DownloadService→ImageHashService "
+                        + "是『下载后即时算 Hash』的既定核心链路例外（不随插件禁用）")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("下载即时算 Hash 链路例外仅限 ImageHashService 一个类")
+    void downloadServiceOnlyTouchesImageHashService() {
+        noClasses()
+                .that().haveFullyQualifiedName("top.sywyar.pixivdownload.download.DownloadService")
+                .should().dependOnClassesThat(
+                        JavaClass.Predicates.resideInAPackage("top.sywyar.pixivdownload.duplicate..")
+                                .and(DescribedPredicate.not(JavaClass.Predicates.type(
+                                        top.sywyar.pixivdownload.duplicate.ImageHashService.class))))
+                .because("核心链路例外的口径收窄到 Hash 计算入口本身，防止经例外类扩散依赖")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("common 不得依赖业务包：项目内仅允许 common/config/i18n")
     void commonDependsOnlyOnInfrastructure() {
         noClasses()
