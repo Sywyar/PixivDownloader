@@ -21,13 +21,29 @@ class PluginApiDependencyGuardTest {
             .importPackages("top.sywyar.pixivdownload");
 
     @Test
-    @DisplayName("plugin.api 必须自包含：只依赖 JDK 与 plugin.api 自身")
+    @DisplayName("plugin.api 必须自包含：只依赖 JDK、jakarta.servlet 与 plugin.api 自身")
     void pluginApiIsSelfContained() {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api..")
                 .should().onlyDependOnClassesThat()
+                .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..",
+                        "jakarta.servlet..")
+                .because("plugin.api 是跨插件边界共享的契约包，不得依赖任何业务包或框架；"
+                        + "jakarta.servlet 是 Servlet 规范 API，仅服务接口签名允许使用（见下一条规则）")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("plugin.api 中除服务接口外保持纯 JDK：contribution record 不得携带 servlet 类型")
+    void pluginApiDataTypesStayPureJdk() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api..")
+                .and().doNotHaveFullyQualifiedName(
+                        top.sywyar.pixivdownload.plugin.api.WorkVisibilityService.class.getName())
+                .should().onlyDependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..")
-                .because("plugin.api 是跨插件边界共享的契约包，不得依赖任何业务包或框架")
+                .because("jakarta.servlet 的放行仅限收请求入参的服务接口（当前唯 WorkVisibilityService），"
+                        + "纯数据的 contribution / record / 事件类型必须保持零依赖")
                 .check(CLASSES);
     }
 
