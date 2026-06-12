@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.config.SslConfig;
+import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.setup.guest.dto.HourlyBucket;
 import top.sywyar.pixivdownload.setup.guest.dto.InviteCreateRequest;
@@ -47,6 +48,9 @@ public class GuestInviteService {
 
     private final GuestInviteMapper mapper;
     private final SslConfig sslConfig;
+    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
+    @SuppressWarnings("unused")
+    private final DatabaseInitializer databaseInitializer;
 
     @Value("${server.ssl.enabled:false}")
     private boolean sslEnabled;
@@ -56,19 +60,9 @@ public class GuestInviteService {
 
     private final SecureRandom random = new SecureRandom();
 
+    /** 非 DDL 初始化：建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行，这里只保留一次性数据迁移。 */
     @PostConstruct
     public void init() {
-        mapper.createInvitesTable();
-        mapper.createInvitesCodeIndex();
-        mapper.createInviteTagsTable();
-        mapper.createInviteAuthorsTable();
-        mapper.createInviteNovelTagsTable();
-        mapper.createInviteNovelAuthorsTable();
-        mapper.createAccessStatsTable();
-        mapper.createAccessStatsBucketIndex();
-        // 旧库迁移：为缺少 novel_* 列的库追加列；ALTER TABLE 不支持 IF NOT EXISTS，依赖异常吞并。
-        addColumnIfMissing(mapper::addNovelTagUnrestrictedColumn, "novel_tag_unrestricted");
-        addColumnIfMissing(mapper::addNovelAuthorUnrestrictedColumn, "novel_author_unrestricted");
         // 一次性迁移：把漫画侧的白名单内容/开关复制到小说侧；只对 novel_* 仍为 NULL 的行生效。
         try {
             int copiedTags = mapper.copyTagsToNovelSide();
@@ -81,18 +75,6 @@ public class GuestInviteService {
             }
         } catch (Exception e) {
             log.warn("Guest invite novel-side migration failed: {}", e.getMessage());
-        }
-    }
-
-    private void addColumnIfMissing(Runnable addColumn, String columnName) {
-        try {
-            addColumn.run();
-        } catch (Exception e) {
-            // SQLite 在列已存在时会抛 "duplicate column name"，视为幂等成功。
-            String msg = String.valueOf(e.getMessage());
-            if (!msg.toLowerCase().contains("duplicate column")) {
-                log.debug("ALTER TABLE add column {} ignored: {}", columnName, msg);
-            }
         }
     }
 

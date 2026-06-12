@@ -58,7 +58,8 @@ class CollectionServiceTest {
                 TestI18nBeans.appMessages(),
                 downloadConfig,
                 novelDatabase,
-                pathPrefixCodec
+                pathPrefixCodec,
+                null
         );
     }
 

@@ -419,8 +419,8 @@ class DatabaseSchemaInspectorTest {
                         mapper, top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), codec, initializer);
                 database.init();
 
-                // 仅比对 PixivDatabase.init() 实际建的 6 张表；authors / collections / artwork_collections
-                // 由 AuthorMapper / CollectionMapper 各自负责，超出本测试范围。
+                // 仅比对 PixivDatabase 业务面使用的表；authors / collections / artwork_collections
+                // 等其余受管表的建表对照由 DatabaseInitializerTest 全表覆盖，超出本测试范围。
                 Set<String> initManaged = Set.of(
                         "artworks", "file_author_names", "file_name_templates",
                         "statistics", "tags", "artwork_tags", "artwork_image_hashes");
@@ -494,7 +494,7 @@ class DatabaseSchemaInspectorTest {
         }
 
         @Test
-        @DisplayName("ScheduledTaskDatabase.init() 后 scheduled_tasks 应与受管 schema 完全匹配")
+        @DisplayName("DatabaseInitializer + ScheduledTaskDatabase.init() 后 scheduled_tasks 应与受管 schema 完全匹配")
         void shouldMatchScheduledTaskProductionSchemaAfterInit() throws Exception {
             org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                     new org.springframework.jdbc.datasource.SingleConnectionDataSource();
@@ -513,8 +513,10 @@ class DatabaseSchemaInspectorTest {
             try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
                 top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper mapper =
                         session.getMapper(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class);
+                DatabaseInitializer initializer = newInitializer(ds);
+                initializer.initialize();
                 top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase database =
-                        new top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase(mapper);
+                        new top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase(mapper, initializer);
                 database.init();
 
                 Set<String> initManaged = Set.of("scheduled_tasks", "scheduled_task_pending");

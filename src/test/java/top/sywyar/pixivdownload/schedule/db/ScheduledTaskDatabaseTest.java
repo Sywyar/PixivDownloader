@@ -12,7 +12,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
 
@@ -42,8 +46,15 @@ class ScheduledTaskDatabaseTest {
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         session = factory.openSession(true);
         mapper = session.getMapper(ScheduledTaskMapper.class);
-        database = new ScheduledTaskDatabase(mapper);
-        // 先建表（init 本身幂等），再插入"旧版本"任务后重跑 init 模拟升级启动
+
+        // 建表 / 补列 / 索引统一由 DatabaseInitializer 执行；init 只做数据迁移（本身幂等），
+        // 插入"旧版本"任务后重跑 init 模拟升级启动
+        DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
+        DatabaseInitializer initializer = new DatabaseInitializer(new JdbcTemplate(ds),
+                registry.contributions(), registry.mergedSchema(),
+                TestI18nBeans.appMessages(), event -> {});
+        initializer.initialize();
+        database = new ScheduledTaskDatabase(mapper, initializer);
         database.init();
     }
 

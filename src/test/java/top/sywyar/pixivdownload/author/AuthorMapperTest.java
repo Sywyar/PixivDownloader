@@ -13,6 +13,9 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
 
 import java.util.List;
 
@@ -40,7 +43,12 @@ class AuthorMapperTest {
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
         authorMapper = sqlSession.getMapper(AuthorMapper.class);
-        authorMapper.createAuthorsTable();
+
+        // 建表 / 补列 / 索引统一由 DatabaseInitializer 执行（含 PagedAuthorsTests 用的 artworks 表）
+        DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
+        new DatabaseInitializer(new JdbcTemplate(dataSource),
+                registry.contributions(), registry.mergedSchema(),
+                TestI18nBeans.appMessages(), event -> {}).initialize();
     }
 
     @AfterEach
@@ -82,19 +90,8 @@ class AuthorMapperTest {
 
         @BeforeEach
         void seedArtworks() {
+            // artworks 表已由 setUp 的 DatabaseInitializer 按受管 schema 建好
             jdbc = new JdbcTemplate(dataSource);
-            jdbc.execute("""
-                    CREATE TABLE artworks (
-                        artwork_id INTEGER PRIMARY KEY,
-                        title TEXT NOT NULL,
-                        folder TEXT NOT NULL,
-                        count INTEGER NOT NULL,
-                        extensions TEXT NOT NULL,
-                        time INTEGER NOT NULL,
-                        author_id INTEGER,
-                        deleted INTEGER NOT NULL DEFAULT 0
-                    )
-                    """);
 
             // 已知作者
             authorMapper.insertIfAbsent(2001L, "Alice", 100L);

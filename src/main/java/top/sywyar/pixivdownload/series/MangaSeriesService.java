@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.common.PixivCoverDownloader;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -55,6 +56,9 @@ public class MangaSeriesService {
     private final DownloadConfig downloadConfig;
     private final PixivCoverDownloader coverDownloader;
     private final PathPrefixCodec pathPrefixCodec;
+    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
+    @SuppressWarnings("unused")
+    private final DatabaseInitializer databaseInitializer;
 
     public MangaSeriesService(MangaSeriesMapper mangaSeriesMapper,
                               AuthorService authorService,
@@ -64,7 +68,8 @@ public class MangaSeriesService {
                               AppMessages messages,
                               DownloadConfig downloadConfig,
                               PixivCoverDownloader coverDownloader,
-                              PathPrefixCodec pathPrefixCodec) {
+                              PathPrefixCodec pathPrefixCodec,
+                              DatabaseInitializer databaseInitializer) {
         this.mangaSeriesMapper = mangaSeriesMapper;
         this.authorService = authorService;
         this.pixivDatabase = pixivDatabase;
@@ -74,6 +79,7 @@ public class MangaSeriesService {
         this.downloadConfig = downloadConfig;
         this.coverDownloader = coverDownloader;
         this.pathPrefixCodec = pathPrefixCodec;
+        this.databaseInitializer = databaseInitializer;
     }
 
     private MangaSeries resolveSeries(MangaSeries series) {
@@ -93,13 +99,9 @@ public class MangaSeriesService {
                 detail.description(), detail.coverExt(), resolved);
     }
 
+    /** 非 DDL 初始化：建表 / 补列已统一由 {@link DatabaseInitializer} 执行，这里只保留幂等数据迁移。 */
     @PostConstruct
     public void init() {
-        mangaSeriesMapper.createMangaSeriesTable();
-        // 幂等迁移：旧库补列；列已存在时 SQLite 会抛 SQLITE_ERROR，吞掉即可。
-        try { mangaSeriesMapper.addDescriptionColumn(); } catch (Exception e) { log.debug("addDescriptionColumn migration skipped (column may already exist)", e); }
-        try { mangaSeriesMapper.addCoverExtColumn(); } catch (Exception e) { log.debug("addCoverExtColumn migration skipped (column may already exist)", e); }
-        try { mangaSeriesMapper.addCoverFolderColumn(); } catch (Exception e) { log.debug("addCoverFolderColumn migration skipped (column may already exist)", e); }
         mangaSeriesMapper.migrateSeriesTimestampsToMillis();
     }
 

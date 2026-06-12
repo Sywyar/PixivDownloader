@@ -36,69 +36,6 @@ public interface ScheduledTaskMapper {
             + " created_time AS createdTime"
             + " FROM scheduled_tasks";
 
-    // ── DDL ────────────────────────────────────────────────────────────────────
-
-    @Update("CREATE TABLE IF NOT EXISTS scheduled_tasks ("
-            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            + "name TEXT NOT NULL,"
-            + "enabled INTEGER NOT NULL DEFAULT 1,"
-            + "type TEXT NOT NULL,"
-            + "params_json TEXT NOT NULL,"
-            + "trigger_kind TEXT NOT NULL,"
-            + "interval_minutes INTEGER,"
-            + "cron_expr TEXT,"
-            + "cookie_mode TEXT NOT NULL,"
-            + "cookie_snapshot TEXT,"
-            + "proxy_snapshot TEXT,"
-            + "next_run_time INTEGER,"
-            + "last_run_time INTEGER,"
-            + "last_status TEXT,"
-            + "last_message TEXT,"
-            + "watermark_id INTEGER,"
-            + "run_started_time INTEGER,"
-            + "account_id TEXT,"
-            + "ack_warning_time INTEGER,"
-            + "pending_retry_armed INTEGER DEFAULT 0,"
-            + "created_time INTEGER NOT NULL)")
-    void createScheduledTasksTable();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run_time)")
-    void createScheduledTasksNextRunIndex();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_account ON scheduled_tasks(account_id)")
-    void createScheduledTasksAccountIndex();
-
-    /** 幂等迁移：旧库 scheduled_tasks 表补 account_id 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE scheduled_tasks ADD COLUMN account_id TEXT DEFAULT NULL")
-    void addAccountIdColumn();
-
-    /** 幂等迁移：旧库 scheduled_tasks 表补 ack_warning_time 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE scheduled_tasks ADD COLUMN ack_warning_time INTEGER DEFAULT NULL")
-    void addAckWarningTimeColumn();
-
-    /** 幂等迁移：旧库 scheduled_tasks 表补 pending_retry_armed 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE scheduled_tasks ADD COLUMN pending_retry_armed INTEGER DEFAULT 0")
-    void addPendingRetryArmedColumn();
-
-    /** 幂等迁移：旧库 scheduled_tasks 表补 proxy_snapshot 列（任务级单独代理 host:port）；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE scheduled_tasks ADD COLUMN proxy_snapshot TEXT DEFAULT NULL")
-    void addProxySnapshotColumn();
-
-    /**
-     * 隔离表（待重试）：每个因可恢复失败被跳过的单作品一行，{@code task_id} 区分多任务。
-     * 解耦 watermark 与单作品重试——watermark 在有零星可恢复失败时照常推进，失败作品在此单独追踪。
-     * 404 / 403-gone（真已删除）与被 filter 过滤的不进表。新表属当前未发布周期内引入，无需 ALTER 迁移兜底。
-     */
-    @Update("CREATE TABLE IF NOT EXISTS scheduled_task_pending ("
-            + "task_id INTEGER NOT NULL,"
-            + "work_id INTEGER NOT NULL,"
-            + "reason TEXT,"
-            + "attempts INTEGER DEFAULT 0,"
-            + "first_seen_time INTEGER,"
-            + "last_attempt_time INTEGER,"
-            + "PRIMARY KEY(task_id, work_id))")
-    void createScheduledTaskPendingTable();
-
     // ── 写入 ────────────────────────────────────────────────────────────────────
 
     @Insert("INSERT INTO scheduled_tasks(name, enabled, type, params_json, trigger_kind,"

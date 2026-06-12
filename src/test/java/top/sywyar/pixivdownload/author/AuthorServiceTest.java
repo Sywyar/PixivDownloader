@@ -48,7 +48,7 @@ class AuthorServiceTest {
 
     @BeforeEach
     void setUp() {
-        authorService = new AuthorService(authorMapper, pixivDatabase, restTemplate, taskScheduler, messages);
+        authorService = new AuthorService(authorMapper, pixivDatabase, restTemplate, taskScheduler, messages, null);
         lenient().doAnswer(invocation -> {
             Runnable task = invocation.getArgument(0);
             task.run();

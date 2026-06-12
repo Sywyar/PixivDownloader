@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
+import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
@@ -39,13 +40,13 @@ public class CollectionService {
     private final DownloadConfig downloadConfig;
     private final NovelDatabase novelDatabase;
     private final PathPrefixCodec pathPrefixCodec;
+    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
+    @SuppressWarnings("unused")
+    private final DatabaseInitializer databaseInitializer;
 
+    /** 非 DDL 初始化：建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行，这里只保留幂等数据迁移。 */
     @PostConstruct
     public void init() {
-        collectionMapper.createCollectionsTable();
-        try { collectionMapper.addDownloadRootColumn(); } catch (Exception ignored) {}
-        collectionMapper.createArtworkCollectionsTable();
-        collectionMapper.createArtworkCollectionsArtworkIndex();
         collectionMapper.migrateCollectionTimestampsToMillis();
         collectionMapper.migrateArtworkCollectionTimestampsToMillis();
     }

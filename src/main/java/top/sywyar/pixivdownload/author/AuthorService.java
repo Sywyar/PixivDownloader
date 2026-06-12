@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
+import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.util.TimestampUtils;
@@ -37,23 +38,28 @@ public class AuthorService {
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
     private final AppMessages messages;
+    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
+    @SuppressWarnings("unused")
+    private final DatabaseInitializer databaseInitializer;
     private final ConcurrentHashMap<Long, Long> lastRenameValidationAtMs = new ConcurrentHashMap<>();
 
     public AuthorService(AuthorMapper authorMapper,
                          PixivDatabase pixivDatabase,
                          @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                          @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                         AppMessages messages) {
+                         AppMessages messages,
+                         DatabaseInitializer databaseInitializer) {
         this.authorMapper = authorMapper;
         this.pixivDatabase = pixivDatabase;
         this.downloadRestTemplate = downloadRestTemplate;
         this.taskScheduler = taskScheduler;
         this.messages = messages;
+        this.databaseInitializer = databaseInitializer;
     }
 
+    /** 非 DDL 初始化：建表已统一由 {@link DatabaseInitializer} 执行，这里只保留幂等数据迁移。 */
     @PostConstruct
     public void init() {
-        authorMapper.createAuthorsTable();
         authorMapper.migrateAuthorTimestampsToMillis();
     }
 

@@ -7,15 +7,16 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
+import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
 import top.sywyar.pixivdownload.schedule.ScheduledTask;
 
 import java.util.List;
 
 /**
- * {@code scheduled_tasks} 表的建表/索引初始化与底层访问门面。
+ * {@code scheduled_tasks} 表的底层访问门面。
  *
- * <p>沿用仓库既有 {@code *Database + *Mapper} 模式：DDL 在 {@link #init()}（{@code @PostConstruct}）里
- * 幂等执行，注入池化 {@code DataSource}（经 MyBatis {@code SqlSessionFactory}），不自建连接。
+ * <p>建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行；{@link #init()} 只保留
+ * 幂等的任务快照数据迁移。注入池化 {@code DataSource}（经 MyBatis {@code SqlSessionFactory}），不自建连接。
  */
 @Slf4j
 @Repository
@@ -23,20 +24,13 @@ import java.util.List;
 public class ScheduledTaskDatabase {
 
     private final ScheduledTaskMapper mapper;
+    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
+    @SuppressWarnings("unused")
+    private final DatabaseInitializer databaseInitializer;
 
     @PostConstruct
     public void init() {
-        mapper.createScheduledTasksTable();
-        // 幂等迁移：在建索引前补齐旧库可能缺失的列，否则建 account_id 索引或后续读写会失败。
-        addColumnIfMissing(mapper::addAccountIdColumn);
-        addColumnIfMissing(mapper::addAckWarningTimeColumn);
-        addColumnIfMissing(mapper::addPendingRetryArmedColumn);
-        addColumnIfMissing(mapper::addProxySnapshotColumn);
-        mapper.createScheduledTasksNextRunIndex();
-        mapper.createScheduledTasksAccountIndex();
-        mapper.createScheduledTaskPendingTable();
         backfillRedownloadDeletedSetting();
-        log.info("scheduled_tasks schema initialized");
     }
 
     /**
@@ -68,17 +62,6 @@ public class ScheduledTaskDatabase {
             } catch (Exception e) {
                 log.warn("Failed to backfill redownloadDeleted for scheduled task {}: {}",
                         task.id(), e.getMessage());
-            }
-        }
-    }
-
-    private void addColumnIfMissing(Runnable addColumn) {
-        try {
-            addColumn.run();
-        } catch (Exception e) {
-            String msg = String.valueOf(e.getMessage());
-            if (!msg.toLowerCase().contains("duplicate column")) {
-                log.warn("Unexpected error adding scheduled_tasks column: {}", msg, e);
             }
         }
     }

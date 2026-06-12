@@ -163,8 +163,7 @@ class PathPrefixSymbolicRootTest {
 
         private PathPrefixStartupMigration migration() {
             return new PathPrefixStartupMigration(dataSource, codec, PATH_COLUMNS, new DownloadConfig(),
-                    TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(),
-                    null, null, null, null);
+                    TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction());
         }
 
         @Test
@@ -247,8 +246,7 @@ class PathPrefixSymbolicRootTest {
 
         private PathPrefixStartupMigration absMigration() {
             return new PathPrefixStartupMigration(dataSource, absCodec, PATH_COLUMNS, absConfig,
-                    TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(),
-                    null, null, null, null);
+                    TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction());
         }
 
         @Test

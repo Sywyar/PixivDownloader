@@ -8,29 +8,6 @@ import java.util.List;
 @Mapper
 public interface CollectionMapper {
 
-    @Update("CREATE TABLE IF NOT EXISTS collections ("
-            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            + "name TEXT NOT NULL,"
-            + "icon_ext TEXT,"
-            + "download_root TEXT,"
-            + "sort_order INTEGER DEFAULT 0,"
-            + "created_time INTEGER NOT NULL)")
-    void createCollectionsTable();
-
-    @Update("ALTER TABLE collections ADD COLUMN download_root TEXT")
-    void addDownloadRootColumn();
-
-    @Update("CREATE TABLE IF NOT EXISTS artwork_collections ("
-            + "collection_id INTEGER NOT NULL,"
-            + "artwork_id INTEGER NOT NULL,"
-            + "added_time INTEGER NOT NULL,"
-            + "PRIMARY KEY (collection_id, artwork_id))")
-    void createArtworkCollectionsTable();
-
-    @Update("CREATE INDEX IF NOT EXISTS idx_artwork_collections_artwork"
-            + " ON artwork_collections(artwork_id)")
-    void createArtworkCollectionsArtworkIndex();
-
     @Update("UPDATE collections SET created_time = created_time * 1000"
             + " WHERE created_time > 0 AND created_time < 1000000000000")
     int migrateCollectionTimestampsToMillis();

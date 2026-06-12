@@ -1,24 +1,22 @@
 package top.sywyar.pixivdownload.download.db;
 
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.PayloadApplicationEvent;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.transaction.support.TransactionTemplate;
-import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.PathPrefix;
 import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.PathPrefixColumns;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.series.MangaSeriesService;
+import top.sywyar.pixivdownload.plugin.api.event.DatabaseReadyEvent;
 
 import javax.sql.DataSource;
 import java.io.IOException;
@@ -36,9 +34,9 @@ import java.util.stream.Stream;
 
 /**
  * 启动时把存量绝对路径迁移成 {@code {id}/relative} 形式。
- * 依赖所有相关 @Repository / @Service 的 {@code @PostConstruct} 已建表完成，
- * 因此本类显式注入 {@link PixivDatabase} / {@link NovelDatabase} / {@link MangaSeriesService} /
- * {@link CollectionService} 以触发 Spring 的初始化顺序。
+ * 建表 / 补列 / 索引统一由 {@code DatabaseInitializer} 执行，本类监听其在 DDL 全部完成后发布的
+ * {@link DatabaseReadyEvent} 触发迁移——事件发布于单例实例化早期（{@code @PostConstruct}），
+ * 监听方必须是 {@code ApplicationListener} bean（{@code @EventListener} 注解方法此刻尚未注册）。
  *
  * <p>符号根 {@code {0}} 启用（root-folder 为相对路径）时，本类还负责：
  * <ul>
@@ -52,7 +50,8 @@ import java.util.stream.Stream;
  */
 @Slf4j
 @Component
-public class PathPrefixStartupMigration {
+public class PathPrefixStartupMigration
+        implements ApplicationListener<PayloadApplicationEvent<DatabaseReadyEvent>> {
 
     private final DataSource dataSource;
     private final PathPrefixCodec codec;
@@ -61,47 +60,32 @@ public class PathPrefixStartupMigration {
     private final AppMessages messages;
     private final TransactionOperations transactionOperations;
 
-    // 仅为触发 @PostConstruct 顺序，确保被迁移表已建好
-    @SuppressWarnings("unused")
-    private final PixivDatabase pixivDatabase;
-    @SuppressWarnings("unused")
-    private final NovelDatabase novelDatabase;
-    @SuppressWarnings("unused")
-    private final MangaSeriesService mangaSeriesService;
-    @SuppressWarnings("unused")
-    private final CollectionService collectionService;
-
     @Autowired
     public PathPrefixStartupMigration(DataSource dataSource, PathPrefixCodec codec,
                                       PathPrefixColumns pathPrefixColumns,
                                       DownloadConfig downloadConfig, AppMessages messages,
-                                      PlatformTransactionManager transactionManager,
-                                      PixivDatabase pixivDatabase, NovelDatabase novelDatabase,
-                                      MangaSeriesService mangaSeriesService, CollectionService collectionService) {
+                                      PlatformTransactionManager transactionManager) {
         this(dataSource, codec, pathPrefixColumns, downloadConfig, messages,
-                new TransactionTemplate(transactionManager),
-                pixivDatabase, novelDatabase, mangaSeriesService, collectionService);
+                new TransactionTemplate(transactionManager));
     }
 
     public PathPrefixStartupMigration(DataSource dataSource, PathPrefixCodec codec,
                                PathPrefixColumns pathPrefixColumns,
                                DownloadConfig downloadConfig, AppMessages messages,
-                               TransactionOperations transactionOperations,
-                               PixivDatabase pixivDatabase, NovelDatabase novelDatabase,
-                               MangaSeriesService mangaSeriesService, CollectionService collectionService) {
+                               TransactionOperations transactionOperations) {
         this.dataSource = dataSource;
         this.codec = codec;
         this.pathPrefixColumns = pathPrefixColumns;
         this.downloadConfig = downloadConfig;
         this.messages = messages;
         this.transactionOperations = transactionOperations;
-        this.pixivDatabase = pixivDatabase;
-        this.novelDatabase = novelDatabase;
-        this.mangaSeriesService = mangaSeriesService;
-        this.collectionService = collectionService;
     }
 
-    @PostConstruct
+    @Override
+    public void onApplicationEvent(PayloadApplicationEvent<DatabaseReadyEvent> event) {
+        migrate();
+    }
+
     public void migrate() {
         try {
             seedPrefixes();

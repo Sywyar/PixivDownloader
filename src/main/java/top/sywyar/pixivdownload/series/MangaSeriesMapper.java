@@ -8,28 +8,6 @@ import java.util.List;
 @Mapper
 public interface MangaSeriesMapper {
 
-    @Update("CREATE TABLE IF NOT EXISTS manga_series ("
-            + "series_id INTEGER PRIMARY KEY,"
-            + "title TEXT NOT NULL,"
-            + "author_id INTEGER,"
-            + "updated_time INTEGER NOT NULL,"
-            + "description TEXT DEFAULT NULL,"
-            + "cover_ext TEXT DEFAULT NULL,"
-            + "cover_folder TEXT DEFAULT NULL)")
-    void createMangaSeriesTable();
-
-    /** 幂等迁移：旧库 manga_series 表补 description 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE manga_series ADD COLUMN description TEXT DEFAULT NULL")
-    void addDescriptionColumn();
-
-    /** 幂等迁移：旧库 manga_series 表补 cover_ext 列；列已存在时调用方需吞掉异常 */
-    @Update("ALTER TABLE manga_series ADD COLUMN cover_ext TEXT DEFAULT NULL")
-    void addCoverExtColumn();
-
-    /** 幂等迁移：旧库 manga_series 表补 cover_folder 列（落盘封面的绝对目录）；列已存在抛异常吞掉 */
-    @Update("ALTER TABLE manga_series ADD COLUMN cover_folder TEXT DEFAULT NULL")
-    void addCoverFolderColumn();
-
     @Update("UPDATE manga_series SET updated_time = updated_time * 1000"
             + " WHERE updated_time > 0 AND updated_time < 1000000000000")
     int migrateSeriesTimestampsToMillis();
