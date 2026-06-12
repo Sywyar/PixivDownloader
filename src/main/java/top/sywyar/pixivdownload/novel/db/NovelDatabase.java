@@ -160,6 +160,16 @@ public class NovelDatabase {
         return resolveNovel(novelMapper.findById(novelId));
     }
 
+    /** 批量取小说行（含软删除行，路径前缀已解析）；返回顺序不保证，由调用方按需重排。 */
+    public List<NovelRecord> getNovels(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) {
+            return List.of();
+        }
+        return novelMapper.findByIds(novelIds).stream()
+                .map(this::resolveNovel)
+                .toList();
+    }
+
     private NovelRecord resolveNovel(NovelRecord record) {
         if (record == null) return null;
         String resolvedFolder = pathPrefixCodec.resolve(record.folder());
@@ -370,6 +380,28 @@ public class NovelDatabase {
         return ids == null ? Collections.emptyList() : ids;
     }
 
+    /** 批量取多本小说的内嵌图片 id，按 novelId 分组；无内嵌图的小说不出现在结果中。 */
+    public java.util.Map<Long, List<String>> getNovelImageIdsBatch(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
+        return groupStringsByNovelId(novelMapper.findNovelImageIdsByNovelIds(novelIds), "imageId");
+    }
+
+    /** 批量取多本小说已存在译文的语言代码，按 novelId 分组；无译文的小说不出现在结果中。 */
+    public java.util.Map<Long, List<String>> getTranslationLangsBatch(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
+        return groupStringsByNovelId(novelMapper.findTranslationLangsByNovelIds(novelIds), "langCode");
+    }
+
+    private static java.util.Map<Long, List<String>> groupStringsByNovelId(
+            List<java.util.Map<String, Object>> rows, String valueKey) {
+        java.util.Map<Long, List<String>> out = new java.util.LinkedHashMap<>();
+        for (java.util.Map<String, Object> row : rows) {
+            Long novelId = ((Number) row.get("novelId")).longValue();
+            out.computeIfAbsent(novelId, k -> new java.util.ArrayList<>()).add((String) row.get(valueKey));
+        }
+        return out;
+    }
+
     public void clearNovelImages(long novelId) {
         novelMapper.deleteNovelImages(novelId);
     }
@@ -436,6 +468,23 @@ public class NovelDatabase {
 
     public List<TagDto> getNovelTags(long novelId) {
         return novelMapper.findTagsByNovelId(novelId);
+    }
+
+    /** 批量取多本小说的标签，按 novelId 分组；无标签的小说不出现在结果中。 */
+    public java.util.Map<Long, List<TagDto>> getNovelTagsBatch(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
+        List<java.util.Map<String, Object>> rows = novelMapper.findTagsByNovelIds(novelIds);
+        java.util.Map<Long, List<TagDto>> out = new java.util.LinkedHashMap<>();
+        for (java.util.Map<String, Object> row : rows) {
+            Long novelId = ((Number) row.get("novelId")).longValue();
+            Number tagIdNum = (Number) row.get("tagId");
+            TagDto tag = new TagDto(
+                    (String) row.get("name"),
+                    (String) row.get("translatedName"));
+            tag.setTagId(tagIdNum == null ? null : tagIdNum.longValue());
+            out.computeIfAbsent(novelId, k -> new java.util.ArrayList<>()).add(tag);
+        }
+        return out;
     }
 
     public boolean hasNovelTags(long novelId) {

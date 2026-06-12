@@ -12,11 +12,8 @@ import java.util.Optional;
  * {@link WorkQueryService#hasWork}。
  *
  * <p><b>批量契约。</b>{@link #findAll} 的行读取与各关联补全（作者名 / 系列标题 /
- * 标签 / 文件名模板）必须按入参整体批量执行，禁止退化为每 id 一查的 N+1。
- *
- * <p>{@link WorkType#NOVEL} 的 {@link #findAll} 尚未接入：小说侧今天没有批量行查询
- * 可代理，调用抛 {@link UnsupportedOperationException}（配契约单测），待小说画廊改走
- * 核心接口时接入并翻转；单条 {@link #find} 两种类型均可用。
+ * 标签 / 文件名模板，小说侧另含内嵌图片 id / 译文语言）必须按入参整体批量执行，
+ * 禁止退化为每 id 一查的 N+1。
  */
 public interface WorkMetadataRepository {
 

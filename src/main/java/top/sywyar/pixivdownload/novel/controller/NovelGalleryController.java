@@ -7,8 +7,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
@@ -25,6 +23,10 @@ import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.novel.db.NovelSeriesSummary;
 import top.sywyar.pixivdownload.novel.request.NovelBatchRequest;
+import top.sywyar.pixivdownload.plugin.api.SeriesNeighbors;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.WorkType;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
@@ -51,7 +53,7 @@ public class NovelGalleryController {
     private final NovelTranslationService novelTranslationService;
     private final NovelDatabase novelDatabase;
     private final NovelGalleryRepository novelGalleryRepository;
-    private final PixivDatabase pixivDatabase;
+    private final WorkAssetService workAssetService;
     private final GuestAccessGuard guestAccessGuard;
     private final AppMessages messages;
 
@@ -233,14 +235,14 @@ public class NovelGalleryController {
             @RequestParam(required = false) String lang,
             HttpServletRequest httpRequest) {
         guestAccessGuard.requireNovelVisible(httpRequest, novelId);
-        NovelGalleryService.SeriesNeighbors n = novelGalleryService.seriesNeighbors(novelId);
+        SeriesNeighbors n = novelGalleryService.seriesNeighbors(novelId);
         if (n == null) {
             return ResponseEntity.ok(new NovelSeriesNavResponse(null, null, null, null, null));
         }
         // 选定了内容语言时优先用译后系列名 / 译后章节标题，缺失回退原文，与详情页主标题语义一致。
         String langCode = (lang == null || lang.isBlank()) ? null : lang.trim();
         String seriesTitle = n.seriesTitle();
-        if (langCode != null && n.seriesId() != null) {
+        if (langCode != null) {
             String translatedSeries = novelDatabase.getSeriesTitleTranslation(n.seriesId(), langCode);
             if (translatedSeries != null && !translatedSeries.isBlank()) {
                 seriesTitle = translatedSeries;
@@ -254,22 +256,22 @@ public class NovelGalleryController {
         ));
     }
 
-    private NeighborView visibleNeighbor(NovelGalleryService.NeighborView neighbor,
+    private NeighborView visibleNeighbor(SeriesNeighbors.Neighbor neighbor,
                                          GuestInviteSession session, String langCode) {
         if (neighbor == null) {
             return null;
         }
-        if (session != null && !guestAccessGuard.isNovelVisibleToGuest(neighbor.novelId(), session)) {
+        if (session != null && !guestAccessGuard.isNovelVisibleToGuest(neighbor.workId(), session)) {
             return null;
         }
         String title = neighbor.title();
         if (langCode != null) {
-            String translated = novelDatabase.getTranslationTitle(neighbor.novelId(), langCode);
+            String translated = novelDatabase.getTranslationTitle(neighbor.workId(), langCode);
             if (translated != null && !translated.isBlank()) {
                 title = translated;
             }
         }
-        return new NeighborView(neighbor.novelId(), title, neighbor.seriesOrder());
+        return new NeighborView(neighbor.workId(), title, neighbor.seriesOrder());
     }
 
     private List<NovelGalleryService.NovelView> filterForGuest(
@@ -287,19 +289,14 @@ public class NovelGalleryController {
     public ResponseEntity<byte[]> getNovelCover(@PathVariable long novelId,
                                                 HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireNovelVisible(httpRequest, novelId);
-        NovelRecord rec = novelDatabase.getNovel(novelId);
-        if (rec == null || rec.coverExt() == null || rec.coverExt().isBlank()) {
-            return ResponseEntity.notFound().build();
-        }
-        String baseName = resolveStoredNovelBaseName(rec);
-        Path file = Paths.get(rec.folder(), baseName + "_thumb." + rec.coverExt());
-        if (!Files.isRegularFile(file)) {
+        WorkAssetFile cover = workAssetService.thumbnail(WorkType.NOVEL, novelId, 0).orElse(null);
+        if (cover == null) {
             return ResponseEntity.notFound().build();
         }
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType(mimeFor(rec.coverExt())));
+        headers.setContentType(MediaType.parseMediaType(mimeFor(cover.extension())));
         headers.setCacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic());
-        return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
+        return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(cover.path()));
     }
 
     /**
@@ -506,20 +503,6 @@ public class NovelGalleryController {
         headers.setContentType(MediaType.parseMediaType(mimeFor(ext)));
         headers.setCacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic());
         return ResponseEntity.ok().headers(headers).body(Files.readAllBytes(file));
-    }
-
-    private String resolveStoredNovelBaseName(NovelRecord rec) {
-        String template = rec.fileName() == null
-                ? ArtworkFileNameFormatter.DEFAULT_TEMPLATE
-                : pixivDatabase.getFileNameTemplate(rec.fileName());
-        String authorName = rec.fileAuthorNameId() == null
-                ? ""
-                : pixivDatabase.getFileAuthorName(rec.fileAuthorNameId());
-        if (authorName == null) authorName = "";
-        List<String> names = ArtworkFileNameFormatter.formatAll(
-                template, rec.novelId(), rec.title(), rec.authorId(), authorName,
-                rec.time(), 1, rec.isAi(), rec.xRestrict());
-        return names.isEmpty() ? String.valueOf(rec.novelId()) : names.get(0);
     }
 
     private static String mimeFor(String ext) {

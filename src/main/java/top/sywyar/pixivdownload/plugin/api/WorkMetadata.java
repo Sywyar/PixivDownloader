@@ -32,6 +32,8 @@ import java.util.List;
  * @param fileNameTemplateId 文件名模板 id（底层原值），可为 {@code null}
  * @param fileNameTemplate   文件名模板内容（插画侧沿用「{@code null} id 取默认模板 1」的既有规则补全）
  * @param fileAuthorNameId   文件名作者名 id，可为 {@code null}
+ * @param novel              小说专属元数据块；{@code workType == NOVEL} 时必填，插画行恒为 {@code null}
+ *                           （不变量由紧凑构造器强制）
  */
 public record WorkMetadata(
         WorkType workType,
@@ -55,9 +57,15 @@ public record WorkMetadata(
         Long moveTime,
         Long fileNameTemplateId,
         String fileNameTemplate,
-        Long fileAuthorNameId) {
+        Long fileAuthorNameId,
+        NovelWorkDetails novel) {
 
     public WorkMetadata {
         tags = tags == null ? List.of() : List.copyOf(tags);
+        if ((workType == WorkType.NOVEL) != (novel != null)) {
+            throw new IllegalArgumentException(
+                    "WorkMetadata 小说块不变量被破坏：workType=" + workType
+                            + " 时 novel " + (novel == null ? "必填" : "必须为 null"));
+        }
     }
 }

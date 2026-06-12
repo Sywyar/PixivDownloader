@@ -22,7 +22,6 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -186,20 +185,26 @@ class CoreWorkMetadataRepositoryTest {
     @DisplayName("小说侧")
     class NovelTests {
 
-        private NovelRecord novel(boolean deleted) {
-            return new NovelRecord(42L, "小说标题", "/novels/42", 2, "", 1900L, 1, false, 88L,
-                    "小说简介", 5L, 9L, 700L, 3L, 1000, 2000, 300, 4, true, "ja", "正文", "jpg", deleted);
+        private NovelRecord novel(long id, boolean deleted) {
+            return new NovelRecord(id, "小说标题" + id, "/novels/" + id, 2, "", 1900L + id, 1, false, 88L,
+                    "小说简介" + id, 5L, 9L, 700L, 3L, 1000, 2000, 300, 4, true, "ja", "正文", "jpg", deleted);
         }
 
         @Test
-        @DisplayName("find 应补全作者名、系列标题、标签与模板，小说无移动语义")
+        @DisplayName("find 应补全作者名、系列标题、标签、模板与小说专属块，小说无移动语义")
         void shouldHydrateNovelMetadata() {
-            when(novelDatabase.getNovel(42L)).thenReturn(novel(false));
-            when(novelDatabase.getNovelTags(42L)).thenReturn(List.of(new TagDto(21L, "ファンタジー", "奇幻")));
-            when(novelDatabase.getSeries(700L)).thenReturn(
-                    new NovelSeries(700L, "小说系列", 88L, 0L, null, null, null));
+            when(novelDatabase.getNovels(anyCollection())).thenReturn(List.of(novel(42L, false)));
+            when(novelDatabase.getNovelTagsBatch(anyCollection())).thenReturn(Map.of(
+                    42L, List.of(new TagDto(21L, "ファンタジー", "奇幻"))));
+            when(novelDatabase.getSeriesByIds(anyCollection())).thenReturn(List.of(
+                    new NovelSeries(700L, "小说系列", 88L, 0L, null, null, null)));
+            when(novelDatabase.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of(
+                    42L, List.of("img-a", "img-b")));
+            when(novelDatabase.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of(
+                    42L, List.of("zh-CN")));
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(88L, "作者乙"));
-            when(pixivDatabase.getFileNameTemplate(5L)).thenReturn("{novel_title}");
+            when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of(
+                    5L, "{novel_title}"));
 
             Optional<WorkMetadata> found = repository.find(WorkType.NOVEL, 42L);
 
@@ -207,8 +212,8 @@ class CoreWorkMetadataRepositoryTest {
             WorkMetadata meta = found.get();
             assertThat(meta.workType()).isEqualTo(WorkType.NOVEL);
             assertThat(meta.workId()).isEqualTo(42L);
-            assertThat(meta.title()).isEqualTo("小说标题");
-            assertThat(meta.description()).isEqualTo("小说简介");
+            assertThat(meta.title()).isEqualTo("小说标题42");
+            assertThat(meta.description()).isEqualTo("小说简介42");
             assertThat(meta.xRestrict()).isEqualTo(1);
             assertThat(meta.isAi()).isFalse();
             assertThat(meta.authorId()).isEqualTo(88L);
@@ -217,7 +222,7 @@ class CoreWorkMetadataRepositoryTest {
             assertThat(meta.seriesOrder()).isEqualTo(3L);
             assertThat(meta.seriesTitle()).isEqualTo("小说系列");
             assertThat(meta.tags()).containsExactly(new WorkTag(21L, "ファンタジー", "奇幻"));
-            assertThat(meta.downloadTime()).isEqualTo(1900L);
+            assertThat(meta.downloadTime()).isEqualTo(1942L);
             assertThat(meta.pageCount()).isEqualTo(2);
             assertThat(meta.folder()).isEqualTo("/novels/42");
             assertThat(meta.moved()).isFalse();
@@ -226,22 +231,90 @@ class CoreWorkMetadataRepositoryTest {
             assertThat(meta.fileNameTemplateId()).isEqualTo(5L);
             assertThat(meta.fileNameTemplate()).isEqualTo("{novel_title}");
             assertThat(meta.fileAuthorNameId()).isEqualTo(9L);
+            assertThat(meta.novel()).isNotNull();
+            assertThat(meta.novel().wordCount()).isEqualTo(1000);
+            assertThat(meta.novel().textLength()).isEqualTo(2000);
+            assertThat(meta.novel().readingTimeSeconds()).isEqualTo(300);
+            assertThat(meta.novel().pageCount()).isEqualTo(4);
+            assertThat(meta.novel().isOriginal()).isTrue();
+            assertThat(meta.novel().xLanguage()).isEqualTo("ja");
+            assertThat(meta.novel().coverExt()).isEqualTo("jpg");
+            assertThat(meta.novel().embeddedImageIds()).containsExactly("img-a", "img-b");
+            assertThat(meta.novel().translatedLanguages()).containsExactly("zh-CN");
         }
 
         @Test
         @DisplayName("find 对软删除小说返回 empty")
         void shouldReturnEmptyForSoftDeletedNovel() {
-            when(novelDatabase.getNovel(42L)).thenReturn(novel(true));
+            when(novelDatabase.getNovels(anyCollection())).thenReturn(List.of(novel(42L, true)));
 
             assertThat(repository.find(WorkType.NOVEL, 42L)).isEmpty();
         }
 
         @Test
-        @DisplayName("findAll 小说侧尚未接入：抛 UnsupportedOperationException")
-        void shouldRejectNovelFindAll() {
-            assertThatThrownBy(() -> repository.findAll(WorkType.NOVEL, List.of(42L)))
-                    .isInstanceOf(UnsupportedOperationException.class)
-                    .hasMessageContaining("NOVEL");
+        @DisplayName("findAll 返回顺序必须与传入 id 顺序一致，软删除行与未知 id 直接跳过")
+        void shouldPreserveInputOrderAndSkipDeletedOrMissing() {
+            when(novelDatabase.getNovels(anyCollection())).thenReturn(List.of(
+                    novel(1L, false), novel(2L, true), novel(3L, false)));
+            when(novelDatabase.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
+            when(novelDatabase.getSeriesByIds(anyCollection())).thenReturn(List.of());
+            when(novelDatabase.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());
+            when(novelDatabase.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of());
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
+            when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of());
+
+            List<WorkMetadata> out = repository.findAll(WorkType.NOVEL, List.of(3L, 4L, 1L, 2L));
+
+            assertThat(out).extracting(WorkMetadata::workId).containsExactly(3L, 1L);
+        }
+
+        @Test
+        @DisplayName("findAll 行读取与各关联补全各发一次批量查询，绝不退化为每 id 一查")
+        void shouldHydrateWithSingleBatchQueries() {
+            when(novelDatabase.getNovels(anyCollection())).thenReturn(List.of(
+                    novel(1L, false), novel(2L, false)));
+            when(novelDatabase.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
+            when(novelDatabase.getSeriesByIds(anyCollection())).thenReturn(List.of());
+            when(novelDatabase.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());
+            when(novelDatabase.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of());
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
+            when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of());
+
+            repository.findAll(WorkType.NOVEL, List.of(1L, 2L));
+
+            verify(novelDatabase, times(1)).getNovels(anyCollection());
+            verify(novelDatabase, never()).getNovel(anyLong());
+            verify(novelDatabase, times(1)).getNovelTagsBatch(anyCollection());
+            verify(novelDatabase, never()).getNovelTags(anyLong());
+            verify(novelDatabase, times(1)).getSeriesByIds(anyCollection());
+            verify(novelDatabase, never()).getSeries(anyLong());
+            verify(novelDatabase, times(1)).getNovelImageIdsBatch(anyCollection());
+            verify(novelDatabase, never()).getNovelImageIds(anyLong());
+            verify(novelDatabase, times(1)).getTranslationLangsBatch(anyCollection());
+            verify(novelDatabase, never()).getTranslationLangs(anyLong());
+            verify(authorService, times(1)).getAuthorNames(anyCollection());
+            verify(pixivDatabase, times(1)).getFileNameTemplates(anyCollection());
+            verify(pixivDatabase, never()).getFileNameTemplate(anyLong());
+        }
+
+        @Test
+        @DisplayName("模板 id 为空时不查模板池（小说侧无「缺省取默认模板 1」规则）")
+        void shouldSkipTemplateLookupWhenTemplateIdMissing() {
+            NovelRecord noTemplate = new NovelRecord(9L, "无模板", "/novels/9", 1, "", 1900L, 0, false,
+                    null, null, null, null, null, null, null, null, null, null, null, null,
+                    "正文", null, false);
+            when(novelDatabase.getNovels(anyCollection())).thenReturn(List.of(noTemplate));
+            when(novelDatabase.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
+            when(novelDatabase.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());
+            when(novelDatabase.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of());
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
+
+            Optional<WorkMetadata> found = repository.find(WorkType.NOVEL, 9L);
+
+            assertThat(found).isPresent();
+            assertThat(found.get().fileNameTemplateId()).isNull();
+            assertThat(found.get().fileNameTemplate()).isNull();
+            verify(pixivDatabase, never()).getFileNameTemplates(anyCollection());
         }
     }
 }

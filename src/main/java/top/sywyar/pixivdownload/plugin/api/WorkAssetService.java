@@ -10,9 +10,19 @@ import java.util.Optional;
  * <p>纯文件层视角，不参与查询层的软删除三态：作品行是否软删不影响文件解析，
  * 可见性判定由 {@link WorkVisibilityService}、存量三态由查询接口各自承担。
  *
- * <p>{@link WorkType#NOVEL} 尚未接入：小说本地文件仍由小说画廊侧自管，四个方法
- * 对 NOVEL 一律抛 {@link UnsupportedOperationException}，待小说画廊改走核心接口时
- * 接入并翻转契约单测。
+ * <p><b>小说资产语义。</b>小说独占目录 {@code novel-{id}/} 下没有页概念，约定如下：
+ * <ul>
+ *   <li>{@link #findAsset}：目录守卫通过后枚举目录下全部常规文件，按路径字典序排序，
+ *       {@code page} = 枚举序号（0 起）、{@code pageCount} = 文件数。<b>枚举序号是本次
+ *       快照内的临时编号，不是持久标识</b>——不得持久化、不得跨两次 {@code findAsset}
+ *       快照互相引用（与插画侧 Pixiv 真实页号语义不同）。</li>
+ *   <li>{@link #thumbnail}：恒解析封面文件（{@code {存储基名}_thumb.{coverExt}}），
+ *       {@code page} 参数无意义、被忽略，返回行的页号恒为 0。</li>
+ *   <li>{@link #rawFile}：按 {@link #findAsset} 同一枚举序号取第 {@code page} 个文件。</li>
+ *   <li>{@link #deleteLocalFiles}：仅当目录通过独占性守卫（目录名等于
+ *       {@code novel-{id}}、非文件系统根 / 非 {@code download.root-folder} 本身）才递归
+ *       删除；守卫不通过仅记日志并视为「无事可做」。</li>
+ * </ul>
  */
 public interface WorkAssetService {
 

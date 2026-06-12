@@ -9,23 +9,25 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
-import top.sywyar.pixivdownload.novel.request.NovelBatchRequest;
-import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.novel.request.NovelBatchRequest;
+import top.sywyar.pixivdownload.plugin.api.LocalWorkAsset;
+import top.sywyar.pixivdownload.plugin.api.NovelWorkDetails;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.WorkMetadata;
+import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
+import top.sywyar.pixivdownload.plugin.api.WorkType;
+import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,15 +49,13 @@ class NovelBatchServiceTest {
     @Mock
     private NovelGalleryService novelGalleryService;
     @Mock
-    private NovelDatabase novelDatabase;
+    private WorkMetadataRepository workMetadataRepository;
     @Mock
-    private AuthorService authorService;
+    private WorkAssetService workAssetService;
     @Mock
     private CollectionService collectionService;
     @Mock
     private UserQuotaService userQuotaService;
-    @Mock
-    private DownloadConfig downloadConfig;
 
     private NovelBatchService service;
 
@@ -63,9 +63,8 @@ class NovelBatchServiceTest {
     void setUp() {
         MultiModeConfig multiModeConfig = new MultiModeConfig();
         multiModeConfig.getQuota().setArchiveExpireMinutes(60);
-        service = new NovelBatchService(novelGalleryService, novelDatabase, authorService,
-                collectionService, userQuotaService, multiModeConfig, downloadConfig,
-                new ObjectMapper(), TestI18nBeans.appMessages());
+        service = new NovelBatchService(novelGalleryService, workMetadataRepository, workAssetService,
+                collectionService, userQuotaService, multiModeConfig, new ObjectMapper());
     }
 
     @Test
@@ -131,14 +130,15 @@ class NovelBatchServiceTest {
             throws Exception {
         Path folder = tempDir.resolve("novel-7");
         Files.createDirectories(folder);
-        Files.writeString(folder.resolve("content.txt"), "text");
-        NovelRecord record = new NovelRecord(7L, "Story", folder.toString(), 1, "txt", 0L,
-                0, false, 88L, null, null, null, null, null,
-                100, 200, 60, null, null, null, null, null);
-        when(novelDatabase.getNovel(7L)).thenReturn(record);
-        when(novelDatabase.getNovelTags(7L)).thenReturn(List.of());
-        when(authorService.getAuthorNames(any())).thenReturn(Map.of(88L, "Writer"));
-        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        Path content = Files.writeString(folder.resolve("content.txt"), "text");
+        WorkMetadata meta = new WorkMetadata(WorkType.NOVEL, 7L, "Story", null, 0, false,
+                88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", folder.toString(),
+                false, null, null, null, null, null,
+                new NovelWorkDetails(100, 200, 60, null, null, null, null, List.of(), List.of()));
+        when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L))).thenReturn(List.of(meta));
+        when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.NOVEL, 7L, folder, 1,
+                        List.of(new WorkAssetFile(0, content, "txt")))));
         when(userQuotaService.triggerAdminFileArchive(anyList(), anyString(), anyInt(), any()))
                 .thenReturn("token-2");
 

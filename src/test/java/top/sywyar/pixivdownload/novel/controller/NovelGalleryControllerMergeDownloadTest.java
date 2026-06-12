@@ -9,7 +9,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.NovelGalleryService;
@@ -19,6 +18,7 @@ import top.sywyar.pixivdownload.novel.NovelTranslationService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.NovelBatchService;
 import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 
 import java.nio.charset.StandardCharsets;
@@ -45,14 +45,14 @@ class NovelGalleryControllerMergeDownloadTest {
     @Mock private NovelTranslationService novelTranslationService;
     @Mock private NovelDatabase novelDatabase;
     @Mock private NovelGalleryRepository novelGalleryRepository;
-    @Mock private PixivDatabase pixivDatabase;
+    @Mock private WorkAssetService workAssetService;
     @Mock private GuestAccessGuard guestAccessGuard;
     @Mock private AppMessages messages;
 
     private NovelGalleryController controller() {
         return new NovelGalleryController(
                 novelGalleryService, novelBatchService, novelMergeService, novelSeriesService, novelTranslationService,
-                novelDatabase, novelGalleryRepository, pixivDatabase, guestAccessGuard, messages);
+                novelDatabase, novelGalleryRepository, workAssetService, guestAccessGuard, messages);
     }
 
     @Test

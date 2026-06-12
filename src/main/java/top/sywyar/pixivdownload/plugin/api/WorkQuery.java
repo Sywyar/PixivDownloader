@@ -7,11 +7,14 @@ import java.util.List;
  * 筛选维度可组合），调用方负责传入已归一化的值：
  *
  * <ul>
- *   <li>{@code sort}：{@code date / artworkId / imgs / status / authorId / tags / series}</li>
+ *   <li>{@code sort}：插画 {@code date / artworkId / imgs / status / authorId / tags / series}；
+ *       小说 {@code date / novelId / wordCount / series}</li>
  *   <li>{@code order}：{@code asc / desc}</li>
- *   <li>{@code searchType}：{@code all / title / author / id / authorId / desc / tag / tagExact}</li>
+ *   <li>{@code searchType}：{@code all / title / author / id / authorId / desc / tag / tagExact}；
+ *       小说另支持 {@code content}（正文全文检索）</li>
  *   <li>{@code r18}：{@code any / yes / no / r18 / r18g / r18plus}</li>
  *   <li>{@code ai}：{@code any / yes / no}</li>
+ *   <li>{@code formats}：仅插画侧使用（按扩展名过滤），小说侧忽略</li>
  *   <li>{@code size} 必须 ≥ 1（分页数学在查询侧完成）</li>
  * </ul>
  *

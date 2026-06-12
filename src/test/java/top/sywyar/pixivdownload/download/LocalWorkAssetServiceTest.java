@@ -2,14 +2,21 @@ package top.sywyar.pixivdownload.download;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.plugin.api.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
 import top.sywyar.pixivdownload.plugin.api.WorkType;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -17,16 +24,20 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class LocalWorkAssetServiceTest {
 
+    @TempDir
+    Path tempDir;
+
     private DownloadService downloadService;
     private ArtworkFileLocator artworkFileLocator;
     private PixivDatabase pixivDatabase;
+    private NovelDatabase novelDatabase;
+    private DownloadConfig downloadConfig;
     private LocalWorkAssetService service;
 
     @BeforeEach
@@ -34,7 +45,10 @@ class LocalWorkAssetServiceTest {
         downloadService = mock(DownloadService.class);
         artworkFileLocator = mock(ArtworkFileLocator.class);
         pixivDatabase = mock(PixivDatabase.class);
-        service = new LocalWorkAssetService(downloadService, artworkFileLocator, pixivDatabase);
+        novelDatabase = mock(NovelDatabase.class);
+        downloadConfig = mock(DownloadConfig.class);
+        service = new LocalWorkAssetService(downloadService, artworkFileLocator, pixivDatabase,
+                novelDatabase, downloadConfig, TestI18nBeans.appMessages());
     }
 
     private static ArtworkRecord artwork(long artworkId, int count) {
@@ -154,15 +168,159 @@ class LocalWorkAssetServiceTest {
         assertTrue(asset.get().files().isEmpty());
     }
 
-    /**
-     * NOVEL 接入前的契约单测：小说画廊改走核心接口接入小说侧实现时，本用例翻转为正常断言。
-     */
-    @Test
-    @DisplayName("NOVEL 契约：接入前四个方法一律显式抛 UnsupportedOperationException")
-    void novelIsExplicitlyUnsupportedUntilWired() {
-        assertThrows(UnsupportedOperationException.class, () -> service.findAsset(WorkType.NOVEL, 42L));
-        assertThrows(UnsupportedOperationException.class, () -> service.thumbnail(WorkType.NOVEL, 42L, 0));
-        assertThrows(UnsupportedOperationException.class, () -> service.rawFile(WorkType.NOVEL, 42L, 0));
-        assertThrows(UnsupportedOperationException.class, () -> service.deleteLocalFiles(WorkType.NOVEL, 42L));
+    @Nested
+    @DisplayName("小说侧（novel-{id} 独占目录语义）")
+    class NovelAssetTests {
+
+        private NovelRecord novel(long novelId, String folder, Long fileName, String coverExt) {
+            return new NovelRecord(novelId, "小说标题", folder, 1, "txt", 1000L, 0, false, 88L,
+                    null, fileName, null, null, null, null, null, null, null, null, null,
+                    "正文", coverExt, false);
+        }
+
+        private Path novelDir(long novelId) throws Exception {
+            return Files.createDirectories(tempDir.resolve("novel-" + novelId));
+        }
+
+        @Test
+        @DisplayName("findAsset 无下载记录时返回 empty")
+        void findAssetReturnsEmptyWhenNovelMissing() {
+            when(novelDatabase.getNovel(404L)).thenReturn(null);
+
+            assertTrue(service.findAsset(WorkType.NOVEL, 404L).isEmpty());
+        }
+
+        @Test
+        @DisplayName("findAsset 按路径字典序枚举目录全部常规文件，页号为枚举序号、pageCount 为文件数")
+        void findAssetEnumeratesNovelFilesInOrder() throws Exception {
+            Path dir = novelDir(7L);
+            Path a = Files.writeString(dir.resolve("7_p0.txt"), "text");
+            Path b = Files.writeString(dir.resolve("7_p0_thumb.jpg"), "cover");
+            Path c = Files.writeString(dir.resolve("embed_x.png"), "img");
+            when(novelDatabase.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, "jpg"));
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+
+            Optional<LocalWorkAsset> asset = service.findAsset(WorkType.NOVEL, 7L);
+
+            assertTrue(asset.isPresent());
+            assertEquals(WorkType.NOVEL, asset.get().workType());
+            assertEquals(dir.toAbsolutePath().normalize(), asset.get().directory());
+            assertEquals(3, asset.get().pageCount());
+            assertEquals(List.of(
+                    new WorkAssetFile(0, a.toAbsolutePath().normalize(), "txt"),
+                    new WorkAssetFile(1, b.toAbsolutePath().normalize(), "jpg"),
+                    new WorkAssetFile(2, c.toAbsolutePath().normalize(), "png")), asset.get().files());
+        }
+
+        @Test
+        @DisplayName("findAsset 目录名不是 novel-{id} 独占目录时（污染行）directory 为 null、文件为空")
+        void findAssetRefusesNonExclusiveDirectory() throws Exception {
+            Path shared = Files.createDirectories(tempDir.resolve("shared"));
+            Files.writeString(shared.resolve("other.txt"), "x");
+            when(novelDatabase.getNovel(7L)).thenReturn(novel(7L, shared.toString(), null, "jpg"));
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+
+            Optional<LocalWorkAsset> asset = service.findAsset(WorkType.NOVEL, 7L);
+
+            assertTrue(asset.isPresent());
+            assertNull(asset.get().directory());
+            assertEquals(0, asset.get().pageCount());
+            assertTrue(asset.get().files().isEmpty());
+        }
+
+        @Test
+        @DisplayName("thumbnail 恒解析封面 {存储基名}_thumb.{coverExt}，page 参数被忽略、返回页号 0")
+        void thumbnailResolvesCoverFile() throws Exception {
+            Path dir = novelDir(7L);
+            Path cover = Files.writeString(dir.resolve("7_thumb.jpg"), "cover");
+            when(novelDatabase.getNovel(7L)).thenReturn(novel(7L, dir.toString(), 5L, "jpg"));
+            when(pixivDatabase.getFileNameTemplate(5L)).thenReturn("{artwork_id}");
+
+            Optional<WorkAssetFile> thumbnail = service.thumbnail(WorkType.NOVEL, 7L, 3);
+
+            assertTrue(thumbnail.isPresent());
+            assertEquals(0, thumbnail.get().page());
+            assertEquals(cover, thumbnail.get().path());
+            assertEquals("jpg", thumbnail.get().extension());
+        }
+
+        @Test
+        @DisplayName("thumbnail 模板缺省时按默认文件名模板解析封面基名")
+        void thumbnailFallsBackToDefaultTemplate() throws Exception {
+            Path dir = novelDir(7L);
+            Path cover = Files.writeString(dir.resolve("7_p0_thumb.jpg"), "cover");
+            when(novelDatabase.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, "jpg"));
+
+            Optional<WorkAssetFile> thumbnail = service.thumbnail(WorkType.NOVEL, 7L, 0);
+
+            assertTrue(thumbnail.isPresent());
+            assertEquals(cover, thumbnail.get().path());
+        }
+
+        @Test
+        @DisplayName("thumbnail 无封面记录或封面文件缺失时返回 empty")
+        void thumbnailReturnsEmptyWithoutCover() throws Exception {
+            Path dir = novelDir(7L);
+            when(novelDatabase.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, null));
+            assertTrue(service.thumbnail(WorkType.NOVEL, 7L, 0).isEmpty());
+
+            when(novelDatabase.getNovel(8L)).thenReturn(novel(8L, dir.toString(), null, "jpg"));
+            assertTrue(service.thumbnail(WorkType.NOVEL, 8L, 0).isEmpty());
+        }
+
+        @Test
+        @DisplayName("rawFile 按 findAsset 同一枚举序号取文件，序号越界返回 empty")
+        void rawFileUsesEnumerationOrdinal() throws Exception {
+            Path dir = novelDir(7L);
+            Path a = Files.writeString(dir.resolve("7_p0.txt"), "text");
+            Path b = Files.writeString(dir.resolve("embed_x.png"), "img");
+            when(novelDatabase.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, "jpg"));
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+
+            assertEquals(a.toAbsolutePath().normalize(),
+                    service.rawFile(WorkType.NOVEL, 7L, 0).orElseThrow().path());
+            assertEquals(b.toAbsolutePath().normalize(),
+                    service.rawFile(WorkType.NOVEL, 7L, 1).orElseThrow().path());
+            assertTrue(service.rawFile(WorkType.NOVEL, 7L, 2).isEmpty());
+            assertTrue(service.rawFile(WorkType.NOVEL, 7L, -1).isEmpty());
+        }
+
+        @Test
+        @DisplayName("deleteLocalFiles 递归删除独占目录（含子目录与目录本身）")
+        void deleteLocalFilesRemovesExclusiveDirectory() throws Exception {
+            Path dir = novelDir(7L);
+            Files.writeString(dir.resolve("7_p0.txt"), "text");
+            Path sub = Files.createDirectories(dir.resolve("extra"));
+            Files.writeString(sub.resolve("note.txt"), "x");
+            when(novelDatabase.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, "jpg"));
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+
+            assertTrue(service.deleteLocalFiles(WorkType.NOVEL, 7L));
+            assertFalse(Files.exists(dir));
+        }
+
+        @Test
+        @DisplayName("deleteLocalFiles 边界守卫：非独占目录 / 等于 root-folder 本身时不触碰磁盘并视为无事可做")
+        void deleteLocalFilesRefusesGuardedDirectories() throws Exception {
+            Path shared = Files.createDirectories(tempDir.resolve("shared"));
+            Path keep = Files.writeString(shared.resolve("keep.txt"), "x");
+            when(novelDatabase.getNovel(7L)).thenReturn(novel(7L, shared.toString(), null, "jpg"));
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+
+            assertTrue(service.deleteLocalFiles(WorkType.NOVEL, 7L));
+            assertTrue(Files.exists(keep));
+
+            when(novelDatabase.getNovel(8L)).thenReturn(novel(8L, tempDir.toString(), null, "jpg"));
+            assertTrue(service.deleteLocalFiles(WorkType.NOVEL, 8L));
+            assertTrue(Files.exists(keep));
+        }
+
+        @Test
+        @DisplayName("deleteLocalFiles 无下载记录时视为无事可做")
+        void deleteLocalFilesTreatsMissingNovelAsNoOp() {
+            when(novelDatabase.getNovel(404L)).thenReturn(null);
+
+            assertTrue(service.deleteLocalFiles(WorkType.NOVEL, 404L));
+        }
     }
 }

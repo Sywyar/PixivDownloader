@@ -136,7 +136,7 @@ class GalleryBatchServiceTest {
             throws Exception {
         WorkMetadata meta = new WorkMetadata(WorkType.ARTWORK, 10L, "Title", null, 0, false,
                 99L, "Artist", null, null, null, List.of(), 0L, 1, "jpg", tempDir.toString(),
-                false, null, null, null, null, null);
+                false, null, null, null, null, null, null);
         Path image = Files.createFile(tempDir.resolve("file.jpg"));
         when(workMetadataRepository.findAll(WorkType.ARTWORK, List.of(10L))).thenReturn(List.of(meta));
         when(workAssetService.findAsset(WorkType.ARTWORK, 10L)).thenReturn(Optional.of(

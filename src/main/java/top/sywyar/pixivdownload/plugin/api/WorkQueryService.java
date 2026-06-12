@@ -12,15 +12,8 @@ import java.util.Optional;
  * 重新下载判定）与 {@link #hasActiveWork}（画廊可见），与底层
  * {@code hasArtwork / hasActiveArtwork} 对齐。
  *
- * <p><b>尚未接入的组合。</b>以下方法 × 类型组合今天没有可代理的实现，调用一律抛
- * {@link UnsupportedOperationException}（fail-fast，配契约单测，接入时翻转）：
- * <ul>
- *   <li>{@link WorkType#NOVEL} 的 {@link #search} / {@link #searchAll} /
- *       {@link #relatedByTags} / {@link #byAuthor} / {@link #bySeries} /
- *       {@link #seriesNeighbors} / {@link #tagByName}，以及 {@code restriction == null}
- *       的 {@link #tags} / {@link #authors} / {@link #series}（小说列表筛选与无限制目录
- *       现为小说画廊侧内存实现，待小说画廊改走核心接口时下沉接入）。</li>
- * </ul>
+ * <p>{@code restriction == null} 表示无访客限制（管理员 / 非访客）：目录类查询统计全部
+ * 未删除行——「无限制」只豁免访客可见性投影，不豁免软删除过滤。
  */
 public interface WorkQueryService {
 

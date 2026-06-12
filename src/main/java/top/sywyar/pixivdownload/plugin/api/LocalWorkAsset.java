@@ -10,9 +10,11 @@ import java.util.List;
  *
  * @param workType  媒体类型
  * @param workId    作品 ID
- * @param directory 作品文件所在目录（已重定位的作品为重定位后的目录）；下载记录中目录为空时为 {@code null}
- * @param pageCount 下载记录声明的页数（至少为 1）
- * @param files     磁盘上实际存在的页文件，按页号升序；缺页不占位
+ * @param directory 作品文件所在目录（已重定位的作品为重定位后的目录）；下载记录中目录为空、
+ *                  或小说独占目录守卫不通过时为 {@code null}
+ * @param pageCount 插画为下载记录声明的页数（至少为 1）；小说为枚举到的文件数（可为 0）
+ * @param files     磁盘上实际存在的页文件，按页号升序；插画缺页不占位，小说页号为枚举序号
+ *                  （见 {@link WorkAssetService} 的小说资产语义）
  */
 public record LocalWorkAsset(
         WorkType workType,

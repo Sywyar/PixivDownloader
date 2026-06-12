@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
+import top.sywyar.pixivdownload.plugin.api.NovelWorkDetails;
 import top.sywyar.pixivdownload.plugin.api.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.WorkTag;
@@ -20,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,14 +30,14 @@ import java.util.Set;
 /**
  * {@link WorkMetadataRepository} 的核心实现：插画侧代理 {@link PixivDatabase}（行 / 标签 /
  * 文件名模板）+ {@link AuthorService}（作者名）+ {@link MangaSeriesService}（系列标题），
- * 小说侧代理 {@link NovelDatabase}；字段补全语义与画廊页既有装配逐字段一致。
+ * 小说侧代理 {@link NovelDatabase}（行 / 标签 / 系列标题 / 内嵌图片 / 译文语言）；
+ * 字段补全语义与画廊页既有装配逐字段一致。
  *
  * <p>批量契约：{@link #findAll} 对行读取与各关联补全各发一次批量查询（禁止 N+1），
- * 返回顺序与传入 id 顺序一致；软删除行与未知 id 直接跳过。
+ * 返回顺序与传入 id 顺序一致；软删除行与未知 id 直接跳过。单条 {@link #find} 统一
+ * 委托批量路径，保持「id → 行」单一来源。
  *
- * <p>{@link WorkType#NOVEL} 的 {@link #findAll} 尚未接入（小说侧无批量行查询可代理），
- * 待小说画廊改走核心接口时接入并翻转契约单测；过渡期本类对 novel.db 包的 import
- * 待小说侧仓库收编进核心数据层后消除。
+ * <p>过渡期本类对 novel.db 包的 import 待小说侧仓库收编进核心数据层后消除。
  */
 @Component
 @RequiredArgsConstructor
@@ -51,25 +53,22 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
 
     @Override
     public Optional<WorkMetadata> find(WorkType workType, long workId) {
-        return switch (workType) {
-            case ARTWORK -> {
-                List<WorkMetadata> hydrated = findAll(workType, List.of(workId));
-                yield hydrated.isEmpty() ? Optional.empty() : Optional.of(hydrated.get(0));
-            }
-            case NOVEL -> findNovel(workId);
-        };
+        List<WorkMetadata> hydrated = findAll(workType, List.of(workId));
+        return hydrated.isEmpty() ? Optional.empty() : Optional.of(hydrated.get(0));
     }
 
     @Override
     public List<WorkMetadata> findAll(WorkType workType, List<Long> workIds) {
-        if (workType != WorkType.ARTWORK) {
-            throw new UnsupportedOperationException(
-                    "WorkMetadataRepository 尚未接入 " + workType + " 的批量查询：小说侧无批量行查询可代理，"
-                            + "待小说画廊改走核心接口时接入");
-        }
         if (workIds == null || workIds.isEmpty()) {
             return List.of();
         }
+        return switch (workType) {
+            case ARTWORK -> findAllArtworks(workIds);
+            case NOVEL -> findAllNovels(workIds);
+        };
+    }
+
+    private List<WorkMetadata> findAllArtworks(List<Long> workIds) {
         List<ArtworkRecord> fetched = pixivDatabase.getArtworks(workIds);
         Map<Long, ArtworkRecord> byId = new HashMap<>(fetched.size());
         for (ArtworkRecord rec : fetched) {
@@ -88,8 +87,8 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
             return List.of();
         }
 
-        Map<Long, String> authorNames = resolveAuthorNames(records);
-        Map<Long, String> seriesTitles = resolveSeriesTitles(records);
+        Map<Long, String> authorNames = resolveArtworkAuthorNames(records);
+        Map<Long, String> seriesTitles = resolveArtworkSeriesTitles(records);
         List<Long> artworkIds = records.stream().map(ArtworkRecord::artworkId).toList();
         Map<Long, List<TagDto>> tagsByArtwork = pixivDatabase.getArtworkTags(artworkIds);
         Set<Long> templateIds = new HashSet<>();
@@ -124,50 +123,96 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     rec.moveTime(),
                     rec.fileName(),
                     templates.get(templateId),
-                    rec.fileAuthorNameId()));
+                    rec.fileAuthorNameId(),
+                    null));
         }
         return out;
     }
 
-    private Optional<WorkMetadata> findNovel(long novelId) {
-        NovelRecord rec = novelDatabase.getNovel(novelId);
-        if (rec == null || rec.deleted()) {
-            return Optional.empty();
+    private List<WorkMetadata> findAllNovels(List<Long> workIds) {
+        List<NovelRecord> fetched = novelDatabase.getNovels(workIds);
+        Map<Long, NovelRecord> byId = new HashMap<>(fetched.size());
+        for (NovelRecord rec : fetched) {
+            if (!rec.deleted()) {
+                byId.put(rec.novelId(), rec);
+            }
         }
-        Map<Long, String> authorNames = rec.authorId() == null
+        List<NovelRecord> records = new ArrayList<>(workIds.size());
+        for (Long id : workIds) {
+            NovelRecord rec = byId.get(id);
+            if (rec != null) {
+                records.add(rec);
+            }
+        }
+        if (records.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> authorIds = new LinkedHashSet<>();
+        Set<Long> seriesIds = new LinkedHashSet<>();
+        Set<Long> templateIds = new HashSet<>();
+        for (NovelRecord rec : records) {
+            if (rec.authorId() != null) {
+                authorIds.add(rec.authorId());
+            }
+            if (rec.seriesId() != null && rec.seriesId() > 0) {
+                seriesIds.add(rec.seriesId());
+            }
+            if (rec.fileName() != null) {
+                templateIds.add(rec.fileName());
+            }
+        }
+        Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
+        Map<Long, String> seriesTitles = resolveNovelSeriesTitles(seriesIds);
+        List<Long> novelIds = records.stream().map(NovelRecord::novelId).toList();
+        Map<Long, List<TagDto>> tagsByNovel = novelDatabase.getNovelTagsBatch(novelIds);
+        Map<Long, List<String>> imagesByNovel = novelDatabase.getNovelImageIdsBatch(novelIds);
+        Map<Long, List<String>> langsByNovel = novelDatabase.getTranslationLangsBatch(novelIds);
+        // 小说侧没有「模板 id 缺省取 1」规则：仅 fileName 非空时补模板内容（与原画廊装配一致）
+        Map<Long, String> templates = templateIds.isEmpty()
                 ? Map.of()
-                : authorService.getAuthorNames(Set.of(rec.authorId()));
-        String seriesTitle = null;
-        if (rec.seriesId() != null && rec.seriesId() > 0) {
-            NovelSeries series = novelDatabase.getSeries(rec.seriesId());
-            seriesTitle = series == null ? null : series.title();
+                : pixivDatabase.getFileNameTemplates(templateIds);
+
+        List<WorkMetadata> out = new ArrayList<>(records.size());
+        for (NovelRecord rec : records) {
+            out.add(new WorkMetadata(
+                    WorkType.NOVEL,
+                    rec.novelId(),
+                    rec.title(),
+                    rec.description(),
+                    rec.xRestrict(),
+                    rec.isAi(),
+                    rec.authorId(),
+                    rec.authorId() == null ? null : authorNames.get(rec.authorId()),
+                    rec.seriesId(),
+                    rec.seriesOrder(),
+                    rec.seriesId() != null && rec.seriesId() > 0 ? seriesTitles.get(rec.seriesId()) : null,
+                    toWorkTags(tagsByNovel.getOrDefault(rec.novelId(), List.of())),
+                    rec.time(),
+                    rec.count(),
+                    rec.extensions(),
+                    rec.folder(),
+                    false,
+                    null,
+                    null,
+                    rec.fileName(),
+                    rec.fileName() == null ? null : templates.get(rec.fileName()),
+                    rec.fileAuthorNameId(),
+                    new NovelWorkDetails(
+                            rec.wordCount(),
+                            rec.textLength(),
+                            rec.readingTimeSeconds(),
+                            rec.pageCount(),
+                            rec.isOriginal(),
+                            rec.xLanguage(),
+                            rec.coverExt(),
+                            imagesByNovel.getOrDefault(rec.novelId(), List.of()),
+                            langsByNovel.getOrDefault(rec.novelId(), List.of()))));
         }
-        return Optional.of(new WorkMetadata(
-                WorkType.NOVEL,
-                rec.novelId(),
-                rec.title(),
-                rec.description(),
-                rec.xRestrict(),
-                rec.isAi(),
-                rec.authorId(),
-                rec.authorId() == null ? null : authorNames.get(rec.authorId()),
-                rec.seriesId(),
-                rec.seriesOrder(),
-                seriesTitle,
-                toWorkTags(novelDatabase.getNovelTags(novelId)),
-                rec.time(),
-                rec.count(),
-                rec.extensions(),
-                rec.folder(),
-                false,
-                null,
-                null,
-                rec.fileName(),
-                rec.fileName() == null ? null : pixivDatabase.getFileNameTemplate(rec.fileName()),
-                rec.fileAuthorNameId()));
+        return out;
     }
 
-    private Map<Long, String> resolveAuthorNames(List<ArtworkRecord> records) {
+    private Map<Long, String> resolveArtworkAuthorNames(List<ArtworkRecord> records) {
         Set<Long> authorIds = new HashSet<>();
         for (ArtworkRecord rec : records) {
             if (rec.authorId() != null) {
@@ -177,7 +222,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         return authorService.getAuthorNames(authorIds);
     }
 
-    private Map<Long, String> resolveSeriesTitles(List<ArtworkRecord> records) {
+    private Map<Long, String> resolveArtworkSeriesTitles(List<ArtworkRecord> records) {
         Set<Long> seriesIds = new HashSet<>();
         for (ArtworkRecord rec : records) {
             if (rec.seriesId() != null && rec.seriesId() > 0) {
@@ -189,6 +234,17 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         }
         Map<Long, String> out = new HashMap<>(seriesIds.size());
         for (MangaSeries series : mangaSeriesService.getSeriesByIds(seriesIds)) {
+            out.put(series.seriesId(), series.title());
+        }
+        return out;
+    }
+
+    private Map<Long, String> resolveNovelSeriesTitles(Set<Long> seriesIds) {
+        if (seriesIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<Long, String> out = new HashMap<>(seriesIds.size());
+        for (NovelSeries series : novelDatabase.getSeriesByIds(seriesIds)) {
             out.put(series.seriesId(), series.title());
         }
         return out;

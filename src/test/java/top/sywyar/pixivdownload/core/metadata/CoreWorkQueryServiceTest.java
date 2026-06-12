@@ -38,6 +38,7 @@ import top.sywyar.pixivdownload.plugin.api.TagQuery;
 import top.sywyar.pixivdownload.plugin.api.WorkQuery;
 import top.sywyar.pixivdownload.plugin.api.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.WorkSummary;
+import top.sywyar.pixivdownload.plugin.api.WorkTag;
 import top.sywyar.pixivdownload.plugin.api.WorkType;
 import top.sywyar.pixivdownload.series.MangaSeries;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
@@ -49,7 +50,6 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -471,39 +471,197 @@ class CoreWorkQueryServiceTest {
     }
 
     @Nested
-    @DisplayName("尚未接入的组合（契约：fail-fast）")
-    class UnsupportedTests {
+    @DisplayName("小说列表与关联查询")
+    class NovelQueryTests {
 
         @Test
-        @DisplayName("小说列表与关联查询统一抛 UnsupportedOperationException")
-        void shouldRejectNovelSearchAndRelations() {
-            WorkQuery novelQuery = WorkQuery.builder(WorkType.NOVEL).build();
+        @DisplayName("小说 search 默认过滤软删除行，时间倒序，分页字段完整")
+        void shouldFilterSoftDeletedAndPageNovels() {
+            insertNovel(11L, 100L, null, null);
+            insertNovel(12L, 200L, null, null);
+            insertNovel(13L, 300L, null, null);
+            novelDatabase.markNovelDeleted(12L);
 
-            assertThatThrownBy(() -> service.search(novelQuery))
-                    .isInstanceOf(UnsupportedOperationException.class).hasMessageContaining("NOVEL");
-            assertThatThrownBy(() -> service.searchAll(novelQuery))
-                    .isInstanceOf(UnsupportedOperationException.class);
-            assertThatThrownBy(() -> service.relatedByTags(WorkType.NOVEL, 1L, 10))
-                    .isInstanceOf(UnsupportedOperationException.class);
-            assertThatThrownBy(() -> service.byAuthor(WorkType.NOVEL, 1L, 0L, 10))
-                    .isInstanceOf(UnsupportedOperationException.class);
-            assertThatThrownBy(() -> service.bySeries(WorkType.NOVEL, 1L, 0L, 10))
-                    .isInstanceOf(UnsupportedOperationException.class);
-            assertThatThrownBy(() -> service.seriesNeighbors(WorkType.NOVEL, 1L))
-                    .isInstanceOf(UnsupportedOperationException.class);
-            assertThatThrownBy(() -> service.tagByName(WorkType.NOVEL, "魔法", null))
-                    .isInstanceOf(UnsupportedOperationException.class);
+            PagedResult<WorkSummary> result = service.search(
+                    WorkQuery.builder(WorkType.NOVEL).build());
+
+            assertThat(ids(result.content())).containsExactly(13L, 11L);
+            assertThat(result.content()).allMatch(s -> s.workType() == WorkType.NOVEL);
+            assertThat(result.totalElements()).isEqualTo(2);
+            assertThat(result.page()).isZero();
+            assertThat(result.size()).isEqualTo(24);
+            assertThat(result.totalPages()).isEqualTo(1);
         }
 
         @Test
-        @DisplayName("小说无限制目录（restriction 为 null）尚未接入：tags / authors / series 均抛错")
-        void shouldRejectNovelCatalogsWithoutRestriction() {
-            assertThatThrownBy(() -> service.tags(new TagQuery(WorkType.NOVEL, null, 100, null)))
-                    .isInstanceOf(UnsupportedOperationException.class).hasMessageContaining("NOVEL");
-            assertThatThrownBy(() -> service.authors(new AuthorQuery(WorkType.NOVEL, null)))
-                    .isInstanceOf(UnsupportedOperationException.class);
-            assertThatThrownBy(() -> service.series(new SeriesQuery(WorkType.NOVEL, null)))
-                    .isInstanceOf(UnsupportedOperationException.class);
+        @DisplayName("小说 search 分页数学在查询侧完成：第二页取次新小说")
+        void shouldComputeNovelPagingMath() {
+            insertNovel(11L, 100L, null, null);
+            insertNovel(12L, 200L, null, null);
+            insertNovel(13L, 300L, null, null);
+
+            PagedResult<WorkSummary> result = service.search(
+                    WorkQuery.builder(WorkType.NOVEL).page(1).size(1).build());
+
+            assertThat(ids(result.content())).containsExactly(12L);
+            assertThat(result.totalElements()).isEqualTo(3);
+            assertThat(result.totalPages()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("小说 search 带访客限制：携带白名单外标签的小说被排除")
+        void shouldApplyGuestRestrictionToNovels() {
+            insertNovel(11L, 100L, null, null);
+            insertNovel(12L, 200L, null, null);
+            novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", null)));
+            novelDatabase.saveNovelTags(12L, List.of(new TagDto("魔法", null), new TagDto("禁止", null)));
+
+            PagedResult<WorkSummary> result = service.search(WorkQuery.builder(WorkType.NOVEL)
+                    .restriction(tagWhitelist(List.of(tagId("魔法"))))
+                    .build());
+
+            assertThat(ids(result.content())).containsExactly(11L);
+            assertThat(result.totalElements()).isEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("小说 searchAll 返回命中条件的全部 id 不分页；正文检索经 FTS 命中")
+        void shouldReturnAllNovelIdsAndSearchContent() {
+            insertNovel(11L, 100L, 88L, null);
+            insertNovel(12L, 200L, 88L, null);
+            insertNovel(13L, 300L, 99L, null);
+
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .size(1).authorIds(List.of(88L)).build())))
+                    .containsExactly(12L, 11L);
+
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .searchType("content").search("正文12").build())))
+                    .containsExactly(12L);
+        }
+
+        @Test
+        @DisplayName("小说 relatedByTags 按共享标签数降序返回相关小说")
+        void shouldFindNovelRelatedByTags() {
+            insertNovel(11L, 100L, null, null);
+            insertNovel(12L, 200L, null, null);
+            insertNovel(13L, 300L, null, null);
+            novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
+            novelDatabase.saveNovelTags(12L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
+            novelDatabase.saveNovelTags(13L, List.of(new TagDto("魔法", null)));
+
+            assertThat(ids(service.relatedByTags(WorkType.NOVEL, 11L, 10)))
+                    .containsExactly(12L, 13L);
+        }
+
+        @Test
+        @DisplayName("小说 byAuthor 返回同作者其他小说并排除自身")
+        void shouldFindNovelsByAuthorExcludingSelf() {
+            insertNovel(11L, 100L, 88L, null);
+            insertNovel(12L, 200L, 88L, null);
+            insertNovel(13L, 300L, 99L, null);
+
+            assertThat(ids(service.byAuthor(WorkType.NOVEL, 88L, 12L, 10)))
+                    .containsExactly(11L);
+        }
+
+        @Test
+        @DisplayName("小说 bySeries 按系列序号升序返回并排除指定小说")
+        void shouldFindNovelsBySeriesExcludingSelf() {
+            insertNovel(11L, 100L, null, 900L);
+            insertNovel(12L, 200L, null, 900L);
+            insertNovel(13L, 300L, null, 900L);
+            novelDatabase.updateSeriesInfo(11L, 900L, 3L);
+            novelDatabase.updateSeriesInfo(12L, 900L, 1L);
+            novelDatabase.updateSeriesInfo(13L, 900L, 2L);
+
+            assertThat(ids(service.bySeries(WorkType.NOVEL, 900L, 13L, 10)))
+                    .containsExactly(12L, 11L);
+        }
+
+        @Test
+        @DisplayName("小说 seriesNeighbors 返回最近的上一章与下一章；无系列或无序号时为 empty")
+        void shouldFindNovelSeriesNeighbors() {
+            insertNovel(11L, 100L, null, 900L);
+            insertNovel(12L, 200L, null, 900L);
+            insertNovel(13L, 300L, null, 900L);
+            insertNovel(14L, 400L, null, null);
+            insertNovel(15L, 500L, null, 901L);
+            novelDatabase.updateSeriesInfo(11L, 900L, 1L);
+            novelDatabase.updateSeriesInfo(12L, 900L, 5L);
+            novelDatabase.updateSeriesInfo(13L, 900L, 9L);
+            jdbc.update("INSERT INTO novel_series(series_id, title, author_id, updated_time) VALUES (?, ?, ?, ?)",
+                    900L, "系列乙", null, 1L);
+
+            Optional<SeriesNeighbors> neighbors = service.seriesNeighbors(WorkType.NOVEL, 12L);
+
+            assertThat(neighbors).isPresent();
+            assertThat(neighbors.get().seriesId()).isEqualTo(900L);
+            assertThat(neighbors.get().seriesTitle()).isEqualTo("系列乙");
+            assertThat(neighbors.get().currentOrder()).isEqualTo(5L);
+            assertThat(neighbors.get().prev().workId()).isEqualTo(11L);
+            assertThat(neighbors.get().next().workId()).isEqualTo(13L);
+            assertThat(service.seriesNeighbors(WorkType.NOVEL, 14L)).isEmpty();
+            assertThat(service.seriesNeighbors(WorkType.NOVEL, 15L)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("小说 tagByName 精确命中返回标签，未命中返回 empty")
+        void shouldFindNovelTagByExactName() {
+            insertNovel(11L, 100L, null, null);
+            novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", "magic")));
+
+            Optional<TagOption> found = service.tagByName(WorkType.NOVEL, "魔法", null);
+            assertThat(found).isPresent();
+            assertThat(found.get().translatedName()).isEqualTo("magic");
+            assertThat(found.get().workCount()).isEqualTo(1L);
+
+            assertThat(service.tagByName(WorkType.NOVEL, "不存在", null)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("小说无限制目录（restriction 为 null）统计全部未删除行：tags / authors / series")
+        void shouldListNovelCatalogsWithoutRestriction() {
+            insertNovel(11L, 100L, 801L, 700L);
+            insertNovel(12L, 200L, 801L, 700L);
+            insertNovel(13L, 300L, 802L, 701L);
+            insertNovel(14L, 400L, 802L, 701L);
+            novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", null)));
+            novelDatabase.saveNovelTags(14L, List.of(new TagDto("魔法", null)));
+            novelDatabase.markNovelDeleted(14L);
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
+
+            assertThat(service.tags(new TagQuery(WorkType.NOVEL, null, 100, null)))
+                    .extracting(TagOption::name, TagOption::workCount)
+                    .containsExactly(org.assertj.core.groups.Tuple.tuple("魔法", 1L));
+
+            assertThat(service.authors(new AuthorQuery(WorkType.NOVEL, null)))
+                    .containsExactlyInAnyOrder(
+                            new AuthorSummary(801L, "作者甲", 2L),
+                            new AuthorSummary(802L, "802", 1L));
+
+            assertThat(service.series(new SeriesQuery(WorkType.NOVEL, null)))
+                    .containsExactlyInAnyOrder(
+                            new SeriesSummary(700L, "700", null, null, 2L),
+                            new SeriesSummary(701L, "701", null, null, 1L));
+        }
+
+        @Test
+        @DisplayName("小说系列目录批量补全封面扩展名与系列标签（装饰列）")
+        void shouldDecorateNovelSeriesCatalog() {
+            insertNovel(11L, 100L, 801L, 700L);
+            jdbc.update("INSERT INTO novel_series(series_id, title, author_id, updated_time, cover_ext)"
+                    + " VALUES (?, ?, ?, ?, ?)", 700L, "系列甲", 801L, 1L, "png");
+            novelDatabase.saveNovelSeriesTags(700L, List.of(new TagDto("魔法", "magic")));
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
+
+            List<SeriesSummary> series = service.series(new SeriesQuery(WorkType.NOVEL, FULLY_OPEN));
+
+            assertThat(series).hasSize(1);
+            assertThat(series.get(0).title()).isEqualTo("系列甲");
+            assertThat(series.get(0).authorName()).isEqualTo("作者甲");
+            assertThat(series.get(0).coverExt()).isEqualTo("png");
+            assertThat(series.get(0).tags()).extracting(WorkTag::name).containsExactly("魔法");
         }
     }
 }

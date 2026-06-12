@@ -79,6 +79,16 @@ public interface NovelMapper {
     @Select("SELECT lang_code FROM novel_translations WHERE novel_id = #{novelId} ORDER BY lang_code")
     List<String> findTranslationLangs(@Param("novelId") long novelId);
 
+    @Select({
+            "<script>",
+            "SELECT novel_id AS novelId, lang_code AS langCode FROM novel_translations",
+            "WHERE novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "ORDER BY novel_id, lang_code",
+            "</script>"
+    })
+    List<java.util.Map<String, Object>> findTranslationLangsByNovelIds(@Param("ids") Collection<Long> novelIds);
+
     @Select("SELECT DISTINCT t.lang_code FROM novel_translations t"
             + " JOIN novels n ON n.novel_id = t.novel_id"
             + " WHERE n.series_id = #{seriesId} AND n.series_id > 0 AND n.deleted = 0"
@@ -384,6 +394,16 @@ public interface NovelMapper {
     @Select("SELECT image_id FROM novel_images WHERE novel_id = #{novelId}")
     List<String> findNovelImageIds(@Param("novelId") long novelId);
 
+    @Select({
+            "<script>",
+            "SELECT novel_id AS novelId, image_id AS imageId FROM novel_images",
+            "WHERE novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "ORDER BY novel_id",
+            "</script>"
+    })
+    List<java.util.Map<String, Object>> findNovelImageIdsByNovelIds(@Param("ids") Collection<Long> novelIds);
+
     @Delete("DELETE FROM novel_images WHERE novel_id = #{novelId}")
     void deleteNovelImages(@Param("novelId") long novelId);
 
@@ -391,6 +411,15 @@ public interface NovelMapper {
 
     @Select(SELECT_NOVEL + " WHERE novel_id = #{novelId}")
     NovelRecord findById(@Param("novelId") long novelId);
+
+    @Select({
+            "<script>",
+            SELECT_NOVEL,
+            "WHERE novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "</script>"
+    })
+    List<NovelRecord> findByIds(@Param("ids") Collection<Long> ids);
 
     @Select("SELECT COUNT(*) FROM novels WHERE novel_id = #{novelId}")
     int countById(@Param("novelId") long novelId);
@@ -537,6 +566,18 @@ public interface NovelMapper {
             + " WHERE nt.novel_id = #{novelId}"
             + " ORDER BY t.tag_id")
     List<TagDto> findTagsByNovelId(@Param("novelId") long novelId);
+
+    @Select({
+            "<script>",
+            "SELECT nt.novel_id AS novelId, t.tag_id AS tagId, t.name AS name,",
+            " t.translated_name AS translatedName",
+            "FROM novel_tags nt JOIN tags t ON t.tag_id = nt.tag_id",
+            "WHERE nt.novel_id IN",
+            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
+            "ORDER BY nt.novel_id, t.tag_id",
+            "</script>"
+    })
+    List<java.util.Map<String, Object>> findTagsByNovelIds(@Param("ids") Collection<Long> novelIds);
 
     @Select("SELECT 1 FROM novel_tags WHERE novel_id = #{novelId} LIMIT 1")
     Integer existsTagsForNovel(@Param("novelId") long novelId);
