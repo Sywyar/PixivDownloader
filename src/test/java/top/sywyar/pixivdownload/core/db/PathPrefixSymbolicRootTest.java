@@ -18,6 +18,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.PathPrefixStartupMigration;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -27,6 +28,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("符号根 {0} 编解码与启动折叠测试")
 class PathPrefixSymbolicRootTest {
+
+    private static final PathPrefixColumns PATH_COLUMNS =
+            DatabaseSchemaRegistry.forBuiltInPlugins().pathPrefixColumns();
 
     private SingleConnectionDataSource dataSource;
     private SqlSession sqlSession;
@@ -158,7 +162,7 @@ class PathPrefixSymbolicRootTest {
     class StartupFoldTests {
 
         private PathPrefixStartupMigration migration() {
-            return new PathPrefixStartupMigration(dataSource, codec, new DownloadConfig(),
+            return new PathPrefixStartupMigration(dataSource, codec, PATH_COLUMNS, new DownloadConfig(),
                     TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(),
                     null, null, null, null);
         }
@@ -242,7 +246,7 @@ class PathPrefixSymbolicRootTest {
         }
 
         private PathPrefixStartupMigration absMigration() {
-            return new PathPrefixStartupMigration(dataSource, absCodec, absConfig,
+            return new PathPrefixStartupMigration(dataSource, absCodec, PATH_COLUMNS, absConfig,
                     TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(),
                     null, null, null, null);
         }
@@ -281,8 +285,8 @@ class PathPrefixSymbolicRootTest {
             Files.writeString(marker, rootPath, StandardCharsets.UTF_8);
             Path oldRoot = Files.createDirectory(tempDir.resolve("old-root"));
             execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(1, '{0}/100', NULL)");
-            PathPrefixMigrationService service = new PathPrefixMigrationService(absCodec, mapper, absConfig,
-                    TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+            PathPrefixMigrationService service = new PathPrefixMigrationService(absCodec, mapper, PATH_COLUMNS,
+                    absConfig, TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
             assertThat(service.symbolicRootStatus().orphan()).isTrue();
             assertThat(service.symbolicRootStatus().suggestedOldPath()).isEqualTo(rootPath);
 

@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PathPrefixMigrationService.PathPrefixMigrationResult;
 import top.sywyar.pixivdownload.core.db.PathPrefixMigrationService.PathPrefixUpdate;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -27,6 +28,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @DisplayName("PathPrefixMigrationService 批量改写测试")
 class PathPrefixMigrationServiceTest {
+
+    private static final PathPrefixColumns PATH_COLUMNS =
+            DatabaseSchemaRegistry.forBuiltInPlugins().pathPrefixColumns();
 
     private SingleConnectionDataSource dataSource;
     private SqlSession sqlSession;
@@ -78,7 +82,7 @@ class PathPrefixMigrationServiceTest {
         idC = codec.getOrCreatePrefixId(dirC.toString());
 
         // 不依赖真实事务管理器：withoutTransaction 直接执行回调，足以验证两阶段写入避免瞬时 UNIQUE 冲突
-        service = new PathPrefixMigrationService(codec, mapper, new DownloadConfig(),
+        service = new PathPrefixMigrationService(codec, mapper, PATH_COLUMNS, new DownloadConfig(),
                 TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
     }
 
@@ -209,7 +213,7 @@ class PathPrefixMigrationServiceTest {
         absConfig.setRootFolder(absRoot.toString());
         PathPrefixCodec absCodec = new PathPrefixCodec(mapper, absConfig, TestI18nBeans.appMessages());
         absCodec.init();
-        PathPrefixMigrationService absService = new PathPrefixMigrationService(absCodec, mapper, absConfig,
+        PathPrefixMigrationService absService = new PathPrefixMigrationService(absCodec, mapper, PATH_COLUMNS, absConfig,
                 TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
 
         PathPrefixMigrationResult result = absService.apply(List.of(
@@ -245,7 +249,7 @@ class PathPrefixMigrationServiceTest {
         relConfig.setRootFolder("target");
         PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
         relCodec.init();
-        PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, relConfig,
+        PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, PATH_COLUMNS, relConfig,
                 TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
         String rootPath = relCodec.getSymbolicRootPath();
         execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(9, '{0}/900', NULL)");
@@ -267,7 +271,7 @@ class PathPrefixMigrationServiceTest {
         relConfig.setRootFolder("target");
         PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
         relCodec.init();
-        PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, relConfig,
+        PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, PATH_COLUMNS, relConfig,
                 TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
         String rootPath = relCodec.getSymbolicRootPath();
         execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(9, '{0}/900', NULL)");

@@ -23,7 +23,8 @@ class RegisteredPluginsTest {
                     NovelPluginConfiguration.class,
                     StatsPluginConfiguration.class,
                     DuplicatePluginConfiguration.class,
-                    PluginRegistry.class);
+                    PluginRegistry.class,
+                    DatabaseSchemaRegistry.class);
 
     @Test
     @DisplayName("六个空插件经各自 Configuration 注册进 PluginRegistry")
@@ -50,16 +51,16 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("除 core 声明核心 schema 外，各插件暂不声明任何 contribution")
+    @DisplayName("除 core 声明各领域 schema 外，各插件暂不声明任何 contribution")
     void emptyPluginsContributeNothing() {
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins()).allSatisfy(plugin -> {
                 if (plugin.id().equals("core")) {
-                    assertThat(plugin.schema())
-                            .singleElement()
-                            .satisfies(contribution ->
-                                    assertThat(contribution.ownerPluginId()).isEqualTo("core"));
+                    // 按卸载投影测试，现存全部长期事实表归核心：领域 contribution 拆类但 owner 一律 core
+                    assertThat(plugin.schema()).isNotEmpty();
+                    assertThat(plugin.schema()).allSatisfy(contribution ->
+                            assertThat(contribution.ownerPluginId()).isEqualTo("core"));
                 } else {
                     assertThat(plugin.schema()).isEmpty();
                 }

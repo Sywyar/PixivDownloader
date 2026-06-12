@@ -48,6 +48,7 @@ public class PathPrefixMigrationService {
 
     private final PathPrefixCodec codec;
     private final PathPrefixMapper mapper;
+    private final PathPrefixColumns pathPrefixColumns;
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
     private final TransactionOperations transactionOperations;
@@ -55,18 +56,22 @@ public class PathPrefixMigrationService {
 
     @Autowired
     public PathPrefixMigrationService(PathPrefixCodec codec, PathPrefixMapper mapper,
+                                      PathPrefixColumns pathPrefixColumns,
                                       DownloadConfig downloadConfig, AppMessages messages,
                                       PlatformTransactionManager transactionManager,
                                       DataSource dataSource) {
-        this(codec, mapper, downloadConfig, messages, new TransactionTemplate(transactionManager), dataSource);
+        this(codec, mapper, pathPrefixColumns, downloadConfig, messages,
+                new TransactionTemplate(transactionManager), dataSource);
     }
 
     PathPrefixMigrationService(PathPrefixCodec codec, PathPrefixMapper mapper,
+                               PathPrefixColumns pathPrefixColumns,
                                DownloadConfig downloadConfig, AppMessages messages,
                                TransactionOperations transactionOperations,
                                DataSource dataSource) {
         this.codec = codec;
         this.mapper = mapper;
+        this.pathPrefixColumns = pathPrefixColumns;
         this.downloadConfig = downloadConfig;
         this.messages = messages;
         this.transactionOperations = transactionOperations;
@@ -110,7 +115,7 @@ public class PathPrefixMigrationService {
      * {@code suggestedOldPath} —— {@code download_root_marker} 记录的上次解析结果（修复建议，可能为 null）。
      */
     public SymbolicRootStatus symbolicRootStatus() {
-        boolean referenced = PathPrefixColumns.hasSymbolicRootRows(jdbc);
+        boolean referenced = pathPrefixColumns.hasSymbolicRootRows(jdbc);
         boolean active = codec.isSymbolicRootActive();
         String suggested = readMarker();
         // marker 与当前解析结果相同说明它已被覆盖 / 不含旧路径信息（如修复早于本版本的覆盖 bug），
@@ -142,7 +147,7 @@ public class PathPrefixMigrationService {
         try {
             transactionOperations.executeWithoutResult(status -> {
                 long newId = codec.forceCreatePrefixId(stripped);
-                for (PathPrefixColumns.TableColumns tc : PathPrefixColumns.ALL) {
+                for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
                     for (String column : tc.columns()) {
                         PathPrefixColumns.retargetColumn(jdbc, tc.table(), column,
                                 PathPrefixCodec.SYMBOLIC_ROOT_TOKEN, "{" + newId + "}");
@@ -300,7 +305,7 @@ public class PathPrefixMigrationService {
      */
     private void rewriteSymbolicRoot(String targetPath) {
         long newId = codec.getOrCreatePrefixId(targetPath);
-        for (PathPrefixColumns.TableColumns tc : PathPrefixColumns.ALL) {
+        for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
             for (String column : tc.columns()) {
                 PathPrefixColumns.retargetColumn(jdbc, tc.table(), column,
                         PathPrefixCodec.SYMBOLIC_ROOT_TOKEN, "{" + newId + "}");

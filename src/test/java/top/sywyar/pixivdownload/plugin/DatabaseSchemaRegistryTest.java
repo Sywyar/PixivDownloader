@@ -3,10 +3,12 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.core.db.ManagedDatabaseSchema;
+import top.sywyar.pixivdownload.core.db.PathPrefixColumns;
 import top.sywyar.pixivdownload.plugin.api.ColumnMigrationSpec;
 import top.sywyar.pixivdownload.plugin.api.ColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.IndexOrigin;
 import top.sywyar.pixivdownload.plugin.api.IndexSpec;
+import top.sywyar.pixivdownload.plugin.api.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.TableSpec;
 
@@ -161,6 +163,127 @@ class DatabaseSchemaRegistryTest {
         assertThatThrownBy(registry::mergedSchema)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("missing_table");
+    }
+
+    @Test
+    @DisplayName("内置插件合并出的路径前缀列与旧静态总表五张表等价")
+    void mergedPathColumnsEqualLegacyFiveTables() {
+        PathPrefixColumns merged = DatabaseSchemaRegistry.forBuiltInPlugins().pathPrefixColumns();
+
+        assertThat(merged.all()).containsExactlyInAnyOrder(
+                new PathPrefixColumns.TableColumns("artworks", "artwork_id", List.of("folder", "move_folder")),
+                new PathPrefixColumns.TableColumns("novels", "novel_id", List.of("folder")),
+                new PathPrefixColumns.TableColumns("manga_series", "series_id", List.of("cover_folder")),
+                new PathPrefixColumns.TableColumns("novel_series", "series_id", List.of("cover_folder")),
+                new PathPrefixColumns.TableColumns("collections", "id", List.of("download_root")));
+    }
+
+    @Test
+    @DisplayName("内置 contribution 的 ownerPluginId 应全部为 core（卸载投影裁定）")
+    void builtInContributionsAreAllOwnedByCore() {
+        List<SchemaContribution> contributions = DatabaseSchemaRegistry.forBuiltInPlugins().contributions();
+
+        assertThat(contributions).isNotEmpty();
+        assertThat(contributions).allSatisfy(contribution ->
+                assertThat(contribution.ownerPluginId()).isEqualTo("core"));
+    }
+
+    @Test
+    @DisplayName("同一表内列名（含大小写差异）重复时注册应抛错")
+    void duplicateColumnNameFails() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+
+        assertThatThrownBy(() -> registry.register(contribution("demo",
+                table("demo_items",
+                        col("id", "INTEGER", false, null, 1),
+                        col("ID", "TEXT", false, null, 0)))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("demo_items.id")
+                .hasMessageContaining("demo");
+    }
+
+    @Test
+    @DisplayName("显式索引名跨表 / 跨 contribution 重复时注册应抛错")
+    void duplicateIndexNameFails() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register(new SchemaContribution("first",
+                List.of(new TableSpec("first_items",
+                        List.of(col("id", "INTEGER", false, null, 1)),
+                        List.of(new IndexSpec("idx_shared", IndexOrigin.CREATE_INDEX, false, List.of("id"))))),
+                List.of(), List.of(), List.of()));
+
+        assertThatThrownBy(() -> registry.register(new SchemaContribution("second",
+                List.of(new TableSpec("second_items",
+                        List.of(col("id", "INTEGER", false, null, 1)),
+                        List.of(new IndexSpec("IDX_SHARED", IndexOrigin.CREATE_INDEX, false, List.of("id"))))),
+                List.of(), List.of(), List.of())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("idx_shared")
+                .hasMessageContaining("second");
+    }
+
+    @Test
+    @DisplayName("同一表的路径列被重复声明时注册应抛错")
+    void duplicatePathColumnDeclarationFails() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register(new SchemaContribution("first",
+                List.of(table("demo_items",
+                        col("id", "INTEGER", false, null, 1),
+                        col("folder", "TEXT", false, null, 0))),
+                List.of(), List.of(),
+                List.of(new PathColumnSpec("demo_items", "id", List.of("folder")))));
+
+        assertThatThrownBy(() -> registry.register(new SchemaContribution("second",
+                List.of(), List.of(), List.of(),
+                List.of(new PathColumnSpec("DEMO_ITEMS", "id", List.of("folder"))))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("demo_items")
+                .hasMessageContaining("second");
+    }
+
+    @Test
+    @DisplayName("路径列指向未知表时合并应抛错")
+    void pathColumnsUnknownTableFails() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register(new SchemaContribution("demo",
+                List.of(), List.of(), List.of(),
+                List.of(new PathColumnSpec("missing_table", "id", List.of("folder")))));
+
+        assertThatThrownBy(registry::pathPrefixColumns)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("missing_table");
+    }
+
+    @Test
+    @DisplayName("路径列指向未知列时合并应抛错")
+    void pathColumnsUnknownColumnFails() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register(new SchemaContribution("demo",
+                List.of(table("demo_items",
+                        col("id", "INTEGER", false, null, 1),
+                        col("folder", "TEXT", false, null, 0))),
+                List.of(), List.of(),
+                List.of(new PathColumnSpec("demo_items", "id", List.of("folder", "move_folder")))));
+
+        assertThatThrownBy(registry::pathPrefixColumns)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("demo_items.move_folder");
+    }
+
+    @Test
+    @DisplayName("跨 contribution 声明既有表的路径列应并入合并结果")
+    void pathColumnsAcrossContributionsMerge() {
+        DatabaseSchemaRegistry registry = emptyRegistry();
+        registry.register(contribution("owner",
+                table("demo_items",
+                        col("id", "INTEGER", false, null, 1),
+                        col("folder", "TEXT", false, null, 0))));
+        registry.register(new SchemaContribution("extender",
+                List.of(), List.of(), List.of(),
+                List.of(new PathColumnSpec("demo_items", "id", List.of("folder")))));
+
+        assertThat(registry.pathPrefixColumns().all()).containsExactly(
+                new PathPrefixColumns.TableColumns("demo_items", "id", List.of("folder")));
     }
 
     @Test

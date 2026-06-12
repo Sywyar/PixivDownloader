@@ -56,6 +56,7 @@ public class PathPrefixStartupMigration {
 
     private final DataSource dataSource;
     private final PathPrefixCodec codec;
+    private final PathPrefixColumns pathPrefixColumns;
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
     private final TransactionOperations transactionOperations;
@@ -72,21 +73,25 @@ public class PathPrefixStartupMigration {
 
     @Autowired
     public PathPrefixStartupMigration(DataSource dataSource, PathPrefixCodec codec,
+                                      PathPrefixColumns pathPrefixColumns,
                                       DownloadConfig downloadConfig, AppMessages messages,
                                       PlatformTransactionManager transactionManager,
                                       PixivDatabase pixivDatabase, NovelDatabase novelDatabase,
                                       MangaSeriesService mangaSeriesService, CollectionService collectionService) {
-        this(dataSource, codec, downloadConfig, messages, new TransactionTemplate(transactionManager),
+        this(dataSource, codec, pathPrefixColumns, downloadConfig, messages,
+                new TransactionTemplate(transactionManager),
                 pixivDatabase, novelDatabase, mangaSeriesService, collectionService);
     }
 
     public PathPrefixStartupMigration(DataSource dataSource, PathPrefixCodec codec,
+                               PathPrefixColumns pathPrefixColumns,
                                DownloadConfig downloadConfig, AppMessages messages,
                                TransactionOperations transactionOperations,
                                PixivDatabase pixivDatabase, NovelDatabase novelDatabase,
                                MangaSeriesService mangaSeriesService, CollectionService collectionService) {
         this.dataSource = dataSource;
         this.codec = codec;
+        this.pathPrefixColumns = pathPrefixColumns;
         this.downloadConfig = downloadConfig;
         this.messages = messages;
         this.transactionOperations = transactionOperations;
@@ -112,7 +117,7 @@ public class PathPrefixStartupMigration {
         }
         try {
             int total = 0;
-            for (PathPrefixColumns.TableColumns tc : PathPrefixColumns.ALL) {
+            for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
                 total += migrateTable(jdbc, tc.table(), tc.idColumn(), tc.columns());
             }
             if (total > 0) {
@@ -173,7 +178,7 @@ public class PathPrefixStartupMigration {
 
     private void reconcileSymbolicRoot(NamedParameterJdbcTemplate jdbc) {
         String current = codec.getSymbolicRootPath();
-        boolean hasSymbolicRows = PathPrefixColumns.hasSymbolicRootRows(jdbc);
+        boolean hasSymbolicRows = pathPrefixColumns.hasSymbolicRootRows(jdbc);
         if (codec.isSymbolicRootActive()) {
             // 解析位置疑似「改了配置 / 工作目录但没搬文件」时保留 marker：旧路径是后续修复的唯一线索，
             // 且保留后每次启动都会继续告警，直到使用者处理（搬文件或用迁移工具固定记录）。
@@ -228,7 +233,7 @@ public class PathPrefixStartupMigration {
             String token = "{" + match.id() + "}";
             Integer rows = transactionOperations.execute(status -> {
                 int n = 0;
-                for (PathPrefixColumns.TableColumns tc : PathPrefixColumns.ALL) {
+                for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
                     for (String column : tc.columns()) {
                         n += PathPrefixColumns.retargetColumn(jdbc, tc.table(), column,
                                 token, PathPrefixCodec.SYMBOLIC_ROOT_TOKEN);
@@ -304,7 +309,8 @@ public class PathPrefixStartupMigration {
                              String table,
                              String idColumn,
                              List<String> pathColumns) {
-        // 注意：表名/列名为白名单常量，未来添加新列时仍需在 PathPrefixColumns 登记，
+        // 注意：表名/列名来自受管 schema 合并出的白名单，未来添加新列时仍需在所属领域
+        // contribution 声明 PathColumnSpec，
         // 因此直接字符串拼接是安全的（无外部输入）。
         StringBuilder sql = new StringBuilder("SELECT ").append(idColumn);
         for (String c : pathColumns) sql.append(", ").append(c);
