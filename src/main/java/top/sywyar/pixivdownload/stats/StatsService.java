@@ -1,12 +1,12 @@
 package top.sywyar.pixivdownload.stats;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 
 import java.util.ArrayList;
 import java.util.List;
 
-@Service
+@PluginManagedBean
 @RequiredArgsConstructor
 public class StatsService {
 

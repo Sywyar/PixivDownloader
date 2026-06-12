@@ -32,6 +32,19 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("核心不得反向依赖 stats 插件包（组合根 BuiltInPlugins 除外）")
+    void coreDoesNotDependOnStatsPlugin() {
+        noClasses()
+                .that().resideOutsideOfPackage("top.sywyar.pixivdownload.stats..")
+                .and().doNotHaveFullyQualifiedName(BuiltInPlugins.class.getName())
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.stats..")
+                .because("stats 是功能插件，核心只能经 PluginRegistry 间接使用其 contribution；"
+                        + "BuiltInPlugins 是既定的组合根例外")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("common 不得依赖业务包：项目内仅允许 common/config/i18n")
     void commonDependsOnlyOnInfrastructure() {
         noClasses()

@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.stats;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.stereotype.Repository;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 
 import javax.sql.DataSource;
 import java.util.List;
@@ -13,7 +13,7 @@ import java.util.List;
  * 全库范围（无访客可见性裁剪）——统计仪表盘是管理员专属页面。
  */
 @Slf4j
-@Repository
+@PluginManagedBean
 public class StatsRepository {
 
     private final NamedParameterJdbcTemplate jdbc;

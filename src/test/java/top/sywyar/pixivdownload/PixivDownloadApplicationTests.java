@@ -1,11 +1,14 @@
 package top.sywyar.pixivdownload;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.stats.StatsController;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -49,6 +52,24 @@ class PixivDownloadApplicationTests {
         assertThat(applicationContext.containsBean("downloadTaskExecutor")).isTrue();
         assertThat(applicationContext.containsBean("novelDownloadTaskExecutor")).isTrue();
         assertThat(applicationContext.containsBean("archiveTaskExecutor")).isTrue();
+    }
+
+    /**
+     * 插件托管 controller 经 {@code @PluginManagedBean} 排除出根包扫描、由
+     * {@code StatsPluginConfiguration} 以 {@code @Bean} 提供。这里锁定：context 中
+     * 该类型 Bean 恰好一个（既没被扫描重复注册、也没因排除过滤器配置错误而丢失），
+     * 且 Spring MVC 仍能识别其 handler 方法、URL 映射零变化。
+     */
+    @Test
+    @DisplayName("插件托管 controller 恰好注册一次且 MVC 映射不变")
+    void pluginManagedControllerRegisteredExactlyOnce() {
+        assertThat(applicationContext.getBeanNamesForType(StatsController.class)).hasSize(1);
+        RequestMappingHandlerMapping handlerMapping = applicationContext
+                .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
+        boolean dashboardMapped = handlerMapping.getHandlerMethods().keySet().stream()
+                .anyMatch(info -> info.getPathPatternsCondition() != null
+                        && info.getPathPatternsCondition().getPatternValues().contains("/api/stats/dashboard"));
+        assertThat(dashboardMapped).isTrue();
     }
 
 }

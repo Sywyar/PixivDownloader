@@ -16,8 +16,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RegisteredPluginsTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages：
+            // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages，
+            // StatsPluginConfiguration 的 statsRepository bean 需要 DataSource：
             // 用内存 SQLite 与测试 i18n 兜底（@PostConstruct 会真实建表，库随上下文丢弃）
+            .withBean(javax.sql.DataSource.class, () -> {
+                org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
+                        new org.springframework.jdbc.datasource.SingleConnectionDataSource(
+                                "jdbc:sqlite::memory:", true);
+                ds.setDriverClassName("org.sqlite.JDBC");
+                return ds;
+            })
             .withBean(org.springframework.jdbc.core.JdbcTemplate.class, () -> {
                 org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                         new org.springframework.jdbc.datasource.SingleConnectionDataSource(
@@ -62,7 +70,7 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("除 core 声明各领域 schema 外，各插件暂不声明任何 contribution")
+    @DisplayName("除 core 声明各领域 schema、stats 声明 web contribution 外，其余插件暂不声明任何 contribution")
     void emptyPluginsContributeNothing() {
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
@@ -76,10 +84,18 @@ class RegisteredPluginsTest {
                     assertThat(plugin.schema()).isEmpty();
                 }
                 assertThat(plugin.coreColumnUsages()).isEmpty();
-                assertThat(plugin.routes()).isEmpty();
-                assertThat(plugin.staticResources()).isEmpty();
-                assertThat(plugin.i18n()).isEmpty();
-                assertThat(plugin.navigation()).isEmpty();
+                if (plugin.id().equals("stats")) {
+                    // 试点插件已声明路由 / 静态资源 / i18n / 导航（无私有表，statistics 归 core）
+                    assertThat(plugin.routes()).isNotEmpty();
+                    assertThat(plugin.staticResources()).isNotEmpty();
+                    assertThat(plugin.i18n()).isNotEmpty();
+                    assertThat(plugin.navigation()).isNotEmpty();
+                } else {
+                    assertThat(plugin.routes()).isEmpty();
+                    assertThat(plugin.staticResources()).isEmpty();
+                    assertThat(plugin.i18n()).isEmpty();
+                    assertThat(plugin.navigation()).isEmpty();
+                }
             });
         });
     }
