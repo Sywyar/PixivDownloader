@@ -9,22 +9,23 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.download.ArtworkFileLocator;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
+import top.sywyar.pixivdownload.plugin.api.LocalWorkAsset;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.WorkMetadata;
+import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
+import top.sywyar.pixivdownload.plugin.api.WorkType;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,11 +47,9 @@ class GalleryBatchServiceTest {
     @Mock
     private GalleryService galleryService;
     @Mock
-    private PixivDatabase pixivDatabase;
+    private WorkMetadataRepository workMetadataRepository;
     @Mock
-    private ArtworkFileLocator artworkFileLocator;
-    @Mock
-    private AuthorService authorService;
+    private WorkAssetService workAssetService;
     @Mock
     private CollectionService collectionService;
     @Mock
@@ -62,8 +61,8 @@ class GalleryBatchServiceTest {
     void setUp() {
         MultiModeConfig multiModeConfig = new MultiModeConfig();
         multiModeConfig.getQuota().setArchiveExpireMinutes(60);
-        service = new GalleryBatchService(galleryService, pixivDatabase, artworkFileLocator,
-                authorService, collectionService, userQuotaService, multiModeConfig, new ObjectMapper());
+        service = new GalleryBatchService(galleryService, workMetadataRepository, workAssetService,
+                collectionService, userQuotaService, multiModeConfig, new ObjectMapper());
     }
 
     @Test
@@ -135,13 +134,14 @@ class GalleryBatchServiceTest {
     private List<UserQuotaService.ArchiveItem> exportSingleArtwork(String groupBy, boolean deleteAfter,
                                                                    ArgumentCaptor<Runnable> afterReady)
             throws Exception {
-        ArtworkRecord record = new ArtworkRecord(10L, "Title", tempDir.toString(), 1, "jpg", 0L,
-                false, null, null, 0, false, 99L, null, null, null);
-        File image = Files.createFile(tempDir.resolve("file.jpg")).toFile();
-        when(pixivDatabase.getArtworks(List.of(10L))).thenReturn(List.of(record));
-        when(pixivDatabase.getArtworkTags(List.of(10L))).thenReturn(Map.of());
-        when(authorService.getAuthorNames(any())).thenReturn(Map.of(99L, "Artist"));
-        when(artworkFileLocator.resolveImageFile(record, 0)).thenReturn(image);
+        WorkMetadata meta = new WorkMetadata(WorkType.ARTWORK, 10L, "Title", null, 0, false,
+                99L, "Artist", null, null, null, List.of(), 0L, 1, "jpg", tempDir.toString(),
+                false, null, null, null, null, null);
+        Path image = Files.createFile(tempDir.resolve("file.jpg"));
+        when(workMetadataRepository.findAll(WorkType.ARTWORK, List.of(10L))).thenReturn(List.of(meta));
+        when(workAssetService.findAsset(WorkType.ARTWORK, 10L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.ARTWORK, 10L, tempDir, 1,
+                        List.of(new WorkAssetFile(0, image, "jpg")))));
         when(userQuotaService.triggerAdminFileArchive(anyList(), anyString(), anyInt(), any()))
                 .thenReturn("token-1");
 

@@ -4,10 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -16,6 +13,8 @@ import top.sywyar.pixivdownload.plugin.api.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.SeriesNeighbors;
 import top.sywyar.pixivdownload.plugin.api.TagOption;
 import top.sywyar.pixivdownload.plugin.api.TagQuery;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.WorkQuery;
@@ -29,8 +28,9 @@ import java.util.*;
 
 /**
  * 画廊页面服务：列表 / 详情 / 标签 / 关联查询统一走核心接口——{@link WorkQueryService}
- * 取 id 分页与目录聚合、{@link WorkMetadataRepository} 批量补全行数据（search → hydrate 两步），
- * 不再直接依赖底层数据库与作者 / 系列服务。
+ * 取 id 分页与目录聚合、{@link WorkMetadataRepository} 批量补全行数据（search → hydrate 两步）；
+ * 删除链路同样走核心接口——{@link WorkAssetService} 删文件、{@link WorkDeletionService}
+ * 标记软删除，不再直接依赖底层数据库与下载侧文件定位。
  */
 @Slf4j
 @Service
@@ -39,9 +39,8 @@ public class GalleryService {
 
     private final WorkQueryService workQueryService;
     private final WorkMetadataRepository workMetadataRepository;
-    /** 仅删除链路使用（{@code getArtwork} / {@code markArtworkDeleted}），待删除链路改走核心删除服务时移除。 */
-    private final PixivDatabase pixivDatabase;
-    private final ArtworkFileLocator artworkFileLocator;
+    private final WorkAssetService workAssetService;
+    private final WorkDeletionService workDeletionService;
     private final AppMessages messages;
 
     public PagedHistoryResponse query(GalleryQuery query) {
@@ -110,24 +109,24 @@ public class GalleryService {
     }
 
     /**
-     * 删除单个作品：先删磁盘文件（图片 / 缩略图 / 图库缓存 / 空目录），再清理 DB 派生数据并标记软删除
-     * （感知哈希 / 标签关联 / 收藏夹关联照旧清理，主行保留并置 {@code deleted = 1}，见
-     * {@link PixivDatabase#markArtworkDeleted}）——使下载判重能识别「已下载过，但被删除」、
+     * 删除单个作品：先删磁盘文件（图片 / 缩略图 / 图库缓存 / 空目录，经
+     * {@link WorkAssetService#deleteLocalFiles}），再清理 DB 派生数据并标记软删除
+     * （感知哈希 / 标签关联 / 收藏夹关联照旧清理，主行保留并置 {@code deleted = 1}，经
+     * {@link WorkDeletionService#markDeleted}）——使下载判重能识别「已下载过，但被删除」、
      * 避免被当作未下载重新下载。作品不存在或已被标记删除时返回 {@code false}。磁盘文件删除失败
      * （被锁定 / 权限不足等）会立即抛出，不再继续动 DB，避免 DB 与磁盘状态不一致出现孤儿文件。
      */
     public boolean deleteArtwork(long artworkId) {
-        ArtworkRecord record = pixivDatabase.getArtwork(artworkId);
-        if (record == null || record.deleted()) {
+        if (!workQueryService.hasActiveWork(WorkType.ARTWORK, artworkId)) {
             return false;
         }
-        if (!artworkFileLocator.deleteArtworkFiles(record)) {
+        if (!workAssetService.deleteLocalFiles(WorkType.ARTWORK, artworkId)) {
             throw new LocalizedException(HttpStatus.CONFLICT,
                     "gallery.delete.file-failed",
                     "作品 {0} 的磁盘文件未能全部删除，已中止数据库清理",
                     artworkId);
         }
-        pixivDatabase.markArtworkDeleted(artworkId);
+        workDeletionService.markDeleted(WorkType.ARTWORK, artworkId);
         log.info(logMessage("gallery.log.deleted", artworkId));
         return true;
     }

@@ -9,15 +9,14 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.TagOption;
 import top.sywyar.pixivdownload.plugin.api.TagQuery;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.WorkQuery;
@@ -35,11 +34,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,83 +48,77 @@ class GalleryServiceTest {
     @Mock
     private WorkMetadataRepository workMetadataRepository;
     @Mock
-    private PixivDatabase pixivDatabase;
+    private WorkAssetService workAssetService;
     @Mock
-    private ArtworkFileLocator artworkFileLocator;
+    private WorkDeletionService workDeletionService;
 
     private GalleryService galleryService;
 
     @BeforeEach
     void setUp() {
         galleryService = new GalleryService(workQueryService, workMetadataRepository,
-                pixivDatabase, artworkFileLocator, TestI18nBeans.appMessages());
+                workAssetService, workDeletionService, TestI18nBeans.appMessages());
     }
 
     @Test
     @DisplayName("作品不存在时返回 false，且不删除文件或标记数据库记录")
     void shouldNotDeleteWhenArtworkMissing() {
-        when(pixivDatabase.getArtwork(1L)).thenReturn(null);
+        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 1L)).thenReturn(false);
 
         assertThat(galleryService.deleteArtwork(1L)).isFalse();
 
-        verify(artworkFileLocator, never()).deleteArtworkFiles(any());
-        verify(pixivDatabase, never()).markArtworkDeleted(anyLong());
+        verify(workAssetService, never()).deleteLocalFiles(any(), anyLong());
+        verify(workDeletionService, never()).markDeleted(any(), anyLong());
     }
 
     @Test
     @DisplayName("已被标记删除的作品返回 false，不再触碰磁盘或重复标记")
     void shouldNotDeleteWhenAlreadyMarkedDeleted() {
-        ArtworkRecord record = mock(ArtworkRecord.class);
-        when(record.deleted()).thenReturn(true);
-        when(pixivDatabase.getArtwork(1L)).thenReturn(record);
+        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 1L)).thenReturn(false);
 
         assertThat(galleryService.deleteArtwork(1L)).isFalse();
 
-        verify(artworkFileLocator, never()).deleteArtworkFiles(any());
-        verify(pixivDatabase, never()).markArtworkDeleted(anyLong());
+        verify(workAssetService, never()).deleteLocalFiles(any(), anyLong());
+        verify(workDeletionService, never()).markDeleted(any(), anyLong());
     }
 
     @Test
     @DisplayName("删除作品应先删磁盘文件，再标记数据库软删除（主行保留）")
     void shouldDeleteFilesThenDatabase() {
-        ArtworkRecord record = mock(ArtworkRecord.class);
-        when(pixivDatabase.getArtwork(12345L)).thenReturn(record);
-        when(artworkFileLocator.deleteArtworkFiles(record)).thenReturn(true);
+        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 12345L)).thenReturn(true);
+        when(workAssetService.deleteLocalFiles(WorkType.ARTWORK, 12345L)).thenReturn(true);
 
         assertThat(galleryService.deleteArtwork(12345L)).isTrue();
 
-        InOrder inOrder = inOrder(artworkFileLocator, pixivDatabase);
-        inOrder.verify(artworkFileLocator).deleteArtworkFiles(record);
-        inOrder.verify(pixivDatabase).markArtworkDeleted(12345L);
-        verify(pixivDatabase, never()).deleteArtwork(anyLong());
+        InOrder inOrder = inOrder(workAssetService, workDeletionService);
+        inOrder.verify(workAssetService).deleteLocalFiles(WorkType.ARTWORK, 12345L);
+        inOrder.verify(workDeletionService).markDeleted(WorkType.ARTWORK, 12345L);
     }
 
     @Test
     @DisplayName("磁盘文件删除失败时不标记数据库记录，并抛出异常以阻止状态不一致")
     void shouldAbortWhenFileDeletionFails() {
-        ArtworkRecord record = mock(ArtworkRecord.class);
-        when(pixivDatabase.getArtwork(999L)).thenReturn(record);
-        when(artworkFileLocator.deleteArtworkFiles(record)).thenReturn(false);
+        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 999L)).thenReturn(true);
+        when(workAssetService.deleteLocalFiles(WorkType.ARTWORK, 999L)).thenReturn(false);
 
         assertThatThrownBy(() -> galleryService.deleteArtwork(999L))
                 .isInstanceOf(top.sywyar.pixivdownload.i18n.LocalizedException.class);
 
-        verify(pixivDatabase, never()).markArtworkDeleted(anyLong());
+        verify(workDeletionService, never()).markDeleted(any(), anyLong());
     }
 
     @Test
     @DisplayName("批量删除应去重并返回实际删除数量")
     void shouldBatchDeleteDistinctAndCount() {
-        ArtworkRecord record = mock(ArtworkRecord.class);
-        when(pixivDatabase.getArtwork(1L)).thenReturn(record);
-        when(pixivDatabase.getArtwork(2L)).thenReturn(null);
-        when(artworkFileLocator.deleteArtworkFiles(record)).thenReturn(true);
+        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 1L)).thenReturn(true);
+        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 2L)).thenReturn(false);
+        when(workAssetService.deleteLocalFiles(WorkType.ARTWORK, 1L)).thenReturn(true);
 
         int deleted = galleryService.deleteArtworks(List.of(1L, 2L, 1L));
 
         assertThat(deleted).isEqualTo(1);
-        verify(pixivDatabase, times(1)).markArtworkDeleted(1L);
-        verify(pixivDatabase, never()).markArtworkDeleted(2L);
+        verify(workDeletionService, times(1)).markDeleted(WorkType.ARTWORK, 1L);
+        verify(workDeletionService, never()).markDeleted(WorkType.ARTWORK, 2L);
     }
 
     @Test
@@ -135,7 +126,7 @@ class GalleryServiceTest {
     void shouldReturnZeroForEmptyBatch() {
         assertThat(galleryService.deleteArtworks(null)).isZero();
         assertThat(galleryService.deleteArtworks(List.of())).isZero();
-        verify(pixivDatabase, never()).markArtworkDeleted(anyLong());
+        verify(workDeletionService, never()).markDeleted(any(), anyLong());
     }
 
     @Nested
@@ -231,7 +222,6 @@ class GalleryServiceTest {
             when(workMetadataRepository.find(WorkType.ARTWORK, 3L))
                     .thenReturn(Optional.of(meta(3L, null, null)));
             assertThat(galleryService.byAuthor(3L, 10)).isEmpty();
-            verifyNoInteractions(pixivDatabase);
             verify(workQueryService, times(1)).byAuthor(any(), anyLong(), anyLong(), anyInt());
         }
 

@@ -5,22 +5,22 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
-import top.sywyar.pixivdownload.download.ArtworkFileLocator;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
-import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.plugin.api.LocalWorkAsset;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
+import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.WorkMetadata;
+import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
+import top.sywyar.pixivdownload.plugin.api.WorkTag;
+import top.sywyar.pixivdownload.plugin.api.WorkType;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport;
 import top.sywyar.pixivdownload.quota.ArchiveExportSupport.ExportResult;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -30,6 +30,8 @@ import java.util.Set;
 
 /**
  * 插画画廊批量操作：按显式 ID 或筛选快照解析作品集合，支持批量收藏与导出打包。
+ * 行数据经 {@link WorkMetadataRepository} 批量补全、文件枚举经 {@link WorkAssetService}，
+ * 不再直接依赖底层数据库与下载侧文件定位；打包仍走核心 quota 打包能力。
  * 小说侧的对应逻辑在 {@code novel.NovelBatchService}，两者互不依赖。
  */
 @Slf4j
@@ -40,9 +42,8 @@ public class GalleryBatchService {
     private static final Set<String> ALLOWED_FORMATS = Set.of("jpg", "jpeg", "png", "gif", "webp");
 
     private final GalleryService galleryService;
-    private final PixivDatabase pixivDatabase;
-    private final ArtworkFileLocator artworkFileLocator;
-    private final AuthorService authorService;
+    private final WorkMetadataRepository workMetadataRepository;
+    private final WorkAssetService workAssetService;
     private final CollectionService collectionService;
     private final UserQuotaService userQuotaService;
     private final MultiModeConfig multiModeConfig;
@@ -76,41 +77,28 @@ public class GalleryBatchService {
             return ExportResult.empty();
         }
 
-        List<ArtworkRecord> fetched = pixivDatabase.getArtworks(ids);
-        Map<Long, ArtworkRecord> byId = new HashMap<>(fetched.size());
-        Set<Long> authorIds = new HashSet<>();
-        for (ArtworkRecord record : fetched) {
-            byId.put(record.artworkId(), record);
-            if (record.authorId() != null && record.authorId() > 0) {
-                authorIds.add(record.authorId());
-            }
-        }
-        Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
-        Map<Long, List<TagDto>> tagsByArtwork = pixivDatabase.getArtworkTags(ids);
+        List<WorkMetadata> metas = workMetadataRepository.findAll(WorkType.ARTWORK, ids);
         List<UserQuotaService.ArchiveItem> items = new ArrayList<>();
         List<Map<String, Object>> manifest = new ArrayList<>();
         int fileCount = 0;
 
-        for (Long id : ids) {
-            ArtworkRecord record = byId.get(id);
-            if (record == null) continue;
-            String authorName = record.authorId() == null ? null : authorNames.get(record.authorId());
+        for (WorkMetadata meta : metas) {
             String baseDir = groupById
-                    ? String.valueOf(record.artworkId())
-                    : "artworks/" + ArchiveExportSupport.authorSegment(record.authorId(), authorName)
-                            + "/" + ArchiveExportSupport.workSegment(record.artworkId(), record.title());
+                    ? String.valueOf(meta.workId())
+                    : "artworks/" + ArchiveExportSupport.authorSegment(meta.authorId(), meta.authorName())
+                            + "/" + ArchiveExportSupport.workSegment(meta.workId(), meta.title());
             List<Map<String, Object>> fileEntries = new ArrayList<>();
-            int pages = Math.max(1, record.count());
-            for (int page = 0; page < pages; page++) {
-                File file = artworkFileLocator.resolveImageFile(record, page);
-                if (file == null || !file.isFile()) continue;
-                String entryName = baseDir + "/"
-                        + ArchiveExportSupport.safeSegment(file.getName(), "page-" + (page + 1));
-                items.add(UserQuotaService.ArchiveItem.file(file.toPath(), entryName, record.artworkId()));
-                fileEntries.add(ArchiveExportSupport.fileManifest(entryName, file.toPath()));
+            List<WorkAssetFile> files = workAssetService.findAsset(WorkType.ARTWORK, meta.workId())
+                    .map(LocalWorkAsset::files)
+                    .orElse(List.of());
+            for (WorkAssetFile file : files) {
+                String entryName = baseDir + "/" + ArchiveExportSupport.safeSegment(
+                        file.path().getFileName().toString(), "page-" + (file.page() + 1));
+                items.add(UserQuotaService.ArchiveItem.file(file.path(), entryName, meta.workId()));
+                fileEntries.add(ArchiveExportSupport.fileManifest(entryName, file.path()));
                 fileCount++;
             }
-            manifest.add(artworkManifest(record, authorName, tagsByArtwork.get(record.artworkId()), fileEntries));
+            manifest.add(artworkManifest(meta, fileEntries));
         }
 
         if (fileCount == 0) {
@@ -170,21 +158,31 @@ public class GalleryBatchService {
         return out.isEmpty() ? null : new ArrayList<>(out);
     }
 
-    private Map<String, Object> artworkManifest(ArtworkRecord record, String authorName,
-                                                List<TagDto> tags, List<Map<String, Object>> files) {
+    private Map<String, Object> artworkManifest(WorkMetadata meta, List<Map<String, Object>> files) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("type", "artwork");
-        out.put("id", record.artworkId());
-        out.put("title", record.title());
-        out.put("authorId", record.authorId());
-        out.put("authorName", authorName);
-        out.put("seriesId", record.seriesId());
-        out.put("seriesOrder", record.seriesOrder());
-        out.put("xRestrict", record.xRestrict());
-        out.put("isAi", record.isAi());
-        out.put("time", record.time());
-        out.put("tags", ArchiveExportSupport.tagNames(tags));
+        out.put("id", meta.workId());
+        out.put("title", meta.title());
+        out.put("authorId", meta.authorId());
+        out.put("authorName", meta.authorName());
+        out.put("seriesId", meta.seriesId());
+        out.put("seriesOrder", meta.seriesOrder());
+        out.put("xRestrict", meta.xRestrict());
+        out.put("isAi", meta.isAi());
+        out.put("time", meta.downloadTime());
+        out.put("tags", ArchiveExportSupport.tagNames(toTagDtos(meta.tags())));
         out.put("files", files);
+        return out;
+    }
+
+    private static List<TagDto> toTagDtos(List<WorkTag> tags) {
+        if (tags == null || tags.isEmpty()) {
+            return List.of();
+        }
+        List<TagDto> out = new ArrayList<>(tags.size());
+        for (WorkTag tag : tags) {
+            out.add(new TagDto(tag.tagId(), tag.name(), tag.translatedName()));
+        }
         return out;
     }
 
