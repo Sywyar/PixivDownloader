@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;

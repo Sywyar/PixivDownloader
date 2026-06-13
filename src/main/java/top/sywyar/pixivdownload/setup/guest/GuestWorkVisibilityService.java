@@ -15,7 +15,7 @@ import java.util.Set;
  * {@link WorkVisibilityService} 的核心实现：代理 {@link GuestAccessGuard}，按
  * {@link WorkType} 路由到插画/小说两套守卫方法，判定语义与直接调用守卫完全一致。
  *
- * <p>{@link #restrictionFrom} 的投影逻辑与 {@code gallery.GuestRestriction#from} /
+ * <p>{@link #restrictionFrom} 的投影逻辑与 {@code core.metadata.GuestRestriction#from} /
  * {@code forNovel} 等价；插件调用方切换到本接口后由这里统一承担派生。
  */
 @Component

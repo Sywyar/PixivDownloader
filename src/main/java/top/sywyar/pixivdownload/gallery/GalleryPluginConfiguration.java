@@ -13,13 +13,11 @@ import top.sywyar.pixivdownload.plugin.api.WorkQueryService;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 
-import javax.sql.DataSource;
-
 /**
  * gallery 插件的 Bean 装配收敛点：业务 Bean（含 {@code @RestController}）均经
  * {@code @PluginManagedBean} 排除出根包扫描，由这里以 {@code @Bean} 显式提供。
- * {@link GalleryRepository} 仍被核心（CoreWorkQueryService 与作者 / 收藏夹 / 系列 / 下载
- * controller）注入使用，待其收编进核心数据层后再迁出本配置。
+ * 画廊的 SQL 仓库已收编进核心数据层（{@code core.metadata.GalleryRepository}，根包扫描的
+ * 核心 Bean），不再由本配置提供。
  */
 @Configuration
 public class GalleryPluginConfiguration {
@@ -27,11 +25,6 @@ public class GalleryPluginConfiguration {
     @Bean
     public GalleryPlugin galleryPlugin() {
         return new GalleryPlugin();
-    }
-
-    @Bean
-    public GalleryRepository galleryRepository(DataSource dataSource) {
-        return new GalleryRepository(dataSource);
     }
 
     @Bean

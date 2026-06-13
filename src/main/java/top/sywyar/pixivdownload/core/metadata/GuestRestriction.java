@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.gallery;
+package top.sywyar.pixivdownload.core.metadata;
 
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-import top.sywyar.pixivdownload.gallery.GuestRestriction;
+import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.plugin.api.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.WorkType;
 

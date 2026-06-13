@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.metadata.GalleryQuery;
 import top.sywyar.pixivdownload.plugin.api.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;

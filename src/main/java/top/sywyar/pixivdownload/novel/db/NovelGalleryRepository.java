@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.novel.db;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import top.sywyar.pixivdownload.gallery.GuestRestriction;
+import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 
 import javax.sql.DataSource;

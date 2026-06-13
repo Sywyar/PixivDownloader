@@ -4,9 +4,6 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.gallery.GalleryQuery;
-import top.sywyar.pixivdownload.gallery.GalleryRepository;
-import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.novel.db.NovelAuthorSummary;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
@@ -41,14 +38,14 @@ import java.util.Set;
 
 /**
  * {@link WorkQueryService} 的核心实现：插画侧代理 {@link GalleryRepository}（id 查询 /
- * 标签 / 作者 / 系列目录 / 关联查询）、{@link PixivDatabase}（三态判重）与
+ * 标签 / 作者 / 系列目录 / 关联查询，已收编进核心数据层）、{@link PixivDatabase}（三态判重）与
  * {@link MangaSeriesService}（系列池补全）；小说侧代理 {@link NovelGalleryRepository}
  * （目录计数 / 关联查询）、{@link NovelDatabase}（三态判重 / 系列池）与
  * {@link NovelWorkSearch}（列表内存过滤，自小说画廊服务下沉），查询语义与直接调用
  * 被代理类逐条一致。
  *
- * <p>过渡期本类持有对 gallery / novel.db 包内 SQL 仓库的 import：两个仓库今天还住在
- * 各自页面包里，待画廊与小说画廊侧仓库收编进核心数据层后消除。
+ * <p>插画侧 SQL 仓库已随本包收编、不再反向 import gallery；过渡期仅余对 novel.db 包内
+ * 小说画廊仓库的 import，待小说画廊侧查询面收编进核心数据层后消除。
  */
 @Component
 public class CoreWorkQueryService implements WorkQueryService {

@@ -105,6 +105,20 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("核心不得反向依赖 gallery 插件包（组合根 BuiltInPlugins 除外）")
+    void coreDoesNotDependOnGalleryPlugin() {
+        noClasses()
+                .that().resideOutsideOfPackage("top.sywyar.pixivdownload.gallery..")
+                .and().doNotHaveFullyQualifiedName(BuiltInPlugins.class.getName())
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.gallery..")
+                .because("gallery 是功能插件，核心只能经 PluginRegistry 间接使用其 contribution；"
+                        + "插画 SQL 仓库（GalleryRepository / GalleryQuery / GuestRestriction）已收编进核心"
+                        + "数据层 core.metadata，BuiltInPlugins 是既定的组合根例外")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("小说画廊侧服务不得依赖核心实现类：数据与文件访问只能走 plugin.api 核心接口")
     void novelGalleryServicesDependOnlyOnCoreInterfaces() {
         // novel 包同时容纳 novel-core（下载/正文/翻译/TTS，不强拆、合法直连 NovelDatabase），

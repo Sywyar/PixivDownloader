@@ -21,7 +21,6 @@ import top.sywyar.pixivdownload.core.db.PathPrefixMapper;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.gallery.GalleryRepository;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;

@@ -56,7 +56,7 @@ class DownloadControllerTest {
     @Mock
     private top.sywyar.pixivdownload.setup.guest.GuestAccessGuard guestAccessGuard;
     @Mock
-    private top.sywyar.pixivdownload.gallery.GalleryRepository galleryRepository;
+    private top.sywyar.pixivdownload.core.metadata.GalleryRepository galleryRepository;
     @Mock
     private NovelDownloadService novelDownloadService;
 
