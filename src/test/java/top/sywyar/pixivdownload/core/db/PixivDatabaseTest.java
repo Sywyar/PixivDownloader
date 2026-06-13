@@ -5,6 +5,9 @@ import org.apache.ibatis.session.*;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.*;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
+import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.util.List;

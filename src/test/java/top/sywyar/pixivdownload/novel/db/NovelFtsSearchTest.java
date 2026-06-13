@@ -42,7 +42,7 @@ class NovelFtsSearchTest {
         // novels 等受管表建表已统一由 DatabaseInitializer 执行；FTS 虚拟表仍由 NovelMapper 维护
         top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry registry =
                 top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry.forBuiltInPlugins();
-        new top.sywyar.pixivdownload.core.db.DatabaseInitializer(
+        new top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer(
                 new org.springframework.jdbc.core.JdbcTemplate(dataSource),
                 registry.contributions(), registry.mergedSchema(),
                 top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), event -> {})

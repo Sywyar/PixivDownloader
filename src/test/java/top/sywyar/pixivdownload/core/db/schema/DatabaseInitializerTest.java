@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.db.schema;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,7 +23,7 @@ import java.util.TreeMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
 
 @DisplayName("DatabaseInitializer 统一建表 / 补列 / 索引")
 class DatabaseInitializerTest {

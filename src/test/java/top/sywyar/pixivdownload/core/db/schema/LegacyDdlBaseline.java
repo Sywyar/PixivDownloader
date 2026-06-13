@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.db.schema;
 
 import java.util.List;
 

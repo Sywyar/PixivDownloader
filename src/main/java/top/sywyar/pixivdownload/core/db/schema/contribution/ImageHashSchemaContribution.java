@@ -1,12 +1,12 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.db.schema.contribution;
 
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.explicitIndex;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.explicitIndex;
 
 /**
  * 图片感知哈希域 schema 的 contribution 声明。

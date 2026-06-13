@@ -4,8 +4,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
-import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
-import top.sywyar.pixivdownload.core.db.PathPrefixColumns;
+import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixColumns;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 @Configuration

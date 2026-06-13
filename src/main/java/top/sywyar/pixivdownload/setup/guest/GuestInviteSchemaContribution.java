@@ -1,15 +1,15 @@
 package top.sywyar.pixivdownload.setup.guest;
 
-import top.sywyar.pixivdownload.core.db.CoreSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.autoIncrementPrimaryKey;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.explicitIndex;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.uniqueConstraint;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.autoIncrementPrimaryKey;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.explicitIndex;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.uniqueConstraint;
 
 /**
  * 访客邀请域 schema 的 contribution 声明。访客邀请涉及权限边界，属核心安全层。

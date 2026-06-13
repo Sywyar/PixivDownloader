@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.db.schema;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;

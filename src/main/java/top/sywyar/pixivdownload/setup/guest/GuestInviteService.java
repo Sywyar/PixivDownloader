@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.config.SslConfig;
-import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.setup.guest.dto.HourlyBucket;
 import top.sywyar.pixivdownload.setup.guest.dto.InviteCreateRequest;

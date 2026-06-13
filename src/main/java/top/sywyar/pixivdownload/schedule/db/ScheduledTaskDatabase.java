@@ -7,7 +7,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
-import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
+import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.schedule.ScheduledTask;
 
 import java.util.List;

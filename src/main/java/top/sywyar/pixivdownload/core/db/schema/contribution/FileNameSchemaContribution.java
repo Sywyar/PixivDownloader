@@ -1,13 +1,13 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.db.schema.contribution;
 
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.autoIncrementPrimaryKey;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.uniqueConstraint;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.autoIncrementPrimaryKey;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.uniqueConstraint;
 
 /**
  * 文件名模板域 schema 的 contribution 声明（模板池与作者名 interning 池）。

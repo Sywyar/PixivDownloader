@@ -2,12 +2,12 @@ package top.sywyar.pixivdownload.plugin;
 
 import top.sywyar.pixivdownload.author.AuthorSchemaContribution;
 import top.sywyar.pixivdownload.collection.CollectionSchemaContribution;
-import top.sywyar.pixivdownload.core.db.ArtworkSchemaContribution;
-import top.sywyar.pixivdownload.core.db.CoreSchemaContribution;
-import top.sywyar.pixivdownload.core.db.FileNameSchemaContribution;
-import top.sywyar.pixivdownload.core.db.ImageHashSchemaContribution;
-import top.sywyar.pixivdownload.core.db.StatisticsSchemaContribution;
-import top.sywyar.pixivdownload.core.db.TagSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.ArtworkSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.FileNameSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.ImageHashSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.StatisticsSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.TagSchemaContribution;
 import top.sywyar.pixivdownload.novel.db.NovelSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;

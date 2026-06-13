@@ -1,10 +1,14 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.db.schema;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.PixivMapper;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
 
 import java.sql.Connection;
 import java.sql.DriverManager;

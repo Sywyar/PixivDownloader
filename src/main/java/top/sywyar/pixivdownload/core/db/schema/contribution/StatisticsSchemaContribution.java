@@ -1,11 +1,11 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.db.schema.contribution;
 
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
 
 /**
  * 统计域 schema 的 contribution 声明（单行聚合计数表）。

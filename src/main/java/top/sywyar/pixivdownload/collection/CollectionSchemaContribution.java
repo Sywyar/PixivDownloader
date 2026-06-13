@@ -1,15 +1,15 @@
 package top.sywyar.pixivdownload.collection;
 
-import top.sywyar.pixivdownload.core.db.CoreSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.autoIncrementPrimaryKey;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.explicitIndex;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.autoIncrementPrimaryKey;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.explicitIndex;
 
 /**
  * 收藏夹域 schema 的 contribution 声明（收藏夹与插画关联；小说关联表

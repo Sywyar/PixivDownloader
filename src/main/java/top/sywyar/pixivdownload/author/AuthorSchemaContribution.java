@@ -1,12 +1,12 @@
 package top.sywyar.pixivdownload.author;
 
-import top.sywyar.pixivdownload.core.db.CoreSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
 
 /**
  * 作者域 schema 的 contribution 声明。作者表被 artworks / novels / guest-invite 共同引用，属核心共享数据。

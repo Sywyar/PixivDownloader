@@ -1,14 +1,14 @@
 package top.sywyar.pixivdownload.schedule.db;
 
-import top.sywyar.pixivdownload.core.db.CoreSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.autoIncrementPrimaryKey;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.explicitIndex;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.autoIncrementPrimaryKey;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.explicitIndex;
 
 /**
  * 计划任务域 schema 的 contribution 声明（任务表与单作品隔离重试表）。

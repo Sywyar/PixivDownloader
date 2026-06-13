@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import top.sywyar.pixivdownload.core.db.ManagedDatabaseSchema;
+import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPluginConfiguration;
 import top.sywyar.pixivdownload.duplicate.DuplicatePluginConfiguration;
 import top.sywyar.pixivdownload.gallery.GalleryPluginConfiguration;

@@ -1,13 +1,13 @@
 package top.sywyar.pixivdownload.series;
 
-import top.sywyar.pixivdownload.core.db.CoreSchemaContribution;
+import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 
-import static top.sywyar.pixivdownload.core.db.SchemaSpecs.column;
+import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
 
 /**
  * 漫画系列域 schema 的 contribution 声明。系列 meta 属核心长期事实数据。

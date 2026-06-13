@@ -2,8 +2,8 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.db.ManagedDatabaseSchema;
-import top.sywyar.pixivdownload.core.db.PathPrefixColumns;
+import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixColumns;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnMigrationSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.IndexOrigin;

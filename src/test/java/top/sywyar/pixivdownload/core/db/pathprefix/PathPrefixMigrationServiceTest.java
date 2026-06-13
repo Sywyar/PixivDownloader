@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.db.pathprefix;
 
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.Configuration;
@@ -14,8 +14,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.support.TransactionOperations;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.db.PathPrefixMigrationService.PathPrefixMigrationResult;
-import top.sywyar.pixivdownload.core.db.PathPrefixMigrationService.PathPrefixUpdate;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMigrationService.PathPrefixMigrationResult;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMigrationService.PathPrefixUpdate;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
 

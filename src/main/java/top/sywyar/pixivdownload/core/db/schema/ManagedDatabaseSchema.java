@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.db;
+package top.sywyar.pixivdownload.core.db.schema;
 
 import java.util.List;
 import java.util.Locale;
@@ -7,7 +7,7 @@ import java.util.Map;
 /**
  * 受管 SQLite schema 的归一化 record 模型。
  * 期望 schema 由 {@code plugin.DatabaseSchemaRegistry} 合并核心与各插件的
- * {@code SchemaContribution} 生成（核心表声明见 {@link CoreSchemaContribution}），
+ * {@code SchemaContribution} 生成（核心表声明见 {@code CoreSchemaContribution}），
  * 启动检查用它与磁盘上的实际 schema 比对。
  */
 public final class ManagedDatabaseSchema {
