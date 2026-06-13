@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
 
 import java.util.List;
 
@@ -103,7 +104,7 @@ class NovelFtsSearchTest {
         insertNovel(31L, "100 percent");
         insertNovel(32L, "A_B literal");
         insertNovel(33L, "ACB literal");
-        NovelDatabase database = new NovelDatabase(mapper, null, null, null);
+        NovelMetadataRepository database = new NovelMetadataRepository(dataSource, null);
 
         assertThat(database.searchNovelContentIds("%")).containsExactly(30L);
         assertThat(database.searchNovelContentIds("_")).containsExactly(32L);

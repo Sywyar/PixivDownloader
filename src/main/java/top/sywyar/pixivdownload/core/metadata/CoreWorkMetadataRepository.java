@@ -6,9 +6,6 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
-import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.plugin.api.NovelWorkDetails;
 import top.sywyar.pixivdownload.plugin.api.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
@@ -30,14 +27,12 @@ import java.util.Set;
 /**
  * {@link WorkMetadataRepository} 的核心实现：插画侧代理 {@link PixivDatabase}（行 / 标签 /
  * 文件名模板）+ {@link AuthorService}（作者名）+ {@link MangaSeriesService}（系列标题），
- * 小说侧代理 {@link NovelDatabase}（行 / 标签 / 系列标题 / 内嵌图片 / 译文语言）；
+ * 小说侧代理 {@link NovelMetadataRepository}（行 / 标签 / 系列标题 / 内嵌图片 / 译文语言）；
  * 字段补全语义与画廊页既有装配逐字段一致。
  *
  * <p>批量契约：{@link #findAll} 对行读取与各关联补全各发一次批量查询（禁止 N+1），
  * 返回顺序与传入 id 顺序一致；软删除行与未知 id 直接跳过。单条 {@link #find} 统一
  * 委托批量路径，保持「id → 行」单一来源。
- *
- * <p>过渡期本类对 novel.db 包的 import 待小说侧仓库收编进核心数据层后消除。
  */
 @Component
 @RequiredArgsConstructor
@@ -47,7 +42,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
     private static final long DEFAULT_FILE_NAME_TEMPLATE_ID = 1L;
 
     private final PixivDatabase pixivDatabase;
-    private final NovelDatabase novelDatabase;
+    private final NovelMetadataRepository novelMetadataRepository;
     private final AuthorService authorService;
     private final MangaSeriesService mangaSeriesService;
 
@@ -130,7 +125,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
     }
 
     private List<WorkMetadata> findAllNovels(List<Long> workIds) {
-        List<NovelRecord> fetched = novelDatabase.getNovels(workIds);
+        List<NovelRecord> fetched = novelMetadataRepository.getNovels(workIds);
         Map<Long, NovelRecord> byId = new HashMap<>(fetched.size());
         for (NovelRecord rec : fetched) {
             if (!rec.deleted()) {
@@ -165,9 +160,9 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
         Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
         Map<Long, String> seriesTitles = resolveNovelSeriesTitles(seriesIds);
         List<Long> novelIds = records.stream().map(NovelRecord::novelId).toList();
-        Map<Long, List<TagDto>> tagsByNovel = novelDatabase.getNovelTagsBatch(novelIds);
-        Map<Long, List<String>> imagesByNovel = novelDatabase.getNovelImageIdsBatch(novelIds);
-        Map<Long, List<String>> langsByNovel = novelDatabase.getTranslationLangsBatch(novelIds);
+        Map<Long, List<TagDto>> tagsByNovel = novelMetadataRepository.getNovelTagsBatch(novelIds);
+        Map<Long, List<String>> imagesByNovel = novelMetadataRepository.getNovelImageIdsBatch(novelIds);
+        Map<Long, List<String>> langsByNovel = novelMetadataRepository.getTranslationLangsBatch(novelIds);
         // 小说侧没有「模板 id 缺省取 1」规则：仅 fileName 非空时补模板内容（与原画廊装配一致）
         Map<Long, String> templates = templateIds.isEmpty()
                 ? Map.of()
@@ -244,7 +239,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
             return Collections.emptyMap();
         }
         Map<Long, String> out = new HashMap<>(seriesIds.size());
-        for (NovelSeries series : novelDatabase.getSeriesByIds(seriesIds)) {
+        for (NovelSeries series : novelMetadataRepository.getSeriesByIds(seriesIds)) {
             out.put(series.seriesId(), series.title());
         }
         return out;

@@ -4,13 +4,6 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.novel.db.NovelAuthorSummary;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
-import top.sywyar.pixivdownload.novel.db.NovelSeries;
-import top.sywyar.pixivdownload.novel.db.NovelSeriesSummary;
-import top.sywyar.pixivdownload.novel.db.NovelTagOption;
 import top.sywyar.pixivdownload.plugin.api.AuthorQuery;
 import top.sywyar.pixivdownload.plugin.api.AuthorSummary;
 import top.sywyar.pixivdownload.plugin.api.PagedResult;
@@ -38,14 +31,13 @@ import java.util.Set;
 
 /**
  * {@link WorkQueryService} 的核心实现：插画侧代理 {@link GalleryRepository}（id 查询 /
- * 标签 / 作者 / 系列目录 / 关联查询，已收编进核心数据层）、{@link PixivDatabase}（三态判重）与
+ * 标签 / 作者 / 系列目录 / 关联查询）、{@link PixivDatabase}（三态判重）与
  * {@link MangaSeriesService}（系列池补全）；小说侧代理 {@link NovelGalleryRepository}
- * （目录计数 / 关联查询）、{@link NovelDatabase}（三态判重 / 系列池）与
+ * （目录计数 / 关联查询）、{@link NovelMetadataRepository}（三态判重 / 行 / 系列池）与
  * {@link NovelWorkSearch}（列表内存过滤，自小说画廊服务下沉），查询语义与直接调用
  * 被代理类逐条一致。
  *
- * <p>插画侧 SQL 仓库已随本包收编、不再反向 import gallery；过渡期仅余对 novel.db 包内
- * 小说画廊仓库的 import，待小说画廊侧查询面收编进核心数据层后消除。
+ * <p>插画侧与小说侧 SQL 仓库均已收编进核心数据层，不再反向 import gallery / novel.db。
  */
 @Component
 public class CoreWorkQueryService implements WorkQueryService {
@@ -53,7 +45,7 @@ public class CoreWorkQueryService implements WorkQueryService {
     private final GalleryRepository galleryRepository;
     private final NovelGalleryRepository novelGalleryRepository;
     private final PixivDatabase pixivDatabase;
-    private final NovelDatabase novelDatabase;
+    private final NovelMetadataRepository novelMetadataRepository;
     private final AuthorService authorService;
     private final MangaSeriesService mangaSeriesService;
     private final NovelWorkSearch novelWorkSearch;
@@ -61,16 +53,16 @@ public class CoreWorkQueryService implements WorkQueryService {
     public CoreWorkQueryService(GalleryRepository galleryRepository,
                                 NovelGalleryRepository novelGalleryRepository,
                                 PixivDatabase pixivDatabase,
-                                NovelDatabase novelDatabase,
+                                NovelMetadataRepository novelMetadataRepository,
                                 AuthorService authorService,
                                 MangaSeriesService mangaSeriesService) {
         this.galleryRepository = galleryRepository;
         this.novelGalleryRepository = novelGalleryRepository;
         this.pixivDatabase = pixivDatabase;
-        this.novelDatabase = novelDatabase;
+        this.novelMetadataRepository = novelMetadataRepository;
         this.authorService = authorService;
         this.mangaSeriesService = mangaSeriesService;
-        this.novelWorkSearch = new NovelWorkSearch(novelDatabase, novelGalleryRepository, authorService);
+        this.novelWorkSearch = new NovelWorkSearch(novelMetadataRepository, novelGalleryRepository, authorService);
     }
 
     @Override
@@ -95,7 +87,7 @@ public class CoreWorkQueryService implements WorkQueryService {
     public boolean hasWork(WorkType workType, long workId) {
         return switch (workType) {
             case ARTWORK -> pixivDatabase.hasArtwork(workId);
-            case NOVEL -> novelDatabase.hasNovel(workId);
+            case NOVEL -> novelMetadataRepository.hasNovel(workId);
         };
     }
 
@@ -103,7 +95,7 @@ public class CoreWorkQueryService implements WorkQueryService {
     public boolean hasActiveWork(WorkType workType, long workId) {
         return switch (workType) {
             case ARTWORK -> pixivDatabase.hasActiveArtwork(workId);
-            case NOVEL -> novelDatabase.hasActiveNovel(workId);
+            case NOVEL -> novelMetadataRepository.hasActiveNovel(workId);
         };
     }
 
@@ -232,7 +224,7 @@ public class CoreWorkQueryService implements WorkQueryService {
      * （不要求严格相邻），自小说画廊服务下沉。按接口契约，基准行软删除或无序号时返回 empty。
      */
     private Optional<SeriesNeighbors> novelSeriesNeighbors(long workId) {
-        NovelRecord current = novelDatabase.getNovel(workId);
+        NovelRecord current = novelMetadataRepository.getNovel(workId);
         if (current == null || current.deleted() || current.seriesId() == null || current.seriesId() <= 0
                 || current.seriesOrder() == null) {
             return Optional.empty();
@@ -240,7 +232,7 @@ public class CoreWorkQueryService implements WorkQueryService {
         long currentOrder = current.seriesOrder();
         NovelRecord prev = null;
         NovelRecord next = null;
-        for (NovelRecord r : novelDatabase.getNovelsBySeriesId(current.seriesId())) {
+        for (NovelRecord r : novelMetadataRepository.getNovelsBySeriesId(current.seriesId())) {
             long ord = r.seriesOrder() == null ? -1 : r.seriesOrder();
             if (ord < currentOrder && (prev == null
                     || (prev.seriesOrder() != null && ord > prev.seriesOrder()))) {
@@ -251,7 +243,7 @@ public class CoreWorkQueryService implements WorkQueryService {
                 next = r;
             }
         }
-        NovelSeries series = novelDatabase.getSeries(current.seriesId());
+        NovelSeries series = novelMetadataRepository.getSeries(current.seriesId());
         return Optional.of(new SeriesNeighbors(
                 current.seriesId(),
                 series == null ? null : series.title(),
@@ -339,14 +331,14 @@ public class CoreWorkQueryService implements WorkQueryService {
         }
         Map<Long, NovelSeries> seriesById = new LinkedHashMap<>();
         Set<Long> authorIds = new LinkedHashSet<>();
-        for (NovelSeries seriesRow : novelDatabase.getSeriesByIds(seriesIds)) {
+        for (NovelSeries seriesRow : novelMetadataRepository.getSeriesByIds(seriesIds)) {
             seriesById.put(seriesRow.seriesId(), seriesRow);
             if (seriesRow.authorId() != null && seriesRow.authorId() > 0) {
                 authorIds.add(seriesRow.authorId());
             }
         }
         Map<Long, String> authorNames = authorService.getAuthorNames(authorIds);
-        Map<Long, List<TagDto>> tagsBySeries = novelDatabase.getNovelSeriesTagsBatch(seriesIds);
+        Map<Long, List<TagDto>> tagsBySeries = novelMetadataRepository.getNovelSeriesTagsBatch(seriesIds);
         List<SeriesSummary> out = new ArrayList<>(counts.size());
         for (NovelSeriesSummary item : counts) {
             NovelSeries seriesRow = seriesById.get(item.seriesId());

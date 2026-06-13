@@ -18,8 +18,8 @@ import top.sywyar.pixivdownload.ai.translation.TranslationResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelGlossaryEntry;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
-import top.sywyar.pixivdownload.novel.db.NovelSeries;
+import top.sywyar.pixivdownload.core.metadata.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.NovelSeries;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

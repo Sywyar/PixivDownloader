@@ -22,7 +22,7 @@ import top.sywyar.pixivdownload.notification.NotificationService;
 import top.sywyar.pixivdownload.novel.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.NovelDownloader;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.push.MarkdownEscape;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
@@ -91,7 +91,7 @@ public class ScheduleExecutor {
     private final PixivDatabase pixivDatabase;
     private final ArtworkDownloader artworkDownloader;
     private final NovelDownloader novelDownloader;
-    private final NovelDatabase novelDatabase;
+    private final NovelMetadataRepository novelMetadataRepository;
     private final NovelMergeService novelMergeService;
     private final ScheduleConfig scheduleConfig;
     private final ScheduleRunState runState;
@@ -1682,7 +1682,7 @@ public class ScheduleExecutor {
      */
     private LongPredicate alreadyDownloadedPredicate(boolean novel, Download download) {
         if (novel) {
-            return download.redownloadDeleted() ? novelDatabase::hasActiveNovel : novelDatabase::hasNovel;
+            return download.redownloadDeleted() ? novelMetadataRepository::hasActiveNovel : novelMetadataRepository::hasNovel;
         }
         if (download.redownloadDeleted()) {
             return download.verifyFiles()

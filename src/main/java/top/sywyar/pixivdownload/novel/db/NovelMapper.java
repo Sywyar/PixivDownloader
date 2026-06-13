@@ -8,6 +8,11 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.metadata.NovelAuthorSummary;
+import top.sywyar.pixivdownload.core.metadata.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.NovelSeries;
+import top.sywyar.pixivdownload.core.metadata.NovelSeriesSummary;
+import top.sywyar.pixivdownload.core.metadata.NovelTagOption;
 
 import java.util.Collection;
 import java.util.List;
@@ -78,16 +83,6 @@ public interface NovelMapper {
 
     @Select("SELECT lang_code FROM novel_translations WHERE novel_id = #{novelId} ORDER BY lang_code")
     List<String> findTranslationLangs(@Param("novelId") long novelId);
-
-    @Select({
-            "<script>",
-            "SELECT novel_id AS novelId, lang_code AS langCode FROM novel_translations",
-            "WHERE novel_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
-            "ORDER BY novel_id, lang_code",
-            "</script>"
-    })
-    List<java.util.Map<String, Object>> findTranslationLangsByNovelIds(@Param("ids") Collection<Long> novelIds);
 
     @Select("SELECT DISTINCT t.lang_code FROM novel_translations t"
             + " JOIN novels n ON n.novel_id = t.novel_id"
@@ -394,16 +389,6 @@ public interface NovelMapper {
     @Select("SELECT image_id FROM novel_images WHERE novel_id = #{novelId}")
     List<String> findNovelImageIds(@Param("novelId") long novelId);
 
-    @Select({
-            "<script>",
-            "SELECT novel_id AS novelId, image_id AS imageId FROM novel_images",
-            "WHERE novel_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
-            "ORDER BY novel_id",
-            "</script>"
-    })
-    List<java.util.Map<String, Object>> findNovelImageIdsByNovelIds(@Param("ids") Collection<Long> novelIds);
-
     @Delete("DELETE FROM novel_images WHERE novel_id = #{novelId}")
     void deleteNovelImages(@Param("novelId") long novelId);
 
@@ -411,22 +396,6 @@ public interface NovelMapper {
 
     @Select(SELECT_NOVEL + " WHERE novel_id = #{novelId}")
     NovelRecord findById(@Param("novelId") long novelId);
-
-    @Select({
-            "<script>",
-            SELECT_NOVEL,
-            "WHERE novel_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
-            "</script>"
-    })
-    List<NovelRecord> findByIds(@Param("ids") Collection<Long> ids);
-
-    @Select("SELECT COUNT(*) FROM novels WHERE novel_id = #{novelId}")
-    int countById(@Param("novelId") long novelId);
-
-    /** 未被软删除的存量判定；deleted 行视为不存在。 */
-    @Select("SELECT COUNT(*) FROM novels WHERE novel_id = #{novelId} AND deleted = 0")
-    int countActiveById(@Param("novelId") long novelId);
 
     @Select("SELECT COUNT(*) FROM novels WHERE time = #{time}")
     int countByTime(@Param("time") long time);
@@ -436,9 +405,6 @@ public interface NovelMapper {
 
     @Select("SELECT COUNT(*) FROM novels WHERE deleted = 0")
     long countAll();
-
-    @Select("SELECT novel_id FROM novels WHERE deleted = 0 ORDER BY time DESC")
-    List<Long> findAllIdsSortedByTimeDesc();
 
     @Insert("INSERT OR REPLACE INTO novels"
             + " (novel_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description,"
@@ -477,10 +443,6 @@ public interface NovelMapper {
     @Delete("DELETE FROM novels WHERE novel_id = #{novelId}")
     void deleteById(@Param("novelId") long novelId);
 
-    /** 软删除标记：主行保留（供下载判重识别「已下载但被删除」），仅置 deleted 位。 */
-    @Update("UPDATE novels SET deleted = 1 WHERE novel_id = #{novelId}")
-    void markDeletedById(@Param("novelId") long novelId);
-
     @Update("UPDATE novels SET extensions = #{extensions} WHERE novel_id = #{novelId}")
     void updateExtensions(@Param("novelId") long novelId, @Param("extensions") String extensions);
 
@@ -489,10 +451,6 @@ public interface NovelMapper {
     void updateSeriesInfo(@Param("novelId") long novelId,
                           @Param("seriesId") Long seriesId,
                           @Param("seriesOrder") Long seriesOrder);
-
-    @Select(SELECT_NOVEL + " WHERE series_id = #{seriesId} AND series_id > 0 AND deleted = 0"
-            + " ORDER BY series_order ASC, time ASC")
-    List<NovelRecord> findBySeriesId(@Param("seriesId") long seriesId);
 
     @Select("SELECT novel_id FROM novels WHERE series_id IS NULL AND deleted = 0")
     List<Long> findIdsMissingSeries();
@@ -539,20 +497,6 @@ public interface NovelMapper {
             + " FROM novel_series ORDER BY LOWER(title), series_id")
     List<NovelSeries> findAllSeries();
 
-    @Select({
-            "<script>",
-            "SELECT series_id AS seriesId, title, author_id AS authorId,",
-            " updated_time AS updatedTime, description, cover_ext AS coverExt,",
-            " cover_folder AS coverFolder",
-            "FROM novel_series",
-            "WHERE series_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>",
-            "#{id}",
-            "</foreach>",
-            "</script>"
-    })
-    List<NovelSeries> findSeriesByIds(@Param("ids") Collection<Long> ids);
-
     // ── Tags ────────────────────────────────────────────────────────────────────
 
     @Insert("INSERT OR IGNORE INTO novel_tags(novel_id, tag_id) VALUES(#{novelId}, #{tagId})")
@@ -560,24 +504,6 @@ public interface NovelMapper {
 
     @Delete("DELETE FROM novel_tags WHERE novel_id = #{novelId}")
     void deleteNovelTags(@Param("novelId") long novelId);
-
-    @Select("SELECT t.tag_id AS tagId, t.name AS name, t.translated_name AS translatedName"
-            + " FROM novel_tags nt JOIN tags t ON t.tag_id = nt.tag_id"
-            + " WHERE nt.novel_id = #{novelId}"
-            + " ORDER BY t.tag_id")
-    List<TagDto> findTagsByNovelId(@Param("novelId") long novelId);
-
-    @Select({
-            "<script>",
-            "SELECT nt.novel_id AS novelId, t.tag_id AS tagId, t.name AS name,",
-            " t.translated_name AS translatedName",
-            "FROM novel_tags nt JOIN tags t ON t.tag_id = nt.tag_id",
-            "WHERE nt.novel_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
-            "ORDER BY nt.novel_id, t.tag_id",
-            "</script>"
-    })
-    List<java.util.Map<String, Object>> findTagsByNovelIds(@Param("ids") Collection<Long> novelIds);
 
     @Select("SELECT 1 FROM novel_tags WHERE novel_id = #{novelId} LIMIT 1")
     Integer existsTagsForNovel(@Param("novelId") long novelId);
@@ -596,46 +522,10 @@ public interface NovelMapper {
             + " ORDER BY t.tag_id")
     List<TagDto> findTagsByNovelSeriesId(@Param("seriesId") long seriesId);
 
-    @Select({
-            "<script>",
-            "SELECT nst.series_id AS seriesId, t.tag_id AS tagId, t.name AS name,",
-            " t.translated_name AS translatedName",
-            "FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id",
-            "WHERE nst.series_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
-            "ORDER BY nst.series_id, t.tag_id",
-            "</script>"
-    })
-    List<java.util.Map<String, Object>> findTagsByNovelSeriesIds(@Param("ids") Collection<Long> seriesIds);
-
     // ── Collections ─────────────────────────────────────────────────────────────
-
-    @Insert("INSERT OR IGNORE INTO novel_collections(collection_id, novel_id, added_time)"
-            + " VALUES(#{collectionId}, #{novelId}, #{addedTime})")
-    int insertNovelCollection(@Param("collectionId") long collectionId,
-                              @Param("novelId") long novelId,
-                              @Param("addedTime") long addedTime);
-
-    @Delete("DELETE FROM novel_collections WHERE collection_id = #{collectionId} AND novel_id = #{novelId}")
-    int deleteNovelCollection(@Param("collectionId") long collectionId, @Param("novelId") long novelId);
 
     @Delete("DELETE FROM novel_collections WHERE novel_id = #{novelId}")
     void deleteAllNovelCollections(@Param("novelId") long novelId);
-
-    @Select("SELECT collection_id FROM novel_collections WHERE novel_id = #{novelId}")
-    List<Long> findCollectionIdsByNovelId(@Param("novelId") long novelId);
-
-    @Select({
-            "<script>",
-            "SELECT novel_id AS novelId, collection_id AS collectionId FROM novel_collections",
-            "WHERE novel_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
-            "</script>"
-    })
-    List<java.util.Map<String, Object>> findCollectionLinksByNovels(@Param("ids") Collection<Long> novelIds);
-
-    @Select("SELECT novel_id FROM novel_collections WHERE collection_id = #{collectionId}")
-    List<Long> findNovelIdsByCollectionId(@Param("collectionId") long collectionId);
 
     @Select({
             "<script>",

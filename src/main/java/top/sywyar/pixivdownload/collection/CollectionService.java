@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.nio.file.Path;
@@ -38,7 +38,7 @@ public class CollectionService {
     private final CollectionIconService iconService;
     private final AppMessages messages;
     private final DownloadConfig downloadConfig;
-    private final NovelDatabase novelDatabase;
+    private final NovelMetadataRepository novelMetadataRepository;
     private final PathPrefixCodec pathPrefixCodec;
     /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
     @SuppressWarnings("unused")
@@ -187,22 +187,22 @@ public class CollectionService {
 
     public boolean addNovel(long collectionId, long novelId) {
         requireExists(collectionId);
-        return novelDatabase.addToCollection(collectionId, novelId);
+        return novelMetadataRepository.addToCollection(collectionId, novelId);
     }
 
     public boolean removeNovel(long collectionId, long novelId) {
         requireExists(collectionId);
-        return novelDatabase.removeFromCollection(collectionId, novelId);
+        return novelMetadataRepository.removeFromCollection(collectionId, novelId);
     }
 
     public List<Long> novelCollectionsOf(long novelId) {
-        return novelDatabase.getCollectionIdsForNovel(novelId);
+        return novelMetadataRepository.getCollectionIdsForNovel(novelId);
     }
 
     public Map<Long, List<Long>> novelMembershipsOf(List<Long> novelIds) {
         Map<Long, List<Long>> result = new HashMap<>();
         if (novelIds == null || novelIds.isEmpty()) return result;
-        for (Map<String, Object> row : novelDatabase.findCollectionLinksByNovels(novelIds)) {
+        for (Map<String, Object> row : novelMetadataRepository.findCollectionLinksByNovels(novelIds)) {
             Long novelId = ((Number) row.get("novelId")).longValue();
             Long collectionId = ((Number) row.get("collectionId")).longValue();
             result.computeIfAbsent(novelId, k -> new ArrayList<>()).add(collectionId);
@@ -211,7 +211,7 @@ public class CollectionService {
     }
 
     public List<Long> novelIdsInCollection(long collectionId) {
-        return novelDatabase.getNovelIdsInCollection(collectionId);
+        return novelMetadataRepository.getNovelIdsInCollection(collectionId);
     }
 
     public List<Long> artworkIdsInCollections(Set<Long> collectionIds) {

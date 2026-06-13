@@ -23,7 +23,6 @@ import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.api.AuthorQuery;
@@ -64,6 +63,7 @@ class CoreWorkQueryServiceTest {
     private JdbcTemplate jdbc;
     private PixivDatabase pixivDatabase;
     private NovelDatabase novelDatabase;
+    private NovelMetadataRepository novelMetadataRepository;
     private AuthorService authorService;
     private MangaSeriesService mangaSeriesService;
     private CoreWorkQueryService service;
@@ -100,8 +100,9 @@ class CoreWorkQueryServiceTest {
         pixivDatabase = new PixivDatabase(
                 sqlSession.getMapper(PixivMapper.class), TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
+        novelMetadataRepository = new NovelMetadataRepository(dataSource, codec);
         novelDatabase = new NovelDatabase(
-                sqlSession.getMapper(NovelMapper.class), pixivDatabase, codec, initializer);
+                sqlSession.getMapper(NovelMapper.class), pixivDatabase, codec, initializer, novelMetadataRepository);
         novelDatabase.init();
 
         authorService = mock(AuthorService.class);
@@ -110,7 +111,7 @@ class CoreWorkQueryServiceTest {
                 new GalleryRepository(dataSource),
                 new NovelGalleryRepository(dataSource),
                 pixivDatabase,
-                novelDatabase,
+                novelMetadataRepository,
                 authorService,
                 mangaSeriesService);
     }
@@ -231,7 +232,7 @@ class CoreWorkQueryServiceTest {
         void shouldExposeNovelTriState() {
             insertNovel(11L, 100L, null, null);
             insertNovel(12L, 200L, null, null);
-            novelDatabase.markNovelDeleted(12L);
+            novelMetadataRepository.markNovelDeleted(12L);
 
             assertThat(service.hasWork(WorkType.NOVEL, 11L)).isTrue();
             assertThat(service.hasActiveWork(WorkType.NOVEL, 11L)).isTrue();
@@ -479,7 +480,7 @@ class CoreWorkQueryServiceTest {
             insertNovel(11L, 100L, null, null);
             insertNovel(12L, 200L, null, null);
             insertNovel(13L, 300L, null, null);
-            novelDatabase.markNovelDeleted(12L);
+            novelMetadataRepository.markNovelDeleted(12L);
 
             PagedResult<WorkSummary> result = service.search(
                     WorkQuery.builder(WorkType.NOVEL).build());
@@ -627,7 +628,7 @@ class CoreWorkQueryServiceTest {
             insertNovel(14L, 400L, 802L, 701L);
             novelDatabase.saveNovelTags(11L, List.of(new TagDto("魔法", null)));
             novelDatabase.saveNovelTags(14L, List.of(new TagDto("魔法", null)));
-            novelDatabase.markNovelDeleted(14L);
+            novelMetadataRepository.markNovelDeleted(14L);
             when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of(801L, "作者甲"));
 
             assertThat(service.tags(new TagQuery(WorkType.NOVEL, null, 100, null)))

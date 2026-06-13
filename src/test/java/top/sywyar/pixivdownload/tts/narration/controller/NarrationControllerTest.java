@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.novel.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.NovelRecord;
 import top.sywyar.pixivdownload.tts.narration.NarrationAudioService;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;

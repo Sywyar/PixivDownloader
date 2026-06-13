@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -41,7 +41,7 @@ class CollectionServiceTest {
     @Mock
     private DownloadConfig downloadConfig;
     @Mock
-    private NovelDatabase novelDatabase;
+    private NovelMetadataRepository novelMetadataRepository;
     @Mock
     private PathPrefixCodec pathPrefixCodec;
 
@@ -57,7 +57,7 @@ class CollectionServiceTest {
                 iconService,
                 TestI18nBeans.appMessages(),
                 downloadConfig,
-                novelDatabase,
+                novelMetadataRepository,
                 pathPrefixCodec,
                 null
         );

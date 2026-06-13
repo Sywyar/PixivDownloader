@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationService;
 import top.sywyar.pixivdownload.novel.NovelDownloader;
 import top.sywyar.pixivdownload.novel.NovelMergeService;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
@@ -55,7 +55,7 @@ class ScheduleExecutorRunTimingTest {
     @Mock
     private NovelDownloader novelDownloader;
     @Mock
-    private NovelDatabase novelDatabase;
+    private NovelMetadataRepository novelMetadataRepository;
     @Mock
     private NovelMergeService novelMergeService;
     @Mock
@@ -83,7 +83,7 @@ class ScheduleExecutorRunTimingTest {
     /** 用指定下载池构造被测执行器（默认 DownloadConfig：图片/小说池各 10）。 */
     private ScheduleExecutor newExecutor(TaskExecutor imagePool, TaskExecutor novelPool) {
         return new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
-                artworkDownloader, novelDownloader, novelDatabase, novelMergeService,
+                artworkDownloader, novelDownloader, novelMetadataRepository, novelMergeService,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
                 overuseWarningService, notificationService, appMessages, setupService,
                 new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(), imagePool, novelPool);

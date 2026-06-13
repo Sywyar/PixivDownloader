@@ -1,10 +1,9 @@
-package top.sywyar.pixivdownload.novel.db;
+package top.sywyar.pixivdownload.core.metadata;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
+import org.springframework.stereotype.Repository;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
@@ -19,11 +18,12 @@ import java.util.Set;
  *
  * <p>所有 SQL 都在 {@code novels} 表别名 {@code n} 上拼装，并使用 {@code novel_tags} 子表。
  * <p>
- * Bean 被 {@code @PluginManagedBean} 排除出根包扫描，由 {@code NovelPluginConfiguration}
- * 提供；除小说画廊侧外仍被核心查询服务注入使用。
+ * 已收编进核心数据层（卸载投影：小说画廊插件未装时核心查询仍要读 {@code novels}），
+ * 作为根包扫描的核心 Bean；被核心查询服务与小说画廊 controller 注入使用，
+ * 小说画廊插件侧经 plugin.api 核心接口间接消费。
  */
 @Slf4j
-@PluginManagedBean
+@Repository
 public class NovelGalleryRepository {
 
     private final NamedParameterJdbcTemplate jdbc;

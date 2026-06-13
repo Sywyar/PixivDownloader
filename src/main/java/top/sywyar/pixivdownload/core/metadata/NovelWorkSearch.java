@@ -4,9 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelGalleryRepository;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.plugin.api.WorkQuery;
 
 import java.util.ArrayList;
@@ -30,7 +27,7 @@ class NovelWorkSearch {
 
     private static final int AUTHOR_NAME_BATCH_SIZE = 500;
 
-    private final NovelDatabase novelDatabase;
+    private final NovelMetadataRepository novelMetadataRepository;
     private final NovelGalleryRepository novelGalleryRepository;
     private final AuthorService authorService;
 
@@ -45,7 +42,7 @@ class NovelWorkSearch {
             idCandidates = new HashSet<>();
             for (Long cid : q.collectionIds()) {
                 if (cid == null) continue;
-                idCandidates.addAll(novelDatabase.getNovelIdsInCollection(cid));
+                idCandidates.addAll(novelMetadataRepository.getNovelIdsInCollection(cid));
             }
             if (idCandidates.isEmpty()) {
                 return List.of();
@@ -71,15 +68,15 @@ class NovelWorkSearch {
         Long searchId = parseLongOrNull(searchRaw);
         // 正文全文检索一次性命中 id 集合（FTS5），避免逐行扫描 raw_content
         Set<Long> contentMatchIds = ("content".equals(searchType) && !searchRaw.isEmpty())
-                ? novelDatabase.searchNovelContentIds(searchRaw)
+                ? novelMetadataRepository.searchNovelContentIds(searchRaw)
                 : null;
         boolean searchUsesAuthorNames = !searchRaw.isEmpty() && usesAuthorNameSearch(searchType);
         Set<Long> searchAuthorIds = searchUsesAuthorNames ? new LinkedHashSet<>() : Set.of();
-        List<Long> allIds = novelDatabase.getAllNovelIdsSortedByTimeDesc();
+        List<Long> allIds = novelMetadataRepository.getAllNovelIdsSortedByTimeDesc();
         List<NovelRecord> candidateRecords = new ArrayList<>();
         for (Long id : allIds) {
             if (idCandidates != null && !idCandidates.contains(id)) continue;
-            NovelRecord r = novelDatabase.getNovel(id);
+            NovelRecord r = novelMetadataRepository.getNovel(id);
             if (r == null) continue;
             candidateRecords.add(r);
             if (searchUsesAuthorNames && r.authorId() != null && r.authorId() > 0) {
@@ -178,7 +175,7 @@ class NovelWorkSearch {
     }
 
     private boolean matchNovelTag(long novelId, String searchLower, boolean exact) {
-        for (TagDto tag : novelDatabase.getNovelTags(novelId)) {
+        for (TagDto tag : novelMetadataRepository.getNovelTags(novelId)) {
             String name = tag.getName() == null ? "" : tag.getName().toLowerCase(Locale.ROOT);
             String translated = tag.getTranslatedName() == null
                     ? "" : tag.getTranslatedName().toLowerCase(Locale.ROOT);
@@ -251,7 +248,7 @@ class NovelWorkSearch {
     private boolean matchTagFilter(long novelId, Set<Long> must, Set<Long> not, Set<Long> or) {
         if (must.isEmpty() && not.isEmpty() && or.isEmpty()) return true;
         Set<Long> ownedTagIds = new HashSet<>();
-        for (var t : novelDatabase.getNovelTags(novelId)) {
+        for (var t : novelMetadataRepository.getNovelTags(novelId)) {
             if (t.getTagId() != null) ownedTagIds.add(t.getTagId());
         }
         for (Long m : must) if (!ownedTagIds.contains(m)) return false;

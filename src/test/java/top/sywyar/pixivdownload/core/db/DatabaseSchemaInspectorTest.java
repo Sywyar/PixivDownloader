@@ -467,7 +467,7 @@ class DatabaseSchemaInspectorTest {
                 DatabaseInitializer initializer = newInitializer(ds);
                 initializer.initialize();
                 top.sywyar.pixivdownload.novel.db.NovelDatabase database =
-                        new top.sywyar.pixivdownload.novel.db.NovelDatabase(mapper, null, null, initializer);
+                        new top.sywyar.pixivdownload.novel.db.NovelDatabase(mapper, null, null, initializer, null);
                 database.init();
 
                 // 仅比对 NovelDatabase.init() 实际建的表；共享 tags 表由 PixivDatabase 负责。

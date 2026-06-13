@@ -1,0 +1,386 @@
+package top.sywyar.pixivdownload.core.metadata;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.core.ResultSetExtractor;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
+import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.util.TimestampUtils;
+
+import javax.sql.DataSource;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * 核心侧的小说数据访问仓库：把 {@code novels} 系核心表的行 / 标签 / 内嵌图 / 译文语言 /
+ * 系列 / 收藏夹链接的读取、全文检索读、软删除标记从 {@code novel.db.NovelDatabase} 沿
+ * 「查询 vs 持久化」边界拆出，使核心查询 / 资产 / 收藏 / 计划 / 访客可见性链路无需反向
+ * import 小说插件包。SQL 与被替换的 {@code NovelDatabase} / {@code NovelMapper} 逐字一致。
+ *
+ * <p>卸载投影：{@code novels} 系表为核心所有（小说插件未安装时仍存在），故该读取面随核心
+ * 永驻、作为根包扫描的核心 Bean；下载 / 正文 / 翻译 / TTS 的写入与 FTS 索引<b>维护</b>仍留
+ * {@code NovelDatabase}（其被 novel-core 调用的同名读方法委托本类，保证查询 SQL 单源）。
+ * 软删除级联里的 {@code novels_fts} 行清理随软删一并执行（与旧 {@code markNovelDeleted} 一致，
+ * 失败仅记日志）。
+ */
+@Slf4j
+@Repository
+public class NovelMetadataRepository {
+
+    /** 与 {@code NovelMapper.SELECT_NOVEL} 逐字一致。 */
+    private static final String SELECT_NOVEL =
+            "SELECT novel_id AS novelId, title, folder, count, extensions, time,"
+                    + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
+                    + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"
+                    + " series_id AS seriesId, series_order AS seriesOrder,"
+                    + " word_count AS wordCount, text_length AS textLength,"
+                    + " reading_time_seconds AS readingTimeSeconds, page_count AS pageCount,"
+                    + " is_original AS isOriginal, x_language AS xLanguage, raw_content AS rawContent,"
+                    + " cover_ext AS coverExt, deleted"
+                    + " FROM novels";
+
+    private static final String SELECT_SERIES =
+            "SELECT series_id AS seriesId, title, author_id AS authorId,"
+                    + " updated_time AS updatedTime, description, cover_ext AS coverExt,"
+                    + " cover_folder AS coverFolder"
+                    + " FROM novel_series";
+
+    private final NamedParameterJdbcTemplate jdbc;
+    private final PathPrefixCodec pathPrefixCodec;
+
+    public NovelMetadataRepository(DataSource dataSource, PathPrefixCodec pathPrefixCodec) {
+        this.jdbc = new NamedParameterJdbcTemplate(dataSource);
+        this.pathPrefixCodec = pathPrefixCodec;
+    }
+
+    // ── Novel rows ───────────────────────────────────────────────────────────────
+
+    public boolean hasNovel(long novelId) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM novels WHERE novel_id = :novelId",
+                new MapSqlParameterSource("novelId", novelId), Long.class);
+        return count != null && count > 0;
+    }
+
+    /** 是否存在未被软删除的记录；deleted 行视为不存在（可重新下载）。 */
+    public boolean hasActiveNovel(long novelId) {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM novels WHERE novel_id = :novelId AND deleted = 0",
+                new MapSqlParameterSource("novelId", novelId), Long.class);
+        return count != null && count > 0;
+    }
+
+    public NovelRecord getNovel(long novelId) {
+        List<NovelRecord> rows = jdbc.query(SELECT_NOVEL + " WHERE novel_id = :novelId",
+                new MapSqlParameterSource("novelId", novelId), this::mapNovel);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /** 批量取小说行（含软删除行，路径前缀已解析）；返回顺序不保证，由调用方按需重排。 */
+    public List<NovelRecord> getNovels(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.query(SELECT_NOVEL + " WHERE novel_id IN (:ids)",
+                new MapSqlParameterSource("ids", novelIds), this::mapNovel);
+    }
+
+    /** 同系列其他小说（{@code series_order ASC, time ASC}），软删除行过滤。 */
+    public List<NovelRecord> getNovelsBySeriesId(long seriesId) {
+        return jdbc.query(SELECT_NOVEL
+                        + " WHERE series_id = :seriesId AND series_id > 0 AND deleted = 0"
+                        + " ORDER BY series_order ASC, time ASC",
+                new MapSqlParameterSource("seriesId", seriesId), this::mapNovel);
+    }
+
+    public List<Long> getAllNovelIdsSortedByTimeDesc() {
+        return jdbc.query("SELECT novel_id FROM novels WHERE deleted = 0 ORDER BY time DESC",
+                new MapSqlParameterSource(), (rs, rowNum) -> rs.getLong("novel_id"));
+    }
+
+    private NovelRecord mapNovel(ResultSet rs, int rowNum) throws SQLException {
+        return new NovelRecord(
+                rs.getLong("novelId"),
+                rs.getString("title"),
+                pathPrefixCodec.resolve(rs.getString("folder")),
+                rs.getInt("count"),
+                rs.getString("extensions"),
+                rs.getLong("time"),
+                getInteger(rs, "xRestrict"),
+                getBoolean(rs, "isAi"),
+                getLongObj(rs, "authorId"),
+                rs.getString("description"),
+                getLongObj(rs, "fileName"),
+                getLongObj(rs, "fileAuthorNameId"),
+                getLongObj(rs, "seriesId"),
+                getLongObj(rs, "seriesOrder"),
+                getInteger(rs, "wordCount"),
+                getInteger(rs, "textLength"),
+                getInteger(rs, "readingTimeSeconds"),
+                getInteger(rs, "pageCount"),
+                getBoolean(rs, "isOriginal"),
+                rs.getString("xLanguage"),
+                rs.getString("rawContent"),
+                rs.getString("coverExt"),
+                rs.getBoolean("deleted"));
+    }
+
+    // ── Tags ──────────────────────────────────────────────────────────────────────
+
+    public List<TagDto> getNovelTags(long novelId) {
+        return jdbc.query(
+                "SELECT t.tag_id AS tagId, t.name AS name, t.translated_name AS translatedName"
+                        + " FROM novel_tags nt JOIN tags t ON t.tag_id = nt.tag_id"
+                        + " WHERE nt.novel_id = :novelId"
+                        + " ORDER BY t.tag_id",
+                new MapSqlParameterSource("novelId", novelId), NovelMetadataRepository::mapTag);
+    }
+
+    /** 批量取多本小说的标签，按 novelId 分组；无标签的小说不出现在结果中。 */
+    public Map<Long, List<TagDto>> getNovelTagsBatch(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
+        return jdbc.query(
+                "SELECT nt.novel_id AS novelId, t.tag_id AS tagId, t.name AS name,"
+                        + " t.translated_name AS translatedName"
+                        + " FROM novel_tags nt JOIN tags t ON t.tag_id = nt.tag_id"
+                        + " WHERE nt.novel_id IN (:ids)"
+                        + " ORDER BY nt.novel_id, t.tag_id",
+                new MapSqlParameterSource("ids", novelIds),
+                (ResultSetExtractor<Map<Long, List<TagDto>>>) rs -> groupTagsByKey(rs, "novelId"));
+    }
+
+    /** 批量取多个系列的系列标签，按 seriesId 分组；无标签的系列不出现在结果中。 */
+    public Map<Long, List<TagDto>> getNovelSeriesTagsBatch(Collection<Long> seriesIds) {
+        if (seriesIds == null || seriesIds.isEmpty()) return Collections.emptyMap();
+        return jdbc.query(
+                "SELECT nst.series_id AS seriesId, t.tag_id AS tagId, t.name AS name,"
+                        + " t.translated_name AS translatedName"
+                        + " FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id"
+                        + " WHERE nst.series_id IN (:ids)"
+                        + " ORDER BY nst.series_id, t.tag_id",
+                new MapSqlParameterSource("ids", seriesIds),
+                (ResultSetExtractor<Map<Long, List<TagDto>>>) rs -> groupTagsByKey(rs, "seriesId"));
+    }
+
+    // ── Embedded images / translation langs (batch) ───────────────────────────────
+
+    /** 批量取多本小说的内嵌图片 id，按 novelId 分组；无内嵌图的小说不出现在结果中。 */
+    public Map<Long, List<String>> getNovelImageIdsBatch(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
+        return jdbc.query(
+                "SELECT novel_id AS novelId, image_id AS imageId FROM novel_images"
+                        + " WHERE novel_id IN (:ids)"
+                        + " ORDER BY novel_id",
+                new MapSqlParameterSource("ids", novelIds),
+                (ResultSetExtractor<Map<Long, List<String>>>) rs -> groupStringsByNovelId(rs, "imageId"));
+    }
+
+    /** 批量取多本小说已存在译文的语言代码，按 novelId 分组；无译文的小说不出现在结果中。 */
+    public Map<Long, List<String>> getTranslationLangsBatch(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
+        return jdbc.query(
+                "SELECT novel_id AS novelId, lang_code AS langCode FROM novel_translations"
+                        + " WHERE novel_id IN (:ids)"
+                        + " ORDER BY novel_id, lang_code",
+                new MapSqlParameterSource("ids", novelIds),
+                (ResultSetExtractor<Map<Long, List<String>>>) rs -> groupStringsByNovelId(rs, "langCode"));
+    }
+
+    // ── Series ─────────────────────────────────────────────────────────────────────
+
+    public NovelSeries getSeries(long seriesId) {
+        List<NovelSeries> rows = jdbc.query(SELECT_SERIES + " WHERE series_id = :id",
+                new MapSqlParameterSource("id", seriesId), this::mapSeries);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    public List<NovelSeries> getSeriesByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) return Collections.emptyList();
+        return jdbc.query(SELECT_SERIES + " WHERE series_id IN (:ids)",
+                new MapSqlParameterSource("ids", ids), this::mapSeries);
+    }
+
+    private NovelSeries mapSeries(ResultSet rs, int rowNum) throws SQLException {
+        return new NovelSeries(
+                rs.getLong("seriesId"),
+                rs.getString("title"),
+                getLongObj(rs, "authorId"),
+                rs.getLong("updatedTime"),
+                rs.getString("description"),
+                rs.getString("coverExt"),
+                pathPrefixCodec.resolve(rs.getString("coverFolder")));
+    }
+
+    // ── Collections ─────────────────────────────────────────────────────────────────
+
+    public boolean addToCollection(long collectionId, long novelId) {
+        int rows = jdbc.update(
+                "INSERT OR IGNORE INTO novel_collections(collection_id, novel_id, added_time)"
+                        + " VALUES(:collectionId, :novelId, :addedTime)",
+                new MapSqlParameterSource()
+                        .addValue("collectionId", collectionId)
+                        .addValue("novelId", novelId)
+                        .addValue("addedTime", TimestampUtils.nowMillis()));
+        return rows > 0;
+    }
+
+    public boolean removeFromCollection(long collectionId, long novelId) {
+        int rows = jdbc.update(
+                "DELETE FROM novel_collections WHERE collection_id = :collectionId AND novel_id = :novelId",
+                new MapSqlParameterSource()
+                        .addValue("collectionId", collectionId)
+                        .addValue("novelId", novelId));
+        return rows > 0;
+    }
+
+    public List<Long> getCollectionIdsForNovel(long novelId) {
+        return jdbc.query("SELECT collection_id FROM novel_collections WHERE novel_id = :novelId",
+                new MapSqlParameterSource("novelId", novelId),
+                (rs, rowNum) -> rs.getLong("collection_id"));
+    }
+
+    public List<Map<String, Object>> findCollectionLinksByNovels(Collection<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) return List.of();
+        return jdbc.query(
+                "SELECT novel_id AS novelId, collection_id AS collectionId FROM novel_collections"
+                        + " WHERE novel_id IN (:ids)",
+                new MapSqlParameterSource("ids", novelIds),
+                (rs, rowNum) -> {
+                    Map<String, Object> row = new LinkedHashMap<>(2);
+                    row.put("novelId", rs.getLong("novelId"));
+                    row.put("collectionId", rs.getLong("collectionId"));
+                    return row;
+                });
+    }
+
+    public List<Long> getNovelIdsInCollection(long collectionId) {
+        return jdbc.query("SELECT novel_id FROM novel_collections WHERE collection_id = :collectionId",
+                new MapSqlParameterSource("collectionId", collectionId),
+                (rs, rowNum) -> rs.getLong("novel_id"));
+    }
+
+    // ── Full-text search (read) ──────────────────────────────────────────────────────
+
+    /**
+     * 正文全文检索，返回命中的 novel_id 集合。trigram 索引要求查询串至少 3 个字符，
+     * 更短的关键词回退到 {@code raw_content} 的 LIKE 子串扫描。逻辑与原 {@code NovelDatabase} 一致。
+     */
+    public Set<Long> searchNovelContentIds(String term) {
+        if (term == null) return Collections.emptySet();
+        String trimmed = term.trim();
+        if (trimmed.isEmpty()) return Collections.emptySet();
+        try {
+            List<Long> ids;
+            if (trimmed.codePointCount(0, trimmed.length()) < 3) {
+                ids = jdbc.query(
+                        "SELECT novel_id FROM novels WHERE deleted = 0 AND raw_content LIKE :like ESCAPE '\\'",
+                        new MapSqlParameterSource("like", "%" + escapeLikePattern(trimmed) + "%"),
+                        (rs, rowNum) -> rs.getLong("novel_id"));
+            } else {
+                String phrase = "\"" + trimmed.replace("\"", "\"\"") + "\"";
+                ids = jdbc.query(
+                        "SELECT rowid FROM novels_fts WHERE novels_fts MATCH :query",
+                        new MapSqlParameterSource("query", phrase),
+                        (rs, rowNum) -> rs.getLong("rowid"));
+            }
+            return new HashSet<>(ids);
+        } catch (Exception e) {
+            // 全文检索是辅助能力，查询异常时退化为"无匹配"，不让画廊列表请求 500
+            log.warn("Novel full-text search failed for term '{}': {}", trimmed, e.getMessage());
+            return Collections.emptySet();
+        }
+    }
+
+    // ── Soft delete ──────────────────────────────────────────────────────────────────
+
+    /**
+     * 软删除：派生 / 关联数据（标签关联、收藏夹关联、内嵌插图、译文、朗读脚本、全文索引行）清理，
+     * 主行保留并置 {@code deleted = 1}，使下载判重能识别「已下载过，但被删除」。语义与原
+     * {@code NovelDatabase.markNovelDeleted} 逐字一致。
+     */
+    @Transactional
+    public void markNovelDeleted(long novelId) {
+        MapSqlParameterSource params = new MapSqlParameterSource("novelId", novelId);
+        jdbc.update("DELETE FROM novel_tags WHERE novel_id = :novelId", params);
+        jdbc.update("DELETE FROM novel_collections WHERE novel_id = :novelId", params);
+        jdbc.update("DELETE FROM novel_images WHERE novel_id = :novelId", params);
+        jdbc.update("DELETE FROM novel_translations WHERE novel_id = :novelId", params);
+        jdbc.update("DELETE FROM novel_narration_scripts WHERE novel_id = :novelId", params);
+        jdbc.update("UPDATE novels SET deleted = 1 WHERE novel_id = :novelId", params);
+        try {
+            jdbc.update("DELETE FROM novels_fts WHERE rowid = :novelId", params);
+        } catch (Exception e) {
+            log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
+        }
+    }
+
+    // ── helpers ──────────────────────────────────────────────────────────────────────
+
+    private static TagDto mapTag(ResultSet rs, int rowNum) throws SQLException {
+        TagDto tag = new TagDto(rs.getString("name"), rs.getString("translatedName"));
+        long tagId = rs.getLong("tagId");
+        tag.setTagId(rs.wasNull() ? null : tagId);
+        return tag;
+    }
+
+    private static Map<Long, List<TagDto>> groupTagsByKey(ResultSet rs, String keyColumn)
+            throws SQLException {
+        Map<Long, List<TagDto>> out = new LinkedHashMap<>();
+        while (rs.next()) {
+            long key = rs.getLong(keyColumn);
+            TagDto tag = new TagDto(rs.getString("name"), rs.getString("translatedName"));
+            long tagId = rs.getLong("tagId");
+            tag.setTagId(rs.wasNull() ? null : tagId);
+            out.computeIfAbsent(key, k -> new ArrayList<>()).add(tag);
+        }
+        return out;
+    }
+
+    private static Map<Long, List<String>> groupStringsByNovelId(ResultSet rs, String valueColumn)
+            throws SQLException {
+        Map<Long, List<String>> out = new LinkedHashMap<>();
+        while (rs.next()) {
+            long novelId = rs.getLong("novelId");
+            out.computeIfAbsent(novelId, k -> new ArrayList<>()).add(rs.getString(valueColumn));
+        }
+        return out;
+    }
+
+    private static String escapeLikePattern(String value) {
+        StringBuilder out = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch == '\\' || ch == '%' || ch == '_') {
+                out.append('\\');
+            }
+            out.append(ch);
+        }
+        return out.toString();
+    }
+
+    private static Integer getInteger(ResultSet rs, String col) throws SQLException {
+        int v = rs.getInt(col);
+        return rs.wasNull() ? null : v;
+    }
+
+    private static Long getLongObj(ResultSet rs, String col) throws SQLException {
+        long v = rs.getLong(col);
+        return rs.wasNull() ? null : v;
+    }
+
+    private static Boolean getBoolean(ResultSet rs, String col) throws SQLException {
+        boolean v = rs.getBoolean(col);
+        return rs.wasNull() ? null : v;
+    }
+}

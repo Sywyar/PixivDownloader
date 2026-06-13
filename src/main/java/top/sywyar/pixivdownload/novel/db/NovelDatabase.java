@@ -9,6 +9,12 @@ import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.metadata.NovelAuthorSummary;
+import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.metadata.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.NovelSeries;
+import top.sywyar.pixivdownload.core.metadata.NovelSeriesSummary;
+import top.sywyar.pixivdownload.core.metadata.NovelTagOption;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.Collection;
@@ -27,6 +33,11 @@ public class NovelDatabase {
     private final PathPrefixCodec pathPrefixCodec;
     /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
     private final DatabaseInitializer databaseInitializer;
+    /**
+     * 小说行 / 标签 / 系列 / 收藏夹链接的查询面已收编进核心数据层；本类被 novel-core 调用的
+     * 同名读方法委托此核心仓库，使查询 SQL 单源、且持久化类无需自持读 SQL。
+     */
+    private final NovelMetadataRepository novelMetadataRepository;
 
     /**
      * 进程内已分配但可能尚未持久化的最大 novel time。
@@ -107,98 +118,18 @@ public class NovelDatabase {
         }
     }
 
-    /**
-     * 正文全文检索，返回命中的 novel_id 集合。trigram 索引要求查询串至少 3 个字符，
-     * 更短的关键词回退到 {@code raw_content} 的 LIKE 子串扫描。
-     */
-    public java.util.Set<Long> searchNovelContentIds(String term) {
-        if (term == null) return java.util.Collections.emptySet();
-        String trimmed = term.trim();
-        if (trimmed.isEmpty()) return java.util.Collections.emptySet();
-        try {
-            List<Long> ids;
-            if (trimmed.codePointCount(0, trimmed.length()) < 3) {
-                ids = novelMapper.findNovelIdsByContentLike("%" + escapeLikePattern(trimmed) + "%");
-            } else {
-                String phrase = "\"" + trimmed.replace("\"", "\"\"") + "\"";
-                ids = novelMapper.searchNovelFtsIds(phrase);
-            }
-            return new java.util.HashSet<>(ids);
-        } catch (Exception e) {
-            // 全文检索是辅助能力，查询异常时退化为"无匹配"，不让画廊列表请求 500
-            log.warn("Novel full-text search failed for term '{}': {}", trimmed, e.getMessage());
-            return java.util.Collections.emptySet();
-        }
-    }
-
-    private static String escapeLikePattern(String value) {
-        StringBuilder out = new StringBuilder(value.length());
-        for (int i = 0; i < value.length(); i++) {
-            char ch = value.charAt(i);
-            if (ch == '\\' || ch == '%' || ch == '_') {
-                out.append('\\');
-            }
-            out.append(ch);
-        }
-        return out.toString();
-    }
-
     public void updateCoverExt(long novelId, String coverExt) {
         novelMapper.updateCoverExt(novelId, coverExt);
     }
 
-    public boolean hasNovel(long novelId) {
-        return novelMapper.countById(novelId) > 0;
-    }
-
-    /** 是否存在未被软删除的记录；deleted 行视为不存在（可重新下载）。 */
+    /** 是否存在未被软删除的记录；deleted 行视为不存在（可重新下载）。委托核心仓库。 */
     public boolean hasActiveNovel(long novelId) {
-        return novelMapper.countActiveById(novelId) > 0;
+        return novelMetadataRepository.hasActiveNovel(novelId);
     }
 
+    /** 委托核心仓库（行读取已收编进核心数据层，查询 SQL 单源）。 */
     public NovelRecord getNovel(long novelId) {
-        return resolveNovel(novelMapper.findById(novelId));
-    }
-
-    /** 批量取小说行（含软删除行，路径前缀已解析）；返回顺序不保证，由调用方按需重排。 */
-    public List<NovelRecord> getNovels(Collection<Long> novelIds) {
-        if (novelIds == null || novelIds.isEmpty()) {
-            return List.of();
-        }
-        return novelMapper.findByIds(novelIds).stream()
-                .map(this::resolveNovel)
-                .toList();
-    }
-
-    private NovelRecord resolveNovel(NovelRecord record) {
-        if (record == null) return null;
-        String resolvedFolder = pathPrefixCodec.resolve(record.folder());
-        if (java.util.Objects.equals(resolvedFolder, record.folder())) return record;
-        return new NovelRecord(
-                record.novelId(),
-                record.title(),
-                resolvedFolder,
-                record.count(),
-                record.extensions(),
-                record.time(),
-                record.xRestrict(),
-                record.isAi(),
-                record.authorId(),
-                record.description(),
-                record.fileName(),
-                record.fileAuthorNameId(),
-                record.seriesId(),
-                record.seriesOrder(),
-                record.wordCount(),
-                record.textLength(),
-                record.readingTimeSeconds(),
-                record.pageCount(),
-                record.isOriginal(),
-                record.xLanguage(),
-                record.rawContent(),
-                record.coverExt(),
-                record.deleted()
-        );
+        return novelMetadataRepository.getNovel(novelId);
     }
 
     private NovelSeries resolveSeries(NovelSeries series) {
@@ -224,25 +155,6 @@ public class NovelDatabase {
         novelMapper.deleteTranslations(novelId);
         novelMapper.deleteNarrationScripts(novelId);
         novelMapper.deleteById(novelId);
-        try { novelMapper.deleteNovelFts(novelId); } catch (Exception e) {
-            log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
-        }
-    }
-
-    /**
-     * 软删除：派生/关联数据（标签关联、收藏夹关联、内嵌插图、译文、朗读脚本、全文索引行）照
-     * {@link #deleteNovel} 清理，但主行保留并置 {@code deleted = 1}，使下载判重能识别
-     * 「已下载过，但被删除」。重新下载时 {@link #insertNovel} 的 INSERT OR REPLACE 会写入
-     * 全新行，标记自动复位。
-     */
-    @Transactional
-    public void markNovelDeleted(long novelId) {
-        novelMapper.deleteNovelTags(novelId);
-        novelMapper.deleteAllNovelCollections(novelId);
-        novelMapper.deleteNovelImages(novelId);
-        novelMapper.deleteTranslations(novelId);
-        novelMapper.deleteNarrationScripts(novelId);
-        novelMapper.markDeletedById(novelId);
         try { novelMapper.deleteNovelFts(novelId); } catch (Exception e) {
             log.warn("Failed to remove novel {} from full-text index: {}", novelId, e.getMessage());
         }
@@ -380,38 +292,12 @@ public class NovelDatabase {
         return ids == null ? Collections.emptyList() : ids;
     }
 
-    /** 批量取多本小说的内嵌图片 id，按 novelId 分组；无内嵌图的小说不出现在结果中。 */
-    public java.util.Map<Long, List<String>> getNovelImageIdsBatch(Collection<Long> novelIds) {
-        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
-        return groupStringsByNovelId(novelMapper.findNovelImageIdsByNovelIds(novelIds), "imageId");
-    }
-
-    /** 批量取多本小说已存在译文的语言代码，按 novelId 分组；无译文的小说不出现在结果中。 */
-    public java.util.Map<Long, List<String>> getTranslationLangsBatch(Collection<Long> novelIds) {
-        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
-        return groupStringsByNovelId(novelMapper.findTranslationLangsByNovelIds(novelIds), "langCode");
-    }
-
-    private static java.util.Map<Long, List<String>> groupStringsByNovelId(
-            List<java.util.Map<String, Object>> rows, String valueKey) {
-        java.util.Map<Long, List<String>> out = new java.util.LinkedHashMap<>();
-        for (java.util.Map<String, Object> row : rows) {
-            Long novelId = ((Number) row.get("novelId")).longValue();
-            out.computeIfAbsent(novelId, k -> new java.util.ArrayList<>()).add((String) row.get(valueKey));
-        }
-        return out;
-    }
-
     public void clearNovelImages(long novelId) {
         novelMapper.deleteNovelImages(novelId);
     }
 
     public long countNovels() {
         return novelMapper.countAll();
-    }
-
-    public List<Long> getAllNovelIdsSortedByTimeDesc() {
-        return novelMapper.findAllIdsSortedByTimeDesc();
     }
 
     /** Returns the subset of the given novel ids that have already been downloaded. */
@@ -430,10 +316,9 @@ public class NovelDatabase {
         novelMapper.updateSeriesInfo(novelId, seriesId, seriesOrder);
     }
 
+    /** 委托核心仓库（{@code series_order ASC, time ASC}，软删除行过滤）。 */
     public List<NovelRecord> getNovelsBySeriesId(long seriesId) {
-        return novelMapper.findBySeriesId(seriesId).stream()
-                .map(this::resolveNovel)
-                .toList();
+        return novelMetadataRepository.getNovelsBySeriesId(seriesId);
     }
 
     public List<Long> getNovelIdsMissingSeries() {
@@ -466,27 +351,6 @@ public class NovelDatabase {
         }
     }
 
-    public List<TagDto> getNovelTags(long novelId) {
-        return novelMapper.findTagsByNovelId(novelId);
-    }
-
-    /** 批量取多本小说的标签，按 novelId 分组；无标签的小说不出现在结果中。 */
-    public java.util.Map<Long, List<TagDto>> getNovelTagsBatch(Collection<Long> novelIds) {
-        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
-        List<java.util.Map<String, Object>> rows = novelMapper.findTagsByNovelIds(novelIds);
-        java.util.Map<Long, List<TagDto>> out = new java.util.LinkedHashMap<>();
-        for (java.util.Map<String, Object> row : rows) {
-            Long novelId = ((Number) row.get("novelId")).longValue();
-            Number tagIdNum = (Number) row.get("tagId");
-            TagDto tag = new TagDto(
-                    (String) row.get("name"),
-                    (String) row.get("translatedName"));
-            tag.setTagId(tagIdNum == null ? null : tagIdNum.longValue());
-            out.computeIfAbsent(novelId, k -> new java.util.ArrayList<>()).add(tag);
-        }
-        return out;
-    }
-
     public boolean hasNovelTags(long novelId) {
         return novelMapper.existsTagsForNovel(novelId) != null;
     }
@@ -498,22 +362,6 @@ public class NovelDatabase {
     public List<TagDto> getNovelSeriesTags(long seriesId) {
         if (seriesId <= 0) return Collections.emptyList();
         return novelMapper.findTagsByNovelSeriesId(seriesId);
-    }
-
-    public java.util.Map<Long, List<TagDto>> getNovelSeriesTagsBatch(Collection<Long> seriesIds) {
-        if (seriesIds == null || seriesIds.isEmpty()) return Collections.emptyMap();
-        List<java.util.Map<String, Object>> rows = novelMapper.findTagsByNovelSeriesIds(seriesIds);
-        java.util.Map<Long, List<TagDto>> out = new java.util.LinkedHashMap<>();
-        for (java.util.Map<String, Object> row : rows) {
-            Long sid = ((Number) row.get("seriesId")).longValue();
-            Number tagIdNum = (Number) row.get("tagId");
-            TagDto tag = new TagDto(
-                    (String) row.get("name"),
-                    (String) row.get("translatedName"));
-            tag.setTagId(tagIdNum == null ? null : tagIdNum.longValue());
-            out.computeIfAbsent(sid, k -> new java.util.ArrayList<>()).add(tag);
-        }
-        return out;
     }
 
     /**
@@ -540,17 +388,13 @@ public class NovelDatabase {
 
     // ── Series ─────────────────────────────────────────────────────────────────
 
+    /** 委托核心仓库（系列行读取已收编进核心数据层）。 */
     public NovelSeries getSeries(long seriesId) {
-        return resolveSeries(novelMapper.findSeriesById(seriesId));
+        return novelMetadataRepository.getSeries(seriesId);
     }
 
     public List<NovelSeries> getAllSeries() {
         return novelMapper.findAllSeries().stream().map(this::resolveSeries).toList();
-    }
-
-    public List<NovelSeries> getSeriesByIds(Collection<Long> ids) {
-        if (ids == null || ids.isEmpty()) return Collections.emptyList();
-        return novelMapper.findSeriesByIds(ids).stream().map(this::resolveSeries).toList();
     }
 
     public void updateSeriesMetadata(long seriesId, String description, String coverExt, String coverFolder) {
@@ -578,26 +422,6 @@ public class NovelDatabase {
     }
 
     // ── Collections ────────────────────────────────────────────────────────────
-
-    public boolean addToCollection(long collectionId, long novelId) {
-        return novelMapper.insertNovelCollection(collectionId, novelId, TimestampUtils.nowMillis()) > 0;
-    }
-
-    public boolean removeFromCollection(long collectionId, long novelId) {
-        return novelMapper.deleteNovelCollection(collectionId, novelId) > 0;
-    }
-
-    public List<Long> getCollectionIdsForNovel(long novelId) {
-        return novelMapper.findCollectionIdsByNovelId(novelId);
-    }
-
-    public List<java.util.Map<String, Object>> findCollectionLinksByNovels(java.util.Collection<Long> novelIds) {
-        return novelMapper.findCollectionLinksByNovels(novelIds);
-    }
-
-    public List<Long> getNovelIdsInCollection(long collectionId) {
-        return novelMapper.findNovelIdsByCollectionId(collectionId);
-    }
 
     public long countNovelsInCollection(long collectionId) {
         return novelMapper.countNovelsByCollectionId(collectionId);

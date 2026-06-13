@@ -9,8 +9,8 @@ import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.metadata.NovelRecord;
 import top.sywyar.pixivdownload.plugin.api.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
 import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
@@ -45,7 +45,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     private final DownloadService downloadService;
     private final ArtworkFileLocator artworkFileLocator;
     private final PixivDatabase pixivDatabase;
-    private final NovelDatabase novelDatabase;
+    private final NovelMetadataRepository novelMetadataRepository;
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
 
@@ -125,7 +125,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     // ── 小说侧 ─────────────────────────────────────────────────────────────────
 
     private Optional<LocalWorkAsset> findNovelAsset(long workId) {
-        NovelRecord novel = novelDatabase.getNovel(workId);
+        NovelRecord novel = novelMetadataRepository.getNovel(workId);
         if (novel == null) {
             return Optional.empty();
         }
@@ -158,7 +158,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     /** 小说缩略图 = 封面文件 {@code {存储基名}_thumb.{coverExt}}；page 参数无意义，返回页号恒为 0。 */
     private Optional<WorkAssetFile> novelCover(long workId) {
-        NovelRecord novel = novelDatabase.getNovel(workId);
+        NovelRecord novel = novelMetadataRepository.getNovel(workId);
         if (novel == null || !StringUtils.hasText(novel.coverExt()) || !StringUtils.hasText(novel.folder())) {
             return Optional.empty();
         }
@@ -209,7 +209,7 @@ public class LocalWorkAssetService implements WorkAssetService {
      *         调用方必须中止 DB 清理。
      */
     private boolean deleteNovelFiles(long workId) {
-        NovelRecord record = novelDatabase.getNovel(workId);
+        NovelRecord record = novelMetadataRepository.getNovel(workId);
         if (record == null) {
             return true;
         }

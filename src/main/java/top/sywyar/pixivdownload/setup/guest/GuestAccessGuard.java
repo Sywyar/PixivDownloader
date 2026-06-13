@@ -8,8 +8,8 @@ import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.metadata.NovelRecord;
 
 import java.util.List;
 
@@ -24,7 +24,7 @@ import java.util.List;
 public class GuestAccessGuard {
 
     private final PixivDatabase pixivDatabase;
-    private final NovelDatabase novelDatabase;
+    private final NovelMetadataRepository novelMetadataRepository;
 
     /**
      * 抽出当前请求挂载的访客邀请会话；可能为 {@code null}。
@@ -79,14 +79,14 @@ public class GuestAccessGuard {
      * {@code novel_tags} 表（标签 id 与插画共享 {@code tags} 池，所以 OR 语义与白名单可直接复用）。
      */
     public boolean isNovelVisibleToGuest(long novelId, GuestInviteSession session) {
-        NovelRecord rec = novelDatabase.getNovel(novelId);
+        NovelRecord rec = novelMetadataRepository.getNovel(novelId);
         if (rec == null) return false;
         if (!matchesAgeRating(rec.xRestrict(), session)) return false;
         return matchesNovelWhitelist(rec, session);
     }
 
     private boolean matchesNovelWhitelist(NovelRecord rec, GuestInviteSession session) {
-        List<TagDto> tags = novelDatabase.getNovelTags(rec.novelId());
+        List<TagDto> tags = novelMetadataRepository.getNovelTags(rec.novelId());
 
         if (!session.novelTagUnrestricted()) {
             if (tags != null && !tags.isEmpty()) {

@@ -7,7 +7,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.plugin.api.WorkType;
 
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -22,13 +21,13 @@ class CoreWorkDeletionServiceTest {
     @Mock
     private PixivDatabase pixivDatabase;
     @Mock
-    private NovelDatabase novelDatabase;
+    private NovelMetadataRepository novelMetadataRepository;
 
     private CoreWorkDeletionService service;
 
     @BeforeEach
     void setUp() {
-        service = new CoreWorkDeletionService(pixivDatabase, novelDatabase);
+        service = new CoreWorkDeletionService(pixivDatabase, novelMetadataRepository);
     }
 
     @Test
@@ -38,16 +37,15 @@ class CoreWorkDeletionServiceTest {
 
         verify(pixivDatabase).markArtworkDeleted(10L);
         verify(pixivDatabase, never()).deleteArtwork(anyLong());
-        verifyNoInteractions(novelDatabase);
+        verifyNoInteractions(novelMetadataRepository);
     }
 
     @Test
-    @DisplayName("NOVEL 软删除代理 NovelDatabase.markNovelDeleted，不做硬删除、不触碰插画库")
+    @DisplayName("NOVEL 软删除代理 NovelMetadataRepository.markNovelDeleted，不触碰插画库")
     void shouldProxyNovelSoftDeletion() {
         service.markDeleted(WorkType.NOVEL, 20L);
 
-        verify(novelDatabase).markNovelDeleted(20L);
-        verify(novelDatabase, never()).deleteNovel(anyLong());
+        verify(novelMetadataRepository).markNovelDeleted(20L);
         verifyNoInteractions(pixivDatabase);
     }
 }

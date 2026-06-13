@@ -28,8 +28,8 @@ import top.sywyar.pixivdownload.plugin.api.WorkQueryService;
 import top.sywyar.pixivdownload.plugin.api.WorkSummary;
 import top.sywyar.pixivdownload.plugin.api.WorkTag;
 import top.sywyar.pixivdownload.plugin.api.WorkType;
-import top.sywyar.pixivdownload.novel.db.NovelAuthorSummary;
-import top.sywyar.pixivdownload.novel.db.NovelTagOption;
+import top.sywyar.pixivdownload.core.metadata.NovelAuthorSummary;
+import top.sywyar.pixivdownload.core.metadata.NovelTagOption;
 
 import java.util.List;
 import java.util.Optional;

@@ -119,6 +119,22 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("核心不得反向依赖 novel.db 包（novel 包内、tts.narration 与组合根 CorePlugin 除外）")
+    void coreDoesNotDependOnNovelDbPackage() {
+        noClasses()
+                .that().resideOutsideOfPackage("top.sywyar.pixivdownload.novel..")
+                .and().resideOutsideOfPackage("top.sywyar.pixivdownload.tts.narration..")
+                .and().doNotHaveFullyQualifiedName("top.sywyar.pixivdownload.plugin.CorePlugin")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.novel.db..")
+                .because("小说画廊查询面（NovelGalleryRepository / NovelMetadataRepository / 行 / 系列 / 标签 DTO）"
+                        + "已收编进核心数据层 core.metadata，核心查询 / 资产 / 收藏 / 计划 / 访客可见性链路不得再反向 "
+                        + "import novel.db；novel-core 自身、AI 听书子系统 tts.narration（随 novel 插件整体拆分）与 "
+                        + "schema 组合根 CorePlugin（声明 NovelSchemaContribution）是既定例外")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("小说画廊侧服务不得依赖核心实现类：数据与文件访问只能走 plugin.api 核心接口")
     void novelGalleryServicesDependOnlyOnCoreInterfaces() {
         // novel 包同时容纳 novel-core（下载/正文/翻译/TTS，不强拆、合法直连 NovelDatabase），
@@ -129,7 +145,7 @@ class PluginApiDependencyGuardTest {
                         top.sywyar.pixivdownload.novel.NovelBatchService.class))
                 .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
                         top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
-                        top.sywyar.pixivdownload.novel.db.NovelGalleryRepository.class,
+                        top.sywyar.pixivdownload.core.metadata.NovelGalleryRepository.class,
                         top.sywyar.pixivdownload.author.AuthorService.class,
                         top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class))
                 .because("小说画廊已接口化：查询走 WorkQueryService/WorkMetadataRepository、删除走 "

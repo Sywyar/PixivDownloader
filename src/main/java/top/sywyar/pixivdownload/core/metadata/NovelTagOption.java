@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel.db;
+package top.sywyar.pixivdownload.core.metadata;
 
 public record NovelTagOption(
         long tagId,
