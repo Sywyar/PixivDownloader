@@ -3,12 +3,12 @@ package top.sywyar.pixivdownload.novel;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.novel.request.NovelBatchRequest;
 import top.sywyar.pixivdownload.plugin.api.LocalWorkAsset;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
 import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.WorkMetadata;
@@ -33,7 +33,7 @@ import java.util.Set;
  * 插画侧的对应逻辑在 {@code gallery.GalleryBatchService}，两者互不依赖。
  */
 @Slf4j
-@Service
+@PluginManagedBean
 @RequiredArgsConstructor
 public class NovelBatchService {
 

@@ -36,26 +36,36 @@ class RouteAccessMirrorTest {
             "/pixiv-gallery.html", "gallery",
             "/pixiv-artwork.html", "gallery",
             "/pixiv-showcase.html", "gallery",
-            "/pixiv-series.html", "gallery");
+            "/pixiv-series.html", "gallery",
+            "/pixiv-novel-gallery.html", "novel",
+            "/pixiv-novel.html", "novel");
 
-    /** 已由插件声明接管的 AuthFilter 前缀路径条目 → 声明方插件。 */
-    private static final Map<String, String> PLUGIN_OWNED_MONITOR_PREFIX = Map.of(
-            "/pixiv-stats/", "stats",
-            "/api/stats/", "stats",
-            "/pixiv-duplicates/", "duplicate",
-            "/api/duplicates/", "duplicate",
-            "/pixiv-gallery/", "gallery",
-            "/pixiv-artwork/", "gallery",
-            "/pixiv-showcase/", "gallery",
-            "/pixiv-series/", "gallery",
-            "/api/gallery/", "gallery");
+    /**
+     * 已由插件声明接管的 AuthFilter 前缀路径条目 → 声明方插件。
+     * 注意 {@code /api/gallery/} 由 gallery 单一声明：小说画廊 API 与插画共用该前缀，
+     * {@code /api/gallery/novel(s)/**} 窄前缀的补声明待 AuthFilter 硬编码清单删除后进行。
+     */
+    private static final Map<String, String> PLUGIN_OWNED_MONITOR_PREFIX = Map.ofEntries(
+            Map.entry("/pixiv-stats/", "stats"),
+            Map.entry("/api/stats/", "stats"),
+            Map.entry("/pixiv-duplicates/", "duplicate"),
+            Map.entry("/api/duplicates/", "duplicate"),
+            Map.entry("/pixiv-gallery/", "gallery"),
+            Map.entry("/pixiv-artwork/", "gallery"),
+            Map.entry("/pixiv-showcase/", "gallery"),
+            Map.entry("/pixiv-series/", "gallery"),
+            Map.entry("/api/gallery/", "gallery"),
+            Map.entry("/pixiv-novel-gallery/", "novel"),
+            Map.entry("/pixiv-novel/", "novel"));
 
     /** 已由插件声明接管的 AuthFilter 访客精确条目 → 声明方插件（GUEST_READ 路由的访客侧镜像）。 */
     private static final Map<String, String> PLUGIN_OWNED_GUEST_EXACT = Map.of(
             "/pixiv-gallery.html", "gallery",
             "/pixiv-artwork.html", "gallery",
             "/pixiv-showcase.html", "gallery",
-            "/pixiv-series.html", "gallery");
+            "/pixiv-series.html", "gallery",
+            "/pixiv-novel-gallery.html", "novel",
+            "/pixiv-novel.html", "novel");
 
     /** 已由插件声明接管的 AuthFilter 访客前缀条目 → 声明方插件（GUEST_READ 路由的访客侧镜像）。 */
     private static final Map<String, String> PLUGIN_OWNED_GUEST_PREFIX = Map.of(
@@ -63,7 +73,9 @@ class RouteAccessMirrorTest {
             "/pixiv-artwork/", "gallery",
             "/pixiv-showcase/", "gallery",
             "/pixiv-series/", "gallery",
-            "/api/gallery/", "gallery");
+            "/api/gallery/", "gallery",
+            "/pixiv-novel-gallery/", "novel",
+            "/pixiv-novel/", "novel");
 
     @Test
     @DisplayName("registry 中每条路由都能在 AuthFilter 清单中找到对应条目（GUEST_READ 须同时命中 monitor 与访客清单）")

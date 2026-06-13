@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.db.NovelSeries;
 import top.sywyar.pixivdownload.novel.db.NovelSeriesSummary;
 import top.sywyar.pixivdownload.novel.request.NovelBatchRequest;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.SeriesNeighbors;
 import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
 import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
@@ -41,6 +42,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * {@code @RestController} 仅供 Spring MVC handler 检测；Bean 本身被
+ * {@code @PluginManagedBean} 排除出根包扫描，由 {@code NovelPluginConfiguration} 提供。
+ */
+@PluginManagedBean
 @RestController
 @RequestMapping("/api/gallery")
 @RequiredArgsConstructor

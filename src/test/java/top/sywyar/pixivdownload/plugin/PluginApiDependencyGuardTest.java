@@ -105,6 +105,25 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("小说画廊侧服务不得依赖核心实现类：数据与文件访问只能走 plugin.api 核心接口")
+    void novelGalleryServicesDependOnlyOnCoreInterfaces() {
+        // novel 包同时容纳 novel-core（下载/正文/翻译/TTS，不强拆、合法直连 NovelDatabase），
+        // 守卫范围因此按 Bean 收敛口径限定在小说画廊侧两个接口化服务，而非整个包
+        noClasses()
+                .that(JavaClass.Predicates.belongToAnyOf(
+                        top.sywyar.pixivdownload.novel.NovelGalleryService.class,
+                        top.sywyar.pixivdownload.novel.NovelBatchService.class))
+                .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
+                        top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
+                        top.sywyar.pixivdownload.novel.db.NovelGalleryRepository.class,
+                        top.sywyar.pixivdownload.author.AuthorService.class,
+                        top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class))
+                .because("小说画廊已接口化：查询走 WorkQueryService/WorkMetadataRepository、删除走 "
+                        + "WorkAssetService/WorkDeletionService，禁止回潮直连核心实现类")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("common 不得依赖业务包：项目内仅允许 common/config/i18n")
     void commonDependsOnlyOnInfrastructure() {
         noClasses()

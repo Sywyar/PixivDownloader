@@ -24,7 +24,7 @@ class RegisteredPluginsTest {
             // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages，
             // StatsPluginConfiguration 的 statsRepository bean 需要 DataSource：
             // 用内存 SQLite 与测试 i18n 兜底（@PostConstruct 会真实建表，库随上下文丢弃）；
-            // Duplicate / Gallery PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
+            // Duplicate / Gallery / Novel PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
             .withBean("applicationTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean(top.sywyar.pixivdownload.duplicate.ImageHashMapper.class,
@@ -49,6 +49,14 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.quota.UserQuotaService.class))
             .withBean(top.sywyar.pixivdownload.setup.guest.GuestAccessGuard.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.setup.guest.GuestAccessGuard.class))
+            .withBean(top.sywyar.pixivdownload.novel.NovelMergeService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.NovelMergeService.class))
+            .withBean(top.sywyar.pixivdownload.novel.NovelSeriesService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.NovelSeriesService.class))
+            .withBean(top.sywyar.pixivdownload.novel.NovelTranslationService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.NovelTranslationService.class))
+            .withBean(top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.db.NovelDatabase.class))
             .withBean(top.sywyar.pixivdownload.core.appconfig.MultiModeConfig.class,
                     top.sywyar.pixivdownload.core.appconfig.MultiModeConfig::new)
             .withBean(com.fasterxml.jackson.databind.ObjectMapper.class,
@@ -104,9 +112,10 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("除 core 声明各领域 schema、stats/duplicate/gallery 声明 web contribution 外，其余插件暂不声明任何 contribution")
+    @DisplayName("除 core 声明各领域 schema、stats/duplicate/gallery/novel 声明 web contribution 外，其余插件暂不声明任何 contribution")
     void emptyPluginsContributeNothing() {
-        Set<String> webContributingPlugins = Set.of("stats", "duplicate", "gallery");
+        Set<String> webContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
+        Set<String> coreColumnUsingPlugins = Set.of("gallery", "novel");
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins()).allSatisfy(plugin -> {
@@ -118,8 +127,8 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.schema()).isEmpty();
                 }
-                if (plugin.id().equals("gallery")) {
-                    // 画廊声明包内直接 SQL 仓库触及的核心列（只读使用契约，无私有表）
+                if (coreColumnUsingPlugins.contains(plugin.id())) {
+                    // 画廊/小说声明各自收敛范围内直接 SQL 仓库触及的核心列（只读使用契约，无私有表）
                     assertThat(plugin.coreColumnUsages()).isNotEmpty();
                 } else {
                     assertThat(plugin.coreColumnUsages()).isEmpty();

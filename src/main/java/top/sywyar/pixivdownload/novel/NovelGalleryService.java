@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.novel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -14,6 +13,7 @@ import top.sywyar.pixivdownload.novel.db.NovelTagOption;
 import top.sywyar.pixivdownload.plugin.api.AuthorQuery;
 import top.sywyar.pixivdownload.plugin.api.NovelWorkDetails;
 import top.sywyar.pixivdownload.plugin.api.PagedResult;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.SeriesNeighbors;
 import top.sywyar.pixivdownload.plugin.api.SeriesQuery;
 import top.sywyar.pixivdownload.plugin.api.TagOption;
@@ -44,8 +44,8 @@ import java.util.Set;
  * 删除链路同样走核心接口——{@link WorkAssetService} 删文件、{@link WorkDeletionService}
  * 标记软删除，不再直接依赖底层数据库与作者池实现。
  */
-@Service
 @Slf4j
+@PluginManagedBean
 @RequiredArgsConstructor
 public class NovelGalleryService {
 

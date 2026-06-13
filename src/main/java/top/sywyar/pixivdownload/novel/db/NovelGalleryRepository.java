@@ -3,8 +3,8 @@ package top.sywyar.pixivdownload.novel.db;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.gallery.GuestRestriction;
+import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
@@ -18,9 +18,12 @@ import java.util.Set;
  * 侧的 {@code GalleryRepository.appendVisibilityClauses}，避免在 Service 层做 N+1 过滤。
  *
  * <p>所有 SQL 都在 {@code novels} 表别名 {@code n} 上拼装，并使用 {@code novel_tags} 子表。
+ * <p>
+ * Bean 被 {@code @PluginManagedBean} 排除出根包扫描，由 {@code NovelPluginConfiguration}
+ * 提供；除小说画廊侧外仍被核心查询服务注入使用。
  */
 @Slf4j
-@Repository
+@PluginManagedBean
 public class NovelGalleryRepository {
 
     private final NamedParameterJdbcTemplate jdbc;

@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.duplicate.DuplicateController;
 import top.sywyar.pixivdownload.duplicate.DuplicateHashBackfillTask;
 import top.sywyar.pixivdownload.gallery.GalleryController;
 import top.sywyar.pixivdownload.maintenance.MaintenanceTask;
+import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.stats.StatsController;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -70,11 +71,13 @@ class PixivDownloadApplicationTests {
         assertThat(applicationContext.getBeanNamesForType(StatsController.class)).hasSize(1);
         assertThat(applicationContext.getBeanNamesForType(DuplicateController.class)).hasSize(1);
         assertThat(applicationContext.getBeanNamesForType(GalleryController.class)).hasSize(1);
+        assertThat(applicationContext.getBeanNamesForType(NovelGalleryController.class)).hasSize(1);
         RequestMappingHandlerMapping handlerMapping = applicationContext
                 .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
         assertThat(mappedPatterns(handlerMapping, "/api/stats/dashboard")).isTrue();
         assertThat(mappedPatterns(handlerMapping, "/api/duplicates/groups")).isTrue();
         assertThat(mappedPatterns(handlerMapping, "/api/gallery/artworks")).isTrue();
+        assertThat(mappedPatterns(handlerMapping, "/api/gallery/novels")).isTrue();
     }
 
     private static boolean mappedPatterns(RequestMappingHandlerMapping handlerMapping, String pattern) {
