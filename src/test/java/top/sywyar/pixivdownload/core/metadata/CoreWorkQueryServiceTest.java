@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.core.metadata;
 
+import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.Configuration;
 import org.apache.ibatis.session.SqlSession;

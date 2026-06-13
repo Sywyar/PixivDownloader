@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata;
 
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;

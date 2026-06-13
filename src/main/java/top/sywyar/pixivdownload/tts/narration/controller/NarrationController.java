@@ -24,7 +24,7 @@ import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationCast;
-import top.sywyar.pixivdownload.core.metadata.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
 import top.sywyar.pixivdownload.tts.narration.NarrationAudioService;
 
 import java.util.ArrayList;

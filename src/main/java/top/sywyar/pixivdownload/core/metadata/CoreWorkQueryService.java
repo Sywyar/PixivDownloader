@@ -1,5 +1,16 @@
 package top.sywyar.pixivdownload.core.metadata;
 
+import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
+import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelWorkSearch;
+
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;

@@ -145,7 +145,7 @@ class PluginApiDependencyGuardTest {
                         top.sywyar.pixivdownload.novel.NovelBatchService.class))
                 .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
                         top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
-                        top.sywyar.pixivdownload.core.metadata.NovelGalleryRepository.class,
+                        top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class,
                         top.sywyar.pixivdownload.author.AuthorService.class,
                         top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class))
                 .because("小说画廊已接口化：查询走 WorkQueryService/WorkMetadataRepository、删除走 "

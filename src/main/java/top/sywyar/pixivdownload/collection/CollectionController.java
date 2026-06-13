@@ -13,7 +13,7 @@ import top.sywyar.pixivdownload.collection.request.CollectionCreateRequest;
 import top.sywyar.pixivdownload.collection.request.CollectionDownloadRootRequest;
 import top.sywyar.pixivdownload.collection.request.CollectionRenameRequest;
 import top.sywyar.pixivdownload.collection.response.CollectionListResponse;
-import top.sywyar.pixivdownload.core.metadata.GalleryRepository;
+import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;

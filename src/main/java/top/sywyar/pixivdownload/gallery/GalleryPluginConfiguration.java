@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 /**
  * gallery 插件的 Bean 装配收敛点：业务 Bean（含 {@code @RestController}）均经
  * {@code @PluginManagedBean} 排除出根包扫描，由这里以 {@code @Bean} 显式提供。
- * 画廊的 SQL 仓库已收编进核心数据层（{@code core.metadata.GalleryRepository}，根包扫描的
+ * 画廊的 SQL 仓库已收编进核心数据层（{@code core.metadata.artwork.GalleryRepository}，根包扫描的
  * 核心 Bean），不再由本配置提供。
  */
 @Configuration

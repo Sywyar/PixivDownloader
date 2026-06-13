@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.metadata;
+package top.sywyar.pixivdownload.core.metadata.artwork;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

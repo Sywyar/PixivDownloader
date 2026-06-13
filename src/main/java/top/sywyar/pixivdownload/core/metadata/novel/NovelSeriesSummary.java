@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.core.metadata;
+package top.sywyar.pixivdownload.core.metadata.novel;
 
 import top.sywyar.pixivdownload.core.db.TagDto;
 

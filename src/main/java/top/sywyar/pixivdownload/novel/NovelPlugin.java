@@ -23,7 +23,7 @@ import java.util.Set;
  * <p>
  * 核心列使用声明的口径：插件 Bean 收敛范围内（{@code @PluginManagedBean} /
  * 插件 Configuration 装配的类）的直接 SQL 触及面，与 Java 包边界无关——
- * 本插件即 {@link top.sywyar.pixivdownload.core.metadata.NovelGalleryRepository} 触及的表列。
+ * 本插件即 {@link top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository} 触及的表列。
  * 同住 novel 包的 {@code NovelDatabase} / {@code NovelMapper} 是核心机器（novel-core
  * 不强拆），其 schema 由核心 contribution 保证，不入声明。现有查询全部由核心 schema
  * 既有索引承载，无需向核心表补新索引。

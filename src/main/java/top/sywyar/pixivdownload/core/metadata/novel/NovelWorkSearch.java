@@ -1,4 +1,7 @@
-package top.sywyar.pixivdownload.core.metadata;
+package top.sywyar.pixivdownload.core.metadata.novel;
+
+import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.core.metadata.CoreWorkQueryService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +26,7 @@ import java.util.Set;
  */
 @Slf4j
 @RequiredArgsConstructor
-class NovelWorkSearch {
+public class NovelWorkSearch {
 
     private static final int AUTHOR_NAME_BATCH_SIZE = 500;
 
@@ -35,7 +38,7 @@ class NovelWorkSearch {
      * 按查询条件返回命中的全部 novelId（已按 {@code sort} / {@code order} 排好序，未分页，
      * 软删除行已过滤）；分页数学由调用方完成。
      */
-    List<Long> filteredIds(WorkQuery q, GuestRestriction restriction) {
+    public List<Long> filteredIds(WorkQuery q, GuestRestriction restriction) {
         Set<Long> idCandidates;
         if (q.collectionIds() != null && !q.collectionIds().isEmpty()) {
             // 多收藏夹取并集（与 pixiv-gallery 收藏夹筛选语义一致：勾选任一即可见）

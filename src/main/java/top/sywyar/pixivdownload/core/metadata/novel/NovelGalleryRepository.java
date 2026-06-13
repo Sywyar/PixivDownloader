@@ -1,4 +1,6 @@
-package top.sywyar.pixivdownload.core.metadata;
+package top.sywyar.pixivdownload.core.metadata.novel;
+
+import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;

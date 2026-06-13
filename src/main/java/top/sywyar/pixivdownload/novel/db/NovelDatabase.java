@@ -9,9 +9,9 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
-import top.sywyar.pixivdownload.core.metadata.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.NovelSeries;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.Collection;

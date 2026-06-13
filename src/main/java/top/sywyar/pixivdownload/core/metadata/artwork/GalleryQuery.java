@@ -1,4 +1,6 @@
-package top.sywyar.pixivdownload.core.metadata;
+package top.sywyar.pixivdownload.core.metadata.artwork;
+
+import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

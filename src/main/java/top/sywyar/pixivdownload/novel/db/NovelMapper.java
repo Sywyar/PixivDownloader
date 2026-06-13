@@ -7,8 +7,8 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
-import top.sywyar.pixivdownload.core.metadata.NovelRecord;
-import top.sywyar.pixivdownload.core.metadata.NovelSeries;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelSeries;
 
 import java.util.Collection;
 import java.util.List;
