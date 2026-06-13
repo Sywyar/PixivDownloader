@@ -278,6 +278,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-beta') }}
           files: |
             artifacts/PixivDownload-${{ github.ref_name }}.jar
             artifacts/*-setup.exe
@@ -298,4 +299,5 @@ jobs:
           tag_name: ${{ inputs.tag_name }}
           name: ${{ inputs.tag_name }}
           draft: true
+          prerelease: ${{ contains(inputs.tag_name, '-beta') }}
           generate_release_notes: true

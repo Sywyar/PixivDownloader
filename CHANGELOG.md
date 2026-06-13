@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [v1.14.0-beta.1] - 2026.6.14
+
+### Changed
+- 发布插件化架构重构 beta 版：本次更新以内部架构收敛和稳定性验证为主，用户可见功能变化较少。
+- 核心能力、画廊、小说画廊、统计与重复检测等模块的边界经过整理，为后续插件独立拆分做准备。
+- 愿意参与测试的用户可以使用此版本，在此十分感谢您的参与；追求稳定的用户可使用上一个正式版。
+
 ## [v1.13.0] - 2026.6.11
 
 ### Features
