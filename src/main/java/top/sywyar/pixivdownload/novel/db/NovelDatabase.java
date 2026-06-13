@@ -9,12 +9,9 @@ import top.sywyar.pixivdownload.core.db.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.metadata.NovelAuthorSummary;
 import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.NovelRecord;
 import top.sywyar.pixivdownload.core.metadata.NovelSeries;
-import top.sywyar.pixivdownload.core.metadata.NovelSeriesSummary;
-import top.sywyar.pixivdownload.core.metadata.NovelTagOption;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
 import java.util.Collection;
@@ -130,21 +127,6 @@ public class NovelDatabase {
     /** 委托核心仓库（行读取已收编进核心数据层，查询 SQL 单源）。 */
     public NovelRecord getNovel(long novelId) {
         return novelMetadataRepository.getNovel(novelId);
-    }
-
-    private NovelSeries resolveSeries(NovelSeries series) {
-        if (series == null) return null;
-        String resolvedCover = pathPrefixCodec.resolve(series.coverFolder());
-        if (java.util.Objects.equals(resolvedCover, series.coverFolder())) return series;
-        return new NovelSeries(
-                series.seriesId(),
-                series.title(),
-                series.authorId(),
-                series.updatedTime(),
-                series.description(),
-                series.coverExt(),
-                resolvedCover
-        );
     }
 
     @Transactional
@@ -359,9 +341,10 @@ public class NovelDatabase {
         novelMapper.deleteNovelTags(novelId);
     }
 
+    /** 委托核心仓库（系列标签读取已收编进核心数据层，查询 SQL 单源）。 */
     public List<TagDto> getNovelSeriesTags(long seriesId) {
         if (seriesId <= 0) return Collections.emptyList();
-        return novelMapper.findTagsByNovelSeriesId(seriesId);
+        return novelMetadataRepository.getNovelSeriesTags(seriesId);
     }
 
     /**
@@ -393,10 +376,6 @@ public class NovelDatabase {
         return novelMetadataRepository.getSeries(seriesId);
     }
 
-    public List<NovelSeries> getAllSeries() {
-        return novelMapper.findAllSeries().stream().map(this::resolveSeries).toList();
-    }
-
     public void updateSeriesMetadata(long seriesId, String description, String coverExt, String coverFolder) {
         if (seriesId <= 0) return;
         novelMapper.updateNovelSeriesMetadata(seriesId, description, coverExt,
@@ -425,28 +404,6 @@ public class NovelDatabase {
 
     public long countNovelsInCollection(long collectionId) {
         return novelMapper.countNovelsByCollectionId(collectionId);
-    }
-
-    // ── Aggregations ───────────────────────────────────────────────────────────
-
-    public long countAuthorsWithNovels(String search) {
-        return novelMapper.countAuthorsWithNovels(search);
-    }
-
-    public List<NovelAuthorSummary> findAuthorsWithNovels(String search, String sort, int limit, int offset) {
-        return novelMapper.findAuthorsWithNovels(search, sort, limit, offset);
-    }
-
-    public long countSeriesWithNovels(String search) {
-        return novelMapper.countSeriesWithNovels(search);
-    }
-
-    public List<NovelSeriesSummary> findSeriesWithNovels(String search, String sort, int limit, int offset) {
-        return novelMapper.findSeriesWithNovels(search, sort, limit, offset);
-    }
-
-    public List<NovelTagOption> findTagsForNovels(String search, int limit) {
-        return novelMapper.findTagsForNovels(search, limit);
     }
 
     private static String stripTrailingSlash(String path) {

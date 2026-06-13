@@ -160,6 +160,16 @@ public class NovelMetadataRepository {
                 (ResultSetExtractor<Map<Long, List<TagDto>>>) rs -> groupTagsByKey(rs, "novelId"));
     }
 
+    /** 单个系列的系列标签（{@code tag_id} 升序）；与批量版 {@link #getNovelSeriesTagsBatch} 同源 SQL。 */
+    public List<TagDto> getNovelSeriesTags(long seriesId) {
+        return jdbc.query(
+                "SELECT t.tag_id AS tagId, t.name AS name, t.translated_name AS translatedName"
+                        + " FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id"
+                        + " WHERE nst.series_id = :seriesId"
+                        + " ORDER BY t.tag_id",
+                new MapSqlParameterSource("seriesId", seriesId), NovelMetadataRepository::mapTag);
+    }
+
     /** 批量取多个系列的系列标签，按 seriesId 分组；无标签的系列不出现在结果中。 */
     public Map<Long, List<TagDto>> getNovelSeriesTagsBatch(Collection<Long> seriesIds) {
         if (seriesIds == null || seriesIds.isEmpty()) return Collections.emptyMap();

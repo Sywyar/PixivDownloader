@@ -34,8 +34,6 @@ import java.util.Optional;
  * 完全一致。小说侧自管 {@code novel-{id}} 独占目录（守卫 / 递归删除逻辑自小说画廊服务
  * 下沉，逐字保留）：{@code findAsset} 枚举目录下全部常规文件（页号 = 枚举序号），
  * 缩略图恒解析封面 {@code {存储基名}_thumb.{coverExt}}，语义详见接口 javadoc。
- *
- * <p>过渡期本类对 novel.db 包的 import 待小说侧仓库收编进核心数据层后消除。
  */
 @Slf4j
 @Component

@@ -7,12 +7,8 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
-import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.metadata.NovelAuthorSummary;
 import top.sywyar.pixivdownload.core.metadata.NovelRecord;
 import top.sywyar.pixivdownload.core.metadata.NovelSeries;
-import top.sywyar.pixivdownload.core.metadata.NovelSeriesSummary;
-import top.sywyar.pixivdownload.core.metadata.NovelTagOption;
 
 import java.util.Collection;
 import java.util.List;
@@ -491,12 +487,6 @@ public interface NovelMapper {
             + " FROM novel_series WHERE series_id = #{id}")
     NovelSeries findSeriesById(@Param("id") long id);
 
-    @Select("SELECT series_id AS seriesId, title, author_id AS authorId,"
-            + " updated_time AS updatedTime, description, cover_ext AS coverExt,"
-            + " cover_folder AS coverFolder"
-            + " FROM novel_series ORDER BY LOWER(title), series_id")
-    List<NovelSeries> findAllSeries();
-
     // ── Tags ────────────────────────────────────────────────────────────────────
 
     @Insert("INSERT OR IGNORE INTO novel_tags(novel_id, tag_id) VALUES(#{novelId}, #{tagId})")
@@ -516,12 +506,6 @@ public interface NovelMapper {
     @Delete("DELETE FROM novel_series_tags WHERE series_id = #{seriesId}")
     void deleteNovelSeriesTags(@Param("seriesId") long seriesId);
 
-    @Select("SELECT t.tag_id AS tagId, t.name AS name, t.translated_name AS translatedName"
-            + " FROM novel_series_tags nst JOIN tags t ON t.tag_id = nst.tag_id"
-            + " WHERE nst.series_id = #{seriesId}"
-            + " ORDER BY t.tag_id")
-    List<TagDto> findTagsByNovelSeriesId(@Param("seriesId") long seriesId);
-
     // ── Collections ─────────────────────────────────────────────────────────────
 
     @Delete("DELETE FROM novel_collections WHERE novel_id = #{novelId}")
@@ -537,77 +521,4 @@ public interface NovelMapper {
 
     @Select("SELECT COUNT(*) FROM novel_collections WHERE collection_id = #{collectionId}")
     long countNovelsByCollectionId(@Param("collectionId") long collectionId);
-
-    // ── Aggregations for filter panel & by-author view ─────────────────────────
-
-    @Select("SELECT n.author_id AS authorId,"
-            + " COALESCE(au.name, CAST(n.author_id AS TEXT)) AS name,"
-            + " COUNT(*) AS novelCount"
-            + " FROM novels n"
-            + " LEFT JOIN authors au ON au.author_id = n.author_id"
-            + " WHERE n.author_id IS NOT NULL AND n.deleted = 0"
-            + " AND (au.name LIKE #{search} OR CAST(n.author_id AS TEXT) LIKE #{search})"
-            + " GROUP BY n.author_id, au.name"
-            + " ORDER BY"
-            + " CASE WHEN #{sort} = 'novels' THEN -COUNT(*) END,"
-            + " CASE WHEN #{sort} = 'authorId' THEN n.author_id END,"
-            + " CASE WHEN #{sort} NOT IN ('novels','authorId')"
-            + "      THEN LOWER(COALESCE(au.name, CAST(n.author_id AS TEXT))) END,"
-            + " n.author_id"
-            + " LIMIT #{limit} OFFSET #{offset}")
-    List<NovelAuthorSummary> findAuthorsWithNovels(@Param("search") String search,
-                                                   @Param("sort") String sort,
-                                                   @Param("limit") int limit,
-                                                   @Param("offset") int offset);
-
-    @Select("SELECT COUNT(*) FROM ("
-            + " SELECT n.author_id FROM novels n"
-            + " LEFT JOIN authors au ON au.author_id = n.author_id"
-            + " WHERE n.author_id IS NOT NULL AND n.deleted = 0"
-            + " AND (au.name LIKE #{search} OR CAST(n.author_id AS TEXT) LIKE #{search})"
-            + " GROUP BY n.author_id)")
-    long countAuthorsWithNovels(@Param("search") String search);
-
-    @Select("SELECT n.series_id AS seriesId,"
-            + " COALESCE(ns.title, CAST(n.series_id AS TEXT)) AS title,"
-            + " ns.author_id AS authorId,"
-            + " au.name AS authorName,"
-            + " COUNT(*) AS novelCount"
-            + " FROM novels n"
-            + " LEFT JOIN novel_series ns ON ns.series_id = n.series_id"
-            + " LEFT JOIN authors au ON au.author_id = ns.author_id"
-            + " WHERE n.series_id IS NOT NULL AND n.series_id > 0 AND n.deleted = 0"
-            + " AND (ns.title LIKE #{search} OR au.name LIKE #{search} OR CAST(n.series_id AS TEXT) LIKE #{search})"
-            + " GROUP BY n.series_id, ns.title, ns.author_id, au.name"
-            + " ORDER BY"
-            + " CASE WHEN #{sort} = 'novels' THEN -COUNT(*) END,"
-            + " CASE WHEN #{sort} = 'seriesId' THEN n.series_id END,"
-            + " CASE WHEN #{sort} NOT IN ('novels','seriesId')"
-            + "      THEN LOWER(COALESCE(ns.title, CAST(n.series_id AS TEXT))) END,"
-            + " n.series_id"
-            + " LIMIT #{limit} OFFSET #{offset}")
-    List<NovelSeriesSummary> findSeriesWithNovels(@Param("search") String search,
-                                                  @Param("sort") String sort,
-                                                  @Param("limit") int limit,
-                                                  @Param("offset") int offset);
-
-    @Select("SELECT COUNT(*) FROM ("
-            + " SELECT n.series_id FROM novels n"
-            + " LEFT JOIN novel_series ns ON ns.series_id = n.series_id"
-            + " LEFT JOIN authors au ON au.author_id = ns.author_id"
-            + " WHERE n.series_id IS NOT NULL AND n.series_id > 0 AND n.deleted = 0"
-            + " AND (ns.title LIKE #{search} OR au.name LIKE #{search} OR CAST(n.series_id AS TEXT) LIKE #{search})"
-            + " GROUP BY n.series_id)")
-    long countSeriesWithNovels(@Param("search") String search);
-
-    @Select("SELECT t.tag_id AS tagId, t.name AS name, t.translated_name AS translatedName,"
-            + " COUNT(*) AS novelCount"
-            + " FROM novel_tags nt"
-            + " JOIN tags t ON t.tag_id = nt.tag_id"
-            + " WHERE (t.name LIKE #{search} OR COALESCE(t.translated_name, '') LIKE #{search})"
-            + " GROUP BY t.tag_id, t.name, t.translated_name"
-            + " ORDER BY COUNT(*) DESC, LOWER(t.name)"
-            + " LIMIT #{limit}")
-    List<NovelTagOption> findTagsForNovels(@Param("search") String search,
-                                           @Param("limit") int limit);
 }
