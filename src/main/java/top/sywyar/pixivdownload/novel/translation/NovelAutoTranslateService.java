@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.translation;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 
 /**
  * 「新下载小说自动翻译」的服务端编排队列：下载落库后由 {@link NovelDownloadService} 提交，把新下小说整章翻译成

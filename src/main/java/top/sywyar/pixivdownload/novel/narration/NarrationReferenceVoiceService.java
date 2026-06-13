@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.narration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

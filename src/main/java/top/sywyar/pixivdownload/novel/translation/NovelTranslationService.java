@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.translation;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

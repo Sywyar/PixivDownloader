@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.tts.narration;
 
-import top.sywyar.pixivdownload.novel.NovelMarkupParser;
+import top.sywyar.pixivdownload.novel.download.NovelMarkupParser;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -10,7 +10,7 @@ import java.util.List;
  * 渲染块的 {@code paragraphIndex}（与前端 DOM 块顺序对齐，见 {@link NovelMarkupParser#textBlocks}）。
  *
  * <p>职责边界：本类<b>只断句、不分段、不调 AI</b>。分段（每批发给 AI 的文本量）在编排层
- * （{@code novel.NovelNarrationCastService}）按「分段字数」完成；归属永远按句。纯函数、可单测。
+ * （{@code novel.narration.NovelNarrationCastService}）按「分段字数」完成；归属永远按句。纯函数、可单测。
  *
  * <p>断句规则：先用 {@link NovelMarkupParser#textBlocks} 把正文转成纯文本块（剔除 ruby 注音 / 图片占位 /
  * 翻页标记，章节标题单独成块），再对每个段落块按中日英句末终止符（{@code 。！？!?…} 与换行）切句，连续终止符

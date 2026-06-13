@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.download;
 
 import java.net.URI;
 import java.util.List;

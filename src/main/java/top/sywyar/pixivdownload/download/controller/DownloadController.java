@@ -26,7 +26,7 @@ import top.sywyar.pixivdownload.core.metadata.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.novel.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.SetupService;

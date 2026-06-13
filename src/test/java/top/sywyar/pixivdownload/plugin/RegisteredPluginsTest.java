@@ -49,12 +49,12 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.quota.UserQuotaService.class))
             .withBean(top.sywyar.pixivdownload.setup.guest.GuestAccessGuard.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.setup.guest.GuestAccessGuard.class))
-            .withBean(top.sywyar.pixivdownload.novel.NovelMergeService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.NovelMergeService.class))
+            .withBean(top.sywyar.pixivdownload.novel.export.NovelMergeService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.export.NovelMergeService.class))
             .withBean(top.sywyar.pixivdownload.novel.NovelSeriesService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.NovelSeriesService.class))
-            .withBean(top.sywyar.pixivdownload.novel.NovelTranslationService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.NovelTranslationService.class))
+            .withBean(top.sywyar.pixivdownload.novel.translation.NovelTranslationService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.translation.NovelTranslationService.class))
             .withBean(top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.db.NovelDatabase.class))
             .withBean(top.sywyar.pixivdownload.core.metadata.NovelGalleryRepository.class,

@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.novel.NovelNarrationScriptService;
+import top.sywyar.pixivdownload.novel.narration.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.tts.narration.NarrationAudioService;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;

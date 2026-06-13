@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.translation;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,6 +23,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 
 @DisplayName("下载即自动翻译服务端队列")
 class NovelAutoTranslateServiceTest {

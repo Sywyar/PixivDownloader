@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.download;
 
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 

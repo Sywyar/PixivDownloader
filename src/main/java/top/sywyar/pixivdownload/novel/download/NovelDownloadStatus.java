@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.download;
 
 import lombok.Data;
 import top.sywyar.pixivdownload.download.DownloadActionResult;

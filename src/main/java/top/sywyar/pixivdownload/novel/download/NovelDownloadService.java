@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.download;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -44,6 +44,9 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongConsumer;
+import top.sywyar.pixivdownload.novel.NovelSeriesService;
+import top.sywyar.pixivdownload.novel.export.NovelEpubWriter;
+import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 
 @Slf4j
 @Service

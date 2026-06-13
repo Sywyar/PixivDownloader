@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.narration;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

@@ -9,7 +9,7 @@ import java.util.Map;
 
 /**
  * 一段句子经合并单次 AI 分析后的<b>纯结果</b>（无 DB / 无引擎）：
- * {@link NarrationScriptService#analyzeSegment} 的产物，交给编排层（{@code novel.NovelNarrationCastService}）
+ * {@link NarrationScriptService#analyzeSegment} 的产物，交给编排层（{@code novel.narration.NovelNarrationCastService}）
  * 入册新角色、按编辑来源路由补充 / 冲突，并把逐句 speaker 的临时 id 重映射为真实 id。
  *
  * @param lines             与本段输入句数等长、按下标升序的逐句归属（speaker 可能是新角色的临时 id）

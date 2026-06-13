@@ -15,7 +15,7 @@ import java.util.List;
  * <ul>
  *   <li>先判断用户填写的目标语言是否为真实存在的人类语言；不存在时以状态码标记、不翻译；</li>
  *   <li>原样保留所有 Pixiv 标记符号（{@code [newpage]} / {@code [[rb:..]]} / {@code [uploadedimage:id]} 等），
- *       仅翻译其中的自然语言文本，以便译文仍可被 {@link top.sywyar.pixivdownload.novel.NovelMarkupParser} 渲染与合订；</li>
+ *       仅翻译其中的自然语言文本，以便译文仍可被 {@link top.sywyar.pixivdownload.novel.download.NovelMarkupParser} 渲染与合订；</li>
  *   <li>对随请求提供的名词映射表中<b>语言匹配</b>的条目，强制使用既定译名，保证专有名词一致；</li>
  *   <li>把遇到的、映射表中尚无的新专有名词回报到输出 JSON 的 {@code glossary} 数组，便于自动入库复用；</li>
  *   <li>当输入还附带 {@code sourceTitle} 时，按相同术语规则把标题翻译为<b>单行短标题</b>放入 JSON 的 {@code title} 字段；

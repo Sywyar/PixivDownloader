@@ -25,7 +25,7 @@ import java.util.Set;
  *
  * <p>本服务是分析层入口，刻意与具体 TTS 引擎、持久化<b>解耦</b>：只依赖 {@link AiService} 与
  * {@code ai.narration} 实体，<b>不</b>引用任何 Edge / VoxCPM 引擎类、<b>不</b>读小说库、<b>不</b>负责断句
- * （句子由调用方切好传入），也<b>不</b>做花名册落库 / 冲突路由（那是编排层 {@code novel.NovelNarrationCastService}
+ * （句子由调用方切好传入），也<b>不</b>做花名册落库 / 冲突路由（那是编排层 {@code novel.narration.NovelNarrationCastService}
  * 的职责）。
  *
  * <p><b>音色一致性</b>由「每段携带花名册、模型复用既有角色 id」保证；逐句 {@code delivery} 仅追加到角色基底画像

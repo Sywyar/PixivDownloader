@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.narration;
 
 import top.sywyar.pixivdownload.tts.narration.NarrationScript;
 

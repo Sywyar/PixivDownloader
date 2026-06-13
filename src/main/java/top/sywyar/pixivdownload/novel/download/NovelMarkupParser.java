@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.download;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;

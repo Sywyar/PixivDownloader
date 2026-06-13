@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.narration;
 
 /**
  * 一条<b>待用户处理</b>的朗读音色冲突：AI 在分析中判定某个<b>用户锁定</b>（{@code edited_by_user=1}）角色的画像

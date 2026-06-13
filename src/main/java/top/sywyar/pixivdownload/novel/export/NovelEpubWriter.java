@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.novel;
+package top.sywyar.pixivdownload.novel.export;
 
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 

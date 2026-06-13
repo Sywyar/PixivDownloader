@@ -15,6 +15,8 @@ import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
+import top.sywyar.pixivdownload.novel.export.NovelMergeService;
+import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 
 /**
  * novel 插件的 Bean 装配收敛点：小说画廊侧业务 Bean（含 {@code @RestController}）均经
