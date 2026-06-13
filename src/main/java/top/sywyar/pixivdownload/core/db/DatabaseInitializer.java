@@ -6,10 +6,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.api.ColumnSpec;
-import top.sywyar.pixivdownload.plugin.api.IndexOrigin;
-import top.sywyar.pixivdownload.plugin.api.SchemaContribution;
-import top.sywyar.pixivdownload.plugin.api.TableSpec;
+import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
+import top.sywyar.pixivdownload.plugin.api.schema.IndexOrigin;
+import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
+import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 import top.sywyar.pixivdownload.plugin.api.event.DatabaseReadyEvent;
 
 import java.util.ArrayList;

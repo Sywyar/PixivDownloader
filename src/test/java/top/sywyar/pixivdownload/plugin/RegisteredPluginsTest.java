@@ -8,9 +8,9 @@ import top.sywyar.pixivdownload.download.DownloadWorkbenchPluginConfiguration;
 import top.sywyar.pixivdownload.duplicate.DuplicatePluginConfiguration;
 import top.sywyar.pixivdownload.gallery.GalleryPluginConfiguration;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
-import top.sywyar.pixivdownload.plugin.api.CoreColumnUsage;
-import top.sywyar.pixivdownload.plugin.api.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.stats.StatsPluginConfiguration;
 
 import java.util.Set;
@@ -35,14 +35,14 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.db.PixivDatabase.class))
             .withBean(org.springframework.transaction.PlatformTransactionManager.class,
                     () -> org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class))
-            .withBean(top.sywyar.pixivdownload.plugin.api.WorkQueryService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.WorkQueryService.class))
-            .withBean(top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository.class))
-            .withBean(top.sywyar.pixivdownload.plugin.api.WorkAssetService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.WorkAssetService.class))
-            .withBean(top.sywyar.pixivdownload.plugin.api.WorkDeletionService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.WorkDeletionService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository.class))
+            .withBean(top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService.class))
             .withBean(top.sywyar.pixivdownload.collection.CollectionService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.collection.CollectionService.class))
             .withBean(top.sywyar.pixivdownload.quota.UserQuotaService.class,

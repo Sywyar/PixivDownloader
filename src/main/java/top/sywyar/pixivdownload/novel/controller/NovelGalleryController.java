@@ -23,11 +23,11 @@ import top.sywyar.pixivdownload.core.metadata.NovelRecord;
 import top.sywyar.pixivdownload.core.metadata.NovelSeries;
 import top.sywyar.pixivdownload.core.metadata.NovelSeriesSummary;
 import top.sywyar.pixivdownload.novel.request.NovelBatchRequest;
-import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
-import top.sywyar.pixivdownload.plugin.api.SeriesNeighbors;
-import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
-import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
-import top.sywyar.pixivdownload.plugin.api.WorkType;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 

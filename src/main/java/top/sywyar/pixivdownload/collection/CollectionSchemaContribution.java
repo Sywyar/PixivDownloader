@@ -1,9 +1,9 @@
 package top.sywyar.pixivdownload.collection;
 
 import top.sywyar.pixivdownload.core.db.CoreSchemaContribution;
-import top.sywyar.pixivdownload.plugin.api.PathColumnSpec;
-import top.sywyar.pixivdownload.plugin.api.SchemaContribution;
-import top.sywyar.pixivdownload.plugin.api.TableSpec;
+import top.sywyar.pixivdownload.plugin.api.schema.PathColumnSpec;
+import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
+import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
 

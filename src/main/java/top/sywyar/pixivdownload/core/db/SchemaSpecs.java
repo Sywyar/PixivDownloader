@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.core.db;
 
-import top.sywyar.pixivdownload.plugin.api.ColumnSpec;
-import top.sywyar.pixivdownload.plugin.api.IndexOrigin;
-import top.sywyar.pixivdownload.plugin.api.IndexSpec;
+import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
+import top.sywyar.pixivdownload.plugin.api.schema.IndexOrigin;
+import top.sywyar.pixivdownload.plugin.api.schema.IndexSpec;
 
 import java.util.List;
 

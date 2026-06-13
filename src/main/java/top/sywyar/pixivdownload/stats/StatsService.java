@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.stats;
 
 import lombok.RequiredArgsConstructor;
-import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.util.ArrayList;
 import java.util.List;

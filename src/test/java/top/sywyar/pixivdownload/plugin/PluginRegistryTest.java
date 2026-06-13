@@ -2,8 +2,8 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 import java.util.ArrayList;
 import java.util.List;

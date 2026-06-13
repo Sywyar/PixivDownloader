@@ -6,10 +6,10 @@ import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
-import top.sywyar.pixivdownload.plugin.api.WorkDeletionService;
-import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
-import top.sywyar.pixivdownload.plugin.api.WorkQueryService;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 

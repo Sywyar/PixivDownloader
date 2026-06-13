@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.download;
 
-import top.sywyar.pixivdownload.plugin.api.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 /**
  * 下载工作台插件：{@code pixiv-batch} 页面、下载队列、油猴脚本入口与下载执行。

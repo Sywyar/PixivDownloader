@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.stats;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import javax.sql.DataSource;
 import java.util.List;

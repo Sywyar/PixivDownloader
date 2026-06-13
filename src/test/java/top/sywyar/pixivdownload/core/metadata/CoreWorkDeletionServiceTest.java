@@ -7,7 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.plugin.api.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;

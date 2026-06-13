@@ -3,8 +3,8 @@ package top.sywyar.pixivdownload.core.metadata;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.plugin.api.WorkDeletionService;
-import top.sywyar.pixivdownload.plugin.api.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 
 /**
  * {@link WorkDeletionService} 的核心实现：插画侧代理 {@link PixivDatabase#markArtworkDeleted}，

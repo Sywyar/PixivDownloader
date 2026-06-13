@@ -2,8 +2,8 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.AccessLevel;
-import top.sywyar.pixivdownload.plugin.api.WebRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.setup.AuthFilter;
 
 import java.lang.reflect.Field;

@@ -4,7 +4,7 @@ import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.duplicate.DuplicatePlugin;
 import top.sywyar.pixivdownload.gallery.GalleryPlugin;
 import top.sywyar.pixivdownload.novel.NovelPlugin;
-import top.sywyar.pixivdownload.plugin.api.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.stats.StatsPlugin;
 
 import java.util.List;

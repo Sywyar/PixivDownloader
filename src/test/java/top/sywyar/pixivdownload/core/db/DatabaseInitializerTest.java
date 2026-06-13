@@ -7,8 +7,8 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.api.SchemaContribution;
-import top.sywyar.pixivdownload.plugin.api.TableSpec;
+import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
+import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 import top.sywyar.pixivdownload.plugin.api.event.DatabaseReadyEvent;
 
 import java.sql.Connection;

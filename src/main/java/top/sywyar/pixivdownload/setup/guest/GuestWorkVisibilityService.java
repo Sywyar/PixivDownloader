@@ -3,9 +3,9 @@ package top.sywyar.pixivdownload.setup.guest;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.plugin.api.WorkRestriction;
-import top.sywyar.pixivdownload.plugin.api.WorkType;
-import top.sywyar.pixivdownload.plugin.api.WorkVisibilityService;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkRestriction;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService;
 
 import java.util.LinkedHashSet;
 import java.util.List;

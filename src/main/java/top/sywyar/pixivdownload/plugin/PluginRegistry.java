@@ -4,7 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.plugin.api.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -11,10 +11,10 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.metadata.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.NovelRecord;
-import top.sywyar.pixivdownload.plugin.api.LocalWorkAsset;
-import top.sywyar.pixivdownload.plugin.api.WorkAssetFile;
-import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
-import top.sywyar.pixivdownload.plugin.api.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 
 import java.io.File;
 import java.io.IOException;

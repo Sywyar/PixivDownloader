@@ -39,7 +39,7 @@ class PluginApiDependencyGuardTest {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api..")
                 .and().doNotHaveFullyQualifiedName(
-                        top.sywyar.pixivdownload.plugin.api.WorkVisibilityService.class.getName())
+                        top.sywyar.pixivdownload.plugin.api.work.service.WorkVisibilityService.class.getName())
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..")
                 .because("jakarta.servlet 的放行仅限收请求入参的服务接口（当前唯 WorkVisibilityService），"

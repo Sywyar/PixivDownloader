@@ -6,11 +6,11 @@ import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.plugin.api.NovelWorkDetails;
-import top.sywyar.pixivdownload.plugin.api.WorkMetadata;
-import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
-import top.sywyar.pixivdownload.plugin.api.WorkTag;
-import top.sywyar.pixivdownload.plugin.api.WorkType;
+import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkTag;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 import top.sywyar.pixivdownload.series.MangaSeries;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 

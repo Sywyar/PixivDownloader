@@ -9,7 +9,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.maintenance.MaintenanceTask;
-import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.util.List;
 

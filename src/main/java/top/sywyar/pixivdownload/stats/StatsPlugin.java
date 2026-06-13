@@ -1,12 +1,12 @@
 package top.sywyar.pixivdownload.stats;
 
-import top.sywyar.pixivdownload.plugin.api.AccessLevel;
-import top.sywyar.pixivdownload.plugin.api.I18nContribution;
-import top.sywyar.pixivdownload.plugin.api.NavigationContribution;
-import top.sywyar.pixivdownload.plugin.api.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.StaticResourceContribution;
-import top.sywyar.pixivdownload.plugin.api.WebRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
 import java.util.Set;

@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.plugin;
 
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.plugin.api.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.WebRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.ArrayList;
 import java.util.HashSet;

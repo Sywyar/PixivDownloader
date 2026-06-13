@@ -10,7 +10,7 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.nio.file.Path;
 

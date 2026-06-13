@@ -5,7 +5,7 @@ import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.api.PluginManagedBean;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 

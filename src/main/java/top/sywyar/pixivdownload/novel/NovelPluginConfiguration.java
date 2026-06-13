@@ -9,10 +9,10 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.core.metadata.NovelGalleryRepository;
-import top.sywyar.pixivdownload.plugin.api.WorkAssetService;
-import top.sywyar.pixivdownload.plugin.api.WorkDeletionService;
-import top.sywyar.pixivdownload.plugin.api.WorkMetadataRepository;
-import top.sywyar.pixivdownload.plugin.api.WorkQueryService;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 
