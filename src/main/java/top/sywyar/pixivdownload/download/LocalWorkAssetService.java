@@ -11,8 +11,10 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.download.meta.WorkSidecarStore;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 
@@ -45,6 +47,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     private final PixivDatabase pixivDatabase;
     private final NovelMetadataRepository novelMetadataRepository;
     private final DownloadConfig downloadConfig;
+    private final WorkSidecarStore sidecarStore;
     private final AppMessages messages;
 
     @Override
@@ -76,6 +79,30 @@ public class LocalWorkAssetService implements WorkAssetService {
         return switch (workType) {
             case ARTWORK -> artworkFileLocator.deleteArtworkFiles(pixivDatabase.getArtwork(workId));
             case NOVEL -> deleteNovelFiles(workId);
+        };
+    }
+
+    @Override
+    public Optional<WorkSidecarMeta> findSidecarMeta(WorkType workType, long workId) {
+        return switch (workType) {
+            case ARTWORK -> {
+                ArtworkRecord artwork = pixivDatabase.getArtwork(workId);
+                if (artwork == null) {
+                    yield Optional.empty();
+                }
+                String directory = artworkFileLocator.resolveArtworkDirectory(artwork);
+                yield StringUtils.hasText(directory)
+                        ? sidecarStore.read(Paths.get(directory), WorkType.ARTWORK, workId)
+                        : Optional.empty();
+            }
+            case NOVEL -> {
+                NovelRecord novel = novelMetadataRepository.getNovel(workId);
+                if (novel == null) {
+                    yield Optional.empty();
+                }
+                Path dir = exclusiveNovelDirectory(novel, false);
+                yield dir == null ? Optional.empty() : sidecarStore.read(dir, WorkType.NOVEL, workId);
+            }
         };
     }
 
@@ -140,6 +167,8 @@ public class LocalWorkAssetService implements WorkAssetService {
         try (var stream = Files.walk(dir)) {
             List<Path> paths = stream
                     .filter(Files::isRegularFile)
+                    // meta sidecar 是作品自身元数据、非可下载内容文件，排除出枚举（导出 zip 不含 *.meta.json）。
+                    .filter(p -> !WorkSidecarStore.isSidecarFile(p))
                     .sorted(Comparator.comparing(Path::toString))
                     .toList();
             List<WorkAssetFile> files = new ArrayList<>(paths.size());

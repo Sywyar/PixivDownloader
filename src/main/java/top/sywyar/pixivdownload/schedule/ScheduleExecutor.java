@@ -11,6 +11,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
 import top.sywyar.pixivdownload.download.PixivFetchService;
+import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
@@ -89,6 +90,7 @@ public class ScheduleExecutor {
     private final ScheduledTaskDatabase database;
     private final PixivFetchService pixivFetchService;
     private final PixivDatabase pixivDatabase;
+    private final WorkMetaCaptureService workMetaCaptureService;
     private final ArtworkDownloader artworkDownloader;
     private final NovelDownloader novelDownloader;
     private final NovelMetadataRepository novelMetadataRepository;
@@ -871,7 +873,8 @@ public class ScheduleExecutor {
                                        Filters filters, Download download, ScheduleRunQueue.Run run,
                                        Map<Long, PixivFetchService.IllustSeriesMeta> seriesCache)
             throws Exception {
-        PixivFetchService.ArtworkMeta meta = pixivFetchService.fetchArtworkMeta(id, cookie);
+        PixivFetchService.ArtworkMetaCapture capture = pixivFetchService.fetchArtworkMetaCapture(id, cookie);
+        PixivFetchService.ArtworkMeta meta = capture.meta();
         run.setMeta(id, meta.title(), meta.xRestrict(), meta.ai());
         if (!artworkMatches(meta, filters)) {
             run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
@@ -903,6 +906,7 @@ public class ScheduleExecutor {
         }
 
         List<String> imageUrls;
+        JsonNode pagesBody = null;
         if (meta.isUgoira()) {
             PixivFetchService.UgoiraInfo ugoira = pixivFetchService.resolveUgoira(id, cookie);
             if (ugoira.zipUrl() == null || ugoira.zipUrl().isEmpty()) {
@@ -913,7 +917,9 @@ public class ScheduleExecutor {
             other.setUgoiraDelays(ugoira.delays());
             imageUrls = List.of(ugoira.zipUrl());
         } else {
-            imageUrls = pixivFetchService.resolveImageUrls(id, cookie);
+            PixivFetchService.ArtworkPages pages = pixivFetchService.resolveArtworkPages(id, cookie);
+            imageUrls = pages.urls();
+            pagesBody = pages.body();
             if (imageUrls.isEmpty()) {
                 throw new IllegalStateException("no image urls resolved");
             }
@@ -922,8 +928,17 @@ public class ScheduleExecutor {
         String title = meta.title();
         List<String> urls = imageUrls;
         String referer = PIXIV_REFERER + "artworks/" + id;
-        return () -> artworkDownloader.downloadImagesBlocking(
-                artworkId, title, urls, referer, other, cookie, null);
+        // 下载已抓的 illust / pages body 别丢——下载成功后旁路归一化 meta sidecar + 列投影（零额外请求、best-effort）。
+        JsonNode illustBody = capture.body();
+        JsonNode capturedPagesBody = pagesBody;
+        return () -> {
+            boolean ok = artworkDownloader.downloadImagesBlocking(
+                    artworkId, title, urls, referer, other, cookie, null);
+            if (ok) {
+                workMetaCaptureService.captureArtwork(artworkId, illustBody, capturedPagesBody, "schedule");
+            }
+            return ok;
+        };
     }
 
     /** 抓取小说详情、应用筛选；命中则组装请求并返回待提交线程池的下载任务，被筛选跳过返回 {@code null}。 */
@@ -931,7 +946,8 @@ public class ScheduleExecutor {
                                      Filters filters, Download download, ScheduleRunQueue.Run run,
                                      Map<Long, PixivFetchService.NovelSeriesMeta> seriesCache)
             throws Exception {
-        PixivFetchService.NovelDetail d = pixivFetchService.fetchNovelDetail(id, cookie);
+        PixivFetchService.NovelDetailCapture capture = pixivFetchService.fetchNovelDetailCapture(id, cookie);
+        PixivFetchService.NovelDetail d = capture.detail();
         run.setMeta(id, d.title(), d.xRestrict(), d.ai());
         if (!novelMatches(d, filters)) {
             run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
@@ -984,7 +1000,15 @@ public class ScheduleExecutor {
             }
         }
         req.setOther(o);
-        return () -> novelDownloader.downloadBlocking(req, null);
+        // 下载已抓的 novel body 别丢——下载成功后旁路归一化 meta sidecar + upload_time 列投影（零额外请求、best-effort）。
+        JsonNode novelBody = capture.body();
+        return () -> {
+            boolean ok = novelDownloader.downloadBlocking(req, null);
+            if (ok) {
+                workMetaCaptureService.captureNovel(novelId, novelBody, "schedule");
+            }
+            return ok;
+        };
     }
 
     /**

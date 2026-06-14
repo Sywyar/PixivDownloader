@@ -70,7 +70,7 @@ class NovelGalleryServiceTest {
                 authorId, authorId == null ? null : "作者" + authorId,
                 seriesId, null, null, List.of(new WorkTag(21L, "魔法", "magic")),
                 100L, 1, "txt", "/n/novel-" + id,
-                false, null, null, null, null, null,
+                false, null, null, null, null, null, null, true,
                 new NovelWorkDetails(1000, 2000, 300, 4, true, "ja", "jpg",
                         List.of("img-a"), List.of("zh-CN")));
     }

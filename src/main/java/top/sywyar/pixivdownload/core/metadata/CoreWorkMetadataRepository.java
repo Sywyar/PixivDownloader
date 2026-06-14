@@ -123,6 +123,8 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     rec.fileName(),
                     templates.get(templateId),
                     rec.fileAuthorNameId(),
+                    rec.uploadTime(),
+                    rec.isOriginal(),
                     null));
         }
         return out;
@@ -197,6 +199,8 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
                     rec.fileName(),
                     rec.fileName() == null ? null : templates.get(rec.fileName()),
                     rec.fileAuthorNameId(),
+                    rec.uploadTime(),
+                    rec.isOriginal(),
                     new NovelWorkDetails(
                             rec.wordCount(),
                             rec.textLength(),

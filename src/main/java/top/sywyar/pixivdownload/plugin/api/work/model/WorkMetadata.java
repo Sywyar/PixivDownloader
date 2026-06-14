@@ -32,6 +32,10 @@ import java.util.List;
  * @param fileNameTemplateId 文件名模板 id（底层原值），可为 {@code null}
  * @param fileNameTemplate   文件名模板内容（插画侧沿用「{@code null} id 取默认模板 1」的既有规则补全）
  * @param fileAuthorNameId   文件名作者名 id，可为 {@code null}
+ * @param uploadTime         Pixiv 真实上传时间（epoch 毫秒，区别于 {@link #downloadTime} 的下载落库时间），
+ *                           历史数据未捕获时为 {@code null}（源 illust {@code uploadDate} / novel {@code uploadTimestamp}）
+ * @param isOriginal         原创标记三态：{@code true}/{@code false}/{@code null}（NULL = 未知，区别于显式 false）；
+ *                           小说侧与 {@link NovelWorkDetails#isOriginal()} 同源（同一 {@code is_original} 列）
  * @param novel              小说专属元数据块；{@code workType == NOVEL} 时必填，插画行恒为 {@code null}
  *                           （不变量由紧凑构造器强制）
  */
@@ -58,6 +62,8 @@ public record WorkMetadata(
         Long fileNameTemplateId,
         String fileNameTemplate,
         Long fileAuthorNameId,
+        Long uploadTime,
+        Boolean isOriginal,
         NovelWorkDetails novel) {
 
     public WorkMetadata {

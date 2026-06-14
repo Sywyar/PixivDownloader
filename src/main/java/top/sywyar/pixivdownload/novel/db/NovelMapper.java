@@ -23,7 +23,7 @@ public interface NovelMapper {
             + " word_count AS wordCount, text_length AS textLength,"
             + " reading_time_seconds AS readingTimeSeconds, page_count AS pageCount,"
             + " is_original AS isOriginal, x_language AS xLanguage, raw_content AS rawContent,"
-            + " cover_ext AS coverExt, deleted"
+            + " cover_ext AS coverExt, deleted, upload_time AS uploadTime"
             + " FROM novels";
 
     // ── 幂等数据迁移（建表 / 补列 / 索引 DDL 统一由 DatabaseInitializer 执行）──────
@@ -435,6 +435,10 @@ public interface NovelMapper {
 
     @Update("UPDATE novels SET cover_ext = #{coverExt} WHERE novel_id = #{novelId}")
     void updateCoverExt(@Param("novelId") long novelId, @Param("coverExt") String coverExt);
+
+    /** 写入小说上传时间列投影（{@code upload_time} 毫秒，nullable，可重建投影）。 */
+    @Update("UPDATE novels SET upload_time = #{uploadTime} WHERE novel_id = #{novelId}")
+    void updateUploadTime(@Param("novelId") long novelId, @Param("uploadTime") Long uploadTime);
 
     @Delete("DELETE FROM novels WHERE novel_id = #{novelId}")
     void deleteById(@Param("novelId") long novelId);

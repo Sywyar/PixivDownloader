@@ -133,7 +133,7 @@ class NovelBatchServiceTest {
         Path content = Files.writeString(folder.resolve("content.txt"), "text");
         WorkMetadata meta = new WorkMetadata(WorkType.NOVEL, 7L, "Story", null, 0, false,
                 88L, "Writer", null, null, null, List.of(), 0L, 1, "txt", folder.toString(),
-                false, null, null, null, null, null,
+                false, null, null, null, null, null, null, null,
                 new NovelWorkDetails(100, 200, 60, null, null, null, null, List.of(), List.of()));
         when(workMetadataRepository.findAll(WorkType.NOVEL, List.of(7L))).thenReturn(List.of(meta));
         when(workAssetService.findAsset(WorkType.NOVEL, 7L)).thenReturn(Optional.of(

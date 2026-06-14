@@ -47,7 +47,7 @@ public class NovelMetadataRepository {
                     + " word_count AS wordCount, text_length AS textLength,"
                     + " reading_time_seconds AS readingTimeSeconds, page_count AS pageCount,"
                     + " is_original AS isOriginal, x_language AS xLanguage, raw_content AS rawContent,"
-                    + " cover_ext AS coverExt, deleted"
+                    + " cover_ext AS coverExt, deleted, upload_time AS uploadTime"
                     + " FROM novels";
 
     private static final String SELECT_SERIES =
@@ -133,7 +133,20 @@ public class NovelMetadataRepository {
                 rs.getString("xLanguage"),
                 rs.getString("rawContent"),
                 rs.getString("coverExt"),
-                rs.getBoolean("deleted"));
+                rs.getBoolean("deleted"),
+                getLongObj(rs, "uploadTime"));
+    }
+
+    /**
+     * 写入小说上传时间列投影（{@code upload_time} 毫秒，nullable）。sidecar 是权威落点、本列为可
+     * 重建投影；行不存在为 no-op，写失败由调用方 warn-continue 自愈。核心写 novels
+     * 表（与 {@link #markNovelDeleted} 同属核心表写入面，不反向 import 小说插件包）。
+     */
+    public void updateNovelUploadTime(long novelId, Long uploadTime) {
+        jdbc.update("UPDATE novels SET upload_time = :uploadTime WHERE novel_id = :novelId",
+                new MapSqlParameterSource()
+                        .addValue("uploadTime", uploadTime)
+                        .addValue("novelId", novelId));
     }
 
     // ── Tags ──────────────────────────────────────────────────────────────────────

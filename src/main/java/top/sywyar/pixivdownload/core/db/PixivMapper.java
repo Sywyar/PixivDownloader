@@ -10,7 +10,7 @@ public interface PixivMapper {
 
     String SELECT_ARTWORK = "SELECT artwork_id, title, folder, count, extensions, time, moved,"
             + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name, file_author_name_id,"
-            + " series_id, series_order, deleted FROM artworks";
+            + " series_id, series_order, deleted, upload_time, is_original FROM artworks";
 
     // ── 种子数据与幂等数据迁移（建表 / 补列 / 索引 DDL 统一由 DatabaseInitializer 执行）──
 
@@ -193,6 +193,16 @@ public interface PixivMapper {
     void updateSeriesInfo(@Param("artworkId") long artworkId,
                           @Param("seriesId") Long seriesId,
                           @Param("seriesOrder") Long seriesOrder);
+
+    /**
+     * 写入作品的上传元数据列投影（{@code upload_time} 毫秒、{@code is_original} 三态）。
+     * sidecar 是权威落点，这两列是可重建投影；写失败由调用方 warn-continue 自愈。
+     */
+    @Update("UPDATE artworks SET upload_time = #{uploadTime}, is_original = #{isOriginal}"
+            + " WHERE artwork_id = #{artworkId}")
+    void updateUploadMeta(@Param("artworkId") long artworkId,
+                          @Param("uploadTime") Long uploadTime,
+                          @Param("isOriginal") Boolean isOriginal);
 
     /**
      * 查询所有 {@code series_id IS NULL} 的作品 ID，用于 {@link top.sywyar.pixivdownload.tools.ArtworksBackFill}

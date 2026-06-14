@@ -95,6 +95,23 @@ class CoreWorkMetadataRepositoryTest {
         }
 
         @Test
+        @DisplayName("hydrate upload_time / is_original 列投影到 WorkMetadata")
+        void shouldHydrateUploadMeta() {
+            ArtworkRecord rec = new ArtworkRecord(7L, "t", "/f/7", 1, "jpg", 1700L,
+                    false, null, null, 0, false, null, null, null, null, null, null,
+                    false, 1717000000000L, true);
+            when(pixivDatabase.getArtworks(anyCollection())).thenReturn(List.of(rec));
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
+            when(pixivDatabase.getArtworkTags(anyCollection())).thenReturn(Map.of());
+            when(pixivDatabase.getFileNameTemplates(anyCollection())).thenReturn(Map.of());
+
+            WorkMetadata meta = repository.find(WorkType.ARTWORK, 7L).orElseThrow();
+
+            assertThat(meta.uploadTime()).isEqualTo(1717000000000L);
+            assertThat(meta.isOriginal()).isTrue();
+        }
+
+        @Test
         @DisplayName("软删除行视为不存在，返回 empty")
         void shouldReturnEmptyForSoftDeletedArtwork() {
             when(pixivDatabase.getArtworks(anyCollection())).thenReturn(List.of(
@@ -188,7 +205,7 @@ class CoreWorkMetadataRepositoryTest {
 
         private NovelRecord novel(long id, boolean deleted) {
             return new NovelRecord(id, "小说标题" + id, "/novels/" + id, 2, "", 1900L + id, 1, false, 88L,
-                    "小说简介" + id, 5L, 9L, 700L, 3L, 1000, 2000, 300, 4, true, "ja", "正文", "jpg", deleted);
+                    "小说简介" + id, 5L, 9L, 700L, 3L, 1000, 2000, 300, 4, true, "ja", "正文", "jpg", deleted, null);
         }
 
         @Test
@@ -242,6 +259,25 @@ class CoreWorkMetadataRepositoryTest {
             assertThat(meta.novel().coverExt()).isEqualTo("jpg");
             assertThat(meta.novel().embeddedImageIds()).containsExactly("img-a", "img-b");
             assertThat(meta.novel().translatedLanguages()).containsExactly("zh-CN");
+        }
+
+        @Test
+        @DisplayName("hydrate novel upload_time 列投影到 WorkMetadata；is_original 顶层与小说块同源")
+        void shouldHydrateNovelUploadMeta() {
+            NovelRecord rec = new NovelRecord(42L, "n", "/n/42", 1, "txt", 1900L, 0, false, null,
+                    null, null, null, null, null, null, null, null, null, true, null, "正文", null,
+                    false, 1717000000000L);
+            when(novelMetadataRepository.getNovels(anyCollection())).thenReturn(List.of(rec));
+            when(authorService.getAuthorNames(anyCollection())).thenReturn(Map.of());
+            when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
+            when(novelMetadataRepository.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());
+            when(novelMetadataRepository.getTranslationLangsBatch(anyCollection())).thenReturn(Map.of());
+
+            WorkMetadata meta = repository.find(WorkType.NOVEL, 42L).orElseThrow();
+
+            assertThat(meta.uploadTime()).isEqualTo(1717000000000L);
+            assertThat(meta.isOriginal()).isTrue();
+            assertThat(meta.novel().isOriginal()).isTrue();
         }
 
         @Test
@@ -301,7 +337,7 @@ class CoreWorkMetadataRepositoryTest {
         void shouldSkipTemplateLookupWhenTemplateIdMissing() {
             NovelRecord noTemplate = new NovelRecord(9L, "无模板", "/novels/9", 1, "", 1900L, 0, false,
                     null, null, null, null, null, null, null, null, null, null, null, null,
-                    "正文", null, false);
+                    "正文", null, false, null);
             when(novelMetadataRepository.getNovels(anyCollection())).thenReturn(List.of(noTemplate));
             when(novelMetadataRepository.getNovelTagsBatch(anyCollection())).thenReturn(Map.of());
             when(novelMetadataRepository.getNovelImageIdsBatch(anyCollection())).thenReturn(Map.of());

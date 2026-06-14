@@ -93,7 +93,10 @@ public class GuiLauncher {
             new ArtworksBackFill.DatabaseColumn("artworks", "file_name"),
             new ArtworksBackFill.DatabaseColumn("artworks", "file_author_name_id"),
             new ArtworksBackFill.DatabaseColumn("artworks", "deleted"),
-            new ArtworksBackFill.DatabaseColumn("novels", "deleted")
+            new ArtworksBackFill.DatabaseColumn("novels", "deleted"),
+            new ArtworksBackFill.DatabaseColumn("artworks", "upload_time"),
+            new ArtworksBackFill.DatabaseColumn("artworks", "is_original"),
+            new ArtworksBackFill.DatabaseColumn("novels", "upload_time")
     );
 
     /**

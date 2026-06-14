@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.download.meta.WorkSidecarStore;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.*;
@@ -288,7 +289,10 @@ public class UserQuotaService {
                     if (!Files.exists(folder)) continue;
                     String folderName = folder.getFileName().toString();
                     try (var stream = Files.walk(folder)) {
-                        stream.filter(Files::isRegularFile).forEach(file -> {
+                        // meta sidecar 是作品元数据、非下载内容，配额打包排除 *.meta.json。
+                        stream.filter(Files::isRegularFile)
+                                .filter(file -> !WorkSidecarStore.isSidecarFile(file))
+                                .forEach(file -> {
                             try {
                                 String entryName = folderName + "/" + file.getFileName();
                                 zos.putNextEntry(new ZipEntry(entryName));
@@ -351,7 +355,10 @@ public class UserQuotaService {
                     if (folder == null || !Files.exists(folder)) continue;
                     String folderName = folder.getFileName().toString();
                     try (var stream = Files.walk(folder)) {
-                        stream.filter(Files::isRegularFile).forEach(file -> {
+                        // meta sidecar 是作品元数据、非下载内容，配额打包排除 *.meta.json。
+                        stream.filter(Files::isRegularFile)
+                                .filter(file -> !WorkSidecarStore.isSidecarFile(file))
+                                .forEach(file -> {
                             try {
                                 String entryName = folderName + "/" + file.getFileName();
                                 zos.putNextEntry(new ZipEntry(entryName));

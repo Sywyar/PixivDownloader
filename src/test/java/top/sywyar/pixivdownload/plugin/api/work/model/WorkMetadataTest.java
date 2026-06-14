@@ -17,7 +17,7 @@ class WorkMetadataTest {
     private static WorkMetadata build(WorkType workType, NovelWorkDetails novel) {
         return new WorkMetadata(workType, 1L, "标题", null, 0, false,
                 null, null, null, null, null, List.of(), 100L, 1, "jpg", "/p/1",
-                false, null, null, null, null, null, novel);
+                false, null, null, null, null, null, null, null, novel);
     }
 
     @Test

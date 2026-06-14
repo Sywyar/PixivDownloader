@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.core.db.TagDto;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -132,6 +133,14 @@ public class PixivFetchService {
      * 供落库、文件名模板与计划任务的服务端筛选使用。
      */
     public ArtworkMeta fetchArtworkMeta(String artworkId, String cookie) throws IOException {
+        return fetchArtworkMetaCapture(artworkId, cookie).meta();
+    }
+
+    /**
+     * 同 {@link #fetchArtworkMeta}，但<b>额外保留</b>原始 {@code /ajax/illust/{id}} body，
+     * 供 meta 桥在下载已抓 body 上归一化 sidecar + 列投影（零额外 Pixiv 请求）。
+     */
+    public ArtworkMetaCapture fetchArtworkMetaCapture(String artworkId, String cookie) throws IOException {
         JsonNode b = requireBody(proxyGet(
                 "https://www.pixiv.net/ajax/illust/" + artworkId, cookie));
         Long seriesId = null;
@@ -146,7 +155,7 @@ public class PixivFetchService {
                 seriesTitle = nav.path("title").asText("");
             }
         }
-        return new ArtworkMeta(
+        ArtworkMeta meta = new ArtworkMeta(
                 b.path("illustType").asInt(0),
                 b.path("illustTitle").asText(""),
                 b.path("xRestrict").asInt(0),
@@ -161,6 +170,7 @@ public class PixivFetchService {
                 b.path("description").asText(""),
                 seriesTitle
         );
+        return new ArtworkMetaCapture(meta, b);
     }
 
     /**
@@ -190,6 +200,14 @@ public class PixivFetchService {
 
     /** 解析单作品的原图 URL 列表（插画 / 漫画）。 */
     public List<String> resolveImageUrls(String artworkId, String cookie) throws IOException {
+        return resolveArtworkPages(artworkId, cookie).urls();
+    }
+
+    /**
+     * 同 {@link #resolveImageUrls}，但<b>额外保留</b> {@code /pages} 的原始 body（逐页尺寸 / 各页原图 URL），
+     * 供 meta 桥在 sidecar 里记录逐页 {@code width}/{@code height}/{@code original}（零额外请求）。
+     */
+    public ArtworkPages resolveArtworkPages(String artworkId, String cookie) throws IOException {
         JsonNode body = requireBody(proxyGet(
                 "https://www.pixiv.net/ajax/illust/" + artworkId + "/pages", cookie));
         List<String> urls = new ArrayList<>();
@@ -197,7 +215,7 @@ public class PixivFetchService {
             String orig = page.path("urls").path("original").asText("");
             if (!orig.isEmpty()) urls.add(orig);
         }
-        return urls;
+        return new ArtworkPages(urls, body);
     }
 
     /** 解析动图（ugoira）的帧 ZIP URL 与每帧延迟。 */
@@ -585,6 +603,14 @@ public class PixivFetchService {
      * 供调度的小说下载组装 {@code NovelDownloadRequest}。
      */
     public NovelDetail fetchNovelDetail(String novelId, String cookie) throws IOException {
+        return fetchNovelDetailCapture(novelId, cookie).detail();
+    }
+
+    /**
+     * 同 {@link #fetchNovelDetail}，但<b>额外保留</b>原始 {@code /ajax/novel/{id}} body，供
+     * meta 桥归一化小说 sidecar（剪枝时额外剥正文 {@code content} 与内嵌图 {@code textEmbeddedImages}）。
+     */
+    public NovelDetailCapture fetchNovelDetailCapture(String novelId, String cookie) throws IOException {
         URI uri = UriComponentsBuilder
                 .fromUriString("https://www.pixiv.net/ajax/novel/{id}")
                 .queryParam("lang", "zh")
@@ -605,7 +631,7 @@ public class PixivFetchService {
             }
         }
         String content = b.path("content").asText("");
-        return new NovelDetail(
+        NovelDetail detail = new NovelDetail(
                 Long.parseLong(novelId),
                 b.path("title").asText(""),
                 b.path("xRestrict").asInt(0),
@@ -629,6 +655,7 @@ public class PixivFetchService {
                 extractUploadTimestamp(b),
                 extractTextEmbeddedImages(b)
         );
+        return new NovelDetailCapture(detail, b);
     }
 
     // ---- 解析辅助（与 PixivProxyController 同源，供服务端发现路径复用） ----------
@@ -705,16 +732,62 @@ public class PixivFetchService {
         return "";
     }
 
-    private static Long extractUploadTimestamp(JsonNode node) {
+    /** epoch 秒 ↔ 毫秒消歧阈值：{@code >=} 此值视为毫秒，否则视为秒（× 1000）。 */
+    private static final long EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L;
+
+    /**
+     * 解析小说上传时间为 epoch 毫秒：先按 ISO 日期串候选 {@code uploadDate}/{@code createDate}/{@code updateDate}，
+     * 再兼容 {@code uploadTimestamp}（可能是 epoch 毫秒 / 秒数字，或 ISO 字符串）。类型安全，非法值不退化成 0。
+     */
+    static Long extractUploadTimestamp(JsonNode node) {
         for (String field : List.of("uploadDate", "createDate", "updateDate")) {
             String iso = node.path(field).asText(null);
             if (iso == null || iso.isBlank()) continue;
             try {
-                return java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli();
+                return OffsetDateTime.parse(iso).toInstant().toEpochMilli();
             } catch (Exception ignored) {
             }
         }
+        return parseFlexibleEpochMillis(node.path("uploadTimestamp"));
+    }
+
+    /**
+     * 解析「可能是 epoch 毫秒 / epoch 秒数字，或 ISO 字符串」的时间值为 epoch 毫秒。
+     * 数字按 {@link #EPOCH_MILLIS_THRESHOLD} 在毫秒/秒间消歧；非法字符串（既非 ISO 又非数字）返回
+     * {@code null}，<b>绝不</b>退化成 0。
+     */
+    static Long parseFlexibleEpochMillis(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        if (node.isNumber()) {
+            return normalizeEpochMillis(node.asLong());
+        }
+        if (node.isTextual()) {
+            String text = node.asText("").trim();
+            if (text.isEmpty()) {
+                return null;
+            }
+            try {
+                return OffsetDateTime.parse(text).toInstant().toEpochMilli();
+            } catch (Exception ignored) {
+                // 非 ISO，再试纯数字串
+            }
+            try {
+                return normalizeEpochMillis(Long.parseLong(text));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
         return null;
+    }
+
+    /** epoch 秒 ↔ 毫秒消歧：{@code >= EPOCH_MILLIS_THRESHOLD} 视为毫秒，否则视为秒（× 1000）；{@code <= 0} 视为无效。 */
+    private static Long normalizeEpochMillis(long value) {
+        if (value <= 0) {
+            return null;
+        }
+        return value >= EPOCH_MILLIS_THRESHOLD ? value : value * 1000L;
     }
 
     private static Integer countPages(String content) {
@@ -817,6 +890,21 @@ public class PixivFetchService {
         public boolean isUgoira() {
             return illustType == 2;
         }
+    }
+
+    /**
+     * 插画发现结果 + 原始 illust body（用于在已抓 body 上归一化 meta sidecar，零额外请求）。
+     * {@code body} 是 {@code /ajax/illust/{id}} 的 body 节点。
+     */
+    public record ArtworkMetaCapture(ArtworkMeta meta, JsonNode body) {
+    }
+
+    /** 单作品逐页原图 URL + 原始 {@code /pages} body（逐页尺寸），供 meta sidecar 记录逐页信息。 */
+    public record ArtworkPages(List<String> urls, JsonNode body) {
+    }
+
+    /** 小说详情 + 原始 {@code /ajax/novel/{id}} body（meta sidecar 归一化用）。 */
+    public record NovelDetailCapture(NovelDetail detail, JsonNode body) {
     }
 
     /** 插画 / 漫画系列富信息（简介 + 封面 URL）。 */

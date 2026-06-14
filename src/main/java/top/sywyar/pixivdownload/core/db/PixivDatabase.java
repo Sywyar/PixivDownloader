@@ -209,7 +209,9 @@ public class PixivDatabase {
                 record.fileAuthorNameId(),
                 record.seriesId(),
                 record.seriesOrder(),
-                record.deleted()
+                record.deleted(),
+                record.uploadTime(),
+                record.isOriginal()
         );
     }
 
@@ -302,6 +304,14 @@ public class PixivDatabase {
     /** 是否为软删除残留行（已下载过，但被画廊删除）。 */
     public boolean isArtworkDeleted(long artworkId) {
         return pixivMapper.countDeletedById(artworkId) > 0;
+    }
+
+    /**
+     * 写入作品上传元数据列投影（{@code upload_time} / {@code is_original}）。sidecar 是权威落点，
+     * 这两列是可重建投影；行不存在时为 no-op，写失败由调用方 warn-continue 自愈。
+     */
+    public void updateArtworkUploadMeta(long artworkId, Long uploadTime, Boolean isOriginal) {
+        pixivMapper.updateUploadMeta(artworkId, uploadTime, isOriginal);
     }
 
     public ArtworkRecord getArtwork(long artworkId) {

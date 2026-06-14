@@ -19,6 +19,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -339,6 +341,30 @@ class UserQuotaServiceTest {
             assertThat(entry.getToken()).isEqualTo(token);
             assertThat(entry.getUserUuid()).isNull();
             assertThat(entry.getStatus()).isEqualTo("empty");
+        }
+
+        @Test
+        @DisplayName("管理员打包排除 *.meta.json（meta sidecar 不入 zip）")
+        void adminArchiveExcludesSidecar() throws Exception {
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            Path folder = Files.createDirectories(tempDir.resolve("100"));
+            Files.writeString(folder.resolve("100_p0.jpg"), "image");
+            Files.writeString(folder.resolve("100.meta.json"), "{\"schemaVersion\":1}");
+
+            String token = userQuotaService.triggerAdminArchive(List.of(folder));
+            UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
+            assertThat(entry.getStatus()).isEqualTo("ready");
+            assertThat(entry.getArchivePath()).exists();
+
+            List<String> names = new ArrayList<>();
+            try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(entry.getArchivePath()))) {
+                ZipEntry e;
+                while ((e = zis.getNextEntry()) != null) {
+                    names.add(e.getName());
+                }
+            }
+            assertThat(names).contains("100/100_p0.jpg");
+            assertThat(names).noneMatch(n -> n.endsWith(".meta.json"));
         }
     }
 

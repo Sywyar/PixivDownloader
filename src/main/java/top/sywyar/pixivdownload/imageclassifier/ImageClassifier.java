@@ -5,6 +5,7 @@ import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.download.meta.WorkSidecarStore;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -1261,6 +1262,8 @@ public class ImageClassifier extends JFrame {
             final String moveReportPath    = destDir.toPath().toString();
             final File   finalNumberedFolder = numberedFolder;
             List<File[]> copyPairs         = new ArrayList<>();
+            // 作品 meta sidecar（{artworkId}.meta.json，per-work 命名避免单图摊平进共享目录时撞名）随图片迁移。
+            File sidecarSource = new File(currentSubFolder, WorkSidecarStore.fileName(artworkId));
 
             // ==========================================
             // 步骤 1：复制所有文件
@@ -1270,6 +1273,11 @@ public class ImageClassifier extends JFrame {
                     File dest = new File(destDir, image.getName());
                     Files.copy(image.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING);
                     copyPairs.add(new File[]{image, dest});
+                }
+                if (sidecarSource.isFile()) {
+                    File sidecarDest = new File(destDir, sidecarSource.getName());
+                    Files.copy(sidecarSource.toPath(), sidecarDest.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    copyPairs.add(new File[]{sidecarSource, sidecarDest});
                 }
             } catch (IOException copyErr) {
                 // 如果是多图创建了独立文件夹，直接删除整个新建的文件夹
@@ -1298,6 +1306,10 @@ public class ImageClassifier extends JFrame {
                         if (image.exists()) {
                             Files.delete(image.toPath());
                         }
+                    }
+                    // 删除源 meta sidecar，使下方「源目录清空」检查通过（已复制到目标目录）
+                    if (sidecarSource.exists()) {
+                        Files.delete(sidecarSource.toPath());
                     }
 
                     // 尝试删除源文件夹

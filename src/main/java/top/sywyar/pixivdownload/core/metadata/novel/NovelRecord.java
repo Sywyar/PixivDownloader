@@ -23,7 +23,8 @@ public record NovelRecord(
         String xLanguage,
         String rawContent,
         String coverExt,
-        boolean deleted
+        boolean deleted,
+        Long uploadTime
 ) {
     public NovelRecord(long novelId,
                        String title,
@@ -49,6 +50,6 @@ public record NovelRecord(
                        String coverExt) {
         this(novelId, title, folder, count, extensions, time, xRestrict, isAi, authorId, description,
                 fileName, fileAuthorNameId, seriesId, seriesOrder, wordCount, textLength,
-                readingTimeSeconds, pageCount, isOriginal, xLanguage, rawContent, coverExt, false);
+                readingTimeSeconds, pageCount, isOriginal, xLanguage, rawContent, coverExt, false, null);
     }
 }

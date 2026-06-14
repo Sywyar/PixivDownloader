@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.api.work.service;
 
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
+import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 
 import java.io.IOException;
@@ -57,4 +58,13 @@ public interface WorkAssetService {
      *         原因删除失败，调用方必须中止数据库清理以避免与磁盘状态不一致
      */
     boolean deleteLocalFiles(WorkType workType, long workId);
+
+    /**
+     * 读取作品的 meta sidecar（{@code {workId}.meta.json}）并解析为 {@link WorkSidecarMeta}。
+     * 这是本接口唯一「解析内容」的方法（{@link #rawFile}/{@link #thumbnail} 只出文件字节）。
+     *
+     * <p>作品无下载记录、目录不可达、sidecar 不存在或解析失败时返回 {@link Optional#empty()}
+     * （sidecar 是 best-effort 渐进填充的：历史作品在回填前没有 sidecar 属正常，不视为错误）。
+     */
+    Optional<WorkSidecarMeta> findSidecarMeta(WorkType workType, long workId);
 }
