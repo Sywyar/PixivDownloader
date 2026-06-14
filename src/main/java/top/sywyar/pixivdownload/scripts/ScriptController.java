@@ -3,8 +3,6 @@ package top.sywyar.pixivdownload.scripts;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -15,7 +13,6 @@ import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -122,19 +119,11 @@ public class ScriptController {
     }
 
     /**
-     * 从 classpath 读取脚本文件内容。protected 以便测试时覆盖。
+     * 经 {@link ScriptRegistry} 读取脚本文件内容（解析经声明方插件的 ClassLoader）。
+     * protected 以便测试时覆盖。
      */
     protected String loadScriptContent(String fileName) throws IOException {
-        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
-        Resource[] resources = resolver.getResources("classpath:/static/userscripts/*.user.js");
-        for (Resource res : resources) {
-            if (fileName.equals(res.getFilename())) {
-                try (InputStream in = res.getInputStream()) {
-                    return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-                }
-            }
-        }
-        throw new IOException(message("script.log.content.not-found", fileName));
+        return scriptRegistry.readContent(fileName);
     }
 
     /**

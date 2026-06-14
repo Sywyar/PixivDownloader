@@ -12,7 +12,9 @@ import top.sywyar.pixivdownload.novel.db.NovelSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
+import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.schedule.db.ScheduleSchemaContribution;
 import top.sywyar.pixivdownload.series.MangaSeriesSchemaContribution;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSchemaContribution;
@@ -59,6 +61,21 @@ public class CorePlugin implements PixivFeaturePlugin {
                 GuestInviteSchemaContribution.CONTRIBUTION,
                 NovelSchemaContribution.CONTRIBUTION,
                 ScheduleSchemaContribution.CONTRIBUTION);
+    }
+
+    @Override
+    public List<StaticResourceContribution> staticResources() {
+        // 共享公共库（侧边模块 / i18n / 主题 / 语言切换 / 翻译等脚本、共享样式、第三方 vendor）
+        // 作为核心公共资源声明：被所有页面跨插件复用，解析经核心 ClassLoader。访问级别仅为
+        // serving 层描述，实际逐文件鉴权（公开 / 邀请访客放行）仍由 AuthFilter 负责，
+        // 路由访问镜像归 routes() / RouteAccessRegistry。
+        return List.of(
+                new StaticResourceContribution(
+                        "core", "classpath:/static/js/", "/js/", AccessLevel.PUBLIC),
+                new StaticResourceContribution(
+                        "core", "classpath:/static/css/", "/css/", AccessLevel.PUBLIC),
+                new StaticResourceContribution(
+                        "core", "classpath:/static/vendor/", "/vendor/", AccessLevel.PUBLIC));
     }
 
     @Override

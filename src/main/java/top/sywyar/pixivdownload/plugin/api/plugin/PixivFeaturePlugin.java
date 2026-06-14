@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
@@ -71,6 +72,11 @@ public interface PixivFeaturePlugin {
 
     /** 插件声明的导航项。 */
     default List<NavigationContribution> navigation() {
+        return List.of();
+    }
+
+    /** 插件声明的油猴脚本扫描来源（由分发该脚本的插件声明）。 */
+    default List<UserscriptContribution> userscripts() {
         return List.of();
     }
 }

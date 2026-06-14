@@ -1,17 +1,19 @@
 package top.sywyar.pixivdownload.scripts;
 
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.scripts.UserscriptRegistry.RegisteredUserscript;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,9 +21,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 启动时扫描 classpath:/static/userscripts/*.user.js，解析脚本头部元数据，构建不可变脚本列表。
+ * 启动时按 {@link UserscriptRegistry} 声明的来源扫描油猴脚本，解析脚本头部元数据，
+ * 构建不可变脚本列表。扫描经声明方插件的 ClassLoader 进行，不再做全局 classpath 扫描假设。
  */
-@Getter
 @Component
 @Slf4j
 public class ScriptRegistry {
@@ -47,30 +49,43 @@ public class ScriptRegistry {
 
     private final AppMessages messages;
     private final List<ScriptResource> scripts;
+    /** 文件名 → classpath 资源（经声明方 ClassLoader 解析），供内容按需读取。 */
+    private final Map<String, Resource> resourcesByFileName;
 
-    public ScriptRegistry(AppMessages messages) {
+    public ScriptRegistry(AppMessages messages, UserscriptRegistry userscriptRegistry) {
         this.messages = messages;
-        this.scripts = List.copyOf(loadScripts());
+        Map<String, Resource> byFileName = new LinkedHashMap<>();
+        this.scripts = List.copyOf(loadScripts(userscriptRegistry, byFileName));
+        this.resourcesByFileName = Map.copyOf(byFileName);
     }
 
-    private List<ScriptResource> loadScripts() {
-        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+    public List<ScriptResource> getScripts() {
+        return scripts;
+    }
+
+    private List<ScriptResource> loadScripts(UserscriptRegistry userscriptRegistry,
+                                             Map<String, Resource> byFileName) {
         List<ScriptResource> result = new ArrayList<>();
-        try {
-            Resource[] resources = resolver.getResources("classpath:/static/userscripts/*.user.js");
-            for (Resource resource : resources) {
-                String fileName = resource.getFilename();
-                if (fileName == null) continue;
-                try {
-                    ScriptResource sr = parseScript(resource, fileName);
-                    result.add(sr);
-                    log.debug(message("script.log.registered", sr.id(), fileName));
-                } catch (IOException e) {
-                    log.warn(message("script.log.parse.failed", fileName), e);
+        for (RegisteredUserscript registered : userscriptRegistry.userscripts()) {
+            PathMatchingResourcePatternResolver resolver =
+                    new PathMatchingResourcePatternResolver(registered.classLoader());
+            try {
+                Resource[] resources = resolver.getResources(registered.contribution().classpathPattern());
+                for (Resource resource : resources) {
+                    String fileName = resource.getFilename();
+                    if (fileName == null) continue;
+                    try {
+                        ScriptResource sr = parseScript(resource, fileName);
+                        result.add(sr);
+                        byFileName.put(fileName, resource);
+                        log.debug(message("script.log.registered", sr.id(), fileName));
+                    } catch (IOException e) {
+                        log.warn(message("script.log.parse.failed", fileName), e);
+                    }
                 }
+            } catch (IOException e) {
+                log.warn(message("script.log.scan.failed"), e);
             }
-        } catch (IOException e) {
-            log.warn(message("script.log.scan.failed"), e);
         }
         if (result.isEmpty()) {
             log.warn(message("script.log.scan.empty"));
@@ -170,6 +185,20 @@ public class ScriptRegistry {
 
     public Optional<ScriptResource> findById(String id) {
         return scripts.stream().filter(s -> s.id().equals(id)).findFirst();
+    }
+
+    /**
+     * 按文件名读取脚本内容（UTF-8），经声明方插件的 ClassLoader 解析的资源即时读取。
+     * 未知文件名抛 {@link IOException}。
+     */
+    public String readContent(String fileName) throws IOException {
+        Resource resource = resourcesByFileName.get(fileName);
+        if (resource == null) {
+            throw new IOException(message("script.log.content.not-found", fileName));
+        }
+        try (InputStream in = resource.getInputStream()) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
     private String message(String code, Object... args) {

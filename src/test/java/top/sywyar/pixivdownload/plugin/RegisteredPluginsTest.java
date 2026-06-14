@@ -114,9 +114,10 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("各插件 contribution 边界：core 独占 schema、stats/duplicate/gallery/novel 占路由/静态资源/导航、i18n namespace 六插件全员声明")
+    @DisplayName("各插件 contribution 边界：core 独占 schema 并声明共享静态资源、stats/duplicate/gallery/novel 占路由/导航/页面静态资源、download-workbench 独占 userscript 来源、i18n namespace 六插件全员声明")
     void emptyPluginsContributeNothing() {
-        Set<String> webContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
+        Set<String> routeNavContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
+        Set<String> staticResourceContributingPlugins = Set.of("core", "stats", "duplicate", "gallery", "novel");
         Set<String> coreColumnUsingPlugins = Set.of("gallery", "novel");
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
@@ -138,16 +139,27 @@ class RegisteredPluginsTest {
                 // i18n namespace 静态 map 退役后由六插件全员声明：页面跟插件走、核心/共享
                 // namespace（common/translate/tour 等）留 core、batch/userscript 归下载工作台
                 assertThat(plugin.i18n()).isNotEmpty();
-                if (webContributingPlugins.contains(plugin.id())) {
-                    // 已声明路由 / 静态资源 / 导航（无私有表，statistics、
-                    // artwork_image_hashes 与 artworks 系均按卸载投影测试归 core）
+                // 路由 / 导航归四个 web 功能插件（无私有表，statistics、artwork_image_hashes
+                // 与 artworks 系均按卸载投影测试归 core）
+                if (routeNavContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.routes()).isNotEmpty();
-                    assertThat(plugin.staticResources()).isNotEmpty();
                     assertThat(plugin.navigation()).isNotEmpty();
                 } else {
                     assertThat(plugin.routes()).isEmpty();
-                    assertThat(plugin.staticResources()).isEmpty();
                     assertThat(plugin.navigation()).isEmpty();
+                }
+                // 静态资源：核心声明共享公共库（/js、/css、/vendor），四个 web 功能插件声明各自页面目录；
+                // 下载工作台只声明油猴脚本来源、不声明页面静态资源目录
+                if (staticResourceContributingPlugins.contains(plugin.id())) {
+                    assertThat(plugin.staticResources()).isNotEmpty();
+                } else {
+                    assertThat(plugin.staticResources()).isEmpty();
+                }
+                // 油猴脚本扫描来源唯下载工作台声明
+                if (plugin.id().equals("download-workbench")) {
+                    assertThat(plugin.userscripts()).isNotEmpty();
+                } else {
+                    assertThat(plugin.userscripts()).isEmpty();
                 }
             });
         });
