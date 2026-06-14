@@ -3,10 +3,13 @@ package top.sywyar.pixivdownload.plugin;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -19,6 +22,25 @@ class PluginApiDependencyGuardTest {
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload");
+
+    /**
+     * 业务插件禁止直接调用的 {@code java.nio.file.Files} 读取 / 打开类静态方法。作品文件（含 meta sidecar）的
+     * 枚举 / 读取是核心本地资产能力，只能经 {@code WorkAssetService}（sidecar 经 {@code findSidecarMeta}）；
+     * 业务插件直读本地文件就有自行拼 {@code {workId}.meta.json} 绕过桥的回潮风险。
+     */
+    private static final Set<String> FORBIDDEN_FILE_READ_METHODS = Set.of(
+            "readString", "readAllBytes", "readAllLines", "lines",
+            "newBufferedReader", "newInputStream");
+
+    /** target owner 是 {@code java.nio.file.Files} 且方法名落在 {@link #FORBIDDEN_FILE_READ_METHODS} 内的方法调用。 */
+    private static final DescribedPredicate<JavaMethodCall> READS_LOCAL_FILES_DIRECTLY =
+            new DescribedPredicate<>("调用 java.nio.file.Files 的本地文件读取 / 打开方法") {
+                @Override
+                public boolean test(JavaMethodCall call) {
+                    return call.getTargetOwner().getFullName().equals("java.nio.file.Files")
+                            && FORBIDDEN_FILE_READ_METHODS.contains(call.getName());
+                }
+            };
 
     @Test
     @DisplayName("plugin.api 必须自包含：只依赖 JDK、jakarta.servlet 与 plugin.api 自身")
@@ -146,10 +168,47 @@ class PluginApiDependencyGuardTest {
                 .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
                         top.sywyar.pixivdownload.novel.db.NovelDatabase.class,
                         top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository.class,
+                        top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class,
                         top.sywyar.pixivdownload.author.AuthorService.class,
                         top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class))
                 .because("小说画廊已接口化：查询走 WorkQueryService/WorkMetadataRepository、删除走 "
-                        + "WorkAssetService/WorkDeletionService，禁止回潮直连核心实现类")
+                        + "WorkAssetService/WorkDeletionService，禁止回潮直连核心实现类；小说 upload_time "
+                        + "列也藏在核心 NovelMetadataRepository 后，只能经 WorkMetadataRepository 读")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("业务插件不得直读 meta sidecar 实现层：sidecar 只能经 WorkAssetService.findSidecarMeta 读")
+    void businessPluginsMustNotReadMetaSidecarDirectly() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
+                .or(JavaClass.Predicates.belongToAnyOf(
+                        top.sywyar.pixivdownload.novel.NovelGalleryService.class,
+                        top.sywyar.pixivdownload.novel.NovelBatchService.class))
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.download.meta..")
+                .because("作品 meta sidecar 的归一化 / 落盘 / 文件层读写是核心捕获实现（download.meta）；"
+                        + "画廊与小说画廊两侧业务插件取 sidecar 只能经 plugin.api 的 "
+                        + "WorkAssetService.findSidecarMeta（产出 JDK-only WorkSidecarMeta），"
+                        + "禁止直依赖 download.meta 实现层或自行解析 {workId}.meta.json")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("业务插件不得直接调用 java.nio.file.Files 读本地文件：作品文件枚举 / 读取只能经 WorkAssetService")
+    void businessPluginsMustNotReadFilesDirectly() {
+        // 字节码级补强：上一条只能拦「依赖 download.meta 实现包」，拦不到业务插件手写
+        // Files.readString(dir.resolve(id + ".meta.json")) 这类直读本地文件名绕过桥的回潮。
+        // Spring AOP 拦不到 java.nio.file.Files 的 static 方法、也只覆盖跑过的路径，故用 ArchUnit 静态守卫。
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
+                .or(JavaClass.Predicates.belongToAnyOf(
+                        top.sywyar.pixivdownload.novel.NovelGalleryService.class,
+                        top.sywyar.pixivdownload.novel.NovelBatchService.class))
+                .should().callMethodWhere(READS_LOCAL_FILES_DIRECTLY)
+                .because("作品文件（含 meta sidecar）的枚举 / 读取是核心本地资产能力：sidecar 只能经 "
+                        + "WorkAssetService.findSidecarMeta 读、普通作品文件也应经 WorkAssetService，"
+                        + "业务插件不得直接调用 java.nio.file.Files 读本地文件，更不得自行拼 {workId}.meta.json 绕过桥")
                 .check(CLASSES);
     }
 
