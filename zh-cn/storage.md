@@ -79,7 +79,8 @@ PixivDownloader 把下载作品、宿主运行期文件和外置插件安装包�
 | --- | --- |
 | `{root}/{artworkId}/` | 单作品、URL 批量、搜索等 Pixiv 插画下载 |
 | `{root}/{artist}/{artworkId}/` | 画师批量下载；`download.user-flat-folder=true` 时省略画师层 |
-| `{root}/{artworkId}/{workId}.meta.json` | 与作品一起移动/删除的原始结构性元数据 sidecar |
+| `{root}/{artworkId}/{filename}_p0.webp` + `..._p0_thumb.jpg` | 动图合成后的 WebP 与首帧缩略图 |
+| `{root}/{artworkId}/{artworkId}.meta.json` | 从 Pixiv 获取的逐页尺寸、原图地址、发布时间、原创标记、官方翻译和约稿信息等结构性元数据；随作品移动 / 删除，且不计入配额打包或小说导出 |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | Pixiv 漫画系列封面 |
 | `{root}/novel-{novelId}/` | 单本小说的 TXT/HTML/EPUB 与相关作品文件 |
 | `{root}/novel-series-{seriesId}/` | 小说系列封面和可选合订文件 |

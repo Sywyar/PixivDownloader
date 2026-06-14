@@ -79,7 +79,8 @@ Common paths are below. A plugin may define a more detailed layout inside its ow
 | --- | --- |
 | `{root}/{artworkId}/` | Pixiv single-work, URL batch, and search downloads |
 | `{root}/{artist}/{artworkId}/` | Artist downloads; omit the artist level when `download.user-flat-folder=true` |
-| `{root}/{artworkId}/{workId}.meta.json` | Structural metadata sidecar moved/deleted with the work |
+| `{root}/{artworkId}/{filename}_p0.webp` + `..._p0_thumb.jpg` | Ugoira animated WebP and first-frame thumbnail |
+| `{root}/{artworkId}/{artworkId}.meta.json` | Structural Pixiv metadata such as per-page dimensions, original URLs, publish time, original flag, official translations, and commission details; moved/deleted with the work and excluded from quota packages and novel exports |
 | `{root}/artwork-series-{seriesId}/cover.{ext}` | Pixiv manga-series cover |
 | `{root}/novel-{novelId}/` | Single-novel TXT/HTML/EPUB and related work files |
 | `{root}/novel-series-{seriesId}/` | Novel-series cover and optional compilation |
