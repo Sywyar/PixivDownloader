@@ -49,7 +49,7 @@ class WorkMetaCaptureServiceTest {
         novelMetadataRepository = mock(NovelMetadataRepository.class);
         artworkFileLocator = mock(ArtworkFileLocator.class);
         service = new WorkMetaCaptureService(new WorkMetaCurator(mapper), new WorkSidecarStore(mapper),
-                pixivDatabase, novelMetadataRepository, artworkFileLocator);
+                pixivDatabase, novelMetadataRepository, artworkFileLocator, mapper);
     }
 
     private JsonNode json(String text) {
@@ -101,6 +101,55 @@ class WorkMetaCaptureServiceTest {
     void shouldSkipNullBody() {
         service.captureArtwork(7L, null, null, "schedule");
         verifyNoInteractions(pixivDatabase, artworkFileLocator);
+    }
+
+    @Test
+    @DisplayName("前端转发：解析轻剪枝 body JSON 串后归一化，写列投影 + sidecar 且来源标记 forward")
+    void shouldCaptureForwardedArtwork() throws Exception {
+        when(pixivDatabase.getArtwork(9L)).thenReturn(artwork(9L));
+        when(artworkFileLocator.resolveArtworkDirectory(any())).thenReturn(tempDir.toString());
+
+        service.captureForwardedArtwork(9L, "{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":false,\"description\":\"d\"}");
+
+        verify(pixivDatabase).updateArtworkUploadMeta(eq(9L), eq(UPLOAD_MILLIS), eq(false));
+        Path sidecar = tempDir.resolve("9.meta.json");
+        assertThat(Files.exists(sidecar)).isTrue();
+        assertThat(Files.readString(sidecar)).contains("\"source\":\"forward\"");
+    }
+
+    @Test
+    @DisplayName("前端转发：空串 / 非法 JSON 直接跳过、不触 DB / 不写盘")
+    void shouldSkipForwardedArtworkOnBlankOrInvalidJson() {
+        service.captureForwardedArtwork(9L, "   ");
+        service.captureForwardedArtwork(9L, "not json {");
+        verifyNoInteractions(pixivDatabase, artworkFileLocator);
+    }
+
+    @Test
+    @DisplayName("前端转发小说：解析轻剪枝 body JSON 串后归一化，写 upload_time + sidecar 且来源 forward，正文/内嵌图不入 sidecar")
+    void shouldCaptureForwardedNovel() throws Exception {
+        when(novelMetadataRepository.getNovel(6L)).thenReturn(novel(6L));
+
+        service.captureForwardedNovel(6L, "{\"uploadDate\":\"" + UPLOAD_ISO + "\",\"isOriginal\":true,"
+                + "\"content\":\"很长的正文……\",\"textEmbeddedImages\":{\"1\":{\"urls\":{\"original\":\"x\"}}},"
+                + "\"description\":\"d\"}");
+
+        verify(novelMetadataRepository).updateNovelUploadTime(eq(6L), eq(UPLOAD_MILLIS));
+        Path sidecar = tempDir.resolve("6.meta.json");
+        assertThat(Files.exists(sidecar)).isTrue();
+        String content = Files.readString(sidecar);
+        assertThat(content).contains("\"source\":\"forward\"");
+        assertThat(content).doesNotContain("很长的正文");
+        assertThat(content).doesNotContain("textEmbeddedImages");
+    }
+
+    @Test
+    @DisplayName("前端转发小说：空串 / 非法 JSON 直接跳过、不触 DB / 不写盘")
+    void shouldSkipForwardedNovelOnBlankOrInvalidJson() {
+        service.captureForwardedNovel(6L, "   ");
+        service.captureForwardedNovel(6L, "not json {");
+        verifyNoInteractions(novelMetadataRepository);
+        assertThat(Files.exists(tempDir.resolve("6.meta.json"))).isFalse();
     }
 
     @Test

@@ -7,6 +7,7 @@ import org.springframework.lang.Nullable;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
@@ -47,6 +48,7 @@ import java.util.function.LongConsumer;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.export.NovelEpubWriter;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
+import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 
 @Slf4j
 @Service
@@ -90,6 +92,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final TaskScheduler taskScheduler;
     private final AppMessages messages;
     private final NovelAutoTranslateService novelAutoTranslateService;
+    private final WorkMetaCaptureService workMetaCaptureService;
 
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
 
@@ -104,7 +107,8 @@ public class NovelDownloadService implements NovelDownloader {
                                 @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
                                 @Qualifier("taskScheduler") TaskScheduler taskScheduler,
                                 AppMessages messages,
-                                NovelAutoTranslateService novelAutoTranslateService) {
+                                NovelAutoTranslateService novelAutoTranslateService,
+                                WorkMetaCaptureService workMetaCaptureService) {
         this.downloadConfig = downloadConfig;
         this.pixivDatabase = pixivDatabase;
         this.novelDatabase = novelDatabase;
@@ -117,6 +121,7 @@ public class NovelDownloadService implements NovelDownloader {
         this.taskScheduler = taskScheduler;
         this.messages = messages;
         this.novelAutoTranslateService = novelAutoTranslateService;
+        this.workMetaCaptureService = workMetaCaptureService;
     }
 
     @Async("novelDownloadTaskExecutor")
@@ -273,6 +278,10 @@ public class NovelDownloadService implements NovelDownloader {
             log.info("novel download completed: id={}, format={}, path={}", novelId, ext, downloadPath);
             succeeded = true;
 
+            // 前端转发的原始 meta（若有）：下载成功、小说行已落库后旁路归一化为 sidecar + 列投影。
+            // 零额外请求、best-effort，绝不反报已成功的下载。
+            captureForwardedMeta(novelId, other);
+
             // Best-effort 下载即自动翻译：提交到服务端翻译队列（独立线程池、同系列串行），
             // 不阻塞本次下载收尾，失败绝不影响已完成的下载。
             if (other.isAutoTranslate()) {
@@ -303,6 +312,22 @@ public class NovelDownloadService implements NovelDownloader {
                     Instant.now().plusSeconds(300));
         }
         return succeeded;
+    }
+
+    /**
+     * 前端转发的原始 meta（{@code other.rawMetaJson}）落地：交由 {@link WorkMetaCaptureService} 解析 + 归一化。
+     * 仅前端交互下载链路填充该字段（计划任务走后端自抓 body，不填）。捕获已是下载成功后的旁路动作，
+     * 全程 best-effort、warn-continue——任何异常都不得反报已成功的下载（沿一致性模型，由下次下载或历史回填自愈）。
+     */
+    private void captureForwardedMeta(Long novelId, NovelDownloadRequest.Other other) {
+        if (other == null || !StringUtils.hasText(other.getRawMetaJson())) {
+            return;
+        }
+        try {
+            workMetaCaptureService.captureForwardedNovel(novelId, other.getRawMetaJson());
+        } catch (RuntimeException e) {
+            log.warn("Failed to capture forwarded novel meta for {}: {}", novelId, e.getMessage());
+        }
     }
 
     public NovelDownloadStatus getStatus(Long novelId) {

@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.download.meta;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -33,6 +34,7 @@ public class WorkMetaCaptureService {
     private final PixivDatabase pixivDatabase;
     private final NovelMetadataRepository novelMetadataRepository;
     private final ArtworkFileLocator artworkFileLocator;
+    private final ObjectMapper objectMapper;
 
     /**
      * 捕获插画 meta：归一化后写列投影 + sidecar。
@@ -72,6 +74,30 @@ public class WorkMetaCaptureService {
     }
 
     /**
+     * 捕获前端转发的插画 meta：解析油猴脚本随下载请求转发的、轻剪枝后的 {@code /ajax/illust/{id}} body
+     * JSON 串后，走与计划任务同一个归一化器（来源标记 {@code forward}）。逐页尺寸 {@code pages} 不随转发
+     * （本地图片可派生，留待历史回填），故 {@code pagesBody} 传 {@code null}。
+     *
+     * <p>转发内容为不可信输入：空串 / 非 JSON / 非对象一律视为无可捕获，仅记日志后跳过、绝不上抛——
+     * 不能让转发 meta 的解析失败反报已成功的下载。后端的「剪枝 + 白名单 + 限长」由 {@link WorkMetaCurator} 兜底。
+     *
+     * @param rawMetaJson 轻剪枝后的 illust body JSON 串；{@code null} / 空白 / 非法时直接跳过
+     */
+    public void captureForwardedArtwork(long artworkId, String rawMetaJson) {
+        if (!StringUtils.hasText(rawMetaJson)) {
+            return;
+        }
+        JsonNode body;
+        try {
+            body = objectMapper.readTree(rawMetaJson);
+        } catch (Exception e) {
+            log.warn("Skip forwarded artwork meta {}: invalid JSON ({})", artworkId, e.getMessage());
+            return;
+        }
+        captureArtwork(artworkId, body, null, "forward");
+    }
+
+    /**
      * 捕获小说 meta：归一化后写 {@code upload_time} 列投影（小说 {@code is_original} 列在 insert 时已写）+ sidecar。
      *
      * @param novelBody {@code /ajax/novel/{id}} 的 body；为 {@code null} 时直接跳过
@@ -102,6 +128,30 @@ public class WorkMetaCaptureService {
             return;
         }
         writeSidecar(rec.folder(), novelId, curated, "novel");
+    }
+
+    /**
+     * 捕获前端转发的小说 meta：解析油猴脚本随下载请求转发的、轻剪枝后的 {@code /ajax/novel/{id}} body
+     * JSON 串后，走与计划任务同一个归一化器（来源标记 {@code forward}）。
+     *
+     * <p>转发内容为不可信输入：空串 / 非 JSON / 非对象一律视为无可捕获，仅记日志后跳过、绝不上抛——
+     * 不能让转发 meta 的解析失败反报已成功的下载。前端虽已先剪掉正文 {@code content} 与内嵌图
+     * {@code textEmbeddedImages}，后端的「剪枝 + 白名单 + 限长」仍由 {@link WorkMetaCurator} 独立兜底。
+     *
+     * @param rawMetaJson 轻剪枝后的 novel body JSON 串；{@code null} / 空白 / 非法时直接跳过
+     */
+    public void captureForwardedNovel(long novelId, String rawMetaJson) {
+        if (!StringUtils.hasText(rawMetaJson)) {
+            return;
+        }
+        JsonNode body;
+        try {
+            body = objectMapper.readTree(rawMetaJson);
+        } catch (Exception e) {
+            log.warn("Skip forwarded novel meta {}: invalid JSON ({})", novelId, e.getMessage());
+            return;
+        }
+        captureNovel(novelId, body, "forward");
     }
 
     private void writeSidecar(String directory, long workId, CuratedWorkMeta curated, String kind) {

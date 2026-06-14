@@ -22,6 +22,7 @@ import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.ImageResponse;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
@@ -70,6 +71,7 @@ public class DownloadService implements ArtworkDownloader {
     private final MangaSeriesService mangaSeriesService;
     private final ArtworkFileLocator artworkFileLocator;
     private final ImageHashService imageHashService;
+    private final WorkMetaCaptureService workMetaCaptureService;
     private final AppMessages messages;
 
     // 存储下载状态
@@ -92,6 +94,7 @@ public class DownloadService implements ArtworkDownloader {
                            MangaSeriesService mangaSeriesService,
                            ArtworkFileLocator artworkFileLocator,
                            ImageHashService imageHashService,
+                           WorkMetaCaptureService workMetaCaptureService,
                            AppMessages messages) {
         this.downloadConfig = downloadConfig;
         this.eventPublisher = eventPublisher;
@@ -106,6 +109,7 @@ public class DownloadService implements ArtworkDownloader {
         this.mangaSeriesService = mangaSeriesService;
         this.artworkFileLocator = artworkFileLocator;
         this.imageHashService = imageHashService;
+        this.workMetaCaptureService = workMetaCaptureService;
         this.messages = messages;
     }
 
@@ -288,6 +292,10 @@ public class DownloadService implements ArtworkDownloader {
             // 发送最终完成状态更新
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
             succeeded = true;
+
+            // 前端转发的原始 meta（若有）：下载成功、作品行已落库后旁路归一化为 sidecar + 列投影。
+            // 零额外请求、best-effort，绝不反报已成功的下载。
+            captureForwardedMeta(artworkId, other);
 
         } catch (CancellationException e) {
             status.setCancelled(true);
@@ -679,6 +687,22 @@ public class DownloadService implements ArtworkDownloader {
                 return baseNames.get(page);
             }
             return "page_" + Math.max(page, 0);
+        }
+    }
+
+    /**
+     * 前端转发的原始 meta（{@code other.rawMetaJson}）落地：交由 {@link WorkMetaCaptureService} 解析 + 归一化。
+     * 仅前端交互下载链路填充该字段（计划任务走后端自抓 body，不填）。捕获已是下载成功后的旁路动作，
+     * 全程 best-effort、warn-continue——任何异常都不得反报已成功的下载（沿一致性模型，由下次下载或历史回填自愈）。
+     */
+    private void captureForwardedMeta(Long artworkId, DownloadRequest.Other other) {
+        if (other == null || !StringUtils.hasText(other.getRawMetaJson())) {
+            return;
+        }
+        try {
+            workMetaCaptureService.captureForwardedArtwork(artworkId, other.getRawMetaJson());
+        } catch (RuntimeException e) {
+            log.warn("Failed to capture forwarded meta for {}: {}", artworkId, e.getMessage());
         }
     }
 

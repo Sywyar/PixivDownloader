@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.request.RecoverMetadataRequest;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
@@ -79,6 +80,8 @@ class DownloadServiceTest {
     private MangaSeriesService mangaSeriesService;
     @Mock
     private ImageHashService imageHashService;
+    @Mock
+    private WorkMetaCaptureService workMetaCaptureService;
 
     private ArtworkFileLocator artworkFileLocator;
     private DownloadService downloadService;
@@ -89,7 +92,8 @@ class DownloadServiceTest {
         artworkFileLocator = new ArtworkFileLocator(pixivDatabase, downloadConfig, APP_MESSAGES);
         downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService,
                 downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService, authorService,
-                collectionService, mangaSeriesService, artworkFileLocator, imageHashService, APP_MESSAGES);
+                collectionService, mangaSeriesService, artworkFileLocator, imageHashService,
+                workMetaCaptureService, APP_MESSAGES);
     }
 
     @Nested
@@ -913,6 +917,50 @@ class DownloadServiceTest {
             verify(pixivDatabase).insertArtwork(12345L, "test", expectedPath.toAbsolutePath().toString(),
                     1, "webp", 1700000100L, 0, false, null, null, 1L, null, null, null);
             verify(collectionService).addArtwork(7L, 12345L);
+        }
+    }
+
+    @Nested
+    @DisplayName("前端转发原始 meta 旁路捕获")
+    class ForwardedMetaCaptureTests {
+
+        @BeforeEach
+        void setupDownloadPath() {
+            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+            lenient().when(downloadConfig.isUserFlatFolder()).thenReturn(true);
+            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
+                    .thenReturn(1);
+            lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000100L);
+        }
+
+        private DownloadRequest.Other ugoiraOther() {
+            DownloadRequest.Other other = new DownloadRequest.Other();
+            other.setUgoira(true);
+            other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
+            other.setUgoiraDelays(List.of(100));
+            return other;
+        }
+
+        @Test
+        @DisplayName("下载成功且带 rawMetaJson 时应旁路转发捕获")
+        void shouldCaptureForwardedMetaWhenPresent() {
+            DownloadRequest.Other other = ugoiraOther();
+            other.setRawMetaJson("{\"uploadDate\":\"2026-06-06T21:27:00+00:00\"}");
+
+            downloadService.downloadImages(12345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
+                    "https://www.pixiv.net/", other, null, null);
+
+            verify(workMetaCaptureService).captureForwardedArtwork(12345L,
+                    "{\"uploadDate\":\"2026-06-06T21:27:00+00:00\"}");
+        }
+
+        @Test
+        @DisplayName("未带 rawMetaJson 时不应触发转发捕获")
+        void shouldNotCaptureWhenRawMetaJsonAbsent() {
+            downloadService.downloadImages(22345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
+                    "https://www.pixiv.net/", ugoiraOther(), null, null);
+
+            verify(workMetaCaptureService, never()).captureForwardedArtwork(anyLong(), any());
         }
     }
 

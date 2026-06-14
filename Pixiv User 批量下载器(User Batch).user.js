@@ -896,6 +896,29 @@
         });
     }
 
+    // 转发给后端的轻剪枝原始 meta：meta 本就已抓（零额外请求），仅去掉体积巨大 / 与本次下载无关的
+    // 噪声字段以减小转发体积；后端再独立做权威白名单 + 限长 + 超大拒绝。任何异常返回 null（不阻断下载）。
+    function buildForwardMetaJson(meta, extraStripKeys) {
+        if (!meta || typeof meta !== 'object') return null;
+        try {
+            const pruned = { ...meta };
+            const stripKeys = ['userIllusts', 'userNovels', 'zoneConfig', 'extraData', 'noLoginData',
+                'comicPromotion', 'fanboxPromotion', 'contestBanners', 'contestData',
+                'pollData', 'imageResponseData', 'imageResponseOutData'];
+            if (Array.isArray(extraStripKeys)) stripKeys.push(...extraStripKeys);
+            stripKeys.forEach(k => { delete pruned[k]; });
+            return JSON.stringify(pruned);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    // 小说转发额外剪掉正文 content（后端已存 raw_content）与内嵌图 textEmbeddedImages（已存 novel_images）；
+    // 后端仍会独立再剪一遍。任何异常返回 null（不阻断下载）。
+    function buildNovelForwardMetaJson(body) {
+        return buildForwardMetaJson(body, ['content', 'textEmbeddedImages']);
+    }
+
     // ====== 全局 username 变量 ======
     let username = null;
 
@@ -1408,7 +1431,8 @@
             language: String((body && body.language) || ''),
             coverUrl: _pn_extractCoverUrl(body),
             uploadTimestamp: _pn_extractUploadTimestamp(body),
-            textEmbeddedImages: _pn_extractTextEmbeddedImages(body)
+            textEmbeddedImages: _pn_extractTextEmbeddedImages(body),
+            rawMetaJson: buildNovelForwardMetaJson(body)
         };
     }
 
@@ -1587,7 +1611,7 @@
             this._seriesMetaPromises.set(sid, p);
             return p;
         },
-        async sendDownloadRequest(artworkId, imageUrls, title, usernameParam, authorId, authorName, xRestrict, isAi, ugoiraData, delayMs, bookmark, description, tags, seriesInfo) {
+        async sendDownloadRequest(artworkId, imageUrls, title, usernameParam, authorId, authorName, xRestrict, isAi, ugoiraData, delayMs, bookmark, description, tags, seriesInfo, rawMetaJson) {
             // bookmark 参数保留以维持调用方签名，但永远不传给后端：bookmark 由脚本侧
             // pixivBookmarkArtwork 直连 Pixiv 完成（document.cookie 取不到 HttpOnly PHPSESSID，
             // 后端代理 bookmark 必然失败）。
@@ -1614,6 +1638,7 @@
                     if (enrich.coverUrl) other.seriesCoverUrl = enrich.coverUrl;
                 }
             }
+            if (rawMetaJson) other.rawMetaJson = rawMetaJson;
             return new Promise((resolve, reject) => {
                 if (ugoiraData) {
                     other.isUgoira = true;
@@ -2703,7 +2728,9 @@
                         format: fmt,
                         uploadTimestamp: meta.uploadTimestamp || null,
                         coverUrl: meta.coverUrl || '',
-                        embeddedImages: meta.textEmbeddedImages || {}
+                        embeddedImages: meta.textEmbeddedImages || {},
+                        // 已抓到的小说 body 轻剪枝后转发，后端落 meta sidecar + upload_time 列投影（零额外请求、best-effort）。
+                        rawMetaJson: meta.rawMetaJson || null
                     }
                 };
 
@@ -2925,7 +2952,8 @@
                     this.globalSettings.bookmark,
                     description,
                     tags,
-                    seriesInfo
+                    seriesInfo,
+                    buildForwardMetaJson(meta)
                 );
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';

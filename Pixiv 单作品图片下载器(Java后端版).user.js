@@ -882,7 +882,8 @@
             language: String((body && body.language) || ''),
             coverUrl: _pn_extractCoverUrl(body),
             uploadTimestamp: _pn_extractUploadTimestamp(body),
-            textEmbeddedImages: _pn_extractTextEmbeddedImages(body)
+            textEmbeddedImages: _pn_extractTextEmbeddedImages(body),
+            rawMetaJson: buildNovelForwardMetaJson(body)
         };
     }
 
@@ -1046,7 +1047,9 @@
                     format: fmt,
                     uploadTimestamp: meta.uploadTimestamp || null,
                     coverUrl: meta.coverUrl || '',
-                    embeddedImages: meta.textEmbeddedImages || {}
+                    embeddedImages: meta.textEmbeddedImages || {},
+                    // 已抓到的小说 body 轻剪枝后转发，后端落 meta sidecar + upload_time 列投影（零额外请求、best-effort）。
+                    rawMetaJson: meta.rawMetaJson || null
                 }
             };
             const response = await new Promise((resolve, reject) => {
@@ -1147,6 +1150,29 @@
                 name: String(t.tag),
                 translatedName: (t.translation && t.translation.en) ? String(t.translation.en) : null
             }));
+    }
+
+    // 转发给后端的轻剪枝原始 meta：meta 本就已抓（零额外请求），仅去掉体积巨大 / 与本次下载无关的
+    // 噪声字段以减小转发体积；后端再独立做权威白名单 + 限长 + 超大拒绝。任何异常返回 null（不阻断下载）。
+    function buildForwardMetaJson(meta, extraStripKeys) {
+        if (!meta || typeof meta !== 'object') return null;
+        try {
+            const pruned = { ...meta };
+            const stripKeys = ['userIllusts', 'userNovels', 'zoneConfig', 'extraData', 'noLoginData',
+                'comicPromotion', 'fanboxPromotion', 'contestBanners', 'contestData',
+                'pollData', 'imageResponseData', 'imageResponseOutData'];
+            if (Array.isArray(extraStripKeys)) stripKeys.push(...extraStripKeys);
+            stripKeys.forEach(k => { delete pruned[k]; });
+            return JSON.stringify(pruned);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    // 小说转发额外剪掉正文 content（后端已存 raw_content）与内嵌图 textEmbeddedImages（已存 novel_images）；
+    // 后端仍会独立再剪一遍。任何异常返回 null（不阻断下载）。
+    function buildNovelForwardMetaJson(body) {
+        return buildForwardMetaJson(body, ['content', 'textEmbeddedImages']);
     }
 
     // 单次脚本生命周期的系列元数据缓存。插画系列：直连 Pixiv（与 fetchNovelSeriesEnrichment
@@ -1441,6 +1467,10 @@
                 alert(t('single.alert.no-images', '未找到图片'));
                 return;
             }
+
+            // 顺手转发已抓到的原始 meta（轻剪枝），供后端旁路归一化 meta sidecar + 列投影（零额外请求）。
+            const rawMetaJson = buildForwardMetaJson(meta);
+            if (rawMetaJson) other.rawMetaJson = rawMetaJson;
 
             // 发送下载请求到后端
             const response = await sendDownloadRequest(artworkId, title, imageUrls, other);
