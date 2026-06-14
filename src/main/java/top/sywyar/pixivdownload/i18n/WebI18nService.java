@@ -27,8 +27,8 @@ public class WebI18nService {
     private final WebI18nBundleRegistry bundleRegistry;
 
     public I18nBundleResponse loadBundle(String namespace, Locale locale) {
-        String baseName = bundleRegistry.resolveBaseName(namespace);
-        if (baseName == null) {
+        WebI18nBundleRegistry.RegisteredBundle registered = bundleRegistry.resolve(namespace);
+        if (registered == null) {
             throw LocalizedException.badRequest(
                     "i18n.namespace.unsupported",
                     "Unsupported i18n namespace: " + namespace,
@@ -37,7 +37,11 @@ public class WebI18nService {
         }
 
         Locale effectiveLocale = AppLocale.normalize(locale);
-        ResourceBundle bundle = ResourceBundle.getBundle(baseName, effectiveLocale, NO_FALLBACK_CONTROL);
+        // bundle 解析经声明方插件的 ClassLoader：现阶段内置插件共用应用 ClassLoader，
+        // 解析结果与退役前的静态 map 一致；物理拆分后各插件 properties 经各自 ClassLoader 解析。
+        ResourceBundle bundle = ResourceBundle.getBundle(
+                registered.contribution().baseName(), effectiveLocale,
+                registered.classLoader(), NO_FALLBACK_CONTROL);
 
         Map<String, String> messages = new LinkedHashMap<>();
         for (String key : new TreeSet<>(bundle.keySet())) {

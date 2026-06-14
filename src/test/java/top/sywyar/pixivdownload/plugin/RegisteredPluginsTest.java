@@ -114,7 +114,7 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("除 core 声明各领域 schema、stats/duplicate/gallery/novel 声明 web contribution 外，其余插件暂不声明任何 contribution")
+    @DisplayName("各插件 contribution 边界：core 独占 schema、stats/duplicate/gallery/novel 占路由/静态资源/导航、i18n namespace 六插件全员声明")
     void emptyPluginsContributeNothing() {
         Set<String> webContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
         Set<String> coreColumnUsingPlugins = Set.of("gallery", "novel");
@@ -135,17 +135,18 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.coreColumnUsages()).isEmpty();
                 }
+                // i18n namespace 静态 map 退役后由六插件全员声明：页面跟插件走、核心/共享
+                // namespace（common/translate/tour 等）留 core、batch/userscript 归下载工作台
+                assertThat(plugin.i18n()).isNotEmpty();
                 if (webContributingPlugins.contains(plugin.id())) {
-                    // 已声明路由 / 静态资源 / i18n / 导航（无私有表，statistics、
+                    // 已声明路由 / 静态资源 / 导航（无私有表，statistics、
                     // artwork_image_hashes 与 artworks 系均按卸载投影测试归 core）
                     assertThat(plugin.routes()).isNotEmpty();
                     assertThat(plugin.staticResources()).isNotEmpty();
-                    assertThat(plugin.i18n()).isNotEmpty();
                     assertThat(plugin.navigation()).isNotEmpty();
                 } else {
                     assertThat(plugin.routes()).isEmpty();
                     assertThat(plugin.staticResources()).isEmpty();
-                    assertThat(plugin.i18n()).isEmpty();
                     assertThat(plugin.navigation()).isEmpty();
                 }
             });

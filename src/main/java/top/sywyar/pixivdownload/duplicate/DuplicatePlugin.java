@@ -56,7 +56,8 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
     @Override
     public List<I18nContribution> i18n() {
         // namespace 沿用前端 PixivI18n.create 既有名（复数 duplicates），与插件 id 不强求一致。
-        return List.of(new I18nContribution("duplicates", "i18n.web.duplicates"));
+        // 第三参为 /api/i18n/meta 的全局展示顺序（保持历史 namespace 顺序）。
+        return List.of(new I18nContribution("duplicates", "i18n.web.duplicates", 8));
     }
 
     @Override

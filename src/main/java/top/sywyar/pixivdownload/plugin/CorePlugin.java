@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.novel.db.NovelSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
+import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.schedule.db.ScheduleSchemaContribution;
 import top.sywyar.pixivdownload.series.MangaSeriesSchemaContribution;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSchemaContribution;
@@ -58,5 +59,25 @@ public class CorePlugin implements PixivFeaturePlugin {
                 GuestInviteSchemaContribution.CONTRIBUTION,
                 NovelSchemaContribution.CONTRIBUTION,
                 ScheduleSchemaContribution.CONTRIBUTION);
+    }
+
+    @Override
+    public List<I18nContribution> i18n() {
+        // 管理 / 安全 / 引导页与跨插件共享文案留核心：common（全站公共）、setup/login/intro
+        // （首次安装与登录引导）、monitor（运行监控）、invite（访客邀请）、tour（新手引导）、
+        // maintenance（维护窗口）；translate（AI 翻译文案）被小说详情页与系列页跨插件消费、
+        // 同 tour 模式留核心，终局归宿是后续的 AI 翻译插件、届时随功能整体迁出。
+        // 第三参为 /api/i18n/meta 的展示顺序：核心与功能插件交错排列，故各 namespace 自带
+        // 全局序号，使合并结果不随插件注册先后漂移（保持历史 namespace 顺序）。
+        return List.of(
+                new I18nContribution("common", "i18n.web.common", 1),
+                new I18nContribution("setup", "i18n.web.setup", 2),
+                new I18nContribution("login", "i18n.web.login", 3),
+                new I18nContribution("intro", "i18n.web.intro", 4),
+                new I18nContribution("translate", "i18n.web.translate", 13),
+                new I18nContribution("monitor", "i18n.web.monitor", 15),
+                new I18nContribution("invite", "i18n.web.invite", 17),
+                new I18nContribution("tour", "i18n.web.tour", 18),
+                new I18nContribution("maintenance", "i18n.web.maintenance", 19));
     }
 }

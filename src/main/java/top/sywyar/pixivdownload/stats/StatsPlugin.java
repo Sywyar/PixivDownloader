@@ -54,7 +54,8 @@ public class StatsPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<I18nContribution> i18n() {
-        return List.of(new I18nContribution(ID, "i18n.web.stats"));
+        // 第三参为 /api/i18n/meta 的全局展示顺序（保持历史 namespace 顺序）。
+        return List.of(new I18nContribution(ID, "i18n.web.stats", 7));
     }
 
     @Override

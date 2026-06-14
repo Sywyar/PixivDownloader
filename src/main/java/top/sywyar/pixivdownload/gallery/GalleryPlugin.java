@@ -77,11 +77,12 @@ public class GalleryPlugin implements PixivFeaturePlugin {
     @Override
     public List<I18nContribution> i18n() {
         // 页面跟插件走：画廊 / 作品详情 / 系列 / 精选集四个页面 namespace 均归本插件。
+        // 第三参为 /api/i18n/meta 的全局展示顺序（保持历史 namespace 顺序）。
         return List.of(
-                new I18nContribution("gallery", "i18n.web.gallery"),
-                new I18nContribution("artwork", "i18n.web.artwork"),
-                new I18nContribution("series", "i18n.web.series"),
-                new I18nContribution("showcase", "i18n.web.showcase"));
+                new I18nContribution("gallery", "i18n.web.gallery", 6),
+                new I18nContribution("artwork", "i18n.web.artwork", 9),
+                new I18nContribution("showcase", "i18n.web.showcase", 10),
+                new I18nContribution("series", "i18n.web.series", 11));
     }
 
     @Override

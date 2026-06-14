@@ -71,9 +71,10 @@ public class NovelPlugin implements PixivFeaturePlugin {
     public List<I18nContribution> i18n() {
         // 页面跟插件走：小说画廊/详情页的 novel 与 AI 听书的 narration 归本插件；
         // translate（AI 翻译共享文案）留核心 built-in，终局归宿是第二阶段的 AI 翻译插件。
+        // 第三参为 /api/i18n/meta 的全局展示顺序（保持历史 namespace 顺序）。
         return List.of(
-                new I18nContribution("novel", "i18n.web.novel"),
-                new I18nContribution("narration", "i18n.web.narration"));
+                new I18nContribution("novel", "i18n.web.novel", 12),
+                new I18nContribution("narration", "i18n.web.narration", 14));
     }
 
     @Override
