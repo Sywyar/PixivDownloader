@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.core.db.schema.contribution.TagSchemaContributio
 import top.sywyar.pixivdownload.novel.db.NovelSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
@@ -18,6 +19,7 @@ import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.schedule.db.ScheduleSchemaContribution;
+import top.sywyar.pixivdownload.schedule.source.EnumScheduledSourceProvider;
 import top.sywyar.pixivdownload.series.MangaSeriesSchemaContribution;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSchemaContribution;
 
@@ -29,7 +31,7 @@ import java.util.Set;
  * <p>
  * 受管 schema 按领域拆成独立 contribution 类、但全部由核心声明——按「卸载投影测试」
  * （主人插件未安装时其他部件仍需要的表归核心），现存全部长期事实表的 ownerPluginId
- * 一律为 core；功能插件的 {@code schema()} 现阶段为空，插件私有表只在未来出现
+ * 一律为 core；功能插件的 {@code schema()} 目前为空，插件私有表只在未来出现
  * 交互状态 / 临时队列 / 可重建缓存时才产生。
  */
 public class CorePlugin implements PixivFeaturePlugin {
@@ -200,5 +202,13 @@ public class CorePlugin implements PixivFeaturePlugin {
                 new I18nContribution("invite", "i18n.web.invite", 17),
                 new I18nContribution("tour", "i18n.web.tour", 18),
                 new I18nContribution("maintenance", "i18n.web.maintenance", 19));
+    }
+
+    @Override
+    public List<ScheduledSourceProvider> scheduledSources() {
+        // 现有 7 个计划任务来源（USER_NEW / USER_REQUEST / SEARCH / SERIES / MY_BOOKMARKS /
+        // FOLLOW_LATEST / COLLECTION）按既有枚举跨插画 / 小说统一调度，故由核心声明。
+        // 各 provider 仅承载身份 + legacy 类型映射，发现 / 派发语义由调度器的枚举分支承载。
+        return EnumScheduledSourceProvider.builtIn();
     }
 }

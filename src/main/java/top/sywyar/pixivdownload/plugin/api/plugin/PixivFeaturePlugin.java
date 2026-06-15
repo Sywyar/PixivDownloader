@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.api.plugin;
 
+import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -77,6 +78,11 @@ public interface PixivFeaturePlugin {
 
     /** 插件声明的油猴脚本扫描来源（由分发该脚本的插件声明）。 */
     default List<UserscriptContribution> userscripts() {
+        return List.of();
+    }
+
+    /** 插件贡献的可调度任务来源（由提供该来源的插件声明，经核心注册中心合并）。 */
+    default List<ScheduledSourceProvider> scheduledSources() {
         return List.of();
     }
 }
