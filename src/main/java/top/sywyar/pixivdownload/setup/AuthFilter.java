@@ -6,8 +6,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
@@ -24,6 +24,12 @@ import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
+import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
@@ -35,136 +41,13 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 @Component
 @Order(1)
 @Slf4j
-@RequiredArgsConstructor
 public class AuthFilter extends OncePerRequestFilter {
-
-    private static final String DOWNLOADED_THUMBNAIL_PREFIX = "/api/downloaded/thumbnail/";
-    private static final String DOWNLOADED_THUMBNAIL_FILE_PREFIX = "/api/downloaded/thumbnail-file/";
-
-    private static final Set<String> MONITOR_EXACT_PATHS = Set.of(
-            "/monitor.html",
-            "/pixiv-stats.html",
-            "/pixiv-duplicates.html",
-            "/pixiv-gallery.html",
-            "/pixiv-artwork.html",
-            "/pixiv-showcase.html",
-            "/pixiv-novel.html",
-            "/pixiv-novel-gallery.html",
-            "/pixiv-series.html",
-            "/pixiv-invite-manage.html",
-            "/pixiv-invite-detail.html",
-            "/api/downloaded/statistics",
-            "/api/downloaded/history",
-            "/api/downloaded/history/paged",
-            "/api/downloaded/batch",
-            "/api/downloaded/by-move-folder",
-            "/api/download/status/active"
-    );
-
-    private static final List<String> MONITOR_PREFIX_PATHS = List.of(
-            DOWNLOADED_THUMBNAIL_PREFIX,
-            DOWNLOADED_THUMBNAIL_FILE_PREFIX,
-            "/api/downloaded/rawfile/",
-            "/api/downloaded/image/",
-            "/api/authors",
-            "/api/series",
-            "/api/gallery/",
-            "/api/stats/",
-            "/api/duplicates/",
-            "/api/schedule/",
-            "/api/collections",
-            "/api/admin/",
-            "/api/tts/",
-            "/api/narration/",
-            "/monitor/",
-            "/pixiv-stats/",
-            "/pixiv-duplicates/",
-            "/pixiv-gallery/",
-            "/pixiv-artwork/",
-            "/pixiv-showcase/",
-            "/pixiv-novel/",
-            "/pixiv-novel-gallery/",
-            "/pixiv-series/",
-            "/pixiv-invite-manage/",
-            "/pixiv-invite-detail/"
-    );
-
-    private static final List<String> PUBLIC_PAGE_STATIC_PREFIX_PATHS = List.of(
-            "/index/",
-            "/intro/",
-            "/intro-canary/",
-            "/login/",
-            "/maintenance/",
-            "/vendor/fonts/"
-    );
-
-    private static final Set<String> PUBLIC_STATIC_EXACT_PATHS = Set.of(
-            "/favicon.ico",
-            "/js/pixiv-i18n.js",
-            "/js/pixiv-lang-switcher.js",
-            "/js/pixiv-theme.js",
-            "/maintenance.html"
-    );
-
-    private static final Set<String> GUEST_ALLOWED_STATIC_EXACT = Set.of(
-            "/css/admin-visibility.css",
-            "/css/lang-theme-switcher.css",
-            "/css/pixiv-side-modules.css",
-            "/css/pixiv-translate.css",
-            "/js/invite-modals.js",
-            "/js/pixiv-i18n.js",
-            "/js/pixiv-lang-switcher.js",
-            "/js/pixiv-novel-render.js",
-            "/js/pixiv-side-modules.js",
-            "/js/pixiv-theme.js",
-            "/js/pixiv-translate.js"
-    );
-
-    /** 访客邀请会话被允许访问的精确路径。 */
-    private static final Set<String> GUEST_ALLOWED_EXACT = Set.of(
-            "/pixiv-gallery.html",
-            "/pixiv-artwork.html",
-            "/pixiv-showcase.html",
-            "/pixiv-novel.html",
-            "/pixiv-novel-gallery.html",
-            "/pixiv-series.html",
-            "/api/downloaded/statistics",
-            "/api/downloaded/history",
-            "/api/downloaded/history/paged",
-            "/api/downloaded/by-move-folder",
-            "/api/download/status/active",
-            "/api/tts/edge/voices"
-    );
-
-    /** 访客邀请会话被允许访问的精确路径（仅 POST）。在线 TTS 合成是 POST，单列于此。 */
-    private static final Set<String> GUEST_ALLOWED_POST_EXACT = Set.of(
-            "/api/tts/edge/synthesize"
-    );
-
-    /** 访客邀请会话被允许访问的前缀路径（仅 GET）。 */
-    private static final List<String> GUEST_ALLOWED_PREFIX = List.of(
-            DOWNLOADED_THUMBNAIL_PREFIX,
-            DOWNLOADED_THUMBNAIL_FILE_PREFIX,
-            "/api/downloaded/rawfile/",
-            "/api/downloaded/image/",
-            "/api/download/status/",
-            "/api/authors",
-            "/api/series",
-            "/api/gallery/",
-            "/api/collections",
-            "/api/pixiv/artwork/",
-            "/api/pixiv/novel/",
-            "/pixiv-gallery/",
-            "/pixiv-artwork/",
-            "/pixiv-showcase/",
-            "/pixiv-novel/",
-            "/pixiv-novel-gallery/",
-            "/pixiv-series/"
-    );
 
     /** 访客邀请 cookie 名（浏览器会话 cookie，不带 Max-Age）。 */
     public static final String INVITE_COOKIE = "pixiv_invite_token";
@@ -181,8 +64,171 @@ public class AuthFilter extends OncePerRequestFilter {
     private final GuestInviteService guestInviteService;
     private final GuiTokenProvider guiTokenProvider;
 
+    // ── 访问控制清单：由 RouteAccessRegistry 不可变快照按访问级别派生（替代原八类硬编码常量集合），
+    // 在请求侧读取（见 currentAccess()）。registry register/unregister 会整体替换快照引用，读侧据此
+    // 重新派生，使插件注册 / 注销后过滤判定随新快照更新；安全边界不再依赖构造期的静态副本。
+    // 派生规则（每条路由的「匹配器, 方法集, 访问级别」逐条镜像历史硬编码语义）：
+    //   monitor 受保护 ← AccessLevel ∈ {ADMIN_OR_SOLO, GUEST_READ}
+    //   访客白名单     ← AccessLevel ∈ {GUEST_READ, GUEST_READ_OPEN}（GET/HEAD 收窄由下方谓词承载）
+    //   公开静态       ← PUBLIC
+    //   本地放行特例   ← LOCAL_ONLY
+    // 前缀模式以 ** 结尾，去掉末尾 ** 即还原为历史 startsWith 前缀字符串（含 /api/authors 这类无尾斜杠前缀）。
+    private final RouteAccessRegistry routeAccessRegistry;
+
+    /** 最近一次派生结果（含其来源快照引用）；仅当 registry 快照引用变化时按需重算，避免每个请求重复派生。 */
+    private volatile DerivedRouteAccess derivedRouteAccess;
+
     @Value("${server.ssl.enabled:false}")
     private boolean sslEnabled;
+
+    /** 运行期构造：注入 Spring 管理的 {@link RouteAccessRegistry}（反映已启用插件），请求侧读取其不可变快照。 */
+    @Autowired
+    public AuthFilter(SetupService setupService,
+                      StaticResourceRateLimitService staticResourceRateLimitService,
+                      RateLimitService rateLimitService,
+                      AppLocaleResolver localeResolver,
+                      AppMessages messages,
+                      ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider,
+                      GuestInviteService guestInviteService,
+                      GuiTokenProvider guiTokenProvider,
+                      RouteAccessRegistry routeAccessRegistry) {
+        this.setupService = setupService;
+        this.staticResourceRateLimitService = staticResourceRateLimitService;
+        this.rateLimitService = rateLimitService;
+        this.localeResolver = localeResolver;
+        this.messages = messages;
+        this.maintenanceCoordinatorProvider = maintenanceCoordinatorProvider;
+        this.guestInviteService = guestInviteService;
+        this.guiTokenProvider = guiTokenProvider;
+        this.routeAccessRegistry = routeAccessRegistry;
+    }
+
+    /**
+     * Spring 上下文外构造（单元测试 / 启动期校验）：从内置插件清单构建与运行期一致的路由 registry，
+     * 与 {@code RouteAccessMirrorTest} / {@code RouteAccessRegistryTest} 用同一组合根，
+     * 因此过滤行为与运行期注册完全等价。
+     */
+    public AuthFilter(SetupService setupService,
+                      StaticResourceRateLimitService staticResourceRateLimitService,
+                      RateLimitService rateLimitService,
+                      AppLocaleResolver localeResolver,
+                      AppMessages messages,
+                      ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider,
+                      GuestInviteService guestInviteService,
+                      GuiTokenProvider guiTokenProvider) {
+        this(setupService, staticResourceRateLimitService, rateLimitService, localeResolver,
+                messages, maintenanceCoordinatorProvider, guestInviteService, guiTokenProvider,
+                new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
+    }
+
+    private static boolean isMonitorLevel(AccessLevel level) {
+        return level == AccessLevel.ADMIN_OR_SOLO || level == AccessLevel.GUEST_READ;
+    }
+
+    private static boolean isGuestLevel(AccessLevel level) {
+        return level == AccessLevel.GUEST_READ || level == AccessLevel.GUEST_READ_OPEN;
+    }
+
+    /**
+     * 由 {@link RouteAccessRegistry} 某一不可变快照派生出的各访问清单（与历史八类硬编码清单同形态）。
+     * {@code sourceSnapshot} 是派生它的快照引用，请求侧据此判断快照是否被 register/unregister 整体替换、
+     * 决定是否需要重新派生（见 {@link #currentAccess()}）。
+     */
+    private record DerivedRouteAccess(
+            List<RouteAccessRegistry.RegisteredRoute> sourceSnapshot,
+            Set<String> monitorExactPaths,
+            List<String> monitorPrefixPaths,
+            List<String> publicPageStaticPrefixPaths,
+            Set<String> publicStaticExactPaths,
+            Set<String> guestAllowedStaticExact,
+            Set<String> guestAllowedExact,
+            Set<String> guestAllowedPostExact,
+            List<String> guestAllowedPrefix,
+            List<String> localAccessApiPrefixes,
+            Set<String> localAccessApiExact) {
+    }
+
+    /**
+     * 请求侧读取当前路由访问派生清单：直接取 {@link RouteAccessRegistry} 的不可变快照引用，
+     * 仅当快照被 register/unregister 整体替换（引用变化）时才重新派生并缓存，
+     * 因此插件注册 / 注销后过滤判定随新快照更新，又不必每个请求重算。
+     */
+    private DerivedRouteAccess currentAccess() {
+        List<RouteAccessRegistry.RegisteredRoute> snapshot = routeAccessRegistry.routes();
+        DerivedRouteAccess cached = this.derivedRouteAccess;
+        if (cached == null || cached.sourceSnapshot() != snapshot) {
+            cached = derive(snapshot);
+            this.derivedRouteAccess = cached;
+        }
+        return cached;
+    }
+
+    /** 把一份路由快照按访问级别折叠成各访问清单（字段顺序与 {@link DerivedRouteAccess} 一致，逐条镜像历史硬编码语义）。 */
+    private static DerivedRouteAccess derive(List<RouteAccessRegistry.RegisteredRoute> routes) {
+        return new DerivedRouteAccess(
+                routes,
+                exactPaths(routes, level -> isMonitorLevel(level), method -> true),
+                prefixPaths(routes, AuthFilter::isMonitorLevel),
+                prefixPaths(routes, level -> level == AccessLevel.PUBLIC),
+                exactPaths(routes, level -> level == AccessLevel.PUBLIC, method -> true),
+                exactPaths(routes, level -> isGuestLevel(level),
+                        methods -> !methods.contains(HttpMethod.POST), AuthFilter::isStaticResource),
+                exactPaths(routes, level -> isGuestLevel(level),
+                        methods -> !methods.contains(HttpMethod.POST), path -> !isStaticResource(path)),
+                exactPaths(routes, AuthFilter::isGuestLevel, methods -> methods.contains(HttpMethod.POST)),
+                prefixPaths(routes, AuthFilter::isGuestLevel),
+                prefixPaths(routes, level -> level == AccessLevel.LOCAL_ONLY),
+                exactPaths(routes, level -> level == AccessLevel.LOCAL_ONLY, method -> true));
+    }
+
+    private static boolean isPrefixPattern(String pattern) {
+        return pattern.endsWith("**");
+    }
+
+    /** {@code /x/**} → 历史前缀 {@code /x/}；{@code /api/authors**} → {@code /api/authors}（去末尾两字符）。 */
+    private static String toPrefixMatcher(String pattern) {
+        return pattern.substring(0, pattern.length() - 2);
+    }
+
+    private static Set<String> exactPaths(List<RouteAccessRegistry.RegisteredRoute> routes,
+                                          Predicate<AccessLevel> levelFilter,
+                                          Predicate<Set<HttpMethod>> methodFilter) {
+        return exactPaths(routes, levelFilter, methodFilter, path -> true);
+    }
+
+    private static Set<String> exactPaths(List<RouteAccessRegistry.RegisteredRoute> routes,
+                                          Predicate<AccessLevel> levelFilter,
+                                          Predicate<Set<HttpMethod>> methodFilter,
+                                          Predicate<String> pathFilter) {
+        return routes.stream()
+                .map(RouteAccessRegistry.RegisteredRoute::route)
+                .filter(route -> !isPrefixPattern(route.pathPattern()))
+                .filter(route -> levelFilter.test(route.accessLevel()))
+                .filter(route -> methodFilter.test(route.methods()))
+                .map(WebRouteContribution::pathPattern)
+                .filter(pathFilter)
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    private static List<String> prefixPaths(List<RouteAccessRegistry.RegisteredRoute> routes,
+                                            Predicate<AccessLevel> levelFilter) {
+        return routes.stream()
+                .map(RouteAccessRegistry.RegisteredRoute::route)
+                .filter(route -> isPrefixPattern(route.pathPattern()))
+                .filter(route -> levelFilter.test(route.accessLevel()))
+                .map(route -> toPrefixMatcher(route.pathPattern()))
+                .distinct()
+                .collect(Collectors.toUnmodifiableList());
+    }
+
+    private static boolean startsWithAny(String path, List<String> prefixes) {
+        for (String prefix : prefixes) {
+            if (path.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res,
@@ -357,7 +403,8 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (path.startsWith("/api/downloaded/") || path.equals("/api/download/status")
+        DerivedRouteAccess access = currentAccess();
+        if (startsWithAny(path, access.localAccessApiPrefixes()) || access.localAccessApiExact().contains(path)
                 || isNovelDownloadedCheck(path)) {
             if ("POST".equalsIgnoreCase(method) && path.contains("/downloaded/move/")) {
                 if (!NetworkUtils.isLocalRequest(req)) {
@@ -404,15 +451,11 @@ public class AuthFilter extends OncePerRequestFilter {
         if (isNovelDownloadedCheck(path)) {
             return false;
         }
-        if (MONITOR_EXACT_PATHS.contains(path)) {
+        DerivedRouteAccess access = currentAccess();
+        if (access.monitorExactPaths().contains(path)) {
             return true;
         }
-        for (String prefix : MONITOR_PREFIX_PATHS) {
-            if (path.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
+        return startsWithAny(path, access.monitorPrefixPaths());
     }
 
     /**
@@ -480,7 +523,7 @@ public class AuthFilter extends OncePerRequestFilter {
                 || path.equals("/index.html")
                 || path.equals("/intro.html")
                 || path.equals("/intro-canary.html")
-                || PUBLIC_STATIC_EXACT_PATHS.contains(path)
+                || currentAccess().publicStaticExactPaths().contains(path)
                 || isPublicPageStaticResource(path)
                 || path.startsWith("/api/setup/")
                 || path.startsWith("/api/auth/")
@@ -501,7 +544,7 @@ public class AuthFilter extends OncePerRequestFilter {
                 || path.equals("/login.html")
                 || path.equals("/intro.html")
                 || path.equals("/intro-canary.html")
-                || PUBLIC_STATIC_EXACT_PATHS.contains(path)
+                || currentAccess().publicStaticExactPaths().contains(path)
                 || isPublicPageStaticResource(path);
     }
 
@@ -512,12 +555,7 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isPublicPageStaticResource(String path) {
-        for (String prefix : PUBLIC_PAGE_STATIC_PREFIX_PATHS) {
-            if (path.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
+        return startsWithAny(path, currentAccess().publicPageStaticPrefixPaths());
     }
 
     private boolean isSetupPagePath(String path) {
@@ -528,7 +566,7 @@ public class AuthFilter extends OncePerRequestFilter {
         return path.startsWith("/api/");
     }
 
-    private boolean isStaticResource(String path) {
+    private static boolean isStaticResource(String path) {
         if (path == null || path.isBlank() || path.equals("/redirect") || path.startsWith("/api/")) {
             return false;
         }
@@ -567,21 +605,17 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isGuestPublicPageOrStaticResource(String path) {
-        if (GUEST_ALLOWED_STATIC_EXACT.contains(path)) {
+        DerivedRouteAccess access = currentAccess();
+        if (access.guestAllowedStaticExact().contains(path)) {
             return true;
         }
         if (!isStaticResource(path)) {
             return false;
         }
-        if (GUEST_ALLOWED_EXACT.contains(path)) {
+        if (access.guestAllowedExact().contains(path)) {
             return true;
         }
-        for (String prefix : GUEST_ALLOWED_PREFIX) {
-            if (path.startsWith(prefix)) {
-                return true;
-            }
-        }
-        return false;
+        return startsWithAny(path, access.guestAllowedPrefix());
     }
 
     private void sendJsonError(HttpServletRequest req, HttpServletResponse res,
@@ -648,18 +682,16 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private boolean isAllowedForGuestInvite(String path, String method) {
+        DerivedRouteAccess access = currentAccess();
         if ("POST".equalsIgnoreCase(method)) {
-            return GUEST_ALLOWED_POST_EXACT.contains(path);
+            return access.guestAllowedPostExact().contains(path);
         }
         if (!"GET".equalsIgnoreCase(method) && !"HEAD".equalsIgnoreCase(method)) {
             return false;
         }
-        if (GUEST_ALLOWED_STATIC_EXACT.contains(path)) return true;
-        if (GUEST_ALLOWED_EXACT.contains(path)) return true;
-        for (String prefix : GUEST_ALLOWED_PREFIX) {
-            if (path.startsWith(prefix)) return true;
-        }
-        return false;
+        if (access.guestAllowedStaticExact().contains(path)) return true;
+        if (access.guestAllowedExact().contains(path)) return true;
+        return startsWithAny(path, access.guestAllowedPrefix());
     }
 
     private void handleInviteRedeemRedirect(HttpServletRequest req, HttpServletResponse res) throws IOException {

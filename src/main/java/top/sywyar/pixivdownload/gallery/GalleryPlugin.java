@@ -13,7 +13,8 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 画廊插件：画廊 / 作品详情 / 精选集 / 系列四个页面、{@code /api/gallery/**} 与批量管理入口。
+ * 画廊插件：画廊 / 作品详情 / 精选集 / 系列四个页面，以及 {@code /api/gallery} 下插画作品 /
+ * 标签子面（{@code /api/gallery/artwork(s)} 与 {@code /api/gallery/tags}）与批量管理入口。
  * <p>
  * 与 stats / duplicate 两个管理员专属插件不同，画廊全部路由是 {@code GUEST_READ}：
  * 按 monitor 语义保护（solo 会话用户或 multi 登录管理员全量可用），同时受邀访客可只读访问
@@ -47,8 +48,12 @@ public class GalleryPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<WebRouteContribution> routes() {
-        // 与 AuthFilter 现行硬编码逐条对应：每条路径同时存在于 monitor 清单与
-        // GUEST_ALLOWED 清单，即 GUEST_READ；方法不限（访客仅 GET/HEAD 的收窄由访问级别语义承载）。
+        // 画廊页面 + 画廊自身的 /api/gallery 子面（插画作品与标签），全部 GUEST_READ：
+        // 同时进入 monitor 清单与访客邀请白名单（访客仅 GET/HEAD 的收窄由访问级别语义承载）。
+        // /api/gallery API 历史上由单一 /api/gallery/** 覆盖，现按控制器实际归属拆分——画廊只声明
+        // 非小说的 artwork/tags 前缀，小说子面 /api/gallery/novel(s) 由小说插件声明，互不越界。
+        // 无尾斜杠前缀同 /api/authors** 写法：/api/gallery/artwork** 既命中 /api/gallery/artworks
+        // 也命中 /api/gallery/artwork/{id}；/api/gallery/tags** 既命中 /api/gallery/tags 也命中 /tags/lookup。
         return List.of(
                 new WebRouteContribution("/pixiv-gallery.html", AccessLevel.GUEST_READ, Set.of(), false),
                 new WebRouteContribution("/pixiv-artwork.html", AccessLevel.GUEST_READ, Set.of(), false),
@@ -58,7 +63,8 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                 new WebRouteContribution("/pixiv-artwork/**", AccessLevel.GUEST_READ, Set.of(), false),
                 new WebRouteContribution("/pixiv-showcase/**", AccessLevel.GUEST_READ, Set.of(), false),
                 new WebRouteContribution("/pixiv-series/**", AccessLevel.GUEST_READ, Set.of(), false),
-                new WebRouteContribution("/api/gallery/**", AccessLevel.GUEST_READ, Set.of(), false));
+                new WebRouteContribution("/api/gallery/artwork**", AccessLevel.GUEST_READ, Set.of(), false),
+                new WebRouteContribution("/api/gallery/tags**", AccessLevel.GUEST_READ, Set.of(), false));
     }
 
     @Override

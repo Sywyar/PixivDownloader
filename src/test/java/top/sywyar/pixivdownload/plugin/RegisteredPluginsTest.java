@@ -114,9 +114,13 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("各插件 contribution 边界：core 独占 schema 并声明共享静态资源、stats/duplicate/gallery/novel 占路由/导航/页面静态资源、download-workbench 独占 userscript 来源、i18n namespace 六插件全员声明")
+    @DisplayName("各插件 contribution 边界：core 独占 schema、声明共享静态资源与横切 / 共享路由，stats/duplicate/gallery/novel 占功能路由 + 导航 + 页面静态资源、download-workbench 独占 userscript 来源、i18n namespace 六插件全员声明")
     void emptyPluginsContributeNothing() {
-        Set<String> routeNavContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
+        // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
+        // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）。
+        // 导航：仍仅四个 web 功能插件声明（core / download-workbench 不出现在导航栏）。
+        Set<String> routeContributingPlugins = Set.of("core", "stats", "duplicate", "gallery", "novel");
+        Set<String> navContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
         Set<String> staticResourceContributingPlugins = Set.of("core", "stats", "duplicate", "gallery", "novel");
         Set<String> coreColumnUsingPlugins = Set.of("gallery", "novel");
         runner.run(context -> {
@@ -139,13 +143,17 @@ class RegisteredPluginsTest {
                 // i18n namespace 静态 map 退役后由六插件全员声明：页面跟插件走、核心/共享
                 // namespace（common/translate/tour 等）留 core、batch/userscript 归下载工作台
                 assertThat(plugin.i18n()).isNotEmpty();
-                // 路由 / 导航归四个 web 功能插件（无私有表，statistics、artwork_image_hashes
-                // 与 artworks 系均按卸载投影测试归 core）
-                if (routeNavContributingPlugins.contains(plugin.id())) {
+                // 路由：四个 web 功能插件 + core（横切 / 共享路由）声明，download-workbench 留空（其 routes() 由后续下载工作台工作包补声明）
+                if (routeContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.routes()).isNotEmpty();
-                    assertThat(plugin.navigation()).isNotEmpty();
                 } else {
                     assertThat(plugin.routes()).isEmpty();
+                }
+                // 导航：仅四个 web 功能插件声明（无私有表，statistics、artwork_image_hashes 与 artworks 系
+                // 均按卸载投影测试归 core；core 声明横切路由但不进导航栏）
+                if (navContributingPlugins.contains(plugin.id())) {
+                    assertThat(plugin.navigation()).isNotEmpty();
+                } else {
                     assertThat(plugin.navigation()).isEmpty();
                 }
                 // 静态资源：核心声明共享公共库（/js、/css、/vendor），四个 web 功能插件声明各自页面目录；

@@ -13,13 +13,16 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.schedule.db.ScheduleSchemaContribution;
 import top.sywyar.pixivdownload.series.MangaSeriesSchemaContribution;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSchemaContribution;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 核心插件：承载核心层（schema、公共静态资源、基础路由等）的 contribution 声明。
@@ -61,6 +64,111 @@ public class CorePlugin implements PixivFeaturePlugin {
                 GuestInviteSchemaContribution.CONTRIBUTION,
                 NovelSchemaContribution.CONTRIBUTION,
                 ScheduleSchemaContribution.CONTRIBUTION);
+    }
+
+    @Override
+    public List<WebRouteContribution> routes() {
+        // 跨页 / 横切的核心路由访问声明 + /api/downloaded 本地放行特例。功能页面与各自 API
+        //（gallery/novel/stats/duplicate）由对应功能插件声明，本清单只承载未被功能插件接管的
+        // 核心 / 共享路由。
+        //
+        // 访问级别 → AuthFilter 在请求侧读取本 registry 快照后派生回各访问清单：
+        //   ADMIN_OR_SOLO   → 仅 monitor 清单（管理员 / solo 会话）
+        //   GUEST_READ      → monitor 清单 + 访客邀请白名单（既受保护、受邀访客又可只读）
+        //   GUEST_READ_OPEN → 仅访客白名单 / 公开共享静态依赖（不入 monitor；multi 普通访客 GET 亦可达）
+        //   PUBLIC          → 公开静态资源 / 页面（solo 与 multi 两种模式均公开）
+        //   LOCAL_ONLY      → /api/downloaded/** 本地放行特例（本地直通，远端回退常规鉴权）
+        // 同一端点的不对称按现状保留、不改级别（如 /api/download/status/active 是 GUEST_READ、
+        // 而 /api/download/status/ 前缀是 GUEST_READ_OPEN；/api/downloaded/batch 仅 ADMIN_OR_SOLO）。
+        return List.of(
+                // MONITOR_EXACT_PATHS 中仅 monitor（不在访客白名单）的精确条目
+                adminOrSolo("/monitor.html"),
+                adminOrSolo("/pixiv-invite-manage.html"),
+                adminOrSolo("/pixiv-invite-detail.html"),
+                adminOrSolo("/api/downloaded/batch"),
+                // MONITOR_PREFIX_PATHS 中仅 monitor 的前缀条目
+                adminOrSolo("/api/schedule/**"),
+                adminOrSolo("/api/admin/**"),
+                adminOrSolo("/api/tts/**"),
+                adminOrSolo("/api/narration/**"),
+                adminOrSolo("/monitor/**"),
+                adminOrSolo("/pixiv-invite-manage/**"),
+                adminOrSolo("/pixiv-invite-detail/**"),
+                // MONITOR_EXACT_PATHS ∩ GUEST_ALLOWED_EXACT（monitor + 访客只读）
+                guestRead("/api/downloaded/statistics"),
+                guestRead("/api/downloaded/history"),
+                guestRead("/api/downloaded/history/paged"),
+                guestRead("/api/downloaded/by-move-folder"),
+                guestRead("/api/download/status/active"),
+                // MONITOR_PREFIX_PATHS ∩ GUEST_ALLOWED_PREFIX（monitor + 访客只读）
+                guestRead("/api/downloaded/thumbnail/**"),
+                guestRead("/api/downloaded/thumbnail-file/**"),
+                guestRead("/api/downloaded/rawfile/**"),
+                guestRead("/api/downloaded/image/**"),
+                // /api/authors、/api/series、/api/collections 现状用无尾斜杠 startsWith 匹配
+                // （同时命中 /api/authors 与 /api/authors/{id}）；模式以 ** 直接续接，去 ** 后还原为现状前缀。
+                guestRead("/api/authors**"),
+                guestRead("/api/series**"),
+                guestRead("/api/collections**"),
+                // GUEST_ALLOWED 但不入 monitor：只读代理 / 下载状态轮询前缀（multi 普通访客 GET 亦可达）
+                guestReadOpen("/api/download/status/**"),
+                guestReadOpen("/api/pixiv/artwork/**"),
+                guestReadOpen("/api/pixiv/novel/**"),
+                guestReadOpen("/api/tts/edge/voices"),
+                guestReadOpenPost("/api/tts/edge/synthesize"),
+                // GUEST_ALLOWED_STATIC_EXACT：跨页共享静态依赖（访客可读、不入 monitor，故同为 GUEST_READ_OPEN）。
+                // 其中 i18n / 语言切换 / 主题三件同时也是 PUBLIC_STATIC_EXACT（见下），按现状两个清单都登记。
+                guestReadOpen("/css/admin-visibility.css"),
+                guestReadOpen("/css/lang-theme-switcher.css"),
+                guestReadOpen("/css/pixiv-side-modules.css"),
+                guestReadOpen("/css/pixiv-translate.css"),
+                guestReadOpen("/js/invite-modals.js"),
+                guestReadOpen("/js/pixiv-i18n.js"),
+                guestReadOpen("/js/pixiv-lang-switcher.js"),
+                guestReadOpen("/js/pixiv-novel-render.js"),
+                guestReadOpen("/js/pixiv-side-modules.js"),
+                guestReadOpen("/js/pixiv-theme.js"),
+                guestReadOpen("/js/pixiv-translate.js"),
+                // PUBLIC_STATIC_EXACT_PATHS（两种模式均公开）
+                publicRoute("/favicon.ico"),
+                publicRoute("/js/pixiv-i18n.js"),
+                publicRoute("/js/pixiv-lang-switcher.js"),
+                publicRoute("/js/pixiv-theme.js"),
+                publicRoute("/maintenance.html"),
+                // PUBLIC_PAGE_STATIC_PREFIX_PATHS（两种模式均公开）
+                publicRoute("/index/**"),
+                publicRoute("/intro/**"),
+                publicRoute("/intro-canary/**"),
+                publicRoute("/login/**"),
+                publicRoute("/maintenance/**"),
+                publicRoute("/vendor/fonts/**"),
+                // /api/downloaded/{id} 本地放行特例（含 /api/download/status 精确）
+                localOnly("/api/downloaded/**"),
+                localOnly("/api/download/status"));
+    }
+
+    private static WebRouteContribution adminOrSolo(String pattern) {
+        return new WebRouteContribution(pattern, AccessLevel.ADMIN_OR_SOLO, Set.of(), false);
+    }
+
+    private static WebRouteContribution guestRead(String pattern) {
+        return new WebRouteContribution(pattern, AccessLevel.GUEST_READ, Set.of(), false);
+    }
+
+    private static WebRouteContribution guestReadOpen(String pattern) {
+        return new WebRouteContribution(pattern, AccessLevel.GUEST_READ_OPEN, Set.of(), false);
+    }
+
+    private static WebRouteContribution guestReadOpenPost(String pattern) {
+        return new WebRouteContribution(pattern, AccessLevel.GUEST_READ_OPEN, Set.of(HttpMethod.POST), false);
+    }
+
+    private static WebRouteContribution publicRoute(String pattern) {
+        return new WebRouteContribution(pattern, AccessLevel.PUBLIC, Set.of(), false);
+    }
+
+    private static WebRouteContribution localOnly(String pattern) {
+        return new WebRouteContribution(pattern, AccessLevel.LOCAL_ONLY, Set.of(), false);
     }
 
     @Override

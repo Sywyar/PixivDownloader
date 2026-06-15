@@ -14,12 +14,12 @@ import java.util.stream.Collectors;
 /**
  * 路由访问注册中心。收集各插件的 {@link WebRouteContribution}，
  * 按 pluginId 可逆注册（{@link #register} / {@link #unregister}），
- * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁
- * （{@code AuthFilter} 切换后会在每个请求上读取）。
+ * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁。
  * <p>
- * 当前为镜像模式：registry 输出与 {@code AuthFilter} 现有硬编码清单由镜像一致性测试
- * 逐条对照，{@code AuthFilter} 本身尚不读取本注册中心——安全边界的切换在镜像测试
- * 长期保持绿色之后单独进行。
+ * {@code AuthFilter} 在每个请求上读取本注册中心的不可变快照，按访问级别派生出 monitor /
+ * 访客邀请白名单 / 公开 / 本地放行各访问清单（其原八类硬编码清单已删除）；因此插件注册 /
+ * 注销替换快照后，过滤判定会随新快照更新。{@code RouteAccessMirrorTest} 守护「访问级别 →
+ * 安全分类不变量」，金标准 {@code AuthFilterTest} 守护过滤行为本身。
  */
 @Component
 public class RouteAccessRegistry {
