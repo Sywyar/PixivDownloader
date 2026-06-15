@@ -141,9 +141,13 @@ public interface ScheduledTaskMapper {
      * 会清 {@code run_started_time}；若进程在一轮运行中途被强杀则残留。重启后哪怕该任务的 {@code next_run_time}
      * 还在未来（典型如「立即运行」触发、尚未到周期就被中断的那一轮），也要立刻重跑补齐，而不是傻等到下次周期。
      * 正在运行的任务虽也匹配此分支，但有内存 Claim 占位，{@code tryMarkQueued} 会失败、tick 跳过，不会重复触发。
+     *
+     * <p>{@code SOURCE_UNAVAILABLE}（来源 provider 解析不到 → 调度器在轮首解析门标记的来源不可用）同样并入状态门：
+     * 来源缺失下重跑只会每周期再次撞门空转，须挡住等来源恢复后由显式重激活入口恢复。
      */
     @Select(SELECT_TASK + " WHERE enabled = 1"
-            + " AND (last_status IS NULL OR last_status NOT IN ('OVERUSE_PAUSED','AUTH_EXPIRED','PAUSED'))"
+            + " AND (last_status IS NULL"
+            + "      OR last_status NOT IN ('OVERUSE_PAUSED','AUTH_EXPIRED','PAUSED','SOURCE_UNAVAILABLE'))"
             + " AND ((next_run_time IS NOT NULL AND next_run_time <= #{now})"
             + "      OR run_started_time IS NOT NULL)"
             + " ORDER BY next_run_time")

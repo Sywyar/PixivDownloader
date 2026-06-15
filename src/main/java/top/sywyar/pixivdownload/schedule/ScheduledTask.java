@@ -58,4 +58,11 @@ public record ScheduledTask(
     public static final String STATUS_AUTH_EXPIRED = "AUTH_EXPIRED";
     /** 管理员手动暂停（任务级，不冻账号、不发邮件；恢复入口为「恢复」按钮）。 */
     public static final String STATUS_PAUSED = "PAUSED";
+    /**
+     * 来源不可用 → 任务级挂起（不发现 / 不派发）。任务的 {@code type} 在
+     * {@link top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry} 解析不到对应来源
+     * provider（来源插件被禁 / 卸载，或该类型已被移除）时由调度器写入，
+     * 经 {@code findDue} 状态门挡住、不自动重跑。来源恢复后的显式重激活入口另行实现。
+     */
+    public static final String STATUS_SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE";
 }

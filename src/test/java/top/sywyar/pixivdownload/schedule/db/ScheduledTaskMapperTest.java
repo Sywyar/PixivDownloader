@@ -251,7 +251,7 @@ class ScheduledTaskMapperTest {
     }
 
     @Test
-    @DisplayName("findDue 排除挂起态（OVERUSE_PAUSED / AUTH_EXPIRED / PAUSED），仅返回可运行任务")
+    @DisplayName("findDue 排除挂起态（OVERUSE_PAUSED / AUTH_EXPIRED / PAUSED / SOURCE_UNAVAILABLE），仅返回可运行任务")
     void findDueGatesSuspendedStatuses() {
         try (SqlSession session = factory.openSession(true)) {
             ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
@@ -259,10 +259,11 @@ class ScheduledTaskMapperTest {
             long overuse = insertWithStatus(mapper, "过度访问", ScheduledTask.STATUS_OVERUSE_PAUSED);
             long auth = insertWithStatus(mapper, "鉴权失效", ScheduledTask.STATUS_AUTH_EXPIRED);
             long paused = insertWithStatus(mapper, "手动暂停", ScheduledTask.STATUS_PAUSED);
+            long sourceUnavailable = insertWithStatus(mapper, "来源不可用", ScheduledTask.STATUS_SOURCE_UNAVAILABLE);
 
             List<Long> due = mapper.findDue(5000L).stream().map(ScheduledTask::id).toList();
             assertThat(due).contains(ok);
-            assertThat(due).doesNotContain(overuse, auth, paused);
+            assertThat(due).doesNotContain(overuse, auth, paused, sourceUnavailable);
         }
     }
 

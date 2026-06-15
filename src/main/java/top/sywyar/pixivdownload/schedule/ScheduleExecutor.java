@@ -25,6 +25,7 @@ import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
+import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.push.MarkdownEscape;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
@@ -88,6 +89,8 @@ public class ScheduleExecutor {
     private static final String KIND_NOVEL = "novel";
 
     private final ScheduledTaskDatabase database;
+    /** 计划任务来源注册中心：runTask 顶部的来源解析门据此把任务存量 type 解析到对应来源 provider。 */
+    private final ScheduledSourceRegistry scheduledSourceRegistry;
     private final PixivFetchService pixivFetchService;
     private final PixivDatabase pixivDatabase;
     private final WorkMetaCaptureService workMetaCaptureService;
@@ -212,6 +215,13 @@ public class ScheduleExecutor {
             suspendNotification = new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD);
             suspendTriggerTime = System.currentTimeMillis();
             log.warn("Scheduled task {} ({}) auth expired, awaiting re-authorization", task.id(), task.name());
+        } catch (ScheduleSourceUnavailableException e) {
+            // 来源解析门未命中（来源插件被禁 / 卸载、或类型已移除）：标记来源不可用、干净挂起（清 run_started_time）。
+            // 不发现 / 不派发、不冻账号、不发通知——presentation（前端状态灯 / 邮件）由真正可触发该状态的功能路径补齐；
+            // 此处仅落库状态 + 诊断原因（仅类型名、无凭证），并经 findDue 状态门挡住自动重跑。
+            status = ScheduledTask.STATUS_SOURCE_UNAVAILABLE;
+            message = e.getMessage();
+            log.warn("Scheduled task {} ({}) source unavailable: {}", task.id(), task.name(), e.unresolvedType());
         } catch (Exception e) {
             status = STATUS_ERROR;
             message = summarizeError(e);
@@ -311,6 +321,14 @@ public class ScheduleExecutor {
      */
     private int runTask(ScheduledTask task, List<PendingExhaustedNotification> pendingNotifications,
                         boolean[] degraded) throws Exception {
+        // ── 来源解析门：经插件注册中心把任务存量 type（枚举名，如 USER_NEW）解析到对应来源 provider。
+        //    解析不到（来源插件被禁 / 卸载、或该类型已被移除）→ 标记来源不可用并干净挂起，绝不读 cookie /
+        //    探站内信 / 发现 / 派发。这是注册中心的首个运行期消费者，也是插件禁用 / 热卸载语义的接缝。
+        //    当前 7 个内置来源恒由核心插件贡献，故生产路径恒命中；解析成功后实际发现 / 派发仍走下方枚举分支
+        //    （provider 暂仅承载身份 + legacy 映射，发现逻辑随首个真实 provider 一起落地，见 runTask 下方各分支）。
+        if (scheduledSourceRegistry.resolve(task.type().name()).isEmpty()) {
+            throw new ScheduleSourceUnavailableException(task.type().name());
+        }
         String cookie = ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())
                 ? database.mapper().findCookieSnapshot(task.id())
                 : null;

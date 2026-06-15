@@ -80,9 +80,15 @@ class ScheduleExecutorRunTimingTest {
         when(database.mapper()).thenReturn(mapper);
     }
 
-    /** 用指定下载池构造被测执行器（默认 DownloadConfig：图片/小说池各 10）。 */
+    /**
+     * 用指定下载池构造被测执行器（默认 DownloadConfig：图片/小说池各 10）。
+     * 来源注册中心用内置插件全集（7 个枚举来源全可解析），故 runTask 顶部的来源解析门恒命中、
+     * 既有发现 / 派发行为不变（解析门只在来源缺失时改道，见 ScheduleExecutorSourceResolutionTest）。
+     */
     private ScheduleExecutor newExecutor(TaskExecutor imagePool, TaskExecutor novelPool) {
-        return new ScheduleExecutor(database, pixivFetchService, pixivDatabase,
+        return new ScheduleExecutor(database,
+                top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.forBuiltInPlugins(),
+                pixivFetchService, pixivDatabase,
                 org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class),
                 artworkDownloader, novelDownloader, novelMetadataRepository, novelMergeService,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
