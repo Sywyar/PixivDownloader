@@ -115,9 +115,5 @@ public class StaticResourceRegistry {
             throw new IllegalStateException("invalid static resource public path prefix: " + prefix
                     + " (plugin: " + pluginId + ")");
         }
-        if (contribution.accessLevel() == null) {
-            throw new IllegalStateException("static resource without access level: " + prefix
-                    + " (plugin: " + pluginId + ")");
-        }
     }
 }

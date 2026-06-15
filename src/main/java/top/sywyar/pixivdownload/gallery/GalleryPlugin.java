@@ -70,14 +70,10 @@ public class GalleryPlugin implements PixivFeaturePlugin {
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(
-                new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-gallery/", "/pixiv-gallery/", AccessLevel.GUEST_READ),
-                new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-artwork/", "/pixiv-artwork/", AccessLevel.GUEST_READ),
-                new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-showcase/", "/pixiv-showcase/", AccessLevel.GUEST_READ),
-                new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-series/", "/pixiv-series/", AccessLevel.GUEST_READ));
+                new StaticResourceContribution(ID, "classpath:/static/pixiv-gallery/", "/pixiv-gallery/"),
+                new StaticResourceContribution(ID, "classpath:/static/pixiv-artwork/", "/pixiv-artwork/"),
+                new StaticResourceContribution(ID, "classpath:/static/pixiv-showcase/", "/pixiv-showcase/"),
+                new StaticResourceContribution(ID, "classpath:/static/pixiv-series/", "/pixiv-series/"));
     }
 
     @Override

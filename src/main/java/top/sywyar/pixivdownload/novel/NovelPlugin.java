@@ -69,10 +69,8 @@ public class NovelPlugin implements PixivFeaturePlugin {
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(
-                new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-novel-gallery/", "/pixiv-novel-gallery/", AccessLevel.GUEST_READ),
-                new StaticResourceContribution(
-                        ID, "classpath:/static/pixiv-novel/", "/pixiv-novel/", AccessLevel.GUEST_READ));
+                new StaticResourceContribution(ID, "classpath:/static/pixiv-novel-gallery/", "/pixiv-novel-gallery/"),
+                new StaticResourceContribution(ID, "classpath:/static/pixiv-novel/", "/pixiv-novel/"));
     }
 
     @Override

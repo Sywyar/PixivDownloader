@@ -50,7 +50,7 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
     @Override
     public List<StaticResourceContribution> staticResources() {
         return List.of(new StaticResourceContribution(
-                ID, "classpath:/static/pixiv-duplicates/", "/pixiv-duplicates/", AccessLevel.ADMIN_OR_SOLO));
+                ID, "classpath:/static/pixiv-duplicates/", "/pixiv-duplicates/"));
     }
 
     @Override

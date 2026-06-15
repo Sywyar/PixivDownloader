@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 
 import java.util.List;
@@ -23,7 +22,7 @@ class StaticResourceRegistryTest {
 
     private static StaticResourceContribution res(String pluginId, String name) {
         return new StaticResourceContribution(
-                pluginId, "classpath:/static/" + name + "/", "/" + name + "/", AccessLevel.PUBLIC);
+                pluginId, "classpath:/static/" + name + "/", "/" + name + "/");
     }
 
     @Test
@@ -115,7 +114,7 @@ class StaticResourceRegistryTest {
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId / classLoader / 列表 / classpath 位置 / 前缀 / 访问级别 / pluginId 一致性")
+    @DisplayName("非法输入拒绝：pluginId / classLoader / 列表 / classpath 位置 / 前缀 / pluginId 一致性")
     void invalidInputRejected() {
         StaticResourceRegistry registry = emptyRegistry();
         // pluginId 空
@@ -129,23 +128,19 @@ class StaticResourceRegistryTest {
                 .isInstanceOf(IllegalStateException.class);
         // classpathLocation 不以 classpath: 开头
         assertThatThrownBy(() -> registry.register("demo", CL, List.of(
-                new StaticResourceContribution("demo", "/static/a/", "/a/", AccessLevel.PUBLIC))))
+                new StaticResourceContribution("demo", "/static/a/", "/a/"))))
                 .isInstanceOf(IllegalStateException.class);
         // classpathLocation 不以 / 结尾
         assertThatThrownBy(() -> registry.register("demo", CL, List.of(
-                new StaticResourceContribution("demo", "classpath:/static/a", "/a/", AccessLevel.PUBLIC))))
+                new StaticResourceContribution("demo", "classpath:/static/a", "/a/"))))
                 .isInstanceOf(IllegalStateException.class);
         // publicPathPrefix 不以 / 开头
         assertThatThrownBy(() -> registry.register("demo", CL, List.of(
-                new StaticResourceContribution("demo", "classpath:/static/a/", "a/", AccessLevel.PUBLIC))))
+                new StaticResourceContribution("demo", "classpath:/static/a/", "a/"))))
                 .isInstanceOf(IllegalStateException.class);
         // publicPathPrefix 不以 / 结尾
         assertThatThrownBy(() -> registry.register("demo", CL, List.of(
-                new StaticResourceContribution("demo", "classpath:/static/a/", "/a", AccessLevel.PUBLIC))))
-                .isInstanceOf(IllegalStateException.class);
-        // accessLevel 为 null
-        assertThatThrownBy(() -> registry.register("demo", CL, List.of(
-                new StaticResourceContribution("demo", "classpath:/static/a/", "/a/", null))))
+                new StaticResourceContribution("demo", "classpath:/static/a/", "/a"))))
                 .isInstanceOf(IllegalStateException.class);
         // 声明的 pluginId 与注册 pluginId 不一致
         assertThatThrownBy(() -> registry.register("demo", CL, List.of(res("other", "a"))))
