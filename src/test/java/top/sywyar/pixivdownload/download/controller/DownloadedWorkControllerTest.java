@@ -14,7 +14,9 @@ import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.download.ArtworkMoveService;
 import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
@@ -36,6 +38,10 @@ class DownloadedWorkControllerTest {
     @Mock
     private DownloadService downloadService;
     @Mock
+    private DownloadStatisticsService downloadStatisticsService;
+    @Mock
+    private ArtworkMoveService artworkMoveService;
+    @Mock
     private PixivDatabase pixivDatabase;
     @Mock
     private AuthorService authorService;
@@ -47,7 +53,8 @@ class DownloadedWorkControllerTest {
     @BeforeEach
     void setUp() {
         DownloadedWorkController controller = new DownloadedWorkController(
-                downloadService, pixivDatabase, authorService, guestAccessGuard, galleryRepository, APP_MESSAGES);
+                downloadService, downloadStatisticsService, artworkMoveService, pixivDatabase,
+                authorService, guestAccessGuard, galleryRepository, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -139,7 +146,7 @@ class DownloadedWorkControllerTest {
     @Test
     @DisplayName("GET /api/downloaded/statistics 应返回统计数据")
     void shouldReturnStatistics() throws Exception {
-        when(downloadService.getStatistics())
+        when(downloadStatisticsService.getStatistics())
                 .thenReturn(new StatisticsResponse(true, 100, 500, 30, "获取成功"));
 
         mockMvc.perform(get("/api/downloaded/statistics"))
@@ -189,7 +196,7 @@ class DownloadedWorkControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
-        verify(downloadService).moveArtWork(12345L, "/new/path", 1700000000L, null);
+        verify(artworkMoveService).moveArtWork(12345L, "/new/path", 1700000000L, null);
     }
 
     @Test
@@ -202,7 +209,7 @@ class DownloadedWorkControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
-        verify(downloadService).moveArtWork(12345L, "/dst/0", 1700000000L, "/dst");
+        verify(artworkMoveService).moveArtWork(12345L, "/dst/0", 1700000000L, "/dst");
     }
 
     // ========== GET /api/downloaded/history ==========

@@ -18,7 +18,9 @@ import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
+import top.sywyar.pixivdownload.download.ArtworkMoveService;
 import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.DownloadStatisticsService;
 import top.sywyar.pixivdownload.download.request.ArtworkBatchRequest;
 import top.sywyar.pixivdownload.download.request.MoveArtworkRequest;
 import top.sywyar.pixivdownload.download.request.RecoverMetadataRequest;
@@ -46,6 +48,8 @@ import java.util.Set;
 public class DownloadedWorkController {
 
     private final DownloadService downloadService;
+    private final DownloadStatisticsService downloadStatisticsService;
+    private final ArtworkMoveService artworkMoveService;
     private final PixivDatabase pixivDatabase;
     private final AuthorService authorService;
     private final GuestAccessGuard guestAccessGuard;
@@ -107,7 +111,7 @@ public class DownloadedWorkController {
         if (session != null) {
             return ResponseEntity.ok(getGuestStatistics(session));
         }
-        return ResponseEntity.ok(downloadService.getStatistics());
+        return ResponseEntity.ok(downloadStatisticsService.getStatistics());
     }
 
     @GetMapping("/downloaded/by-move-folder")
@@ -134,7 +138,7 @@ public class DownloadedWorkController {
             presetRoot = presetRoot.replaceAll("[/\\\\]+$", "");
             if (presetRoot.isEmpty()) presetRoot = null;
         }
-        downloadService.moveArtWork(artworkId, movePath, request.getMoveTime(), presetRoot);
+        artworkMoveService.moveArtWork(artworkId, movePath, request.getMoveTime(), presetRoot);
         return ResponseEntity.ok(DownloadResponse.builder()
                 .success(true)
                 .message(messages.get("download.move.record-attempted"))

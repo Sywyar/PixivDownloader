@@ -28,7 +28,6 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.request.RecoverMetadataRequest;
-import top.sywyar.pixivdownload.download.response.StatisticsResponse;
 import top.sywyar.pixivdownload.duplicate.ImageHashService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
@@ -82,6 +81,8 @@ class DownloadServiceTest {
     private ImageHashService imageHashService;
     @Mock
     private WorkMetaCaptureService workMetaCaptureService;
+    @Mock
+    private DownloadStatisticsService downloadStatisticsService;
 
     private ArtworkFileLocator artworkFileLocator;
     private DownloadService downloadService;
@@ -93,7 +94,7 @@ class DownloadServiceTest {
         downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService,
                 downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService, authorService,
                 collectionService, mangaSeriesService, artworkFileLocator, imageHashService,
-                workMetaCaptureService, APP_MESSAGES);
+                workMetaCaptureService, downloadStatisticsService, APP_MESSAGES);
     }
 
     @Nested
@@ -288,36 +289,6 @@ class DownloadServiceTest {
         void shouldNotThrowWhenCancellingNonExistentDownload() {
             assertThatCode(() -> downloadService.cancelDownload(99999L))
                     .doesNotThrowAnyException();
-        }
-    }
-
-    // ========== getStatistics ==========
-
-    @Nested
-    @DisplayName("getStatistics")
-    class GetStatisticsTests {
-
-        @Test
-        @DisplayName("正常获取统计数据")
-        void shouldReturnStatistics() {
-            when(pixivDatabase.getStats()).thenReturn(new int[]{100, 500, 30});
-
-            StatisticsResponse response = downloadService.getStatistics();
-
-            assertThat(response.isSuccess()).isTrue();
-            assertThat(response.getTotalArtworks()).isEqualTo(100);
-            assertThat(response.getTotalImages()).isEqualTo(500);
-            assertThat(response.getTotalMoved()).isEqualTo(30);
-        }
-
-        @Test
-        @DisplayName("数据库异常时应向上传播")
-        void shouldPropagateOnDatabaseError() {
-            when(pixivDatabase.getStats()).thenThrow(new RuntimeException("DB error"));
-
-            assertThatCode(() -> downloadService.getStatistics())
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("DB error");
         }
     }
 
@@ -703,27 +674,6 @@ class DownloadServiceTest {
             assertThat(result).isSameAs(inserted);
             verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 1, "jpg",
                     1700000300L, null, null, null, "");
-        }
-    }
-
-    @Nested
-    @DisplayName("recordStatistics")
-    class RecordStatisticsTests {
-
-        @Test
-        @DisplayName("正常记录统计不抛异常")
-        void shouldRecordStatisticsSuccessfully() {
-            downloadService.recordStatistics(5);
-            verify(pixivDatabase).incrementStats(5);
-        }
-
-        @Test
-        @DisplayName("数据库异常时不向上抛出")
-        void shouldNotThrowOnDatabaseError() {
-            doThrow(new RuntimeException("DB error")).when(pixivDatabase).incrementStats(anyInt());
-
-            assertThatCode(() -> downloadService.recordStatistics(5))
-                    .doesNotThrowAnyException();
         }
     }
 
@@ -1181,7 +1131,7 @@ class DownloadServiceTest {
             assertThat(status.getErrorMessage()).contains("1/2");
             verify(pixivDatabase, never()).insertArtwork(anyLong(), any(), any(), anyInt(), any(),
                     anyLong(), any(), any(), any(), any(), anyLong(), any(), any(), any());
-            verify(pixivDatabase, never()).incrementStats(anyInt());
+            verify(downloadStatisticsService, never()).recordStatistics(anyInt());
         }
     }
 }

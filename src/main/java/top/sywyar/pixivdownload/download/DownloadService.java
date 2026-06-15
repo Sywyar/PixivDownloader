@@ -25,7 +25,6 @@ import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.ImageResponse;
-import top.sywyar.pixivdownload.download.response.StatisticsResponse;
 import top.sywyar.pixivdownload.duplicate.ImageHashService;
 import top.sywyar.pixivdownload.imageclassifier.ThumbnailManager;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -72,6 +71,7 @@ public class DownloadService implements ArtworkDownloader {
     private final ArtworkFileLocator artworkFileLocator;
     private final ImageHashService imageHashService;
     private final WorkMetaCaptureService workMetaCaptureService;
+    private final DownloadStatisticsService downloadStatisticsService;
     private final AppMessages messages;
 
     // 存储下载状态
@@ -95,6 +95,7 @@ public class DownloadService implements ArtworkDownloader {
                            ArtworkFileLocator artworkFileLocator,
                            ImageHashService imageHashService,
                            WorkMetaCaptureService workMetaCaptureService,
+                           DownloadStatisticsService downloadStatisticsService,
                            AppMessages messages) {
         this.downloadConfig = downloadConfig;
         this.eventPublisher = eventPublisher;
@@ -110,6 +111,7 @@ public class DownloadService implements ArtworkDownloader {
         this.artworkFileLocator = artworkFileLocator;
         this.imageHashService = imageHashService;
         this.workMetaCaptureService = workMetaCaptureService;
+        this.downloadStatisticsService = downloadStatisticsService;
         this.messages = messages;
     }
 
@@ -251,7 +253,7 @@ public class DownloadService implements ArtworkDownloader {
                     fileNamePlan.templateId(), fileNamePlan.recordTime(), fileNamePlan.fileAuthorNameId(),
                     other.getSeriesId(), other.getSeriesOrder());
 
-            recordStatistics(successCount.get());
+            downloadStatisticsService.recordStatistics(successCount.get());
             recordAuthorInfo(artworkId, other, cookie);
             recordSeriesInfo(artworkId, other, cookie);
 
@@ -749,28 +751,6 @@ public class DownloadService implements ArtworkDownloader {
         }
     }
 
-    @Async
-    public void moveArtWork(Long artworkId, String movePath, Long moveTime) {
-        moveArtWork(artworkId, movePath, moveTime, null);
-    }
-
-    @Async
-    public void moveArtWork(Long artworkId, String movePath, Long moveTime, String classifierTargetFolder) {
-        try {
-            ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
-            if (existing == null) {
-                return;
-            }
-            pixivDatabase.updateArtworkMove(artworkId, movePath,
-                    TimestampUtils.toMillis(moveTime), classifierTargetFolder);
-            if (!existing.moved()) {
-                pixivDatabase.incrementMoved();
-            }
-        } catch (Exception e) {
-            log.error(logMessage("download.log.move-record.failed", e.getMessage()), e);
-        }
-    }
-
     public List<String> getDownloadedRecord() {
         List<String> ids = new LinkedList<>();
         pixivDatabase.getAllArtworkIds().forEach(id -> ids.add(String.valueOf(id)));
@@ -1154,19 +1134,6 @@ public class DownloadService implements ArtworkDownloader {
 
     public static File findFileByName(String directoryPath, String fileName) {
         return ArtworkFileLocator.findFileByName(directoryPath, fileName);
-    }
-
-    public void recordStatistics(int count) {
-        try {
-            pixivDatabase.incrementStats(count);
-        } catch (Exception e) {
-            log.error(logMessage("download.log.statistics.failed", e.getMessage()), e);
-        }
-    }
-
-    public StatisticsResponse getStatistics() {
-        int[] stats = pixivDatabase.getStats();
-        return new StatisticsResponse(true, stats[0], stats[1], stats[2], messages.get("download.statistics.success"));
     }
 
     public List<Long> getSortTimeArtwork() {
