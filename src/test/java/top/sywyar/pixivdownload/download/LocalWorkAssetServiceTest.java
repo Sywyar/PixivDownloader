@@ -36,7 +36,7 @@ class LocalWorkAssetServiceTest {
     @TempDir
     Path tempDir;
 
-    private DownloadService downloadService;
+    private ArtworkFileService artworkFileService;
     private ArtworkFileLocator artworkFileLocator;
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
@@ -46,13 +46,13 @@ class LocalWorkAssetServiceTest {
 
     @BeforeEach
     void setUp() {
-        downloadService = mock(DownloadService.class);
+        artworkFileService = mock(ArtworkFileService.class);
         artworkFileLocator = mock(ArtworkFileLocator.class);
         pixivDatabase = mock(PixivDatabase.class);
         novelMetadataRepository = mock(NovelMetadataRepository.class);
         downloadConfig = mock(DownloadConfig.class);
         sidecarStore = new WorkSidecarStore(new ObjectMapper());
-        service = new LocalWorkAssetService(downloadService, artworkFileLocator, pixivDatabase,
+        service = new LocalWorkAssetService(artworkFileService, artworkFileLocator, pixivDatabase,
                 novelMetadataRepository, downloadConfig, sidecarStore, TestI18nBeans.appMessages());
     }
 
@@ -62,11 +62,11 @@ class LocalWorkAssetServiceTest {
     }
 
     @Test
-    @DisplayName("thumbnail 委托 DownloadService 缩略图缓存并映射为 WorkAssetFile")
+    @DisplayName("thumbnail 委托 ArtworkFileService 缩略图缓存并映射为 WorkAssetFile")
     void thumbnailDelegatesToThumbnailCache() throws Exception {
         Path cachePath = Path.of("data", "gallery_thumbs", "42", "p1.jpg");
-        when(downloadService.getThumbnailFile(42L, 1))
-                .thenReturn(new DownloadService.ThumbnailFile(cachePath, "jpg"));
+        when(artworkFileService.getThumbnailFile(42L, 1))
+                .thenReturn(new ArtworkFileService.ThumbnailFile(cachePath, "jpg"));
 
         Optional<WorkAssetFile> thumbnail = service.thumbnail(WorkType.ARTWORK, 42L, 1);
 
@@ -77,7 +77,7 @@ class LocalWorkAssetServiceTest {
     @Test
     @DisplayName("thumbnail 缩略图不可得时返回 empty")
     void thumbnailReturnsEmptyWhenUnavailable() throws Exception {
-        when(downloadService.getThumbnailFile(42L, 0)).thenReturn(null);
+        when(artworkFileService.getThumbnailFile(42L, 0)).thenReturn(null);
 
         assertTrue(service.thumbnail(WorkType.ARTWORK, 42L, 0).isEmpty());
     }
@@ -86,7 +86,7 @@ class LocalWorkAssetServiceTest {
     @DisplayName("rawFile 委托原图定位并从文件名导出小写扩展名")
     void rawFileDelegatesToImageFile() {
         File imageFile = new File("folder/42", "42_p0.PNG");
-        when(downloadService.getImageFile(42L, 0)).thenReturn(imageFile);
+        when(artworkFileService.getImageFile(42L, 0)).thenReturn(imageFile);
 
         Optional<WorkAssetFile> raw = service.rawFile(WorkType.ARTWORK, 42L, 0);
 
@@ -97,7 +97,7 @@ class LocalWorkAssetServiceTest {
     @Test
     @DisplayName("rawFile 原图缺失时返回 empty")
     void rawFileReturnsEmptyWhenMissing() {
-        when(downloadService.getImageFile(42L, 3)).thenReturn(null);
+        when(artworkFileService.getImageFile(42L, 3)).thenReturn(null);
 
         assertTrue(service.rawFile(WorkType.ARTWORK, 42L, 3).isEmpty());
     }

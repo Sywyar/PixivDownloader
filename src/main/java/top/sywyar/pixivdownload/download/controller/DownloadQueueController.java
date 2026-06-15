@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.UuidUtils;
-import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
@@ -19,7 +19,7 @@ import top.sywyar.pixivdownload.setup.SetupService;
 @RequiredArgsConstructor
 public class DownloadQueueController {
 
-    private final DownloadService downloadService;
+    private final ArtworkDownloadExecutor artworkDownloadExecutor;
     private final SetupService setupService;
     private final NovelDownloadService novelDownloadService;
     private final AppMessages messages;
@@ -29,9 +29,9 @@ public class DownloadQueueController {
     public ResponseEntity<DownloadResponse> cancelDownload(@PathVariable Long artworkId,
                                                            HttpServletRequest httpRequest) {
         if (setupService.hasAdminScope(httpRequest)) {
-            downloadService.cancelDownload(artworkId);
+            artworkDownloadExecutor.cancelDownload(artworkId);
         } else {
-            downloadService.cancelDownload(artworkId, extractUserUuid(httpRequest), false);
+            artworkDownloadExecutor.cancelDownload(artworkId, extractUserUuid(httpRequest), false);
         }
         return ResponseEntity.ok(DownloadResponse.builder()
                 .success(true)
@@ -46,10 +46,10 @@ public class DownloadQueueController {
         // 与 cancelDownload 的归属语义保持一致。
         if ("multi".equals(setupService.getMode()) && !setupService.isAdminLoggedIn(httpRequest)) {
             String ownerUuid = extractUserUuid(httpRequest);
-            cleared = downloadService.forceClearDownloadsForOwner(ownerUuid);
+            cleared = artworkDownloadExecutor.forceClearDownloadsForOwner(ownerUuid);
             cleared += novelDownloadService.forceClearDownloadsForOwner(ownerUuid);
         } else {
-            cleared = downloadService.forceClearDownloads();
+            cleared = artworkDownloadExecutor.forceClearDownloads();
             cleared += novelDownloadService.forceClearDownloads();
         }
         return ResponseEntity.ok(DownloadResponse.builder()

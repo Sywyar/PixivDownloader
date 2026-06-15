@@ -58,7 +58,7 @@ public class UgoiraService {
                              Path downloadPath, String referer, String cookie,
                              Consumer<UgoiraProgress> progressListener,
                              BooleanSupplier cancellationRequested) {
-        DownloadService.validatePixivUrl(other.getUgoiraZipUrl());
+        ArtworkDownloadExecutor.validatePixivUrl(other.getUgoiraZipUrl());
         String outputBaseName = resolveOutputBaseName(artworkId, other);
 
         Path zipPath = downloadPath.resolve("_ugoira_frames.zip");

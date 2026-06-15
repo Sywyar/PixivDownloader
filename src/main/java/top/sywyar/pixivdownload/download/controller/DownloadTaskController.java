@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.download.response.AlreadyDownloadedResponse;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
@@ -25,7 +25,7 @@ import top.sywyar.pixivdownload.setup.SetupService;
 @RequiredArgsConstructor
 public class DownloadTaskController {
 
-    private final DownloadService downloadService;
+    private final ArtworkDownloadExecutor artworkDownloadExecutor;
     private final SetupService setupService;
     private final UserQuotaService userQuotaService;
     private final MultiModeConfig multiModeConfig;
@@ -40,12 +40,12 @@ public class DownloadTaskController {
         if (request.getOther() == null) {
             request.setOther(new DownloadRequest.Other());
         }
-        DownloadService.validateUserDownloadFolder(request.getOther());
+        ArtworkDownloadExecutor.validateUserDownloadFolder(request.getOther());
         // SSRF 防护：同步校验所有下载 URL，非法 URL 抛出 LocalizedException（由全局处理器返回 400）
         if (request.getOther().isUgoira() && request.getOther().getUgoiraZipUrl() != null) {
-            DownloadService.validatePixivUrl(request.getOther().getUgoiraZipUrl());
+            ArtworkDownloadExecutor.validatePixivUrl(request.getOther().getUgoiraZipUrl());
         } else {
-            for (String url : request.getImageUrls()) DownloadService.validatePixivUrl(url);
+            for (String url : request.getImageUrls()) ArtworkDownloadExecutor.validatePixivUrl(url);
         }
 
         // 多人模式：never-delete/timed-delete 模式下，已下载过的作品直接返回成功，不消耗配额。
@@ -88,7 +88,7 @@ public class DownloadTaskController {
         }
 
         // 异步处理下载任务
-        downloadService.downloadImages(
+        artworkDownloadExecutor.downloadImages(
                 request.getArtworkId(),
                 request.getTitle(),
                 request.getImageUrls(),

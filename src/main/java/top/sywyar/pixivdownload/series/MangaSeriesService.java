@@ -203,7 +203,7 @@ public class MangaSeriesService {
     }
 
     /**
-     * 下载流程内的"系列元数据持久化"：调用方（DownloadService）从前端/脚本接收 hint，
+     * 下载流程内的"系列元数据持久化"：调用方（ArtworkDownloadExecutor）从前端/脚本接收 hint，
      * 由本方法负责按需补齐 {@code manga_series} 的 description / cover。语义：
      * <ul>
      *   <li>{@code title} / {@code authorId} 走 {@link #observe(long, String, Long)} 的并发安全 upsert</li>

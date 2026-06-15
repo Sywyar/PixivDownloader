@@ -15,7 +15,7 @@ import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
@@ -37,7 +37,7 @@ class DownloadTaskControllerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
-    private DownloadService downloadService;
+    private ArtworkDownloadExecutor artworkDownloadExecutor;
     @Mock
     private SetupService setupService;
     @Mock
@@ -51,7 +51,7 @@ class DownloadTaskControllerTest {
     void setUp() {
         multiModeConfig = new MultiModeConfig();
         DownloadTaskController controller = new DownloadTaskController(
-                downloadService, setupService, userQuotaService, multiModeConfig, pixivDatabase, APP_MESSAGES);
+                artworkDownloadExecutor, setupService, userQuotaService, multiModeConfig, pixivDatabase, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -141,7 +141,7 @@ class DownloadTaskControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true));
 
-            verify(downloadService).downloadImages(
+            verify(artworkDownloadExecutor).downloadImages(
                     eq(12345L),
                     eq("测试"),
                     eq(List.of("https://i.pximg.net/img/12345_p0.jpg")),
@@ -172,7 +172,7 @@ class DownloadTaskControllerTest {
                     .andExpect(jsonPath("$.success").value(true));
 
             verify(userQuotaService, never()).checkAndReserve(anyString(), anyInt());
-            verify(downloadService).downloadImages(
+            verify(artworkDownloadExecutor).downloadImages(
                     eq(12345L),
                     eq("测试"),
                     eq(List.of("https://i.pximg.net/img/12345_p0.jpg")),

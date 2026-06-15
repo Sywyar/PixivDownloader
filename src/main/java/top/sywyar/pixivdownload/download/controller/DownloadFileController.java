@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.ArtworkFileService;
 import top.sywyar.pixivdownload.download.response.ImageResponse;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 
@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 @RequiredArgsConstructor
 public class DownloadFileController {
 
-    private final DownloadService downloadService;
+    private final ArtworkFileService artworkFileService;
     private final GuestAccessGuard guestAccessGuard;
 
     @GetMapping("/downloaded/thumbnail/{artworkId}/{page}")
@@ -34,7 +34,7 @@ public class DownloadFileController {
             @PathVariable int page,
             HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
-        ImageResponse image = downloadService.getImageResponse(artworkId, page, true);
+        ImageResponse image = artworkFileService.getImageResponse(artworkId, page, true);
         return image != null ? ResponseEntity.ok(image) : ResponseEntity.status(404).build();
     }
 
@@ -44,7 +44,7 @@ public class DownloadFileController {
             @PathVariable int page,
             HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
-        DownloadService.ThumbnailFile thumbnail = downloadService.getThumbnailFile(artworkId, page);
+        ArtworkFileService.ThumbnailFile thumbnail = artworkFileService.getThumbnailFile(artworkId, page);
         if (thumbnail == null || !Files.isRegularFile(thumbnail.path())) {
             return ResponseEntity.notFound().build();
         }
@@ -63,7 +63,7 @@ public class DownloadFileController {
             @PathVariable int page,
             HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
-        File file = downloadService.getImageFile(artworkId, page);
+        File file = artworkFileService.getImageFile(artworkId, page);
         if (file == null) return ResponseEntity.notFound().build();
 
         byte[] bytes = Files.readAllBytes(file.toPath());
@@ -88,7 +88,7 @@ public class DownloadFileController {
             @PathVariable int page,
             HttpServletRequest httpRequest) throws IOException {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
-        ImageResponse image = downloadService.getImageResponse(artworkId, page, false);
+        ImageResponse image = artworkFileService.getImageResponse(artworkId, page, false);
         return image != null ? ResponseEntity.ok(image) : ResponseEntity.status(404).build();
     }
 

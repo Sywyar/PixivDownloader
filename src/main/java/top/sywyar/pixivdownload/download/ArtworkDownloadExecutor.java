@@ -16,17 +16,13 @@ import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.common.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.common.SafePathSegment;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.download.response.ImageResponse;
 import top.sywyar.pixivdownload.duplicate.ImageHashService;
-import top.sywyar.pixivdownload.imageclassifier.ThumbnailManager;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -34,8 +30,6 @@ import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 import top.sywyar.pixivdownload.util.TimestampUtils;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
 import java.io.*;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -43,7 +37,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.FileTime;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CancellationException;
@@ -52,10 +45,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
+/**
+ * 单作品下载引擎：图片 / 动图落盘、下载状态机、取消 / 清空、文件名规划、入库与下载后置动作
+ * （收藏 / 收藏夹 / Hash / 系列 / 作者 / 前端转发 meta 旁路捕获）。{@link ArtworkDownloader} 的实现。
+ */
 @Slf4j
 @Service
-public class DownloadService implements ArtworkDownloader {
-    private static final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "gif", "webp");
+public class ArtworkDownloadExecutor implements ArtworkDownloader {
 
     private final DownloadConfig downloadConfig;
     private final ApplicationEventPublisher eventPublisher;
@@ -68,35 +64,31 @@ public class DownloadService implements ArtworkDownloader {
     private final AuthorService authorService;
     private final CollectionService collectionService;
     private final MangaSeriesService mangaSeriesService;
-    private final ArtworkFileLocator artworkFileLocator;
     private final ImageHashService imageHashService;
     private final WorkMetaCaptureService workMetaCaptureService;
     private final DownloadStatisticsService downloadStatisticsService;
+    private final DownloadedArtworkService downloadedArtworkService;
     private final AppMessages messages;
 
     // 存储下载状态
     private final ConcurrentHashMap<String, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Object> thumbnailCacheLocks = new ConcurrentHashMap<>();
 
-    public record ThumbnailFile(Path path, String extension) {
-    }
-
-    public DownloadService(DownloadConfig downloadConfig,
-                           ApplicationEventPublisher eventPublisher,
-                           PixivDatabase pixivDatabase,
-                           @Nullable UserQuotaService userQuotaService,
-                           @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
-                           @Qualifier("taskScheduler") TaskScheduler taskScheduler,
-                           PixivBookmarkService pixivBookmarkService,
-                           UgoiraService ugoiraService,
-                           AuthorService authorService,
-                           CollectionService collectionService,
-                           MangaSeriesService mangaSeriesService,
-                           ArtworkFileLocator artworkFileLocator,
-                           ImageHashService imageHashService,
-                           WorkMetaCaptureService workMetaCaptureService,
-                           DownloadStatisticsService downloadStatisticsService,
-                           AppMessages messages) {
+    public ArtworkDownloadExecutor(DownloadConfig downloadConfig,
+                                   ApplicationEventPublisher eventPublisher,
+                                   PixivDatabase pixivDatabase,
+                                   @Nullable UserQuotaService userQuotaService,
+                                   @Qualifier("downloadRestTemplate") RestTemplate downloadRestTemplate,
+                                   @Qualifier("taskScheduler") TaskScheduler taskScheduler,
+                                   PixivBookmarkService pixivBookmarkService,
+                                   UgoiraService ugoiraService,
+                                   AuthorService authorService,
+                                   CollectionService collectionService,
+                                   MangaSeriesService mangaSeriesService,
+                                   ImageHashService imageHashService,
+                                   WorkMetaCaptureService workMetaCaptureService,
+                                   DownloadStatisticsService downloadStatisticsService,
+                                   DownloadedArtworkService downloadedArtworkService,
+                                   AppMessages messages) {
         this.downloadConfig = downloadConfig;
         this.eventPublisher = eventPublisher;
         this.pixivDatabase = pixivDatabase;
@@ -108,10 +100,10 @@ public class DownloadService implements ArtworkDownloader {
         this.authorService = authorService;
         this.collectionService = collectionService;
         this.mangaSeriesService = mangaSeriesService;
-        this.artworkFileLocator = artworkFileLocator;
         this.imageHashService = imageHashService;
         this.workMetaCaptureService = workMetaCaptureService;
         this.downloadStatisticsService = downloadStatisticsService;
+        this.downloadedArtworkService = downloadedArtworkService;
         this.messages = messages;
     }
 
@@ -751,409 +743,9 @@ public class DownloadService implements ArtworkDownloader {
         }
     }
 
-    public List<String> getDownloadedRecord() {
-        List<String> ids = new LinkedList<>();
-        pixivDatabase.getAllArtworkIds().forEach(id -> ids.add(String.valueOf(id)));
-        return ids;
-    }
-
-    public ArtworkRecord getDownloadedRecord(Long artworkId) {
-        return pixivDatabase.getArtwork(artworkId);
-    }
-
-    public ArtworkRecord getDownloadedRecord(Long artworkId, boolean verifyFiles) {
-        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-        if (artwork != null) {
-            // 软删除标记的记录磁盘文件本就已删：跳过实际目录检测，更不能当陈旧记录清掉
-            // （那会抹掉「已下载过，但被删除」的判重依据）。原样返回，由调用方按 deleted 决策。
-            if (artwork.deleted()) {
-                return artwork;
-            }
-            if (!verifyFiles) {
-                return artwork;
-            }
-            if (hasArtworkFiles(artwork)) {
-                return artwork;
-            }
-            removeStaleArtworkRecord(artwork);
-            return null;
-        }
-        if (verifyFiles) {
-            return findArtworkOnDisk(artworkId);
-        }
-        return null;
-    }
-
     @Override
     public boolean isArtworkDownloaded(long artworkId, boolean verifyFiles) {
-        return getDownloadedRecord(artworkId, verifyFiles) != null;
-    }
-
-    /**
-     * pixiv-batch 两阶段恢复入口：调用方已从 Pixiv 拉回元数据。
-     * <ul>
-     *   <li>DB 已有记录且 title 非空 → 返回原记录（不覆盖任何字段）</li>
-     *   <li>DB 已有记录但 title 为空（说明先前是裸记录恢复出来的）→ 仅填补 NULL/空字段后返回最新记录</li>
-     *   <li>DB 无记录但 {@code {rootFolder}/{artworkId}/} 下有匹配默认模板的图片 → 用 meta + 实际页数/扩展名写完整记录</li>
-     *   <li>否则返回 null（调用方按未下载处理）</li>
-     * </ul>
-     */
-    public ArtworkRecord recoverMetadata(Long artworkId, top.sywyar.pixivdownload.download.request.RecoverMetadataRequest meta) {
-        if (meta == null) {
-            meta = new top.sywyar.pixivdownload.download.request.RecoverMetadataRequest();
-        }
-        ArtworkRecord existing = pixivDatabase.getArtwork(artworkId);
-        String normalizedDescription = PixivDescriptionHtml.normalizeLinks(meta.getDescription());
-        if (existing != null) {
-            // 软删除标记的记录不做元数据回填：文件已删，记录只承担「已下载过，但被删除」的判重职责
-            if (existing.deleted()) {
-                return existing;
-            }
-            if (StringUtils.hasText(existing.title())) {
-                return existing;
-            }
-            pixivDatabase.fillArtworkMetadataIfMissing(artworkId,
-                    StringUtils.hasText(meta.getTitle()) ? meta.getTitle() : null,
-                    meta.getXRestrict(), meta.getIsAi(), meta.getAuthorId(),
-                    StringUtils.hasText(normalizedDescription) ? normalizedDescription : null);
-            observeAuthorIfPresent(artworkId, meta);
-            return pixivDatabase.getArtwork(artworkId);
-        }
-        // DB 无记录：扫描磁盘 → 用 meta 写完整记录
-        String rootFolder = downloadConfig.getRootFolder();
-        File rootDir = new File(rootFolder);
-        if (!rootDir.isDirectory()) {
-            return null;
-        }
-        Path flatDir = Paths.get(rootFolder, String.valueOf(artworkId));
-        File dirFile = flatDir.toFile();
-        if (!dirFile.isDirectory()) {
-            return null;
-        }
-        Map<Integer, String> pageExt = scanDefaultTemplateFiles(dirFile, artworkId);
-        if (pageExt.isEmpty()) {
-            return null;
-        }
-        int count = contiguousPageCount(pageExt);
-        if (count <= 0) {
-            log.info(logMessage("download.log.stale-record.incomplete",
-                    id(artworkId), flatDir.toAbsolutePath()));
-            return null;
-        }
-        LinkedHashSet<String> uniqueExts = new LinkedHashSet<>(new TreeMap<>(pageExt).values());
-        String extensions = String.join(",", uniqueExts);
-        String absoluteFolder = flatDir.toAbsolutePath().toString();
-        log.info(logMessage("download.log.stale-record.restored",
-                id(artworkId), absoluteFolder));
-        pixivDatabase.insertArtwork(artworkId,
-                StringUtils.hasText(meta.getTitle()) ? meta.getTitle() : "",
-                absoluteFolder, count, extensions,
-                pixivDatabase.getUniqueTime(), meta.getXRestrict(), meta.getIsAi(),
-                meta.getAuthorId(),
-                normalizedDescription == null ? "" : normalizedDescription);
-        observeAuthorIfPresent(artworkId, meta);
-        return pixivDatabase.getArtwork(artworkId);
-    }
-
-    private void observeAuthorIfPresent(Long artworkId, top.sywyar.pixivdownload.download.request.RecoverMetadataRequest meta) {
-        if (meta.getAuthorId() == null) return;
-        try {
-            authorService.observe(meta.getAuthorId(), meta.getAuthorName());
-        } catch (Exception e) {
-            log.warn(logMessage("download.log.record-author.failed", id(artworkId)), e);
-        }
-    }
-
-    private ArtworkRecord findArtworkOnDisk(Long artworkId) {
-        String rootFolder = downloadConfig.getRootFolder();
-        File rootDir = new File(rootFolder);
-        if (!rootDir.isDirectory()) {
-            return null;
-        }
-        Path flatDir = Paths.get(rootFolder, String.valueOf(artworkId));
-        File dirFile = flatDir.toFile();
-        if (!dirFile.isDirectory()) {
-            return null;
-        }
-        // 仅识别符合默认文件名模板 {artwork_id}_p{page}.{ext} 的文件 —— 恢复出的记录会以
-        // DEFAULT_TEMPLATE_ID 写回 DB，只有匹配该模板的文件才能被后续 resolveImageFile 查到。
-        Map<Integer, String> pageExt = scanDefaultTemplateFiles(dirFile, artworkId);
-        if (pageExt.isEmpty()) {
-            return null;
-        }
-        int count = contiguousPageCount(pageExt);
-        if (count <= 0) {
-            log.info(logMessage("download.log.stale-record.incomplete",
-                    id(artworkId), flatDir.toAbsolutePath()));
-            return null;
-        }
-        // 按页号升序收集，使 extensions 顺序稳定（便于排查与单测断言）
-        LinkedHashSet<String> uniqueExts = new LinkedHashSet<>(new TreeMap<>(pageExt).values());
-        String extensions = String.join(",", uniqueExts);
-        String absoluteFolder = flatDir.toAbsolutePath().toString();
-        log.info(logMessage("download.log.stale-record.restored",
-                id(artworkId), absoluteFolder));
-        pixivDatabase.insertArtwork(artworkId, "", absoluteFolder, count, extensions,
-                pixivDatabase.getUniqueTime(), null, null, null, "");
-        return pixivDatabase.getArtwork(artworkId);
-    }
-
-    /**
-     * 磁盘文件页号必须从 0 连续到最大页号才视为完整作品集合；
-     * 缺页（如部分下载失败的残留文件）不得恢复为已下载记录，否则判重会挡住补齐下载。
-     *
-     * @return 连续时返回页数（最大页号 + 1），有缺页时返回 -1
-     */
-    private static int contiguousPageCount(Map<Integer, String> pageExt) {
-        int maxPage = Collections.max(pageExt.keySet());
-        return pageExt.size() == maxPage + 1 ? maxPage + 1 : -1;
-    }
-
-    private Map<Integer, String> scanDefaultTemplateFiles(File directory, long artworkId) {
-        File[] files = directory.listFiles();
-        if (files == null) {
-            return Collections.emptyMap();
-        }
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                "^" + java.util.regex.Pattern.quote(String.valueOf(artworkId)) + "_p(\\d+)\\.([A-Za-z0-9]+)$");
-        Map<Integer, String> pageExt = new HashMap<>();
-        for (File file : files) {
-            if (!file.isFile()) continue;
-            java.util.regex.Matcher m = pattern.matcher(file.getName());
-            if (!m.matches()) continue;
-            String ext = m.group(2).toLowerCase(Locale.ROOT);
-            if (!IMAGE_EXTENSIONS.contains(ext)) continue;
-            int page = Integer.parseInt(m.group(1));
-            pageExt.merge(page, ext, (existing, incoming) -> existing);
-        }
-        return pageExt;
-    }
-
-    public ImageResponse getImageResponse(Long artworkId, int page, boolean thumbnail) throws IOException {
-        if (thumbnail) {
-            ThumbnailFile thumbnailFile = getThumbnailFile(artworkId, page);
-            if (thumbnailFile == null) {
-                return null;
-            }
-            byte[] fileBytes = Files.readAllBytes(thumbnailFile.path());
-            BufferedImage image = ImageIO.read(thumbnailFile.path().toFile());
-            int width = image == null ? 0 : image.getWidth();
-            int height = image == null ? 0 : image.getHeight();
-            String base64Image = Base64.getEncoder().encodeToString(fileBytes);
-            return new ImageResponse(true, base64Image, thumbnailFile.extension(), base64Image.length(), width, height,
-                    messages.get("download.image.thumbnail.fetch-success"));
-        }
-
-        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-        if (artwork == null) {
-            return null;
-        }
-
-        int count = artwork.count();
-        if (count <= page || page < 0) {
-            return null;
-        }
-
-        File imageFile = resolveImageFile(artwork, page);
-        if (imageFile == null) {
-            return null;
-        }
-        String extension = getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT);
-
-        boolean isWebp = "webp".equals(extension);
-
-        // WebP 完整图请求：直接返回原始字节，由 rawfile 端点处理更高效
-        // 此处 thumbnail=false 路径保留为备用
-        if (isWebp && !thumbnail) {
-            byte[] fileBytes = Files.readAllBytes(imageFile.toPath());
-            String base64Image = Base64.getEncoder().encodeToString(fileBytes);
-            return new ImageResponse(true, base64Image, "webp", base64Image.length(), 0, 0,
-                    messages.get("download.image.ugoira.fetch-success"));
-        }
-
-        // WebP 缩略图：使用伴随的 _p0_thumb.jpg 文件
-        if (isWebp) {
-            String dirPath = resolveArtworkDirectory(artwork);
-            String baseName = resolveStoredFileBaseName(artwork, page);
-            File thumbFile = Paths.get(dirPath, baseName + "_thumb.jpg").toFile();
-            if (!thumbFile.exists()) {
-                return null;
-            }
-            imageFile = thumbFile;
-            extension = "jpg";
-        }
-
-        BufferedImage image;
-        if (thumbnail) {
-            image = ThumbnailManager.getThumbnail(imageFile, -1, -1);
-        } else {
-            image = ImageIO.read(imageFile);
-        }
-
-        String writeFormat = extension;
-        ByteArrayOutputStream bass = new ByteArrayOutputStream();
-        ImageIO.write(image, writeFormat, bass);
-        String base64Image = Base64.getEncoder().encodeToString(bass.toByteArray());
-
-        return new ImageResponse(true, base64Image, writeFormat, base64Image.length(), image.getWidth(), image.getHeight(),
-                messages.get("download.image.thumbnail.fetch-success"));
-    }
-
-    public ThumbnailFile getThumbnailFile(Long artworkId, int page) throws IOException {
-        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-        if (artwork == null || artwork.count() <= page || page < 0) {
-            return null;
-        }
-
-        File imageFile = resolveThumbnailSourceFile(artwork, page);
-        if (imageFile == null) {
-            return null;
-        }
-        String writeFormat = normalizeThumbnailFormat(getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT));
-        Path cachePath = thumbnailCachePath(artworkId, page, writeFormat);
-        String lockKey = cachePath.toString();
-        Object lock = thumbnailCacheLocks.computeIfAbsent(lockKey, ignored -> new Object());
-        try {
-            synchronized (lock) {
-                FileTime sourceTime = Files.getLastModifiedTime(imageFile.toPath());
-                if (isFreshThumbnailCache(cachePath, sourceTime)) {
-                    return new ThumbnailFile(cachePath, writeFormat);
-                }
-                Files.createDirectories(cachePath.getParent());
-                BufferedImage thumbnailImage = ThumbnailManager.getThumbnail(imageFile, -1, -1);
-                Path tempPath = Files.createTempFile(cachePath.getParent(), "thumb-", "." + writeFormat);
-                try {
-                    try (OutputStream out = Files.newOutputStream(tempPath)) {
-                        if (!ImageIO.write(thumbnailImage, writeFormat, out)) {
-                            throw new IOException("Unsupported thumbnail format: " + writeFormat);
-                        }
-                    }
-                    moveReplacing(tempPath, cachePath);
-                    Files.setLastModifiedTime(cachePath, sourceTime);
-                } finally {
-                    Files.deleteIfExists(tempPath);
-                }
-            }
-        } finally {
-            thumbnailCacheLocks.remove(lockKey, lock);
-        }
-        return new ThumbnailFile(cachePath, writeFormat);
-    }
-
-    private File resolveThumbnailSourceFile(ArtworkRecord artwork, int page) {
-        File imageFile = resolveImageFile(artwork, page);
-        if (imageFile == null) {
-            return null;
-        }
-        String extension = getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT);
-        if (!"webp".equals(extension)) {
-            return imageFile;
-        }
-        String dirPath = resolveArtworkDirectory(artwork);
-        String baseName = resolveStoredFileBaseName(artwork, page);
-        File thumbFile = Paths.get(dirPath, baseName + "_thumb.jpg").toFile();
-        return thumbFile.exists() ? thumbFile : null;
-    }
-
-    private Path thumbnailCachePath(Long artworkId, int page, String extension) {
-        return RuntimeFiles.galleryThumbnailDirectory()
-                .resolve(String.valueOf(artworkId))
-                .resolve("p" + page + "." + extension)
-                .toAbsolutePath()
-                .normalize();
-    }
-
-    private boolean isFreshThumbnailCache(Path cachePath, FileTime sourceTime) throws IOException {
-        if (!Files.isRegularFile(cachePath) || Files.size(cachePath) <= 0) {
-            return false;
-        }
-        return Files.getLastModifiedTime(cachePath).toMillis() >= sourceTime.toMillis();
-    }
-
-    private String normalizeThumbnailFormat(String extension) {
-        return "jpeg".equals(extension) ? "jpg" : extension;
-    }
-
-    private void moveReplacing(Path source, Path target) throws IOException {
-        try {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException e) {
-            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    public File getImageFile(Long artworkId, int page) {
-        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-        if (artwork == null) return null;
-
-        int count = artwork.count();
-        if (count <= page || page < 0) return null;
-
-        return resolveImageFile(artwork, page);
-    }
-
-    private boolean hasArtworkFiles(ArtworkRecord artwork) {
-        String directoryPath = resolveArtworkDirectory(artwork);
-        if (!StringUtils.hasText(directoryPath)) {
-            return false;
-        }
-        File directory = new File(directoryPath);
-        if (!directory.isDirectory()) {
-            return false;
-        }
-        for (int page = 0; page < Math.max(artwork.count(), 1); page++) {
-            File file = resolveImageFile(artwork, page);
-            if (file != null && IMAGE_EXTENSIONS.contains(getFileExtension(file.getName()).toLowerCase(Locale.ROOT))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private File resolveImageFile(ArtworkRecord artwork, int page) {
-        return artworkFileLocator.resolveImageFile(artwork, page);
-    }
-
-    private String resolveStoredFileBaseName(ArtworkRecord artwork, int page) {
-        return artworkFileLocator.resolveStoredFileBaseName(artwork, page);
-    }
-
-    private String resolveArtworkDirectory(ArtworkRecord artwork) {
-        return artworkFileLocator.resolveArtworkDirectory(artwork);
-    }
-
-    private void removeStaleArtworkRecord(ArtworkRecord artwork) {
-        try {
-            pixivDatabase.deleteArtwork(artwork.artworkId());
-            log.info(logMessage("download.log.stale-record.deleted",
-                    id(artwork.artworkId()), resolveArtworkDirectory(artwork)));
-        } catch (Exception e) {
-            log.warn(logMessage("download.log.stale-record.delete-failed", id(artwork.artworkId())), e);
-        }
-    }
-
-    public static File findFileByName(String directoryPath, String fileName) {
-        return ArtworkFileLocator.findFileByName(directoryPath, fileName);
-    }
-
-    public List<Long> getSortTimeArtwork() {
-        return pixivDatabase.getArtworkIdsSortedByTimeDesc();
-    }
-
-    public List<Long> getSortAuthorArtwork() {
-        return pixivDatabase.getArtworkIdsSortedByAuthorIdAsc();
-    }
-
-    public List<Long> getSortTimeArtworkPaged(int page, int size) {
-        return pixivDatabase.getArtworkIdsSortedByTimeDescPaged(page * size, size);
-    }
-
-    public List<Long> getSortAuthorArtworkPaged(int page, int size) {
-        return pixivDatabase.getArtworkIdsSortedByAuthorIdAscPaged(page * size, size);
-    }
-
-    public long getArtworkCount() {
-        return pixivDatabase.countArtworks();
+        return downloadedArtworkService.getDownloadedRecord(artworkId, verifyFiles) != null;
     }
 
     /**

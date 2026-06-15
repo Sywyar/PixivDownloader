@@ -23,11 +23,9 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.download.request.RecoverMetadataRequest;
 import top.sywyar.pixivdownload.duplicate.ImageHashService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
@@ -36,7 +34,6 @@ import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.series.MangaSeriesService;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -48,8 +45,8 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("DownloadService 单元测试")
-class DownloadServiceTest {
+@DisplayName("ArtworkDownloadExecutor 单元测试")
+class ArtworkDownloadExecutorTest {
     private static final AppMessages APP_MESSAGES = TestI18nBeans.appMessages();
 
     @TempDir
@@ -83,18 +80,18 @@ class DownloadServiceTest {
     private WorkMetaCaptureService workMetaCaptureService;
     @Mock
     private DownloadStatisticsService downloadStatisticsService;
+    @Mock
+    private DownloadedArtworkService downloadedArtworkService;
 
-    private ArtworkFileLocator artworkFileLocator;
-    private DownloadService downloadService;
+    private ArtworkDownloadExecutor artworkDownloadExecutor;
 
     @BeforeEach
     void setUp() {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
-        artworkFileLocator = new ArtworkFileLocator(pixivDatabase, downloadConfig, APP_MESSAGES);
-        downloadService = new DownloadService(downloadConfig, eventPublisher, pixivDatabase, userQuotaService,
-                downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService, authorService,
-                collectionService, mangaSeriesService, artworkFileLocator, imageHashService,
-                workMetaCaptureService, downloadStatisticsService, APP_MESSAGES);
+        artworkDownloadExecutor = new ArtworkDownloadExecutor(downloadConfig, eventPublisher, pixivDatabase,
+                userQuotaService, downloadRestTemplate, taskScheduler, pixivBookmarkService, ugoiraService,
+                authorService, collectionService, mangaSeriesService, imageHashService,
+                workMetaCaptureService, downloadStatisticsService, downloadedArtworkService, APP_MESSAGES);
     }
 
     @Nested
@@ -109,7 +106,7 @@ class DownloadServiceTest {
             other.setUserDownload(true);
             other.setUsername(username);
 
-            assertThatThrownBy(() -> DownloadService.validateUserDownloadFolder(other))
+            assertThatThrownBy(() -> ArtworkDownloadExecutor.validateUserDownloadFolder(other))
                     .isInstanceOf(LocalizedException.class)
                     .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
                             .isEqualTo("download.path.segment.invalid"));
@@ -122,7 +119,7 @@ class DownloadServiceTest {
             other.setUserDownload(true);
             other.setUsername("pixiv_user_123");
 
-            assertThatCode(() -> DownloadService.validateUserDownloadFolder(other))
+            assertThatCode(() -> ArtworkDownloadExecutor.validateUserDownloadFolder(other))
                     .doesNotThrowAnyException();
         }
     }
@@ -137,17 +134,17 @@ class DownloadServiceTest {
         void shouldIsolateSameArtworkIdByOwner() {
             ConcurrentHashMap<String, DownloadStatus> statuses =
                     (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
-                            .getField(downloadService, "downloadStatusMap");
+                            .getField(artworkDownloadExecutor, "downloadStatusMap");
             DownloadStatus ownerA = new DownloadStatus(123L, "owner-a-title", 1, "owner-a");
             DownloadStatus ownerB = new DownloadStatus(123L, "owner-b-title", 1, "owner-b");
             statuses.put("owner-a:123", ownerA);
             statuses.put("owner-b:123", ownerB);
 
-            assertThat(downloadService.getDownloadStatus(123L, "owner-a", false)).isSameAs(ownerA);
-            assertThat(downloadService.getDownloadStatus(123L, "owner-b", false)).isSameAs(ownerB);
-            assertThat(downloadService.getDownloadStatus("owner-a", false)).containsExactly(123L);
+            assertThat(artworkDownloadExecutor.getDownloadStatus(123L, "owner-a", false)).isSameAs(ownerA);
+            assertThat(artworkDownloadExecutor.getDownloadStatus(123L, "owner-b", false)).isSameAs(ownerB);
+            assertThat(artworkDownloadExecutor.getDownloadStatus("owner-a", false)).containsExactly(123L);
 
-            downloadService.cancelDownload(123L, "owner-a", false);
+            artworkDownloadExecutor.cancelDownload(123L, "owner-a", false);
 
             assertThat(ownerA.isCancelled()).isTrue();
             assertThat(ownerB.isCancelled()).isFalse();
@@ -159,13 +156,13 @@ class DownloadServiceTest {
         void shouldForceClearOnlyMatchingOwnerStatuses() {
             ConcurrentHashMap<String, DownloadStatus> statuses =
                     (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
-                            .getField(downloadService, "downloadStatusMap");
+                            .getField(artworkDownloadExecutor, "downloadStatusMap");
             DownloadStatus ownerA = new DownloadStatus(123L, "owner-a-title", 1, "owner-a");
             DownloadStatus ownerB = new DownloadStatus(123L, "owner-b-title", 1, "owner-b");
             statuses.put("owner-a:123", ownerA);
             statuses.put("owner-b:123", ownerB);
 
-            int cleared = downloadService.forceClearDownloadsForOwner("owner-a");
+            int cleared = artworkDownloadExecutor.forceClearDownloadsForOwner("owner-a");
 
             assertThat(cleared).isEqualTo(1);
             assertThat(ownerA.isCancelled()).isTrue();
@@ -184,7 +181,7 @@ class DownloadServiceTest {
         @Test
         @DisplayName("合法的 Pixiv 图片 URL 应通过校验")
         void shouldAcceptValidPixivUrl() {
-            assertThatCode(() -> DownloadService.validatePixivUrl(
+            assertThatCode(() -> ArtworkDownloadExecutor.validatePixivUrl(
                     "https://i.pximg.net/img-original/img/2024/01/01/00/00/00/12345_p0.jpg"
             )).doesNotThrowAnyException();
         }
@@ -192,15 +189,15 @@ class DownloadServiceTest {
         @Test
         @DisplayName("null 和空字符串应跳过校验")
         void shouldSkipNullOrBlank() {
-            assertThatCode(() -> DownloadService.validatePixivUrl(null)).doesNotThrowAnyException();
-            assertThatCode(() -> DownloadService.validatePixivUrl("")).doesNotThrowAnyException();
-            assertThatCode(() -> DownloadService.validatePixivUrl("   ")).doesNotThrowAnyException();
+            assertThatCode(() -> ArtworkDownloadExecutor.validatePixivUrl(null)).doesNotThrowAnyException();
+            assertThatCode(() -> ArtworkDownloadExecutor.validatePixivUrl("")).doesNotThrowAnyException();
+            assertThatCode(() -> ArtworkDownloadExecutor.validatePixivUrl("   ")).doesNotThrowAnyException();
         }
 
         @Test
         @DisplayName("HTTP 协议应被拒绝（仅允许 HTTPS）")
         void shouldRejectHttpUrl() {
-            assertThatThrownBy(() -> DownloadService.validatePixivUrl(
+            assertThatThrownBy(() -> ArtworkDownloadExecutor.validatePixivUrl(
                     "http://i.pximg.net/img/12345.jpg"
             )).isInstanceOf(LocalizedException.class)
               .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
@@ -217,7 +214,7 @@ class DownloadServiceTest {
         })
         @DisplayName("非 pximg.net 域名应被拒绝")
         void shouldRejectNonPixivDomain(String url) {
-            assertThatThrownBy(() -> DownloadService.validatePixivUrl(url))
+            assertThatThrownBy(() -> ArtworkDownloadExecutor.validatePixivUrl(url))
                     .isInstanceOf(LocalizedException.class)
                     .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
                             .isEqualTo("download.url.host.not-allowed"))
@@ -227,7 +224,7 @@ class DownloadServiceTest {
         @Test
         @DisplayName("FTP 等非 HTTPS 协议应被拒绝")
         void shouldRejectFtpProtocol() {
-            assertThatThrownBy(() -> DownloadService.validatePixivUrl(
+            assertThatThrownBy(() -> ArtworkDownloadExecutor.validatePixivUrl(
                     "ftp://i.pximg.net/img.jpg"
             )).isInstanceOf(LocalizedException.class)
               .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
@@ -238,7 +235,7 @@ class DownloadServiceTest {
         @Test
         @DisplayName("无效 URL 格式应被拒绝")
         void shouldRejectInvalidUrl() {
-            assertThatThrownBy(() -> DownloadService.validatePixivUrl(
+            assertThatThrownBy(() -> ArtworkDownloadExecutor.validatePixivUrl(
                     "not a url at all %%"
             )).isInstanceOf(LocalizedException.class)
               .satisfies(error -> assertThat(((LocalizedException) error).getMessageCode())
@@ -253,7 +250,7 @@ class DownloadServiceTest {
         })
         @DisplayName("各种合法 pximg.net 子域名应通过")
         void shouldAcceptVariousPixivSubdomains(String url) {
-            assertThatCode(() -> DownloadService.validatePixivUrl(url))
+            assertThatCode(() -> ArtworkDownloadExecutor.validatePixivUrl(url))
                     .doesNotThrowAnyException();
         }
     }
@@ -267,13 +264,13 @@ class DownloadServiceTest {
         @Test
         @DisplayName("不存在的作品ID应返回 null")
         void shouldReturnNullForUnknownArtwork() {
-            assertThat(downloadService.getDownloadStatus(99999L)).isNull();
+            assertThat(artworkDownloadExecutor.getDownloadStatus(99999L)).isNull();
         }
 
         @Test
         @DisplayName("getDownloadStatus() 无参版本应返回空列表（无活跃下载时）")
         void shouldReturnEmptyListWhenNoActiveDownloads() {
-            List<Long> active = downloadService.getDownloadStatus();
+            List<Long> active = artworkDownloadExecutor.getDownloadStatus();
             assertThat(active).isEmpty();
         }
     }
@@ -287,393 +284,8 @@ class DownloadServiceTest {
         @Test
         @DisplayName("取消不存在的下载任务应无异常")
         void shouldNotThrowWhenCancellingNonExistentDownload() {
-            assertThatCode(() -> downloadService.cancelDownload(99999L))
+            assertThatCode(() -> artworkDownloadExecutor.cancelDownload(99999L))
                     .doesNotThrowAnyException();
-        }
-    }
-
-    // ========== getDownloadedRecord ==========
-
-    @Nested
-    @DisplayName("getDownloadedRecord")
-    class GetDownloadedRecordTests {
-
-        @Test
-        @DisplayName("已存在的作品应返回记录")
-        void shouldReturnArtworkRecord() {
-            ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", "/path/to/folder",
-                    3, "jpg", 1700000000L, false, null, null, 0, null, null, null);
-            when(pixivDatabase.getArtwork(12345L)).thenReturn(record);
-
-            ArtworkRecord result = downloadService.getDownloadedRecord(12345L);
-
-            assertThat(result).isNotNull();
-            assertThat(result.artworkId()).isEqualTo(12345L);
-            assertThat(result.title()).isEqualTo("测试作品");
-        }
-
-        @Test
-        @DisplayName("不存在的作品应返回 null")
-        void shouldReturnNullForNonExistentArtwork() {
-            when(pixivDatabase.getArtwork(99999L)).thenReturn(null);
-
-            assertThat(downloadService.getDownloadedRecord(99999L)).isNull();
-        }
-
-        @Test
-        @DisplayName("数据库异常时应向上传播")
-        void shouldPropagateOnDatabaseError() {
-            when(pixivDatabase.getArtwork(12345L)).thenThrow(new RuntimeException("DB error"));
-
-            assertThatCode(() -> downloadService.getDownloadedRecord(12345L))
-                    .isInstanceOf(RuntimeException.class)
-                    .hasMessage("DB error");
-        }
-
-        @Test
-        @DisplayName("verifyFiles=true 且目录为空时应删除脏记录")
-        void shouldDeleteStaleRecordWhenDirectoryIsEmpty() throws Exception {
-            Path folder = Files.createDirectories(tempDir.resolve("12345"));
-            ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", folder.toString(),
-                    3, "jpg", 1700000000L, false, null, null, 0, null, null, null);
-            when(pixivDatabase.getArtwork(12345L)).thenReturn(record);
-
-            ArtworkRecord result = downloadService.getDownloadedRecord(12345L, true);
-
-            assertThat(result).isNull();
-            verify(pixivDatabase).deleteArtwork(12345L);
-        }
-
-        @Test
-        @DisplayName("verifyFiles=true 且目录里没有作品图片文件时应删除脏记录")
-        void shouldDeleteStaleRecordWhenDirectoryHasNoArtworkImages() throws Exception {
-            Path folder = Files.createDirectories(tempDir.resolve("22345"));
-            Files.writeString(folder.resolve("note.txt"), "orphan");
-            Files.writeString(folder.resolve("22345_p0.json"), "{}");
-            ArtworkRecord record = new ArtworkRecord(22345L, "测试作品", folder.toString(),
-                    1, "jpg", 1700000000L, false, null, null, 0, null, null, null);
-            when(pixivDatabase.getArtwork(22345L)).thenReturn(record);
-
-            ArtworkRecord result = downloadService.getDownloadedRecord(22345L, true);
-
-            assertThat(result).isNull();
-            verify(pixivDatabase).deleteArtwork(22345L);
-        }
-
-        @Test
-        @DisplayName("verifyFiles=true 时应优先使用 move_folder 检测作品图片文件")
-        void shouldUseMoveFolderWhenArtworkImageExists() throws Exception {
-            Path originalFolder = Files.createDirectories(tempDir.resolve("32345-original"));
-            Path movedFolder = Files.createDirectories(tempDir.resolve("32345-moved"));
-            Files.write(movedFolder.resolve("32345_p0.webp"), new byte[]{1, 2, 3});
-            ArtworkRecord record = new ArtworkRecord(32345L, "测试作品", originalFolder.toString(),
-                    1, "webp", 1700000000L, true, movedFolder.toString(), 1700000001L, 0, null, null, null);
-            when(pixivDatabase.getArtwork(32345L)).thenReturn(record);
-
-            ArtworkRecord result = downloadService.getDownloadedRecord(32345L, true);
-
-            assertThat(result).isSameAs(record);
-            verify(pixivDatabase, never()).deleteArtwork(32345L);
-        }
-
-        @Test
-        @DisplayName("verifyFiles=true 时应按数据库文件名模板检测作品图片文件")
-        void shouldVerifyArtworkFilesByStoredFileNameTemplate() throws Exception {
-            Path folder = Files.createDirectories(tempDir.resolve("42345"));
-            Files.write(folder.resolve("42345-Title_Name_p0.jpg"), new byte[]{1, 2, 3});
-            ArtworkRecord record = new ArtworkRecord(42345L, "Title/Name", folder.toString(),
-                    1, "jpg", 1700000000L, false, null, null, 0, false, null, null, 9L);
-            when(pixivDatabase.getArtwork(42345L)).thenReturn(record);
-            when(pixivDatabase.getFileNameTemplate(9L)).thenReturn("{artwork_id}-{artwork_title}_p{page}");
-
-            ArtworkRecord result = downloadService.getDownloadedRecord(42345L, true);
-
-            assertThat(result).isSameAs(record);
-            verify(pixivDatabase, never()).deleteArtwork(42345L);
-        }
-    }
-
-    @Nested
-    @DisplayName("getDownloadedRecord 磁盘反向恢复")
-    class FindArtworkOnDiskTests {
-
-        @BeforeEach
-        void setupRootFolder() {
-            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000200L);
-        }
-
-        @Test
-        @DisplayName("verifyFiles=false 时即便磁盘有文件也不应恢复")
-        void shouldNotRecoverWhenVerifyFilesFalse() throws Exception {
-            Path dir = Files.createDirectories(tempDir.resolve("11111"));
-            Files.write(dir.resolve("11111_p0.jpg"), new byte[]{1});
-            when(pixivDatabase.getArtwork(11111L)).thenReturn(null);
-
-            ArtworkRecord result = downloadService.getDownloadedRecord(11111L, false);
-
-            assertThat(result).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-        }
-
-        @Test
-        @DisplayName("根目录不存在时应返回 null")
-        void shouldReturnNullWhenRootFolderMissing() {
-            when(downloadConfig.getRootFolder()).thenReturn(tempDir.resolve("no-such-root").toString());
-            when(pixivDatabase.getArtwork(22222L)).thenReturn(null);
-
-            assertThat(downloadService.getDownloadedRecord(22222L, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-        }
-
-        @Test
-        @DisplayName("作品目录不存在时应返回 null")
-        void shouldReturnNullWhenArtworkDirMissing() {
-            when(pixivDatabase.getArtwork(33333L)).thenReturn(null);
-
-            assertThat(downloadService.getDownloadedRecord(33333L, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-        }
-
-        @Test
-        @DisplayName("目录仅含非匹配文件时不应恢复")
-        void shouldNotRecoverWhenNoMatchingFiles() throws Exception {
-            Path dir = Files.createDirectories(tempDir.resolve("44444"));
-            Files.writeString(dir.resolve("note.txt"), "x");
-            // 不同作品 ID 的图片不应被算作匹配
-            Files.write(dir.resolve("99999_p0.jpg"), new byte[]{1});
-            // 非默认模板格式
-            Files.write(dir.resolve("44444-title_p0.jpg"), new byte[]{1});
-            when(pixivDatabase.getArtwork(44444L)).thenReturn(null);
-
-            assertThat(downloadService.getDownloadedRecord(44444L, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-        }
-
-        @Test
-        @DisplayName("单页同扩展名应按实际页数与扩展名恢复")
-        void shouldRecoverSinglePage() throws Exception {
-            long artworkId = 55555L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("55555_p0.jpg"), new byte[]{1, 2});
-            String absolute = dir.toAbsolutePath().toString();
-            ArtworkRecord inserted = new ArtworkRecord(artworkId, "", absolute, 1, "jpg",
-                    1700000200L, false, null, null, null, null, null, "", 1L, null, null, null);
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null, inserted);
-
-            ArtworkRecord result = downloadService.getDownloadedRecord(artworkId, true);
-
-            assertThat(result).isSameAs(inserted);
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 1, "jpg",
-                    1700000200L, null, null, null, "");
-        }
-
-        @Test
-        @DisplayName("多页同扩展名应记 count=最大页号+1，extensions 去重为单值")
-        void shouldRecoverMultiPageSameExt() throws Exception {
-            long artworkId = 66666L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("66666_p0.png"), new byte[]{1});
-            Files.write(dir.resolve("66666_p1.png"), new byte[]{1});
-            Files.write(dir.resolve("66666_p2.png"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
-                    new ArtworkRecord(artworkId, "", absolute, 3, "png",
-                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
-
-            downloadService.getDownloadedRecord(artworkId, true);
-
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 3, "png",
-                    1700000200L, null, null, null, "");
-        }
-
-        @Test
-        @DisplayName("多页混合扩展名应按逗号拼接 extensions")
-        void shouldRecoverMultiPageMixedExt() throws Exception {
-            long artworkId = 77777L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("77777_p0.jpg"), new byte[]{1});
-            Files.write(dir.resolve("77777_p1.png"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
-                    new ArtworkRecord(artworkId, "", absolute, 2, "jpg,png",
-                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
-
-            downloadService.getDownloadedRecord(artworkId, true);
-
-            // 按页号升序拼接 extensions（p0=jpg, p1=png）
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 2, "jpg,png",
-                    1700000200L, null, null, null, "");
-        }
-
-        @Test
-        @DisplayName("页号有空洞时不应恢复为已下载记录")
-        void shouldNotRecoverWhenPagesHaveGap() throws Exception {
-            long artworkId = 88888L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("88888_p0.jpg"), new byte[]{1});
-            Files.write(dir.resolve("88888_p3.jpg"), new byte[]{1});
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
-
-            assertThat(downloadService.getDownloadedRecord(artworkId, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-        }
-
-        @Test
-        @DisplayName("缺第 0 页（部分失败残留）时不应恢复为已下载记录")
-        void shouldNotRecoverWhenFirstPageMissing() throws Exception {
-            long artworkId = 88889L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("88889_p1.jpg"), new byte[]{1});
-            Files.write(dir.resolve("88889_p2.jpg"), new byte[]{1});
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
-
-            assertThat(downloadService.getDownloadedRecord(artworkId, true)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-        }
-
-        @Test
-        @DisplayName("大小写后缀应被识别且归一化为小写")
-        void shouldRecognizeUppercaseExtensions() throws Exception {
-            long artworkId = 99998L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("99998_p0.JPG"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null,
-                    new ArtworkRecord(artworkId, "", absolute, 1, "jpg",
-                            1700000200L, false, null, null, null, null, null, "", 1L, null, null, null));
-
-            downloadService.getDownloadedRecord(artworkId, true);
-
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 1, "jpg",
-                    1700000200L, null, null, null, "");
-        }
-    }
-
-    // ========== recordStatistics ==========
-
-    @Nested
-    @DisplayName("recoverMetadata 两阶段恢复")
-    class RecoverMetadataTests {
-
-        @BeforeEach
-        void setupRootFolder() {
-            lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(pixivDatabase.getUniqueTime()).thenReturn(1700000300L);
-        }
-
-        @Test
-        @DisplayName("DB 已有完整记录（title 非空）应返回原记录，不覆盖任何字段")
-        void shouldReturnExistingWhenTitlePresent() {
-            ArtworkRecord existing = new ArtworkRecord(11111L, "原标题", "/folder",
-                    3, "jpg", 1600000000L, false, null, null, 0, false, 999L, "原简介", 1L, null, null, null);
-            when(pixivDatabase.getArtwork(11111L)).thenReturn(existing);
-            RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "新标题", 1234L, "newauthor", 1, true, "新简介");
-
-            ArtworkRecord result = downloadService.recoverMetadata(11111L, req);
-
-            assertThat(result).isSameAs(existing);
-            verify(pixivDatabase, never()).fillArtworkMetadataIfMissing(anyLong(), any(), any(), any(), any(), any());
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-            verify(authorService, never()).observe(anyLong(), any());
-        }
-
-        @Test
-        @DisplayName("DB 有记录但 title 为空时应补齐缺失字段并上报作者")
-        void shouldFillMissingFieldsWhenTitleEmpty() {
-            ArtworkRecord bareRecord = new ArtworkRecord(22222L, "", "/folder",
-                    2, "jpg", 1600000000L, false, null, null, null, null, null, "", 1L, null, null, null);
-            ArtworkRecord enriched = new ArtworkRecord(22222L, "新标题", "/folder",
-                    2, "jpg", 1600000000L, false, null, null, 1, true, 1234L, "新简介", 1L, null, null, null);
-            when(pixivDatabase.getArtwork(22222L)).thenReturn(bareRecord, enriched);
-            RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "新标题", 1234L, "newauthor", 1, true, "新简介");
-
-            ArtworkRecord result = downloadService.recoverMetadata(22222L, req);
-
-            assertThat(result).isSameAs(enriched);
-            verify(pixivDatabase).fillArtworkMetadataIfMissing(eq(22222L), eq("新标题"),
-                    eq(1), eq(true), eq(1234L), eq("新简介"));
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-            verify(authorService).observe(1234L, "newauthor");
-        }
-
-        @Test
-        @DisplayName("DB 无记录但磁盘有匹配文件时应写完整记录")
-        void shouldWriteCompleteRecordWhenDbEmptyAndDiskMatches() throws Exception {
-            long artworkId = 33333L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("33333_p0.jpg"), new byte[]{1});
-            Files.write(dir.resolve("33333_p1.jpg"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            ArtworkRecord inserted = new ArtworkRecord(artworkId, "Pixiv 标题", absolute,
-                    2, "jpg", 1700000300L, false, null, null, 1, true, 5678L, "简介", 1L, null, null, null);
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null, inserted);
-            RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "Pixiv 标题", 5678L, "auth", 1, true, "简介");
-
-            ArtworkRecord result = downloadService.recoverMetadata(artworkId, req);
-
-            assertThat(result).isSameAs(inserted);
-            verify(pixivDatabase).insertArtwork(artworkId, "Pixiv 标题", absolute, 2, "jpg",
-                    1700000300L, 1, true, 5678L, "简介");
-            verify(authorService).observe(5678L, "auth");
-        }
-
-        @Test
-        @DisplayName("DB 无记录且磁盘文件缺第 0 页时应返回 null 视为未下载")
-        void shouldReturnNullWhenDiskFilesIncomplete() throws Exception {
-            long artworkId = 66667L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("66667_p1.jpg"), new byte[]{1});
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
-            RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "标题", 1234L, "auth", 0, false, "简介");
-
-            assertThat(downloadService.recoverMetadata(artworkId, req)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-            verify(authorService, never()).observe(anyLong(), any());
-        }
-
-        @Test
-        @DisplayName("DB 无记录且磁盘也无匹配文件时应返回 null")
-        void shouldReturnNullWhenDbEmptyAndDiskEmpty() {
-            when(pixivDatabase.getArtwork(44444L)).thenReturn(null);
-            RecoverMetadataRequest req = new RecoverMetadataRequest(
-                    "标题", 1234L, "auth", 0, false, "简介");
-
-            assertThat(downloadService.recoverMetadata(44444L, req)).isNull();
-            verify(pixivDatabase, never()).insertArtwork(anyLong(), anyString(), anyString(), anyInt(),
-                    anyString(), anyLong(), any(), any(), any(), anyString());
-            verify(authorService, never()).observe(anyLong(), any());
-        }
-
-        @Test
-        @DisplayName("meta 为 null 时按空 meta 处理，不应抛异常")
-        void shouldHandleNullMetaGracefully() throws Exception {
-            long artworkId = 55555L;
-            Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
-            Files.write(dir.resolve("55555_p0.jpg"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            ArtworkRecord inserted = new ArtworkRecord(artworkId, "", absolute,
-                    1, "jpg", 1700000300L, false, null, null, null, null, null, "", 1L, null, null, null);
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null, inserted);
-
-            ArtworkRecord result = downloadService.recoverMetadata(artworkId, null);
-
-            assertThat(result).isSameAs(inserted);
-            verify(pixivDatabase).insertArtwork(artworkId, "", absolute, 1, "jpg",
-                    1700000300L, null, null, null, "");
         }
     }
 
@@ -698,7 +310,7 @@ class DownloadServiceTest {
             other.setUgoiraZipUrl("https://public-img-zip.pximg.net/test.zip");
             other.setUgoiraDelays(List.of(100));
 
-            downloadService.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, "cookie=value", null);
 
             verify(authorService).asyncLookupMissing(12345L, "cookie=value");
@@ -715,7 +327,7 @@ class DownloadServiceTest {
             other.setAuthorId(999L);
             other.setAuthorName("author");
 
-            downloadService.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
 
             verify(authorService).observe(999L, "author");
@@ -732,7 +344,7 @@ class DownloadServiceTest {
             other.setAuthorId(999L);
             doThrow(new RuntimeException("boom")).when(authorService).observe(999L, null);
 
-            downloadService.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
 
             verify(pixivDatabase).insertArtwork(12345L, "test", tempDir.resolve("12345").toAbsolutePath().toString(),
@@ -770,7 +382,7 @@ class DownloadServiceTest {
         void shouldRouteToR18WhenXRestrictIsOne() {
             DownloadRequest.Other other = userOther(1);
 
-            downloadService.downloadImages(12345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(12345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
 
             Path expected = tempDir.resolve("alice").resolve("R18").resolve("12345");
@@ -785,7 +397,7 @@ class DownloadServiceTest {
         void shouldRouteToR18gWhenXRestrictIsTwo() {
             DownloadRequest.Other other = userOther(2);
 
-            downloadService.downloadImages(22345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(22345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
 
             Path expected = tempDir.resolve("alice").resolve("R18G").resolve("22345");
@@ -800,7 +412,7 @@ class DownloadServiceTest {
         void shouldNotAddR18FolderWhenSafeWork() {
             DownloadRequest.Other other = userOther(0);
 
-            downloadService.downloadImages(32345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(32345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
 
             Path expected = tempDir.resolve("alice").resolve("32345");
@@ -816,7 +428,7 @@ class DownloadServiceTest {
             when(downloadConfig.isUserFlatFolder()).thenReturn(true);
             DownloadRequest.Other other = userOther(2);
 
-            downloadService.downloadImages(42345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(42345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
 
             Path expected = tempDir.resolve("42345");
@@ -851,7 +463,7 @@ class DownloadServiceTest {
             Path collectionRoot = tempDir.resolve("收藏😀");
             when(collectionService.resolveDownloadRoot(7L, tempDir)).thenReturn(collectionRoot);
 
-            downloadService.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(12345L, "test", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
 
             Path expectedPath = collectionRoot.resolve("12345");
@@ -897,7 +509,7 @@ class DownloadServiceTest {
             DownloadRequest.Other other = ugoiraOther();
             other.setRawMetaJson("{\"uploadDate\":\"2026-06-06T21:27:00+00:00\"}");
 
-            downloadService.downloadImages(12345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(12345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", other, null, null);
 
             verify(workMetaCaptureService).captureForwardedArtwork(12345L,
@@ -907,65 +519,10 @@ class DownloadServiceTest {
         @Test
         @DisplayName("未带 rawMetaJson 时不应触发转发捕获")
         void shouldNotCaptureWhenRawMetaJsonAbsent() {
-            downloadService.downloadImages(22345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
+            artworkDownloadExecutor.downloadImages(22345L, "title", List.of("https://public-img-zip.pximg.net/test.zip"),
                     "https://www.pixiv.net/", ugoiraOther(), null, null);
 
             verify(workMetaCaptureService, never()).captureForwardedArtwork(anyLong(), any());
-        }
-    }
-
-    // ========== getSortTimeArtworkPaged ==========
-
-    @Nested
-    @DisplayName("getSortTimeArtworkPaged")
-    class GetSortTimeArtworkPagedTests {
-
-        @Test
-        @DisplayName("分页查询应正确计算 offset")
-        void shouldCalculateOffsetCorrectly() {
-            when(pixivDatabase.getArtworkIdsSortedByTimeDescPaged(20, 10))
-                    .thenReturn(List.of(100L, 99L, 98L));
-
-            List<Long> result = downloadService.getSortTimeArtworkPaged(2, 10);
-
-            assertThat(result).containsExactly(100L, 99L, 98L);
-            verify(pixivDatabase).getArtworkIdsSortedByTimeDescPaged(20, 10);
-        }
-    }
-
-    // ========== getArtworkCount ==========
-
-    @Test
-    @DisplayName("getArtworkCount 应委托给数据库")
-    void shouldDelegateCountToDatabase() {
-        when(pixivDatabase.countArtworks()).thenReturn(42L);
-
-        assertThat(downloadService.getArtworkCount()).isEqualTo(42L);
-    }
-
-    // ========== getDownloadedRecord (List version) ==========
-
-    @Test
-    @DisplayName("getDownloadedRecord() 应返回所有作品ID的字符串列表")
-    void shouldReturnAllArtworkIdsAsStrings() {
-        when(pixivDatabase.getAllArtworkIds()).thenReturn(List.of(1L, 2L, 3L));
-
-        List<String> result = downloadService.getDownloadedRecord();
-
-        assertThat(result).containsExactly("1", "2", "3");
-    }
-
-    // ========== findFileByName ==========
-
-    @Nested
-    @DisplayName("findFileByName")
-    class FindFileByNameTests {
-
-        @Test
-        @DisplayName("目录不存在时应返回 null")
-        void shouldReturnNullWhenDirectoryNotExists() {
-            File result = DownloadService.findFileByName("/non/existent/path", "test");
-            assertThat(result).isNull();
         }
     }
 
@@ -1070,7 +627,7 @@ class DownloadServiceTest {
                         return extractor.extractData(response);
                     });
 
-            downloadService.downloadImages(12345L, "title", List.of(IMAGE_URL),
+            artworkDownloadExecutor.downloadImages(12345L, "title", List.of(IMAGE_URL),
                     "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);
 
             Path artworkDir = tempDir.resolve("12345");
@@ -1119,11 +676,11 @@ class DownloadServiceTest {
                         return extractor.extractData(response);
                     });
 
-            boolean succeeded = downloadService.downloadImagesBlocking(67890L, "title",
+            boolean succeeded = artworkDownloadExecutor.downloadImagesBlocking(67890L, "title",
                     List.of(OK_URL, FAIL_URL), "https://www.pixiv.net/", new DownloadRequest.Other(), null, null);
 
             assertThat(succeeded).isFalse();
-            DownloadStatus status = downloadService.getDownloadStatus(67890L);
+            DownloadStatus status = artworkDownloadExecutor.getDownloadStatus(67890L);
             assertThat(status.isFailed()).isTrue();
             assertThat(status.isCompleted()).isTrue();
             assertThat(status.getSuccessCount()).isEqualTo(1);

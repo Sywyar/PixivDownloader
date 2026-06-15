@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.UuidUtils;
-import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.download.DownloadStatus;
 import top.sywyar.pixivdownload.download.response.ActiveDownloadResponse;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
@@ -25,7 +25,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class DownloadStatusController {
 
-    private final DownloadService downloadService;
+    private final ArtworkDownloadExecutor artworkDownloadExecutor;
     private final SetupService setupService;
     private final AppMessages messages;
 
@@ -43,8 +43,8 @@ public class DownloadStatusController {
                                                                     HttpServletRequest httpRequest) {
         boolean adminScope = setupService.hasAdminScope(httpRequest);
         DownloadStatus status = adminScope
-                ? downloadService.getDownloadStatus(artworkId)
-                : downloadService.getDownloadStatus(artworkId, extractUserUuid(httpRequest), false);
+                ? artworkDownloadExecutor.getDownloadStatus(artworkId)
+                : artworkDownloadExecutor.getDownloadStatus(artworkId, extractUserUuid(httpRequest), false);
         if (status == null) {
             return ResponseEntity.ok(DownloadStatusResponse.builder()
                     .success(false)
@@ -78,8 +78,8 @@ public class DownloadStatusController {
     public ResponseEntity<ActiveDownloadResponse> getActiveDownload(HttpServletRequest httpRequest) {
         boolean adminScope = setupService.hasAdminScope(httpRequest);
         List<Long> active = adminScope
-                ? downloadService.getDownloadStatus()
-                : downloadService.getDownloadStatus(extractUserUuid(httpRequest), false);
+                ? artworkDownloadExecutor.getDownloadStatus()
+                : artworkDownloadExecutor.getDownloadStatus(extractUserUuid(httpRequest), false);
         return ResponseEntity.ok(new ActiveDownloadResponse(active));
     }
 

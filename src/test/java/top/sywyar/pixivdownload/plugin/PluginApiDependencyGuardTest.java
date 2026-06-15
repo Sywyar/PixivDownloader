@@ -88,20 +88,20 @@ class PluginApiDependencyGuardTest {
         noClasses()
                 .that().resideOutsideOfPackage("top.sywyar.pixivdownload.duplicate..")
                 .and().doNotHaveFullyQualifiedName(BuiltInPlugins.class.getName())
-                .and().doNotHaveFullyQualifiedName("top.sywyar.pixivdownload.download.DownloadService")
+                .and().doNotHaveFullyQualifiedName("top.sywyar.pixivdownload.download.ArtworkDownloadExecutor")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.duplicate..")
                 .because("duplicate 是功能插件，核心只能经 PluginRegistry 间接使用其 contribution；"
-                        + "BuiltInPlugins 是既定的组合根例外，DownloadService→ImageHashService "
+                        + "BuiltInPlugins 是既定的组合根例外，ArtworkDownloadExecutor→ImageHashService "
                         + "是『下载后即时算 Hash』的既定核心链路例外（不随插件禁用）")
                 .check(CLASSES);
     }
 
     @Test
     @DisplayName("下载即时算 Hash 链路例外仅限 ImageHashService 一个类")
-    void downloadServiceOnlyTouchesImageHashService() {
+    void artworkDownloadExecutorOnlyTouchesImageHashService() {
         noClasses()
-                .that().haveFullyQualifiedName("top.sywyar.pixivdownload.download.DownloadService")
+                .that().haveFullyQualifiedName("top.sywyar.pixivdownload.download.ArtworkDownloadExecutor")
                 .should().dependOnClassesThat(
                         JavaClass.Predicates.resideInAPackage("top.sywyar.pixivdownload.duplicate..")
                                 .and(DescribedPredicate.not(JavaClass.Predicates.type(
@@ -116,7 +116,10 @@ class PluginApiDependencyGuardTest {
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.gallery..")
                 .should().dependOnClassesThat(JavaClass.Predicates.belongToAnyOf(
-                        top.sywyar.pixivdownload.download.DownloadService.class,
+                        top.sywyar.pixivdownload.download.ArtworkDownloadExecutor.class,
+                        top.sywyar.pixivdownload.download.ArtworkFileService.class,
+                        top.sywyar.pixivdownload.download.DownloadedArtworkService.class,
+                        top.sywyar.pixivdownload.download.ArtworkMetadataRecoveryService.class,
                         top.sywyar.pixivdownload.core.db.PixivDatabase.class,
                         top.sywyar.pixivdownload.download.ArtworkFileLocator.class,
                         top.sywyar.pixivdownload.author.AuthorService.class,

@@ -12,7 +12,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.ArtworkFileService;
 import top.sywyar.pixivdownload.download.response.ImageResponse;
 
 import static org.mockito.Mockito.*;
@@ -27,13 +27,13 @@ class DownloadFileControllerTest {
     private MockMvc mockMvc;
 
     @Mock
-    private DownloadService downloadService;
+    private ArtworkFileService artworkFileService;
     @Mock
     private top.sywyar.pixivdownload.setup.guest.GuestAccessGuard guestAccessGuard;
 
     @BeforeEach
     void setUp() {
-        DownloadFileController controller = new DownloadFileController(downloadService, guestAccessGuard);
+        DownloadFileController controller = new DownloadFileController(artworkFileService, guestAccessGuard);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -49,7 +49,7 @@ class DownloadFileControllerTest {
         @DisplayName("获取缩略图成功")
         void shouldReturnThumbnail() throws Exception {
             ImageResponse imageResponse = new ImageResponse(true, "base64data", "jpg", 100, 200, 150, "成功");
-            when(downloadService.getImageResponse(12345L, 0, true)).thenReturn(imageResponse);
+            when(artworkFileService.getImageResponse(12345L, 0, true)).thenReturn(imageResponse);
 
             mockMvc.perform(get("/api/downloaded/thumbnail/12345/0"))
                     .andExpect(status().isOk())
@@ -60,7 +60,7 @@ class DownloadFileControllerTest {
         @Test
         @DisplayName("获取缩略图不存在应返回 404")
         void shouldReturn404ForMissingThumbnail() throws Exception {
-            when(downloadService.getImageResponse(99999L, 0, true)).thenReturn(null);
+            when(artworkFileService.getImageResponse(99999L, 0, true)).thenReturn(null);
 
             mockMvc.perform(get("/api/downloaded/thumbnail/99999/0"))
                     .andExpect(status().isNotFound());
@@ -70,7 +70,7 @@ class DownloadFileControllerTest {
         @DisplayName("获取原始图片成功")
         void shouldReturnImage() throws Exception {
             ImageResponse imageResponse = new ImageResponse(true, "base64data", "png", 200, 400, 300, "成功");
-            when(downloadService.getImageResponse(12345L, 0, false)).thenReturn(imageResponse);
+            when(artworkFileService.getImageResponse(12345L, 0, false)).thenReturn(imageResponse);
 
             mockMvc.perform(get("/api/downloaded/image/12345/0"))
                     .andExpect(status().isOk())

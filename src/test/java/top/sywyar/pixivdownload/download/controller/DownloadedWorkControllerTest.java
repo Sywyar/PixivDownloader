@@ -14,9 +14,10 @@ import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.download.ArtworkMetadataRecoveryService;
 import top.sywyar.pixivdownload.download.ArtworkMoveService;
-import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.DownloadStatisticsService;
+import top.sywyar.pixivdownload.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.response.StatisticsResponse;
@@ -36,7 +37,9 @@ class DownloadedWorkControllerTest {
     private MockMvc mockMvc;
 
     @Mock
-    private DownloadService downloadService;
+    private DownloadedArtworkService downloadedArtworkService;
+    @Mock
+    private ArtworkMetadataRecoveryService artworkMetadataRecoveryService;
     @Mock
     private DownloadStatisticsService downloadStatisticsService;
     @Mock
@@ -53,8 +56,8 @@ class DownloadedWorkControllerTest {
     @BeforeEach
     void setUp() {
         DownloadedWorkController controller = new DownloadedWorkController(
-                downloadService, downloadStatisticsService, artworkMoveService, pixivDatabase,
-                authorService, guestAccessGuard, galleryRepository, APP_MESSAGES);
+                downloadedArtworkService, artworkMetadataRecoveryService, downloadStatisticsService,
+                artworkMoveService, pixivDatabase, authorService, guestAccessGuard, galleryRepository, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -71,7 +74,7 @@ class DownloadedWorkControllerTest {
         void shouldReturnDownloadedArtwork() throws Exception {
             ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", "/path/to/folder",
                     3, "jpg", 1700000000L, false, null, null, 0, true, null, null);
-            when(downloadService.getDownloadedRecord(12345L, false)).thenReturn(record);
+            when(downloadedArtworkService.getDownloadedRecord(12345L, false)).thenReturn(record);
 
             mockMvc.perform(get("/api/downloaded/12345"))
                     .andExpect(status().isOk())
@@ -84,7 +87,7 @@ class DownloadedWorkControllerTest {
         @Test
         @DisplayName("未找到的作品应返回 400")
         void shouldReturn400ForNotFound() throws Exception {
-            when(downloadService.getDownloadedRecord(99999L, false)).thenReturn(null);
+            when(downloadedArtworkService.getDownloadedRecord(99999L, false)).thenReturn(null);
 
             mockMvc.perform(get("/api/downloaded/99999"))
                     .andExpect(status().isBadRequest());
@@ -95,13 +98,13 @@ class DownloadedWorkControllerTest {
         void shouldPassVerifyFilesFlag() throws Exception {
             ArtworkRecord record = new ArtworkRecord(12345L, "娴嬭瘯浣滃搧", "/path/to/folder",
                     1, "jpg", 1700000000L, false, null, null, 0, null, null, null);
-            when(downloadService.getDownloadedRecord(12345L, true)).thenReturn(record);
+            when(downloadedArtworkService.getDownloadedRecord(12345L, true)).thenReturn(record);
 
             mockMvc.perform(get("/api/downloaded/12345").param("verifyFiles", "true"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.artworkId").value(12345));
 
-            verify(downloadService).getDownloadedRecord(12345L, true);
+            verify(downloadedArtworkService).getDownloadedRecord(12345L, true);
         }
 
         @Test
@@ -109,7 +112,7 @@ class DownloadedWorkControllerTest {
         void shouldSerializeXRestrictInsteadOfLegacyR18Boolean() throws Exception {
             ArtworkRecord record = new ArtworkRecord(12345L, "title", "/path/to/folder",
                     1, "jpg", 1700000000L, false, null, null, 2, null, null, null);
-            when(downloadService.getDownloadedRecord(12345L, false)).thenReturn(record);
+            when(downloadedArtworkService.getDownloadedRecord(12345L, false)).thenReturn(record);
 
             mockMvc.perform(get("/api/downloaded/12345"))
                     .andExpect(status().isOk())
@@ -126,9 +129,9 @@ class DownloadedWorkControllerTest {
     void shouldReturnBatchArtworks() throws Exception {
         ArtworkRecord record1 = new ArtworkRecord(1L, "A", "/a", 1, "jpg", 100L, false, null, null, null, true, null, null);
         ArtworkRecord record2 = new ArtworkRecord(2L, "B", "/b", 2, "png", 200L, false, null, null, null, false, null, null);
-        when(downloadService.getDownloadedRecord(1L)).thenReturn(record1);
-        when(downloadService.getDownloadedRecord(2L)).thenReturn(record2);
-        when(downloadService.getDownloadedRecord(3L)).thenReturn(null);
+        when(downloadedArtworkService.getDownloadedRecord(1L)).thenReturn(record1);
+        when(downloadedArtworkService.getDownloadedRecord(2L)).thenReturn(record2);
+        when(downloadedArtworkService.getDownloadedRecord(3L)).thenReturn(null);
 
         mockMvc.perform(post("/api/downloaded/batch")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -217,7 +220,7 @@ class DownloadedWorkControllerTest {
     @Test
     @DisplayName("GET /api/downloaded/history 应返回所有作品ID")
     void shouldReturnHistory() throws Exception {
-        when(downloadService.getDownloadedRecord()).thenReturn(List.of("1", "2", "3"));
+        when(downloadedArtworkService.getDownloadedRecord()).thenReturn(List.of("1", "2", "3"));
 
         mockMvc.perform(get("/api/downloaded/history"))
                 .andExpect(status().isOk())
@@ -229,13 +232,13 @@ class DownloadedWorkControllerTest {
     @Test
     @DisplayName("GET /api/downloaded/history/paged 应返回分页历史")
     void shouldReturnPagedHistory() throws Exception {
-        when(downloadService.getArtworkCount()).thenReturn(25L);
-        when(downloadService.getSortTimeArtworkPaged(0, 10)).thenReturn(List.of(25L, 24L));
+        when(downloadedArtworkService.getArtworkCount()).thenReturn(25L);
+        when(downloadedArtworkService.getSortTimeArtworkPaged(0, 10)).thenReturn(List.of(25L, 24L));
 
         ArtworkRecord r1 = new ArtworkRecord(25L, "A", "/a", 1, "jpg", 200L, false, null, null, null, true, null, null);
         ArtworkRecord r2 = new ArtworkRecord(24L, "B", "/b", 2, "png", 100L, false, null, null, null, false, null, null);
-        when(downloadService.getDownloadedRecord(25L)).thenReturn(r1);
-        when(downloadService.getDownloadedRecord(24L)).thenReturn(r2);
+        when(downloadedArtworkService.getDownloadedRecord(25L)).thenReturn(r1);
+        when(downloadedArtworkService.getDownloadedRecord(24L)).thenReturn(r2);
 
         mockMvc.perform(get("/api/downloaded/history/paged")
                         .param("page", "0").param("size", "10"))

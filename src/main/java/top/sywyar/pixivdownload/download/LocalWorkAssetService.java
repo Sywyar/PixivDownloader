@@ -31,7 +31,7 @@ import java.util.Locale;
 import java.util.Optional;
 
 /**
- * {@link WorkAssetService} 的核心实现。插画侧代理 {@link DownloadService}（缩略图缓存 /
+ * {@link WorkAssetService} 的核心实现。插画侧代理 {@link ArtworkFileService}（缩略图缓存 /
  * 原图定位）与 {@link ArtworkFileLocator}（文件层删除），解析与删除语义同直接调用两者
  * 完全一致。小说侧自管 {@code novel-{id}} 独占目录（守卫 / 递归删除逻辑自小说画廊服务
  * 下沉，逐字保留）：{@code findAsset} 枚举目录下全部常规文件（页号 = 枚举序号），
@@ -42,7 +42,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class LocalWorkAssetService implements WorkAssetService {
 
-    private final DownloadService downloadService;
+    private final ArtworkFileService artworkFileService;
     private final ArtworkFileLocator artworkFileLocator;
     private final PixivDatabase pixivDatabase;
     private final NovelMetadataRepository novelMetadataRepository;
@@ -132,7 +132,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     }
 
     private Optional<WorkAssetFile> artworkThumbnail(long workId, int page) throws IOException {
-        DownloadService.ThumbnailFile thumbnailFile = downloadService.getThumbnailFile(workId, page);
+        ArtworkFileService.ThumbnailFile thumbnailFile = artworkFileService.getThumbnailFile(workId, page);
         if (thumbnailFile == null) {
             return Optional.empty();
         }
@@ -140,7 +140,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     }
 
     private Optional<WorkAssetFile> artworkRawFile(long workId, int page) {
-        File file = downloadService.getImageFile(workId, page);
+        File file = artworkFileService.getImageFile(workId, page);
         if (file == null) {
             return Optional.empty();
         }

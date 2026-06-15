@@ -26,7 +26,7 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.metadata.CoreWorkMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.download.ArtworkFileLocator;
-import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.ArtworkFileService;
 import top.sywyar.pixivdownload.download.LocalWorkAssetService;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -132,9 +132,9 @@ class WorkMetaBridgeConsistencyTest {
 
         metadataRepository = new CoreWorkMetadataRepository(
                 pixivDatabase, novelMetadataRepository, authorService, mangaSeriesService);
-        // findSidecarMeta 不经 DownloadService（仅插画字节服务用它），可放心 mock
+        // findSidecarMeta 不经 ArtworkFileService（仅插画字节服务用它），可放心 mock
         assetService = new LocalWorkAssetService(
-                mock(DownloadService.class), artworkFileLocator, pixivDatabase, novelMetadataRepository,
+                mock(ArtworkFileService.class), artworkFileLocator, pixivDatabase, novelMetadataRepository,
                 downloadConfig, sidecarStore, TestI18nBeans.appMessages());
     }
 

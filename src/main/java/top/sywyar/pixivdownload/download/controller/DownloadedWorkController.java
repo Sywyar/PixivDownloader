@@ -18,9 +18,10 @@ import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
+import top.sywyar.pixivdownload.download.ArtworkMetadataRecoveryService;
 import top.sywyar.pixivdownload.download.ArtworkMoveService;
-import top.sywyar.pixivdownload.download.DownloadService;
 import top.sywyar.pixivdownload.download.DownloadStatisticsService;
+import top.sywyar.pixivdownload.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.download.request.ArtworkBatchRequest;
 import top.sywyar.pixivdownload.download.request.MoveArtworkRequest;
 import top.sywyar.pixivdownload.download.request.RecoverMetadataRequest;
@@ -47,7 +48,8 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class DownloadedWorkController {
 
-    private final DownloadService downloadService;
+    private final DownloadedArtworkService downloadedArtworkService;
+    private final ArtworkMetadataRecoveryService artworkMetadataRecoveryService;
     private final DownloadStatisticsService downloadStatisticsService;
     private final ArtworkMoveService artworkMoveService;
     private final PixivDatabase pixivDatabase;
@@ -80,7 +82,7 @@ public class DownloadedWorkController {
             @RequestBody(required = false) RecoverMetadataRequest body,
             HttpServletRequest httpRequest) {
         guestAccessGuard.requireVisible(httpRequest, artworkId);
-        ArtworkRecord artwork = downloadService.recoverMetadata(artworkId, body);
+        ArtworkRecord artwork = artworkMetadataRecoveryService.recoverMetadata(artworkId, body);
         if (artwork == null) {
             return ResponseEntity.status(400).build();
         }
@@ -91,7 +93,7 @@ public class DownloadedWorkController {
     public ResponseEntity<BatchArtworksResponse> getBatchArtworks(@RequestBody ArtworkBatchRequest request) {
         List<ArtworkRecord> artworks = new LinkedList<>();
         for (Long artworkId : request.getArtworkIds()) {
-            ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
+            ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId);
             // 软删除的作品对历史读取面不可见（页面「已下载」标记不应命中）
             if (artwork == null || artwork.deleted()) {
                 continue;
@@ -149,7 +151,7 @@ public class DownloadedWorkController {
     public ResponseEntity<HistoryResponse> getHistory(HttpServletRequest httpRequest) {
         GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         if (session == null) {
-            return ResponseEntity.ok(new HistoryResponse(downloadService.getDownloadedRecord()));
+            return ResponseEntity.ok(new HistoryResponse(downloadedArtworkService.getDownloadedRecord()));
         }
         return ResponseEntity.ok(new HistoryResponse(getVisibleArtworkIds(session).stream()
                 .map(String::valueOf)
@@ -166,14 +168,14 @@ public class DownloadedWorkController {
         if (session != null) {
             return ResponseEntity.ok(getGuestPagedHistory(page, size, sort, session));
         }
-        long totalElements = downloadService.getArtworkCount();
+        long totalElements = downloadedArtworkService.getArtworkCount();
         List<Long> artWorkIds = "author_id".equals(sort)
-                ? downloadService.getSortAuthorArtworkPaged(page, size)
-                : downloadService.getSortTimeArtworkPaged(page, size);
+                ? downloadedArtworkService.getSortAuthorArtworkPaged(page, size)
+                : downloadedArtworkService.getSortTimeArtworkPaged(page, size);
         List<ArtworkRecord> artworks = new LinkedList<>();
 
         for (Long artworkId : artWorkIds) {
-            ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
+            ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId);
             if (artwork != null) {
                 artworks.add(artwork);
             }
@@ -192,7 +194,7 @@ public class DownloadedWorkController {
     }
 
     public DownloadedResponse getArtWorkDownloadedResponse(Long artworkId, boolean verifyFiles) {
-        ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId, verifyFiles);
+        ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId, verifyFiles);
         if (artwork == null) {
             return null;
         }
@@ -222,7 +224,7 @@ public class DownloadedWorkController {
         GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(query);
         List<ArtworkRecord> artworks = new LinkedList<>();
         for (Long artworkId : result.ids()) {
-            ArtworkRecord artwork = downloadService.getDownloadedRecord(artworkId);
+            ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId);
             if (artwork != null) {
                 artworks.add(artwork);
             }

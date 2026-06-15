@@ -7,15 +7,15 @@ import java.util.List;
 /**
  * 单作品下载入口的窄接缝。
  *
- * <p>由 {@link DownloadService} 实现。让调度 / 自动化等上层功能只依赖这一个方法，
- * 而不必注入 {@code DownloadService} 本体（其依赖众多），既缩小耦合面又便于测试。
+ * <p>由 {@link ArtworkDownloadExecutor} 实现。让调度 / 自动化等上层功能只依赖这一个方法，
+ * 而不必注入 {@code ArtworkDownloadExecutor} 本体（其依赖众多），既缩小耦合面又便于测试。
  * 默认入口仍是异步执行（{@code @Async}），调用方不应假设方法返回即下载完成。
  * 计划任务等需要严格等待落盘完成的后台流程使用 {@link #downloadImagesBlocking}。
  */
 public interface ArtworkDownloader {
 
     /**
-     * 异步下载单个作品的全部图片。语义与 {@link DownloadService#downloadImages} 完全一致。
+     * 异步下载单个作品的全部图片。语义与 {@link ArtworkDownloadExecutor#downloadImages} 完全一致。
      *
      * @param artworkId 作品 ID
      * @param title     作品标题（可为 Pixiv 原始标题，落库前会处理）
@@ -42,7 +42,7 @@ public interface ArtworkDownloader {
      * 判定作品是否已下载（去重）。{@code verifyFiles=false} 时只查数据库记录；
      * {@code verifyFiles=true} 时还会做「实际目录检测」：磁盘缺文件则删陈旧记录视为未下载，
      * 数据库无记录但磁盘已有文件则补登记视为已下载（语义同
-     * {@link DownloadService#getDownloadedRecord(Long, boolean)}）。
+     * {@link DownloadedArtworkService#getDownloadedRecord(Long, boolean)}）。
      *
      * @return {@code true} 表示已下载、应跳过
      */

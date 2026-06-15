@@ -11,7 +11,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.GlobalExceptionHandler;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.download.DownloadService;
+import top.sywyar.pixivdownload.download.ArtworkDownloadExecutor;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.setup.SetupService;
 
@@ -29,7 +29,7 @@ class DownloadQueueControllerTest {
     private MockMvc mockMvc;
 
     @Mock
-    private DownloadService downloadService;
+    private ArtworkDownloadExecutor artworkDownloadExecutor;
     @Mock
     private SetupService setupService;
     @Mock
@@ -38,7 +38,7 @@ class DownloadQueueControllerTest {
     @BeforeEach
     void setUp() {
         DownloadQueueController controller = new DownloadQueueController(
-                downloadService, setupService, novelDownloadService, APP_MESSAGES);
+                artworkDownloadExecutor, setupService, novelDownloadService, APP_MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(APP_MESSAGES))
                 .build();
@@ -55,7 +55,7 @@ class DownloadQueueControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("下载任务已取消"));
 
-        verify(downloadService).cancelDownload(12345L);
+        verify(artworkDownloadExecutor).cancelDownload(12345L);
     }
 
     @Test
@@ -64,7 +64,7 @@ class DownloadQueueControllerTest {
         String ownerUuid = "11111111-1111-1111-1111-111111111111";
         when(setupService.getMode()).thenReturn("multi");
         when(setupService.isAdminLoggedIn(any())).thenReturn(false);
-        when(downloadService.forceClearDownloadsForOwner(ownerUuid)).thenReturn(2);
+        when(artworkDownloadExecutor.forceClearDownloadsForOwner(ownerUuid)).thenReturn(2);
         when(novelDownloadService.forceClearDownloadsForOwner(ownerUuid)).thenReturn(1);
 
         mockMvc.perform(post("/api/download/queue/clear")
@@ -73,9 +73,9 @@ class DownloadQueueControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
-        verify(downloadService).forceClearDownloadsForOwner(ownerUuid);
+        verify(artworkDownloadExecutor).forceClearDownloadsForOwner(ownerUuid);
         verify(novelDownloadService).forceClearDownloadsForOwner(ownerUuid);
-        verify(downloadService, never()).forceClearDownloads();
+        verify(artworkDownloadExecutor, never()).forceClearDownloads();
         verify(novelDownloadService, never()).forceClearDownloads();
     }
 
@@ -83,16 +83,16 @@ class DownloadQueueControllerTest {
     @DisplayName("POST /api/download/queue/clear 在 solo 模式下清除全部后端状态")
     void shouldClearAllDownloadsInSoloMode() throws Exception {
         when(setupService.getMode()).thenReturn("solo");
-        when(downloadService.forceClearDownloads()).thenReturn(2);
+        when(artworkDownloadExecutor.forceClearDownloads()).thenReturn(2);
         when(novelDownloadService.forceClearDownloads()).thenReturn(1);
 
         mockMvc.perform(post("/api/download/queue/clear").locale(Locale.SIMPLIFIED_CHINESE))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
-        verify(downloadService).forceClearDownloads();
+        verify(artworkDownloadExecutor).forceClearDownloads();
         verify(novelDownloadService).forceClearDownloads();
-        verify(downloadService, never()).forceClearDownloadsForOwner(any());
+        verify(artworkDownloadExecutor, never()).forceClearDownloadsForOwner(any());
         verify(novelDownloadService, never()).forceClearDownloadsForOwner(any());
     }
 }
