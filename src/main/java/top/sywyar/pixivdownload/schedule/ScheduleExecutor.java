@@ -27,8 +27,8 @@ import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.push.MarkdownEscape;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
+import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.text.SimpleDateFormat;
@@ -88,7 +88,7 @@ public class ScheduleExecutor {
     private static final String PIXIV_REFERER = "https://www.pixiv.net/";
     private static final String KIND_NOVEL = "novel";
 
-    private final ScheduledTaskDatabase database;
+    private final ScheduledTaskStore store;
     /** 计划任务来源注册中心：runTask 顶部的来源解析门据此把任务存量 type 解析到对应来源 provider。 */
     private final ScheduledSourceRegistry scheduledSourceRegistry;
     private final PixivFetchService pixivFetchService;
@@ -136,7 +136,7 @@ public class ScheduleExecutor {
     public void runTaskAsync(long taskId, ScheduleRunState.Claim claim) {
         boolean delegated = false;
         try {
-            ScheduledTask task = database.mapper().findById(taskId);
+            ScheduledTask task = store.findById(taskId);
             if (task != null) {
                 delegated = true;
                 runTaskAndRecord(task, claim);
@@ -179,7 +179,7 @@ public class ScheduleExecutor {
                 Collections.synchronizedList(new ArrayList<>());
         try {
             // 落库本轮开始时刻：正常结束（含干净挂起）时 updateRunResult 会清为 NULL；进程被强杀则残留 → 中断红灯。
-            database.mapper().updateRunStarted(task.id(), System.currentTimeMillis());
+            store.updateRunStarted(task.id(), System.currentTimeMillis());
             // 任务级单独代理：覆盖调度主线程上本轮的全部 Pixiv 请求（发现 / 元数据 / 站内信检测）；
             // 提交到下载池的阻塞下载在 WorkRunner.submit 内对池线程做同样的覆盖。
             OutboundProxyOverride.set(task.proxySnapshot());
@@ -235,7 +235,7 @@ public class ScheduleExecutor {
         Long nextRun = ScheduleTiming.computeNextRun(
                 task.triggerKind(), task.intervalMinutes(), task.cronExpr(), completedAt);
         // 挂起态写未来 next_run 仅供展示；findDue 的 last_status 门控会挡住它，不会立即重跑。
-        database.mapper().updateRunResult(task.id(), completedAt, status, message, nextRun);
+        store.updateRunResult(task.id(), completedAt, status, message, nextRun);
         Long notificationNextRun = persistedNextRun(task.id(), nextRun);
         if (suspendNotification != null) {
             handleSuspend(task, suspendNotification, suspendTriggerTime);
@@ -272,7 +272,7 @@ public class ScheduleExecutor {
     /** 更新运行结果后读取数据库中的真实 next_run_time；若读取失败则回退到本轮刚计算出的值。 */
     private Long persistedNextRun(long taskId, Long fallback) {
         try {
-            ScheduledTask refreshed = database.mapper().findById(taskId);
+            ScheduledTask refreshed = store.findById(taskId);
             return refreshed == null ? fallback : refreshed.nextRunTime();
         } catch (RuntimeException e) {
             log.debug(messages.getForLog("schedule.log.next-run.reload-failed", taskId, e.getMessage()));
@@ -330,7 +330,7 @@ public class ScheduleExecutor {
             throw new ScheduleSourceUnavailableException(task.type().name());
         }
         String cookie = ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())
-                ? database.mapper().findCookieSnapshot(task.id())
+                ? store.findCookieSnapshot(task.id())
                 : null;
 
         JsonNode root = objectMapper.readTree(task.paramsJson() == null ? "{}" : task.paramsJson());
@@ -359,7 +359,7 @@ public class ScheduleExecutor {
                 // 也避免每轮重复发降级通知；本轮降级匿名续跑（全年龄作品照样抓全、不丢、不浪费），运行成功后发一次降级通知。
                 // 连带清除由 Cookie 派生的账号绑定（account_id / ack_warning_time）：任务已转受限、不再使用该账号凭证，
                 // 残留账号标识会让它仍被同账号其它任务的过度访问冻结牵连、被账号级恢复 / 通知按原账号归类。
-                database.mapper().clearCookieAndAccount(task.id(), ScheduledTask.COOKIE_RESTRICTED);
+                store.clearCookieAndAccount(task.id(), ScheduledTask.COOKIE_RESTRICTED);
                 cookie = null;
                 degraded[0] = true;
             } else if (result.isWarned()) {
@@ -437,14 +437,14 @@ public class ScheduleExecutor {
                               LongPredicate alreadyDownloaded)
             throws OveruseWarningException, ScheduleSuspendException, SchedulePauseException {
         int max = scheduleConfig.getPendingMaxAttempts();
-        for (ScheduledTaskPending p : database.mapper().listPending(taskId)) {
+        for (ScheduledTaskPending p : store.listPending(taskId)) {
             if (p.attempts() >= max) {
                 continue; // 需人工，停止自动重试
             }
             String id = String.valueOf(p.workId());
             if (alreadyDownloaded.test(p.workId())) {
                 // 已在别处下载完：清隔离条目、本轮不再 dispatch；不入运行队列展示，避免和正常发现的「已下载跳过」混淆。
-                database.mapper().deletePending(taskId, p.workId());
+                store.deletePending(taskId, p.workId());
                 continue;
             }
             runner.run().discovered(id);
@@ -560,7 +560,7 @@ public class ScheduleExecutor {
         // 隔离表中尚未达上限的待重试成员（混合来源不记 kind，靠本轮发现的成员关系区分插画/小说）。
         int max = scheduleConfig.getPendingMaxAttempts();
         Set<Long> pending = new HashSet<>();
-        for (ScheduledTaskPending p : database.mapper().listPending(task.id())) {
+        for (ScheduledTaskPending p : store.listPending(task.id())) {
             if (p.attempts() < max) pending.add(p.workId());
         }
 
@@ -603,7 +603,7 @@ public class ScheduleExecutor {
                 boolean isRetry = pending.contains(workId);
                 // 重试条目若已经在别处被下载（手动 / 别的任务）：清隔离条目、跳过 dispatch，避免重复下载。
                 if (isRetry && alreadyDownloaded.test(workId)) {
-                    database.mapper().deletePending(task.id(), workId);
+                    store.deletePending(task.id(), workId);
                     pending.remove(workId);
                     continue;
                 }
@@ -668,7 +668,7 @@ public class ScheduleExecutor {
         runner.awaitAll();
         // reached 边界且无挂起条件即推进（哪怕本轮有作品进隔离表）。
         if (result.newestSeen() > 0) {
-            database.mapper().updateWatermark(task.id(), result.newestSeen());
+            store.updateWatermark(task.id(), result.newestSeen());
         }
     }
 
@@ -1194,7 +1194,7 @@ public class ScheduleExecutor {
                 // 被筛选跳过：重试条目从隔离表移除（不再属于「待重试」）。
                 if (isRetry) {
                     synchronized (pendingLock) {
-                        database.mapper().deletePending(taskId, workId);
+                        store.deletePending(taskId, workId);
                     }
                 }
                 return false;
@@ -1250,7 +1250,7 @@ public class ScheduleExecutor {
                 }
                 consecutiveFailures.set(0);
                 synchronized (pendingLock) {
-                    database.mapper().deletePending(taskId, workId);
+                    store.deletePending(taskId, workId);
                 }
                 completedDownloads.incrementAndGet();
             } else {
@@ -1266,18 +1266,18 @@ public class ScheduleExecutor {
             int attemptsAtLimit = 0;
             synchronized (pendingLock) {
                 if (isRetry) {
-                    database.mapper().incPendingAttempts(taskId, workId, now);
+                    store.incPendingAttempts(taskId, workId, now);
                     log.warn("Scheduled task {} retry work {} failed: {}", taskId, workId, reason);
                     // 刚跨过自动重试上限：发通知转人工。临界判断（== max）确保只在跨越那一次触发，
                     // 不会因为后续仍在表里的同行（attempts >= max 已被 retryPending 跳过）重复发。
                     int max = scheduleConfig.getPendingMaxAttempts();
-                    Integer attempts = database.mapper().selectPendingAttempts(taskId, workId);
+                    Integer attempts = store.selectPendingAttempts(taskId, workId);
                     if (attempts != null && attempts == max) {
                         exhausted = true;
                         attemptsAtLimit = attempts;
                     }
                 } else {
-                    database.mapper().insertPending(taskId, workId, reason, now);
+                    store.insertPending(taskId, workId, reason, now);
                     log.warn("Scheduled task {} isolated work {}: {}", taskId, workId, reason);
                 }
             }
@@ -1317,7 +1317,7 @@ public class ScheduleExecutor {
         List<ScheduledTask> affected = collectFreezableTasks(task, accountId);
         int frozen = 1;
         if (accountId != null && !accountId.isBlank()) {
-            frozen = Math.max(1, database.mapper().freezeAccount(
+            frozen = Math.max(1, store.freezeAccount(
                     accountId, ScheduledTask.STATUS_OVERUSE_PAUSED, message));
         }
         Map<String, String> ph = new LinkedHashMap<>();
@@ -1444,7 +1444,7 @@ public class ScheduleExecutor {
             return List.of(current);
         }
         List<ScheduledTask> result = new ArrayList<>();
-        for (ScheduledTask t : database.mapper().findByAccountId(accountId)) {
+        for (ScheduledTask t : store.findByAccountId(accountId)) {
             String st = t.lastStatus();
             boolean suspended = ScheduledTask.STATUS_OVERUSE_PAUSED.equals(st)
                     || ScheduledTask.STATUS_AUTH_EXPIRED.equals(st)

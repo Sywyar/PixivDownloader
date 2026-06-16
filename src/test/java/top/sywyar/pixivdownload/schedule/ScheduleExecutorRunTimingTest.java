@@ -18,9 +18,8 @@ import top.sywyar.pixivdownload.notification.NotificationService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
+import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
 
 import java.util.List;
 import java.util.Map;
@@ -43,9 +42,7 @@ import static org.mockito.Mockito.when;
 class ScheduleExecutorRunTimingTest {
 
     @Mock
-    private ScheduledTaskDatabase database;
-    @Mock
-    private ScheduledTaskMapper mapper;
+    private ScheduledTaskStore store;
     @Mock
     private PixivFetchService pixivFetchService;
     @Mock
@@ -77,7 +74,6 @@ class ScheduleExecutorRunTimingTest {
     void setUp() {
         runState = new ScheduleRunState();
         executor = newExecutor(SYNC_EXECUTOR, SYNC_EXECUTOR);
-        when(database.mapper()).thenReturn(mapper);
     }
 
     /**
@@ -86,7 +82,7 @@ class ScheduleExecutorRunTimingTest {
      * 既有发现 / 派发行为不变（解析门只在来源缺失时改道，见 ScheduleExecutorSourceResolutionTest）。
      */
     private ScheduleExecutor newExecutor(TaskExecutor imagePool, TaskExecutor novelPool) {
-        return new ScheduleExecutor(database,
+        return new ScheduleExecutor(store,
                 top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.forBuiltInPlugins(),
                 pixivFetchService, pixivDatabase,
                 org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class),
@@ -128,7 +124,7 @@ class ScheduleExecutorRunTimingTest {
 
         ArgumentCaptor<Long> lastRun = ArgumentCaptor.forClass(Long.class);
         ArgumentCaptor<Long> nextRun = ArgumentCaptor.forClass(Long.class);
-        verify(mapper).updateRunResult(eq(1L), lastRun.capture(), eq(ScheduleExecutor.STATUS_OK), isNull(), nextRun.capture());
+        verify(store).updateRunResult(eq(1L), lastRun.capture(), eq(ScheduleExecutor.STATUS_OK), isNull(), nextRun.capture());
         assertThat(lastRun.getValue()).isGreaterThanOrEqualTo(downloadCompletedAt.get());
         assertThat(nextRun.getValue()).isEqualTo(lastRun.getValue() + 60_000L);
     }
@@ -148,9 +144,9 @@ class ScheduleExecutorRunTimingTest {
 
         executor.runTaskAndRecord(task);
 
-        verify(mapper).updateRunStarted(eq(1L), anyLong());
-        verify(mapper).updateWatermark(eq(1L), eq(200L));
-        verify(mapper).updateRunResult(eq(1L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
+        verify(store).updateRunStarted(eq(1L), anyLong());
+        verify(store).updateWatermark(eq(1L), eq(200L));
+        verify(store).updateRunResult(eq(1L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
     }
 
     @Test
@@ -165,8 +161,8 @@ class ScheduleExecutorRunTimingTest {
 
         executor.runTaskAndRecord(task);
 
-        verify(mapper, never()).updateWatermark(anyLong(), any());
-        verify(mapper).updateRunStarted(eq(2L), anyLong());
+        verify(store, never()).updateWatermark(anyLong(), any());
+        verify(store).updateRunStarted(eq(2L), anyLong());
     }
 
     @Test
@@ -198,7 +194,7 @@ class ScheduleExecutorRunTimingTest {
         verify(pixivFetchService).discoverSearchArtworkIdsPage("tag", "popular_d", "all", "s_tag", 1, null);
         verify(pixivFetchService, never()).discoverSearchArtworkIds(
                 eq("tag"), eq("popular_d"), eq("all"), eq("s_tag"), eq(-1), isNull());
-        verify(mapper, never()).updateWatermark(anyLong(), any());
+        verify(store, never()).updateWatermark(anyLong(), any());
         verify(artworkDownloader).downloadImagesBlocking(
                 eq(300L), eq("热门新作"), anyList(), eq("https://www.pixiv.net/artworks/300"),
                 any(DownloadRequest.Other.class), isNull(), isNull());
@@ -220,9 +216,9 @@ class ScheduleExecutorRunTimingTest {
         executor.runTaskAndRecord(task);
 
         // 可恢复失败进隔离表（attempts 不计熔断），watermark 推进到本轮最新 ID 200
-        verify(mapper).insertPending(eq(6L), eq(200L), any(), anyLong());
-        verify(mapper).updateWatermark(eq(6L), eq(200L));
-        verify(mapper).updateRunResult(eq(6L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
+        verify(store).insertPending(eq(6L), eq(200L), any(), anyLong());
+        verify(store).updateWatermark(eq(6L), eq(200L));
+        verify(store).updateRunResult(eq(6L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
     }
 
     @Test
@@ -239,7 +235,7 @@ class ScheduleExecutorRunTimingTest {
         executor.runTaskAndRecord(task);
 
         // next_run 仍照常落库供卡片展示（findDue 状态门挡住自动续跑）
-        verify(mapper).updateRunResult(eq(13L), anyLong(), eq(ScheduleExecutor.STATUS_AUTH_EXPIRED),
+        verify(store).updateRunResult(eq(13L), anyLong(), eq(ScheduleExecutor.STATUS_AUTH_EXPIRED),
                 isNull(), any());
 
         @SuppressWarnings("unchecked")
@@ -263,7 +259,7 @@ class ScheduleExecutorRunTimingTest {
         executor.runTaskAndRecord(task);
 
         ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
-        verify(mapper).updateRunResult(
+        verify(store).updateRunResult(
                 eq(3L), anyLong(), eq(ScheduleExecutor.STATUS_ERROR), message.capture(), anyLong());
         assertThat(message.getValue()).contains("[redacted]");
         assertThat(message.getValue()).doesNotContain("secret").doesNotContain("foo=bar");
@@ -304,11 +300,11 @@ class ScheduleExecutorRunTimingTest {
         verify(artworkDownloader, never()).downloadImagesBlocking(
                 eq(302L), any(), anyList(), any(), any(DownloadRequest.Other.class), any(), any());
         // updateRunResult 收尾：状态写 PAUSED；CASE 会在 DB 已是 PAUSED 时再保留，这里直接验证传入参数。
-        verify(mapper).updateRunResult(
+        verify(store).updateRunResult(
                 eq(7L), anyLong(), eq(ScheduledTask.STATUS_PAUSED), isNull(), anyLong());
         // 已派发的不回滚：本轮发现的 301 未进隔离表（dispatch 成功），watermark 不推进（unwind 路径）。
-        verify(mapper, never()).insertPending(eq(7L), eq(301L), any(), anyLong());
-        verify(mapper, never()).updateWatermark(eq(7L), anyLong());
+        verify(store, never()).insertPending(eq(7L), eq(301L), any(), anyLong());
+        verify(store, never()).updateWatermark(eq(7L), anyLong());
     }
 
     @Test
@@ -321,7 +317,7 @@ class ScheduleExecutorRunTimingTest {
                 ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null,
                 0, 0L);
         // 武装位 = 0：仍应跑 retryPending（每轮无条件消费）
-        when(mapper.listPending(8L)).thenReturn(List.of(
+        when(store.listPending(8L)).thenReturn(List.of(
                 new ScheduledTaskPending(8L, 555L, "previous failure", 2, 1000L, 2000L)));
         // 发现阶段返回空，让本轮只跑 retryPending 路径
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenReturn(List.of());
@@ -341,10 +337,10 @@ class ScheduleExecutorRunTimingTest {
         executor.runTaskAndRecord(task);
 
         // 重试成功：deletePending 出表（不再 inc）；不应触发 incPendingAttempts
-        verify(mapper).deletePending(8L, 555L);
-        verify(mapper, never()).incPendingAttempts(eq(8L), eq(555L), anyLong());
-        // 不再依赖武装位：mapper.clearRetryArmed 不应被本流程调用
-        verify(mapper, never()).clearRetryArmed(anyLong());
+        verify(store).deletePending(8L, 555L);
+        verify(store, never()).incPendingAttempts(eq(8L), eq(555L), anyLong());
+        // 武装位 clearRetryArmed 不在核心 ScheduledTaskStore 暴露面上（仅 mapper 留存），
+        // 故执行器经 store 结构上无从调用，无需再断言。
     }
 
     @Test
@@ -357,9 +353,9 @@ class ScheduleExecutorRunTimingTest {
                 ScheduledTask.COOKIE_RESTRICTED, null, 0L, null, null, null, null, null, null, null,
                 0, 0L);
         // 既有隔离条目：attempts=4，再失败 +1 = 5（默认 max=5）→ 触发通知
-        when(mapper.listPending(9L)).thenReturn(List.of(
+        when(store.listPending(9L)).thenReturn(List.of(
                 new ScheduledTaskPending(9L, 777L, "previous", 4, 1000L, 2000L)));
-        when(mapper.selectPendingAttempts(9L, 777L)).thenReturn(5);
+        when(store.selectPendingAttempts(9L, 777L)).thenReturn(5);
         when(pixivFetchService.discoverUserArtworkIds("100", null)).thenAnswer(inv -> {
             Thread.sleep(1100);
             return List.of();
@@ -371,9 +367,9 @@ class ScheduleExecutorRunTimingTest {
 
         executor.runTaskAndRecord(task);
 
-        verify(mapper).incPendingAttempts(eq(9L), eq(777L), anyLong());
+        verify(store).incPendingAttempts(eq(9L), eq(777L), anyLong());
         ArgumentCaptor<Long> nextRun = ArgumentCaptor.forClass(Long.class);
-        verify(mapper).updateRunResult(eq(9L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), nextRun.capture());
+        verify(store).updateRunResult(eq(9L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), nextRun.capture());
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> placeholders = ArgumentCaptor.forClass(Map.class);
@@ -401,7 +397,7 @@ class ScheduleExecutorRunTimingTest {
         executor.runTaskAndRecord(task);
 
         ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
-        verify(mapper).updateRunResult(
+        verify(store).updateRunResult(
                 eq(4L), anyLong(), eq(ScheduleExecutor.STATUS_ERROR), message.capture(), anyLong());
         assertThat(message.getValue()).contains("PHPSESSID=[redacted]");
         assertThat(message.getValue()).doesNotContain("secret").doesNotContain("foo=bar");
@@ -425,7 +421,7 @@ class ScheduleExecutorRunTimingTest {
         verify(artworkDownloader, never()).downloadImagesBlocking(
                 anyLong(), any(), anyList(), any(), any(DownloadRequest.Other.class), any(), any());
         // 已下载跳过，但本轮发现到的最新 ID 仍推进水位线
-        verify(mapper).updateWatermark(eq(10L), eq(200L));
+        verify(store).updateWatermark(eq(10L), eq(200L));
     }
 
     @Test
@@ -491,8 +487,8 @@ class ScheduleExecutorRunTimingTest {
 
         // 返回时两个在途下载都应已完成（被 join），并据此推进水位线。
         assertThat(finished.get()).isEqualTo(2);
-        verify(mapper).updateWatermark(eq(12L), eq(220L));
-        verify(mapper).updateRunResult(
+        verify(store).updateWatermark(eq(12L), eq(220L));
+        verify(store).updateRunResult(
                 eq(12L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
     }
 }

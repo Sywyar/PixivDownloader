@@ -22,15 +22,15 @@ import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("ScheduledTaskDatabase 启动初始化")
-class ScheduledTaskDatabaseTest {
+@DisplayName("ScheduledTaskStore 启动初始化")
+class ScheduledTaskStoreTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private SingleConnectionDataSource ds;
     private SqlSession session;
     private ScheduledTaskMapper mapper;
-    private ScheduledTaskDatabase database;
+    private ScheduledTaskStore store;
 
     @BeforeEach
     void setUp() {
@@ -54,8 +54,8 @@ class ScheduledTaskDatabaseTest {
                 registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
-        database = new ScheduledTaskDatabase(mapper, initializer);
-        database.init();
+        store = new ScheduledTaskStore(mapper, initializer);
+        store.init();
     }
 
     @AfterEach
@@ -86,7 +86,7 @@ class ScheduledTaskDatabaseTest {
         long legacyDownload = insertTask("旧 download 段",
                 "{\"kind\":\"illust\",\"download\":{\"bookmark\":true,\"concurrent\":3}}");
 
-        database.init();
+        store.init();
 
         JsonNode root1 = JSON.readTree(mapper.findById(noDownloadNode).paramsJson());
         assertThat(root1.path("download").path("redownloadDeleted").asBoolean(true)).isFalse();
@@ -105,8 +105,8 @@ class ScheduledTaskDatabaseTest {
         long enabled = insertTask("已显式开启",
                 "{\"download\":{\"redownloadDeleted\":true}}");
 
-        database.init();
-        database.init();
+        store.init();
+        store.init();
 
         JsonNode root = JSON.readTree(mapper.findById(enabled).paramsJson());
         assertThat(root.path("download").path("redownloadDeleted").asBoolean(false)).isTrue();

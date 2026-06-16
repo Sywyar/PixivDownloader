@@ -8,8 +8,8 @@ import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class ScheduleService {
 
-    private final ScheduledTaskDatabase database;
+    private final ScheduledTaskStore store;
     private final ScheduleExecutor executor;
     private final ScheduleConfig config;
     private final ScheduleRunState runState;
@@ -38,13 +38,13 @@ public class ScheduleService {
     private final NovelAutoTranslateService novelAutoTranslateService;
 
     public List<ScheduleTaskView> list() {
-        return database.mapper().findAll().stream()
+        return store.findAll().stream()
                 .map(t -> ScheduleTaskView.of(t, runState.get(t.id())))
                 .toList();
     }
 
     public ScheduleTaskView get(long id) {
-        ScheduledTask task = database.mapper().findById(id);
+        ScheduledTask task = store.findById(id);
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
@@ -53,7 +53,7 @@ public class ScheduleService {
 
     @Transactional
     public ScheduleTaskView create(ScheduleTaskRequest req) {
-        if (database.mapper().countAll() >= config.getMaxTasks()) {
+        if (store.countAll() >= config.getMaxTasks()) {
             throw LocalizedException.badRequest(
                     "schedule.error.max-tasks", "计划任务数量已达上限: {0}", config.getMaxTasks());
         }
@@ -84,7 +84,7 @@ public class ScheduleService {
         row.setPendingRetryArmed(0);
         row.setCreatedTime(now);
 
-        database.mapper().insert(row);
+        store.insert(row);
         return get(row.getId());
     }
 
@@ -95,12 +95,12 @@ public class ScheduleService {
         String triggerKind = validateTrigger(req);
         Long nextRun = ScheduleTiming.computeNextRun(
                 triggerKind, req.getIntervalMinutes(), req.getCronExpr(), System.currentTimeMillis());
-        database.mapper().updateDefinition(
+        store.updateDefinition(
                 id, req.getName().trim(), req.getType(), req.getParamsJson(),
                 triggerKind, req.getIntervalMinutes(), emptyToNull(req.getCronExpr()), nextRun);
         // 编辑后的任务可能换了 type / source / filters，旧隔离表里的 workId 在新定义下没意义
         // （甚至 kind 也可能从插画切到小说）。一并清掉，避免用错误的下载管线复活旧失败条目。
-        database.mapper().deleteAllPending(id);
+        store.deleteAllPending(id);
         return get(id);
     }
 
@@ -108,7 +108,7 @@ public class ScheduleService {
     public ScheduleTaskView setEnabled(long id, boolean enabled) {
         requireExisting(id);
         requireNotBusy(id);
-        database.mapper().updateEnabled(id, enabled);
+        store.updateEnabled(id, enabled);
         return get(id);
     }
 
@@ -118,9 +118,9 @@ public class ScheduleService {
         requireNotBusy(id);
         // 隔离表无 FK / 触发器，必须显式清理；否则同 task_id 在 AUTOINCREMENT 下虽不复用，
         // 但残留行会成为孤儿数据。
-        database.mapper().deleteAllPending(id);
+        store.deleteAllPending(id);
         // 任务删除即清 cookie 快照（行删除连带 cookie_snapshot 一并消失）
-        database.mapper().delete(id);
+        store.delete(id);
         // 连带清除内存中的本轮运行队列，避免删除后残留
         runQueue.remove(id);
     }
@@ -196,16 +196,16 @@ public class ScheduleService {
                     "schedule.error.cookie-invalid", "Cookie 无效：缺少 PHPSESSID");
         }
         String trimmed = cookie.trim();
-        String existing = database.mapper().findCookieSnapshot(id);
+        String existing = store.findCookieSnapshot(id);
         if (existing != null && existing.equals(trimmed)) {
             throw LocalizedException.badRequest(
                     "schedule.error.cookie-unchanged",
                     "Cookie 与当前已绑定的相同，未做更新；若任务因 Cookie 失效被挂起，请改用新的有效 Cookie");
         }
-        database.mapper().updateCookie(id, trimmed, ScheduledTask.COOKIE_BOUND);
-        database.mapper().updateAccountId(id, parsePixivUserId(trimmed));
-        ScheduledTask task = database.mapper().findById(id);
-        database.mapper().clearSuspendIfStatus(
+        store.updateCookie(id, trimmed, ScheduledTask.COOKIE_BOUND);
+        store.updateAccountId(id, parsePixivUserId(trimmed));
+        ScheduledTask task = store.findById(id);
+        store.clearSuspendIfStatus(
                 id, nextRunFor(task), ScheduledTask.STATUS_AUTH_EXPIRED);
         return get(id);
     }
@@ -235,7 +235,7 @@ public class ScheduleService {
     public ScheduleTaskView revokeCookie(long id) {
         requireExisting(id);
         requireNotBusy(id);
-        database.mapper().clearCookieAndAccount(id, ScheduledTask.COOKIE_RESTRICTED);
+        store.clearCookieAndAccount(id, ScheduledTask.COOKIE_RESTRICTED);
         return get(id);
     }
 
@@ -252,7 +252,7 @@ public class ScheduleService {
             throw LocalizedException.badRequest(
                     "schedule.error.proxy-invalid", "代理格式无效，应为 host:port（例如 127.0.0.1:7890）");
         }
-        database.mapper().updateProxy(id, normalized);
+        store.updateProxy(id, normalized);
         return get(id);
     }
 
@@ -261,7 +261,7 @@ public class ScheduleService {
      * 且未处于暂停 / 挂起态才允许手动触发。前端会据此禁用按钮，这里是后端防护（防陈旧 UI / 直连 API）。
      */
     public void manualRun(long id) {
-        ScheduledTask task = database.mapper().findById(id);
+        ScheduledTask task = store.findById(id);
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
@@ -316,7 +316,7 @@ public class ScheduleService {
             throw LocalizedException.badRequest(
                     "schedule.error.pause-idle", "任务当前未在运行，无需暂停；如需阻止自动运行请使用「停用」");
         }
-        database.mapper().setStatus(id, ScheduledTask.STATUS_PAUSED);
+        store.setStatus(id, ScheduledTask.STATUS_PAUSED);
         runState.requestCancel(id);
         return get(id);
     }
@@ -330,7 +330,7 @@ public class ScheduleService {
      */
     @Transactional
     public ScheduleTaskView resume(long id) {
-        ScheduledTask task = database.mapper().findById(id);
+        ScheduledTask task = store.findById(id);
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
@@ -339,7 +339,7 @@ public class ScheduleService {
                     "schedule.error.resume-not-paused", "任务未处于手动暂停状态，无法恢复");
         }
         requireNotBusy(id);
-        database.mapper().clearSuspend(id, System.currentTimeMillis());
+        store.clearSuspend(id, System.currentTimeMillis());
         return get(id);
     }
 
@@ -348,7 +348,7 @@ public class ScheduleService {
      */
     @Transactional
     public void resumeAccount(String accountId, AccountResumeRequest req) {
-        List<ScheduledTask> tasks = database.mapper().findByAccountId(accountId);
+        List<ScheduledTask> tasks = store.findByAccountId(accountId);
         if (tasks.isEmpty()) {
             throw LocalizedException.badRequest(
                     "schedule.error.account-not-found", "账号下无计划任务: {0}", accountId);
@@ -367,9 +367,9 @@ public class ScheduleService {
         long now = System.currentTimeMillis();
         if (AccountResumeRequest.MODE_IGNORE.equals(mode)) {
             if (ackTime != null) {
-                database.mapper().updateAckWarning(accountId, ackTime);
+                store.updateAckWarning(accountId, ackTime);
             }
-            database.mapper().clearSuspendForAccount(accountId, now);
+            store.clearSuspendForAccount(accountId, now);
         } else if (AccountResumeRequest.MODE_DEFER.equals(mode)) {
             int minutes = req.getMinutes() == null
                     ? config.getOveruseDeferDefaultMinutes() : req.getMinutes();
@@ -378,9 +378,9 @@ public class ScheduleService {
                         "schedule.error.defer-minutes-min", "延迟分钟数最低为 60");
             }
             if (ackTime != null) {
-                database.mapper().updateAckWarning(accountId, ackTime); // 保险
+                store.updateAckWarning(accountId, ackTime); // 保险
             }
-            database.mapper().clearSuspendForAccount(accountId, now + minutes * 60_000L);
+            store.clearSuspendForAccount(accountId, now + minutes * 60_000L);
         } else {
             throw LocalizedException.badRequest("schedule.error.resume-mode-invalid", "恢复方式无效");
         }
@@ -390,7 +390,7 @@ public class ScheduleService {
     public List<SchedulePendingView> pending(long id) {
         requireExisting(id);
         int max = config.getPendingMaxAttempts();
-        return database.mapper().listPending(id).stream()
+        return store.listPending(id).stream()
                 .map(p -> SchedulePendingView.of(p, max))
                 .toList();
     }
@@ -400,7 +400,7 @@ public class ScheduleService {
     public void clearPending(long id, long workId) {
         requireExisting(id);
         requireNotBusy(id);
-        database.mapper().deletePending(id, workId);
+        store.deletePending(id, workId);
     }
 
     /** 取同账号 OVERUSE_PAUSED 任务里 last_message 记录的最新触发警告 modifiedAt（毫秒）。 */
@@ -428,7 +428,7 @@ public class ScheduleService {
     // ── 内部 ────────────────────────────────────────────────────────────────────
 
     private void requireExisting(long id) {
-        if (database.mapper().findById(id) == null) {
+        if (store.findById(id) == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
         }
     }

@@ -25,8 +25,7 @@ import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.plugin.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper;
+import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.util.List;
@@ -59,9 +58,7 @@ import static org.mockito.Mockito.when;
 class ScheduleExecutorSourceResolutionTest {
 
     @Mock
-    private ScheduledTaskDatabase database;
-    @Mock
-    private ScheduledTaskMapper mapper;
+    private ScheduledTaskStore store;
     @Mock
     private PixivFetchService pixivFetchService;
     @Mock
@@ -93,7 +90,6 @@ class ScheduleExecutorSourceResolutionTest {
     @BeforeEach
     void setUp() {
         runState = new ScheduleRunState();
-        when(database.mapper()).thenReturn(mapper);
     }
 
     @AfterEach
@@ -104,7 +100,7 @@ class ScheduleExecutorSourceResolutionTest {
 
     /** 用指定来源注册中心构造被测执行器（同步下载池，默认 DownloadConfig）。 */
     private ScheduleExecutor newExecutor(ScheduledSourceRegistry registry) {
-        return new ScheduleExecutor(database, registry, pixivFetchService, pixivDatabase,
+        return new ScheduleExecutor(store, registry, pixivFetchService, pixivDatabase,
                 workMetaCaptureService, artworkDownloader, novelDownloader, novelMetadataRepository,
                 novelMergeService, new ScheduleConfig(), runState, new ScheduleRunQueue(),
                 new ObjectMapper(), overuseWarningService, notificationService, appMessages, setupService,
@@ -130,12 +126,12 @@ class ScheduleExecutorSourceResolutionTest {
         executor.runTaskAndRecord(userNewTask(ScheduledTask.COOKIE_BOUND, null));
 
         ArgumentCaptor<String> message = ArgumentCaptor.forClass(String.class);
-        verify(mapper).updateRunResult(
+        verify(store).updateRunResult(
                 eq(1L), anyLong(), eq(ScheduledTask.STATUS_SOURCE_UNAVAILABLE), message.capture(), anyLong());
         // 诊断原因写入未解析的 type（仅类型名、无凭证）
         assertThat(message.getValue()).contains("USER_NEW");
         // 解析门在读 cookie / 探站内信 / 发现 / 派发之前短路：以上一概不发生
-        verify(mapper, never()).findCookieSnapshot(anyLong());
+        verify(store, never()).findCookieSnapshot(anyLong());
         verify(overuseWarningService, never()).check(any(), any(), anyLong());
         verify(pixivFetchService, never()).discoverUserArtworkIds(anyString(), any());
         verify(artworkDownloader, never()).downloadImagesBlocking(
@@ -143,9 +139,9 @@ class ScheduleExecutorSourceResolutionTest {
         // 不发任何挂起 / 失败通知（presentation 由真正可触发该状态的功能路径补齐）
         verify(notificationService, never()).notify(any(), any(), any());
         // 进入执行即落库开始时刻；干净挂起时 updateRunResult 一并清空（不残留中断哨兵）
-        verify(mapper).updateRunStarted(eq(1L), anyLong());
+        verify(store).updateRunStarted(eq(1L), anyLong());
         // 来源不可用绝不推进水位线
-        verify(mapper, never()).updateWatermark(anyLong(), any());
+        verify(store, never()).updateWatermark(anyLong(), any());
     }
 
     @Test
@@ -189,6 +185,6 @@ class ScheduleExecutorSourceResolutionTest {
         // 运行结束：调用线程上的覆盖已被 finally 清除（不污染后续无关请求）
         assertThat(OutboundProxyOverride.current()).isNull();
         // 解析成功 → 正常完成
-        verify(mapper).updateRunResult(eq(1L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
+        verify(store).updateRunResult(eq(1L), anyLong(), eq(ScheduleExecutor.STATUS_OK), isNull(), anyLong());
     }
 }

@@ -82,8 +82,10 @@ class RegisteredPluginsTest {
             // schedule 引擎 Bean 随 schedule 能力收编进 DownloadWorkbenchPluginConfiguration：
             // 其依赖的核心 / 下载 / 小说机器在本切片里一律 mock 兜底（ScheduleConfig 用默认值实例），
             // 两个下载池按 bean 名提供 SyncTaskExecutor（ScheduleExecutor 经 @Qualifier 按名解析）。
-            .withBean(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class))
+            // scheduled_tasks 的读写经核心 owned 语义 Store ScheduledTaskStore（根包扫描，本切片 mock 兜底），
+            // 收编的引擎 Bean 不再直接依赖 MyBatis ScheduledTaskMapper。
+            .withBean(top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore.class))
             .withBean(top.sywyar.pixivdownload.download.PixivFetchService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.PixivFetchService.class))
             .withBean(top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.class,
@@ -155,8 +157,8 @@ class RegisteredPluginsTest {
         Set<String> navContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
         Set<String> staticResourceContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
         // coreColumnUsages 仍仅画廊 / 小说：download-workbench 收编的 schedule 引擎对 scheduled_tasks 的访问
-        // 全经根包扫描的 MyBatis ScheduledTaskMapper（核心机器，与 ArtworkDownloadExecutor 同口径不计入），
-        // 收编的业务 Bean 自身无直接 SQL，故无核心列使用声明。
+        // 经核心 owned 语义 Store ScheduledTaskStore（它再包装根包扫描的 MyBatis ScheduledTaskMapper，
+        // 与 ArtworkDownloadExecutor 同口径属核心机器、不计入），收编的引擎 Bean 自身无直接 SQL，故无核心列使用声明。
         Set<String> coreColumnUsingPlugins = Set.of("gallery", "novel");
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);

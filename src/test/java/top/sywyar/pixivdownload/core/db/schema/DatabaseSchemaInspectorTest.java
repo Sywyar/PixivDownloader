@@ -498,7 +498,7 @@ class DatabaseSchemaInspectorTest {
         }
 
         @Test
-        @DisplayName("DatabaseInitializer + ScheduledTaskDatabase.init() 后 scheduled_tasks 应与受管 schema 完全匹配")
+        @DisplayName("DatabaseInitializer + ScheduledTaskStore.init() 后 scheduled_tasks 应与受管 schema 完全匹配")
         void shouldMatchScheduledTaskProductionSchemaAfterInit() throws Exception {
             org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
                     new org.springframework.jdbc.datasource.SingleConnectionDataSource();
@@ -519,9 +519,9 @@ class DatabaseSchemaInspectorTest {
                         session.getMapper(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class);
                 DatabaseInitializer initializer = newInitializer(ds);
                 initializer.initialize();
-                top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase database =
-                        new top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase(mapper, initializer);
-                database.init();
+                top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore store =
+                        new top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore(mapper, initializer);
+                store.init();
 
                 Set<String> initManaged = Set.of("scheduled_tasks", "scheduled_task_pending");
                 ManagedDatabaseSchema.DatabaseSchema sub = specSubset(initManaged);

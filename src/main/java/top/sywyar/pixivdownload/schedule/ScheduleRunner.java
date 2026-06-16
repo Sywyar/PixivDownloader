@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
+import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RequiredArgsConstructor
 public class ScheduleRunner {
 
-    private final ScheduledTaskDatabase database;
+    private final ScheduledTaskStore store;
     private final ScheduleExecutor executor;
     private final ScheduleConfig config;
     private final ScheduleRunState runState;
@@ -42,7 +42,7 @@ public class ScheduleRunner {
             return;
         }
         try {
-            List<ScheduledTask> due = database.mapper().findDue(System.currentTimeMillis());
+            List<ScheduledTask> due = store.findDue(System.currentTimeMillis());
             // 「同一时刻只跑一个」串行约束：本轮全部到期任务先标记排队中，再逐个转为运行中。
             List<QueuedTask> queued = new ArrayList<>(due.size());
             for (ScheduledTask task : due) {
