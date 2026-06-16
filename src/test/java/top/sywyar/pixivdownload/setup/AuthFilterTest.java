@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -1215,6 +1216,89 @@ class AuthFilterTest {
 
             assertThat(response.getStatus()).isEqualTo(404);
             verifyNoInteractions(filterChain, setupService, rateLimitService);
+        }
+    }
+
+    // ========== 小说下载端点（归小说插件、SESSION_OR_VISITOR：复刻插画下载 /api/download/pixiv 现状） ==========
+
+    @Nested
+    @DisplayName("小说下载端点访问级别（新址 /api/novel/** + 旧址兼容垫片 /api/download/**）")
+    class NovelDownloadEndpointTests {
+
+        // 新址下载 / 状态 + 旧址兼容垫片：访问行为应与插画下载 /api/download/pixiv 完全对称
+        //（SESSION_OR_VISITOR 为纯归属声明、AuthFilter 不派生任何清单、命中后落默认会话/访客分支）。
+
+        @ParameterizedTest
+        @CsvSource({
+                "POST,/api/novel/download",
+                "GET,/api/novel/status/12345",
+                "POST,/api/download/pixiv/novel",
+                "GET,/api/download/novel/status/12345"
+        })
+        @DisplayName("多人模式普通访客可访问（与插画下载对称：multi 访客走配额下载）")
+        void multiVisitorAllowed(String method, String path) throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowed(any())).thenReturn(true);
+
+            request.setMethod(method);
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @ParameterizedTest
+        @CsvSource({
+                "POST,/api/novel/download",
+                "GET,/api/novel/status/12345",
+                "POST,/api/download/pixiv/novel",
+                "GET,/api/download/novel/status/12345"
+        })
+        @DisplayName("solo 模式未登录访问应 401（仅会话用户 / 管理员可下载小说）")
+        void soloUnauthorizedRejected(String method, String path) throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isValidSession(any())).thenReturn(false);
+
+            request.setMethod(method);
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @ParameterizedTest
+        @CsvSource({
+                "POST,/api/novel/download",
+                "GET,/api/novel/status/12345",
+                "POST,/api/download/pixiv/novel",
+                "GET,/api/download/novel/status/12345"
+        })
+        @DisplayName("邀请访客越界访问应 403（小说下载不在访客白名单，与插画下载一致）")
+        void invitedGuestForbidden(String method, String path) throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod(method);
+            request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
         }
     }
 }

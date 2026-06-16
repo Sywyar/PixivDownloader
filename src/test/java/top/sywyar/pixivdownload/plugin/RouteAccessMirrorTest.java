@@ -61,15 +61,36 @@ class RouteAccessMirrorTest {
     }
 
     @Test
-    @DisplayName("内置路由只用 AuthFilter 已建模的五种访问级别（PUBLIC/ADMIN_OR_SOLO/GUEST_READ/GUEST_READ_OPEN/LOCAL_ONLY）")
+    @DisplayName("内置路由只用 AuthFilter 已建模的六种访问级别（PUBLIC/ADMIN_OR_SOLO/GUEST_READ/GUEST_READ_OPEN/SESSION_OR_VISITOR/LOCAL_ONLY）")
     void onlyModeledAccessLevelsAreUsed() {
         Set<AccessLevel> modeled = Set.of(AccessLevel.PUBLIC, AccessLevel.ADMIN_OR_SOLO,
-                AccessLevel.GUEST_READ, AccessLevel.GUEST_READ_OPEN, AccessLevel.LOCAL_ONLY);
+                AccessLevel.GUEST_READ, AccessLevel.GUEST_READ_OPEN,
+                AccessLevel.SESSION_OR_VISITOR, AccessLevel.LOCAL_ONLY);
         assertThat(REGISTRY.routes()).allSatisfy(registered ->
                 assertThat(modeled)
                         .as("路由 %s 用了 AuthFilter 未建模的访问级别 %s，登记前先扩展 AuthFilter 派生与本测试",
                                 registered.route().pathPattern(), registered.route().accessLevel())
                         .contains(registered.route().accessLevel()));
+    }
+
+    @Test
+    @DisplayName("SESSION_OR_VISITOR 路由：匹配器绝不出现在 monitor / 访客 / 公开 / 本地任一清单（下载提交端点的纯归属声明、不改访问行为）")
+    void sessionOrVisitorRoutesArePassThrough() {
+        Set<String> monitorMatchers =
+                matchersForLevels(Set.of(AccessLevel.ADMIN_OR_SOLO, AccessLevel.GUEST_READ));
+        Set<String> guestMatchers =
+                matchersForLevels(Set.of(AccessLevel.GUEST_READ, AccessLevel.GUEST_READ_OPEN));
+        Set<String> publicMatchers = matchersForLevels(Set.of(AccessLevel.PUBLIC));
+        Set<String> localMatchers = matchersForLevels(Set.of(AccessLevel.LOCAL_ONLY));
+        List<WebRouteContribution> passThrough = byLevel(AccessLevel.SESSION_OR_VISITOR);
+        assertThat(passThrough).as("应有 SESSION_OR_VISITOR 路由（小说下载新址 + 旧址兼容垫片）").isNotEmpty();
+        passThrough.forEach(route -> {
+            String m = matcher(route.pathPattern());
+            assertThat(monitorMatchers).as("SESSION_OR_VISITOR 路由 %s 不得进入 monitor 清单", route.pathPattern()).doesNotContain(m);
+            assertThat(guestMatchers).as("SESSION_OR_VISITOR 路由 %s 不得进入访客白名单", route.pathPattern()).doesNotContain(m);
+            assertThat(publicMatchers).as("SESSION_OR_VISITOR 路由 %s 不得进入公开清单", route.pathPattern()).doesNotContain(m);
+            assertThat(localMatchers).as("SESSION_OR_VISITOR 路由 %s 不得进入本地放行清单", route.pathPattern()).doesNotContain(m);
+        });
     }
 
     @Test
@@ -149,6 +170,13 @@ class RouteAccessMirrorTest {
         assertOwnerLevel("/api/gallery/novel/**", "novel", AccessLevel.GUEST_READ);
         assertOwnerLevel("/api/gallery/novels/**", "novel", AccessLevel.GUEST_READ);
         assertOwnerLevel("/api/gallery/novels", "novel", AccessLevel.GUEST_READ);
+        // 小说下载端点归小说插件、新址 + 旧址兼容垫片一律 SESSION_OR_VISITOR（复刻 /api/download/pixiv 现状：
+        // multi 访客可下载 / solo 需会话 / 邀请访客 403 / 不入 monitor，仅作归属声明、不改访问行为）。
+        assertOwnerLevel("/api/novel/download", "novel", AccessLevel.SESSION_OR_VISITOR);
+        assertOwnerLevel("/api/novel/status/**", "novel", AccessLevel.SESSION_OR_VISITOR);
+        assertOwnerLevel("/api/novel/translate-status/**", "novel", AccessLevel.SESSION_OR_VISITOR);
+        assertOwnerLevel("/api/download/pixiv/novel", "novel", AccessLevel.SESSION_OR_VISITOR);
+        assertOwnerLevel("/api/download/novel/status/**", "novel", AccessLevel.SESSION_OR_VISITOR);
         assertOwnerLevel("/api/stats/**", "stats", AccessLevel.ADMIN_OR_SOLO);
         assertOwnerLevel("/api/duplicates/**", "duplicate", AccessLevel.ADMIN_OR_SOLO);
         // 计划任务管理 API 随 schedule 能力收编归下载工作台插件声明（访问级别不变：仅管理员）。

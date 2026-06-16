@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
@@ -56,6 +57,11 @@ public class NovelPlugin implements PixivFeaturePlugin {
         // /api/gallery/novels/** 命中小说列表的子路径；而列表裸端点 /api/gallery/novels（无尾斜杠）
         // 不被去 ** 派生的 startsWith 前缀覆盖，故单列精确声明，使其同样进入 monitor 清单 / 访客白名单
         // （与历史 /api/gallery/** 对该端点的覆盖一致，避免裸列表端点在 multi 模式被匿名访问）。
+        // 小说下载端点归小说自有前缀 /api/novel/**（端点迁移见 NovelDownloadController）+ 旧址兼容垫片
+        // /api/download/{pixiv/novel,novel/status,novel/translate-status}（NovelDownloadLegacyForwardController
+        // forward 至新址）。两者一律 SESSION_OR_VISITOR：复刻插画下载 /api/download/pixiv 的现状——multi 访客可
+        // 下载（走配额）、solo 需会话、邀请访客 403、不入 monitor（AuthFilter 不为该级别派生任何清单、命中后落到
+        // 默认会话/访客分支）。声明它只为把这些写端点纳入本插件归属、随启停（禁用 → 新旧小说路径一并 404）。
         return List.of(
                 new WebRouteContribution("/pixiv-novel-gallery.html", AccessLevel.GUEST_READ, Set.of(), false),
                 new WebRouteContribution("/pixiv-novel.html", AccessLevel.GUEST_READ, Set.of(), false),
@@ -63,14 +69,36 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 new WebRouteContribution("/pixiv-novel/**", AccessLevel.GUEST_READ, Set.of(), false),
                 new WebRouteContribution("/api/gallery/novel/**", AccessLevel.GUEST_READ, Set.of(), false),
                 new WebRouteContribution("/api/gallery/novels/**", AccessLevel.GUEST_READ, Set.of(), false),
-                new WebRouteContribution("/api/gallery/novels", AccessLevel.GUEST_READ, Set.of(), false));
+                new WebRouteContribution("/api/gallery/novels", AccessLevel.GUEST_READ, Set.of(), false),
+                sessionOrVisitor("/api/novel/download"),
+                sessionOrVisitor("/api/novel/status/**"),
+                sessionOrVisitor("/api/novel/translate-status/**"),
+                sessionOrVisitor("/api/download/pixiv/novel"),
+                sessionOrVisitor("/api/download/novel/status/**"),
+                sessionOrVisitor("/api/download/novel/translate-status/**"));
+    }
+
+    private static WebRouteContribution sessionOrVisitor(String pattern) {
+        return new WebRouteContribution(pattern, AccessLevel.SESSION_OR_VISITOR, Set.of(), false);
     }
 
     @Override
     public List<StaticResourceContribution> staticResources() {
+        // pixiv-novel-download/：下载工作台的小说队列类型行为模块（novel-queue-type.js）所在目录。
+        // 由小说插件 serving，随插件启停：禁用 → 目录不再注册 → 下载页据 /api/download/extensions 不再加载该模块。
         return List.of(
                 new StaticResourceContribution(ID, "classpath:/static/pixiv-novel-gallery/", "/pixiv-novel-gallery/"),
-                new StaticResourceContribution(ID, "classpath:/static/pixiv-novel/", "/pixiv-novel/"));
+                new StaticResourceContribution(ID, "classpath:/static/pixiv-novel/", "/pixiv-novel/"),
+                new StaticResourceContribution(ID, "classpath:/static/pixiv-novel-download/", "/pixiv-novel-download/"));
+    }
+
+    @Override
+    public List<QueueTypeContribution> queueTypes() {
+        // 小说作品类型：下载工作台队列引擎据此多态派发；行为（判重 / 载荷 / 状态轮询 / 系列合订 / 译文轮询）
+        // 由 moduleUrl 指向的小说自有行为模块在运行期注册。labelI18nKey 复用现有 kind 单选标签键（本阶段
+        // 子模式单选仍在页面 HTML、由「类型是否启用」显隐；标签键当前位于 novel namespace 是历史现状）。
+        return List.of(new QueueTypeContribution(
+                ID, "novel", "novel:batch.user.kind-novel", 20, "/pixiv-novel-download/novel-queue-type.js"));
     }
 
     @Override

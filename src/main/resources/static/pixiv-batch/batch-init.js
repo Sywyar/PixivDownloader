@@ -202,6 +202,10 @@
         loadQueueForMode();
         updateButtonsState();
         updateStats();
+
+        // 下载页扩展点：加载已启用作品类型（插画内置、小说等经各自插件行为模块）的下载行为，
+        // 并按启用情况显隐小说 kind 单选 / 设置卡 / 专属筛选（禁用其插件时自动优雅降级）。
+        await window.PixivBatch.queueTypes.bootstrap();
     }
 
     document.addEventListener('DOMContentLoaded', async () => {

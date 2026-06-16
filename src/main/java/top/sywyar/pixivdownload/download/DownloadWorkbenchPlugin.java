@@ -5,8 +5,10 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.schedule.source.EnumScheduledSourceProvider;
@@ -83,6 +85,27 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         // 油猴脚本分发归下载工作台：ScriptRegistry 经声明方 ClassLoader 扫描此模式，
         // 不再做全局 classpath 扫描假设（物理拆分为插件 jar 后脚本随插件 ClassLoader 解析）。
         return List.of(new UserscriptContribution(ID, "classpath:/static/userscripts/*.user.js"));
+    }
+
+    @Override
+    public List<QueueTypeContribution> queueTypes() {
+        // 插画作品类型：下载工作台内置默认类型，行为由宿主队列引擎内联注册（moduleUrl 为 null、无需外部模块）。
+        // 小说等其它类型由各自插件经 queueTypes() 贡献、附带 moduleUrl 指向其行为模块。
+        return List.of(new QueueTypeContribution(
+                ID, "illust", "novel:batch.user.kind-illust", 10, null));
+    }
+
+    @Override
+    public List<TabContribution> downloadTabs() {
+        // 获取方式标签页（acquisition 轴）：下载页内置的五种找作品方式。各声明能产出的作品类型，
+        // 下载页把「标签页支持的类型 ∩ 已启用类型」渲染为子模式（kind 单选）——某类型插件禁用时其选项
+        // 在所有标签页自动消失。计划任务标签页是管理 UI、不产出队列项，不在此声明。
+        return List.of(
+                new TabContribution(ID, "quick-fetch", 10, List.of("illust", "novel")),
+                new TabContribution(ID, "single-import", 20, List.of("illust", "novel")),
+                new TabContribution(ID, "user", 30, List.of("illust", "novel")),
+                new TabContribution(ID, "search", 40, List.of("illust", "novel")),
+                new TabContribution(ID, "series", 50, List.of("illust", "novel")));
     }
 
     @Override

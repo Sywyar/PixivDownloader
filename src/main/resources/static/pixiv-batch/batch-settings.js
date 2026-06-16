@@ -48,6 +48,13 @@
     function applyNovelSettingsVisibility() {
         const card = document.getElementById('novel-settings-card');
         if (!card) return;
+        // 小说作品类型被禁用（其插件关闭）时，小说设置卡片在所有模式下一律隐藏（与 kind 单选 / 专属筛选
+        // 同经 queueTypes.isEnabled 单一来源；拿到扩展点数据前 isEnabled 恒真，维持页面默认）。
+        if (window.PixivBatch.queueTypes && !window.PixivBatch.queueTypes.isEnabled('novel')) {
+            card.style.display = 'none';
+            updateNovelTranslateVisibility();
+            return;
+        }
         const mode = state.mode;
         let visible;
         if (mode === SINGLE_IMPORT_MODE) {

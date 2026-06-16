@@ -17,11 +17,22 @@ import top.sywyar.pixivdownload.novel.download.NovelDownloadStatus;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.SetupService;
 
+/**
+ * 小说下载端点，归小说插件自有前缀 {@code /api/novel/**}（下载执行 / 状态 / 译文状态）。
+ * <p>
+ * 由 {@link PluginManagedBean} 排除出根包扫描、经 {@code NovelPluginConfiguration} 显式装配，
+ * 随小说插件启停（禁用时本控制器不注册、{@code /api/novel/**} 一并 404）；旧址 {@code /api/download/**}
+ * 下的小说路径由 {@code NovelDownloadLegacyForwardController} 服务端 forward 至此（懒迁移垫片，同随小说启停）。
+ * 访问归属由 {@code NovelPlugin.routes()} 以 {@code SESSION_OR_VISITOR} 声明（multi 访客可下载、走配额；
+ * solo 需会话；邀请访客 403），与插画下载 {@code /api/download/pixiv} 对称。
+ */
 @RestController
 @RequestMapping("/api")
+@PluginManagedBean
 @Slf4j
 @RequiredArgsConstructor
 public class NovelDownloadController {
@@ -34,7 +45,7 @@ public class NovelDownloadController {
     private final MultiModeConfig multiModeConfig;
     private final AppMessages messages;
 
-    @PostMapping("/download/pixiv/novel")
+    @PostMapping("/novel/download")
     public ResponseEntity<?> downloadNovel(
             @Valid @RequestBody NovelDownloadRequest request,
             HttpServletRequest httpRequest) {
@@ -94,7 +105,7 @@ public class NovelDownloadController {
                 .build());
     }
 
-    @GetMapping("/download/novel/status/{novelId}")
+    @GetMapping("/novel/status/{novelId}")
     public ResponseEntity<NovelDownloadStatusResponse> getStatus(@PathVariable Long novelId,
                                                                  HttpServletRequest httpRequest) {
         boolean adminScope = !"multi".equals(setupService.getMode()) || setupService.isAdminLoggedIn(httpRequest);
@@ -130,7 +141,7 @@ public class NovelDownloadController {
      * 「下载即自动翻译」状态轮询（admin-only：solo，或 multi 管理员）。翻译跑在服务端独立队列、生命周期独立于下载，
      * 前端下载完成后据此渲染「AI 翻译中 (Ns)」「等待前系列小说翻译完成，还有 n 个」。无该小说翻译记录时返回 204。
      */
-    @GetMapping("/download/novel/translate-status/{novelId}")
+    @GetMapping("/novel/translate-status/{novelId}")
     public ResponseEntity<NovelAutoTranslateService.StatusView> getTranslateStatus(
             @PathVariable Long novelId, HttpServletRequest httpRequest) {
         boolean adminScope = !"multi".equals(setupService.getMode()) || setupService.isAdminLoggedIn(httpRequest);

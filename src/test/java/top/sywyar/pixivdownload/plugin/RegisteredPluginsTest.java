@@ -96,6 +96,10 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.ArtworkDownloader.class))
             .withBean(top.sywyar.pixivdownload.novel.download.NovelDownloader.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.download.NovelDownloader.class))
+            // 小说下载端点两个 controller 随小说插件启停收编进 NovelPluginConfiguration，其依赖的
+            // novel-core 下载服务（根包扫描）在本切片里 mock 兜底。
+            .withBean(top.sywyar.pixivdownload.novel.download.NovelDownloadService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.download.NovelDownloadService.class))
             .withBean(top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class))
             .withBean(top.sywyar.pixivdownload.notification.NotificationService.class,
@@ -156,6 +160,10 @@ class RegisteredPluginsTest {
         Set<String> routeContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
         Set<String> navContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
         Set<String> staticResourceContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
+        // 下载页扩展点：作品类型由「下载什么」的插件声明（download-workbench=illust，novel=novel）；
+        // 获取方式标签页（怎么找作品）唯下载工作台声明。
+        Set<String> queueTypeContributingPlugins = Set.of("download-workbench", "novel");
+        Set<String> downloadTabContributingPlugins = Set.of("download-workbench");
         // coreColumnUsages 仍仅画廊 / 小说：download-workbench 收编的 schedule 引擎对 scheduled_tasks 的访问
         // 经核心 owned 语义 Store ScheduledTaskStore（它再包装根包扫描的 MyBatis ScheduledTaskMapper，
         // 与 ArtworkDownloadExecutor 同口径属核心机器、不计入），收编的引擎 Bean 自身无直接 SQL，故无核心列使用声明。
@@ -205,6 +213,18 @@ class RegisteredPluginsTest {
                     assertThat(plugin.userscripts()).isNotEmpty();
                 } else {
                     assertThat(plugin.userscripts()).isEmpty();
+                }
+                // 下载队列作品类型：download-workbench（illust）+ novel（novel）声明
+                if (queueTypeContributingPlugins.contains(plugin.id())) {
+                    assertThat(plugin.queueTypes()).isNotEmpty();
+                } else {
+                    assertThat(plugin.queueTypes()).isEmpty();
+                }
+                // 获取方式标签页：唯下载工作台声明
+                if (downloadTabContributingPlugins.contains(plugin.id())) {
+                    assertThat(plugin.downloadTabs()).isNotEmpty();
+                } else {
+                    assertThat(plugin.downloadTabs()).isEmpty();
                 }
             });
         });

@@ -36,7 +36,7 @@ class StaticResourceRegistryTest {
                         "/js/", "/css/", "/vendor/",
                         "/pixiv-batch/",
                         "/pixiv-gallery/", "/pixiv-artwork/", "/pixiv-showcase/", "/pixiv-series/",
-                        "/pixiv-novel-gallery/", "/pixiv-novel/",
+                        "/pixiv-novel-gallery/", "/pixiv-novel/", "/pixiv-novel-download/",
                         "/pixiv-stats/",
                         "/pixiv-duplicates/");
         assertThat(registry.resources())

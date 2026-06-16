@@ -5,8 +5,10 @@ import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
@@ -89,6 +91,16 @@ public interface PixivFeaturePlugin {
 
     /** 插件贡献的可调度任务来源（由提供该来源的插件声明，经核心注册中心合并）。 */
     default List<ScheduledSourceProvider> scheduledSources() {
+        return List.of();
+    }
+
+    /** 插件贡献的下载队列作品类型（work-type 轴：下载什么；由提供该类型的插件声明）。 */
+    default List<QueueTypeContribution> queueTypes() {
+        return List.of();
+    }
+
+    /** 插件贡献的下载工作台获取方式标签页（acquisition 轴：怎么找作品；由提供该标签页的插件声明）。 */
+    default List<TabContribution> downloadTabs() {
         return List.of();
     }
 }

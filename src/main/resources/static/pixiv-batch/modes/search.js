@@ -29,11 +29,14 @@
         } else {
             isNovel = currentModeKind() === 'novel';
         }
+        // 小说作品类型被禁用时，小说专属字段（最少/最多字数）一律隐藏（即便 showAll / isNovel 涌现为真）。
+        const novelEnabled = !window.PixivBatch.queueTypes || window.PixivBatch.queueTypes.isEnabled('novel');
+        const showNovel = novelEnabled && (showAll || isNovel);
         document.querySelectorAll('.search-illust-only').forEach(el => {
             el.style.display = showAll ? '' : (isNovel ? 'none' : '');
         });
         document.querySelectorAll('.search-novel-only').forEach(el => {
-            el.style.display = showAll ? '' : (isNovel ? '' : 'none');
+            el.style.display = showNovel ? '' : 'none';
         });
     }
 
