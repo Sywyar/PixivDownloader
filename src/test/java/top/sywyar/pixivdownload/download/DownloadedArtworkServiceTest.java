@@ -46,7 +46,7 @@ class DownloadedArtworkServiceTest {
     void setUp() {
         LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         ArtworkFileLocator artworkFileLocator = new ArtworkFileLocator(pixivDatabase, downloadConfig, APP_MESSAGES);
-        ArtworkFileService artworkFileService = new ArtworkFileService(pixivDatabase, artworkFileLocator, APP_MESSAGES);
+        ArtworkFileService artworkFileService = new ArtworkFileService(pixivDatabase, artworkFileLocator);
         ArtworkMetadataRecoveryService artworkMetadataRecoveryService =
                 new ArtworkMetadataRecoveryService(pixivDatabase, authorService, downloadConfig, APP_MESSAGES);
         downloadedArtworkService = new DownloadedArtworkService(pixivDatabase, artworkFileService,

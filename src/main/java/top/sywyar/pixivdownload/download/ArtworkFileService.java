@@ -5,13 +5,10 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.response.ImageResponse;
-import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.imageclassifier.ThumbnailManager;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -20,14 +17,15 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
-import java.util.Base64;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 已下载插画的本地文件服务：原图 / 缩略图字节 serving、缩略图缓存与文件定位。
+ * 已下载插画的本地文件定位与缩略图缓存：缩略图 / 原图文件解析、缩略图生成与缓存。
  * 文件层定位委托 {@link ArtworkFileLocator}，DB 行查询走 {@link PixivDatabase}。
+ * 图片字节的 HTTP serving 由核心 {@code WorkAssetFileController} 经 {@code WorkAssetService} 承接，
+ * 本服务只产出文件（{@link #getThumbnailFile} / {@link #getImageFile}），不构造 HTTP 响应体。
  */
 @Service
 public class ArtworkFileService {
@@ -36,7 +34,6 @@ public class ArtworkFileService {
 
     private final PixivDatabase pixivDatabase;
     private final ArtworkFileLocator artworkFileLocator;
-    private final AppMessages messages;
 
     private final ConcurrentHashMap<String, Object> thumbnailCacheLocks = new ConcurrentHashMap<>();
 
@@ -44,81 +41,9 @@ public class ArtworkFileService {
     }
 
     public ArtworkFileService(PixivDatabase pixivDatabase,
-                              ArtworkFileLocator artworkFileLocator,
-                              AppMessages messages) {
+                              ArtworkFileLocator artworkFileLocator) {
         this.pixivDatabase = pixivDatabase;
         this.artworkFileLocator = artworkFileLocator;
-        this.messages = messages;
-    }
-
-    public ImageResponse getImageResponse(Long artworkId, int page, boolean thumbnail) throws IOException {
-        if (thumbnail) {
-            ThumbnailFile thumbnailFile = getThumbnailFile(artworkId, page);
-            if (thumbnailFile == null) {
-                return null;
-            }
-            byte[] fileBytes = Files.readAllBytes(thumbnailFile.path());
-            BufferedImage image = ImageIO.read(thumbnailFile.path().toFile());
-            int width = image == null ? 0 : image.getWidth();
-            int height = image == null ? 0 : image.getHeight();
-            String base64Image = Base64.getEncoder().encodeToString(fileBytes);
-            return new ImageResponse(true, base64Image, thumbnailFile.extension(), base64Image.length(), width, height,
-                    messages.get("download.image.thumbnail.fetch-success"));
-        }
-
-        ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-        if (artwork == null) {
-            return null;
-        }
-
-        int count = artwork.count();
-        if (count <= page || page < 0) {
-            return null;
-        }
-
-        File imageFile = resolveImageFile(artwork, page);
-        if (imageFile == null) {
-            return null;
-        }
-        String extension = getFileExtension(imageFile.getName()).toLowerCase(Locale.ROOT);
-
-        boolean isWebp = "webp".equals(extension);
-
-        // WebP 完整图请求：直接返回原始字节，由 rawfile 端点处理更高效
-        // 此处 thumbnail=false 路径保留为备用
-        if (isWebp && !thumbnail) {
-            byte[] fileBytes = Files.readAllBytes(imageFile.toPath());
-            String base64Image = Base64.getEncoder().encodeToString(fileBytes);
-            return new ImageResponse(true, base64Image, "webp", base64Image.length(), 0, 0,
-                    messages.get("download.image.ugoira.fetch-success"));
-        }
-
-        // WebP 缩略图：使用伴随的 _p0_thumb.jpg 文件
-        if (isWebp) {
-            String dirPath = resolveArtworkDirectory(artwork);
-            String baseName = resolveStoredFileBaseName(artwork, page);
-            File thumbFile = Paths.get(dirPath, baseName + "_thumb.jpg").toFile();
-            if (!thumbFile.exists()) {
-                return null;
-            }
-            imageFile = thumbFile;
-            extension = "jpg";
-        }
-
-        BufferedImage image;
-        if (thumbnail) {
-            image = ThumbnailManager.getThumbnail(imageFile, -1, -1);
-        } else {
-            image = ImageIO.read(imageFile);
-        }
-
-        String writeFormat = extension;
-        ByteArrayOutputStream bass = new ByteArrayOutputStream();
-        ImageIO.write(image, writeFormat, bass);
-        String base64Image = Base64.getEncoder().encodeToString(bass.toByteArray());
-
-        return new ImageResponse(true, base64Image, writeFormat, base64Image.length(), image.getWidth(), image.getHeight(),
-                messages.get("download.image.thumbnail.fetch-success"));
     }
 
     public ThumbnailFile getThumbnailFile(Long artworkId, int page) throws IOException {

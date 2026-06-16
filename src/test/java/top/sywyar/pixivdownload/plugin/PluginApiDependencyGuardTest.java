@@ -216,6 +216,19 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("核心本地资产 serving（core.asset）不得依赖 download 包：图片字节只能经 WorkAssetService 出")
+    void coreAssetServingDoesNotDependOnDownloadPackage() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.core.asset..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.download..")
+                .because("『读已下载作品的本地图片字节』是核心本地资产能力，core.asset 的 serving 端点只能经 "
+                        + "plugin.api 的 WorkAssetService 取文件，不得依赖将来要拆成下载工作台插件的 download 包；"
+                        + "否则禁用下载工作台会让画廊 / 橱窗 / 系列 / 详情页裂图")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("common 不得依赖业务包：项目内仅允许 common/config/i18n")
     void commonDependsOnlyOnInfrastructure() {
         noClasses()
