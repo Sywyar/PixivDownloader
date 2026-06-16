@@ -26,7 +26,7 @@ class StaticResourceRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集全部内置插件静态资源（核心公共库 + 四功能插件页面目录）")
+    @DisplayName("构造时从 PluginRegistry 收集全部内置插件静态资源（核心公共库 + 下载工作台 + 四 web 功能插件页面目录）")
     void collectsFromBuiltInPlugins() {
         StaticResourceRegistry registry =
                 new StaticResourceRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
@@ -34,6 +34,7 @@ class StaticResourceRegistryTest {
                 .extracting(registered -> registered.contribution().publicPathPrefix())
                 .containsExactlyInAnyOrder(
                         "/js/", "/css/", "/vendor/",
+                        "/pixiv-batch/",
                         "/pixiv-gallery/", "/pixiv-artwork/", "/pixiv-showcase/", "/pixiv-series/",
                         "/pixiv-novel-gallery/", "/pixiv-novel/",
                         "/pixiv-stats/",

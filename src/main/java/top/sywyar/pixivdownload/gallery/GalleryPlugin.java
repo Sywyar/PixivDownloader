@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
@@ -91,6 +92,13 @@ public class GalleryPlugin implements PixivFeaturePlugin {
     public List<NavigationContribution> navigation() {
         return List.of(new NavigationContribution(
                 ID, "nav.label", "/pixiv-gallery.html", "images", AccessLevel.GUEST_READ, 20));
+    }
+
+    @Override
+    public List<StartupRouteContribution> startupRoutes() {
+        // solo 模式默认落点：画廊页（/redirect 在 solo 模式以本插件为首选）；
+        // 也是 multi 模式下禁用下载工作台后按 order 回退的下一落点。
+        return List.of(new StartupRouteContribution(ID, "/pixiv-gallery.html", 20));
     }
 
     @Override

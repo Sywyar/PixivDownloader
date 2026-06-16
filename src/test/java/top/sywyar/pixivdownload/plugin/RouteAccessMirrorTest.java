@@ -151,6 +151,8 @@ class RouteAccessMirrorTest {
         assertOwnerLevel("/api/gallery/novels", "novel", AccessLevel.GUEST_READ);
         assertOwnerLevel("/api/stats/**", "stats", AccessLevel.ADMIN_OR_SOLO);
         assertOwnerLevel("/api/duplicates/**", "duplicate", AccessLevel.ADMIN_OR_SOLO);
+        // 计划任务管理 API 随 schedule 能力收编归下载工作台插件声明（访问级别不变：仅管理员）。
+        assertOwnerLevel("/api/schedule/**", "download-workbench", AccessLevel.ADMIN_OR_SOLO);
     }
 
     private static List<WebRouteContribution> byLevel(AccessLevel level) {

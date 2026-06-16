@@ -3,11 +3,11 @@ package top.sywyar.pixivdownload.schedule;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.support.CronExpression;
-import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskInsert;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
@@ -26,7 +26,7 @@ import java.util.regex.Pattern;
  * <p>运行编排在 {@link ScheduleExecutor} / {@link ScheduleRunner}。
  */
 @Slf4j
-@Service
+@PluginManagedBean
 @RequiredArgsConstructor
 public class ScheduleService {
 

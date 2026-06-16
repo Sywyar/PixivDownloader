@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.schedule;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 
 import java.util.ArrayList;
@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * （后者的 pause / 503 短路语义是给 DB 维护的），tick 内也不顺手做 DB 清理。调度以管理员身份运行、不受限流 / 配额。
  */
 @Slf4j
-@Component
+@PluginManagedBean
 @RequiredArgsConstructor
 public class ScheduleRunner {
 

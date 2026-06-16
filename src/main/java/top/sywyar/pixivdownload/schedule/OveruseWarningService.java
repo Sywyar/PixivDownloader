@@ -3,8 +3,8 @@ package top.sywyar.pixivdownload.schedule;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.download.PixivFetchService;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +26,7 @@ import java.util.List;
  * modifiedAt 统一返回 Unix epoch <b>毫秒</b>（项目时间不变量）。
  */
 @Slf4j
-@Service
+@PluginManagedBean
 @RequiredArgsConstructor
 public class OveruseWarningService {
 

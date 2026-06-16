@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule;
 
-import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>不落库是有意的：进程退出后这些瞬时态自然消失，不会出现「卡在 RUNNING」的脏状态；
  * 任务真正的结果始终以持久化的 {@code last_status} / {@code run_started_time} 为准。
  */
-@Component
+@PluginManagedBean
 public class ScheduleRunState {
 
     public static final String QUEUED = "QUEUED";

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule;
 
-import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentMap;
  * <p>调度按串行单线程写入，HTTP 读线程并发读取，故 {@link Run} 的读写都在其自身锁内完成、
  * 对外只暴露 {@link Run#snapshot()} 的拷贝，避免并发遍历。
  */
-@Component
+@PluginManagedBean
 public class ScheduleRunQueue {
 
     public static final String KIND_ILLUST = "illust";

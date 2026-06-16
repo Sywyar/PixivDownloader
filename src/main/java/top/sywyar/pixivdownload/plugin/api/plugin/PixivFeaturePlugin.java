@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -73,6 +74,11 @@ public interface PixivFeaturePlugin {
 
     /** 插件声明的导航项。 */
     default List<NavigationContribution> navigation() {
+        return List.of();
+    }
+
+    /** 插件声明的默认启动落点（{@code /redirect} 据此选定落点页）。 */
+    default List<StartupRouteContribution> startupRoutes() {
         return List.of();
     }
 

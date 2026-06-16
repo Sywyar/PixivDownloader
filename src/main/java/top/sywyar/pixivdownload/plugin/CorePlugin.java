@@ -11,7 +11,6 @@ import top.sywyar.pixivdownload.core.db.schema.contribution.TagSchemaContributio
 import top.sywyar.pixivdownload.novel.db.NovelSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
@@ -19,7 +18,6 @@ import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.schedule.db.ScheduleSchemaContribution;
-import top.sywyar.pixivdownload.schedule.source.EnumScheduledSourceProvider;
 import top.sywyar.pixivdownload.series.MangaSeriesSchemaContribution;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSchemaContribution;
 
@@ -89,7 +87,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 adminOrSolo("/pixiv-invite-detail.html"),
                 adminOrSolo("/api/downloaded/batch"),
                 // MONITOR_PREFIX_PATHS 中仅 monitor 的前缀条目
-                adminOrSolo("/api/schedule/**"),
+                // （/api/schedule/** 随 schedule 能力收编进下载工作台，由 DownloadWorkbenchPlugin 声明）
                 adminOrSolo("/api/admin/**"),
                 adminOrSolo("/api/tts/**"),
                 adminOrSolo("/api/narration/**"),
@@ -202,13 +200,5 @@ public class CorePlugin implements PixivFeaturePlugin {
                 new I18nContribution("invite", "i18n.web.invite", 17),
                 new I18nContribution("tour", "i18n.web.tour", 18),
                 new I18nContribution("maintenance", "i18n.web.maintenance", 19));
-    }
-
-    @Override
-    public List<ScheduledSourceProvider> scheduledSources() {
-        // 现有 7 个计划任务来源（USER_NEW / USER_REQUEST / SEARCH / SERIES / MY_BOOKMARKS /
-        // FOLLOW_LATEST / COLLECTION）按既有枚举跨插画 / 小说统一调度，故由核心声明。
-        // 各 provider 仅承载身份 + legacy 类型映射，发现 / 派发语义由调度器的枚举分支承载。
-        return EnumScheduledSourceProvider.builtIn();
     }
 }

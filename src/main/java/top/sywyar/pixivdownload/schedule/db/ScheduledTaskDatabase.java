@@ -6,8 +6,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.schedule.ScheduledTask;
 
 import java.util.List;
@@ -19,7 +19,7 @@ import java.util.List;
  * 幂等的任务快照数据迁移。注入池化 {@code DataSource}（经 MyBatis {@code SqlSessionFactory}），不自建连接。
  */
 @Slf4j
-@Repository
+@PluginManagedBean
 @RequiredArgsConstructor
 public class ScheduledTaskDatabase {
 

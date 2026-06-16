@@ -79,6 +79,37 @@ class RegisteredPluginsTest {
             })
             .withBean(top.sywyar.pixivdownload.i18n.AppMessages.class,
                     top.sywyar.pixivdownload.i18n.TestI18nBeans::appMessages)
+            // schedule 引擎 Bean 随 schedule 能力收编进 DownloadWorkbenchPluginConfiguration：
+            // 其依赖的核心 / 下载 / 小说机器在本切片里一律 mock 兜底（ScheduleConfig 用默认值实例），
+            // 两个下载池按 bean 名提供 SyncTaskExecutor（ScheduleExecutor 经 @Qualifier 按名解析）。
+            .withBean(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class))
+            .withBean(top.sywyar.pixivdownload.download.PixivFetchService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.PixivFetchService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.class))
+            .withBean(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class))
+            .withBean(top.sywyar.pixivdownload.download.ArtworkDownloader.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.ArtworkDownloader.class))
+            .withBean(top.sywyar.pixivdownload.novel.download.NovelDownloader.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.download.NovelDownloader.class))
+            .withBean(top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository.class))
+            .withBean(top.sywyar.pixivdownload.notification.NotificationService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.notification.NotificationService.class))
+            .withBean(top.sywyar.pixivdownload.setup.SetupService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.setup.SetupService.class))
+            .withBean(top.sywyar.pixivdownload.core.appconfig.DownloadConfig.class,
+                    top.sywyar.pixivdownload.core.appconfig.DownloadConfig::new)
+            .withBean(top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService.class))
+            .withBean(top.sywyar.pixivdownload.schedule.ScheduleConfig.class,
+                    top.sywyar.pixivdownload.schedule.ScheduleConfig::new)
+            .withBean("downloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
+                    org.springframework.core.task.SyncTaskExecutor::new)
+            .withBean("novelDownloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
+                    org.springframework.core.task.SyncTaskExecutor::new)
             .withUserConfiguration(
                     CorePluginConfiguration.class,
                     DownloadWorkbenchPluginConfiguration.class,
@@ -114,14 +145,18 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("各插件 contribution 边界：core 独占 schema、声明共享静态资源与横切 / 共享路由，stats/duplicate/gallery/novel 占功能路由 + 导航 + 页面静态资源、download-workbench 独占 userscript 来源、i18n namespace 六插件全员声明")
+    @DisplayName("各插件 contribution 边界：core 独占 schema、声明共享静态资源与横切 / 共享路由，stats/duplicate/gallery/novel 占功能路由 + 导航 + 页面静态资源、download-workbench 占 schedule 路由 + 下载页静态资源 + userscript 来源、i18n namespace 六插件全员声明")
     void emptyPluginsContributeNothing() {
         // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
-        // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）。
+        // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）；
+        // download-workbench 随 schedule 能力收编声明 /api/schedule/** 路由（下载页其余 API 是跨插件共享、留核心）。
         // 导航：仍仅四个 web 功能插件声明（core / download-workbench 不出现在导航栏）。
-        Set<String> routeContributingPlugins = Set.of("core", "stats", "duplicate", "gallery", "novel");
+        Set<String> routeContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
         Set<String> navContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
-        Set<String> staticResourceContributingPlugins = Set.of("core", "stats", "duplicate", "gallery", "novel");
+        Set<String> staticResourceContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
+        // coreColumnUsages 仍仅画廊 / 小说：download-workbench 收编的 schedule 引擎对 scheduled_tasks 的访问
+        // 全经根包扫描的 MyBatis ScheduledTaskMapper（核心机器，与 ArtworkDownloadExecutor 同口径不计入），
+        // 收编的业务 Bean 自身无直接 SQL，故无核心列使用声明。
         Set<String> coreColumnUsingPlugins = Set.of("gallery", "novel");
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
@@ -143,7 +178,7 @@ class RegisteredPluginsTest {
                 // i18n namespace 静态 map 退役后由六插件全员声明：页面跟插件走、核心/共享
                 // namespace（common/translate/tour 等）留 core、batch/userscript 归下载工作台
                 assertThat(plugin.i18n()).isNotEmpty();
-                // 路由：四个 web 功能插件 + core（横切 / 共享路由）声明，download-workbench 留空（其 routes() 由后续下载工作台工作包补声明）
+                // 路由：四个 web 功能插件 + core（横切 / 共享路由）+ download-workbench（schedule 路由）声明
                 if (routeContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.routes()).isNotEmpty();
                 } else {
@@ -156,8 +191,8 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.navigation()).isEmpty();
                 }
-                // 静态资源：核心声明共享公共库（/js、/css、/vendor），四个 web 功能插件声明各自页面目录；
-                // 下载工作台只声明油猴脚本来源、不声明页面静态资源目录
+                // 静态资源：核心声明共享公共库（/js、/css、/vendor），四个 web 功能插件声明各自页面目录，
+                // 下载工作台声明下载页静态资源目录（/pixiv-batch/）
                 if (staticResourceContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.staticResources()).isNotEmpty();
                 } else {

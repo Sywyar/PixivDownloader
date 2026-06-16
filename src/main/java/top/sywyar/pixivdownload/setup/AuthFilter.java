@@ -27,6 +27,7 @@ import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.StartupRouteRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -75,13 +76,19 @@ public class AuthFilter extends OncePerRequestFilter {
     // 前缀模式以 ** 结尾，去掉末尾 ** 即还原为历史 startsWith 前缀字符串（含 /api/authors 这类无尾斜杠前缀）。
     private final RouteAccessRegistry routeAccessRegistry;
 
+    /** 默认启动落点注册中心：{@code /redirect} 据此按模式选定首选插件落点（缺失则回退 / 兜底）。 */
+    private final StartupRouteRegistry startupRouteRegistry;
+
     /** 最近一次派生结果（含其来源快照引用）；仅当 registry 快照引用变化时按需重算，避免每个请求重复派生。 */
     private volatile DerivedRouteAccess derivedRouteAccess;
 
     @Value("${server.ssl.enabled:false}")
     private boolean sslEnabled;
 
-    /** 运行期构造：注入 Spring 管理的 {@link RouteAccessRegistry}（反映已启用插件），请求侧读取其不可变快照。 */
+    /**
+     * 运行期构造：注入 Spring 管理的 {@link RouteAccessRegistry}（反映已启用插件，请求侧读取其不可变快照）
+     * 与 {@link StartupRouteRegistry}（{@code /redirect} 默认落点）。
+     */
     @Autowired
     public AuthFilter(SetupService setupService,
                       StaticResourceRateLimitService staticResourceRateLimitService,
@@ -91,7 +98,8 @@ public class AuthFilter extends OncePerRequestFilter {
                       ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider,
                       GuestInviteService guestInviteService,
                       GuiTokenProvider guiTokenProvider,
-                      RouteAccessRegistry routeAccessRegistry) {
+                      RouteAccessRegistry routeAccessRegistry,
+                      StartupRouteRegistry startupRouteRegistry) {
         this.setupService = setupService;
         this.staticResourceRateLimitService = staticResourceRateLimitService;
         this.rateLimitService = rateLimitService;
@@ -101,12 +109,32 @@ public class AuthFilter extends OncePerRequestFilter {
         this.guestInviteService = guestInviteService;
         this.guiTokenProvider = guiTokenProvider;
         this.routeAccessRegistry = routeAccessRegistry;
+        this.startupRouteRegistry = startupRouteRegistry;
     }
 
     /**
-     * Spring 上下文外构造（单元测试 / 启动期校验）：从内置插件清单构建与运行期一致的路由 registry，
+     * 单元测试 / 启动期校验构造（自定义 {@link RouteAccessRegistry}）：启动落点 registry 从内置插件清单构建，
+     * 与运行期一致；供 {@code AuthFilterRegistrySnapshotTest} 注入定制路由 registry 而落点行为不变。
+     */
+    public AuthFilter(SetupService setupService,
+                      StaticResourceRateLimitService staticResourceRateLimitService,
+                      RateLimitService rateLimitService,
+                      AppLocaleResolver localeResolver,
+                      AppMessages messages,
+                      ObjectProvider<MaintenanceCoordinator> maintenanceCoordinatorProvider,
+                      GuestInviteService guestInviteService,
+                      GuiTokenProvider guiTokenProvider,
+                      RouteAccessRegistry routeAccessRegistry) {
+        this(setupService, staticResourceRateLimitService, rateLimitService, localeResolver,
+                messages, maintenanceCoordinatorProvider, guestInviteService, guiTokenProvider,
+                routeAccessRegistry,
+                new StartupRouteRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
+    }
+
+    /**
+     * Spring 上下文外构造（单元测试 / 启动期校验）：从内置插件清单构建与运行期一致的路由 / 落点 registry，
      * 与 {@code RouteAccessMirrorTest} / {@code RouteAccessRegistryTest} 用同一组合根，
-     * 因此过滤行为与运行期注册完全等价。
+     * 因此过滤与默认落点行为与运行期注册完全等价。
      */
     public AuthFilter(SetupService setupService,
                       StaticResourceRateLimitService staticResourceRateLimitService,
@@ -288,10 +316,13 @@ public class AuthFilter extends OncePerRequestFilter {
         if (path.equals("/redirect")) {
             if (setupService.isIntroMode()) {
                 res.sendRedirect("/intro.html");
-            } else if ("multi".equals(setupService.getMode())) {
-                res.sendRedirect("/pixiv-batch.html");
             } else {
-                res.sendRedirect("/pixiv-gallery.html");
+                // 默认落点不再硬编码页面路径，改读 StartupRouteRegistry：multi 以下载工作台为首选、
+                // solo 以画廊为首选；首选插件未声明 / 未启用时回退到 order 最小的已启用插件落点，
+                // 全部缺失兜底到登录页（禁用下载工作台后自动落到其他已启用插件，不留坏入口）。
+                String preferredPluginId = "multi".equals(setupService.getMode())
+                        ? "download-workbench" : "gallery";
+                res.sendRedirect(startupRouteRegistry.resolvePath(preferredPluginId).orElse("/login.html"));
             }
             return;
         }

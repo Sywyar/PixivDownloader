@@ -6,7 +6,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.download.ArtworkDownloader;
@@ -26,6 +25,7 @@ import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.push.MarkdownEscape;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskDatabase;
 import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
@@ -76,7 +76,7 @@ import java.util.regex.Pattern;
  * {@code runTask} 返回前等本轮所有在途下载完成（join）。「连续失败」熔断计数在并发下退化为「按完成顺序的连续」（可接受）。
  */
 @Slf4j
-@Component
+@PluginManagedBean
 @RequiredArgsConstructor
 public class ScheduleExecutor {
 

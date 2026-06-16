@@ -94,16 +94,16 @@ class ScheduledSourceRegistryTest {
     }
 
     @Test
-    @DisplayName("内置插件中仅核心插件贡献计划任务来源，且恰好 7 个")
-    void onlyCorePluginContributesScheduledSources() {
+    @DisplayName("内置插件中仅下载工作台插件贡献计划任务来源，且恰好 7 个")
+    void onlyDownloadWorkbenchContributesScheduledSources() {
         for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
-            if (plugin.id().equals("core")) {
+            if (plugin.id().equals("download-workbench")) {
                 assertThat(plugin.scheduledSources())
-                        .as("核心插件应贡献全部 7 个计划任务来源")
+                        .as("下载工作台插件应贡献全部 7 个计划任务来源")
                         .hasSize(ScheduledTaskType.values().length);
             } else {
                 assertThat(plugin.scheduledSources())
-                        .as("功能插件 %s 当前不贡献计划任务来源", plugin.id())
+                        .as("插件 %s 当前不贡献计划任务来源", plugin.id())
                         .isEmpty();
             }
         }
