@@ -1232,8 +1232,10 @@ class AuthFilterTest {
         @CsvSource({
                 "POST,/api/novel/download",
                 "GET,/api/novel/status/12345",
+                "GET,/api/novel/translate-status/12345",
                 "POST,/api/download/pixiv/novel",
-                "GET,/api/download/novel/status/12345"
+                "GET,/api/download/novel/status/12345",
+                "GET,/api/download/novel/translate-status/12345"
         })
         @DisplayName("多人模式普通访客可访问（与插画下载对称：multi 访客走配额下载）")
         void multiVisitorAllowed(String method, String path) throws Exception {
@@ -1254,8 +1256,10 @@ class AuthFilterTest {
         @CsvSource({
                 "POST,/api/novel/download",
                 "GET,/api/novel/status/12345",
+                "GET,/api/novel/translate-status/12345",
                 "POST,/api/download/pixiv/novel",
-                "GET,/api/download/novel/status/12345"
+                "GET,/api/download/novel/status/12345",
+                "GET,/api/download/novel/translate-status/12345"
         })
         @DisplayName("solo 模式未登录访问应 401（仅会话用户 / 管理员可下载小说）")
         void soloUnauthorizedRejected(String method, String path) throws Exception {
@@ -1277,8 +1281,10 @@ class AuthFilterTest {
         @CsvSource({
                 "POST,/api/novel/download",
                 "GET,/api/novel/status/12345",
+                "GET,/api/novel/translate-status/12345",
                 "POST,/api/download/pixiv/novel",
-                "GET,/api/download/novel/status/12345"
+                "GET,/api/download/novel/status/12345",
+                "GET,/api/download/novel/translate-status/12345"
         })
         @DisplayName("邀请访客越界访问应 403（小说下载不在访客白名单，与插画下载一致）")
         void invitedGuestForbidden(String method, String path) throws Exception {
@@ -1292,6 +1298,137 @@ class AuthFilterTest {
 
             request.setMethod(method);
             request.setRequestURI(path);
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+    }
+
+    // ========== 下载页扩展点装配端点（归下载工作台、SESSION_OR_VISITOR：随下载页消费的只读装配接口） ==========
+
+    @Nested
+    @DisplayName("下载页扩展点端点 /api/download/extensions 访问级别（归下载工作台、SESSION_OR_VISITOR）")
+    class DownloadExtensionsEndpointTests {
+
+        // 该端点声明为 SESSION_OR_VISITOR（AuthFilter 不派生任何清单、命中后落默认会话/访客分支），访问行为
+        // 与未声明时逐字等价、并与小说/插画下载提交端点对称：multi 访客可读 / solo 需会话 / 邀请访客 403。
+
+        @Test
+        @DisplayName("多人模式普通访客可读取（下载页在 multi 模式由访客装配队列引擎）")
+        void multiVisitorAllowed() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowed(any())).thenReturn(true);
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/download/extensions");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("solo 模式未登录访问应 401（不扩大未登录可达面）")
+        void soloUnauthorizedRejected() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isValidSession(any())).thenReturn(false);
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/download/extensions");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("邀请访客越界访问应 403（扩展点不在访客白名单，不扩大邀请访客权限）")
+        void invitedGuestForbidden() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/download/extensions");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+    }
+
+    // ========== 核心导航装配端点（归 core、SESSION_OR_VISITOR：声明路由但不改变旧访问行为） ==========
+
+    @Nested
+    @DisplayName("核心导航端点 /api/navigation 访问级别（归 core、SESSION_OR_VISITOR）")
+    class NavigationEndpointTests {
+
+        // /api/navigation 由 CorePlugin.routes() 以 SESSION_OR_VISITOR 声明：AuthFilter 不为该级别派生
+        // 任何清单、命中后落默认会话/访客分支，访问行为与「未声明路由」时逐字等价——声明只为消除歧义、
+        // 纳入路由镜像守护，不扩大任何 guest/public 权限。三态：multi 访客可读 / solo 未登录 401 / 邀请访客 403。
+
+        @Test
+        @DisplayName("多人模式普通访客可读取（controller 返回匿名可见导航，访问行为不变）")
+        void multiVisitorAllowed() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowed(any())).thenReturn(true);
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/navigation");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("solo 模式未登录访问应 401（声明路由不放宽未登录可达面）")
+        void soloUnauthorizedRejected() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isValidSession(any())).thenReturn(false);
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/navigation");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("邀请访客越界访问应 403（导航端点不在访客白名单，声明 SESSION_OR_VISITOR 不扩大邀请访客权限）")
+        void invitedGuestForbidden() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/navigation");
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
 

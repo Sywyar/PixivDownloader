@@ -76,6 +76,8 @@ public class CorePlugin implements PixivFeaturePlugin {
         //   ADMIN_OR_SOLO   → 仅 monitor 清单（管理员 / solo 会话）
         //   GUEST_READ      → monitor 清单 + 访客邀请白名单（既受保护、受邀访客又可只读）
         //   GUEST_READ_OPEN → 仅访客白名单 / 公开共享静态依赖（不入 monitor；multi 普通访客 GET 亦可达）
+        //   SESSION_OR_VISITOR → 不派生进任何清单（core /api/navigation 导航装配：multi 访客可读 /
+        //                     solo 需会话 / 邀请访客 403 / 不入 monitor，与未声明时逐字等价、纯归属声明）
         //   PUBLIC          → 公开静态资源 / 页面（solo 与 multi 两种模式均公开）
         //   LOCAL_ONLY      → /api/downloaded/** 本地放行特例（本地直通，远端回退常规鉴权）
         // 同一端点的不对称按现状保留、不改级别（如 /api/download/status/active 是 GUEST_READ、
@@ -142,6 +144,13 @@ public class CorePlugin implements PixivFeaturePlugin {
                 publicRoute("/login/**"),
                 publicRoute("/maintenance/**"),
                 publicRoute("/vendor/fonts/**"),
+                // SESSION_OR_VISITOR：核心导航装配端点 /api/navigation（NavigationController 读
+                // NavigationRegistry 跨插件聚合导航项、按请求可见性过滤）。AuthFilter 不为该级别派生任何
+                // 清单、命中后落默认会话 / 访客分支：multi 普通访客可读（返回匿名可见导航）/ solo 未登录 401 /
+                // 邀请访客 403（不在访客白名单）/ 不入 monitor，与未声明时的访问行为逐字等价。声明只为消除
+                //「未声明路由」歧义、纳入路由镜像守护，不改访问行为；不用 GUEST_READ_OPEN——那会把它派生进
+                // 访客白名单、扩大邀请访客可达面。
+                sessionOrVisitor("/api/navigation"),
                 // /api/downloaded/{id} 本地放行特例（含 /api/download/status 精确）
                 localOnly("/api/downloaded/**"),
                 localOnly("/api/download/status"));
@@ -161,6 +170,15 @@ public class CorePlugin implements PixivFeaturePlugin {
 
     private static WebRouteContribution guestReadOpenPost(String pattern) {
         return new WebRouteContribution(pattern, AccessLevel.GUEST_READ_OPEN, Set.of(HttpMethod.POST), false);
+    }
+
+    /**
+     * 「会话用户或 multi 访客」端点（{@link AccessLevel#SESSION_OR_VISITOR}）：multi 普通访客可访问、
+     * solo 需会话、邀请访客 403、不入 monitor。该级别不被 {@code AuthFilter} 派生进任何访问清单，
+     * 命中后落默认会话 / 访客分支，访问行为与未声明该路由时逐字等价——声明只为路由归属与镜像守护。
+     */
+    private static WebRouteContribution sessionOrVisitor(String pattern) {
+        return new WebRouteContribution(pattern, AccessLevel.SESSION_OR_VISITOR, Set.of(), false);
     }
 
     private static WebRouteContribution publicRoute(String pattern) {

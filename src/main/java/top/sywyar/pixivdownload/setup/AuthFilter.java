@@ -73,8 +73,9 @@ public class AuthFilter extends OncePerRequestFilter {
     //   访客白名单     ← AccessLevel ∈ {GUEST_READ, GUEST_READ_OPEN}（GET/HEAD 收窄由下方谓词承载）
     //   公开静态       ← PUBLIC
     //   本地放行特例   ← LOCAL_ONLY
-    //   SESSION_OR_VISITOR ← 不派生进任何清单（下载提交类写端点：multi 访客可写 / solo 需会话 / 邀请访客 403 /
-    //                        不入 monitor）。命中后落到默认会话 / 访客分支，等价于历史「未声明 API」的涌现行为；
+    //   SESSION_OR_VISITOR ← 不派生进任何清单（需保留历史「未声明 API」访问行为的端点：下载工作台提交 /
+    //                        装配、核心导航装配等；multi 访客可访问 / solo 需会话 / 邀请访客 403 /
+    //                        不入 monitor）。命中后落到默认会话 / 访客分支，等价于历史涌现行为；
     //                        声明它只为路由归属与镜像守护，不改变访问行为（见 AccessLevel.SESSION_OR_VISITOR）。
     // 前缀模式以 ** 结尾，去掉末尾 ** 即还原为历史 startsWith 前缀字符串（含 /api/authors 这类无尾斜杠前缀）。
     private final RouteAccessRegistry routeAccessRegistry;

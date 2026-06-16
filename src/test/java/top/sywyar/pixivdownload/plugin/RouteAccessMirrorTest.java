@@ -74,7 +74,7 @@ class RouteAccessMirrorTest {
     }
 
     @Test
-    @DisplayName("SESSION_OR_VISITOR 路由：匹配器绝不出现在 monitor / 访客 / 公开 / 本地任一清单（下载提交端点的纯归属声明、不改访问行为）")
+    @DisplayName("SESSION_OR_VISITOR 路由：匹配器绝不出现在 monitor / 访客 / 公开 / 本地任一清单（下载工作台端点的纯归属声明、不改访问行为）")
     void sessionOrVisitorRoutesArePassThrough() {
         Set<String> monitorMatchers =
                 matchersForLevels(Set.of(AccessLevel.ADMIN_OR_SOLO, AccessLevel.GUEST_READ));
@@ -83,7 +83,7 @@ class RouteAccessMirrorTest {
         Set<String> publicMatchers = matchersForLevels(Set.of(AccessLevel.PUBLIC));
         Set<String> localMatchers = matchersForLevels(Set.of(AccessLevel.LOCAL_ONLY));
         List<WebRouteContribution> passThrough = byLevel(AccessLevel.SESSION_OR_VISITOR);
-        assertThat(passThrough).as("应有 SESSION_OR_VISITOR 路由（小说下载新址 + 旧址兼容垫片）").isNotEmpty();
+        assertThat(passThrough).as("应有 SESSION_OR_VISITOR 路由（小说下载新址 + 旧址兼容垫片 + 下载页扩展点装配端点 + 核心导航装配端点）").isNotEmpty();
         passThrough.forEach(route -> {
             String m = matcher(route.pathPattern());
             assertThat(monitorMatchers).as("SESSION_OR_VISITOR 路由 %s 不得进入 monitor 清单", route.pathPattern()).doesNotContain(m);
@@ -181,6 +181,12 @@ class RouteAccessMirrorTest {
         assertOwnerLevel("/api/duplicates/**", "duplicate", AccessLevel.ADMIN_OR_SOLO);
         // 计划任务管理 API 随 schedule 能力收编归下载工作台插件声明（访问级别不变：仅管理员）。
         assertOwnerLevel("/api/schedule/**", "download-workbench", AccessLevel.ADMIN_OR_SOLO);
+        // 下载页扩展点装配端点归下载工作台、SESSION_OR_VISITOR（随下载页消费的只读装配接口，复刻现状：
+        // multi 访客可读 / solo 需会话 / 邀请访客 403 / 不入 monitor，仅作归属声明、不改访问行为）。
+        assertOwnerLevel("/api/download/extensions", "download-workbench", AccessLevel.SESSION_OR_VISITOR);
+        // 核心导航装配端点归 core、SESSION_OR_VISITOR（NavigationController 读 NavigationRegistry 跨插件
+        // 聚合导航项；复刻未声明时现状：multi 访客可读 / solo 需会话 / 邀请访客 403 / 不入 monitor）。
+        assertOwnerLevel("/api/navigation", "core", AccessLevel.SESSION_OR_VISITOR);
     }
 
     private static List<WebRouteContribution> byLevel(AccessLevel level) {

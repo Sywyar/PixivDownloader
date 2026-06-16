@@ -53,10 +53,15 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         // 计划任务管理 API：仅管理员（solo / multi 均仅 monitor），随本插件收编的 schedule 能力声明。
+        // 下载页扩展点装配端点 /api/download/extensions（DownloadExtensionController）：随下载页消费的只读
+        // 装配接口，以 SESSION_OR_VISITOR 声明——AuthFilter 不为该级别派生任何清单、命中后落默认会话/访客分支
+        //（multi 访客可读 / solo 需会话 / 邀请访客 403 / 不入 monitor），与未声明时的访问行为逐字等价；
+        // 声明只为把该端点纳入明确的路由归属、随插件镜像守护，杜绝「未声明路由」的语义歧义。
         // 下载页 /pixiv-batch.html 与 /pixiv-batch/** 资源沿用「未受管页面」语义（multi 黑名单放行、
         // solo 仅管理员），不声明访问级别以保持现状；其它下载数据 API 是跨插件共享、由核心声明（见类注释）。
         return List.of(
-                new WebRouteContribution("/api/schedule/**", AccessLevel.ADMIN_OR_SOLO, Set.of(), false));
+                new WebRouteContribution("/api/schedule/**", AccessLevel.ADMIN_OR_SOLO, Set.of(), false),
+                new WebRouteContribution("/api/download/extensions", AccessLevel.SESSION_OR_VISITOR, Set.of(), false));
     }
 
     @Override

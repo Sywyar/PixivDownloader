@@ -17,8 +17,9 @@ import java.util.stream.Collectors;
  * （{@code /api/navigation} 在每次请求上读取）。
  * <p>
  * 快照按注册顺序返回，可见性过滤与按 {@code order} 排序由消费端
- * （{@code NavigationController}）完成；页面的静态导航在本阶段保留，
- * 逐页替换为 {@code /api/navigation} 不在本注册中心范围内。
+ * （{@code NavigationController}）完成。本注册中心只负责聚合 {@code /api/navigation}
+ * 的导航数据来源；各页面目前仍渲染各自的静态导航，是否逐页改用 {@code /api/navigation}
+ * 由各页面自行决定、不属本注册中心职责。
  */
 @Component
 public class NavigationRegistry {

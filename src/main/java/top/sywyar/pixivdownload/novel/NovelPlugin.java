@@ -95,8 +95,8 @@ public class NovelPlugin implements PixivFeaturePlugin {
     @Override
     public List<QueueTypeContribution> queueTypes() {
         // 小说作品类型：下载工作台队列引擎据此多态派发；行为（判重 / 载荷 / 状态轮询 / 系列合订 / 译文轮询）
-        // 由 moduleUrl 指向的小说自有行为模块在运行期注册。labelI18nKey 复用现有 kind 单选标签键（本阶段
-        // 子模式单选仍在页面 HTML、由「类型是否启用」显隐；标签键当前位于 novel namespace 是历史现状）。
+        // 由 moduleUrl 指向的小说自有行为模块在运行期注册。labelI18nKey 复用现有 kind 单选标签键
+        //（子模式单选 DOM 仍在下载页 HTML、由「类型是否启用」统一显隐；标签键位于 novel namespace 是历史现状）。
         return List.of(new QueueTypeContribution(
                 ID, "novel", "novel:batch.user.kind-novel", 20, "/pixiv-novel-download/novel-queue-type.js"));
     }

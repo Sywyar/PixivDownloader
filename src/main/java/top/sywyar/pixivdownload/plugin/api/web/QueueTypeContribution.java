@@ -9,7 +9,8 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * 宿主据此隐藏该类型的交互入口、并把残留队列项标记为暂停（不报错、不删除）。
  * <p>
  * 内置类型（如插画）由宿主直接内联注册行为、{@code moduleUrl} 为 {@code null}；外部贡献的
- * 类型（如小说）的行为模块由其插件 classloader 提供（本阶段为 jar 内静态资源，物理拆分后随插件 jar）。
+ * 类型（如小说）的行为模块由其声明插件的 classloader 提供（打进同一 jar 时即该 jar 内的静态资源，
+ * 物理拆分为独立插件 jar 后随该插件 classloader 解析）。
  *
  * @param pluginId     声明该类型的插件 id
  * @param type         类型 id（与队列项 {@code kind}、{@code ScheduledSourceProvider} 共享口径，如 {@code illust} / {@code novel}）

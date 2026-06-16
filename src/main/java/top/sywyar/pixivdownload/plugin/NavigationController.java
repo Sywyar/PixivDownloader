@@ -26,8 +26,11 @@ import java.util.Set;
  *   <li>其余（multi 匿名）：仅可见 {@code PUBLIC}。</li>
  * </ul>
  * 访客身份从请求上下文的 {@link GuestInviteSession#REQUEST_ATTR} 读取（由 {@code AuthFilter}
- * 在非公开请求上解析挂载）。本阶段 {@code AuthFilter} 尚未放行本端点给访客，访客的 HTTP 可达性
- * 随 {@code AuthFilter} 切换 registry 一并打通；可见性过滤逻辑在此先行就位。
+ * 在非公开请求上解析挂载）。本端点 {@code /api/navigation} 由 {@code CorePlugin.routes()} 以
+ * {@link AccessLevel#SESSION_OR_VISITOR} 声明，访问行为保持历史现状：multi 普通访客可读（得到匿名可见
+ * 导航）、solo 未登录 401、<b>邀请访客在 {@code AuthFilter} 即被 403</b>、不入 monitor。因此上面
+ * 「访客邀请会话」一档目前不会被真实邀请访客触达，是<b>防御性预置</b>——仅在未来若放开邀请访客对本端点的
+ * 可达性时才生效，<b>不代表当前已对邀请访客开放导航</b>。
  * <p>
  * 响应只暴露渲染所需字段（不含 {@code visibleTo}），不泄露内部访问级别模型；标签只返回
  * i18n key，文案由前端按当前语言解析。
