@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.schedule;
 
 import org.springframework.scheduling.support.CronExpression;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 
 import java.time.Instant;
 import java.time.LocalDateTime;

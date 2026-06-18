@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.schedule;
 
 /**
  * 用户在任务运行中点了「暂停」时上抛，让 {@code ScheduleExecutor.runTaskAndRecord} 干净 unwind 本轮：
- * 仅 {@code last_status=PAUSED}（{@link ScheduledTask#STATUS_PAUSED}），不冻账号、不发邮件、不挡 watermark。
+ * 仅 {@code last_status=PAUSED}（{@link top.sywyar.pixivdownload.core.schedule.ScheduledTask#STATUS_PAUSED}），不冻账号、不发邮件、不挡 watermark。
  *
  * <p>触发点：{@code ScheduleService.pause} 会同时往 DB 写 {@code PAUSED} 并通过
  * {@code ScheduleRunState.requestCancel} 在内存里给当前 Claim 打取消标记；

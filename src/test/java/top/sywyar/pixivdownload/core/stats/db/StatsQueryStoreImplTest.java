@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.stats;
+package top.sywyar.pixivdownload.core.stats.db;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -6,16 +6,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import top.sywyar.pixivdownload.core.stats.StatsAggregates;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("StatsRepository 聚合查询")
-class StatsRepositoryTest {
+@DisplayName("StatsQueryStore 聚合查询")
+class StatsQueryStoreImplTest {
 
     private SingleConnectionDataSource dataSource;
-    private StatsRepository repository;
+    private StatsQueryStoreImpl store;
 
     @BeforeEach
     void setUp() {
@@ -49,7 +50,7 @@ class StatsRepositoryTest {
         jdbc.execute("CREATE TABLE novel_tags (novel_id INTEGER, tag_id INTEGER)");
         jdbc.execute("INSERT INTO novel_tags(novel_id, tag_id) VALUES (1000,2),(1001,3)");
 
-        repository = new StatsRepository(dataSource);
+        store = new StatsQueryStoreImpl(dataSource);
     }
 
     @AfterEach
@@ -60,7 +61,7 @@ class StatsRepositoryTest {
     @Test
     @DisplayName("overview 合并 statistics 单行与实时计数")
     void shouldBuildOverview() {
-        StatsDto.Overview o = repository.overview();
+        StatsAggregates.Overview o = store.overview();
         assertThat(o.totalArtworks()).isEqualTo(5);
         assertThat(o.totalImages()).isEqualTo(20);
         assertThat(o.totalMoved()).isEqualTo(2);
@@ -73,7 +74,7 @@ class StatsRepositoryTest {
     @Test
     @DisplayName("topAuthors 按作品数降序")
     void shouldRankAuthors() {
-        List<StatsDto.AuthorStat> authors = repository.topAuthors(10);
+        List<StatsAggregates.AuthorStat> authors = store.topAuthors(10);
         assertThat(authors).hasSize(3);
         assertThat(authors.get(0).authorId()).isEqualTo(100);
         assertThat(authors.get(0).count()).isEqualTo(3);
@@ -86,7 +87,7 @@ class StatsRepositoryTest {
     @Test
     @DisplayName("topTags 按使用量降序")
     void shouldRankTags() {
-        List<StatsDto.TagStat> tags = repository.topTags(10);
+        List<StatsAggregates.TagStat> tags = store.topTags(10);
         assertThat(tags).hasSize(3);
         assertThat(tags.get(0).tagId()).isEqualTo(1);
         assertThat(tags.get(0).count()).isEqualTo(3);
@@ -97,9 +98,9 @@ class StatsRepositoryTest {
     @Test
     @DisplayName("monthly 各月计数之和等于作品总数")
     void shouldGroupByMonth() {
-        List<StatsDto.MonthlyStat> monthly = repository.monthlyArtworkCounts();
+        List<StatsAggregates.MonthlyStat> monthly = store.monthlyArtworkCounts();
         assertThat(monthly).isNotEmpty();
-        long sum = monthly.stream().mapToLong(StatsDto.MonthlyStat::count).sum();
+        long sum = monthly.stream().mapToLong(StatsAggregates.MonthlyStat::count).sum();
         assertThat(sum).isEqualTo(7);
         // 月份格式 YYYY-MM 且升序
         assertThat(monthly).allSatisfy(m -> assertThat(m.month()).matches("\\d{4}-\\d{2}"));

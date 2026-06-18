@@ -1,15 +1,15 @@
-package top.sywyar.pixivdownload.schedule;
+package top.sywyar.pixivdownload.core.schedule;
 
 /**
  * 计划任务行的内存视图。对应 {@code scheduled_tasks} 表的一行。
  *
  * <p><b>敏感字段约束：</b>本 record <b>故意不含</b> {@code cookie_snapshot}。该列是一份完整的
  * Pixiv 登录凭证，<b>绝不</b>进入任何行投影 / 列表 / 详情 / 导出 / stats / duplicates 视图——
- * 它只能经 {@link top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper#findCookieSnapshot}
+ * 它只能经 {@link top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore#findCookieSnapshot}
  * 这一专用裸标量通道由调度器内部读取，结果绝不写日志 / 回显。
  *
- * <p>组件顺序必须与 {@code ScheduledTaskMapper.SELECT_TASK} 的列顺序一致
- * （MyBatis 按列序做构造器自动映射）。所有时间列均为 Unix epoch <b>毫秒</b>。
+ * <p>组件顺序必须与底层 {@code scheduled_tasks} 行投影的列顺序一致（数据访问实现按列序做构造器自动映射）。
+ * 所有时间列均为 Unix epoch <b>毫秒</b>。
  *
  * @param triggerKind    {@code interval}（固定周期）或 {@code cron}（Cron 表达式）
  * @param intervalMinutes 固定周期分钟数（{@code triggerKind=interval} 时有效）
@@ -59,10 +59,10 @@ public record ScheduledTask(
     /** 管理员手动暂停（任务级，不冻账号、不发邮件；恢复入口为「恢复」按钮）。 */
     public static final String STATUS_PAUSED = "PAUSED";
     /**
-     * 来源不可用 → 任务级挂起（不发现 / 不派发）。任务的 {@code type} 在
-     * {@link top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry} 解析不到对应来源
-     * provider（来源插件被禁 / 卸载，或该类型已被移除）时由调度器写入，
-     * 经 {@code findDue} 状态门挡住、不自动重跑。来源恢复后的显式重激活入口另行实现。
+     * 来源不可用 → 任务级挂起（不发现 / 不派发）。任务的 {@code type} 在来源注册中心
+     * （{@code ScheduledSourceRegistry}）解析不到对应来源 provider（来源插件被禁 / 卸载，
+     * 或该类型已被移除）时由调度器写入，经 {@code findDue} 状态门挡住、不自动重跑。
+     * 来源恢复后的显式重激活入口另行实现。
      */
     public static final String STATUS_SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE";
 }

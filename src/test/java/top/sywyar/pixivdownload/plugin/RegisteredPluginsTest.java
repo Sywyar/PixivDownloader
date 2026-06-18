@@ -21,9 +21,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RegisteredPluginsTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages，
-            // StatsPluginConfiguration 的 statsRepository bean 需要 DataSource：
+            // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages：
             // 用内存 SQLite 与测试 i18n 兜底（@PostConstruct 会真实建表，库随上下文丢弃）；
+            // StatsPluginConfiguration 的 statsService 现注入核心语义接口 StatsQueryStore（实现 root 扫描，本切片 mock 兜底），
+            // 不再自建 JdbcTemplate / 注入池化 DataSource；
             // Duplicate / Gallery / Novel PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
             .withBean("applicationTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
@@ -82,10 +83,14 @@ class RegisteredPluginsTest {
             // schedule 引擎 Bean 随 schedule 能力收编进 DownloadWorkbenchPluginConfiguration：
             // 其依赖的核心 / 下载 / 小说机器在本切片里一律 mock 兜底（ScheduleConfig 用默认值实例），
             // 两个下载池按 bean 名提供 SyncTaskExecutor（ScheduleExecutor 经 @Qualifier 按名解析）。
-            // scheduled_tasks 的读写经核心 owned 语义 Store ScheduledTaskStore（根包扫描，本切片 mock 兜底），
+            // scheduled_tasks 的读写经核心 owned 语义 Store ScheduledTaskStore（core.schedule 接口，实现 root 扫描，本切片 mock 兜底），
             // 收编的引擎 Bean 不再直接依赖 MyBatis ScheduledTaskMapper。
-            .withBean(top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore.class))
+            .withBean(top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore.class))
+            // 统计聚合经核心 owned 语义 Store StatsQueryStore（core.stats 接口，实现 root 扫描，本切片 mock 兜底）：
+            // 收编后 stats 插件 Bean 不再直读核心库。
+            .withBean(top.sywyar.pixivdownload.core.stats.StatsQueryStore.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.stats.StatsQueryStore.class))
             .withBean(top.sywyar.pixivdownload.download.PixivFetchService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.PixivFetchService.class))
             .withBean(top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.class,
@@ -165,8 +170,9 @@ class RegisteredPluginsTest {
         Set<String> queueTypeContributingPlugins = Set.of("download-workbench", "novel");
         Set<String> downloadTabContributingPlugins = Set.of("download-workbench");
         // coreColumnUsages 仍仅画廊 / 小说：download-workbench 收编的 schedule 引擎对 scheduled_tasks 的访问
-        // 经核心 owned 语义 Store ScheduledTaskStore（它再包装根包扫描的 MyBatis ScheduledTaskMapper，
-        // 与 ArtworkDownloadExecutor 同口径属核心机器、不计入），收编的引擎 Bean 自身无直接 SQL，故无核心列使用声明。
+        // 经核心 owned 语义 Store ScheduledTaskStore（core.schedule 接口，其核心实现 ScheduledTaskStoreImpl 再包装
+        // 根包扫描的 MyBatis ScheduledTaskMapper，与 ArtworkDownloadExecutor 同口径属核心机器、不计入），
+        // 收编的引擎 Bean 自身无直接 SQL，故无核心列使用声明。
         Set<String> coreColumnUsingPlugins = Set.of("gallery", "novel");
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);

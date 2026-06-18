@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-import top.sywyar.pixivdownload.schedule.db.ScheduleSchemaContribution;
+import top.sywyar.pixivdownload.core.schedule.db.ScheduleSchemaContribution;
 import top.sywyar.pixivdownload.series.MangaSeriesSchemaContribution;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSchemaContribution;
 

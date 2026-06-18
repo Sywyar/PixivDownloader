@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.schedule.dto;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 /**
  * 计划任务的创建 / 编辑请求体。

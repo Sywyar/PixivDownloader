@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.db;
+package top.sywyar.pixivdownload.core.schedule.db;
 
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
@@ -7,13 +7,15 @@ import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
-import top.sywyar.pixivdownload.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.List;
 
 /**
- * {@code scheduled_tasks} 表的数据访问。
+ * {@code scheduled_tasks} 表的数据访问（核心实现层，仅供 {@link ScheduledTaskStoreImpl} 内部使用）。
  *
  * <p><b>cookie 红线：</b>{@code cookie_snapshot} 是完整登录凭证，<b>绝不</b>出现在
  * {@link #SELECT_TASK} 这类行投影里（列表 / 详情 / 导出都走它，恒为 {@code null}）。

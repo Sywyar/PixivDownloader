@@ -18,8 +18,10 @@ import top.sywyar.pixivdownload.notification.NotificationService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.List;
 import java.util.Map;

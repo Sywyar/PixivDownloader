@@ -229,25 +229,62 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("下载工作台收编的 schedule 引擎 Bean 不得直连核心表：scheduled_tasks 读写只能经核心 ScheduledTaskStore")
-    void scheduleEngineBeansMustNotAccessCoreTablesDirectly() {
-        // scheduled_tasks / scheduled_task_pending 的 schema 归核心；schedule 引擎（ScheduleExecutor /
-        // ScheduleService / ScheduleRunner / ScheduleController 等）随 schedule 能力收编进下载工作台插件、
-        // 为 @PluginManagedBean。它们只能经核心 owned 的语义 Store ScheduledTaskStore 读写，不得直接拿
-        // MyBatis ScheduledTaskMapper、池化 DataSource、JdbcTemplate 或裸 Connection 做「自由 SQL」访问核心表。
-        // 唯一允许触达 mapper 的是核心数据层 schedule.db（ScheduledTaskStore 自身），故按包排除它。
+    @DisplayName("下载工作台收编的 schedule 引擎 Bean 不得依赖核心计划任务数据实现层：只能经 core.schedule 语义 Store/API 读写")
+    void scheduleEngineBeansMustNotAccessCoreScheduleImplDirectly() {
+        // scheduled_tasks / scheduled_task_pending 是核心 owned schema；其语义数据访问门面 ScheduledTaskStore
+        // 已是核心 owned 接口（core.schedule），底层 MyBatis ScheduledTaskMapper / schema 初始化 / 数据库方言适配
+        // 收口在核心实现层 core.schedule.db。随 schedule 能力收编进下载工作台插件的引擎 Bean（ScheduleExecutor /
+        // ScheduleService / ScheduleRunner / ScheduleController 等，均为 @PluginManagedBean）只能依赖 core.schedule
+        // 语义 Store/API 与行模型，不得直接依赖 core.schedule.db 实现层、池化 DataSource、JdbcTemplate、裸 Connection
+        // 或 MyBatis 自由 SQL 访问核心表。
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
-                .and().resideOutsideOfPackage("top.sywyar.pixivdownload.schedule.db..")
+                .should().dependOnClassesThat()
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.core.schedule.db..",
+                        "javax.sql..", "java.sql..",
+                        "org.springframework.jdbc..",
+                        "org.apache.ibatis..")
+                .because("scheduled_tasks / scheduled_task_pending 是核心 owned schema；其语义数据访问门面 "
+                        + "ScheduledTaskStore 是核心 owned 接口（core.schedule），底层 mapper / schema 初始化 / 方言适配 "
+                        + "收口在核心实现层 core.schedule.db。收编进下载工作台插件的 schedule 引擎 Bean 只能依赖 "
+                        + "core.schedule 语义 Store/API 与行模型，不得直接依赖 core.schedule.db 实现层、ScheduledTaskMapper / "
+                        + "DataSource / JdbcTemplate / Connection / MyBatis 自由 SQL 访问核心表")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("插件托管业务 Bean 不得直连数据库底层：JDBC / MyBatis 与核心 DB 实现层只能经核心语义 Store/API")
+    void pluginManagedBeansMustNotAccessRawDatabaseDirectly() {
+        // 「@PluginManagedBean」精确等于「插件 Configuration 经 @Bean 显式装配、排除出根包扫描的那一组业务 Bean」——
+        // 该标记正是把类排除出根包扫描、改由 XxxPluginConfiguration 装配的机制；唯一不带该标记的被装配类是各插件的
+        // XxxPlugin 描述类（纯 contribution 声明、不碰数据）。这组 Bean 对核心数据的访问必须经核心语义 Store/API
+        // （如 core.schedule.ScheduledTaskStore / core.stats.StatsQueryStore），不得绕过去直碰数据库底层：
+        //   · 禁 java.sql / javax.sql / Spring JDBC / MyBatis 运行期类型（自建 JdbcTemplate、注入池化 DataSource、
+        //     裸 Connection、自由 SQL）——这一组正是 stats 历史直连（StatsRepository 自建 NamedParameterJdbcTemplate）
+        //     与 schedule 历史直访 mapper 的回潮形态；
+        //   · 禁核心 DB 实现层 core.schedule.db.. / core.stats.db..（语义 Store 的 @Repository 实现 + 其内部 mapper）；
+        //   · 禁核心表 MyBatis mapper（PixivMapper / PathPrefixMapper，住混合包 core.db 故按类点名而非按包）。
+        // 不在禁用面内（合法 plugin→core 正向依赖，不得误伤）：core.db 行模型（ArtworkRecord 等）、核心服务
+        // PixivDatabase、插件自有数据域 mapper（ImageHashMapper / NovelMapper，各自数据域、非核心主库）、
+        // core.schedule / core.stats 语义接口本身、org.springframework.transaction（ImageHashService 用事务模板）。
+        // 核心实现层（ScheduledTaskStoreImpl / StatsQueryStoreImpl / PixivDatabase 等 @Repository，均非
+        // @PluginManagedBean）允许自由使用上述底层——本守卫只约束 @PluginManagedBean，故不误伤核心实现。
+        noClasses()
+                .that().areAnnotatedWith(top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
                 .should().dependOnClassesThat(
-                        JavaClass.Predicates.belongToAnyOf(
-                                top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class)
-                                .or(JavaClass.Predicates.resideInAnyPackage(
-                                        "javax.sql..", "java.sql..", "org.springframework.jdbc..")))
-                .because("scheduled_tasks / scheduled_task_pending 是核心 owned schema；收编进下载工作台插件的 "
-                        + "schedule 引擎 Bean 只能经核心 owned 语义 Store ScheduledTaskStore 读写，"
-                        + "不得直接依赖 ScheduledTaskMapper / DataSource / JdbcTemplate / Connection 自由 SQL 访问核心表；"
-                        + "唯一允许触达 mapper 的是核心数据层 schedule.db 自身")
+                        JavaClass.Predicates.resideInAnyPackage(
+                                        "java.sql..", "javax.sql..",
+                                        "org.springframework.jdbc..",
+                                        "org.apache.ibatis..",
+                                        "top.sywyar.pixivdownload.core.schedule.db..",
+                                        "top.sywyar.pixivdownload.core.stats.db..")
+                                .or(JavaClass.Predicates.belongToAnyOf(
+                                        top.sywyar.pixivdownload.core.db.PixivMapper.class,
+                                        top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper.class)))
+                .because("插件托管业务 Bean 对核心表的访问必须经核心语义 Store/API（ScheduledTaskStore / "
+                        + "StatsQueryStore 等），不得自建 JdbcTemplate / 注入池化 DataSource / 直依赖 MyBatis mapper "
+                        + "或核心 DB 实现层做自由 SQL；核心实现层（@Repository，非 @PluginManagedBean）不受此约束")
                 .check(CLASSES);
     }
 

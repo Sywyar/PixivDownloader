@@ -1,13 +1,12 @@
-package top.sywyar.pixivdownload.schedule.db;
+package top.sywyar.pixivdownload.core.schedule;
 
 import lombok.Data;
-import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
 
 /**
  * {@code scheduled_tasks} 插入用的可变载体。
  *
- * <p>用可变 bean（而非 {@link top.sywyar.pixivdownload.schedule.ScheduledTask} record）是为了让
- * MyBatis 的 {@code useGeneratedKeys} 能把自增主键回填到 {@link #id}。
+ * <p>用可变 bean（而非 {@link ScheduledTask} record）是为了让底层数据访问实现的
+ * 自增主键回填（{@code useGeneratedKeys}）能把生成的主键写回 {@link #id}。
  */
 @Data
 public class ScheduledTaskInsert {

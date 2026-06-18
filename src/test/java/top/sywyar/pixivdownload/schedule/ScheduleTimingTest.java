@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.schedule;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 
 import java.time.Instant;
 import java.time.LocalDateTime;

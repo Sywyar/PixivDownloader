@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.db;
+package top.sywyar.pixivdownload.core.schedule.db;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,20 +8,21 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.List;
 
 /**
- * {@code scheduled_tasks} / {@code scheduled_task_pending} 两张<b>核心 owned</b> 表的语义数据访问门面。
+ * {@link ScheduledTaskStore} 的核心实现层（{@code core.schedule.db}）。
  *
- * <p><b>边界职责：</b>计划任务调度引擎（{@code ScheduleExecutor} / {@code ScheduleService} /
- * {@code ScheduleRunner} 等）随 schedule 能力收编进下载工作台插件、为 {@code @PluginManagedBean}；
- * 这两张表的 schema 仍归核心（{@link ScheduleSchemaContribution}，owner = core）。为避免插件托管 Bean
- * 直接拿 MyBatis {@link ScheduledTaskMapper} 做「自由 SQL」访问核心表，本类作为<b>核心 owned、根包扫描</b>
- * 的语义 Store：把 mapper 收拢为内部实现，只对外暴露调度引擎实际需要的读写方法。插件托管 Bean 只注入本 Store、
- * 不再触达 mapper；唯一允许依赖 {@link ScheduledTaskMapper} 的就是核心数据层 {@code schedule.db} 自身。
+ * <p><b>边界职责：</b>把底层 MyBatis {@link ScheduledTaskMapper} 收拢为内部实现，只透出
+ * {@link ScheduledTaskStore} 声明的语义读写方法；插件托管的调度引擎 Bean 注入的是接口
+ * {@link ScheduledTaskStore}、永远拿不到 mapper / 裸连接 / 自由 SQL。{@code scheduled_tasks} /
+ * {@code scheduled_task_pending} 两张表的 schema 归核心（{@link ScheduleSchemaContribution}，owner = core）。
  *
  * <p>注入由 MyBatis {@code SqlSessionFactory} 提供的池化 {@code DataSource}（经 mapper），不自建连接、
  * 不绕过连接池。建表 / 补列 / 索引统一由 {@link DatabaseInitializer} 执行；{@link #init()} 只保留幂等的
@@ -34,7 +35,7 @@ import java.util.List;
 @Slf4j
 @Repository
 @RequiredArgsConstructor
-public class ScheduledTaskStore {
+public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
 
     private final ScheduledTaskMapper mapper;
     /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
@@ -81,38 +82,44 @@ public class ScheduledTaskStore {
 
     // ── scheduled_tasks 读取（无 cookie） ──────────────────────────────────────────
 
+    @Override
     public List<ScheduledTask> findAll() {
         return mapper.findAll();
     }
 
+    @Override
     public ScheduledTask findById(long id) {
         return mapper.findById(id);
     }
 
+    @Override
     public int countAll() {
         return mapper.countAll();
     }
 
-    /** 到期或被进程强杀中断、且未被挂起的任务（见 {@link ScheduledTaskMapper#findDue(long)}）。 */
+    @Override
     public List<ScheduledTask> findDue(long now) {
         return mapper.findDue(now);
     }
 
+    @Override
     public List<ScheduledTask> findByAccountId(String accountId) {
         return mapper.findByAccountId(accountId);
     }
 
-    /** cookie 专用裸标量取值（仅供调度器内部，绝不写日志 / 回显）。 */
+    @Override
     public String findCookieSnapshot(long id) {
         return mapper.findCookieSnapshot(id);
     }
 
     // ── scheduled_tasks 写入 ──────────────────────────────────────────────────────
 
+    @Override
     public void insert(ScheduledTaskInsert task) {
         mapper.insert(task);
     }
 
+    @Override
     public int updateDefinition(long id, String name, ScheduledTaskType type, String paramsJson,
                                 String triggerKind, Integer intervalMinutes, String cronExpr,
                                 Long nextRunTime) {
@@ -120,102 +127,112 @@ public class ScheduledTaskStore {
                 cronExpr, nextRunTime);
     }
 
+    @Override
     public int updateEnabled(long id, boolean enabled) {
         return mapper.updateEnabled(id, enabled);
     }
 
+    @Override
     public int updateCookie(long id, String cookieSnapshot, String cookieMode) {
         return mapper.updateCookie(id, cookieSnapshot, cookieMode);
     }
 
-    /** 解除授权 / 失效自动降级：清 Cookie 转受限并清除由 Cookie 派生的账号绑定（见 {@link ScheduledTaskMapper#clearCookieAndAccount}）。 */
+    @Override
     public int clearCookieAndAccount(long id, String cookieMode) {
         return mapper.clearCookieAndAccount(id, cookieMode);
     }
 
-    /** 设置 / 清除任务级单独代理（host:port，非凭证；{@code null} = 回退全局代理设置）。 */
+    @Override
     public int updateProxy(long id, String proxySnapshot) {
         return mapper.updateProxy(id, proxySnapshot);
     }
 
-    /** 本轮跑完落库结果（CASE 保留运行中被手动设置的 PAUSED，见 {@link ScheduledTaskMapper#updateRunResult}）。 */
+    @Override
     public int updateRunResult(long id, Long lastRunTime, String lastStatus, String lastMessage,
                                Long nextRunTime) {
         return mapper.updateRunResult(id, lastRunTime, lastStatus, lastMessage, nextRunTime);
     }
 
+    @Override
     public int updateRunStarted(long id, Long runStartedTime) {
         return mapper.updateRunStarted(id, runStartedTime);
     }
 
+    @Override
     public int updateWatermark(long id, Long watermarkId) {
         return mapper.updateWatermark(id, watermarkId);
     }
 
+    @Override
     public int delete(long id) {
         return mapper.delete(id);
     }
 
     // ── 状态 / 挂起 / 账号冻结 ─────────────────────────────────────────────────────
 
-    /** 仅置状态（手动暂停等），不动其它列。 */
+    @Override
     public int setStatus(long id, String status) {
         return mapper.setStatus(id, status);
     }
 
-    /** 写入授权解析出的非敏感 Pixiv userId（PHPSESSID 下划线前缀）。 */
+    @Override
     public int updateAccountId(long id, String accountId) {
         return mapper.updateAccountId(id, accountId);
     }
 
-    /** 账号级过度访问冻结：把同账号所有非挂起态任务一并标 OVERUSE_PAUSED。返回受影响行数。 */
+    @Override
     public int freezeAccount(String accountId, String status, String message) {
         return mapper.freezeAccount(accountId, status, message);
     }
 
-    /** 记录管理员已显式放行的最新警告 modifiedAt（同账号）。 */
+    @Override
     public int updateAckWarning(String accountId, Long ackTime) {
         return mapper.updateAckWarning(accountId, ackTime);
     }
 
-    /** 账号级（过度访问）恢复：同账号仅 OVERUSE_PAUSED 任务清挂起 + 重置 next_run。 */
+    @Override
     public int clearSuspendForAccount(String accountId, Long nextRun) {
         return mapper.clearSuspendForAccount(accountId, nextRun);
     }
 
-    /** 单任务恢复：清挂起 + 重置 next_run + 清中断哨兵。 */
+    @Override
     public int clearSuspend(long id, Long nextRun) {
         return mapper.clearSuspend(id, nextRun);
     }
 
-    /** 单任务、仅当当前状态为指定挂起态时清挂起（按入口类型限定恢复）。 */
+    @Override
     public int clearSuspendIfStatus(long id, Long nextRun, String expectedStatus) {
         return mapper.clearSuspendIfStatus(id, nextRun, expectedStatus);
     }
 
     // ── scheduled_task_pending（单作品隔离重试表）CRUD ────────────────────────────
 
+    @Override
     public int insertPending(long taskId, long workId, String reason, long now) {
         return mapper.insertPending(taskId, workId, reason, now);
     }
 
+    @Override
     public int deletePending(long taskId, long workId) {
         return mapper.deletePending(taskId, workId);
     }
 
+    @Override
     public int incPendingAttempts(long taskId, long workId, long now) {
         return mapper.incPendingAttempts(taskId, workId, now);
     }
 
-    /** 取单行 {@code attempts} 标量；不存在返回 {@code null}。 */
+    @Override
     public Integer selectPendingAttempts(long taskId, long workId) {
         return mapper.selectPendingAttempts(taskId, workId);
     }
 
+    @Override
     public List<ScheduledTaskPending> listPending(long taskId) {
         return mapper.listPending(taskId);
     }
 
+    @Override
     public int deleteAllPending(long taskId) {
         return mapper.deleteAllPending(taskId);
     }

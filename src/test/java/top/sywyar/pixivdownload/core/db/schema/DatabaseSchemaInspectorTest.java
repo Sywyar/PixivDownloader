@@ -510,17 +510,17 @@ class DatabaseSchemaInspectorTest {
                     "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
             org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
             config.setMapUnderscoreToCamelCase(true);
-            config.addMapper(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class);
+            config.addMapper(top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper.class);
             org.apache.ibatis.session.SqlSessionFactory factory =
                     new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
 
             try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
-                top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper mapper =
-                        session.getMapper(top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper.class);
+                top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper mapper =
+                        session.getMapper(top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper.class);
                 DatabaseInitializer initializer = newInitializer(ds);
                 initializer.initialize();
-                top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore store =
-                        new top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore(mapper, initializer);
+                top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskStoreImpl store =
+                        new top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskStoreImpl(mapper, initializer);
                 store.init();
 
                 Set<String> initManaged = Set.of("scheduled_tasks", "scheduled_task_pending");

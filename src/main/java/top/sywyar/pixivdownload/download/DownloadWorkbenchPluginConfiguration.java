@@ -23,7 +23,7 @@ import top.sywyar.pixivdownload.schedule.ScheduleRunState;
 import top.sywyar.pixivdownload.schedule.ScheduleRunner;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 /**

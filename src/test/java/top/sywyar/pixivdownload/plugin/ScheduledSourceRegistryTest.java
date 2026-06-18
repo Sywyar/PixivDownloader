@@ -4,7 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
-import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.List;
 import java.util.Map;

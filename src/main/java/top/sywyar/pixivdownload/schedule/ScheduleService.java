@@ -8,8 +8,9 @@ import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskInsert;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
@@ -229,7 +230,7 @@ public class ScheduleService {
      * 解除 Cookie 授权：清空快照回到受限模式，并一并清除由 Cookie 派生的账号绑定
      * （{@code account_id} / {@code ack_warning_time}）——否则任务虽已转受限（匿名），仍会被同账号
      * 的过度访问冻结、横幅分组与账号级恢复误命中。详见
-     * {@link top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper#clearCookieAndAccount}。
+     * {@link top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper#clearCookieAndAccount}。
      */
     @Transactional
     public ScheduleTaskView revokeCookie(long id) {

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.db;
+package top.sywyar.pixivdownload.core.schedule.db;
 
 import top.sywyar.pixivdownload.core.db.schema.contribution.CoreSchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
@@ -12,7 +12,10 @@ import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.explicitIndex;
 
 /**
  * 计划任务域 schema 的 contribution 声明（任务表与单作品隔离重试表）。
- * 暂无独立 schedule 插件，ownerPluginId 为 core；未来若立插件且通过卸载投影测试再移交。
+ *
+ * <p>{@code scheduled_tasks} / {@code scheduled_task_pending} 是<b>核心 owned</b> 长期事实表
+ * （ownerPluginId = core）：调度引擎随 schedule 能力收编进下载工作台插件，但这两张表按「卸载投影」
+ * 原则归核心，其语义数据访问门面是核心 owned 的 {@code core.schedule.ScheduledTaskStore}。
  */
 public final class ScheduleSchemaContribution {
 

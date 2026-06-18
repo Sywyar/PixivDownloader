@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.ArrayList;
 import java.util.List;

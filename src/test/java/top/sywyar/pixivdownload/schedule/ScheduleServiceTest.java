@@ -7,7 +7,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 import top.sywyar.pixivdownload.schedule.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleQueueView;
 

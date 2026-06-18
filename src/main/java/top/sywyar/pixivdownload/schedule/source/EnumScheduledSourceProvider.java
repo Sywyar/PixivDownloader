@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.schedule.source;
 
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
-import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.Arrays;
 import java.util.List;

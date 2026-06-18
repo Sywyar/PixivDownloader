@@ -27,8 +27,10 @@ import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.push.MarkdownEscape;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.text.SimpleDateFormat;
@@ -1436,7 +1438,7 @@ public class ScheduleExecutor {
     }
 
     /**
-     * 取「将被账号级冻结」的任务列表（状态门与 {@link top.sywyar.pixivdownload.schedule.db.ScheduledTaskMapper#freezeAccount}
+     * 取「将被账号级冻结」的任务列表（状态门与 {@link top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper#freezeAccount}
      * 一致：排除已挂起态），供通知逐条列出。无 account（restricted 任务）时退化为当前任务一条。
      */
     private List<ScheduledTask> collectFreezableTasks(ScheduledTask current, String accountId) {

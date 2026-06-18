@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.db;
+package top.sywyar.pixivdownload.core.schedule.db;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,8 +17,9 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
-import top.sywyar.pixivdownload.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,7 +31,7 @@ class ScheduledTaskStoreTest {
     private SingleConnectionDataSource ds;
     private SqlSession session;
     private ScheduledTaskMapper mapper;
-    private ScheduledTaskStore store;
+    private ScheduledTaskStoreImpl store;
 
     @BeforeEach
     void setUp() {
@@ -54,7 +55,7 @@ class ScheduledTaskStoreTest {
                 registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
-        store = new ScheduledTaskStore(mapper, initializer);
+        store = new ScheduledTaskStoreImpl(mapper, initializer);
         store.init();
     }
 

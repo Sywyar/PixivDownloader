@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.db;
+package top.sywyar.pixivdownload.core.schedule.db;
 
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.Configuration;
@@ -15,8 +15,10 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
-import top.sywyar.pixivdownload.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.List;
 

@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.schedule.dto;
 
-import top.sywyar.pixivdownload.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 /**
  * 计划任务对外视图（列表 / 详情）。

@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.schedule.dto;
 
-import top.sywyar.pixivdownload.schedule.db.ScheduledTaskPending;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
 
 /**
  * 隔离表（待重试）行的对外视图：供前端「本任务待重试 / 需人工」面板展示。

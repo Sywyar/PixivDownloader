@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule;
+package top.sywyar.pixivdownload.core.schedule;
 
 /**
  * 计划任务的触发来源类型。
