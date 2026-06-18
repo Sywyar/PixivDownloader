@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.download;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
@@ -53,15 +53,27 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     @Override
     public List<WebRouteContribution> routes() {
         // 计划任务管理 API：仅管理员（solo / multi 均仅 monitor），随本插件收编的 schedule 能力声明。
-        // 下载页扩展点装配端点 /api/download/extensions（DownloadExtensionController）：随下载页消费的只读
-        // 装配接口，以 SESSION_OR_VISITOR 声明——AuthFilter 不为该级别派生任何清单、命中后落默认会话/访客分支
-        //（multi 访客可读 / solo 需会话 / 邀请访客 403 / 不入 monitor），与未声明时的访问行为逐字等价；
-        // 声明只为把该端点纳入明确的路由归属、随插件镜像守护，杜绝「未声明路由」的语义歧义。
-        // 下载页 /pixiv-batch.html 与 /pixiv-batch/** 资源沿用「未受管页面」语义（multi 黑名单放行、
-        // solo 仅管理员），不声明访问级别以保持现状；其它下载数据 API 是跨插件共享、由核心声明（见类注释）。
+        // 下载页与其提交 / 队列 / 状态 API：下载页 /pixiv-batch.html、其拆分静态目录 /pixiv-batch/**，以及
+        // 下载提交（/api/download/pixiv）、取消（/api/cancel/**、/api/download/cancel/**）、队列清理
+        //（/api/download/queue/**）、批量状态（/api/batch/**）、扩展点装配（/api/download/extensions）一律
+        // VISITOR——复刻现状「未受管页面 / 未声明 API」的涌现行为：multi 访客可达（走配额） / solo 需会话 /
+        // 邀请访客 403 / 不入 monitor。AuthFilter 不为 VISITOR 派生任何清单、命中后落默认会话 / 访客分支，
+        // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫，随插件启停。
+        // 其它跨插件共享的下载数据 API（status/downloaded 统计 / 历史 / 图片字节）由核心声明（见类注释）。
         return List.of(
-                new WebRouteContribution("/api/schedule/**", AccessLevel.ADMIN_OR_SOLO, Set.of(), false),
-                new WebRouteContribution("/api/download/extensions", AccessLevel.SESSION_OR_VISITOR, Set.of(), false));
+                new WebRouteContribution("/api/schedule/**", AccessPolicy.ADMIN, Set.of(), false),
+                visitor("/pixiv-batch.html"),
+                visitor("/pixiv-batch/**"),
+                visitor("/api/download/pixiv"),
+                visitor("/api/cancel/**"),
+                visitor("/api/download/cancel/**"),
+                visitor("/api/download/queue/**"),
+                visitor("/api/batch/**"),
+                visitor("/api/download/extensions"));
+    }
+
+    private static WebRouteContribution visitor(String pattern) {
+        return new WebRouteContribution(pattern, AccessPolicy.VISITOR, Set.of(), false);
     }
 
     @Override

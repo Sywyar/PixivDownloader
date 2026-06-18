@@ -19,7 +19,7 @@ import java.util.List;
  * 交互入口、并把残留队列项标记为暂停。
  * <p>
  * 访问归属：本端点随下载工作台页面消费，其路由由 {@code DownloadWorkbenchPlugin.routes()} 以
- * {@link top.sywyar.pixivdownload.plugin.api.web.AccessLevel#SESSION_OR_VISITOR} 显式声明
+ * {@link top.sywyar.pixivdownload.plugin.api.web.AccessPolicy#VISITOR} 显式声明
  *（multi 访客可读 / solo 需会话 / 邀请访客 403 / 不入 monitor，与未声明时的访问行为逐字等价，
  * 声明只为消除「未声明路由」的语义歧义）。本控制器自身是核心基础设施 Bean（与队列类型 / 标签页注册中心
  * 同住核心 {@code plugin} 包、根包扫描装配），路由归属与 Bean 物理位置可不一致——与下载状态等核心路由同理。

@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.setup.SetupService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
@@ -28,10 +28,10 @@ class NavigationControllerTest {
     private static NavigationRegistry seededRegistry() {
         NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(List.of()));
         registry.register("plug", List.of(
-                new NavigationContribution("p3", "nav.p3", "/p3.html", "i", AccessLevel.PUBLIC, 30),
-                new NavigationContribution("p1", "nav.p1", "/p1.html", "i", AccessLevel.PUBLIC, 10),
-                new NavigationContribution("g2", "nav.g2", "/g2.html", "i", AccessLevel.GUEST_READ, 20),
-                new NavigationContribution("a1", "nav.a1", "/a1.html", "i", AccessLevel.ADMIN_OR_SOLO, 5)));
+                new NavigationContribution("p3", "nav.p3", "/p3.html", "i", AccessPolicy.PUBLIC, 30),
+                new NavigationContribution("p1", "nav.p1", "/p1.html", "i", AccessPolicy.PUBLIC, 10),
+                new NavigationContribution("g2", "nav.g2", "/g2.html", "i", AccessPolicy.INVITED_GUEST, 20),
+                new NavigationContribution("a1", "nav.a1", "/a1.html", "i", AccessPolicy.ADMIN, 5)));
         return registry;
     }
 
@@ -53,7 +53,7 @@ class NavigationControllerTest {
     }
 
     @Test
-    @DisplayName("访客邀请会话仅可见 PUBLIC 与 GUEST_READ（访客判定优先于管理员范围）")
+    @DisplayName("访客邀请会话仅可见 PUBLIC 与 INVITED_GUEST（访客判定优先于管理员范围）")
     void guestSeesPublicAndGuestRead() {
         // solo 模式下 hasAdminScope 对任意请求为真：访客判定必须优先，否则访客会看到 admin 项
         when(setupService.hasAdminScope(any())).thenReturn(true);

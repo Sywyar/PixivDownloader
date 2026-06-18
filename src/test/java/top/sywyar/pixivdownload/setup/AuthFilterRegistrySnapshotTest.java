@@ -17,7 +17,8 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.plugin.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
@@ -89,10 +90,10 @@ class AuthFilterRegistrySnapshotTest {
         when(rateLimitService.isAllowedForInvite("invite:demo-code")).thenReturn(true);
 
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(List.of()));
-        registry.register("demo", List.of(guestReadRoute()));
+        registry.register("demo", List.of(invitedGuestRoute()));
         AuthFilter filter = filterFor(registry);
 
-        // 已注册为 GUEST_READ：受邀访客可只读 → 放行并记一次命中
+        // 已注册为 INVITED_GUEST：受邀访客可只读 → 放行并记一次命中
         invokeGuest(filter);
         verify(filterChain).doFilter(request, response);
         verify(guestInviteService).recordHit(1L);
@@ -105,40 +106,70 @@ class AuthFilterRegistrySnapshotTest {
         verify(filterChain, never()).doFilter(request, response);
 
         // 重新注册：读侧随新快照恢复放行
-        registry.register("demo", List.of(guestReadRoute()));
+        registry.register("demo", List.of(invitedGuestRoute()));
         resetExchange();
         invokeGuest(filter);
         verify(filterChain).doFilter(request, response);
     }
 
     @Test
-    @DisplayName("注销 monitor 受保护路由后 AuthFilter 不再要求登录，重新注册后恢复保护")
+    @DisplayName("注销 monitor 受保护路由后该路径成为未声明路由（404），重新注册后恢复 monitor 保护")
     void monitorProtectionFollowsRegistrySnapshot() throws Exception {
         when(setupService.isSetupComplete()).thenReturn(true);
         when(setupService.getMode()).thenReturn("multi");
-        when(rateLimitService.isAllowed(any())).thenReturn(true);
+        lenient().when(rateLimitService.isAllowed(any())).thenReturn(true);
 
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(List.of()));
-        registry.register("demo", List.of(guestReadRoute()));
+        registry.register("demo", List.of(invitedGuestRoute()));
         AuthFilter filter = filterFor(registry);
 
-        // 已注册（GUEST_READ → 进入 monitor 受保护清单）：multi 匿名访客无 session → 401
+        // 已注册（INVITED_GUEST → 进入 monitor 受保护清单）：multi 匿名访客无 session → 401
         invokeMultiAnonymous(filter);
         assertThat(response.getStatus()).isEqualTo(401);
         verify(filterChain, never()).doFilter(request, response);
 
-        // 注销后：不再受 monitor 保护 → multi 匿名访客被常规放行
+        // 注销后：该路径离开快照、不再被任何已声明路由命中 → 全 URL 声明守卫统一 404（不再回落访客放行）
         registry.unregister("demo");
         resetExchange();
         invokeMultiAnonymous(filter);
-        verify(filterChain).doFilter(request, response);
+        assertThat(response.getStatus()).isEqualTo(404);
+        verify(filterChain, never()).doFilter(request, response);
 
         // 重新注册：读侧随新快照恢复 monitor 保护 → 再次 401
-        registry.register("demo", List.of(guestReadRoute()));
+        registry.register("demo", List.of(invitedGuestRoute()));
         resetExchange();
         invokeMultiAnonymous(filter);
         assertThat(response.getStatus()).isEqualTo(401);
         verify(filterChain, never()).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("method-aware 未声明守卫：仅声明 POST 的 URL，GET 视为未声明 → 404；POST 命中声明按策略放行")
+    void methodAwareUndeclaredGuard() throws Exception {
+        when(setupService.isSetupComplete()).thenReturn(true);
+        when(setupService.getMode()).thenReturn("multi");
+        lenient().when(rateLimitService.isAllowed(any())).thenReturn(true);
+
+        RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(List.of()));
+        registry.register("demo", List.of(new WebRouteContribution(
+                "/api/demo/act", AccessPolicy.VISITOR, Set.of(HttpMethod.POST), false)));
+        AuthFilter filter = filterFor(registry);
+
+        // GET：该 URL 只声明了 POST、无全方法声明覆盖 → method-aware 守卫视为未声明 → 404
+        request.setMethod("GET");
+        request.setRequestURI("/api/demo/act");
+        request.setRemoteAddr("192.168.1.100");
+        filter.doFilterInternal(request, response, filterChain);
+        assertThat(response.getStatus()).isEqualTo(404);
+        verify(filterChain, never()).doFilter(request, response);
+
+        // POST：命中 VISITOR 声明 → multi 普通访客放行（method-aware 守卫认其已声明）
+        resetExchange();
+        request.setMethod("POST");
+        request.setRequestURI("/api/demo/act");
+        request.setRemoteAddr("192.168.1.100");
+        filter.doFilterInternal(request, response, filterChain);
+        verify(filterChain).doFilter(request, response);
     }
 
     private AuthFilter filterFor(RouteAccessRegistry registry) {
@@ -166,8 +197,8 @@ class AuthFilterRegistrySnapshotTest {
         response = new MockHttpServletResponse();
     }
 
-    private static WebRouteContribution guestReadRoute() {
-        return new WebRouteContribution(DEMO_PATTERN, AccessLevel.GUEST_READ, Set.of(), false);
+    private static WebRouteContribution invitedGuestRoute() {
+        return new WebRouteContribution(DEMO_PATTERN, AccessPolicy.INVITED_GUEST, Set.of(), false);
     }
 
     private static GuestInviteSession guestSession() {

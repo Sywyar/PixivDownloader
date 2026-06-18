@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 
 import java.util.List;
@@ -19,7 +19,7 @@ class NavigationRegistryTest {
 
     private static NavigationContribution nav(String id) {
         return new NavigationContribution(id, "nav.label", "/" + id + ".html", "icon",
-                AccessLevel.ADMIN_OR_SOLO, 10);
+                AccessPolicy.ADMIN, 10);
     }
 
     @Test
@@ -34,7 +34,7 @@ class NavigationRegistryTest {
                 .singleElement()
                 .satisfies(registered -> {
                     assertThat(registered.pluginId()).isEqualTo("gallery");
-                    assertThat(registered.navigation().visibleTo()).isEqualTo(AccessLevel.GUEST_READ);
+                    assertThat(registered.navigation().visibleTo()).isEqualTo(AccessPolicy.INVITED_GUEST);
                 });
     }
 
@@ -93,9 +93,9 @@ class NavigationRegistryTest {
     void duplicateNavigationHrefAcrossPluginsRejected() {
         NavigationRegistry registry = emptyRegistry();
         registry.register("a", List.of(new NavigationContribution(
-                "a-id", "nav.label", "/shared.html", "icon", AccessLevel.ADMIN_OR_SOLO, 10)));
+                "a-id", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
         assertThatThrownBy(() -> registry.register("b", List.of(new NavigationContribution(
-                "b-id", "nav.label", "/shared.html", "icon", AccessLevel.ADMIN_OR_SOLO, 10))))
+                "b-id", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/shared.html")
                 .hasMessageContaining("b");
@@ -106,8 +106,8 @@ class NavigationRegistryTest {
     void duplicateNavigationHrefWithinPluginRejected() {
         NavigationRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("x", "nav.label", "/dup.html", "icon", AccessLevel.ADMIN, 0),
-                new NavigationContribution("y", "nav.label", "/dup.html", "icon", AccessLevel.ADMIN, 0))))
+                new NavigationContribution("x", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0),
+                new NavigationContribution("y", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/dup.html")
                 .hasMessageContaining("demo");
@@ -122,13 +122,13 @@ class NavigationRegistryTest {
         assertThatThrownBy(() -> registry.register("demo", List.of()))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution(" ", "nav.label", "/a.html", "icon", AccessLevel.ADMIN, 0))))
+                new NavigationContribution(" ", "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", " ", "/a.html", "icon", AccessLevel.ADMIN, 0))))
+                new NavigationContribution("a", " ", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", "nav.label", " ", "icon", AccessLevel.ADMIN, 0))))
+                new NavigationContribution("a", "nav.label", " ", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
                 new NavigationContribution("a", "nav.label", "/a.html", "icon", null, 0))))

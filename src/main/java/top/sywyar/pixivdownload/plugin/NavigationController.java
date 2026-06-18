@@ -5,7 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.setup.SetupService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
@@ -21,13 +21,13 @@ import java.util.Set;
  * 可见性按三档判定（访客优先于管理员，因 solo 模式下 {@code hasAdminScope} 对任意请求为真，
  * 须先排除访客身份）：
  * <ul>
- *   <li>访客邀请会话：可见 {@code PUBLIC} 与 {@code GUEST_READ}；</li>
+ *   <li>访客邀请会话：可见 {@code PUBLIC} 与 {@code INVITED_GUEST}；</li>
  *   <li>管理员范围（solo 任意请求 / multi 登录管理员）：可见全部；</li>
  *   <li>其余（multi 匿名）：仅可见 {@code PUBLIC}。</li>
  * </ul>
  * 访客身份从请求上下文的 {@link GuestInviteSession#REQUEST_ATTR} 读取（由 {@code AuthFilter}
  * 在非公开请求上解析挂载）。本端点 {@code /api/navigation} 由 {@code CorePlugin.routes()} 以
- * {@link AccessLevel#SESSION_OR_VISITOR} 声明，访问行为保持历史现状：multi 普通访客可读（得到匿名可见
+ * {@link AccessPolicy#VISITOR} 声明，访问行为保持历史现状：multi 普通访客可读（得到匿名可见
  * 导航）、solo 未登录 401、<b>邀请访客在 {@code AuthFilter} 即被 403</b>、不入 monitor。因此上面
  * 「访客邀请会话」一档目前不会被真实邀请访客触达，是<b>防御性预置</b>——仅在未来若放开邀请访客对本端点的
  * 可达性时才生效，<b>不代表当前已对邀请访客开放导航</b>。
@@ -40,23 +40,23 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class NavigationController {
 
-    /** 访客邀请会话可见的访问级别。 */
-    private static final Set<AccessLevel> GUEST_VISIBLE =
-            Set.of(AccessLevel.PUBLIC, AccessLevel.GUEST_READ);
+    /** 访客邀请会话可见的访问策略。 */
+    private static final Set<AccessPolicy> GUEST_VISIBLE =
+            Set.of(AccessPolicy.PUBLIC, AccessPolicy.INVITED_GUEST);
 
-    /** 管理员范围可见的访问级别（全部导航相关级别）。 */
-    private static final Set<AccessLevel> ADMIN_VISIBLE =
-            Set.of(AccessLevel.PUBLIC, AccessLevel.GUEST_READ, AccessLevel.ADMIN_OR_SOLO, AccessLevel.ADMIN);
+    /** 管理员范围可见的访问策略（全部导航相关策略）。 */
+    private static final Set<AccessPolicy> ADMIN_VISIBLE =
+            Set.of(AccessPolicy.PUBLIC, AccessPolicy.INVITED_GUEST, AccessPolicy.ADMIN);
 
-    /** 匿名请求可见的访问级别。 */
-    private static final Set<AccessLevel> ANONYMOUS_VISIBLE = Set.of(AccessLevel.PUBLIC);
+    /** 匿名请求可见的访问策略。 */
+    private static final Set<AccessPolicy> ANONYMOUS_VISIBLE = Set.of(AccessPolicy.PUBLIC);
 
     private final NavigationRegistry navigationRegistry;
     private final SetupService setupService;
 
     @GetMapping
     public List<NavigationView> navigation(HttpServletRequest request) {
-        Set<AccessLevel> visible = visibleLevels(request);
+        Set<AccessPolicy> visible = visibleLevels(request);
         return navigationRegistry.navigation().stream()
                 .map(NavigationRegistry.RegisteredNavigation::navigation)
                 .filter(item -> visible.contains(item.visibleTo()))
@@ -67,7 +67,7 @@ public class NavigationController {
                 .toList();
     }
 
-    private Set<AccessLevel> visibleLevels(HttpServletRequest request) {
+    private Set<AccessPolicy> visibleLevels(HttpServletRequest request) {
         if (request.getAttribute(GuestInviteSession.REQUEST_ATTR) instanceof GuestInviteSession) {
             return GUEST_VISIBLE;
         }

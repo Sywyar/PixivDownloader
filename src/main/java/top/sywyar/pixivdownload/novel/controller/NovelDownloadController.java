@@ -27,7 +27,7 @@ import top.sywyar.pixivdownload.setup.SetupService;
  * 由 {@link PluginManagedBean} 排除出根包扫描、经 {@code NovelPluginConfiguration} 显式装配，
  * 随小说插件启停（禁用时本控制器不注册、{@code /api/novel/**} 一并 404）；旧址 {@code /api/download/**}
  * 下的小说路径由 {@code NovelDownloadLegacyForwardController} 服务端 forward 至此（懒迁移垫片，同随小说启停）。
- * 访问归属由 {@code NovelPlugin.routes()} 以 {@code SESSION_OR_VISITOR} 声明（multi 访客可下载、走配额；
+ * 访问归属由 {@code NovelPlugin.routes()} 以 {@code AccessPolicy.VISITOR} 声明（multi 访客可下载、走配额；
  * solo 需会话；邀请访客 403），与插画下载 {@code /api/download/pixiv} 对称。
  */
 @RestController

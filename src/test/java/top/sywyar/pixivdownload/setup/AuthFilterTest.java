@@ -842,6 +842,34 @@ class AuthFilterTest {
         }
 
         @Test
+        @DisplayName("已登录管理员可调用在线 TTS 合成 API（窄 INVITED_GUEST 声明经 resolve 覆盖宽 /api/tts/** = ADMIN，仍受 monitor 保护、管理员放行）")
+        void shouldAllowAdminTtsSynthesizeApi() throws Exception {
+            when(setupService.isValidSession("valid-token")).thenReturn(true);
+
+            request.setMethod("POST");
+            request.setRequestURI("/api/tts/edge/synthesize");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie("pixiv_session", "valid-token"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("未登录普通游客对 /api/tts/** 下未被窄声明覆盖的路径仍按 ADMIN 受保护（401）")
+        void shouldRejectAnonymousOnOtherTtsAdminPath() throws Exception {
+            request.setMethod("GET");
+            request.setRequestURI("/api/tts/voice-list");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
         @DisplayName("多人模式非管理员可调用小说下载判重端点（按 /api/downloaded/{id} 同等放行）")
         void shouldAllowNovelDownloadedCheckForAnonymousMultiUser() throws Exception {
             request.setMethod("GET");
@@ -1219,14 +1247,14 @@ class AuthFilterTest {
         }
     }
 
-    // ========== 小说下载端点（归小说插件、SESSION_OR_VISITOR：复刻插画下载 /api/download/pixiv 现状） ==========
+    // ========== 小说下载端点（归小说插件、VISITOR：复刻插画下载 /api/download/pixiv 现状） ==========
 
     @Nested
     @DisplayName("小说下载端点访问级别（新址 /api/novel/** + 旧址兼容垫片 /api/download/**）")
     class NovelDownloadEndpointTests {
 
         // 新址下载 / 状态 + 旧址兼容垫片：访问行为应与插画下载 /api/download/pixiv 完全对称
-        //（SESSION_OR_VISITOR 为纯归属声明、AuthFilter 不派生任何清单、命中后落默认会话/访客分支）。
+        //（VISITOR 为纯归属声明、AuthFilter 不派生任何清单、命中后落默认会话/访客分支）。
 
         @ParameterizedTest
         @CsvSource({
@@ -1308,13 +1336,13 @@ class AuthFilterTest {
         }
     }
 
-    // ========== 下载页扩展点装配端点（归下载工作台、SESSION_OR_VISITOR：随下载页消费的只读装配接口） ==========
+    // ========== 下载页扩展点装配端点（归下载工作台、VISITOR：随下载页消费的只读装配接口） ==========
 
     @Nested
-    @DisplayName("下载页扩展点端点 /api/download/extensions 访问级别（归下载工作台、SESSION_OR_VISITOR）")
+    @DisplayName("下载页扩展点端点 /api/download/extensions 访问级别（归下载工作台、VISITOR）")
     class DownloadExtensionsEndpointTests {
 
-        // 该端点声明为 SESSION_OR_VISITOR（AuthFilter 不派生任何清单、命中后落默认会话/访客分支），访问行为
+        // 该端点声明为 VISITOR（AuthFilter 不派生任何清单、命中后落默认会话/访客分支），访问行为
         // 与未声明时逐字等价、并与小说/插画下载提交端点对称：multi 访客可读 / solo 需会话 / 邀请访客 403。
 
         @Test
@@ -1373,13 +1401,13 @@ class AuthFilterTest {
         }
     }
 
-    // ========== 核心导航装配端点（归 core、SESSION_OR_VISITOR：声明路由但不改变旧访问行为） ==========
+    // ========== 核心导航装配端点（归 core、VISITOR：声明路由但不改变旧访问行为） ==========
 
     @Nested
-    @DisplayName("核心导航端点 /api/navigation 访问级别（归 core、SESSION_OR_VISITOR）")
+    @DisplayName("核心导航端点 /api/navigation 访问级别（归 core、VISITOR）")
     class NavigationEndpointTests {
 
-        // /api/navigation 由 CorePlugin.routes() 以 SESSION_OR_VISITOR 声明：AuthFilter 不为该级别派生
+        // /api/navigation 由 CorePlugin.routes() 以 VISITOR 声明：AuthFilter 不为该级别派生
         // 任何清单、命中后落默认会话/访客分支，访问行为与「未声明路由」时逐字等价——声明只为消除歧义、
         // 纳入路由镜像守护，不扩大任何 guest/public 权限。三态：multi 访客可读 / solo 未登录 401 / 邀请访客 403。
 
@@ -1417,7 +1445,7 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("邀请访客越界访问应 403（导航端点不在访客白名单，声明 SESSION_OR_VISITOR 不扩大邀请访客权限）")
+        @DisplayName("邀请访客越界访问应 403（导航端点不在访客白名单，声明 VISITOR 不扩大邀请访客权限）")
         void invitedGuestForbidden() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
@@ -1435,6 +1463,82 @@ class AuthFilterTest {
             authFilter.doFilterInternal(request, response, filterChain);
 
             assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+    }
+
+    // ========== 全 URL 声明守卫：未命中任何已声明路由 → 统一 404（不再回落访客默认放行） ==========
+
+    @Nested
+    @DisplayName("未声明路由统一 404")
+    class UndeclaredRouteTests {
+
+        // 命中不了任何已声明路由的请求（非内联流程分支）统一 404；真实 controller / 静态资源由
+        // RouteDeclarationCoverageTest 守卫均已声明、不会误伤，这里用确不存在的伪路径验证守卫本身。
+
+        @Test
+        @DisplayName("多人模式未声明 API 返回 404（不再回落访客放行 → 不再消耗配额限流）")
+        void multiUndeclaredApiReturns404() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/no-such-endpoint");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(404);
+            verify(filterChain, never()).doFilter(request, response);
+            verify(rateLimitService, never()).isAllowed(any());
+        }
+
+        @Test
+        @DisplayName("多人模式未声明顶层页面返回 404")
+        void multiUndeclaredPageReturns404() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+
+            request.setMethod("GET");
+            request.setRequestURI("/totally-unknown.html");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(404);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("Solo 模式未声明 API 返回 404（在 session 校验之前，未声明优先于 401）")
+        void soloUndeclaredApiReturns404() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/no-such-endpoint");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(404);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("已声明 VISITOR 路由命中后仍按旧可观察行为判定（solo 无 session → 401，而非 404）")
+        void declaredVisitorRouteStillReaches401InSolo() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isValidSession(any())).thenReturn(false);
+
+            request.setMethod("POST");
+            request.setRequestURI("/api/download/pixiv");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
             verify(filterChain, never()).doFilter(request, response);
         }
     }

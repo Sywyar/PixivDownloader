@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.novel;
 
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
@@ -16,7 +16,7 @@ import java.util.Set;
 /**
  * 小说插件：小说画廊/详情页面、小说下载与合订、TTS 与 AI 听书入口。
  * <p>
- * 与画廊插件孪生：全部路由 {@code GUEST_READ}（monitor 语义保护 + 受邀访客只读，
+ * 与画廊插件孪生：画廊 / 详情页全部路由 {@code INVITED_GUEST}（monitor 语义保护 + 受邀访客只读，
  * 双重语义由路由镜像测试逐条守护）。小说画廊 API 与插画共用 {@code /api/gallery}
  * 前缀，但按控制器实际归属各自声明窄前缀：小说占 {@code /api/gallery/novel(s)}，画廊占
  * {@code /api/gallery/artwork(s)} 与 {@code /api/gallery/tags}，互不越界（registry 对相同
@@ -50,7 +50,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<WebRouteContribution> routes() {
-        // 小说页面 + 小说自身的 /api/gallery 子面，全部 GUEST_READ：同时进入 monitor 清单与
+        // 小说页面 + 小说自身的 /api/gallery 子面，全部 INVITED_GUEST：同时进入 monitor 清单与
         // 访客邀请白名单（访客仅 GET/HEAD 的收窄由访问级别语义承载）。小说 API 与插画共用
         // /api/gallery 前缀，按控制器实际归属各占窄前缀：小说占 /api/gallery/novel(s)，画廊占
         // /api/gallery/artwork(s)/tags，互不越界。/api/gallery/novel/** 命中单本小说及其子资源，
@@ -59,27 +59,30 @@ public class NovelPlugin implements PixivFeaturePlugin {
         // （与历史 /api/gallery/** 对该端点的覆盖一致，避免裸列表端点在 multi 模式被匿名访问）。
         // 小说下载端点归小说自有前缀 /api/novel/**（端点迁移见 NovelDownloadController）+ 旧址兼容垫片
         // /api/download/{pixiv/novel,novel/status,novel/translate-status}（NovelDownloadLegacyForwardController
-        // forward 至新址）。两者一律 SESSION_OR_VISITOR：复刻插画下载 /api/download/pixiv 的现状——multi 访客可
-        // 下载（走配额）、solo 需会话、邀请访客 403、不入 monitor（AuthFilter 不为该级别派生任何清单、命中后落到
+        // forward 至新址）。两者一律 VISITOR：复刻插画下载 /api/download/pixiv 的现状——multi 访客可
+        // 下载（走配额）、solo 需会话、邀请访客 403、不入 monitor（AuthFilter 不为该策略派生任何清单、命中后落到
         // 默认会话/访客分支）。声明它只为把这些写端点纳入本插件归属、随启停（禁用 → 新旧小说路径一并 404）。
         return List.of(
-                new WebRouteContribution("/pixiv-novel-gallery.html", AccessLevel.GUEST_READ, Set.of(), false),
-                new WebRouteContribution("/pixiv-novel.html", AccessLevel.GUEST_READ, Set.of(), false),
-                new WebRouteContribution("/pixiv-novel-gallery/**", AccessLevel.GUEST_READ, Set.of(), false),
-                new WebRouteContribution("/pixiv-novel/**", AccessLevel.GUEST_READ, Set.of(), false),
-                new WebRouteContribution("/api/gallery/novel/**", AccessLevel.GUEST_READ, Set.of(), false),
-                new WebRouteContribution("/api/gallery/novels/**", AccessLevel.GUEST_READ, Set.of(), false),
-                new WebRouteContribution("/api/gallery/novels", AccessLevel.GUEST_READ, Set.of(), false),
-                sessionOrVisitor("/api/novel/download"),
-                sessionOrVisitor("/api/novel/status/**"),
-                sessionOrVisitor("/api/novel/translate-status/**"),
-                sessionOrVisitor("/api/download/pixiv/novel"),
-                sessionOrVisitor("/api/download/novel/status/**"),
-                sessionOrVisitor("/api/download/novel/translate-status/**"));
+                new WebRouteContribution("/pixiv-novel-gallery.html", AccessPolicy.INVITED_GUEST, Set.of(), false),
+                new WebRouteContribution("/pixiv-novel.html", AccessPolicy.INVITED_GUEST, Set.of(), false),
+                new WebRouteContribution("/pixiv-novel-gallery/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
+                new WebRouteContribution("/pixiv-novel/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
+                new WebRouteContribution("/api/gallery/novel/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
+                new WebRouteContribution("/api/gallery/novels/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
+                new WebRouteContribution("/api/gallery/novels", AccessPolicy.INVITED_GUEST, Set.of(), false),
+                visitor("/api/novel/download"),
+                visitor("/api/novel/status/**"),
+                visitor("/api/novel/translate-status/**"),
+                visitor("/api/download/pixiv/novel"),
+                visitor("/api/download/novel/status/**"),
+                visitor("/api/download/novel/translate-status/**"),
+                // 下载工作台的小说队列类型行为模块（novel-queue-type.js）serving 目录：由下载页（VISITOR）消费，
+                // 随小说插件启停。VISITOR：multi 访客可加载 / solo 需会话 / 邀请访客 403 / 不入 monitor。
+                visitor("/pixiv-novel-download/**"));
     }
 
-    private static WebRouteContribution sessionOrVisitor(String pattern) {
-        return new WebRouteContribution(pattern, AccessLevel.SESSION_OR_VISITOR, Set.of(), false);
+    private static WebRouteContribution visitor(String pattern) {
+        return new WebRouteContribution(pattern, AccessPolicy.VISITOR, Set.of(), false);
     }
 
     @Override
@@ -114,7 +117,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
     @Override
     public List<NavigationContribution> navigation() {
         return List.of(new NavigationContribution(
-                ID, "nav.label", "/pixiv-novel-gallery.html", "book", AccessLevel.GUEST_READ, 30));
+                ID, "nav.label", "/pixiv-novel-gallery.html", "book", AccessPolicy.INVITED_GUEST, 30));
     }
 
     @Override

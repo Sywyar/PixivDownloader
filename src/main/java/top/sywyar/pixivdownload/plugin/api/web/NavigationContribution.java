@@ -7,7 +7,7 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * @param labelI18nKey 标签的 i18n key（不直接携带文案）
  * @param href         目标链接
  * @param icon         图标标识
- * @param visibleTo    可见的最低访问级别
+ * @param visibleTo    可见所需的访问策略（与 {@code /api/navigation} 的可见性过滤对照）
  * @param order        排序权重，越小越靠前
  */
 public record NavigationContribution(
@@ -15,7 +15,7 @@ public record NavigationContribution(
         String labelI18nKey,
         String href,
         String icon,
-        AccessLevel visibleTo,
+        AccessPolicy visibleTo,
         int order
 ) {
 }

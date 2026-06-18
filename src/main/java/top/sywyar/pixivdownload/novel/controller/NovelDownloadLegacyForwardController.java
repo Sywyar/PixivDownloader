@@ -20,7 +20,7 @@ import java.io.IOException;
  * 用<b>服务端 forward</b>（而非 301/302 重定向）转发：对 {@code POST} 透明保留请求方法与请求体，
  * 对 Tampermonkey 的 {@code GM_xmlhttpRequest} 最稳；{@code AuthFilter}（{@code OncePerRequestFilter}）
  * 在原始旧址上完成一次鉴权后不再对 forward 重复过滤，故访问行为由旧址的路由声明决定（同样
- * {@code SESSION_OR_VISITOR}，与新址一致）。
+ * {@code AccessPolicy.VISITOR}，与新址一致）。
  * <p>
  * 由 {@link PluginManagedBean} 排除出根包扫描、经 {@code NovelPluginConfiguration} 装配，<b>随小说插件启停</b>：
  * 小说禁用 → 垫片与 {@link NovelDownloadController} 一起不注册 → 新旧小说路径一并 404。油猴脚本与下载页

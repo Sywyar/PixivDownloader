@@ -28,7 +28,7 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.StartupRouteRegistry;
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.quota.RateLimitService;
@@ -40,6 +40,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -65,19 +66,17 @@ public class AuthFilter extends OncePerRequestFilter {
     private final GuestInviteService guestInviteService;
     private final GuiTokenProvider guiTokenProvider;
 
-    // ── 访问控制清单：由 RouteAccessRegistry 不可变快照按访问级别派生（替代原八类硬编码常量集合），
-    // 在请求侧读取（见 currentAccess()）。registry register/unregister 会整体替换快照引用，读侧据此
-    // 重新派生，使插件注册 / 注销后过滤判定随新快照更新；安全边界不再依赖构造期的静态副本。
-    // 派生规则（每条路由的「匹配器, 方法集, 访问级别」逐条镜像历史硬编码语义）：
-    //   monitor 受保护 ← AccessLevel ∈ {ADMIN_OR_SOLO, GUEST_READ}
-    //   访客白名单     ← AccessLevel ∈ {GUEST_READ, GUEST_READ_OPEN}（GET/HEAD 收窄由下方谓词承载）
-    //   公开静态       ← PUBLIC
-    //   本地放行特例   ← LOCAL_ONLY
-    //   SESSION_OR_VISITOR ← 不派生进任何清单（需保留历史「未声明 API」访问行为的端点：下载工作台提交 /
-    //                        装配、核心导航装配等；multi 访客可访问 / solo 需会话 / 邀请访客 403 /
-    //                        不入 monitor）。命中后落到默认会话 / 访客分支，等价于历史涌现行为；
-    //                        声明它只为路由归属与镜像守护，不改变访问行为（见 AccessLevel.SESSION_OR_VISITOR）。
-    // 前缀模式以 ** 结尾，去掉末尾 ** 即还原为历史 startsWith 前缀字符串（含 /api/authors 这类无尾斜杠前缀）。
+    // ── 访问控制：请求侧消费 RouteAccessRegistry 的不可变快照（register/unregister 会整体替换快照引用，
+    // 故插件注册 / 注销后过滤判定随新快照更新；安全边界不依赖构造期静态副本）。两条路径：
+    //   ① monitor 受保护 + 「未声明即 404」 ← 经 routeAccessRegistry.resolve(path, method) /
+    //      isDeclared(path, method) 解析「最具体声明 + 方法」的有效访问策略：窄声明（精确 / 长前缀 / 显式方法）
+    //      覆盖宽前缀，宽 ADMIN 前缀不再吞掉其下更窄的非 monitor 端点；monitor ← AccessPolicy ∈ {ADMIN,
+    //      INVITED_GUEST}；命中不了任何「path + method」声明的请求统一 404（不再回落访客默认放行）。
+    //   ② 访客白名单 / 公开 / 本地放行清单 ← 仍由 currentAccess() 按访问策略从快照派生（见 derive()）：
+    //      访客白名单 ← {INVITED_GUEST, VISITOR_AND_INVITED_GUEST}（GET/HEAD 收窄由下方谓词承载）；
+    //      公开 ← PUBLIC；本地放行特例 ← LOCAL；VISITOR / GUI / ACTUATOR_PUBLIC 不派生进任何清单
+    //      （VISITOR 落默认会话 / 访客分支、GUI 与 actuator 由内联分支判定，声明只为纳入归属 / 镜像 / 守卫）。
+    // 前缀模式以 ** 结尾，去掉末尾 ** 即还原为 startsWith 前缀字符串（含 /api/authors 这类无尾斜杠前缀）。
     private final RouteAccessRegistry routeAccessRegistry;
 
     /** 默认启动落点注册中心：{@code /redirect} 据此按模式选定首选插件落点（缺失则回退 / 兜底）。 */
@@ -153,12 +152,14 @@ public class AuthFilter extends OncePerRequestFilter {
                 new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
     }
 
-    private static boolean isMonitorLevel(AccessLevel level) {
-        return level == AccessLevel.ADMIN_OR_SOLO || level == AccessLevel.GUEST_READ;
+    /** monitor 受保护 ← 阻挡匿名访客的策略（管理员专属 + 受邀访客只读）。 */
+    private static boolean isMonitorPolicy(AccessPolicy policy) {
+        return policy == AccessPolicy.ADMIN || policy == AccessPolicy.INVITED_GUEST;
     }
 
-    private static boolean isGuestLevel(AccessLevel level) {
-        return level == AccessLevel.GUEST_READ || level == AccessLevel.GUEST_READ_OPEN;
+    /** 访客邀请白名单 ← 放行受邀访客只读的策略。 */
+    private static boolean isGuestPolicy(AccessPolicy policy) {
+        return policy == AccessPolicy.INVITED_GUEST || policy == AccessPolicy.VISITOR_AND_INVITED_GUEST;
     }
 
     /**
@@ -168,8 +169,6 @@ public class AuthFilter extends OncePerRequestFilter {
      */
     private record DerivedRouteAccess(
             List<RouteAccessRegistry.RegisteredRoute> sourceSnapshot,
-            Set<String> monitorExactPaths,
-            List<String> monitorPrefixPaths,
             List<String> publicPageStaticPrefixPaths,
             Set<String> publicStaticExactPaths,
             Set<String> guestAllowedStaticExact,
@@ -195,22 +194,24 @@ public class AuthFilter extends OncePerRequestFilter {
         return cached;
     }
 
-    /** 把一份路由快照按访问级别折叠成各访问清单（字段顺序与 {@link DerivedRouteAccess} 一致，逐条镜像历史硬编码语义）。 */
+    /**
+     * 把一份路由快照按访问策略折叠成访客白名单 / 公开 / 本地放行清单（字段顺序与 {@link DerivedRouteAccess}
+     * 一致）。monitor 受保护与「未声明即 404」不在此派生——由 {@link RouteAccessRegistry#resolve} /
+     * {@link RouteAccessRegistry#isDeclared(String, HttpMethod)} 按「path + method 命中的最具体声明」解析。
+     */
     private static DerivedRouteAccess derive(List<RouteAccessRegistry.RegisteredRoute> routes) {
         return new DerivedRouteAccess(
                 routes,
-                exactPaths(routes, level -> isMonitorLevel(level), method -> true),
-                prefixPaths(routes, AuthFilter::isMonitorLevel),
-                prefixPaths(routes, level -> level == AccessLevel.PUBLIC),
-                exactPaths(routes, level -> level == AccessLevel.PUBLIC, method -> true),
-                exactPaths(routes, level -> isGuestLevel(level),
+                prefixPaths(routes, policy -> policy == AccessPolicy.PUBLIC),
+                exactPaths(routes, policy -> policy == AccessPolicy.PUBLIC, method -> true),
+                exactPaths(routes, AuthFilter::isGuestPolicy,
                         methods -> !methods.contains(HttpMethod.POST), AuthFilter::isStaticResource),
-                exactPaths(routes, level -> isGuestLevel(level),
+                exactPaths(routes, AuthFilter::isGuestPolicy,
                         methods -> !methods.contains(HttpMethod.POST), path -> !isStaticResource(path)),
-                exactPaths(routes, AuthFilter::isGuestLevel, methods -> methods.contains(HttpMethod.POST)),
-                prefixPaths(routes, AuthFilter::isGuestLevel),
-                prefixPaths(routes, level -> level == AccessLevel.LOCAL_ONLY),
-                exactPaths(routes, level -> level == AccessLevel.LOCAL_ONLY, method -> true));
+                exactPaths(routes, AuthFilter::isGuestPolicy, methods -> methods.contains(HttpMethod.POST)),
+                prefixPaths(routes, AuthFilter::isGuestPolicy),
+                prefixPaths(routes, policy -> policy == AccessPolicy.LOCAL),
+                exactPaths(routes, policy -> policy == AccessPolicy.LOCAL, method -> true));
     }
 
     private static boolean isPrefixPattern(String pattern) {
@@ -223,19 +224,19 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private static Set<String> exactPaths(List<RouteAccessRegistry.RegisteredRoute> routes,
-                                          Predicate<AccessLevel> levelFilter,
+                                          Predicate<AccessPolicy> policyFilter,
                                           Predicate<Set<HttpMethod>> methodFilter) {
-        return exactPaths(routes, levelFilter, methodFilter, path -> true);
+        return exactPaths(routes, policyFilter, methodFilter, path -> true);
     }
 
     private static Set<String> exactPaths(List<RouteAccessRegistry.RegisteredRoute> routes,
-                                          Predicate<AccessLevel> levelFilter,
+                                          Predicate<AccessPolicy> policyFilter,
                                           Predicate<Set<HttpMethod>> methodFilter,
                                           Predicate<String> pathFilter) {
         return routes.stream()
                 .map(RouteAccessRegistry.RegisteredRoute::route)
                 .filter(route -> !isPrefixPattern(route.pathPattern()))
-                .filter(route -> levelFilter.test(route.accessLevel()))
+                .filter(route -> policyFilter.test(route.accessPolicy()))
                 .filter(route -> methodFilter.test(route.methods()))
                 .map(WebRouteContribution::pathPattern)
                 .filter(pathFilter)
@@ -243,11 +244,11 @@ public class AuthFilter extends OncePerRequestFilter {
     }
 
     private static List<String> prefixPaths(List<RouteAccessRegistry.RegisteredRoute> routes,
-                                            Predicate<AccessLevel> levelFilter) {
+                                            Predicate<AccessPolicy> policyFilter) {
         return routes.stream()
                 .map(RouteAccessRegistry.RegisteredRoute::route)
                 .filter(route -> isPrefixPattern(route.pathPattern()))
-                .filter(route -> levelFilter.test(route.accessLevel()))
+                .filter(route -> policyFilter.test(route.accessPolicy()))
                 .map(route -> toPrefixMatcher(route.pathPattern()))
                 .distinct()
                 .collect(Collectors.toUnmodifiableList());
@@ -406,7 +407,7 @@ public class AuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (isMonitorProtected(path)) {
+        if (isMonitorProtected(path, method)) {
             String token = SessionUtils.extractToken(req);
             boolean adminValid = setupService.isValidSession(token);
             if (!adminValid) {
@@ -455,6 +456,16 @@ public class AuthFilter extends OncePerRequestFilter {
             }
         }
 
+        // 全 URL 声明守卫：命中不了任何「path + method」已声明路由的请求统一 404（不再回落到访客默认放行）。
+        // 真正流程性分支（actuator / 维护窗口 / GUI / proxy.pac / setup / /redirect / invite / 公开路径）已在前面
+        // 各自返回；走到这里要么命中某条 VISITOR / LOCAL 等已声明路由（落默认会话 / 访客分支、保持旧可观察行为），
+        // 要么是未声明伪路径（404）。method-aware：仅声明某方法的 URL 用别的方法访问视为未声明（除非另有更宽的
+        // 全方法声明覆盖）。真实 controller 方法 / 静态资源由 RouteDeclarationCoverageTest 守卫均已声明、不会误伤。
+        if (!routeAccessRegistry.isDeclared(path, toHttpMethod(method))) {
+            res.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+
         if ("multi".equals(setupService.getMode())) {
             boolean isAdmin = setupService.isAdminLoggedIn(req);
             if (!isAdmin && isApi(path)) {
@@ -480,17 +491,31 @@ public class AuthFilter extends OncePerRequestFilter {
         }
     }
 
-    private boolean isMonitorProtected(String path) {
-        // 小说下载判重端点与作品侧 /api/downloaded/{id} 同属批量下载器的「跳过已下载」判重面，
-        // 不纳入 monitor 保护，按 /api/downloaded/{id} 同等规则放行（见 isNovelDownloadedCheck）。
+    /**
+     * 该请求（路径 + 方法）命中的<b>最具体</b>已声明路由的访问策略是否属 monitor 受保护（ADMIN / INVITED_GUEST）。
+     * 经 {@link RouteAccessRegistry#resolve} 解析有效路由——更具体的窄声明（精确 / 长前缀 / 显式方法）覆盖更宽的
+     * 前缀声明，故宽 ADMIN 前缀不会吞掉其下更窄的非 monitor 端点。小说下载判重端点与作品侧 /api/downloaded/{id}
+     * 同属批量下载器的「跳过已下载」判重面，不纳入 monitor 保护（见 {@link #isNovelDownloadedCheck}）。
+     */
+    private boolean isMonitorProtected(String path, String method) {
         if (isNovelDownloadedCheck(path)) {
             return false;
         }
-        DerivedRouteAccess access = currentAccess();
-        if (access.monitorExactPaths().contains(path)) {
-            return true;
+        return routeAccessRegistry.resolve(path, toHttpMethod(method))
+                .map(registered -> isMonitorPolicy(registered.route().accessPolicy()))
+                .orElse(false);
+    }
+
+    /** 请求方法字符串 → contribution 的 {@link HttpMethod}；未知方法返回 {@code null}（仅命中空方法集声明）。 */
+    private static HttpMethod toHttpMethod(String method) {
+        if (method == null) {
+            return null;
         }
-        return startsWithAny(path, access.monitorPrefixPaths());
+        try {
+            return HttpMethod.valueOf(method.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /**

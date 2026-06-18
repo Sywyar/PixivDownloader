@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
@@ -12,34 +12,35 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 路由访问级别安全分类不变量守卫。
+ * 路由访问策略安全分类不变量守卫。
  * <p>
- * AuthFilter 切换 registry 后，原八类硬编码清单（MONITOR_* / PUBLIC_* / GUEST_ALLOWED_*）已删除，
- * 改由 {@link RouteAccessRegistry} 不可变快照在 {@code AuthFilter} 构造期按访问级别派生：
+ * {@link RouteAccessRegistry} 的不可变快照在 {@code AuthFilter} 构造期按访问策略派生：
  * <ul>
- *   <li>monitor 受保护清单 ← AccessLevel ∈ {@code {ADMIN_OR_SOLO, GUEST_READ}}；</li>
- *   <li>访客邀请白名单     ← AccessLevel ∈ {@code {GUEST_READ, GUEST_READ_OPEN}}；</li>
- *   <li>公开清单 ← {@code PUBLIC}；{@code /api/downloaded} 本地放行特例 ← {@code LOCAL_ONLY}。</li>
+ *   <li>monitor 受保护清单 ← AccessPolicy ∈ {@code {ADMIN, INVITED_GUEST}}；</li>
+ *   <li>访客邀请白名单     ← AccessPolicy ∈ {@code {INVITED_GUEST, VISITOR_AND_INVITED_GUEST}}；</li>
+ *   <li>公开清单 ← {@code PUBLIC}；本地放行特例 ← {@code LOCAL}；</li>
+ *   <li>{@code VISITOR} / {@code GUI} ← 不派生进上述任何清单（VISITOR 落默认会话 / 访客分支、GUI 由内联分支判定）。</li>
  * </ul>
- * 因此本测试从「registry ↔ AuthFilter 硬编码逐条对照」转为「registry 声明端自身的访问级别 → 安全分类不变量」守卫：
- * GUEST_READ 既受 monitor 保护又对访客开放；ADMIN_OR_SOLO 仅 monitor、绝不入访客 / 公开；
- * GUEST_READ_OPEN 仅对访客开放、绝不入 monitor（multi 普通访客 GET 亦可达）。AuthFilter 的过滤行为本身
- * 由金标准 {@code AuthFilterTest}（零修改通过的过滤行为基线）守护；本测试守护「声明端的访问级别没被改错 / 误开放」。
+ * 本测试守护「声明端的访问策略 → 安全分类不变量」：INVITED_GUEST 既受 monitor 保护又对访客开放；
+ * ADMIN 仅 monitor、绝不入访客 / 公开；VISITOR_AND_INVITED_GUEST 仅对访客开放、绝不入 monitor；
+ * VISITOR / GUI 是「声明但仍由内联流程分支判定」的直通策略、绝不进任何派生清单。AuthFilter 的过滤行为本身
+ * 由金标准 {@code AuthFilterTest}（含未声明路由 404 覆盖）守护；全 URL 声明覆盖由
+ * {@code RouteDeclarationCoverageTest} 守护。
  */
-@DisplayName("RouteAccessRegistry 访问级别安全分类不变量")
+@DisplayName("RouteAccessRegistry 访问策略安全分类不变量")
 class RouteAccessMirrorTest {
 
     private static final RouteAccessRegistry REGISTRY =
             new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
 
-    /** AuthFilter 派生口径：monitor 受保护 ← ADMIN_OR_SOLO 或 GUEST_READ。 */
-    private static boolean isMonitorLevel(AccessLevel level) {
-        return level == AccessLevel.ADMIN_OR_SOLO || level == AccessLevel.GUEST_READ;
+    /** AuthFilter 派生口径：monitor 受保护 ← ADMIN 或 INVITED_GUEST。 */
+    private static boolean isMonitorPolicy(AccessPolicy policy) {
+        return policy == AccessPolicy.ADMIN || policy == AccessPolicy.INVITED_GUEST;
     }
 
-    /** AuthFilter 派生口径：访客邀请白名单 ← GUEST_READ 或 GUEST_READ_OPEN。 */
-    private static boolean isGuestLevel(AccessLevel level) {
-        return level == AccessLevel.GUEST_READ || level == AccessLevel.GUEST_READ_OPEN;
+    /** AuthFilter 派生口径：访客邀请白名单 ← INVITED_GUEST 或 VISITOR_AND_INVITED_GUEST。 */
+    private static boolean isGuestPolicy(AccessPolicy policy) {
+        return policy == AccessPolicy.INVITED_GUEST || policy == AccessPolicy.VISITOR_AND_INVITED_GUEST;
     }
 
     private static boolean isPrefix(String pattern) {
@@ -51,72 +52,101 @@ class RouteAccessMirrorTest {
         return isPrefix(pattern) ? pattern.substring(0, pattern.length() - 2) : pattern;
     }
 
-    /** 与 AuthFilter 一致地把给定访问级别集合的全部路由折叠成匹配器字符串集合。 */
-    private static Set<String> matchersForLevels(Set<AccessLevel> levels) {
+    /** 与 AuthFilter 一致地把给定访问策略集合的全部路由折叠成匹配器字符串集合。 */
+    private static Set<String> matchersForPolicies(Set<AccessPolicy> policies) {
         return REGISTRY.routes().stream()
                 .map(RouteAccessRegistry.RegisteredRoute::route)
-                .filter(route -> levels.contains(route.accessLevel()))
+                .filter(route -> policies.contains(route.accessPolicy()))
                 .map(route -> matcher(route.pathPattern()))
                 .collect(Collectors.toSet());
     }
 
     @Test
-    @DisplayName("内置路由只用 AuthFilter 已建模的六种访问级别（PUBLIC/ADMIN_OR_SOLO/GUEST_READ/GUEST_READ_OPEN/SESSION_OR_VISITOR/LOCAL_ONLY）")
-    void onlyModeledAccessLevelsAreUsed() {
-        Set<AccessLevel> modeled = Set.of(AccessLevel.PUBLIC, AccessLevel.ADMIN_OR_SOLO,
-                AccessLevel.GUEST_READ, AccessLevel.GUEST_READ_OPEN,
-                AccessLevel.SESSION_OR_VISITOR, AccessLevel.LOCAL_ONLY);
+    @DisplayName("内置路由只用 AuthFilter 已建模的八种访问策略（PUBLIC/ADMIN/INVITED_GUEST/VISITOR_AND_INVITED_GUEST/VISITOR/LOCAL/GUI/ACTUATOR_PUBLIC）")
+    void onlyModeledAccessPoliciesAreUsed() {
+        Set<AccessPolicy> modeled = Set.of(AccessPolicy.PUBLIC, AccessPolicy.ADMIN,
+                AccessPolicy.INVITED_GUEST, AccessPolicy.VISITOR_AND_INVITED_GUEST,
+                AccessPolicy.VISITOR, AccessPolicy.LOCAL, AccessPolicy.GUI, AccessPolicy.ACTUATOR_PUBLIC);
         assertThat(REGISTRY.routes()).allSatisfy(registered ->
                 assertThat(modeled)
-                        .as("路由 %s 用了 AuthFilter 未建模的访问级别 %s，登记前先扩展 AuthFilter 派生与本测试",
-                                registered.route().pathPattern(), registered.route().accessLevel())
-                        .contains(registered.route().accessLevel()));
+                        .as("路由 %s 用了 AuthFilter 未建模的访问策略 %s，登记前先扩展 AuthFilter 派生与本测试",
+                                registered.route().pathPattern(), registered.route().accessPolicy())
+                        .contains(registered.route().accessPolicy()));
     }
 
     @Test
-    @DisplayName("SESSION_OR_VISITOR 路由：匹配器绝不出现在 monitor / 访客 / 公开 / 本地任一清单（下载工作台端点的纯归属声明、不改访问行为）")
-    void sessionOrVisitorRoutesArePassThrough() {
+    @DisplayName("直通策略（VISITOR / GUI / ACTUATOR_PUBLIC）路由：匹配器绝不出现在 monitor / 访客 / 公开 / 本地任一清单（声明但由内联 / 默认分支判定、不改访问行为）")
+    void passThroughRoutesAreInert() {
         Set<String> monitorMatchers =
-                matchersForLevels(Set.of(AccessLevel.ADMIN_OR_SOLO, AccessLevel.GUEST_READ));
+                matchersForPolicies(Set.of(AccessPolicy.ADMIN, AccessPolicy.INVITED_GUEST));
         Set<String> guestMatchers =
-                matchersForLevels(Set.of(AccessLevel.GUEST_READ, AccessLevel.GUEST_READ_OPEN));
-        Set<String> publicMatchers = matchersForLevels(Set.of(AccessLevel.PUBLIC));
-        Set<String> localMatchers = matchersForLevels(Set.of(AccessLevel.LOCAL_ONLY));
-        List<WebRouteContribution> passThrough = byLevel(AccessLevel.SESSION_OR_VISITOR);
-        assertThat(passThrough).as("应有 SESSION_OR_VISITOR 路由（小说下载新址 + 旧址兼容垫片 + 下载页扩展点装配端点 + 核心导航装配端点）").isNotEmpty();
+                matchersForPolicies(Set.of(AccessPolicy.INVITED_GUEST, AccessPolicy.VISITOR_AND_INVITED_GUEST));
+        Set<String> publicMatchers = matchersForPolicies(Set.of(AccessPolicy.PUBLIC));
+        Set<String> localMatchers = matchersForPolicies(Set.of(AccessPolicy.LOCAL));
+        List<WebRouteContribution> passThrough = new java.util.ArrayList<>();
+        passThrough.addAll(byPolicy(AccessPolicy.VISITOR));
+        passThrough.addAll(byPolicy(AccessPolicy.GUI));
+        passThrough.addAll(byPolicy(AccessPolicy.ACTUATOR_PUBLIC));
+        assertThat(passThrough).as("应有 VISITOR / GUI / ACTUATOR_PUBLIC 直通路由（下载提交 / 装配 / 导航 / 配额 / Pixiv 代理 / GUI / actuator 等）").isNotEmpty();
         passThrough.forEach(route -> {
             String m = matcher(route.pathPattern());
-            assertThat(monitorMatchers).as("SESSION_OR_VISITOR 路由 %s 不得进入 monitor 清单", route.pathPattern()).doesNotContain(m);
-            assertThat(guestMatchers).as("SESSION_OR_VISITOR 路由 %s 不得进入访客白名单", route.pathPattern()).doesNotContain(m);
-            assertThat(publicMatchers).as("SESSION_OR_VISITOR 路由 %s 不得进入公开清单", route.pathPattern()).doesNotContain(m);
-            assertThat(localMatchers).as("SESSION_OR_VISITOR 路由 %s 不得进入本地放行清单", route.pathPattern()).doesNotContain(m);
+            assertThat(monitorMatchers).as("直通路由 %s 不得进入 monitor 清单", route.pathPattern()).doesNotContain(m);
+            assertThat(guestMatchers).as("直通路由 %s 不得进入访客白名单", route.pathPattern()).doesNotContain(m);
+            assertThat(publicMatchers).as("直通路由 %s 不得进入公开清单", route.pathPattern()).doesNotContain(m);
+            assertThat(localMatchers).as("直通路由 %s 不得进入本地放行清单", route.pathPattern()).doesNotContain(m);
         });
     }
 
     @Test
-    @DisplayName("GUEST_READ 路由：既进入 monitor 受保护清单，又进入访客邀请白名单")
-    void guestReadRoutesAreBothMonitorAndGuest() {
-        List<WebRouteContribution> guestRead = byLevel(AccessLevel.GUEST_READ);
-        assertThat(guestRead).as("应有 GUEST_READ 路由（页面 + /api/gallery/ + 下载数据 / 缩略图等）").isNotEmpty();
-        guestRead.forEach(route -> {
-            assertThat(isMonitorLevel(route.accessLevel()))
-                    .as("GUEST_READ 路由 %s 应受 monitor 保护", route.pathPattern()).isTrue();
-            assertThat(isGuestLevel(route.accessLevel()))
-                    .as("GUEST_READ 路由 %s 应在访客白名单", route.pathPattern()).isTrue();
+    @DisplayName("ACTUATOR_PUBLIC 策略：只能由 core 声明、只能用于 actuator 公开探针路径（普通插件不得拿它声明业务路由）")
+    void actuatorPublicPolicyIsCoreOnlyAndProbePathsOnly() {
+        Set<String> allowedProbePaths = Set.of(
+                "/actuator/health", "/actuator/health/liveness",
+                "/actuator/health/readiness", "/actuator/info");
+        List<RouteAccessRegistry.RegisteredRoute> actuatorRoutes = REGISTRY.routes().stream()
+                .filter(registered -> registered.route().accessPolicy() == AccessPolicy.ACTUATOR_PUBLIC)
+                .toList();
+        assertThat(actuatorRoutes).as("应声明 actuator 公开探针路由").isNotEmpty();
+        actuatorRoutes.forEach(registered -> {
+            assertThat(registered.pluginId())
+                    .as("ACTUATOR_PUBLIC 路由 %s 只能由 core 声明", registered.route().pathPattern())
+                    .isEqualTo("core");
+            assertThat(allowedProbePaths)
+                    .as("ACTUATOR_PUBLIC 只能用于 actuator 探针路径，而非业务路由 %s", registered.route().pathPattern())
+                    .contains(registered.route().pathPattern());
+        });
+        // 反向：以上探针路径只能用 ACTUATOR_PUBLIC（防误标成其它策略而落进某派生清单）。
+        REGISTRY.routes().stream()
+                .filter(registered -> allowedProbePaths.contains(registered.route().pathPattern()))
+                .forEach(registered -> assertThat(registered.route().accessPolicy())
+                        .as("actuator 探针路径 %s 应声明为 ACTUATOR_PUBLIC", registered.route().pathPattern())
+                        .isEqualTo(AccessPolicy.ACTUATOR_PUBLIC));
+    }
+
+    @Test
+    @DisplayName("INVITED_GUEST 路由：既进入 monitor 受保护清单，又进入访客邀请白名单")
+    void invitedGuestRoutesAreBothMonitorAndGuest() {
+        List<WebRouteContribution> invitedGuest = byPolicy(AccessPolicy.INVITED_GUEST);
+        assertThat(invitedGuest).as("应有 INVITED_GUEST 路由（页面 + /api/gallery/ + 下载数据 / 缩略图等）").isNotEmpty();
+        invitedGuest.forEach(route -> {
+            assertThat(isMonitorPolicy(route.accessPolicy()))
+                    .as("INVITED_GUEST 路由 %s 应受 monitor 保护", route.pathPattern()).isTrue();
+            assertThat(isGuestPolicy(route.accessPolicy()))
+                    .as("INVITED_GUEST 路由 %s 应在访客白名单", route.pathPattern()).isTrue();
         });
     }
 
     @Test
-    @DisplayName("ADMIN_OR_SOLO 路由：仅进入 monitor 清单，匹配器绝不出现在访客白名单或公开清单（admin-only 不变量）")
+    @DisplayName("ADMIN 路由：仅进入 monitor 清单，匹配器绝不出现在访客白名单或公开清单（admin-only 不变量）")
     void adminOnlyRoutesNeverEnterGuestOrPublic() {
         Set<String> guestMatchers =
-                matchersForLevels(Set.of(AccessLevel.GUEST_READ, AccessLevel.GUEST_READ_OPEN));
-        Set<String> publicMatchers = matchersForLevels(Set.of(AccessLevel.PUBLIC));
-        List<WebRouteContribution> adminOnly = byLevel(AccessLevel.ADMIN_OR_SOLO);
-        assertThat(adminOnly).as("应有 ADMIN_OR_SOLO 路由（stats/duplicate/schedule/admin/监控页等）").isNotEmpty();
+                matchersForPolicies(Set.of(AccessPolicy.INVITED_GUEST, AccessPolicy.VISITOR_AND_INVITED_GUEST));
+        Set<String> publicMatchers = matchersForPolicies(Set.of(AccessPolicy.PUBLIC));
+        List<WebRouteContribution> adminOnly = byPolicy(AccessPolicy.ADMIN);
+        assertThat(adminOnly).as("应有 ADMIN 路由（stats/duplicate/schedule/admin/监控页等）").isNotEmpty();
         adminOnly.forEach(route -> {
-            assertThat(isMonitorLevel(route.accessLevel()))
-                    .as("ADMIN_OR_SOLO 路由 %s 应受 monitor 保护", route.pathPattern()).isTrue();
+            assertThat(isMonitorPolicy(route.accessPolicy()))
+                    .as("ADMIN 路由 %s 应受 monitor 保护", route.pathPattern()).isTrue();
             assertThat(guestMatchers)
                     .as("admin-only 路由 %s 的匹配器不得出现在访客白名单", route.pathPattern())
                     .doesNotContain(matcher(route.pathPattern()));
@@ -127,82 +157,98 @@ class RouteAccessMirrorTest {
     }
 
     @Test
-    @DisplayName("GUEST_READ_OPEN 路由：进入访客白名单、但匹配器绝不出现在 monitor 清单（新增访问级别不变量）")
-    void guestReadOpenRoutesAreGuestButNotMonitor() {
+    @DisplayName("VISITOR_AND_INVITED_GUEST 路由：进入访客白名单、但匹配器绝不出现在 monitor 清单")
+    void visitorAndInvitedGuestRoutesAreGuestButNotMonitor() {
         Set<String> monitorMatchers =
-                matchersForLevels(Set.of(AccessLevel.ADMIN_OR_SOLO, AccessLevel.GUEST_READ));
-        List<WebRouteContribution> open = byLevel(AccessLevel.GUEST_READ_OPEN);
-        assertThat(open).as("应有 GUEST_READ_OPEN 路由（只读代理 / 下载状态前缀 + 跨页共享静态依赖）").isNotEmpty();
+                matchersForPolicies(Set.of(AccessPolicy.ADMIN, AccessPolicy.INVITED_GUEST));
+        List<WebRouteContribution> open = byPolicy(AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertThat(open).as("应有 VISITOR_AND_INVITED_GUEST 路由（只读代理 / 下载状态前缀 + 跨页共享静态依赖）").isNotEmpty();
         open.forEach(route -> {
-            assertThat(isGuestLevel(route.accessLevel()))
-                    .as("GUEST_READ_OPEN 路由 %s 应在访客白名单", route.pathPattern()).isTrue();
+            assertThat(isGuestPolicy(route.accessPolicy()))
+                    .as("VISITOR_AND_INVITED_GUEST 路由 %s 应在访客白名单", route.pathPattern()).isTrue();
             assertThat(monitorMatchers)
-                    .as("GUEST_READ_OPEN 路由 %s 的匹配器不得出现在 monitor 清单", route.pathPattern())
+                    .as("VISITOR_AND_INVITED_GUEST 路由 %s 的匹配器不得出现在 monitor 清单", route.pathPattern())
                     .doesNotContain(matcher(route.pathPattern()));
         });
     }
 
     @Test
-    @DisplayName("代表性内置路由的归属插件与访问级别符合预期（防误改级别 / 归属，含 active/前缀、batch/其余的现状不对称）")
-    void representativeRoutesHaveExpectedOwnerAndLevel() {
-        // 核心声明：下载域数据 / 图片字节 / 状态 / 代理 / 公开与共享静态 / 本地放行特例
-        assertOwnerLevel("/api/downloaded/batch", "core", AccessLevel.ADMIN_OR_SOLO);
-        assertOwnerLevel("/api/downloaded/statistics", "core", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/downloaded/image/**", "core", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/authors**", "core", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/collections**", "core", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/download/status/active", "core", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/download/status/**", "core", AccessLevel.GUEST_READ_OPEN);
-        assertOwnerLevel("/api/download/status", "core", AccessLevel.LOCAL_ONLY);
-        assertOwnerLevel("/api/pixiv/artwork/**", "core", AccessLevel.GUEST_READ_OPEN);
-        assertOwnerLevel("/api/pixiv/novel/**", "core", AccessLevel.GUEST_READ_OPEN);
-        assertOwnerLevel("/api/tts/**", "core", AccessLevel.ADMIN_OR_SOLO);
-        assertOwnerLevel("/api/tts/edge/synthesize", "core", AccessLevel.GUEST_READ_OPEN);
-        assertOwnerLevel("/js/pixiv-side-modules.js", "core", AccessLevel.GUEST_READ_OPEN);
-        assertOwnerLevel("/favicon.ico", "core", AccessLevel.PUBLIC);
-        assertOwnerLevel("/api/downloaded/**", "core", AccessLevel.LOCAL_ONLY);
-        // 功能插件声明：画廊页面保持不动；/api/gallery 子面按控制器归属拆分——画廊占 artwork(s)/tags
-        // 窄前缀，小说占 novel(s) 窄前缀（含列表裸端点 /api/gallery/novels 的精确声明），互不越界。
-        assertOwnerLevel("/pixiv-gallery.html", "gallery", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/gallery/artwork**", "gallery", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/gallery/tags**", "gallery", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/pixiv-novel.html", "novel", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/gallery/novel/**", "novel", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/gallery/novels/**", "novel", AccessLevel.GUEST_READ);
-        assertOwnerLevel("/api/gallery/novels", "novel", AccessLevel.GUEST_READ);
-        // 小说下载端点归小说插件、新址 + 旧址兼容垫片一律 SESSION_OR_VISITOR（复刻 /api/download/pixiv 现状：
-        // multi 访客可下载 / solo 需会话 / 邀请访客 403 / 不入 monitor，仅作归属声明、不改访问行为）。
-        assertOwnerLevel("/api/novel/download", "novel", AccessLevel.SESSION_OR_VISITOR);
-        assertOwnerLevel("/api/novel/status/**", "novel", AccessLevel.SESSION_OR_VISITOR);
-        assertOwnerLevel("/api/novel/translate-status/**", "novel", AccessLevel.SESSION_OR_VISITOR);
-        assertOwnerLevel("/api/download/pixiv/novel", "novel", AccessLevel.SESSION_OR_VISITOR);
-        assertOwnerLevel("/api/download/novel/status/**", "novel", AccessLevel.SESSION_OR_VISITOR);
-        assertOwnerLevel("/api/stats/**", "stats", AccessLevel.ADMIN_OR_SOLO);
-        assertOwnerLevel("/api/duplicates/**", "duplicate", AccessLevel.ADMIN_OR_SOLO);
-        // 计划任务管理 API 随 schedule 能力收编归下载工作台插件声明（访问级别不变：仅管理员）。
-        assertOwnerLevel("/api/schedule/**", "download-workbench", AccessLevel.ADMIN_OR_SOLO);
-        // 下载页扩展点装配端点归下载工作台、SESSION_OR_VISITOR（随下载页消费的只读装配接口，复刻现状：
-        // multi 访客可读 / solo 需会话 / 邀请访客 403 / 不入 monitor，仅作归属声明、不改访问行为）。
-        assertOwnerLevel("/api/download/extensions", "download-workbench", AccessLevel.SESSION_OR_VISITOR);
-        // 核心导航装配端点归 core、SESSION_OR_VISITOR（NavigationController 读 NavigationRegistry 跨插件
-        // 聚合导航项；复刻未声明时现状：multi 访客可读 / solo 需会话 / 邀请访客 403 / 不入 monitor）。
-        assertOwnerLevel("/api/navigation", "core", AccessLevel.SESSION_OR_VISITOR);
+    @DisplayName("代表性内置路由的归属插件与访问策略符合预期（防误改策略 / 归属，覆盖每种策略 + 新声明 URL）")
+    void representativeRoutesHaveExpectedOwnerAndPolicy() {
+        // 核心声明：下载域数据 / 图片字节 / 状态 / 代理 / 公开与共享静态 / 本地放行特例 / 横切 API
+        assertOwnerPolicy("/api/downloaded/batch", "core", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/downloaded/statistics", "core", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/downloaded/image/**", "core", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/authors**", "core", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/collections**", "core", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/download/status/active", "core", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/download/status/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertOwnerPolicy("/api/download/status", "core", AccessPolicy.LOCAL);
+        assertOwnerPolicy("/api/pixiv/artwork/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertOwnerPolicy("/api/pixiv/novel/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertOwnerPolicy("/api/tts/**", "core", AccessPolicy.ADMIN);
+        // 小说听书 TTS 端点 = INVITED_GUEST（受邀访客可读、匿名 multi 访客被 monitor 挡，与小说详情页同面）：
+        // 窄声明经 resolve 覆盖宽 /api/tts/** = ADMIN，AccessPolicy 即其真实可达面（详见 RouteAccessRegistryTest）。
+        assertOwnerPolicy("/api/tts/edge/voices", "core", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/tts/edge/synthesize", "core", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/js/pixiv-side-modules.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        assertOwnerPolicy("/favicon.ico", "core", AccessPolicy.PUBLIC);
+        assertOwnerPolicy("/api/downloaded/**", "core", AccessPolicy.LOCAL);
+        // 核心新声明的横切 / 公开 / 直通 / GUI / 本地 URL（本前置包补齐的「全 URL 声明」）
+        assertOwnerPolicy("/api/auth/**", "core", AccessPolicy.PUBLIC);
+        assertOwnerPolicy("/api/i18n/**", "core", AccessPolicy.PUBLIC);
+        assertOwnerPolicy("/index.html", "core", AccessPolicy.PUBLIC);
+        assertOwnerPolicy("/api/navigation", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/quota/**", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/archive/**", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/pixiv/me/**", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/setup/**", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/js/**", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/vendor/**", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/gui/**", "core", AccessPolicy.GUI);
+        assertOwnerPolicy("/actuator/health", "core", AccessPolicy.ACTUATOR_PUBLIC);
+        assertOwnerPolicy("/proxy.pac", "core", AccessPolicy.LOCAL);
+        assertOwnerPolicy("/setup.html", "core", AccessPolicy.LOCAL);
+        // 功能插件声明：画廊 / 小说页面 + /api/gallery 子面按控制器归属拆分，互不越界。
+        assertOwnerPolicy("/pixiv-gallery.html", "gallery", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/gallery/artwork**", "gallery", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/gallery/tags**", "gallery", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/pixiv-novel.html", "novel", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/gallery/novel/**", "novel", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/gallery/novels/**", "novel", AccessPolicy.INVITED_GUEST);
+        assertOwnerPolicy("/api/gallery/novels", "novel", AccessPolicy.INVITED_GUEST);
+        // 小说下载端点归小说插件、新址 + 旧址兼容垫片一律 VISITOR（复刻 /api/download/pixiv 现状）。
+        assertOwnerPolicy("/api/novel/download", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/novel/status/**", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/novel/translate-status/**", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/download/pixiv/novel", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/download/novel/status/**", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/pixiv-novel-download/**", "novel", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/stats/**", "stats", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/duplicates/**", "duplicate", AccessPolicy.ADMIN);
+        // 下载工作台：计划任务管理（仅管理员）+ 下载页 / 提交 / 队列 / 扩展点（VISITOR，复刻未声明现状）。
+        assertOwnerPolicy("/api/schedule/**", "download-workbench", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/download/extensions", "download-workbench", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/pixiv-batch.html", "download-workbench", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/pixiv-batch/**", "download-workbench", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/download/pixiv", "download-workbench", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/batch/**", "download-workbench", AccessPolicy.VISITOR);
     }
 
-    private static List<WebRouteContribution> byLevel(AccessLevel level) {
+    private static List<WebRouteContribution> byPolicy(AccessPolicy policy) {
         return REGISTRY.routes().stream()
                 .map(RouteAccessRegistry.RegisteredRoute::route)
-                .filter(route -> route.accessLevel() == level)
+                .filter(route -> route.accessPolicy() == policy)
                 .toList();
     }
 
-    private static void assertOwnerLevel(String pattern, String pluginId, AccessLevel level) {
+    private static void assertOwnerPolicy(String pattern, String pluginId, AccessPolicy policy) {
         assertThat(REGISTRY.routes())
-                .as("路由 %s 应由插件 %s 以 %s 声明", pattern, pluginId, level)
+                .as("路由 %s 应由插件 %s 以 %s 声明", pattern, pluginId, policy)
                 .anySatisfy(registered -> {
                     assertThat(registered.pluginId()).isEqualTo(pluginId);
                     assertThat(registered.route().pathPattern()).isEqualTo(pattern);
-                    assertThat(registered.route().accessLevel()).isEqualTo(level);
+                    assertThat(registered.route().accessPolicy()).isEqualTo(policy);
                 });
     }
 }

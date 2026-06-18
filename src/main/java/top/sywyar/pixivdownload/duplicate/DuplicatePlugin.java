@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.duplicate;
 
-import top.sywyar.pixivdownload.plugin.api.web.AccessLevel;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -15,7 +15,7 @@ import java.util.Set;
  * 重复检测插件：基于核心图片 Hash 索引的疑似重复页面、API 与手动重扫入口。
  * Hash 的下载后即时计算与缺失回填属核心资产索引能力，不随本插件禁用。
  * <p>
- * 疑似重复检测是管理员专属功能（{@code ADMIN_OR_SOLO}，即 solo 会话用户或 multi 登录管理员），
+ * 疑似重复检测是管理员专属功能（{@code ADMIN}，即 solo 会话用户或 multi 登录管理员），
  * 不得进入 isPublic / 访客邀请白名单——该不变量由路由镜像测试守护。无私有表
  * （{@code artwork_image_hashes} 含 page=-1 哨兵语义，按卸载投影测试归 core）。
  */
@@ -40,11 +40,11 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
 
     @Override
     public List<WebRouteContribution> routes() {
-        // 与 AuthFilter 现行硬编码逐条对应：页面与 API 均按 monitor 语义保护（方法不限）。
+        // 管理员专属：页面与 API 均按 monitor 语义保护（方法不限）。
         return List.of(
-                new WebRouteContribution("/pixiv-duplicates.html", AccessLevel.ADMIN_OR_SOLO, Set.of(), false),
-                new WebRouteContribution("/pixiv-duplicates/**", AccessLevel.ADMIN_OR_SOLO, Set.of(), false),
-                new WebRouteContribution("/api/duplicates/**", AccessLevel.ADMIN_OR_SOLO, Set.of(), false));
+                new WebRouteContribution("/pixiv-duplicates.html", AccessPolicy.ADMIN, Set.of(), false),
+                new WebRouteContribution("/pixiv-duplicates/**", AccessPolicy.ADMIN, Set.of(), false),
+                new WebRouteContribution("/api/duplicates/**", AccessPolicy.ADMIN, Set.of(), false));
     }
 
     @Override
@@ -63,6 +63,6 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
     @Override
     public List<NavigationContribution> navigation() {
         return List.of(new NavigationContribution(
-                ID, "nav.label", "/pixiv-duplicates.html", "copy", AccessLevel.ADMIN_OR_SOLO, 70));
+                ID, "nav.label", "/pixiv-duplicates.html", "copy", AccessPolicy.ADMIN, 70));
     }
 }
