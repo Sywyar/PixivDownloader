@@ -5,12 +5,6 @@
         return data.ids || [];
     }
 
-    async function getUserNovels(userId) {
-        const data = await apiGet(`/api/pixiv/user/${userId}/novels`);
-        if (data.error) throw new Error(data.error);
-        return data.ids || [];
-    }
-
     // 约稿作品（リクエスト 成品）：本质是普通插画，发现到 ID 后与插画同走 illust-cards 预览 / 下载链路。
     async function getUserRequestArtworks(userId) {
         const data = await apiGet(`/api/pixiv/user/${userId}/request-artworks`);
@@ -47,7 +41,29 @@
     };
 
     function userCardCacheKey(id) {
-        return (userState.kind === 'novel' ? 'n:' : 'i:') + String(id);
+        return String(userState.kind || 'illust') + ':' + String(id);
+    }
+
+    // 当前 user 模式作品类型的 user 取得钩子（类型不可用 → null → 走宿主内置插画路径）。
+    function userAcq() {
+        return window.PixivBatch.queueTypes.acquisition(userState.kind, 'user');
+    }
+    function userQueueId(item) {
+        const acq = userAcq();
+        return acq && acq.queueId ? acq.queueId(item) : String(item.id);
+    }
+    // 队列预览卡片元素 id（小说卡 / 插画缩略图 id 前缀不同，由该类型 user 钩子贡献）。
+    function userCardElementId(idx) {
+        const acq = userAcq();
+        return acq && acq.cardId ? acq.cardId(idx) : `user-thumb-${idx}`;
+    }
+    // 发现该画师在当前 kind 下的作品 ID 列表：约稿走宿主内置约稿端点；其余按当前队列类型的 user 钩子
+    // （如小说 novels 端点），无钩子 / 内置插画走 artworks 端点。userState.kind 已在 resetUserState 设定。
+    async function fetchUserIds(userId, userKind) {
+        if (userKind === 'request') return getUserRequestArtworks(userId);
+        const acq = userAcq();
+        if (acq && acq.fetchIds) return acq.fetchIds(userId);
+        return getUserArtworks(userId);
     }
 
     function cleanupUserBlobUrls() {
@@ -59,7 +75,7 @@
 
     function resetUserState(kind = 'illust') {
         cleanupUserBlobUrls();
-        userState.kind = kind === 'novel' ? 'novel' : 'illust';
+        userState.kind = window.PixivBatch.queueTypes.resolveType(kind);
         userState.allIds = [];
         userState.currentPage = 1;
         userState.totalPages = 1;
@@ -123,7 +139,8 @@
         }
         if (input.value.trim() !== userId) input.value = userId;
         const userKind = state.settings.userKind;
-        const kind = userKind === 'novel' ? 'novel' : 'illust'; // 约稿成品按插画渲染 / 入队
+        // 约稿成品按插画渲染 / 入队；把选中 kind 解析为可用队列类型（不可用 / 约稿 → 插画）。
+        const kind = window.PixivBatch.queueTypes.resolveType(userKind);
         resetUserState(kind);
         userState.userId = userId;
         state.userId = userId;
@@ -138,9 +155,7 @@
                 ? bt('status.user-display', '用户：{name}（ID: {id}）', {name: userState.username, id: userId})
                 : bt('status.user-display-fetch-failed', 'ID: {id}（获取用户名失败）', {id: userId});
 
-            const ids = userKind === 'request' ? await getUserRequestArtworks(userId)
-                : kind === 'novel' ? await getUserNovels(userId)
-                : await getUserArtworks(userId);
+            const ids = await fetchUserIds(userId, userKind);
             userState.allIds = Array.isArray(ids) ? ids.map(String) : [];
             userState.totalPages = Math.max(1, Math.ceil(userState.allIds.length / USER_PAGE_SIZE));
             if (!userState.allIds.length) {
@@ -164,8 +179,9 @@
     async function ensureUserCards(ids) {
         const missing = ids.filter(id => !userState.cardCache.has(userCardCacheKey(id)));
         if (missing.length) {
-            const endpoint = userState.kind === 'novel'
-                ? `/api/pixiv/user/${encodeURIComponent(userState.userId)}/novel-cards`
+            const acq = userAcq();
+            const endpoint = (acq && acq.cardsEndpoint)
+                ? acq.cardsEndpoint(userState.userId)
                 : `/api/pixiv/user/${encodeURIComponent(userState.userId)}/illust-cards`;
             const params = new URLSearchParams();
             missing.forEach(id => params.append('ids', id));
@@ -276,37 +292,9 @@
             return;
         }
         const inQueue = new Set(state.queue.map(q => q.id));
-        if (userState.kind === 'novel') {
-            const cards = userState.items.map((item, idx) => {
-                const xr = Number(item.xRestrict ?? 0);
-                const isAi = Number(item.aiType ?? 0) >= 2;
-                const wc = Number(item.wordCount ?? item.textLength ?? 0);
-                const bookmarkCount = getSearchBookmarkCount(item, 'novel');
-                const queueId = 'n' + String(item.id);
-                const inQueueClass = inQueue.has(queueId) ? ' in-queue' : '';
-                const meta = [];
-                if (xr === 1) meta.push('<span class="nsc-r18">R-18</span>');
-                else if (xr === 2) meta.push('<span class="nsc-r18g">R-18G</span>');
-                if (isAi) meta.push('<span class="nsc-ai">AI</span>');
-                if (item.isOriginal) meta.push(`<span class="nsc-original">${esc(bt('novel:batch.search.original', '原创'))}</span>`);
-                if (wc > 0) meta.push(`<span>${esc(bt('novel:batch.search.summary.novel-words', '{count} 字', {count: wc.toLocaleString()}))}</span>`);
-                if (bookmarkCount !== null) meta.push(`<span>${esc(bt('search.summary.bookmark-badge', '收藏 {count}', {count: bookmarkCount.toLocaleString()}))}</span>`);
-                const fallbackTitle = bt('queue.novel-fallback', '小说 {id}', {id: item.id});
-                const fallbackAuthor = userState.username || bt('novel:status.unknown-author', '未知');
-                const bookmarkTip = buildBookmarkTip(bookmarkCount);
-                const queueTip = buildQueueToggleTip(inQueue.has(queueId));
-                const cardTitle = `${item.title || fallbackTitle} (${item.userName || fallbackAuthor})${bookmarkTip}${queueTip}`;
-                return `<div class="novel-search-card${inQueueClass}" data-user-novel-idx="${idx}" id="user-novel-card-${idx}" title="${esc(cardTitle)}">
-        <div class="nsc-title">${esc(item.title || fallbackTitle)}</div>
-        <div class="nsc-author">${esc(item.userName || fallbackAuthor)}</div>
-        <div class="nsc-meta">${meta.join('')}</div>
-        <span class="nsc-in-queue-mark">✓</span>
-      </div>`;
-            }).join('');
-            area.innerHTML = summaryHtml + `<div class="novel-search-grid">${cards}</div>`;
-            area.querySelectorAll('.novel-search-card').forEach(card => {
-                card.addEventListener('click', () => addUserItemToQueue(Number(card.dataset.userNovelIdx)));
-            });
+        const acq = userAcq();
+        if (acq && acq.render) {
+            acq.render(area, {summaryHtml, inQueue, items: userState.items, username: userState.username});
             return;
         }
         area.innerHTML = summaryHtml + `<div class="search-grid">
@@ -387,17 +375,9 @@
     }
 
     function buildUserQueueMeta(item) {
-        if (userState.kind === 'novel') {
-            return {
-                title: item.title || bt('queue.novel-fallback', '小说 {id}', {id: item.id}),
-                novelId: String(item.id),
-                kind: 'novel',
-                authorId: item.userId ? Number(item.userId) : Number(userState.userId),
-                authorName: item.userName || userState.username || userState.userId,
-                isAi: Number(item.aiType ?? 0) >= 2,
-                xRestrict: Number(item.xRestrict ?? 0),
-                tags: Array.isArray(item.tags) ? item.tags : []
-            };
+        const acq = userAcq();
+        if (acq && acq.buildQueueMeta) {
+            return acq.buildQueueMeta(item, {userId: userState.userId, username: userState.username});
         }
         return {
             title: item.title,
@@ -408,17 +388,11 @@
         };
     }
 
-    function userQueueId(item) {
-        return userState.kind === 'novel' ? 'n' + String(item.id) : String(item.id);
-    }
-
     function syncUserResultsQueueState() {
         if (!userState.items.length) return;
         const inQueue = new Set(state.queue.map(q => q.id));
         userState.items.forEach((item, idx) => {
-            const el = document.getElementById(
-                userState.kind === 'novel' ? `user-novel-card-${idx}` : `user-thumb-${idx}`
-            );
+            const el = document.getElementById(userCardElementId(idx));
             if (!el) return;
             el.classList.toggle('in-queue', inQueue.has(userQueueId(item)));
         });
@@ -461,8 +435,7 @@
 
     function addCurrentUserPageToQueue() {
         if (!userState.items.length) return;
-        const isNovel = userState.kind === 'novel';
-        const ids = userState.items.map(item => isNovel ? 'n' + String(item.id) : String(item.id));
+        const ids = userState.items.map(userQueueId);
         const metas = userState.items.map(buildUserQueueMeta);
         const added = addItemsToQueue(
             ids, metas, 'user',
@@ -478,19 +451,14 @@
 
     async function addAllUserResultsToQueue() {
         if (!userState.allIds.length) return;
-        const isNovel = userState.kind === 'novel';
+        const acq = userAcq();
+        const metaCtx = {userId: userState.userId, username: userState.username};
         const uiFilters = normalizeSearchFilters(getSearchFiltersFromUI());
         // 无附加筛选：直接按全部 ID 入队（最省请求，等价于旧版「获取全部作品」）。
         if (!hasExtraSearchFilter(uiFilters)) {
-            const ids = userState.allIds.map(id => isNovel ? 'n' + id : id);
-            const metas = userState.allIds.map(id => isNovel
-                ? {
-                    title: bt('queue.novel-fallback', '小说 {id}', {id}),
-                    novelId: String(id),
-                    kind: 'novel',
-                    authorId: Number(userState.userId),
-                    authorName: userState.username || userState.userId
-                }
+            const ids = userState.allIds.map(id => userQueueId({id}));
+            const metas = userState.allIds.map(id => (acq && acq.buildQueueMetaFromId)
+                ? acq.buildQueueMetaFromId(id, metaCtx)
                 : {
                     authorId: Number(userState.userId),
                     authorName: userState.username || userState.userId
@@ -531,7 +499,7 @@
                 const result = await computeFilteredItems(cards, filters, kind, () => false);
                 if (result) matched.push(...result.filtered);
             }
-            const ids = matched.map(item => isNovel ? 'n' + String(item.id) : String(item.id));
+            const ids = matched.map(userQueueId);
             const metas = matched.map(buildUserQueueMeta);
             const added = addItemsToQueue(
                 ids, metas, 'user',

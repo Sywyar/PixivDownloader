@@ -45,35 +45,33 @@
         saveSettings();
     }
 
-    function applyNovelSettingsVisibility() {
-        const card = document.getElementById('novel-settings-card');
-        if (!card) return;
-        // 小说作品类型被禁用（其插件关闭）时，小说设置卡片在所有模式下一律隐藏（与 kind 单选 / 专属筛选
-        // 同经 queueTypes.isEnabled 单一来源；拿到扩展点数据前 isEnabled 恒真，维持页面默认）。
-        if (window.PixivBatch.queueTypes && !window.PixivBatch.queueTypes.isEnabled('novel')) {
-            card.style.display = 'none';
-            updateNovelTranslateVisibility();
-            return;
-        }
+    // 当前模式下，作品类型 `type` 是否在取得范围内（决定其设置卡 / 专属筛选是否显示）。
+    // 有 kind 单选的模式（user / search / quick）按选中 kind 判定；无 kind 单选、可产出任意类型的模式
+    // （单作品导入：文本可含任意链接；系列：kind 由 URL 决定）一律视为「可能适用」→ 显示。
+    function typeApplicableInCurrentMode(type) {
         const mode = state.mode;
-        let visible;
-        if (mode === SINGLE_IMPORT_MODE) {
-            visible = true;
-        } else if (mode === 'user') {
-            visible = state.settings.userKind === 'novel';
-        } else if (mode === 'search') {
-            visible = state.settings.searchKind === 'novel';
-        } else if (mode === 'series') {
-            visible = true;
-        } else if (mode === QUICK_FETCH_MODE) {
-            // 快捷获取在展示小说网格（含珍藏集内混合作品）或编辑小说/混合类 quick 任务时显示小说设置，
-            // 供其格式 / 合订设置生效并被计划任务快照采用。
+        if (mode === SINGLE_IMPORT_MODE || mode === 'series') return true;
+        if (mode === 'user') return state.settings.userKind === type;
+        if (mode === 'search') return state.settings.searchKind === type;
+        if (mode === QUICK_FETCH_MODE) {
+            // 快捷获取在展示该类型网格（含珍藏集内混合作品）或编辑该类型 / 混合类 quick 任务时显示其设置，
+            // 供其格式 / 合订等设置生效并被计划任务快照采用。
             const qk = scheduleEditingQuickSource ? scheduleEditingQuickSource.kind : quickCurrentKind();
-            visible = qk === 'novel' || qk === 'mixed';
-        } else {
-            visible = false;
+            return qk === type || qk === 'mixed';
         }
-        card.style.display = visible ? '' : 'none';
+        return false;
+    }
+
+    // 各作品类型贡献的设置卡（如小说的「小说设置」）显隐：类型不可用（其插件禁用 / 未加载）时其设置卡
+    // 根本未注入宿主页（slot 缺席），contributionsOf 不含它、无需处理；可用类型按当前模式 + 选中 kind
+    // 显隐（与 kind 单选 / 专属筛选同经 queueTypes 可用性单一来源对齐）。插画为内置类型、无独立设置卡。
+    // 函数名沿用历史（被多处直接调用 + facade 暴露），其行为已通用、不再写死小说。
+    function applyNovelSettingsVisibility() {
+        window.PixivBatch.queueTypes.contributionsOf('settings').forEach(s => {
+            const card = s.cardId ? document.getElementById(s.cardId) : null;
+            if (!card) return;
+            card.style.display = typeApplicableInCurrentMode(s.type) ? '' : 'none';
+        });
         updateNovelTranslateVisibility();
     }
 
@@ -123,13 +121,34 @@
         if (trSegEl) trSegEl.value = state.settings.novelTranslateSeg ?? 0;
         updateMergeFormatVisibility();
         updateNovelTranslateVisibility();
-        state.settings.userKind = ['novel', 'request'].includes(state.settings.userKind) ? state.settings.userKind : 'illust';
-        state.settings.searchKind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';
+        // 持久化的 kind 可能引用一个当前不可用的作品类型（如禁用小说后存储里仍是 'novel'）。kind 单选选项
+        // 此时已据扩展点注入完毕（bootstrap 早于 loadSettings），不可用类型的选项根本不在 DOM 里——故据注入
+        // 后的实际单选选项把残留值收敛为可用默认（缺失即回退 illust），再同步 UI，避免初始化即停在不可用 kind
+        // 上、后续抓取打到不可用类型的 API（取得侧无新请求的初始化侧保障，运行期另由 resolveType 兜底）。
+        state.settings.userKind = normalizeKindSetting('user-kind-switcher', state.settings.userKind);
+        state.settings.searchKind = normalizeKindSetting('search-kind-switcher', state.settings.searchKind);
         applyKindSwitcherUI('user-kind-switcher', state.settings.userKind);
         applyKindSwitcherUI('search-kind-switcher', state.settings.searchKind);
         applySearchKindUI();
         applyNovelSettingsVisibility();
         toggleSkipHistoryOptions();
+    }
+
+    // kind 单选当前实际可选的 kind 值集合：直接读注入后的单选选项（label[data-kind]）。
+    // 取得侧控件据扩展点动态注入（禁用类型的选项缺席），故此集合天然只含可用 kind；宿主内置项
+    // （插画、user 模式的约稿）始终在 HTML 里。
+    function validKindTokens(switcherId) {
+        const root = document.getElementById(switcherId);
+        if (!root) return ['illust'];
+        const tokens = Array.from(root.querySelectorAll('label[data-kind]'))
+            .map(l => l.dataset.kind)
+            .filter(Boolean);
+        return tokens.length ? tokens : ['illust'];
+    }
+
+    // 把一个持久化的 kind 值收敛为「当前单选里实际存在」的值：在则保留，不在（其类型不可用 / 不存在）→ illust。
+    function normalizeKindSetting(switcherId, value) {
+        return validKindTokens(switcherId).indexOf(value) !== -1 ? value : 'illust';
     }
 
     function applyKindSwitcherUI(switcherId, value) {
@@ -149,7 +168,7 @@
         root.querySelectorAll('label').forEach(lbl => {
             lbl.addEventListener('click', () => {
                 // 标签声明什么 kind 就用什么（User 模式新增 'request' = 约稿，发现走约稿接口、渲染按插画）；
-                // Search 切换器只有 illust/novel，行为不变。
+                // 切换器的可选 kind 由当前启用的作品类型动态注入（插画为内置项），此处按标签取值即可、不写死具体类型。
                 const next = lbl.dataset.kind || 'illust';
                 if (state.settings[settingKey] === next) return;
                 state.settings[settingKey] = next;
@@ -160,11 +179,13 @@
         });
     }
 
-    // 当前模式对应的作品类型（插画/小说）——共享「附加筛选」里页数/字数字段的显隐据此切换
+    // 当前模式对应的作品类型——共享「附加筛选」里页数/字数等专属字段的显隐据此切换。经 resolveType 把
+    // 选中 kind 解析为可用类型（不可用 / 非作品类型如约稿 → 回退 illust），宿主不再写死具体类型字面量。
     function currentModeKind() {
-        if (state.mode === 'user') return state.settings.userKind === 'novel' ? 'novel' : 'illust';
-        if (state.mode === 'search') return state.settings.searchKind === 'novel' ? 'novel' : 'illust';
-        if (state.mode === 'series') return seriesState.kind === 'novel' ? 'novel' : 'illust';
+        const qt = window.PixivBatch.queueTypes;
+        if (state.mode === 'user') return qt.resolveType(state.settings.userKind);
+        if (state.mode === 'search') return qt.resolveType(state.settings.searchKind);
+        if (state.mode === 'series') return qt.resolveType(seriesState.kind);
         return 'illust';
     }
 

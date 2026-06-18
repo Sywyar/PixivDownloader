@@ -68,12 +68,15 @@
     // 当前快捷获取「作品网格」对应的作品类型；纯选择页（关注用户列表 / 珍藏集列表）返回 null。
     // 'mixed' = 珍藏集内可同时含插画与小说，附加筛选时按每件作品自身 kind 判定。
     function quickCurrentKind() {
+        const qt = window.PixivBatch.queueTypes;
         if (quickInner.open) {
             if (quickInner.type === 'collection') return 'mixed';
-            return quickInner.kind === 'novel' ? 'novel' : 'illust';
+            return qt.resolveType(quickInner.kind);
         }
-        if (quickState.viewType === 'novel-list') return 'novel';
-        if (quickState.viewType === 'illust-list') return 'illust';
+        // 作品网格视图（viewType 以 -list 结尾的两类）返回其当前网格 kind；纯选择页返回 null。
+        if (quickState.viewType === 'illust-list' || quickState.viewType === 'novel-list') {
+            return qt.resolveType(quickState.kind);
+        }
         return null;
     }
 
@@ -84,17 +87,51 @@
         return quickState.viewType === 'illust-list' || quickState.viewType === 'novel-list';
     }
 
+    // ---- 取得侧（quick 模式）行为分派：宿主只面向 queueTypes 的 quick 钩子调用，插画为内置默认路径 ----
+    // 某作品类型 + item 的队列 id（小说 'n' 前缀等，由该类型 quick 钩子贡献）。
+    function quickQueueId(item, kind) {
+        const acq = window.PixivBatch.queueTypes.acquisition(kind || quickState.kind, 'quick');
+        return acq && acq.queueId ? acq.queueId(item) : String(item.id);
+    }
+    // 网格卡片元素 id（小说卡 / 插画缩略图 id 前缀不同，由该类型 quick 钩子贡献）。
+    function quickGridCardId(kind, idPrefix, idx) {
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
+        return acq && acq.gridCardId ? acq.gridCardId(idPrefix, idx) : `${idPrefix}-thumb-${idx}`;
+    }
+
     // 解析当前快捷获取视图能映射成的计划任务来源 {type, source, kind, label}；不能则返回 null。
     // 单层来源（收藏 / 我的作品 / 关注新作）展开即可解析；双层来源（关注 / 珍藏集）需先点进具体画师 / 珍藏集。
+    // 快捷获取的内置（插画 / 通用）入口动作：action → {viewType, kind?, pageSize?, scheduleType?, scheduleRest?, load}。
+    // 各作品类型的专属入口（如小说收藏 / 我的小说）由其 acquisition.quick.actions 贡献，经 quickActionMap 合并进来。
+    const QUICK_BUILTIN_ACTIONS = {
+        'my-illust-bookmarks-show': {viewType: 'illust-list', kind: 'illust', pageSize: QUICK_PAGE_SIZE_ILLUST, scheduleType: 'MY_BOOKMARKS', scheduleRest: 'show', bookmarkEndpoint: 'illust-bookmarks', load: () => loadQuickIllustBookmarks('show', 1)},
+        'my-illust-bookmarks-hide': {viewType: 'illust-list', kind: 'illust', pageSize: QUICK_PAGE_SIZE_ILLUST, scheduleType: 'MY_BOOKMARKS', scheduleRest: 'hide', bookmarkEndpoint: 'illust-bookmarks', load: () => loadQuickIllustBookmarks('hide', 1)},
+        'my-illusts': {viewType: 'illust-list', kind: 'illust', pageSize: QUICK_PAGE_SIZE_ILLUST, scheduleType: 'USER_NEW', allIdsFastPath: true, load: () => loadQuickMyWorks('illust', 1)},
+        'my-request-artworks': {viewType: 'illust-list', kind: 'illust', pageSize: QUICK_PAGE_SIZE_ILLUST, scheduleType: 'USER_REQUEST', allIdsFastPath: true, load: () => loadQuickMyRequest(1)},
+        'my-following-show': {viewType: 'following-list', load: () => loadQuickFollowing('show', 0)},
+        'my-following-hide': {viewType: 'following-list', load: () => loadQuickFollowing('hide', 0)},
+        'my-following-new': {viewType: 'illust-list', kind: 'illust', pageSize: QUICK_PAGE_SIZE_ILLUST, scheduleType: 'FOLLOW_LATEST', load: () => loadQuickFollowingNew(1)},
+        'my-collections': {viewType: 'collection-list', load: () => loadQuickCollections()}
+    };
+
+    // 合并「内置动作 + 各可用作品类型贡献的 quick 动作」。某类型不可用 → 其动作缺席（其入口按钮也随 slot 缺席）。
+    function quickActionMap() {
+        const map = Object.assign({}, QUICK_BUILTIN_ACTIONS);
+        window.PixivBatch.queueTypes.acquisitionList('quick').forEach(acq => {
+            Object.assign(map, acq.actions || {});
+        });
+        return map;
+    }
+
     function quickScheduleSource() {
         if (state.mode !== QUICK_FETCH_MODE) return null;
-        // 二层钻取：关注画师 → USER_NEW；珍藏集 → COLLECTION（插画+小说都下）
+        // 二层钻取：关注画师 → USER_NEW；珍藏集 → COLLECTION（含各类型混合）
         if (quickInner.open) {
             if (quickInner.type === 'following-user' && quickInner.userId) {
                 return {
                     type: 'USER_NEW',
                     source: {userId: String(quickInner.userId)},
-                    kind: quickInner.kind === 'novel' ? 'novel' : 'illust',
+                    kind: window.PixivBatch.queueTypes.resolveType(quickInner.kind),
                     label: bt('quick.schedule.source.user', '画师 {name}（ID {id}）',
                         {name: quickInner.name || quickInner.userId, id: quickInner.userId})
                 };
@@ -110,13 +147,13 @@
             }
             return null;
         }
-        const action = quickState.action;
-        // 我的收藏（插画/小说，公开/不公开）→ MY_BOOKMARKS
-        if (action === 'my-illust-bookmarks-show' || action === 'my-illust-bookmarks-hide'
-            || action === 'my-novel-bookmarks-show' || action === 'my-novel-bookmarks-hide') {
-            const kind = action.startsWith('my-novel') ? 'novel' : 'illust';
-            const rest = action.endsWith('hide') ? 'hide' : 'show';
-            const kindLabel = kind === 'novel' ? bt('schedule.kind.novel', '小说') : bt('schedule.kind.illust', '插画');
+        // 外层动作 → 计划来源：分类（scheduleType）与 kind 由动作映射元数据驱动，宿主不再按 action 名写死类型。
+        const desc = quickActionMap()[quickState.action];
+        if (!desc || !desc.scheduleType) return null;
+        const kind = desc.kind || 'illust';
+        if (desc.scheduleType === 'MY_BOOKMARKS') {
+            const rest = desc.scheduleRest || 'show';
+            const kindLabel = bt('schedule.kind.' + kind, kind);
             const restLabel = rest === 'hide'
                 ? bt('quick.schedule.rest.hide', '不公开') : bt('quick.schedule.rest.show', '公开');
             return {
@@ -127,17 +164,15 @@
                     {kind: kindLabel, rest: restLabel})
             };
         }
-        // 我自己的作品 → USER_NEW（账号自身 uid）
-        if ((action === 'my-illusts' || action === 'my-novels') && quickState.uid) {
+        if (desc.scheduleType === 'USER_NEW' && quickState.uid) {
             return {
                 type: 'USER_NEW',
                 source: {userId: String(quickState.uid)},
-                kind: action === 'my-novels' ? 'novel' : 'illust',
+                kind,
                 label: bt('quick.schedule.source.self', '我自己（账号 {uid}）', {uid: quickState.uid})
             };
         }
-        // 我的约稿作品 → USER_REQUEST（账号自身 uid，成品恒插画）
-        if (action === 'my-request-artworks' && quickState.uid) {
+        if (desc.scheduleType === 'USER_REQUEST' && quickState.uid) {
             return {
                 type: 'USER_REQUEST',
                 source: {userId: String(quickState.uid)},
@@ -145,8 +180,7 @@
                 label: bt('quick.schedule.source.self-request', '我的约稿作品（账号 {uid}）', {uid: quickState.uid})
             };
         }
-        // 已关注用户的新作 → FOLLOW_LATEST（Pixiv 仅插画/漫画/动图）
-        if (action === 'my-following-new') {
+        if (desc.scheduleType === 'FOLLOW_LATEST') {
             return {
                 type: 'FOLLOW_LATEST',
                 source: {},
@@ -171,15 +205,21 @@
             + parts.map(p => `<span>${esc(p)}</span>`).join(summarySeparator()) + `</div>`;
     }
 
-    // 混合（珍藏集内插画+小说）作品的附加筛选：按各作品自身 kind 逐件判定；收藏数筛选时分 kind 补 meta。
+    // 混合（珍藏集内多类型）作品的附加筛选：按各作品自身 kind 逐件判定；收藏数筛选时按 kind 分组、各组用自身 kind 补 meta。
     async function quickComputeFilteredMixed(items, filters, isStale) {
         const source = Array.isArray(items) ? items : [];
         const bookmarkFilterActive = hasBookmarkFilter(filters);
         if (bookmarkFilterActive) {
-            await ensureBookmarkMeta(source.filter(it => (it.kind || 'illust') !== 'novel'), 'illust', isStale);
-            if (isStale()) return null;
-            await ensureBookmarkMeta(source.filter(it => (it.kind || 'illust') === 'novel'), 'novel', isStale);
-            if (isStale()) return null;
+            const byKind = new Map();
+            source.forEach(it => {
+                const k = it.kind || 'illust';
+                if (!byKind.has(k)) byKind.set(k, []);
+                byKind.get(k).push(it);
+            });
+            for (const [k, group] of byKind) {
+                await ensureBookmarkMeta(group, k, isStale);
+                if (isStale()) return null;
+            }
         }
         const stats = {rawCount: source.length, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive};
         const filtered = source.filter(item => matchSearchFilters(item, filters, stats, item.kind || 'illust'));
@@ -189,7 +229,7 @@
 
     // 外层作品网格（收藏 / 我的作品 / 关注新作）：按当前附加筛选过滤 rawItems 后渲染。
     async function quickRenderOuterWorks() {
-        const kind = quickState.kind === 'novel' ? 'novel' : 'illust';
+        const kind = window.PixivBatch.queueTypes.resolveType(quickState.kind);
         const seq = ++quickState.filterSeq;
         const isStale = () => seq !== quickState.filterSeq;
         const filters = normalizeSearchFilters(getSearchFiltersFromUI());
@@ -206,7 +246,8 @@
         quickState.items = result.filtered;
         quickState.filterSummary = result.stats;
         const summaryHtml = quickFilterSummaryHtml(result.stats);
-        if (kind === 'novel') renderQuickNovelGrid(quickState.items, 'quick', summaryHtml);
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
+        if (acq && acq.render) acq.render(quickState.items, 'quick', summaryHtml);
         else renderQuickIllustGrid(quickState.items, 'quick', summaryHtml);
     }
 
@@ -222,7 +263,7 @@
         }
         const result = mixed
             ? await quickComputeFilteredMixed(quickInner.rawItems, filters, isStale)
-            : await computeFilteredItems(quickInner.rawItems, filters, quickInner.kind === 'novel' ? 'novel' : 'illust', isStale);
+            : await computeFilteredItems(quickInner.rawItems, filters, window.PixivBatch.queueTypes.resolveType(quickInner.kind), isStale);
         if (!result) return;
         quickInner.items = result.filtered;
         quickInner.filterSummary = result.stats;
@@ -332,6 +373,13 @@
             quickRenderEmpty(bt('quick.error.no-cookie', '请先保存含 PHPSESSID 的 Cookie'));
             return;
         }
+        // 据动作映射（内置 + 各可用类型贡献）派发；未知 / 不可用类型的动作（如禁用小说后被触发的小说入口）
+        // → 不发起任何抓取、给出空态提示（取得侧不产生其专属请求；其入口按钮通常也已随 slot 缺席）。
+        const desc = quickActionMap()[action];
+        if (!desc) {
+            quickRenderEmpty(bt('quick.error.unknown-action', '该入口当前不可用'));
+            return;
+        }
         quickResetView();
         quickState.action = action;
         // 高亮当前按钮
@@ -346,55 +394,10 @@
         if (pag) { pag.style.display = 'none'; pag.innerHTML = ''; }
         setQuickActionLoading(action, true);
         try {
-            switch (action) {
-                case 'my-illust-bookmarks-show':
-                case 'my-illust-bookmarks-hide':
-                    quickState.viewType = 'illust-list';
-                    quickState.kind = 'illust';
-                    quickState.pageSize = QUICK_PAGE_SIZE_ILLUST;
-                    await loadQuickIllustBookmarks(action.endsWith('hide') ? 'hide' : 'show', 1);
-                    break;
-                case 'my-novel-bookmarks-show':
-                case 'my-novel-bookmarks-hide':
-                    quickState.viewType = 'novel-list';
-                    quickState.kind = 'novel';
-                    quickState.pageSize = QUICK_PAGE_SIZE_NOVEL;
-                    await loadQuickNovelBookmarks(action.endsWith('hide') ? 'hide' : 'show', 1);
-                    break;
-                case 'my-illusts':
-                    quickState.viewType = 'illust-list';
-                    quickState.kind = 'illust';
-                    quickState.pageSize = QUICK_PAGE_SIZE_ILLUST;
-                    await loadQuickMyWorks('illust', 1);
-                    break;
-                case 'my-novels':
-                    quickState.viewType = 'novel-list';
-                    quickState.kind = 'novel';
-                    quickState.pageSize = QUICK_PAGE_SIZE_NOVEL;
-                    await loadQuickMyWorks('novel', 1);
-                    break;
-                case 'my-request-artworks':
-                    quickState.viewType = 'illust-list';
-                    quickState.kind = 'illust';
-                    quickState.pageSize = QUICK_PAGE_SIZE_ILLUST;
-                    await loadQuickMyRequest(1);
-                    break;
-                case 'my-following-show':
-                case 'my-following-hide':
-                    quickState.viewType = 'following-list';
-                    await loadQuickFollowing(action.endsWith('hide') ? 'hide' : 'show', 0);
-                    break;
-                case 'my-following-new':
-                    quickState.viewType = 'illust-list';
-                    quickState.kind = 'illust';
-                    quickState.pageSize = QUICK_PAGE_SIZE_ILLUST;
-                    await loadQuickFollowingNew(1);
-                    break;
-                case 'my-collections':
-                    quickState.viewType = 'collection-list';
-                    await loadQuickCollections();
-                    break;
-            }
+            if (desc.viewType) quickState.viewType = desc.viewType;
+            if (desc.kind) quickState.kind = desc.kind;
+            if (desc.pageSize) quickState.pageSize = desc.pageSize;
+            await desc.load(action);
         } catch (e) {
             quickRenderEmpty(bt('quick.error.load-failed', '加载失败：{message}', {message: e.message || String(e)}));
         } finally {
@@ -432,26 +435,6 @@
         applyNovelSettingsVisibility();
     }
 
-    async function loadQuickNovelBookmarks(rest, page) {
-        const offset = (page - 1) * QUICK_PAGE_SIZE_NOVEL;
-        const params = new URLSearchParams({rest, offset: String(offset), limit: String(QUICK_PAGE_SIZE_NOVEL)});
-        const data = await quickFetchJson(`${BASE}/api/pixiv/me/novel-bookmarks?${params}`);
-        quickState.rawItems = data.items || [];
-        quickState.total = data.total || 0;
-        quickState.offset = offset;
-        quickState.page = page;
-        const titleKey = rest === 'hide' ? 'quick.title.novel-bookmarks-hide' : 'quick.title.novel-bookmarks-show';
-        const titleFallback = rest === 'hide' ? '我的收藏（小说，不公开）' : '我的收藏（小说，公开）';
-        quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: quickState.total.toLocaleString()})}`);
-        quickShowToolbar({showBack: false, showAdd: quickState.rawItems.length > 0, showSearch: false, showKindSwitcher: false});
-        await quickRenderOuterWorks();
-        renderQuickPagination(page, Math.max(1, Math.ceil(quickState.total / QUICK_PAGE_SIZE_NOVEL)),
-            p => loadQuickNovelBookmarks(rest, p));
-        updateExtraFiltersCardVisibility();
-        updateSaveScheduleCardVisibility();
-        applyNovelSettingsVisibility();
-    }
-
     async function loadQuickMyWorks(kind, page) {
         if (!quickState.uid) {
             const data = await quickFetchJson(`${BASE}/api/pixiv/me/uid`);
@@ -460,31 +443,33 @@
             if (uidEl) uidEl.textContent = quickState.uid;
         }
         const uid = quickState.uid;
+        // 该类型的 quick 钩子贡献「我的作品」ID 端点 / 卡片端点 / 分页大小 / 标题；插画为内置默认。
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
         // 拉全 ID 一次，缓存到 allIds
         if (!quickState.allIds.length || quickState.action.endsWith('-refresh')) {
-            const endpoint = kind === 'novel' ? 'novels' : 'artworks';
+            const endpoint = (acq && acq.myWorksIdsEndpoint) || 'artworks';
             const data = await quickFetchJson(`${BASE}/api/pixiv/user/${uid}/${endpoint}`);
             quickState.allIds = data.ids || [];
         }
-        const pageSize = kind === 'novel' ? QUICK_PAGE_SIZE_NOVEL : QUICK_PAGE_SIZE_ILLUST;
+        const pageSize = (acq && acq.pageSize) || QUICK_PAGE_SIZE_ILLUST;
         const total = quickState.allIds.length;
         const totalPages = Math.max(1, Math.ceil(total / pageSize));
         const safePage = Math.min(Math.max(1, page), totalPages);
         const slice = quickState.allIds.slice((safePage - 1) * pageSize, safePage * pageSize);
         let items = [];
         if (slice.length > 0) {
-            const endpoint = kind === 'novel' ? 'novel-cards' : 'illust-cards';
+            const cardsEndpoint = (acq && acq.cardsEndpoint) || 'illust-cards';
             const idsQuery = slice.map(id => `ids=${encodeURIComponent(id)}`).join('&');
-            const data = await quickFetchJson(`${BASE}/api/pixiv/user/${uid}/${endpoint}?${idsQuery}`);
+            const data = await quickFetchJson(`${BASE}/api/pixiv/user/${uid}/${cardsEndpoint}?${idsQuery}`);
             items = data.items || [];
         }
-        quickState.kind = kind === 'novel' ? 'novel' : 'illust';
+        quickState.kind = window.PixivBatch.queueTypes.resolveType(kind);
         quickState.rawItems = items;
         quickState.total = total;
         quickState.page = safePage;
         quickState.pageSize = pageSize;
-        const titleKey = kind === 'novel' ? 'quick.title.my-novels' : 'quick.title.my-illusts';
-        const titleFallback = kind === 'novel' ? '我自己的作品（小说，含 hide）' : '我自己的作品（插画/漫画，含 hide）';
+        const titleKey = (acq && acq.myWorksTitleKey) || 'quick.title.my-illusts';
+        const titleFallback = (acq && acq.myWorksTitleFallback) || '我自己的作品（插画/漫画，含 hide）';
         quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: total.toLocaleString()})}`);
         quickShowToolbar({showBack: false, showAdd: items.length > 0, showSearch: false, showKindSwitcher: false});
         await quickRenderOuterWorks();
@@ -656,41 +641,6 @@
         loadQuickThumbnailsBatched(items, idPrefix, renderToken);
     }
 
-    function renderQuickNovelGrid(items, idPrefix, summaryHtml = '') {
-        const area = document.getElementById('quick-preview-area');
-        if (!area) return;
-        if (!items.length) {
-            const emptyMsg = summaryHtml
-                ? bt('status.search-no-filtered-results', '附加筛选后无结果')
-                : bt('quick.empty.no-items', '该范围内没有作品');
-            area.innerHTML = summaryHtml + `<div class="quick-empty">${esc(emptyMsg)}</div>`;
-            return;
-        }
-        const inQueue = new Set(state.queue.map(q => q.id));
-        area.innerHTML = summaryHtml + `<div class="novel-search-grid">${items.map((item, idx) => {
-            const xr = Number(item.xRestrict ?? 0);
-            const isAi = Number(item.aiType ?? 0) >= 2;
-            const wc = Number(item.wordCount ?? item.textLength ?? 0);
-            const queueId = 'n' + String(item.id);
-            const inQueueClass = inQueue.has(queueId) ? ' in-queue' : '';
-            const meta = [];
-            if (xr === 1) meta.push('<span class="nsc-r18">R-18</span>');
-            else if (xr === 2) meta.push('<span class="nsc-r18g">R-18G</span>');
-            if (isAi) meta.push('<span class="nsc-ai">AI</span>');
-            if (item.isOriginal) meta.push(`<span class="nsc-original">${esc(bt('novel:batch.search.original', '原创'))}</span>`);
-            if (wc > 0) meta.push(`<span>${esc(bt('novel:batch.search.summary.novel-words', '{count} 字', {count: wc.toLocaleString()}))}</span>`);
-            const fallbackTitle = bt('queue.novel-fallback', '小说 {id}', {id: item.id});
-            const title = item.title || fallbackTitle;
-            return `<div class="novel-search-card${inQueueClass}" id="${idPrefix}-novel-card-${idx}"
-                     onclick="quickToggleItemQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
-          <div class="nsc-title">${esc(title)}</div>
-          <div class="nsc-author">${esc(item.userName || '')}</div>
-          <div class="nsc-meta">${meta.join('')}</div>
-          <span class="nsc-in-queue-mark">✓</span>
-        </div>`;
-        }).join('')}</div>`;
-    }
-
     function renderQuickFollowingGrid(users, restHint) {
         const area = document.getElementById('quick-preview-area');
         if (!area) return;
@@ -815,8 +765,7 @@
     function quickToggleItemQueue(idx) {
         const item = quickState.items[idx];
         if (!item) return;
-        const isNovel = quickState.kind === 'novel';
-        const id = isNovel ? 'n' + String(item.id) : String(item.id);
+        const id = quickQueueId(item, quickState.kind);
         const existing = state.queue.find(q => q.id === id);
         if (existing) {
             const removed = removeFromQueue(id);
@@ -839,18 +788,9 @@
     function buildQuickQueueMeta(item, kind = quickState.kind) {
         // 队列模型禁止 bake 翻译文案（会被持久化、跨语言切换继续显示旧译）；
         // title 直接存原始值（可为空），渲染时由 queueItemDisplayTitle(q) 派生 fallback。
-        if (kind === 'novel') {
-            return {
-                title: item.title || '',
-                novelId: String(item.id),
-                kind: 'novel',
-                authorId: item.userId ? Number(item.userId) : null,
-                authorName: item.userName || '',
-                isAi: Number(item.aiType ?? 0) >= 2,
-                xRestrict: Number(item.xRestrict ?? 0),
-                tags: Array.isArray(item.tags) ? item.tags : []
-            };
-        }
+        // 类型专属队列 meta（如小说 novelId/kind）由该类型 quick 钩子贡献；插画为内置默认。
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
+        if (acq && acq.buildQueueMeta) return acq.buildQueueMeta(item);
         return {
             title: item.title || '',
             authorId: item.userId ? Number(item.userId) : null,
@@ -870,8 +810,7 @@
         // 内层是混合作品，逐项按自身 kind 计算队列 id，卡片统一用 quick-inner-card-{idx}
         if (quickInner.open && quickInner.items.length) {
             quickInner.items.forEach((item, idx) => {
-                const k = item.kind || quickInner.kind;
-                const id = k === 'novel' ? 'n' + String(item.id) : String(item.id);
+                const id = quickQueueId(item, item.kind || quickInner.kind);
                 const el = document.getElementById(`quick-inner-card-${idx}`);
                 if (el) el.classList.toggle('in-queue', inQueue.has(id));
             });
@@ -881,17 +820,15 @@
     function quickSyncGridQueue(items, kind, idPrefix, inQueue) {
         if (!items || !items.length) return;
         items.forEach((item, idx) => {
-            const id = kind === 'novel' ? 'n' + String(item.id) : String(item.id);
-            const el = document.getElementById(kind === 'novel'
-                ? `${idPrefix}-novel-card-${idx}` : `${idPrefix}-thumb-${idx}`);
+            const id = quickQueueId(item, kind);
+            const el = document.getElementById(quickGridCardId(kind, idPrefix, idx));
             if (el) el.classList.toggle('in-queue', inQueue.has(id));
         });
     }
 
     function quickAddCurrentPageToQueue() {
         if (!quickState.items.length) return;
-        const isNovel = quickState.kind === 'novel';
-        const ids = quickState.items.map(item => isNovel ? 'n' + String(item.id) : String(item.id));
+        const ids = quickState.items.map(item => quickQueueId(item, quickState.kind));
         const metas = quickState.items.map(buildQuickQueueMeta);
         const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
         setStatus(
@@ -947,18 +884,18 @@
             }
             return;
         }
-        // 「我的作品 / 我的约稿」可直接按全量 ID 入队（无须逐页拉 cards；约稿恒插画）
-        if (quickState.action === 'my-illusts' || quickState.action === 'my-novels'
-            || quickState.action === 'my-request-artworks') {
+        // 可直接按全量 ID 入队的动作（我的作品 / 我的约稿：无须逐页拉 cards），由动作映射的 allIdsFastPath 标记。
+        const allDesc = quickActionMap()[quickState.action];
+        if (allDesc && allDesc.allIdsFastPath) {
             if (!uiConfirmKey('quick.confirm.add-all-my-works',
                 '将把你的全部 {total} 个作品（含 hide）加入队列，确认继续？',
                 {total: quickState.allIds.length})) return;
-            const isNovel = quickState.action === 'my-novels';
-            const ids = quickState.allIds.map(id => isNovel ? 'n' + id : id);
+            const acq = window.PixivBatch.queueTypes.acquisition(quickState.kind, 'quick');
+            const ids = quickState.allIds.map(id => quickQueueId({id}, quickState.kind));
             // 队列模型禁止 bake 翻译文案；title 留空，渲染时由 queueItemDisplayTitle(q) 派生 fallback。
-            const metas = quickState.allIds.map(id => isNovel
-                ? {novelId: String(id), kind: 'novel'}
-                : {});
+            // 类型专属裸 id meta（如小说 novelId/kind）由该类型 quick 钩子贡献；插画为空 meta。
+            const metas = quickState.allIds.map(id =>
+                (acq && acq.buildQueueMetaFromId) ? acq.buildQueueMetaFromId(id) : {});
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
             setStatus(
                 bt('status.added-many-to-queue', '已将 {added} 个作品加入队列（共 {total} 个，{existing} 个已在队列中）',
@@ -973,13 +910,12 @@
         if (!uiConfirmKey('quick.confirm.add-all-paged',
             '将逐页抓取 {pages} 页（共 {total} 个）并加入队列，请求较多，确认继续？',
             {pages: totalPages, total: quickState.total})) return;
-        const isNovel = quickState.kind === 'novel';
         const ids = [];
         const metas = [];
         const collectedIds = new Set();
         const acc = (items) => {
             items.forEach(item => {
-                const id = isNovel ? 'n' + String(item.id) : String(item.id);
+                const id = quickQueueId(item, quickState.kind);
                 if (collectedIds.has(id)) return;
                 collectedIds.add(id);
                 ids.push(id);
@@ -1017,17 +953,12 @@
     async function quickFetchPage(page) {
         const limit = quickState.pageSize;
         const offset = (page - 1) * limit;
-        const action = quickState.action;
-        if (action === 'my-illust-bookmarks-show' || action === 'my-illust-bookmarks-hide') {
-            const rest = action.endsWith('hide') ? 'hide' : 'show';
+        // 收藏类外层动作的逐页抓取：收藏端点（如 illust-bookmarks / novel-bookmarks）由动作映射的 bookmarkEndpoint 提供。
+        const desc = quickActionMap()[quickState.action];
+        if (desc && desc.bookmarkEndpoint) {
+            const rest = desc.scheduleRest || (quickState.action.endsWith('hide') ? 'hide' : 'show');
             const params = new URLSearchParams({rest, offset: String(offset), limit: String(limit)});
-            const data = await quickFetchJson(`${BASE}/api/pixiv/me/illust-bookmarks?${params}`);
-            return data.items || [];
-        }
-        if (action === 'my-novel-bookmarks-show' || action === 'my-novel-bookmarks-hide') {
-            const rest = action.endsWith('hide') ? 'hide' : 'show';
-            const params = new URLSearchParams({rest, offset: String(offset), limit: String(limit)});
-            const data = await quickFetchJson(`${BASE}/api/pixiv/me/novel-bookmarks?${params}`);
+            const data = await quickFetchJson(`${BASE}/api/pixiv/me/${desc.bookmarkEndpoint}?${params}`);
             return data.items || [];
         }
         return [];
@@ -1117,27 +1048,10 @@
         const inQueue = new Set(state.queue.map(q => q.id));
         area.innerHTML = summaryHtml + `<div class="quick-mixed-grid">${items.map((item, idx) => {
             const k = item.kind || 'illust';
-            const title = item.title || bt(k === 'novel' ? 'queue.novel-fallback' : 'queue.artwork-fallback',
-                k === 'novel' ? '小说 {id}' : '作品 {id}', {id: item.id});
-            if (k === 'novel') {
-                const xr = Number(item.xRestrict ?? 0);
-                const isAi = Number(item.aiType ?? 0) >= 2;
-                const wc = Number(item.wordCount ?? item.textLength ?? 0);
-                const inQueueClass = inQueue.has('n' + String(item.id)) ? ' in-queue' : '';
-                const meta = [];
-                if (xr === 1) meta.push('<span class="nsc-r18">R-18</span>');
-                else if (xr === 2) meta.push('<span class="nsc-r18g">R-18G</span>');
-                if (isAi) meta.push('<span class="nsc-ai">AI</span>');
-                if (item.isOriginal) meta.push(`<span class="nsc-original">${esc(bt('novel:batch.search.original', '原创'))}</span>`);
-                if (wc > 0) meta.push(`<span>${esc(bt('novel:batch.search.summary.novel-words', '{count} 字', {count: wc.toLocaleString()}))}</span>`);
-                return `<div class="novel-search-card${inQueueClass}" id="quick-inner-card-${idx}"
-                         onclick="quickInnerToggleQueue(${idx})" title="${esc(title)} (${esc(item.userName || '')})">
-              <div class="nsc-title">${esc(title)}</div>
-              <div class="nsc-author">${esc(item.userName || '')}</div>
-              <div class="nsc-meta">${meta.join('')}</div>
-              <span class="nsc-in-queue-mark">✓</span>
-            </div>`;
-            }
+            // 混合珍藏集逐件按 item 自身 kind 渲染：类型专属卡（如小说卡）由该类型 quick 钩子贡献，插画为内置卡。
+            const acq = window.PixivBatch.queueTypes.acquisition(k, 'quick');
+            if (acq && acq.innerCardHtml) return acq.innerCardHtml(item, idx, inQueue);
+            const title = item.title || bt('queue.artwork-fallback', '作品 {id}', {id: item.id});
             const xr = Number(item.xRestrict ?? 0);
             const illustType = Number(item.illustType ?? 0);
             const isAi = Number(item.aiType ?? 0) >= 2;
@@ -1169,7 +1083,8 @@
     }
 
     async function loadQuickInnerSingleThumbnail(item, idx, renderToken) {
-        if ((item.kind || 'illust') === 'novel') return;
+        const acq = window.PixivBatch.queueTypes.acquisition(item.kind || 'illust', 'quick');
+        if (acq && acq.skipThumbnail) return;   // 该类型在网格中无缩略图（如小说）
         const url = item.thumbnailUrl || item.url;
         if (!url) return;
         const imgEl = document.getElementById(`quick-inner-img-${idx}`);
@@ -1259,9 +1174,20 @@
         try {
             const data = await quickFetchJson(`${BASE}/api/pixiv/user/${userId}/artworks`);
             quickInner.allIllustIds = data.ids || [];
-            const novelData = await quickFetchJson(`${BASE}/api/pixiv/user/${userId}/novels`);
-            quickInner.allNovelIds = novelData.ids || [];
-            quickInner.kind = quickInner.allIllustIds.length > 0 ? 'illust' : 'novel';
+            // 第二作品类型（除插画外、第一个可用的 quick 类型，如小说）的作品 ID：仅当该类型可用时抓取，
+            // 否则不发起其专属请求（取得侧无新请求）。其入口（内层 kind 单选）也已随 slot 缺席。
+            const secondAcq = quickInnerSecondTypeAcq();
+            if (secondAcq && secondAcq.userIdsEndpoint) {
+                const secondData = await quickFetchJson(`${BASE}/api/pixiv/user/${userId}/${secondAcq.userIdsEndpoint}`);
+                quickInner.allNovelIds = secondData.ids || [];
+                quickInner.secondKind = secondAcq.type;
+            } else {
+                quickInner.allNovelIds = [];
+                quickInner.secondKind = null;
+            }
+            quickInner.kind = quickInner.allIllustIds.length > 0
+                ? 'illust'
+                : (quickInner.allNovelIds.length > 0 ? (quickInner.secondKind || 'illust') : 'illust');
             await loadQuickInnerFollowingUserWorks(quickInner.kind, 1);
         } catch (e) {
             document.getElementById('quick-inner-area').innerHTML =
@@ -1269,17 +1195,25 @@
         }
     }
 
+    // 二层关注用户钻取的「第二作品类型」（除插画外、第一个有 userIdsEndpoint 的可用 quick 类型，如小说）。
+    function quickInnerSecondTypeAcq() {
+        return window.PixivBatch.queueTypes.acquisitionList('quick')
+            .find(a => a.type !== 'illust' && a.userIdsEndpoint) || null;
+    }
+
     async function loadQuickInnerFollowingUserWorks(kind, page) {
-        const allIds = kind === 'novel' ? quickInner.allNovelIds : quickInner.allIllustIds;
+        // 第一类型恒为内置插画，其余 ID 落第二类型桶；端点 / 分页大小据该 kind 的 quick 钩子。
+        const allIds = kind === 'illust' ? quickInner.allIllustIds : quickInner.allNovelIds;
         quickInner.kind = kind;
         quickInner.allIds = allIds;
-        const limit = kind === 'novel' ? QUICK_PAGE_SIZE_NOVEL : QUICK_PAGE_SIZE_ILLUST;
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
+        const limit = (acq && acq.pageSize) || QUICK_PAGE_SIZE_ILLUST;
         const totalPages = Math.max(1, Math.ceil(allIds.length / limit));
         const safePage = Math.min(Math.max(1, page), totalPages);
         const slice = allIds.slice((safePage - 1) * limit, safePage * limit);
         let items = [];
         if (slice.length > 0) {
-            const endpoint = kind === 'novel' ? 'novel-cards' : 'illust-cards';
+            const endpoint = (acq && acq.cardsEndpoint) || 'illust-cards';
             const idsQuery = slice.map(id => `ids=${encodeURIComponent(id)}`).join('&');
             const data = await quickFetchJson(`${BASE}/api/pixiv/user/${quickInner.userId}/${endpoint}?${idsQuery}`);
             items = data.items || [];
@@ -1300,7 +1234,7 @@
     }
 
     function quickInnerQueueId(item) {
-        return (item.kind || quickInner.kind) === 'novel' ? 'n' + String(item.id) : String(item.id);
+        return quickQueueId(item, item.kind || quickInner.kind);
     }
 
     function quickInnerToggleQueue(idx) {
@@ -1361,13 +1295,12 @@
         if (!uiConfirmKey('quick.confirm.add-all-paged',
             '将逐页抓取 {pages} 页（共 {total} 个）并加入队列，请求较多，确认继续？',
             {pages: totalPages, total: quickInner.total})) return;
-        const isNovel = kind === 'novel';
         const ids = [];
         const metas = [];
         const collected = new Set();
         const acc = (items) => {
             items.forEach(item => {
-                const id = isNovel ? 'n' + String(item.id) : String(item.id);
+                const id = quickQueueId(item, kind);
                 if (collected.has(id)) return;
                 collected.add(id);
                 ids.push(id);
@@ -1406,7 +1339,8 @@
         const offset = (page - 1) * limit;
         const slice = quickInner.allIds.slice(offset, offset + limit);
         if (!slice.length) return [];
-        const endpoint = kind === 'novel' ? 'novel-cards' : 'illust-cards';
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
+        const endpoint = (acq && acq.cardsEndpoint) || 'illust-cards';
         const idsQuery = slice.map(id => `ids=${encodeURIComponent(id)}`).join('&');
         const data = await quickFetchJson(`${BASE}/api/pixiv/user/${quickInner.userId}/${endpoint}?${idsQuery}`);
         return data.items || [];

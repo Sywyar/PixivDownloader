@@ -201,9 +201,9 @@
         return true;
     }
 
-    // 缓存键带 kind 前缀：插画与小说 ID 命名空间不同，相同数字可能指向不同作品。
+    // 缓存键带 kind 前缀：不同作品类型 ID 命名空间不同，相同数字可能指向不同作品（内存态缓存、键格式仅内部用）。
     function searchMetaCacheKey(id, kind = searchState.kind) {
-        return (kind === 'novel' ? 'n:' : 'i:') + String(id);
+        return String(kind || 'illust') + ':' + String(id);
     }
 
     function getCachedSearchMeta(id, kind = searchState.kind) {
@@ -239,7 +239,10 @@
         }
         if (!missingIds.length) return;
 
-        const fetchMeta = kind === 'novel' ? getNovelBookmarkCountForSearch : getArtworkMeta;
+        // 收藏数 meta 抓取器：该类型贡献的 filters.bookmarkCountFetch（如小说走小说收藏数端点），否则内置插画 meta。
+        const typeFilters = window.PixivBatch.queueTypes.filtersFor(kind);
+        const fetchMeta = (typeFilters && typeof typeFilters.bookmarkCountFetch === 'function')
+            ? typeFilters.bookmarkCountFetch : getArtworkMeta;
         let cursor = 0;
         const workers = [];
         const workerCount = Math.min(6, missingIds.length);
@@ -313,30 +316,9 @@
 
         if (!matchTagFilters(item, filters)) return false;
 
-        if (kind === 'novel') {
-            const wc = Number(item.wordCount ?? 0);
-            if (filters.wordsMin !== null && wc < filters.wordsMin) return false;
-            if (filters.wordsMax !== null && wc > filters.wordsMax) return false;
-            if (hasBookmarkFilter(filters)) {
-                const bookmarkCount = getSearchBookmarkCount(item, kind);
-                if (bookmarkCount === null) {
-                    stats.bookmarkMetaMissing++;
-                    return false;
-                }
-                if (filters.bookmarkMin !== null && bookmarkCount < filters.bookmarkMin) return false;
-                if (filters.bookmarkMax !== null && bookmarkCount > filters.bookmarkMax) return false;
-            }
-            return true;
-        }
-
-        const illustType = Number(item.illustType ?? 0);
-        if (filters.type === 'illust' && illustType !== 0) return false;
-        if (filters.type === 'manga' && illustType !== 1) return false;
-        if (filters.type === 'ugoira' && illustType !== 2) return false;
-
-        const pageCount = Number(item.pageCount ?? 0);
-        if (filters.pageMin !== null && pageCount < filters.pageMin) return false;
-        if (filters.pageMax !== null && pageCount > filters.pageMax) return false;
+        // 作品类型专属字段（小说=字数、插画=作品类型/页数）：由该类型贡献的 filters.matchExtra 判定，
+        // 内置插画 / 无 matchExtra 的类型走宿主内置判定。通用收藏数筛选随后统一处理（各类型同口径）。
+        if (!matchTypeExtraFilters(item, filters, kind)) return false;
 
         if (hasBookmarkFilter(filters)) {
             const bookmarkCount = getSearchBookmarkCount(item, kind);
@@ -348,6 +330,21 @@
             if (filters.bookmarkMax !== null && bookmarkCount > filters.bookmarkMax) return false;
         }
 
+        return true;
+    }
+
+    // 逐作品「类型专属」字段匹配：优先该类型贡献的 filters.matchExtra（如小说字数）；否则按内置插画判定
+    // （作品类型 illust/manga/ugoira + 页数）。混合珍藏集逐件按 item 自身 kind 调用，故据 kind 取钩子。
+    function matchTypeExtraFilters(item, filters, kind) {
+        const f = window.PixivBatch.queueTypes.filtersFor(kind);
+        if (f && typeof f.matchExtra === 'function') return f.matchExtra(item, filters);
+        const illustType = Number(item.illustType ?? 0);
+        if (filters.type === 'illust' && illustType !== 0) return false;
+        if (filters.type === 'manga' && illustType !== 1) return false;
+        if (filters.type === 'ugoira' && illustType !== 2) return false;
+        const pageCount = Number(item.pageCount ?? 0);
+        if (filters.pageMin !== null && pageCount < filters.pageMin) return false;
+        if (filters.pageMax !== null && pageCount > filters.pageMax) return false;
         return true;
     }
 
@@ -371,25 +368,9 @@
         if (!matchTagFilters({tags: Array.isArray(meta.tags) ? meta.tags : []}, filters)) {
             return bt('queue.message.skipped-filter-tags', '跳过 — 标签不匹配附加筛选');
         }
-        if (kind === 'novel') {
-            const wc = Number(meta.wordCount ?? 0);
-            if (wc > 0) {
-                if (filters.wordsMin !== null && wc < filters.wordsMin) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
-                if (filters.wordsMax !== null && wc > filters.wordsMax) return bt('queue.message.skipped-filter-words', '跳过 — 字数不符附加筛选');
-            }
-        } else {
-            const illustType = Number(meta.illustType ?? 0);
-            if ((filters.type === 'illust' && illustType !== 0)
-                || (filters.type === 'manga' && illustType !== 1)
-                || (filters.type === 'ugoira' && illustType !== 2)) {
-                return bt('queue.message.skipped-filter-type', '跳过 — 作品类型不符附加筛选');
-            }
-            const pageCount = Number(meta.pageCount ?? 0);
-            if (pageCount > 0) {
-                if (filters.pageMin !== null && pageCount < filters.pageMin) return bt('queue.message.skipped-filter-pages', '跳过 — 页数不符附加筛选');
-                if (filters.pageMax !== null && pageCount > filters.pageMax) return bt('queue.message.skipped-filter-pages', '跳过 — 页数不符附加筛选');
-            }
-        }
+        // 作品类型专属跳过判定（小说=字数、插画=作品类型/页数）。
+        const typeSkip = evaluateTypeExtraSkip(meta, filters, kind);
+        if (typeSkip) return typeSkip;
         if (hasBookmarkFilter(filters)) {
             const bc = Number(meta.bookmarkCount ?? -1);
             if (!Number.isFinite(bc) || bc < 0) {
@@ -397,6 +378,24 @@
             }
             if (filters.bookmarkMin !== null && bc < filters.bookmarkMin) return bt('queue.message.skipped-filter-bookmarks', '跳过 — 收藏数不符附加筛选');
             if (filters.bookmarkMax !== null && bc > filters.bookmarkMax) return bt('queue.message.skipped-filter-bookmarks', '跳过 — 收藏数不符附加筛选');
+        }
+        return null;
+    }
+
+    // 下载时「类型专属」跳过判定：优先该类型贡献的 filters.evaluateSkip（如小说字数）；否则内置插画（类型 + 页数）。
+    function evaluateTypeExtraSkip(meta, filters, kind) {
+        const f = window.PixivBatch.queueTypes.filtersFor(kind);
+        if (f && typeof f.evaluateSkip === 'function') return f.evaluateSkip(meta, filters);
+        const illustType = Number(meta.illustType ?? 0);
+        if ((filters.type === 'illust' && illustType !== 0)
+            || (filters.type === 'manga' && illustType !== 1)
+            || (filters.type === 'ugoira' && illustType !== 2)) {
+            return bt('queue.message.skipped-filter-type', '跳过 — 作品类型不符附加筛选');
+        }
+        const pageCount = Number(meta.pageCount ?? 0);
+        if (pageCount > 0) {
+            if (filters.pageMin !== null && pageCount < filters.pageMin) return bt('queue.message.skipped-filter-pages', '跳过 — 页数不符附加筛选');
+            if (filters.pageMax !== null && pageCount > filters.pageMax) return bt('queue.message.skipped-filter-pages', '跳过 — 页数不符附加筛选');
         }
         return null;
     }

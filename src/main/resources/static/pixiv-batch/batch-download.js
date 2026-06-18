@@ -1067,7 +1067,12 @@
 
 
 // 注册内置 illust 作品类型行为（小说等其它类型由各自插件的行为模块经 queueTypes.register 注册）。
-window.PixivBatch.queueTypes.register('illust', { process: processIllustItem });
+// 插画为宿主内置类型：其 kind 单选 / 下载设置等控件留在下载页 HTML 默认，故 descriptor 无 slots（仅声明行为）。
+window.PixivBatch.queueTypes.register('illust', {
+    pluginId: 'download-workbench',
+    type: 'illust',
+    process: processIllustItem
+});
 
 // ---- PixivBatch facade ----
 window.PixivBatch.download = window.PixivBatch.download || {};

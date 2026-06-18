@@ -93,10 +93,10 @@
         <div class="quick-actions">
             <button class="btn btn-blue quick-action" data-quick="my-illust-bookmarks-show" onclick="quickLoad('my-illust-bookmarks-show')" data-i18n="quick.action.illust-bookmarks-show">📖 我的收藏（插画/漫画，公开）</button>
             <button class="btn btn-purple quick-action" data-quick="my-illust-bookmarks-hide" onclick="quickLoad('my-illust-bookmarks-hide')" data-i18n="quick.action.illust-bookmarks-hide">🔒 我的收藏（插画/漫画，不公开）</button>
-            <button class="btn btn-blue quick-action" data-quick="my-novel-bookmarks-show" onclick="quickLoad('my-novel-bookmarks-show')" data-i18n="quick.action.novel-bookmarks-show">📚 我的收藏（小说，公开）</button>
-            <button class="btn btn-purple quick-action" data-quick="my-novel-bookmarks-hide" onclick="quickLoad('my-novel-bookmarks-hide')" data-i18n="quick.action.novel-bookmarks-hide">🔒 我的收藏（小说，不公开）</button>
+            <!-- 取得侧入口槽位：由作品类型插件经 queueTypes 贡献，禁用其插件时缺席（见 batch-queue-types.js） -->
+            <template data-qt-slot="quick-actions-bookmarks"></template>
             <button class="btn btn-green quick-action" data-quick="my-illusts" onclick="quickLoad('my-illusts')" data-i18n="quick.action.my-illusts">🎨 我自己的作品（插画/漫画，含 hide）</button>
-            <button class="btn btn-green quick-action" data-quick="my-novels" onclick="quickLoad('my-novels')" data-i18n="quick.action.my-novels">✍ 我自己的作品（小说，含 hide）</button>
+            <template data-qt-slot="quick-actions-mine"></template>
             <button class="btn btn-green quick-action" data-quick="my-request-artworks" onclick="quickLoad('my-request-artworks')" data-i18n="quick.action.my-request">🎁 我的约稿作品</button>
             <button class="btn btn-cyan quick-action" data-quick="my-following-show" onclick="quickLoad('my-following-show')" data-i18n="quick.action.following-show">👥 我的关注（公开）</button>
             <button class="btn btn-purple quick-action" data-quick="my-following-hide" onclick="quickLoad('my-following-hide')" data-i18n="quick.action.following-hide">🔒 我的关注（不公开）</button>
@@ -123,7 +123,7 @@
                 <div class="quick-preview-actions">
                     <span class="quick-kind-switcher" id="quick-inner-kind-switcher" role="radiogroup" style="display:none;">
                         <label class="quick-kind-active" data-quick-kind="illust"><input type="radio" name="quick-inner-kind" value="illust" checked> <span data-i18n="quick.preview.kind-illust">插画</span></label>
-                        <label data-quick-kind="novel"><input type="radio" name="quick-inner-kind" value="novel"> <span data-i18n="quick.preview.kind-novel">小说</span></label>
+                        <template data-qt-slot="kind-option-quick"></template>
                     </span>
                     <button class="btn btn-cyan" id="quick-inner-add-page" onclick="quickInnerAddCurrentPageToQueue()" data-i18n="quick.preview.add-page">将当前页加入队列</button>
                     <button class="btn btn-green" id="quick-inner-add-all" onclick="quickInnerAddAllToQueue()" data-i18n="quick.preview.add-all">➕ 全部加入队列</button>
@@ -144,7 +144,7 @@
         <div class="import-format-box">
             <div style="font-weight:700;"><span data-i18n="label.import-format">导入格式：</span><span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">url | title</span> <span data-i18n="label.import-format-or">或</span> <span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">id | title</span></div>
             <div><span data-i18n="label.import-example">每行一条，例如：</span><span data-i18n="label.import-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">https://www.pixiv.net/artworks/12345678 | 示例标题</span></div>
-            <div><span data-i18n="label.import-novel-example">小说链接示例：</span><span data-i18n="label.import-novel-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">https://www.pixiv.net/novel/show.php?id=12345678 | 示例标题</span></div>
+            <template data-qt-slot="import-hint"></template>
             <div><span data-i18n="label.import-bare-id-example">仅 ID 示例：</span><span data-i18n="label.import-bare-id-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">12345678 | 示例标题</span></div>
             <div data-i18n-html="hint.import-bare-id">仅写数字 ID 时默认按插画解析（等同于 https://www.pixiv.net/artworks/{id}）；若需要按小说解析，请在该行之前加一行 <code>novel:</code> 作为区段头。</div>
             <div data-i18n-html="hint.import-section-header">区段头 <code>artwork:</code> / <code>novel:</code> 单独成行（大小写不敏感，全/半角冒号均可）；其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束。明确的链接始终按链接自身类型解析，与所在区段无关。</div>
@@ -165,10 +165,7 @@
                 <input type="radio" name="user-kind" value="illust" checked>
                 <span data-i18n="novel:batch.user.kind-illust">插画+漫画+动图</span>
             </label>
-            <label data-kind="novel">
-                <input type="radio" name="user-kind" value="novel">
-                <span data-i18n="novel:batch.user.kind-novel">小说</span>
-            </label>
+            <template data-qt-slot="kind-option-user"></template>
             <label data-kind="request">
                 <input type="radio" name="user-kind" value="request">
                 <span data-i18n="novel:batch.user.kind-request">约稿</span>
@@ -196,10 +193,7 @@
                 <input type="radio" name="search-kind" value="illust" checked>
                 <span data-i18n="novel:batch.search.kind-illust">插画+漫画+动图</span>
             </label>
-            <label data-kind="novel">
-                <input type="radio" name="search-kind" value="novel">
-                <span data-i18n="novel:batch.search.kind-novel">小说</span>
-            </label>
+            <template data-qt-slot="kind-option-search"></template>
         </div>
         <div class="kind-switcher submode-switcher" id="search-submode-switcher" role="radiogroup">
             <label class="active" data-submode="search">
@@ -396,16 +390,8 @@
                 <input type="number" id="search-pages-max" min="1" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
                        onchange="handleSearchFilterChange()">
             </div>
-            <div class="search-extra-item search-novel-only" style="display:none;">
-                <label for="search-words-min" data-i18n="novel:batch.search.words-min">最少字数</label>
-                <input type="number" id="search-words-min" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                       onchange="handleSearchFilterChange()">
-            </div>
-            <div class="search-extra-item search-novel-only" style="display:none;">
-                <label for="search-words-max" data-i18n="novel:batch.search.words-max">最多字数</label>
-                <input type="number" id="search-words-max" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                       onchange="handleSearchFilterChange()">
-            </div>
+            <!-- 取得侧专属筛选槽位：由作品类型插件经 queueTypes 贡献（如小说的最少/最多字数） -->
+            <template data-qt-slot="search-filter"></template>
             <div class="search-extra-item">
                 <label for="search-bookmarks-min" data-i18n="label.search-bookmarks-min">最少收藏</label>
                 <input type="number" id="search-bookmarks-min" min="0" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
@@ -491,52 +477,9 @@
         </div>
     </div>
 
-    <!-- Novel Settings -->
-    <div class="card" id="novel-settings-card">
-        <div class="card-title" data-i18n="card.novel-settings">小说设置</div>
-        <div class="settings-grid">
-            <div class="setting-item">
-                <label for="s-novel-format" data-i18n="novel:batch.format-label">小说格式:</label>
-                <select id="s-novel-format" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
-                    <option value="txt" data-i18n="novel:format.txt">纯文本（TXT）</option>
-                    <option value="html" data-i18n="novel:format.html">网页（HTML）</option>
-                    <option value="epub" data-i18n="novel:format.epub">电子书（EPUB）</option>
-                </select>
-            </div>
-            <div class="setting-item">
-                <input type="checkbox" id="s-novel-merge">
-                <label for="s-novel-merge" style="cursor:pointer;" data-i18n="novel:batch.merge-label">系列下载完成后生成合订本</label>
-            </div>
-            <div class="setting-item" id="s-novel-merge-format-row">
-                <label for="s-novel-merge-format" data-i18n="novel:batch.merge-format-label">合订本格式:</label>
-                <select id="s-novel-merge-format" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;">
-                    <option value="epub" data-i18n="novel:batch.merge-format-epub">电子书（EPUB，推荐）</option>
-                    <option value="txt" data-i18n="novel:batch.merge-format-txt">纯文本（TXT）</option>
-                    <option value="html" data-i18n="novel:batch.merge-format-html">网页（HTML）</option>
-                </select>
-            </div>
-            <div class="setting-item" id="s-novel-merge-format-hint"
-                 style="grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5;"
-                 data-i18n="novel:batch.merge-format-hint">推荐 EPUB：内嵌封面与插图、按「小说 → 章节」生成可跳转的多级目录、带书名/作者/简介等信息可在阅读器书架显示；TXT/HTML 为无插图的纯文本 / 单页备选。</div>
-            <!-- 下载即自动翻译（仅管理员可见；需已配置 AI） -->
-            <div class="setting-item" id="s-novel-auto-translate-row" style="display:none;">
-                <input type="checkbox" id="s-novel-auto-translate">
-                <label for="s-novel-auto-translate" style="cursor:pointer;" data-i18n="novel:batch.auto-translate-label">新下载小说自动翻译</label>
-            </div>
-            <div class="setting-item" id="s-novel-translate-lang-row" style="display:none;">
-                <label for="s-novel-translate-lang" data-i18n="novel:batch.translate-lang-label">目标语言:</label>
-                <input type="text" id="s-novel-translate-lang" spellcheck="false"
-                       style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;max-width:160px;">
-            </div>
-            <div class="setting-item" id="s-novel-translate-seg-row" style="display:none;">
-                <label for="s-novel-translate-seg" data-i18n="novel:batch.translate-seg-label">分段字数:</label>
-                <input type="number" id="s-novel-translate-seg" min="0" step="500" value="0"
-                       style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;max-width:120px;">
-            </div>
-            <div class="setting-item" id="s-novel-translate-hint" style="display:none;grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5;"
-                 data-i18n="novel:batch.translate-glossary-hint">自动翻译固定使用该小说 / 系列的默认名词映射表，不支持在此指定其它映射表。</div>
-        </div>
-    </div>
+    <!-- 取得侧设置卡槽位：由作品类型插件经 queueTypes 贡献（如小说设置卡：格式 / 合订 / 自动翻译），
+         禁用其插件时缺席；其按模式 / kind 的显隐仍由宿主 applyNovelSettingsVisibility 负责（见 batch-settings.js）。 -->
+    <template data-qt-slot="settings-card"></template>
 
     <!-- Save-as-scheduled-task (admin-only; snapshots the current mode + all download/filter settings) -->
     <div class="card" id="save-as-schedule-card" style="display:none;">

@@ -1,10 +1,4 @@
 'use strict';
-    async function getNovelBookmarkCountForSearch(novelId) {
-        const data = await apiGet(`/api/pixiv/novel/${encodeURIComponent(novelId)}/bookmark-count`);
-        if (data.error) throw new Error(data.error);
-        return data;
-    }
-
     // 结束页 = -1（「直到已下载作品为止」哨兵）仅管理员可用：管理员放开输入下限到 -1 并显示提示，
     // 非管理员保持 min=1（输入 -1 会被夹回）。该控件为普通「作品批量获取模式」共享，故仅做权限门控。
     function updateBatchEndPageAdminGate() {
@@ -18,26 +12,55 @@
     }
 
     function applySearchKindUI() {
-        // 批量导入单作品队列可同时含插画与小说，故显示全部专属字段（下载时按各作品类型分别套用）。
+        // 批量导入单作品队列可同时含多种作品类型，故显示全部专属字段（下载时按各作品类型分别套用）。
         let showAll = state.mode === 'single-import';
-        let isNovel;
+        let kind;
         if (state.mode === QUICK_FETCH_MODE) {
             // 快捷获取按当前作品网格 kind 切换；编辑 quick 类任务时按锁定来源 kind；混合（珍藏集）显示全部字段。
             const qk = scheduleEditingQuickSource ? scheduleEditingQuickSource.kind : quickCurrentKind();
             if (qk === 'mixed') showAll = true;
-            isNovel = qk === 'novel';
+            kind = qk;
         } else {
-            isNovel = currentModeKind() === 'novel';
+            kind = currentModeKind();
         }
-        // 小说作品类型被禁用时，小说专属字段（最少/最多字数）一律隐藏（即便 showAll / isNovel 涌现为真）。
-        const novelEnabled = !window.PixivBatch.queueTypes || window.PixivBatch.queueTypes.isEnabled('novel');
-        const showNovel = novelEnabled && (showAll || isNovel);
+        // 插画专属字段（作品类型 / 页数等）：批量导入显示全部；否则非插画类型时隐藏（纯选择页 kind=null 视为插画、照常显示）。
+        const nonIllust = !!kind && kind !== 'illust';
         document.querySelectorAll('.search-illust-only').forEach(el => {
-            el.style.display = showAll ? '' : (isNovel ? 'none' : '');
+            el.style.display = showAll ? '' : (nonIllust ? 'none' : '');
         });
-        document.querySelectorAll('.search-novel-only').forEach(el => {
-            el.style.display = showNovel ? '' : 'none';
+        // 各作品类型贡献的专属筛选字段（如小说字数）：仅遍历**可用**类型（不可用类型其字段根本未注入）；
+        // 批量导入显示全部可用类型字段，否则仅当前 kind 命中的类型显示。
+        window.PixivBatch.queueTypes.contributionsOf('filters').forEach(f => {
+            if (!f.extraSelector) return;
+            const visible = showAll || kind === f.type;
+            document.querySelectorAll(f.extraSelector).forEach(el => {
+                el.style.display = visible ? '' : 'none';
+            });
         });
+    }
+
+    // ---- 取得侧（search 模式）行为分派：宿主只面向 queueTypes 的 search 钩子调用，插画为内置默认路径 ----
+    // 当前结果类型的 search 取得钩子（类型不可用 → null → 走宿主内置插画路径）。
+    function searchAcq() {
+        return window.PixivBatch.queueTypes.acquisition(searchState.kind, 'search');
+    }
+    function searchQueueId(item) {
+        const acq = searchAcq();
+        return acq && acq.queueId ? acq.queueId(item) : String(item.id);
+    }
+    function searchQueueMeta(item) {
+        const acq = searchAcq();
+        if (acq && acq.buildQueueMeta) return acq.buildQueueMeta(item);
+        return {
+            title: item.title,
+            authorId: item.userId,
+            authorName: item.userName,
+            isAi: Number(item.aiType ?? 0) >= 2
+        };
+    }
+    function searchQueueSource() {
+        const acq = searchAcq();
+        return (acq && acq.queueSource) || 'search';
     }
 
     /* ============================================================
@@ -93,7 +116,8 @@
         const r18Family = uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus';
         const mode = r18Family ? 'r18' : uiMode;
         const clientFilter = uiMode === 'r18' ? 1 : uiMode === 'r18g' ? 2 : 0;
-        const kind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';
+        // 把选中 kind 解析为可用类型（不可用 → 回退插画），确保不可用类型不会触发其专属搜索请求。
+        const kind = window.PixivBatch.queueTypes.resolveType(state.settings.searchKind);
 
         document.getElementById('search-premium-tip').style.display = order === 'popular_d' ? 'block' : 'none';
 
@@ -115,7 +139,8 @@
         document.getElementById('btn-add-all').disabled = true;
 
         try {
-            const endpoint = kind === 'novel' ? '/api/pixiv/novel-search' : '/api/pixiv/search';
+            const acq = window.PixivBatch.queueTypes.acquisition(kind, 'search');
+            const endpoint = (acq && acq.searchEndpoint) || '/api/pixiv/search';
             const params = new URLSearchParams({word, order, mode, sMode, page});
             const res = await fetch(`${BASE}${endpoint}?${params}`, {headers: pixivHeader()});
             const data = await res.json();
@@ -206,8 +231,9 @@
     function renderSearchResults() {
         const area = document.getElementById('search-results-area');
         if (!searchState.rawResults.length) {
-            const empty = searchState.kind === 'novel'
-                ? bt('novel:batch.search.no-novel-results', '无小说搜索结果')
+            const acq = searchAcq();
+            const empty = (acq && acq.emptyResultsLabel)
+                ? acq.emptyResultsLabel()
                 : bt('status.search-no-results', '无搜索结果');
             area.innerHTML = `<div style="color:#aaa;text-align:center;padding:24px 0;">${esc(empty)}</div>`;
             return;
@@ -226,8 +252,9 @@
             return;
         }
         const view = getSearchView();
-        if (searchState.kind === 'novel') {
-            renderNovelSearchResults(area, view);
+        const renderAcq = searchAcq();
+        if (renderAcq && renderAcq.render) {
+            renderAcq.render(area, view);
             return;
         }
         const inQueue = new Set(state.queue.map(q => q.id));
@@ -321,59 +348,6 @@
         }
     }
 
-    function renderNovelSearchResults(area, view) {
-        view = view || getSearchView();
-        const inQueue = new Set(state.queue.map(q => q.id));
-        const summary = searchState.submode === 'batch'
-            ? [batchSummaryText(view)]
-            : [
-                bt('search.summary.total-results', '共 {count} 个结果', {count: searchState.total.toLocaleString()}),
-                bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
-                bt('search.summary.pixiv-returned', 'Pixiv 返回 {count} 个', {count: searchState.pixivPageCount})
-            ];
-        if (searchState.submode !== 'batch' && hasExtraSearchFilter()) {
-            summary.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
-        }
-        const cards = view.items.map((item, i) => {
-            const idx = view.base + i;
-            const xr = Number(item.xRestrict ?? 0);
-            const isAi = Number(item.aiType ?? 0) >= 2;
-            const wc = Number(item.wordCount ?? item.textLength ?? 0);
-            const bookmarkCount = getSearchBookmarkCount(item);
-            const queueId = 'n' + String(item.id);
-            const inQueueClass = inQueue.has(queueId) ? ' in-queue' : '';
-            const meta = [];
-            if (xr === 1) meta.push('<span class="nsc-r18">R-18</span>');
-            else if (xr === 2) meta.push('<span class="nsc-r18g">R-18G</span>');
-            if (isAi) meta.push('<span class="nsc-ai">AI</span>');
-            if (item.isOriginal) meta.push(`<span class="nsc-original">${esc(bt('novel:batch.search.original', '原创'))}</span>`);
-            if (wc > 0) meta.push(`<span>${esc(bt('novel:batch.search.summary.novel-words', '{count} 字', {count: wc.toLocaleString()}))}</span>`);
-            if (bookmarkCount !== null) {
-                meta.push(`<span>${esc(bt('search.summary.bookmark-badge', '收藏 {count}', {count: bookmarkCount.toLocaleString()}))}</span>`);
-            }
-            const fallbackTitle = bt('novel:status.unknown-novel', '小说 {id}', {id: item.id});
-            const fallbackAuthor = bt('novel:status.unknown-author', '未知');
-            const bookmarkTip = buildBookmarkTip(bookmarkCount);
-            const queueTip = buildQueueToggleTip(inQueue.has(queueId));
-            const cardTitle = `${item.title || fallbackTitle} (${item.userName || fallbackAuthor})${bookmarkTip}${queueTip}`;
-            return `<div class="novel-search-card${inQueueClass}" data-novel-idx="${idx}" title="${esc(cardTitle)}">
-        <div class="nsc-title">${esc(item.title || fallbackTitle)}</div>
-        <div class="nsc-author">${esc(item.userName || fallbackAuthor)}</div>
-        <div class="nsc-meta">${meta.join('')}</div>
-        <span class="nsc-in-queue-mark">✓</span>
-      </div>`;
-        }).join('');
-        area.innerHTML = `
-    ${searchState.noCookie ? `<div style="font-size:12px;color:#e6a700;margin-bottom:8px;">${esc(bt('status.search-no-cookie-warning', '⚠ 未保存 Cookie，搜索结果可能减少'))}</div>` : ''}
-    <div style="font-size:12px;color:#888;margin-bottom:10px;">
-      ${summary.map(s => `<span>${esc(s)}</span>`).join(summarySeparator())}
-    </div>
-    <div class="novel-search-grid">${cards}</div>`;
-        area.querySelectorAll('.novel-search-card').forEach(card => {
-            card.addEventListener('click', () => addSearchItemToQueue(Number(card.dataset.novelIdx)));
-        });
-    }
-
     // 通用缩略图代理拉取：返回 blob URL（同时登记到 blobStore 供之后统一 revoke），失败返回 null。
     async function fetchThumbnailBlobUrl(url, blobStore) {
         if (!url) return null;
@@ -419,13 +393,9 @@
     function syncSearchResultsQueueState() {
         if (!searchState.results.length) return;
         const inQueue = new Set(state.queue.map(q => q.id));
-        if (searchState.kind === 'novel') {
-            // 批量模式下仅渲染当前本地页，按绝对下标定位卡片
-            searchState.results.forEach((item, idx) => {
-                const el = document.querySelector(`.novel-search-card[data-novel-idx="${idx}"]`);
-                if (!el) return;
-                el.classList.toggle('in-queue', inQueue.has('n' + String(item.id)));
-            });
+        const acq = searchAcq();
+        if (acq && acq.syncQueueState) {
+            acq.syncQueueState(searchState.results, inQueue);
             return;
         }
         searchState.results.forEach((item, idx) => {
@@ -442,8 +412,7 @@
     function addSearchItemToQueue(idx) {
         const item = searchState.results[idx];
         if (!item) return;
-        const isNovel = searchState.kind === 'novel';
-        const queueId = isNovel ? 'n' + String(item.id) : String(item.id);
+        const queueId = searchQueueId(item);
         const alreadyInQueue = state.queue.find(q => q.id === queueId);
         if (alreadyInQueue) {
             const removed = removeFromQueue(queueId);
@@ -454,23 +423,7 @@
             }
             return;
         }
-        const meta = isNovel
-            ? {
-                title: item.title,
-                novelId: String(item.id),
-                kind: 'novel',
-                authorId: item.userId ? Number(item.userId) : null,
-                authorName: item.userName || '',
-                isAi: Number(item.aiType ?? 0) >= 2,
-                xRestrict: Number(item.xRestrict ?? 0)
-            }
-            : {
-                title: item.title,
-                authorId: item.userId,
-                authorName: item.userName,
-                isAi: Number(item.aiType ?? 0) >= 2
-            };
-        const added = addItemsToQueue([queueId], [meta], isNovel ? 'search-novel' : 'search', '');
+        const added = addItemsToQueue([queueId], [searchQueueMeta(item)], searchQueueSource(), '');
         setStatus(added > 0
                 ? bt('status.added-to-queue', '已加入队列：{title}', {title: item.title})
                 : bt('status.already-in-queue', '已在队列中：{title}', {title: item.title}),
@@ -479,25 +432,9 @@
 
     function addAllSearchResultsToQueue() {
         if (!searchState.results.length) return;
-        const isNovel = searchState.kind === 'novel';
-        const ids = searchState.results.map(r => isNovel ? 'n' + String(r.id) : String(r.id));
-        const metas = searchState.results.map(r => isNovel
-            ? {
-                title: r.title,
-                novelId: String(r.id),
-                kind: 'novel',
-                authorId: r.userId ? Number(r.userId) : null,
-                authorName: r.userName || '',
-                isAi: Number(r.aiType ?? 0) >= 2,
-                xRestrict: Number(r.xRestrict ?? 0)
-            }
-            : {
-                title: r.title,
-                authorId: r.userId,
-                authorName: r.userName,
-                isAi: Number(r.aiType ?? 0) >= 2
-            });
-        const added = addItemsToQueue(ids, metas, isNovel ? 'search-novel' : 'search', '');
+        const ids = searchState.results.map(searchQueueId);
+        const metas = searchState.results.map(searchQueueMeta);
+        const added = addItemsToQueue(ids, metas, searchQueueSource(), '');
         setStatus(
             bt(
                 'status.added-many-to-queue',
@@ -514,7 +451,8 @@
             renderBatchLocalPagination(pag);
             return;
         }
-        const perPage = searchState.kind === 'novel' ? 24 : 60;
+        const acq = searchAcq();
+        const perPage = (acq && acq.pageSize) || 60;
         const totalPages = Math.ceil(searchState.total / perPage);
         const cur = searchState.currentPage;
         if (totalPages <= 1) {
@@ -728,7 +666,8 @@
         const r18Family = uiMode === 'r18' || uiMode === 'r18g' || uiMode === 'r18plus';
         const mode = r18Family ? 'r18' : uiMode;
         const clientFilter = uiMode === 'r18' ? 1 : uiMode === 'r18g' ? 2 : 0;
-        const kind = state.settings.searchKind === 'novel' ? 'novel' : 'illust';
+        // 把选中 kind 解析为可用类型（不可用 → 回退插画），确保不可用类型不会触发其专属批量请求。
+        const kind = window.PixivBatch.queueTypes.resolveType(state.settings.searchKind);
 
         document.getElementById('search-premium-tip').style.display = order === 'popular_d' ? 'block' : 'none';
 
@@ -752,7 +691,8 @@
         document.getElementById('btn-batch-add-all').disabled = true;
 
         try {
-            const endpoint = kind === 'novel' ? '/api/pixiv/novel-search/range' : '/api/pixiv/search/range';
+            const acq = window.PixivBatch.queueTypes.acquisition(kind, 'search');
+            const endpoint = (acq && acq.rangeEndpoint) || '/api/pixiv/search/range';
             const params = new URLSearchParams({word, order, mode, sMode, startPage: start, endPage: effEnd});
             const res = await fetch(`${BASE}${endpoint}?${params}`, {headers: pixivHeader()});
             const data = await res.json();
@@ -810,25 +750,9 @@
         if (searchState.submode !== 'batch') return;
         const view = getSearchView();
         if (!view.items.length) return;
-        const isNovel = searchState.kind === 'novel';
-        const ids = view.items.map(r => isNovel ? 'n' + String(r.id) : String(r.id));
-        const metas = view.items.map(r => isNovel
-            ? {
-                title: r.title,
-                novelId: String(r.id),
-                kind: 'novel',
-                authorId: r.userId ? Number(r.userId) : null,
-                authorName: r.userName || '',
-                isAi: Number(r.aiType ?? 0) >= 2,
-                xRestrict: Number(r.xRestrict ?? 0)
-            }
-            : {
-                title: r.title,
-                authorId: r.userId,
-                authorName: r.userName,
-                isAi: Number(r.aiType ?? 0) >= 2
-            });
-        const added = addItemsToQueue(ids, metas, isNovel ? 'search-novel' : 'search', '');
+        const ids = view.items.map(searchQueueId);
+        const metas = view.items.map(searchQueueMeta);
+        const added = addItemsToQueue(ids, metas, searchQueueSource(), '');
         setStatus(
             bt(
                 'status.added-many-to-queue',

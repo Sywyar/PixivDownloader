@@ -22,28 +22,33 @@
         activeBlobUrls: []
     };
 
-    function parseSeriesInputUrl(text) {
-        if (!text) return null;
-        const trimmed = text.trim();
-        const novelSeriesMatch = trimmed.match(/\/novel\/series\/(\d+)/);
-        if (novelSeriesMatch) {
-            return {kind: 'novel-series', seriesId: Number(novelSeriesMatch[1])};
-        }
-        const novelMatch = trimmed.match(/\/novel\/show\.php\?[^\s]*?\bid=(\d+)/);
-        if (novelMatch) {
-            return {kind: 'novel', novelId: novelMatch[1]};
-        }
+    // 当前系列作品类型的 series 取得钩子（类型不可用 → null → 走宿主内置插画路径）。
+    function seriesAcq() {
+        return window.PixivBatch.queueTypes.acquisition(seriesState.kind, 'series');
+    }
+
+    // 内置插画系列 URL 解析：画师系列页 / 作品页（需解析其所属系列）/ 裸数字（系列 id）。
+    function parseIllustSeriesUrl(text) {
+        const trimmed = (text || '').trim();
         const seriesMatch = trimmed.match(/\/user\/(\d+)\/series\/(\d+)/);
-        if (seriesMatch) {
-            return {kind: 'illust-series', seriesId: Number(seriesMatch[2])};
-        }
+        if (seriesMatch) return {seriesId: Number(seriesMatch[2])};
         const artworkMatch = trimmed.match(/\/artworks\/(\d+)/);
-        if (artworkMatch) {
-            return {kind: 'artwork', artworkId: artworkMatch[1]};
+        if (artworkMatch) return {resolveWorkId: artworkMatch[1]};
+        if (/^\d+$/.test(trimmed)) return {seriesId: Number(trimmed)};
+        return null;
+    }
+
+    // 解析系列输入：先试各可用类型贡献的系列 URL 解析（如小说系列 / 小说作品页），否则内置插画。
+    // 返回 {type, seriesId} | {type, resolveWorkId, resolveSeriesId} | null。不可用类型的链接此处无人认领 →
+    // 落到「无效 URL」（绝不发起其专属请求）。
+    function parseSeriesInput(text) {
+        if (!text) return null;
+        for (const acq of window.PixivBatch.queueTypes.acquisitionList('series')) {
+            const r = acq.parseUrl ? acq.parseUrl(text) : null;
+            if (r) return Object.assign({type: acq.type, resolveSeriesId: acq.resolveSeriesId}, r);
         }
-        if (/^\d+$/.test(trimmed)) {
-            return {kind: 'illust-series', seriesId: Number(trimmed)};
-        }
+        const illust = parseIllustSeriesUrl(text);
+        if (illust) return Object.assign({type: 'illust', resolveSeriesId: resolveSeriesIdFromArtwork}, illust);
         return null;
     }
 
@@ -61,23 +66,9 @@
         return Number(meta.seriesId);
     }
 
-    async function resolveSeriesIdFromNovel(novelId) {
-        const res = await fetch(`${BASE}/api/pixiv/novel/${encodeURIComponent(novelId)}/meta`,
-            {credentials: 'same-origin', headers: pixivHeader()});
-        if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            throw new Error(data.error || `HTTP ${res.status}`);
-        }
-        const meta = await res.json();
-        if (!meta.seriesId) {
-            throw new Error(bt('status.series-novel-no-series', '该小说不属于任何小说系列'));
-        }
-        return Number(meta.seriesId);
-    }
-
     function resetSeriesState(kind = 'illust') {
         cleanupSeriesBlobUrls();
-        seriesState.kind = kind;
+        seriesState.kind = window.PixivBatch.queueTypes.resolveType(kind);
         seriesState.seriesId = null;
         seriesState.seriesTitle = '';
         seriesState.seriesAuthorId = null;
@@ -106,7 +97,8 @@
     }
 
     function getSeriesPageSize(kind = seriesState.kind) {
-        return kind === 'novel' ? 30 : 12;
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'series');
+        return (acq && acq.pageSize) || 12;
     }
 
     function getSeriesFallbackOrder(idx) {
@@ -114,8 +106,9 @@
     }
 
     function buildSeriesApiPath(seriesId, page, kind = seriesState.kind) {
-        return kind === 'novel'
-            ? `/api/pixiv/novel/series/${encodeURIComponent(seriesId)}?page=${page}`
+        const acq = window.PixivBatch.queueTypes.acquisition(kind, 'series');
+        return (acq && acq.apiPath)
+            ? acq.apiPath(seriesId, page)
             : `/api/pixiv/series/${encodeURIComponent(seriesId)}?page=${page}`;
     }
 
@@ -239,27 +232,22 @@
 
     async function loadSeriesPreview() {
         const input = document.getElementById('series-input-url');
-        const parsed = parseSeriesInputUrl(input.value);
+        const parsed = parseSeriesInput(input.value);
         if (!parsed) {
             setStatus(bt('status.series-url-invalid', '请输入有效的系列 URL 或同系列作品 URL'), 'error');
             return;
         }
-        const nextKind = parsed.kind === 'novel' || parsed.kind === 'novel-series' ? 'novel' : 'illust';
+        const nextKind = parsed.type;
         resetSeriesState(nextKind);
         document.getElementById('series-results-area').innerHTML =
             `<div style="color:#888;text-align:center;padding:24px 0;">${esc(bt('status.series-loading', '正在加载系列信息...'))}</div>`;
         document.getElementById('series-meta-display').textContent = '';
         updateSeriesQueueButtons(true);
         try {
-            let seriesId;
-            if (parsed.kind === 'novel') {
-                seriesId = await resolveSeriesIdFromNovel(parsed.novelId);
-            } else if (parsed.kind === 'novel-series') {
-                seriesId = parsed.seriesId;
-            } else if (parsed.kind === 'artwork') {
-                seriesId = await resolveSeriesIdFromArtwork(parsed.artworkId);
-            } else {
-                seriesId = parsed.seriesId;
+            // 直接给出系列 id 的用直接值；只给作品 id 的按该类型的 resolveSeriesId 解析其所属系列。
+            let seriesId = parsed.seriesId;
+            if (seriesId == null && parsed.resolveWorkId != null) {
+                seriesId = await parsed.resolveSeriesId(parsed.resolveWorkId);
             }
             seriesState.kind = nextKind;
             seriesState.seriesId = seriesId;
@@ -332,13 +320,13 @@
             applyNovelSettingsVisibility();
             return;
         }
-        const isNovel = seriesState.kind === 'novel';
+        const acq = seriesAcq();
         const inQueue = new Set(state.queue.map(q => q.id));
         const authorPart = seriesState.seriesAuthorName
             ? bt('series.meta.author', '作者：{name}', {name: seriesState.seriesAuthorName})
             : '';
-        const typePart = isNovel
-            ? bt('series.meta.type-novel', '小说系列')
+        const typePart = (acq && acq.typeLabel)
+            ? acq.typeLabel()
             : bt('series.meta.type-manga', '漫画系列');
         const pagePart = seriesState.totalPages > 1
             ? bt('series.meta.page', '第 {current} / {total} 页', {
@@ -365,43 +353,8 @@
             applyNovelSettingsVisibility();
             return;
         }
-        if (isNovel) {
-            area.innerHTML = `
-    <div class="novel-series-list">
-      ${seriesState.items.map((item, idx) => {
-                const xr = Number(item.xRestrict ?? 0);
-                const isAi = Number(item.aiType ?? 0) >= 2;
-                const wc = Number(item.wordCount ?? item.textLength ?? 0);
-                const seriesOrder = Number(item.seriesOrder || getSeriesFallbackOrder(idx));
-                const queueId = getSeriesQueueId(item);
-                const inQueueClass = inQueue.has(queueId) ? ' in-queue' : '';
-                const meta = [];
-                if (xr === 1) meta.push('<span class="nsc-r18">R-18</span>');
-                else if (xr === 2) meta.push('<span class="nsc-r18g">R-18G</span>');
-                if (isAi) meta.push('<span class="nsc-ai">AI</span>');
-                const uploadText = formatNovelUploadDate(item.uploadTimestamp);
-                if (uploadText) meta.push(`<span>${esc(uploadText)}</span>`);
-                if (wc > 0) meta.push(`<span>${esc(bt('novel:batch.search.summary.novel-words', '{count} 字', {count: wc.toLocaleString()}))}</span>`);
-                const readingText = formatNovelReadingTime(item.readingTimeSeconds);
-                if (readingText) meta.push(`<span>${esc(readingText)}</span>`);
-                const fallbackTitle = bt('queue.novel-fallback', '小说 {id}', {id: item.id});
-                const fallbackAuthor = bt('novel:status.unknown-author', '未知');
-                const queueTip = buildQueueToggleTip(inQueue.has(queueId));
-                const tagsHtml = renderSeriesNovelTags(item.tags || []);
-                return `<div class="novel-series-card${inQueueClass}" id="series-novel-card-${idx}"
-                         onclick="addSeriesItemToQueue(${idx})" title="#${seriesOrder} ${esc(item.title || fallbackTitle)} (${esc(item.userName || fallbackAuthor)})${queueTip}">
-          <div class="novel-series-cover" id="series-novel-cover-${idx}"><span>${esc(bt('series.cover-placeholder', '封面'))}</span></div>
-          <div class="novel-series-info">
-            <div class="novel-series-title">#${seriesOrder} ${esc(item.title || fallbackTitle)}</div>
-            <div class="nsc-author">${esc(item.userName || fallbackAuthor)}</div>
-            <div class="novel-series-tags">${tagsHtml}</div>
-            <div class="novel-series-meta">${meta.join('')}</div>
-          </div>
-          <span class="nsc-in-queue-mark">✓</span>
-        </div>`;
-            }).join('')}
-    </div>`;
-            loadNovelSeriesCoversBatched(seriesState.items, renderToken);
+        if (acq && acq.render) {
+            acq.render(area, {items: seriesState.items, inQueue, renderToken});
             renderSeriesPagination();
             updateSeriesQueueButtons();
             applyNovelSettingsVisibility();
@@ -468,84 +421,12 @@
             }))}</span>`;
     }
 
-    function renderSeriesNovelTags(tags) {
-        if (!Array.isArray(tags) || tags.length === 0) {
-            return `<span>${esc(bt('series.tags-empty', '无标签'))}</span>`;
-        }
-        return tags.slice(0, 8).map(tag => {
-            const name = typeof tag === 'string' ? tag : (tag.name || tag.tag || '');
-            const translated = typeof tag === 'object' && tag ? (tag.translatedName || tag.translation || '') : '';
-            const label = translated ? `${name} / ${translated}` : name;
-            return label ? `<span>${esc(label)}</span>` : '';
-        }).join('');
-    }
-
-    function formatNovelUploadDate(timestamp) {
-        const value = Number(timestamp || 0);
-        if (!Number.isFinite(value) || value <= 0) return '';
-        const d = new Date(value);
-        if (Number.isNaN(d.getTime())) return '';
-        const text = d.toLocaleDateString(uiLang() === 'en-US' ? 'en-US' : 'zh-CN', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
-        });
-        return bt('series.meta.upload', '上传：{time}', {time: text});
-    }
-
-    function formatNovelReadingTime(seconds) {
-        const text = formatNovelReadingDuration(seconds);
-        return text ? bt('series.meta.reading-time', '预计阅读：{time}', {time: text}) : '';
-    }
-
-    function formatNovelReadingDuration(seconds) {
-        const total = Math.floor(Number(seconds || 0));
-        if (!Number.isFinite(total) || total <= 0) return '';
-        const hour = Math.floor(total / 3600);
-        const minute = Math.floor((total % 3600) / 60);
-        const second = total % 60;
-        const parts = [];
-        if (hour > 0) parts.push(bt('duration.hour', '{count} 小时', {count: hour}));
-        if (minute > 0) parts.push(bt('duration.minute', '{count} 分钟', {count: minute}));
-        if (second > 0 && hour === 0) parts.push(bt('duration.second', '{count} 秒', {count: second}));
-        if (!parts.length) parts.push(bt('duration.second', '{count} 秒', {count: total}));
-        return parts.join(' ');
-    }
-
     async function loadSeriesThumbnailsBatched(items, renderToken) {
         const BATCH = 10;
         for (let i = 0; i < items.length; i += BATCH) {
             if (renderToken !== seriesState.renderToken) return;
             const batch = items.slice(i, i + BATCH);
             await Promise.allSettled(batch.map((item, offset) => loadSingleSeriesThumbnail(item, i + offset, renderToken)));
-        }
-    }
-
-    async function loadNovelSeriesCoversBatched(items, renderToken) {
-        const BATCH = 10;
-        for (let i = 0; i < items.length; i += BATCH) {
-            if (renderToken !== seriesState.renderToken) return;
-            const batch = items.slice(i, i + BATCH);
-            await Promise.allSettled(batch.map((item, offset) => loadSingleNovelSeriesCover(item, i + offset, renderToken)));
-        }
-    }
-
-    async function loadSingleNovelSeriesCover(item, idx, renderToken) {
-        if (!item.coverUrl) return;
-        const coverEl = document.getElementById(`series-novel-cover-${idx}`);
-        if (!coverEl) return;
-        try {
-            const params = new URLSearchParams({url: item.coverUrl});
-            const res = await fetch(`${BASE}/api/pixiv/thumbnail-proxy?${params}`, {headers: pixivHeader()});
-            if (!res.ok) return;
-            const blob = await res.blob();
-            if (renderToken !== seriesState.renderToken) return;
-            const blobUrl = URL.createObjectURL(blob);
-            seriesState.activeBlobUrls.push(blobUrl);
-            if (coverEl.isConnected) {
-                coverEl.innerHTML = `<img src="${blobUrl}" alt="${esc(item.title || '')}">`;
-            }
-        } catch {
         }
     }
 
@@ -568,30 +449,25 @@
 
     function getSeriesQueueId(item) {
         if (!item) return '';
-        return seriesState.kind === 'novel' ? 'n' + String(item.id) : String(item.id);
+        const acq = seriesAcq();
+        return acq && acq.queueId ? acq.queueId(item) : String(item.id);
+    }
+
+    function seriesQueueSource() {
+        const acq = seriesAcq();
+        return (acq && acq.queueSource) || 'series';
     }
 
     function buildSeriesQueueMeta(item, idx, fallbackOrder = getSeriesFallbackOrder(idx)) {
         const seriesOrder = Number(item.seriesOrder || fallbackOrder);
-        if (seriesState.kind === 'novel') {
-            return {
-                title: item.title || bt('queue.novel-fallback', '小说 {id}', {id: item.id}),
-                novelId: String(item.id),
-                kind: 'novel',
-                authorId: item.userId ? Number(item.userId) : seriesState.seriesAuthorId,
-                authorName: item.userName || seriesState.seriesAuthorName,
-                isAi: Number(item.aiType ?? 0) >= 2,
-                xRestrict: Number(item.xRestrict ?? 0),
-                tags: Array.isArray(item.tags) ? item.tags : [],
-                readingTimeSeconds: item.readingTimeSeconds ?? null,
-                coverUrl: item.coverUrl || null,
-                uploadTimestamp: item.uploadTimestamp || null,
+        const acq = seriesAcq();
+        if (acq && acq.buildQueueMeta) {
+            return acq.buildQueueMeta(item, seriesOrder, {
                 seriesId: seriesState.seriesId,
-                seriesOrder,
                 seriesTitle: seriesState.seriesTitle,
-                // 始终记录所属系列（合订资格）；是否真正生成合订本，由系列下载完成时的实时「生成合订本」设置决定
-                mergeAfterSeriesId: Number(seriesState.seriesId)
-            };
+                seriesAuthorId: seriesState.seriesAuthorId,
+                seriesAuthorName: seriesState.seriesAuthorName
+            });
         }
         return {
             title: item.title,
@@ -607,11 +483,11 @@
     function syncSeriesResultsQueueState() {
         if (!seriesState.items.length) return;
         const inQueue = new Set(state.queue.map(q => q.id));
+        const acq = seriesAcq();
         seriesState.items.forEach((item, idx) => {
             const queueId = getSeriesQueueId(item);
-            const el = document.getElementById(
-                seriesState.kind === 'novel' ? `series-novel-card-${idx}` : `series-thumb-${idx}`
-            );
+            const cardId = (acq && acq.cardId) ? acq.cardId(idx) : `series-thumb-${idx}`;
+            const el = document.getElementById(cardId);
             if (!el) return;
             el.classList.toggle('in-queue', inQueue.has(queueId));
         });
@@ -634,7 +510,7 @@
         const added = addItemsToQueue(
             [queueId],
             [buildSeriesQueueMeta(item, idx)],
-            seriesState.kind === 'novel' ? 'series-novel' : 'series',
+            seriesQueueSource(),
             ''
         );
         setStatus(added > 0
@@ -647,7 +523,7 @@
     function addSeriesItemsToQueue(items, fallbackOrderBase = 0) {
         const ids = items.map(r => getSeriesQueueId(r));
         const metas = items.map((r, idx) => buildSeriesQueueMeta(r, idx, fallbackOrderBase + idx + 1));
-        const added = addItemsToQueue(ids, metas, seriesState.kind === 'novel' ? 'series-novel' : 'series', '');
+        const added = addItemsToQueue(ids, metas, seriesQueueSource(), '');
         syncSeriesResultsQueueState();
         return {added, total: ids.length, existing: ids.length - added};
     }
