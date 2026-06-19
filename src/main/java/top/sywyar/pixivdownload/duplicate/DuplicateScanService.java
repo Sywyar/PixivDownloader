@@ -4,6 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
+import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
@@ -14,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class DuplicateScanService {
 
     private final ImageHashMapper imageHashMapper;
-    private final ImageHashService imageHashService;
+    private final ArtworkHashService artworkHashService;
     private final DuplicateService duplicateService;
     private final PixivDatabase pixivDatabase;
     private final AppMessages messages;
@@ -27,13 +29,13 @@ public class DuplicateScanService {
     private volatile Long startedTime;
 
     public DuplicateScanService(ImageHashMapper imageHashMapper,
-                                ImageHashService imageHashService,
+                                ArtworkHashService artworkHashService,
                                 DuplicateService duplicateService,
                                 PixivDatabase pixivDatabase,
                                 AppMessages messages,
                                 TaskExecutor taskExecutor) {
         this.imageHashMapper = imageHashMapper;
-        this.imageHashService = imageHashService;
+        this.artworkHashService = artworkHashService;
         this.duplicateService = duplicateService;
         this.pixivDatabase = pixivDatabase;
         this.messages = messages;
@@ -88,7 +90,7 @@ public class DuplicateScanService {
         }
         ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
         if (artwork != null) {
-            imageHashService.recordArtworkHashes(artwork, false);
+            artworkHashService.recordArtworkHashes(artwork);
         }
         processed = total <= 0 ? processed + 1 : Math.min(processed + 1, total);
     }

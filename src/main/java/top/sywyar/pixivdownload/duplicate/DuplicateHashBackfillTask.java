@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
+import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
@@ -20,7 +22,7 @@ import java.util.List;
 public class DuplicateHashBackfillTask implements MaintenanceTask {
 
     private final ImageHashMapper imageHashMapper;
-    private final ImageHashService imageHashService;
+    private final ArtworkHashService artworkHashService;
     private final DuplicateService duplicateService;
     private final PixivDatabase pixivDatabase;
     private final AppMessages messages;
@@ -44,7 +46,7 @@ public class DuplicateHashBackfillTask implements MaintenanceTask {
             ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
             if (artwork != null) {
                 processed++;
-                written += imageHashService.recordArtworkHashes(artwork, false);
+                written += artworkHashService.recordArtworkHashes(artwork);
             }
             scanned++;
             MaintenanceStatusHolder.updateProgress(scanned, total);

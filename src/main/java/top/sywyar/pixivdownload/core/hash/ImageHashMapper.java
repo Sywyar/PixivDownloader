@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.duplicate;
+package top.sywyar.pixivdownload.core.hash;
 
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;

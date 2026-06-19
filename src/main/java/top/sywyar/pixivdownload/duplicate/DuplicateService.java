@@ -1,6 +1,9 @@
 package top.sywyar.pixivdownload.duplicate;
 
 import lombok.RequiredArgsConstructor;
+import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
+import top.sywyar.pixivdownload.core.hash.ImageHashRow;
+import top.sywyar.pixivdownload.core.hash.ImageHasher;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 

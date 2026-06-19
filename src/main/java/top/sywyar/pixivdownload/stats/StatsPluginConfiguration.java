@@ -3,10 +3,16 @@ package top.sywyar.pixivdownload.stats;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.stats.StatsQueryStore;
+import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 
 /**
  * stats 插件的 Bean 装配收敛点：业务 Bean（含 {@code @RestController}）均经
  * {@code @PluginManagedBean} 排除出根包扫描，由这里以 {@code @Bean} 显式提供。
+ * <p>
+ * 插件 descriptor {@link StatsPlugin} 始终注册（{@code allPlugins()} / schema 合并 / disabledPlugins
+ * 都依赖全部 descriptor 在场）；业务 Bean 经 {@link ConditionalOnPluginEnabled} 随
+ * {@code plugins.stats.enabled} 装配 / 缺席——禁用本插件时 controller 不在场、其路由因「未声明即 404」
+ * 不可达。
  * <p>
  * 统计数据的读取经核心 owned 语义接口 {@link StatsQueryStore}（实现
  * {@code core.stats.db.StatsQueryStoreImpl}，root 扫描的核心 {@code @Repository}）——插件托管 Bean
@@ -22,11 +28,13 @@ public class StatsPluginConfiguration {
     }
 
     @Bean
+    @ConditionalOnPluginEnabled("stats")
     public StatsService statsService(StatsQueryStore statsQueryStore) {
         return new StatsService(statsQueryStore);
     }
 
     @Bean
+    @ConditionalOnPluginEnabled("stats")
     public StatsController statsController(StatsService statsService) {
         return new StatsController(statsService);
     }

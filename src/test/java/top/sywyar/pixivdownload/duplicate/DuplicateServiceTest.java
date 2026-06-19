@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.duplicate;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.core.hash.ImageHashMapper;
+import top.sywyar.pixivdownload.core.hash.ImageHashRow;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.util.List;

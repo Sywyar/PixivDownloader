@@ -8,8 +8,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.duplicate.DuplicateController;
 import top.sywyar.pixivdownload.duplicate.DuplicateHashBackfillTask;
+import top.sywyar.pixivdownload.duplicate.DuplicateScanService;
+import top.sywyar.pixivdownload.duplicate.DuplicateService;
 import top.sywyar.pixivdownload.gallery.GalleryController;
 import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
@@ -91,6 +94,20 @@ class PixivDownloadApplicationTests {
      * {@code MaintenanceCoordinator} 的 {@code List<MaintenanceTask>} 注入发现——
      * 这里锁定按类型收集维护任务时 duplicate-hash-backfill 仍在。
      */
+    /**
+     * 核心 Hash 写入接缝已脱离 duplicate 插件托管：默认全启用时，核心服务 {@link ArtworkHashService}
+     *（根包扫描、非 {@code @PluginManagedBean}）与 duplicate 插件的 UI 查询 / 手动扫描服务都在场——
+     * 与 {@code FeaturePluginsDisabledContextTest}「禁用 duplicate ⇒ DuplicateService/扫描/回填缺席、
+     * ArtworkHashService 仍在场」严格对称。
+     */
+    @Test
+    @DisplayName("默认全启用：核心 Hash 写入服务与 duplicate UI / 扫描 Bean 均在场")
+    void coreHashSeamAndDuplicateBeansPresentWhenEnabled() {
+        assertThat(applicationContext.getBeanNamesForType(ArtworkHashService.class)).hasSize(1);
+        assertThat(applicationContext.getBeanNamesForType(DuplicateService.class)).hasSize(1);
+        assertThat(applicationContext.getBeanNamesForType(DuplicateScanService.class)).hasSize(1);
+    }
+
     @Test
     @DisplayName("插件托管维护任务仍被按类型发现")
     void pluginManagedMaintenanceTaskStillDiscovered() {

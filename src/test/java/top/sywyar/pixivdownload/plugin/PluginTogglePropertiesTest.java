@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.mock.env.MockEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -51,5 +52,20 @@ class PluginTogglePropertiesTest {
         PluginToggleProperties props = new PluginToggleProperties();
         assertThat(props.isEnabled("gallery")).isTrue();
         assertThat(props.isEnabled("download-workbench")).isTrue();
+    }
+
+    @Test
+    @DisplayName("静态 isEnabled(Environment) 与实例语义一致：缺项默认启用、短横线 id、enabled=false 生效")
+    void staticEnvironmentReadMirrorsInstanceSemantics() {
+        MockEnvironment env = new MockEnvironment();
+        // 缺项默认启用
+        assertThat(PluginToggleProperties.isEnabled(env, "novel")).isTrue();
+        assertThat(PluginToggleProperties.isEnabled(env, null)).isTrue();
+        // 短横线 id 正常绑定 + enabled=false 生效
+        env.setProperty("plugins.download-workbench.enabled", "false");
+        assertThat(PluginToggleProperties.isEnabled(env, "download-workbench")).isFalse();
+        // 显式 true
+        env.setProperty("plugins.gallery.enabled", "true");
+        assertThat(PluginToggleProperties.isEnabled(env, "gallery")).isTrue();
     }
 }

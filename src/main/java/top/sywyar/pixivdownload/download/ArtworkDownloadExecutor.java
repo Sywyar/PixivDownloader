@@ -20,9 +20,9 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.hash.ArtworkHashService;
 import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
-import top.sywyar.pixivdownload.duplicate.ImageHashService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -64,7 +64,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
     private final AuthorService authorService;
     private final CollectionService collectionService;
     private final MangaSeriesService mangaSeriesService;
-    private final ImageHashService imageHashService;
+    private final ArtworkHashService artworkHashService;
     private final WorkMetaCaptureService workMetaCaptureService;
     private final DownloadStatisticsService downloadStatisticsService;
     private final DownloadedArtworkService downloadedArtworkService;
@@ -84,7 +84,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
                                    AuthorService authorService,
                                    CollectionService collectionService,
                                    MangaSeriesService mangaSeriesService,
-                                   ImageHashService imageHashService,
+                                   ArtworkHashService artworkHashService,
                                    WorkMetaCaptureService workMetaCaptureService,
                                    DownloadStatisticsService downloadStatisticsService,
                                    DownloadedArtworkService downloadedArtworkService,
@@ -100,7 +100,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
         this.authorService = authorService;
         this.collectionService = collectionService;
         this.mangaSeriesService = mangaSeriesService;
-        this.imageHashService = imageHashService;
+        this.artworkHashService = artworkHashService;
         this.workMetaCaptureService = workMetaCaptureService;
         this.downloadStatisticsService = downloadStatisticsService;
         this.downloadedArtworkService = downloadedArtworkService;
@@ -275,7 +275,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader {
             }
 
             try {
-                imageHashService.recordArtworkHashes(pixivDatabase.getArtwork(artworkId));
+                artworkHashService.recordArtworkHashes(pixivDatabase.getArtwork(artworkId));
             } catch (Exception e) {
                 log.warn(logMessage("duplicate.log.hash.artwork-failed", artworkId, e.getMessage()), e);
             }

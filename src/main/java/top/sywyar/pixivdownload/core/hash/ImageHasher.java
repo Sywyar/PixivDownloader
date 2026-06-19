@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.duplicate;
+package top.sywyar.pixivdownload.core.hash;
 
 import javax.imageio.ImageIO;
 import java.awt.Color;

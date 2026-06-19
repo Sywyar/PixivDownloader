@@ -83,30 +83,30 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("核心不得反向依赖 duplicate 插件包（组合根 BuiltInPlugins 与下载即时算 Hash 链路除外）")
+    @DisplayName("核心不得反向依赖 duplicate 插件包（组合根 BuiltInPlugins 除外）")
     void coreDoesNotDependOnDuplicatePlugin() {
         noClasses()
                 .that().resideOutsideOfPackage("top.sywyar.pixivdownload.duplicate..")
                 .and().doNotHaveFullyQualifiedName(BuiltInPlugins.class.getName())
-                .and().doNotHaveFullyQualifiedName("top.sywyar.pixivdownload.download.ArtworkDownloadExecutor")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.duplicate..")
                 .because("duplicate 是功能插件，核心只能经 PluginRegistry 间接使用其 contribution；"
-                        + "BuiltInPlugins 是既定的组合根例外，ArtworkDownloadExecutor→ImageHashService "
-                        + "是『下载后即时算 Hash』的既定核心链路例外（不随插件禁用）")
+                        + "BuiltInPlugins 是既定的组合根例外。『下载后即时算 Hash』已抽成核心服务 "
+                        + "core.hash.ArtworkHashService（ArtworkDownloadExecutor 注入核心服务、不再依赖 duplicate 包），"
+                        + "故不再有 ArtworkDownloadExecutor→duplicate 的核心链路例外")
                 .check(CLASSES);
     }
 
     @Test
-    @DisplayName("下载即时算 Hash 链路例外仅限 ImageHashService 一个类")
-    void artworkDownloadExecutorOnlyTouchesImageHashService() {
-        noClasses()
-                .that().haveFullyQualifiedName("top.sywyar.pixivdownload.download.ArtworkDownloadExecutor")
-                .should().dependOnClassesThat(
-                        JavaClass.Predicates.resideInAPackage("top.sywyar.pixivdownload.duplicate..")
-                                .and(DescribedPredicate.not(JavaClass.Predicates.type(
-                                        top.sywyar.pixivdownload.duplicate.ImageHashService.class))))
-                .because("核心链路例外的口径收窄到 Hash 计算入口本身，防止经例外类扩散依赖")
+    @DisplayName("核心 Hash 写入服务 ArtworkHashService 是核心 Bean：不得标 @PluginManagedBean")
+    void artworkHashServiceIsCoreNotPluginManaged() {
+        classes()
+                .that().haveFullyQualifiedName("top.sywyar.pixivdownload.core.hash.ArtworkHashService")
+                .should().notBeAnnotatedWith(
+                        top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
+                .because("下载后即时算 Hash 是核心资产索引链路，须由根包扫描装配的核心服务承载、"
+                        + "不属任何功能插件、不随 plugins.<id>.enabled 缺席；标 @PluginManagedBean 会把它退回"
+                        + "插件托管、重新引入『禁用 duplicate 却仍有插件托管 Bean 常驻』的归属歧义")
                 .check(CLASSES);
     }
 
@@ -319,10 +319,11 @@ class PluginApiDependencyGuardTest {
         //   · 禁核心 DB 实现层 core.schedule.db.. / core.stats.db..（语义 Store 的 @Repository 实现 + 其内部 mapper）；
         //   · 禁核心表 MyBatis mapper（PixivMapper / PathPrefixMapper，住混合包 core.db 故按类点名而非按包）。
         // 不在禁用面内（合法 plugin→core 正向依赖，不得误伤）：core.db 行模型（ArtworkRecord 等）、核心服务
-        // PixivDatabase、插件自有数据域 mapper（ImageHashMapper / NovelMapper，各自数据域、非核心主库）、
-        // core.schedule / core.stats 语义接口本身、org.springframework.transaction（ImageHashService 用事务模板）。
-        // 核心实现层（ScheduledTaskStoreImpl / StatsQueryStoreImpl / PixivDatabase 等 @Repository，均非
-        // @PluginManagedBean）允许自由使用上述底层——本守卫只约束 @PluginManagedBean，故不误伤核心实现。
+        // PixivDatabase、novel 插件自有数据域 mapper（NovelMapper，各自数据域、非核心主库）、核心图片哈希数据域
+        // mapper（core.hash.ImageHashMapper，下载写入服务 ArtworkHashService 与重复检测 UI/扫描/回填共享、
+        // 非核心主库 mapper，故不点名进禁用面）、core.schedule / core.stats 语义接口本身。
+        // 核心实现层（ScheduledTaskStoreImpl / StatsQueryStoreImpl / PixivDatabase / 核心 @Service ArtworkHashService 等，
+        // 均非 @PluginManagedBean）允许自由使用 JDBC / MyBatis / 事务模板——本守卫只约束 @PluginManagedBean，故不误伤核心实现。
         noClasses()
                 .that().areAnnotatedWith(top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
                 .should().dependOnClassesThat(

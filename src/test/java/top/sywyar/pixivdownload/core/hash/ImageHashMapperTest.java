@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.duplicate;
+package top.sywyar.pixivdownload.core.hash;
 
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.session.Configuration;

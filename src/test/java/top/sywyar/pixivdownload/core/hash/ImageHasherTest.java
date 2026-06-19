@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.duplicate;
+package top.sywyar.pixivdownload.core.hash;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

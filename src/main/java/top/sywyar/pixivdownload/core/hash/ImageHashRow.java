@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.duplicate;
+package top.sywyar.pixivdownload.core.hash;
 
 public record ImageHashRow(
         long artworkId,

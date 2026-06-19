@@ -18,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkQueryService;
+import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.quota.UserQuotaService;
 import top.sywyar.pixivdownload.setup.SetupService;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
@@ -38,6 +39,12 @@ import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
  * 计划任务的小说下载执行器 {@link ScheduledNovelDownloadDelegate}（实现核心契约
  * {@code core.schedule.work.ScheduledWorkRunner}）也随小说插件生命周期归属、由本配置显式装配：小说插件被禁 /
  * 卸载时它随之缺席，调度壳解析不到 {@code novel} 执行器即把小说计划任务标记为不可用并干净挂起（不偷跑、不启动失败）。
+ * <p>
+ * 插件 descriptor {@link NovelPlugin} 始终注册（{@code allPlugins()} / schema 合并 / disabledPlugins 都依赖
+ * 全部 descriptor 在场）；其余业务 Bean 经 {@link ConditionalOnPluginEnabled} 随 {@code plugins.novel.enabled}
+ * 装配 / 缺席——禁用本插件时小说画廊 / 下载 controller 与小说执行器都不在场，新旧小说下载 URL 因「未声明即 404」
+ * 不可达，残留小说计划任务经作品类型执行器解析门走 {@code SOURCE_UNAVAILABLE} 干净挂起。novel-core 根包扫描的
+ * 下载 / 正文 / 翻译机器不在本配置、不随开关移除（核心数据写入不受插件开关影响）。
  */
 @Configuration
 public class NovelPluginConfiguration {
@@ -48,6 +55,7 @@ public class NovelPluginConfiguration {
     }
 
     @Bean
+    @ConditionalOnPluginEnabled("novel")
     public ScheduledNovelDownloadDelegate scheduledNovelDownloadDelegate(
             NovelDownloader novelDownloader,
             NovelMergeService novelMergeService,
@@ -57,6 +65,7 @@ public class NovelPluginConfiguration {
     }
 
     @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelGalleryService novelGalleryService(WorkQueryService workQueryService,
                                                    WorkMetadataRepository workMetadataRepository,
                                                    WorkAssetService workAssetService,
@@ -67,6 +76,7 @@ public class NovelPluginConfiguration {
     }
 
     @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelBatchService novelBatchService(NovelGalleryService novelGalleryService,
                                                WorkMetadataRepository workMetadataRepository,
                                                WorkAssetService workAssetService,
@@ -79,6 +89,7 @@ public class NovelPluginConfiguration {
     }
 
     @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelGalleryController novelGalleryController(NovelGalleryService novelGalleryService,
                                                          NovelBatchService novelBatchService,
                                                          NovelMergeService novelMergeService,
@@ -95,6 +106,7 @@ public class NovelPluginConfiguration {
     }
 
     @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelDownloadController novelDownloadController(NovelDownloadService novelDownloadService,
                                                           NovelAutoTranslateService novelAutoTranslateService,
                                                           NovelDatabase novelDatabase,
@@ -107,6 +119,7 @@ public class NovelPluginConfiguration {
     }
 
     @Bean
+    @ConditionalOnPluginEnabled("novel")
     public NovelDownloadLegacyForwardController novelDownloadLegacyForwardController() {
         return new NovelDownloadLegacyForwardController();
     }

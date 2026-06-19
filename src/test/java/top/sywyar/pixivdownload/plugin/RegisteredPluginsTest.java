@@ -28,8 +28,12 @@ class RegisteredPluginsTest {
             // Duplicate / Gallery / Novel PluginConfiguration 收敛的业务 bean 依赖核心组件，一律 mock 兜底
             .withBean("applicationTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
-            .withBean(top.sywyar.pixivdownload.duplicate.ImageHashMapper.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.duplicate.ImageHashMapper.class))
+            .withBean(top.sywyar.pixivdownload.core.hash.ImageHashMapper.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.hash.ImageHashMapper.class))
+            // 核心 Hash 写入服务现为核心 root 扫描 @Service（不再由 DuplicatePluginConfiguration 装配）：
+            // 本切片不加载它，duplicate 的扫描 / 回填经正向 plugin→core 依赖注入它，故 mock 兜底。
+            .withBean(top.sywyar.pixivdownload.core.hash.ArtworkHashService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.hash.ArtworkHashService.class))
             .withBean(top.sywyar.pixivdownload.download.ArtworkFileLocator.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.ArtworkFileLocator.class))
             .withBean(top.sywyar.pixivdownload.core.db.PixivDatabase.class,

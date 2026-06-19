@@ -1,39 +1,43 @@
-package top.sywyar.pixivdownload.duplicate;
+package top.sywyar.pixivdownload.core.hash;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
+import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 图片 Hash 的计算与落库。下载后即时算 Hash 链路（{@code ArtworkDownloadExecutor} 直接注入本类）
- * 属核心资产索引能力，不随 duplicate 插件禁用——该核心侧依赖是包依赖守卫的既定例外。
+ * 作品图片感知哈希的计算与落库——核心资产索引能力，不属任何功能插件。
+ * <p>
+ * 下载后即时算 Hash 是核心下载链路的一部分（{@code ArtworkDownloadExecutor} 直接注入本服务），新作品落盘后即写入
+ * {@code artwork_image_hashes}（schema 由核心 {@code ImageHashSchemaContribution} 声明）。本服务由根包扫描装配
+ * （{@code @Service}），<b>不随任何 {@code plugins.<id>.enabled} 开关缺席</b>；疑似重复检测插件被禁用时，下载仍照常写 Hash。
+ * <p>
+ * 疑似重复 UI 的分组缓存按数据库 fingerprint（行数 + 最大 created_time）自失效（见
+ * {@code DuplicateService}），故本核心写入服务<b>不依赖</b> duplicate 插件的任何 UI 服务、也不主动失效其缓存——
+ * 写 Hash 改变了 fingerprint，下一次查询自然重建。重复检测的批量回填 / 手动重扫沿用本服务做计算（正向 plugin→core 依赖）。
  */
 @Slf4j
-@PluginManagedBean
-public class ImageHashService {
+@Service
+public class ArtworkHashService {
 
     private final ImageHashMapper imageHashMapper;
     private final ArtworkFileLocator artworkFileLocator;
-    private final DuplicateService duplicateService;
     private final AppMessages messages;
     private final TransactionTemplate transactionTemplate;
 
-    public ImageHashService(ImageHashMapper imageHashMapper,
-                            ArtworkFileLocator artworkFileLocator,
-                            DuplicateService duplicateService,
-                            AppMessages messages,
-                            PlatformTransactionManager transactionManager) {
+    public ArtworkHashService(ImageHashMapper imageHashMapper,
+                              ArtworkFileLocator artworkFileLocator,
+                              AppMessages messages,
+                              PlatformTransactionManager transactionManager) {
         this.imageHashMapper = imageHashMapper;
         this.artworkFileLocator = artworkFileLocator;
-        this.duplicateService = duplicateService;
         this.messages = messages;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
@@ -42,10 +46,6 @@ public class ImageHashService {
     private record PageHashResult(int page, String extension, ImageHasher.Hashes hashes) {}
 
     public int recordArtworkHashes(ArtworkRecord artwork) {
-        return recordArtworkHashes(artwork, true);
-    }
-
-    public int recordArtworkHashes(ArtworkRecord artwork, boolean invalidateDuplicateCache) {
         if (artwork == null) {
             return 0;
         }
@@ -68,10 +68,6 @@ public class ImageHashService {
         } catch (Exception e) {
             log.warn(messages.getForLog("duplicate.log.hash.artwork-failed",
                     artwork.artworkId(), e.getMessage()), e);
-        } finally {
-            if (invalidateDuplicateCache) {
-                duplicateService.invalidate();
-            }
         }
         return written;
     }
