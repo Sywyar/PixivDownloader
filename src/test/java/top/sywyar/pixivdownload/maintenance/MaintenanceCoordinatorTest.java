@@ -169,7 +169,12 @@ class MaintenanceCoordinatorTest {
 
             @Override
             public String displayName() {
-                return "core";
+                return "plugin.label";
+            }
+
+            @Override
+            public String description() {
+                return "plugin.summary";
             }
 
             @Override
@@ -188,7 +193,12 @@ class MaintenanceCoordinatorTest {
 
             @Override
             public String displayName() {
-                return id;
+                return "plugin.label";
+            }
+
+            @Override
+            public String description() {
+                return "plugin.summary";
             }
 
             @Override

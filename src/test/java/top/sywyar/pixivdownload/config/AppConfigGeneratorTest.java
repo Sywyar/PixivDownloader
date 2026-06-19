@@ -53,7 +53,8 @@ class AppConfigGeneratorTest {
         assertThat(content).contains("#   pack-and-delete  Pack and delete source files (default)");
         assertThat(content).contains("GUI and log language (en-US/zh-CN; leave blank to auto-detect from system language)");
         assertThat(content).contains("Built-in plugin toggles");
-        assertThat(content).contains("plugins.download-workbench.enabled: true");
+        // download-workbench 是必选插件，模板不写其开关。
+        assertThat(content).doesNotContain("plugins.download-workbench.enabled");
         assertThat(content).contains("plugins.gallery.enabled: true");
         assertThat(content).contains("Whether to enable this built-in plugin");
     }

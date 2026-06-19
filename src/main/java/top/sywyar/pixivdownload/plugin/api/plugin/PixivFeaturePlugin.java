@@ -31,11 +31,32 @@ public interface PixivFeaturePlugin {
     /** 插件唯一 id，小写短横线风格，例如 {@code download-workbench}。 */
     String id();
 
-    /** 展示名称。 */
+    /**
+     * 展示名称的 i18n key（插件本身不存文案，<b>必须由插件显式声明</b>，无默认实现）。该 key 在本插件自己声明的
+     * i18n namespace（{@link #i18n()} 贡献的 bundle，如 {@code i18n/web/<namespace>.properties}）中解析为本地化
+     * 文案——与导航标签 {@code nav.label} 同一套「插件自有 i18n」机制，文案归插件所有、不落在核心 GUI bundle 里。
+     * <b>具体 key 由插件自行决定</b>（无固定约定）：可复用插件已有的 key（如导航标签 {@code nav.label}），
+     * 也可在自有 namespace 中另立专用 key。
+     */
     String displayName();
+
+    /**
+     * 一句话简介的 i18n key（语义同 {@link #displayName()}，在插件自有 namespace 中解析；<b>必须由插件显式声明</b>）。
+     * 具体 key 同样由插件自行决定。
+     */
+    String description();
 
     /** 插件类别。 */
     PluginKind kind();
+
+    /**
+     * 是否为必选插件。必选插件无法经 {@code plugins.<id>.enabled} 关闭：恒进入活动快照、其托管 Bean 恒装配，
+     * 即便配置或手工把开关写成 {@code false} 也会被忽略。核心插件（{@link PluginKind#CORE}）恒为必选；
+     * 功能插件默认可禁用，必选的功能插件覆写本方法返回 {@code true}。
+     */
+    default boolean required() {
+        return kind() == PluginKind.CORE;
+    }
 
     /**
      * 生命周期：启动。注册中心在应用启动（或插件被安装启用）时调用一次。

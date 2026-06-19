@@ -6,7 +6,6 @@ import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -25,7 +24,8 @@ import java.util.stream.Collectors;
  * {@link #plugins()} 是<b>活动</b>（启用）插件的不可变快照——禁用的插件经
  * {@code plugins.<id>.enabled=false}（{@link PluginToggleProperties}）在构造期<b>不被注册进快照</b>，
  * 故各下游 registry（路由 / 导航 / i18n / 静态资源 / 调度来源 / 队列 / 标签页 / 落点）经 {@link #plugins()}
- * 自动排除禁用插件，其页面 / API / 导航因而不注册。<b>核心插件（{@link PluginKind#CORE}）永不可禁用。</b>
+ * 自动排除禁用插件，其页面 / API / 导航因而不注册。<b>必选插件（{@link PixivFeaturePlugin#required()}：核心插件，
+ * 以及覆写返回 {@code true} 的功能插件如下载工作台）永不可禁用</b>——即便开关写成 {@code false} 也照常注册。
  * schema 不随插件禁用而缺失：受管 schema 经 {@link #allPlugins()} 合并（见 {@code DatabaseSchemaRegistry}），
  * 即使插件被禁用其声明的表 / 列仍创建，已有数据保留。
  * <p>
@@ -54,7 +54,8 @@ public class PluginRegistry implements SmartLifecycle {
 
     /**
      * Spring 构造：按 {@code plugins.<id>.enabled} 决定哪些功能插件进入活动快照（禁用=不注册），
-     * 核心插件永不可禁用。无论启用与否，全部插件都保留在 {@link #allPlugins()} 供 schema 合并。
+     * 必选插件（{@link PixivFeaturePlugin#required()}）永不可禁用。无论启用与否，全部插件都保留在
+     * {@link #allPlugins()} 供 schema 合并。
      */
     @Autowired
     public PluginRegistry(List<PixivFeaturePlugin> plugins, PluginToggleProperties toggles) {
@@ -72,7 +73,7 @@ public class PluginRegistry implements SmartLifecycle {
         }
         this.installed = List.copyOf(all);
         for (PixivFeaturePlugin plugin : all) {
-            if (plugin.kind() == PluginKind.CORE || toggles.isEnabled(plugin.id())) {
+            if (plugin.required() || toggles.isEnabled(plugin.id())) {
                 register(plugin);
             }
         }

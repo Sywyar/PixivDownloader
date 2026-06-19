@@ -12,7 +12,6 @@ import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.notification.NotificationService;
-import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.schedule.OveruseWarningService;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
@@ -47,13 +46,11 @@ import top.sywyar.pixivdownload.setup.SetupService;
  * Bean），故装配层不 import 任何 novel 包类型。仅 {@code NovelMetadataRepository} 是核心去重接口
  * （{@code core.metadata.novel}）、本就属核心，保留。
  * <p>
- * 插件 descriptor {@link DownloadWorkbenchPlugin} 始终注册（{@code allPlugins()} / schema 合并 /
- * disabledPlugins 都依赖全部 descriptor 在场）；schedule 引擎 Bean 经 {@link ConditionalOnPluginEnabled}
- * 随 {@code plugins.download-workbench.enabled} 装配 / 缺席——禁用本插件时 {@link ScheduleRunner}
- * （唯一 {@code @Scheduled} tick）连同执行 / 服务 / 控制器 / 插画执行器一并缺席，后台调度 tick 不再运行、
- * {@code /api/schedule/**} 与下载页路由因「未声明即 404」不可达；插画作品类型执行器随之缺席，残留计划任务
- * 经作品类型执行器解析门走 {@code SOURCE_UNAVAILABLE} 干净挂起。{@code scheduled_tasks} 表与已落库数据
- * 不受影响（schema 经 {@code allPlugins()} 合并）。
+ * 下载工作台是<b>必选插件</b>（{@link DownloadWorkbenchPlugin#required()} 返回 {@code true}），不可经
+ * {@code plugins.download-workbench.enabled} 禁用。故 schedule 引擎 Bean（含唯一 {@code @Scheduled} tick
+ * {@link ScheduleRunner}、执行 / 服务 / 控制器 / 插画执行器）<b>无条件装配、恒在场</b>，不再标
+ * {@code @ConditionalOnPluginEnabled}——后台调度 tick 恒运行、{@code /api/schedule/**} 与下载页路由恒声明。
+ * {@code scheduled_tasks} 表与已落库数据由核心 schema 保证（经 {@code allPlugins()} 合并）。
  */
 @Configuration
 public class DownloadWorkbenchPluginConfiguration {
@@ -65,31 +62,26 @@ public class DownloadWorkbenchPluginConfiguration {
 
     /** 插画作品类型的计划任务下载执行器（薄包核心窄接缝 {@code ArtworkDownloader}），经注册中心按 kind 解析。 */
     @Bean
-    @ConditionalOnPluginEnabled("download-workbench")
     public ScheduledIllustWorkRunner scheduledIllustWorkRunner(ArtworkDownloader artworkDownloader) {
         return new ScheduledIllustWorkRunner(artworkDownloader);
     }
 
     @Bean
-    @ConditionalOnPluginEnabled("download-workbench")
     public ScheduleRunState scheduleRunState() {
         return new ScheduleRunState();
     }
 
     @Bean
-    @ConditionalOnPluginEnabled("download-workbench")
     public ScheduleRunQueue scheduleRunQueue() {
         return new ScheduleRunQueue();
     }
 
     @Bean
-    @ConditionalOnPluginEnabled("download-workbench")
     public OveruseWarningService overuseWarningService(PixivFetchService pixivFetchService) {
         return new OveruseWarningService(pixivFetchService);
     }
 
     @Bean
-    @ConditionalOnPluginEnabled("download-workbench")
     public ScheduleExecutor scheduleExecutor(ScheduledTaskStore store,
                                              ScheduledSourceRegistry scheduledSourceRegistry,
                                              PixivFetchService pixivFetchService,
@@ -117,7 +109,6 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    @ConditionalOnPluginEnabled("download-workbench")
     public ScheduleService scheduleService(ScheduledTaskStore store,
                                            ScheduleExecutor executor,
                                            ScheduleConfig config,
@@ -128,7 +119,6 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    @ConditionalOnPluginEnabled("download-workbench")
     public ScheduleRunner scheduleRunner(ScheduledTaskStore store,
                                          ScheduleExecutor executor,
                                          ScheduleConfig config,
@@ -137,7 +127,6 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    @ConditionalOnPluginEnabled("download-workbench")
     public ScheduleController scheduleController(ScheduleService scheduleService) {
         return new ScheduleController(scheduleService);
     }

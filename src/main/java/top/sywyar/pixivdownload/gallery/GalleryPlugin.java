@@ -36,9 +36,15 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
+    // 展示名 / 简介在本插件自有 namespace（gallery）解析：名称复用已有的导航标签 nav.label，简介用专用 key。
     @Override
     public String displayName() {
-        return "画廊";
+        return "nav.label";
+    }
+
+    @Override
+    public String description() {
+        return "plugin.summary";
     }
 
     @Override

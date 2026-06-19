@@ -39,9 +39,15 @@ public class CorePlugin implements PixivFeaturePlugin {
         return "core";
     }
 
+    // 核心插件必选、永不在配置页「插件」分组呈现，故下列 key 不会被解析（仅为满足契约的占位）。
     @Override
     public String displayName() {
-        return "核心";
+        return "plugin.label";
+    }
+
+    @Override
+    public String description() {
+        return "plugin.summary";
     }
 
     @Override

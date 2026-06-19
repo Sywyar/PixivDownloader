@@ -51,7 +51,7 @@ public final class DefaultConfigTemplate {
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.plugins");
-        appendSetting(config, messages, "plugins.download-workbench.enabled: true", "config.template.plugins.enabled.comment");
+        // download-workbench 是必选插件（无法禁用），不写开关；其余功能插件可单独关闭。
         appendSetting(config, messages, "plugins.gallery.enabled: true", "config.template.plugins.enabled.comment");
         appendSetting(config, messages, "plugins.novel.enabled: true", "config.template.plugins.enabled.comment");
         appendSetting(config, messages, "plugins.stats.enabled: true", "config.template.plugins.enabled.comment");

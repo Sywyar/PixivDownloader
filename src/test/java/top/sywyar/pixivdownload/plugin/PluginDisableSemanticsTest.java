@@ -61,11 +61,14 @@ class PluginDisableSemanticsTest {
     }
 
     @Test
-    @DisplayName("禁用下载工作台后画廊仍注册其路由（画廊可查看已有数据），下载工作台路由消失")
-    void disablingDownloadWorkbenchKeepsGallery() {
-        List<String> owners = routeOwners(registryDisabling("download-workbench"));
-        assertThat(owners).contains("gallery");
-        assertThat(owners).doesNotContain("download-workbench");
+    @DisplayName("下载工作台为必选插件：即便配置 enabled=false 也仍进入活动快照并注册其路由（无法被关闭）")
+    void downloadWorkbenchIsRequiredAndCannotBeDisabled() {
+        PluginRegistry registry = registryDisabling("download-workbench");
+
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).contains("download-workbench");
+        assertThat(registry.disabledPlugins())
+                .extracting(PixivFeaturePlugin::id).doesNotContain("download-workbench");
+        assertThat(routeOwners(registry)).contains("download-workbench");
     }
 
     @Test

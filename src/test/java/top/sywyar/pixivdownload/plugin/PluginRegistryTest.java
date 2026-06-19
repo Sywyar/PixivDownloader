@@ -46,7 +46,12 @@ class PluginRegistryTest {
 
         @Override
         public String displayName() {
-            return id;
+            return "plugin.label";
+        }
+
+        @Override
+        public String description() {
+            return "plugin.summary";
         }
 
         @Override

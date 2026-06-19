@@ -44,14 +44,26 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
+    // 下载工作台必选、永不在配置页「插件」分组呈现，故下列 key 不会被解析（仅为满足契约的占位）。
     @Override
     public String displayName() {
-        return "下载工作台";
+        return "plugin.label";
+    }
+
+    @Override
+    public String description() {
+        return "plugin.summary";
     }
 
     @Override
     public PluginKind kind() {
         return PluginKind.FEATURE;
+    }
+
+    /** 下载工作台是必选插件：下载页、下载执行与计划任务调度是核心使用路径，不允许关闭。 */
+    @Override
+    public boolean required() {
+        return true;
     }
 
     @Override

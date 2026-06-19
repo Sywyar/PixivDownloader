@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.stats.StatsPlugin;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 内置插件组合根清单。供 Spring 上下文之外的入口（如 GUI 启动期的 schema 检查）
@@ -29,5 +31,19 @@ public final class BuiltInPlugins {
                 new NovelPlugin(),
                 new StatsPlugin(),
                 new DuplicatePlugin());
+    }
+
+    /** 必选插件 id 集合（{@link PixivFeaturePlugin#required()}），随内置清单固定。 */
+    private static final Set<String> REQUIRED_IDS = createAll().stream()
+            .filter(PixivFeaturePlugin::required)
+            .map(PixivFeaturePlugin::id)
+            .collect(Collectors.toUnmodifiableSet());
+
+    /**
+     * 给定 id 是否为必选插件（不可经 {@code plugins.<id>.enabled} 禁用）。供 Bean 注册期的
+     * {@link OnPluginEnabledCondition} 在拿不到插件实例、只有 id 时判定必选语义。
+     */
+    public static boolean isRequired(String pluginId) {
+        return pluginId != null && REQUIRED_IDS.contains(pluginId);
     }
 }
