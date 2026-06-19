@@ -11,7 +11,6 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * 画廊插件：画廊 / 作品详情 / 精选集 / 系列四个页面，以及 {@code /api/gallery} 下插画作品 /
@@ -56,16 +55,16 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         // 无尾斜杠前缀同 /api/authors** 写法：/api/gallery/artwork** 既命中 /api/gallery/artworks
         // 也命中 /api/gallery/artwork/{id}；/api/gallery/tags** 既命中 /api/gallery/tags 也命中 /tags/lookup。
         return List.of(
-                new WebRouteContribution("/pixiv-gallery.html", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-artwork.html", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-showcase.html", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-series.html", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-gallery/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-artwork/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-showcase/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-series/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/api/gallery/artwork**", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/api/gallery/tags**", AccessPolicy.INVITED_GUEST, Set.of(), false));
+                WebRouteContribution.invitedGuest("/pixiv-gallery.html"),
+                WebRouteContribution.invitedGuest("/pixiv-artwork.html"),
+                WebRouteContribution.invitedGuest("/pixiv-showcase.html"),
+                WebRouteContribution.invitedGuest("/pixiv-series.html"),
+                WebRouteContribution.invitedGuest("/pixiv-gallery/**"),
+                WebRouteContribution.invitedGuest("/pixiv-artwork/**"),
+                WebRouteContribution.invitedGuest("/pixiv-showcase/**"),
+                WebRouteContribution.invitedGuest("/pixiv-series/**"),
+                WebRouteContribution.invitedGuest("/api/gallery/artwork**"),
+                WebRouteContribution.invitedGuest("/api/gallery/tags**"));
     }
 
     @Override

@@ -11,7 +11,6 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * 小说插件：小说画廊/详情页面、小说下载与合订、TTS 与 AI 听书入口。
@@ -63,26 +62,22 @@ public class NovelPlugin implements PixivFeaturePlugin {
         // 下载（走配额）、solo 需会话、邀请访客 403、不入 monitor（AuthFilter 不为该策略派生任何清单、命中后落到
         // 默认会话/访客分支）。声明它只为把这些写端点纳入本插件归属、随启停（禁用 → 新旧小说路径一并 404）。
         return List.of(
-                new WebRouteContribution("/pixiv-novel-gallery.html", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-novel.html", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-novel-gallery/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/pixiv-novel/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/api/gallery/novel/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/api/gallery/novels/**", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                new WebRouteContribution("/api/gallery/novels", AccessPolicy.INVITED_GUEST, Set.of(), false),
-                visitor("/api/novel/download"),
-                visitor("/api/novel/status/**"),
-                visitor("/api/novel/translate-status/**"),
-                visitor("/api/download/pixiv/novel"),
-                visitor("/api/download/novel/status/**"),
-                visitor("/api/download/novel/translate-status/**"),
+                WebRouteContribution.invitedGuest("/pixiv-novel-gallery.html"),
+                WebRouteContribution.invitedGuest("/pixiv-novel.html"),
+                WebRouteContribution.invitedGuest("/pixiv-novel-gallery/**"),
+                WebRouteContribution.invitedGuest("/pixiv-novel/**"),
+                WebRouteContribution.invitedGuest("/api/gallery/novel/**"),
+                WebRouteContribution.invitedGuest("/api/gallery/novels/**"),
+                WebRouteContribution.invitedGuest("/api/gallery/novels"),
+                WebRouteContribution.visitor("/api/novel/download"),
+                WebRouteContribution.visitor("/api/novel/status/**"),
+                WebRouteContribution.visitor("/api/novel/translate-status/**"),
+                WebRouteContribution.visitor("/api/download/pixiv/novel"),
+                WebRouteContribution.visitor("/api/download/novel/status/**"),
+                WebRouteContribution.visitor("/api/download/novel/translate-status/**"),
                 // 下载工作台的小说队列类型行为模块（novel-queue-type.js）serving 目录：由下载页（VISITOR）消费，
                 // 随小说插件启停。VISITOR：multi 访客可加载 / solo 需会话 / 邀请访客 403 / 不入 monitor。
-                visitor("/pixiv-novel-download/**"));
-    }
-
-    private static WebRouteContribution visitor(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.VISITOR, Set.of(), false);
+                WebRouteContribution.visitor("/pixiv-novel-download/**"));
     }
 
     @Override

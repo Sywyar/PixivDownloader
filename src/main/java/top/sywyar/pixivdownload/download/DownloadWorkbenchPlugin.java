@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.download;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
-import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
@@ -20,7 +19,6 @@ import top.sywyar.pixivdownload.schedule.source.UserNewSource;
 import top.sywyar.pixivdownload.schedule.source.UserRequestSource;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * 下载工作台插件：{@code pixiv-batch} 页面、下载队列、油猴脚本入口与下载执行，
@@ -67,19 +65,15 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫，随插件启停。
         // 其它跨插件共享的下载数据 API（status/downloaded 统计 / 历史 / 图片字节）由核心声明（见类注释）。
         return List.of(
-                new WebRouteContribution("/api/schedule/**", AccessPolicy.ADMIN, Set.of(), false),
-                visitor("/pixiv-batch.html"),
-                visitor("/pixiv-batch/**"),
-                visitor("/api/download/pixiv"),
-                visitor("/api/cancel/**"),
-                visitor("/api/download/cancel/**"),
-                visitor("/api/download/queue/**"),
-                visitor("/api/batch/**"),
-                visitor("/api/download/extensions"));
-    }
-
-    private static WebRouteContribution visitor(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.VISITOR, Set.of(), false);
+                WebRouteContribution.admin("/api/schedule/**"),
+                WebRouteContribution.visitor("/pixiv-batch.html"),
+                WebRouteContribution.visitor("/pixiv-batch/**"),
+                WebRouteContribution.visitor("/api/download/pixiv"),
+                WebRouteContribution.visitor("/api/cancel/**"),
+                WebRouteContribution.visitor("/api/download/cancel/**"),
+                WebRouteContribution.visitor("/api/download/queue/**"),
+                WebRouteContribution.visitor("/api/batch/**"),
+                WebRouteContribution.visitor("/api/download/extensions"));
     }
 
     @Override

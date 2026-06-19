@@ -89,170 +89,118 @@ public class CorePlugin implements PixivFeaturePlugin {
         // 访问策略 / resolve 特异性判定而非声明顺序。VISITOR / GUI / ACTUATOR_PUBLIC 多为「声明但由内联分支判定」。
         return List.of(
                 // ── monitor：仅管理员（不在访客白名单）的页面与 API ───────────────────────────────
-                admin("/monitor.html"),
-                admin("/pixiv-invite-manage.html"),
-                admin("/pixiv-invite-detail.html"),
-                admin("/api/downloaded/batch"),
+                WebRouteContribution.admin("/monitor.html"),
+                WebRouteContribution.admin("/pixiv-invite-manage.html"),
+                WebRouteContribution.admin("/pixiv-invite-detail.html"),
+                WebRouteContribution.admin("/api/downloaded/batch"),
                 // （/api/schedule/** 随 schedule 能力收编进下载工作台，由 DownloadWorkbenchPlugin 声明）
-                admin("/api/admin/**"),
-                admin("/api/tts/**"),
-                admin("/api/narration/**"),
-                admin("/monitor/**"),
-                admin("/pixiv-invite-manage/**"),
-                admin("/pixiv-invite-detail/**"),
+                WebRouteContribution.admin("/api/admin/**"),
+                WebRouteContribution.admin("/api/tts/**"),
+                WebRouteContribution.admin("/api/narration/**"),
+                WebRouteContribution.admin("/monitor/**"),
+                WebRouteContribution.admin("/pixiv-invite-manage/**"),
+                WebRouteContribution.admin("/pixiv-invite-detail/**"),
                 // ── monitor + 访客只读（受邀访客可读、multi 匿名访客被挡）─────────────────────────
-                invitedGuest("/api/downloaded/statistics"),
-                invitedGuest("/api/downloaded/history"),
-                invitedGuest("/api/downloaded/history/paged"),
-                invitedGuest("/api/downloaded/by-move-folder"),
-                invitedGuest("/api/download/status/active"),
-                invitedGuest("/api/downloaded/thumbnail/**"),
-                invitedGuest("/api/downloaded/thumbnail-file/**"),
-                invitedGuest("/api/downloaded/rawfile/**"),
-                invitedGuest("/api/downloaded/image/**"),
+                WebRouteContribution.invitedGuest("/api/downloaded/statistics"),
+                WebRouteContribution.invitedGuest("/api/downloaded/history"),
+                WebRouteContribution.invitedGuest("/api/downloaded/history/paged"),
+                WebRouteContribution.invitedGuest("/api/downloaded/by-move-folder"),
+                WebRouteContribution.invitedGuest("/api/download/status/active"),
+                WebRouteContribution.invitedGuest("/api/downloaded/thumbnail/**"),
+                WebRouteContribution.invitedGuest("/api/downloaded/thumbnail-file/**"),
+                WebRouteContribution.invitedGuest("/api/downloaded/rawfile/**"),
+                WebRouteContribution.invitedGuest("/api/downloaded/image/**"),
                 // /api/authors、/api/series、/api/collections 用无尾斜杠 startsWith 匹配
                 // （同时命中 /api/authors 与 /api/authors/{id}）；模式以 ** 直接续接，去 ** 后还原为现状前缀。
-                invitedGuest("/api/authors**"),
-                invitedGuest("/api/series**"),
-                invitedGuest("/api/collections**"),
+                WebRouteContribution.invitedGuest("/api/authors**"),
+                WebRouteContribution.invitedGuest("/api/series**"),
+                WebRouteContribution.invitedGuest("/api/collections**"),
                 // 小说听书 TTS（edge）端点：与小说详情页同属受邀访客可读面（页面是 INVITED_GUEST、匿名访客读不到
                 // 小说也就不应触达其 TTS），故声明为 INVITED_GUEST——既受 monitor 保护（匿名 multi 访客被挡、
                 // 与历史「宽 /api/tts/** 前缀把它收进 monitor」逐字等价），又对受邀访客只读放行（synthesize 显式
                 // POST 进访客 POST 白名单、voices 为 GET）。窄 INVITED_GUEST 声明经 RouteAccessRegistry.resolve
                 // 覆盖宽 /api/tts/** = ADMIN：宽前缀不再吞掉这两个窄端点，AccessPolicy 即其真实可达面。
-                invitedGuest("/api/tts/edge/voices"),
-                invitedGuestPost("/api/tts/edge/synthesize"),
+                WebRouteContribution.invitedGuest("/api/tts/edge/voices"),
+                new WebRouteContribution("/api/tts/edge/synthesize", AccessPolicy.INVITED_GUEST, Set.of(HttpMethod.POST), false),
                 // ── 访客可达、不入 monitor：只读代理 / 下载状态轮询前缀（multi 普通访客 GET 亦可达）──────
-                visitorAndInvitedGuest("/api/download/status/**"),
-                visitorAndInvitedGuest("/api/pixiv/artwork/**"),
-                visitorAndInvitedGuest("/api/pixiv/novel/**"),
+                WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
+                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/**"),
+                WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/novel/**"),
                 // 跨页共享只读静态依赖（访客可读、不入 monitor）。其中 i18n / 语言切换 / 主题三件
                 // 同时也是 PUBLIC（见下），按现状两个清单都登记。
-                visitorAndInvitedGuest("/css/admin-visibility.css"),
-                visitorAndInvitedGuest("/css/lang-theme-switcher.css"),
-                visitorAndInvitedGuest("/css/pixiv-side-modules.css"),
-                visitorAndInvitedGuest("/css/pixiv-translate.css"),
-                visitorAndInvitedGuest("/js/invite-modals.js"),
-                visitorAndInvitedGuest("/js/pixiv-i18n.js"),
-                visitorAndInvitedGuest("/js/pixiv-lang-switcher.js"),
-                visitorAndInvitedGuest("/js/pixiv-novel-render.js"),
-                visitorAndInvitedGuest("/js/pixiv-side-modules.js"),
-                visitorAndInvitedGuest("/js/pixiv-theme.js"),
-                visitorAndInvitedGuest("/js/pixiv-translate.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/css/admin-visibility.css"),
+                WebRouteContribution.visitorAndInvitedGuest("/css/lang-theme-switcher.css"),
+                WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-side-modules.css"),
+                WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-translate.css"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/invite-modals.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-i18n.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-lang-switcher.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-novel-render.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-side-modules.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-theme.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-translate.js"),
                 // ── 公开（两种模式均公开）：基础页面、公开 API、公开静态前缀 ──────────────────────
-                publicRoute("/"),
-                publicRoute("/index"),
-                publicRoute("/index.html"),
-                publicRoute("/login.html"),
-                publicRoute("/intro.html"),
-                publicRoute("/intro-canary.html"),
-                publicRoute("/favicon.ico"),
-                publicRoute("/js/pixiv-i18n.js"),
-                publicRoute("/js/pixiv-lang-switcher.js"),
-                publicRoute("/js/pixiv-theme.js"),
-                publicRoute("/maintenance.html"),
-                publicRoute("/index/**"),
-                publicRoute("/intro/**"),
-                publicRoute("/intro-canary/**"),
-                publicRoute("/login/**"),
-                publicRoute("/maintenance/**"),
-                publicRoute("/vendor/fonts/**"),
+                WebRouteContribution.publicRoute("/"),
+                WebRouteContribution.publicRoute("/index"),
+                WebRouteContribution.publicRoute("/index.html"),
+                WebRouteContribution.publicRoute("/login.html"),
+                WebRouteContribution.publicRoute("/intro.html"),
+                WebRouteContribution.publicRoute("/intro-canary.html"),
+                WebRouteContribution.publicRoute("/favicon.ico"),
+                WebRouteContribution.publicRoute("/js/pixiv-i18n.js"),
+                WebRouteContribution.publicRoute("/js/pixiv-lang-switcher.js"),
+                WebRouteContribution.publicRoute("/js/pixiv-theme.js"),
+                WebRouteContribution.publicRoute("/maintenance.html"),
+                WebRouteContribution.publicRoute("/index/**"),
+                WebRouteContribution.publicRoute("/intro/**"),
+                WebRouteContribution.publicRoute("/intro-canary/**"),
+                WebRouteContribution.publicRoute("/login/**"),
+                WebRouteContribution.publicRoute("/maintenance/**"),
+                WebRouteContribution.publicRoute("/vendor/fonts/**"),
                 // 始终公开的核心横切 API（与 AuthFilter.isAlwaysPublicApi 内联口径一致）。
-                publicRoute("/api/auth/**"),
-                publicRoute("/api/i18n/**"),
-                publicRoute("/api/onboarding/**"),
+                WebRouteContribution.publicRoute("/api/auth/**"),
+                WebRouteContribution.publicRoute("/api/i18n/**"),
+                WebRouteContribution.publicRoute("/api/onboarding/**"),
                 // ── VISITOR：multi 访客可达 / solo 需会话 / 邀请访客 403 / 不入 monitor ────────────
                 // 共享只读静态目录的兜底（具体公开 / 访客文件以上面更宽松的策略优先命中）。
-                visitor("/js/**"),
-                visitor("/css/**"),
-                visitor("/vendor/**"),
+                WebRouteContribution.visitor("/js/**"),
+                WebRouteContribution.visitor("/css/**"),
+                WebRouteContribution.visitor("/vendor/**"),
                 // setup / scripts：multi 公开、solo 需会话的不对称由 AuthFilter 内联 isDefaultPublicPath 承载；
                 // 此处 VISITOR 声明不派生进任何清单、不改其内联访问行为，只为纳入「全 URL 声明」守卫。
                 // /api/scripts** 用无尾斜杠 startsWith（同 /api/authors**）：覆盖裸列表端点 /api/scripts 与 /api/scripts/{id}。
-                visitor("/api/setup/**"),
-                visitor("/api/scripts**"),
+                WebRouteContribution.visitor("/api/setup/**"),
+                WebRouteContribution.visitor("/api/scripts**"),
                 // 核心导航装配端点（NavigationController 读 NavigationRegistry 跨插件聚合、按可见性过滤）。
-                visitor("/api/navigation"),
+                WebRouteContribution.visitor("/api/navigation"),
                 // 应用信息 / 配额 / 归档 / 迁移：随页面消费的访客可用 API（历史未声明 API 的涌现行为）。
-                visitor("/api/app/info"),
-                visitor("/api/quota/**"),
-                visitor("/api/archive/**"),
-                visitor("/api/migration/**"),
+                WebRouteContribution.visitor("/api/app/info"),
+                WebRouteContribution.visitor("/api/quota/**"),
+                WebRouteContribution.visitor("/api/archive/**"),
+                WebRouteContribution.visitor("/api/migration/**"),
                 // 下载进度 SSE 流（跨页消费、与下载状态轮询同归核心）。
-                visitor("/api/sse/**"),
+                WebRouteContribution.visitor("/api/sse/**"),
                 // Pixiv 只读代理的其余子面（artwork / novel 已在上面对访客开放；以下保持 VISITOR 现状）。
-                visitor("/api/pixiv/user/**"),
-                visitor("/api/pixiv/search**"),
-                visitor("/api/pixiv/novel-search**"),
-                visitor("/api/pixiv/series/**"),
-                visitor("/api/pixiv/me/**"),
-                visitor("/api/pixiv/thumbnail-proxy"),
+                WebRouteContribution.visitor("/api/pixiv/user/**"),
+                WebRouteContribution.visitor("/api/pixiv/search**"),
+                WebRouteContribution.visitor("/api/pixiv/novel-search**"),
+                WebRouteContribution.visitor("/api/pixiv/series/**"),
+                WebRouteContribution.visitor("/api/pixiv/me/**"),
+                WebRouteContribution.visitor("/api/pixiv/thumbnail-proxy"),
                 // ── GUI：本地 + token 双重校验（由 AuthFilter 内联分支执行；声明为纳入守卫与镜像）──────
-                gui("/api/gui/**"),
+                WebRouteContribution.gui("/api/gui/**"),
                 // ── actuator 公开探针：容器健康 / 信息端点（由 AuthFilter 内联 fast-path 放行；声明为纳入
                 //    路由镜像守卫与全 URL 声明模型，不改其内联放行行为）。仅以下四条对外暴露。──────────────
-                actuatorPublic("/actuator/health"),
-                actuatorPublic("/actuator/health/liveness"),
-                actuatorPublic("/actuator/health/readiness"),
-                actuatorPublic("/actuator/info"),
+                WebRouteContribution.actuatorPublic("/actuator/health"),
+                WebRouteContribution.actuatorPublic("/actuator/health/liveness"),
+                WebRouteContribution.actuatorPublic("/actuator/health/readiness"),
+                WebRouteContribution.actuatorPublic("/actuator/info"),
                 // ── 本地放行：PAC、setup 页面 / 静态、已下载本地资产 ────────────────────────────────
-                local("/proxy.pac"),
-                local("/setup.html"),
-                local("/setup/**"),
-                local("/api/downloaded/**"),
-                local("/api/download/status"));
-    }
-
-    private static WebRouteContribution admin(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.ADMIN, Set.of(), false);
-    }
-
-    private static WebRouteContribution invitedGuest(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.INVITED_GUEST, Set.of(), false);
-    }
-
-    private static WebRouteContribution visitorAndInvitedGuest(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.VISITOR_AND_INVITED_GUEST, Set.of(), false);
-    }
-
-    private static WebRouteContribution invitedGuestPost(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.INVITED_GUEST, Set.of(HttpMethod.POST), false);
-    }
-
-    /**
-     * 「会话用户或 multi 访客」端点（{@link AccessPolicy#VISITOR}）：multi 普通访客可访问、solo 需会话、
-     * 邀请访客 403、不入 monitor。该策略不被 {@code AuthFilter} 派生进任何访问清单，命中后落默认会话 /
-     * 访客分支（或仍由内联公开分支判定），访问行为与未声明该路由时逐字等价——声明只为纳入路由归属、镜像与
-     * 全 URL 声明守卫。
-     */
-    private static WebRouteContribution visitor(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.VISITOR, Set.of(), false);
-    }
-
-    private static WebRouteContribution publicRoute(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.PUBLIC, Set.of(), false);
-    }
-
-    private static WebRouteContribution local(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.LOCAL, Set.of(), false);
-    }
-
-    /**
-     * {@code /api/gui/**} 双重校验端点（{@link AccessPolicy#GUI}）：实际放行由 {@code AuthFilter} 的内联
-     * GUI 分支（本地可信请求 + GUI token）执行；声明为纳入路由镜像与全 URL 声明守卫，不改其内联访问行为。
-     */
-    private static WebRouteContribution gui(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.GUI, Set.of(), false);
-    }
-
-    /**
-     * actuator 公开探针端点（{@link AccessPolicy#ACTUATOR_PUBLIC}）：实际放行由 {@code AuthFilter} 的内联
-     * actuator fast-path（{@code isPublicActuatorEndpoint}，先于鉴权 / 维护窗口 / 限流）执行；声明为纳入
-     * 路由镜像守卫与全 URL 声明模型，不改其内联放行行为。仅 health（含 liveness/readiness）与 info 对外暴露，
-     * 该策略仅 core 可声明、仅用于这些探针路径（见 {@code RouteAccessMirrorTest}）。
-     */
-    private static WebRouteContribution actuatorPublic(String pattern) {
-        return new WebRouteContribution(pattern, AccessPolicy.ACTUATOR_PUBLIC, Set.of(), false);
+                WebRouteContribution.local("/proxy.pac"),
+                WebRouteContribution.local("/setup.html"),
+                WebRouteContribution.local("/setup/**"),
+                WebRouteContribution.local("/api/downloaded/**"),
+                WebRouteContribution.local("/api/download/status"));
     }
 
     @Override

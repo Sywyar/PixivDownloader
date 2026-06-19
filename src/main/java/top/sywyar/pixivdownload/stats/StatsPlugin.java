@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * 统计插件：统计仪表盘页面与 {@code /api/stats/**} 只读聚合。
@@ -41,9 +40,9 @@ public class StatsPlugin implements PixivFeaturePlugin {
     public List<WebRouteContribution> routes() {
         // 管理员专属：页面与 API 均按 monitor 语义保护（方法不限）。
         return List.of(
-                new WebRouteContribution("/pixiv-stats.html", AccessPolicy.ADMIN, Set.of(), false),
-                new WebRouteContribution("/pixiv-stats/**", AccessPolicy.ADMIN, Set.of(), false),
-                new WebRouteContribution("/api/stats/**", AccessPolicy.ADMIN, Set.of(), false));
+                WebRouteContribution.admin("/pixiv-stats.html"),
+                WebRouteContribution.admin("/pixiv-stats/**"),
+                WebRouteContribution.admin("/api/stats/**"));
     }
 
     @Override

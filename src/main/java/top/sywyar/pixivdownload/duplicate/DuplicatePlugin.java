@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * 重复检测插件：基于核心图片 Hash 索引的疑似重复页面、API 与手动重扫入口。
@@ -42,9 +41,9 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
     public List<WebRouteContribution> routes() {
         // 管理员专属：页面与 API 均按 monitor 语义保护（方法不限）。
         return List.of(
-                new WebRouteContribution("/pixiv-duplicates.html", AccessPolicy.ADMIN, Set.of(), false),
-                new WebRouteContribution("/pixiv-duplicates/**", AccessPolicy.ADMIN, Set.of(), false),
-                new WebRouteContribution("/api/duplicates/**", AccessPolicy.ADMIN, Set.of(), false));
+                WebRouteContribution.admin("/pixiv-duplicates.html"),
+                WebRouteContribution.admin("/pixiv-duplicates/**"),
+                WebRouteContribution.admin("/api/duplicates/**"));
     }
 
     @Override
