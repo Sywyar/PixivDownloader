@@ -5,8 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
-import top.sywyar.pixivdownload.maintenance.MaintenanceContext;
-import top.sywyar.pixivdownload.maintenance.MaintenanceTask;
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 
 import javax.sql.DataSource;
 import java.sql.Connection;

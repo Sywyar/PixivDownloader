@@ -11,8 +11,8 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.duplicate.DuplicateController;
 import top.sywyar.pixivdownload.duplicate.DuplicateHashBackfillTask;
 import top.sywyar.pixivdownload.gallery.GalleryController;
-import top.sywyar.pixivdownload.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.stats.StatsController;
 
 import static org.assertj.core.api.Assertions.assertThat;

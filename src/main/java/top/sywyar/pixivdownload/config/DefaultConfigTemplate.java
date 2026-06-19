@@ -50,6 +50,14 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "download.novel-max-concurrent: 10", "config.template.download.novel-max-concurrent.comment");
         appendBlankLine(config);
 
+        appendSection(config, messages, "config.template.section.plugins");
+        appendSetting(config, messages, "plugins.download-workbench.enabled: true", "config.template.plugins.enabled.comment");
+        appendSetting(config, messages, "plugins.gallery.enabled: true", "config.template.plugins.enabled.comment");
+        appendSetting(config, messages, "plugins.novel.enabled: true", "config.template.plugins.enabled.comment");
+        appendSetting(config, messages, "plugins.stats.enabled: true", "config.template.plugins.enabled.comment");
+        appendSetting(config, messages, "plugins.duplicate.enabled: true", "config.template.plugins.enabled.comment");
+        appendBlankLine(config);
+
         appendSection(config, messages, "config.template.section.proxy");
         appendSetting(config, messages, "proxy.enabled: true", "config.template.proxy.enabled.comment");
         appendSetting(config, messages, "proxy.host: 127.0.0.1", "config.template.proxy.host.comment");

@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.duplicate;
 
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
@@ -12,7 +13,10 @@ import java.util.List;
 
 /**
  * 重复检测插件：基于核心图片 Hash 索引的疑似重复页面、API 与手动重扫入口。
- * Hash 的下载后即时计算与缺失回填属核心资产索引能力，不随本插件禁用。
+ * Hash 的下载后即时计算属核心资产索引能力（{@code ArtworkDownloadExecutor→ImageHashService}），
+ * 不随本插件禁用；而缺失 Hash 的批量回填维护任务（{@link DuplicateHashBackfillTask}）随本插件归属、
+ * 经 {@link #maintenanceTasks()} 声明，禁用本插件时维护窗口跳过它、重新启用后恢复（只补齐历史缺口
+ * 与失败哨兵，下载期已即时记录的 Hash 无需重抓）。
  * <p>
  * 疑似重复检测是管理员专属功能（{@code ADMIN}，即 solo 会话用户或 multi 登录管理员），
  * 不得进入 isPublic / 访客邀请白名单——该不变量由路由镜像测试守护。无私有表
@@ -63,5 +67,12 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
     public List<NavigationContribution> navigation() {
         return List.of(new NavigationContribution(
                 ID, "nav.label", "/pixiv-duplicates.html", "copy", AccessPolicy.ADMIN, 70));
+    }
+
+    @Override
+    public List<Class<? extends MaintenanceTask>> maintenanceTasks() {
+        // 缺失 Hash 批量回填任务随本插件启停：禁用 duplicate 时维护窗口跳过它（下载期即时算 Hash 的
+        // 核心链路不受影响），重新启用后恢复、只补齐历史缺口与失败哨兵。
+        return List.of(DuplicateHashBackfillTask.class);
     }
 }

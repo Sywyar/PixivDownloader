@@ -1,14 +1,18 @@
 package top.sywyar.pixivdownload.plugin;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -17,8 +21,16 @@ import java.util.stream.Collectors;
  * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁。
  * 注册中心是各下游 registry（schema / 路由 / 导航 / i18n / 静态资源）合并结果的唯一来源。
  * <p>
- * 插件生命周期：应用启动后按注册顺序调用各插件 {@link PixivFeaturePlugin#start()}，
- * 关闭时按反序调用 {@link PixivFeaturePlugin#stop()}。
+ * 「安装」与「启用」分离：{@link #allPlugins()} 是全部内置插件（安装态、随构造固定），
+ * {@link #plugins()} 是<b>活动</b>（启用）插件的不可变快照——禁用的插件经
+ * {@code plugins.<id>.enabled=false}（{@link PluginToggleProperties}）在构造期<b>不被注册进快照</b>，
+ * 故各下游 registry（路由 / 导航 / i18n / 静态资源 / 调度来源 / 队列 / 标签页 / 落点）经 {@link #plugins()}
+ * 自动排除禁用插件，其页面 / API / 导航因而不注册。<b>核心插件（{@link PluginKind#CORE}）永不可禁用。</b>
+ * schema 不随插件禁用而缺失：受管 schema 经 {@link #allPlugins()} 合并（见 {@code DatabaseSchemaRegistry}），
+ * 即使插件被禁用其声明的表 / 列仍创建，已有数据保留。
+ * <p>
+ * 插件生命周期：应用启动后按注册顺序调用各<b>活动</b>插件 {@link PixivFeaturePlugin#start()}，
+ * 关闭时按反序调用 {@link PixivFeaturePlugin#stop()}；禁用插件不进入活动快照，其生命周期方法不被调用。
  */
 @Slf4j
 @Component
@@ -29,11 +41,41 @@ public class PluginRegistry implements SmartLifecycle {
 
     private final Object lock = new Object();
 
+    /** 全部内置插件（安装态），随构造固定；schema 合并经此读取，不受启用开关影响。 */
+    private final List<PixivFeaturePlugin> installed;
+
     private volatile List<PixivFeaturePlugin> snapshot = List.of();
     private volatile boolean running;
 
+    /** Spring 上下文外（{@code BuiltInPlugins.createAll()}、单元测试）构造：全部插件视为启用。 */
     public PluginRegistry(List<PixivFeaturePlugin> plugins) {
-        plugins.forEach(this::register);
+        this(plugins, new PluginToggleProperties());
+    }
+
+    /**
+     * Spring 构造：按 {@code plugins.<id>.enabled} 决定哪些功能插件进入活动快照（禁用=不注册），
+     * 核心插件永不可禁用。无论启用与否，全部插件都保留在 {@link #allPlugins()} 供 schema 合并。
+     */
+    @Autowired
+    public PluginRegistry(List<PixivFeaturePlugin> plugins, PluginToggleProperties toggles) {
+        List<PixivFeaturePlugin> all = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
+        for (PixivFeaturePlugin plugin : plugins) {
+            String pluginId = plugin.id();
+            if (pluginId == null || !PLUGIN_ID_PATTERN.matcher(pluginId).matches()) {
+                throw new IllegalStateException("invalid plugin id: " + pluginId);
+            }
+            if (!seenIds.add(pluginId)) {
+                throw new IllegalStateException("duplicate plugin id: " + pluginId);
+            }
+            all.add(plugin);
+        }
+        this.installed = List.copyOf(all);
+        for (PixivFeaturePlugin plugin : all) {
+            if (plugin.kind() == PluginKind.CORE || toggles.isEnabled(plugin.id())) {
+                register(plugin);
+            }
+        }
     }
 
     /**
@@ -68,9 +110,31 @@ public class PluginRegistry implements SmartLifecycle {
         }
     }
 
-    /** 按注册顺序返回全部插件的不可变快照。 */
+    /**
+     * 按注册顺序返回<b>活动</b>（启用）插件的不可变快照。禁用的插件不在其中——下游 registry 经此
+     * 聚合，因而自动排除禁用插件的路由 / 导航 / i18n / 静态资源等贡献。需要全部内置插件（含禁用）
+     * 时用 {@link #allPlugins()}（如 schema 合并）。
+     */
     public List<PixivFeaturePlugin> plugins() {
         return snapshot;
+    }
+
+    /**
+     * 返回全部内置插件（安装态，含被禁用的），随构造固定、不受启用开关影响。
+     * 供必须覆盖全部插件的场景使用——典型是 schema 合并（禁用插件的表 / 列仍需创建、数据保留）。
+     */
+    public List<PixivFeaturePlugin> allPlugins() {
+        return installed;
+    }
+
+    /** 返回被禁用（安装但未进入活动快照）的插件。供维护任务按归属跳过禁用插件的任务等场景使用。 */
+    public List<PixivFeaturePlugin> disabledPlugins() {
+        Set<String> activeIds = snapshot.stream()
+                .map(PixivFeaturePlugin::id)
+                .collect(Collectors.toSet());
+        return installed.stream()
+                .filter(plugin -> !activeIds.contains(plugin.id()))
+                .toList();
     }
 
     public Optional<PixivFeaturePlugin> find(String pluginId) {

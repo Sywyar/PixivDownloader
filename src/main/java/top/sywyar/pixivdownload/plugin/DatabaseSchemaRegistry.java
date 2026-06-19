@@ -41,7 +41,9 @@ public class DatabaseSchemaRegistry {
     private volatile List<RegisteredContribution> snapshot = List.of();
 
     public DatabaseSchemaRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        // 受管 schema 合并经 allPlugins()（全部内置插件，含被禁用的）：禁用插件声明的表 / 列仍需创建、
+        // 已有数据保留，故 schema 不随插件启用开关变化（当前全部长期事实表归核心，亦为前向兼容守住此不变量）。
+        for (PixivFeaturePlugin plugin : pluginRegistry.allPlugins()) {
             plugin.schema().forEach(this::register);
         }
     }

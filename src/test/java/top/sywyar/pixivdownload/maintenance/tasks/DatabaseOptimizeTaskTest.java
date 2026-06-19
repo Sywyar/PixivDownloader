@@ -6,7 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import top.sywyar.pixivdownload.maintenance.MaintenanceContext;
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 

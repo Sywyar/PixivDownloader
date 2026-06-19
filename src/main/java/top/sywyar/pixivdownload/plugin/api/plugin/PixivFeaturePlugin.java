@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.api.plugin;
 
+import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
@@ -101,6 +102,15 @@ public interface PixivFeaturePlugin {
 
     /** 插件贡献的下载工作台获取方式标签页（acquisition 轴：怎么找作品；由提供该标签页的插件声明）。 */
     default List<TabContribution> downloadTabs() {
+        return List.of();
+    }
+
+    /**
+     * 插件声明其拥有的维护任务类型。维护协调器据此把交互 / 聚合 / 展示型维护任务归属到插件——
+     * 插件被禁用时跳过它声明的任务；不被任何插件声明的维护任务视为核心任务、始终执行。
+     * 维护任务实现仍由各插件的 {@code XxxPluginConfiguration} 装配为 Bean，本方法只声明归属关系。
+     */
+    default List<Class<? extends MaintenanceTask>> maintenanceTasks() {
         return List.of();
     }
 }

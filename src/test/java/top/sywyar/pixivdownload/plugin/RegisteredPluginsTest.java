@@ -121,6 +121,8 @@ class RegisteredPluginsTest {
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean("novelDownloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
+            // 插件启用开关：空实例代表全部启用（本切片不验证禁用语义，只需 PluginRegistry 的 @Autowired 构造可解析）。
+            .withBean(PluginToggleProperties.class, PluginToggleProperties::new)
             // 作品类型执行器注册中心用真实 Bean：收集下载工作台贡献的插画执行器 + 小说插件贡献的小说执行器，
             // 验证 schedule 引擎经核心注册中心装配、不再注入单一 novel delegate。
             .withUserConfiguration(

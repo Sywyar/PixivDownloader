@@ -16,15 +16,25 @@ class PluginRegistryTest {
     private static class TestPlugin implements PixivFeaturePlugin {
 
         private final String id;
+        private final PluginKind kind;
         private final List<String> lifecycleLog;
         private final boolean failOnStop;
 
         TestPlugin(String id) {
-            this(id, new ArrayList<>(), false);
+            this(id, PluginKind.FEATURE);
+        }
+
+        TestPlugin(String id, PluginKind kind) {
+            this(id, kind, new ArrayList<>(), false);
         }
 
         TestPlugin(String id, List<String> lifecycleLog, boolean failOnStop) {
+            this(id, PluginKind.FEATURE, lifecycleLog, failOnStop);
+        }
+
+        TestPlugin(String id, PluginKind kind, List<String> lifecycleLog, boolean failOnStop) {
             this.id = id;
+            this.kind = kind;
             this.lifecycleLog = lifecycleLog;
             this.failOnStop = failOnStop;
         }
@@ -41,7 +51,7 @@ class PluginRegistryTest {
 
         @Override
         public PluginKind kind() {
-            return PluginKind.FEATURE;
+            return kind;
         }
 
         @Override
@@ -132,5 +142,62 @@ class PluginRegistryTest {
         registry.stop();
         assertThat(registry.isRunning()).isFalse();
         assertThat(lifecycleLog).containsExactly("stop:stats", "stop:gallery", "stop:core");
+    }
+
+    @Test
+    @DisplayName("禁用的功能插件不进入活动快照，但仍保留在 allPlugins 并出现在 disabledPlugins")
+    void disabledFeaturePluginExcludedFromActiveSnapshotButKeptInstalled() {
+        PluginToggleProperties toggles = new PluginToggleProperties();
+        toggles.put("stats", disabledToggle());
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE),
+                        new TestPlugin("gallery"),
+                        new TestPlugin("stats")),
+                toggles);
+
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).containsExactly("core", "gallery");
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id)
+                .containsExactly("core", "gallery", "stats");
+        assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("stats");
+        assertThat(registry.find("stats")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("核心插件即使配置 enabled=false 也不可禁用")
+    void corePluginCannotBeDisabled() {
+        PluginToggleProperties toggles = new PluginToggleProperties();
+        toggles.put("core", disabledToggle());
+        toggles.put("stats", disabledToggle());
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE), new TestPlugin("stats")),
+                toggles);
+
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
+        assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("stats");
+    }
+
+    @Test
+    @DisplayName("禁用插件不进入活动快照，其生命周期方法不被调用")
+    void disabledPluginLifecycleNotInvoked() {
+        List<String> log = new ArrayList<>();
+        PluginToggleProperties toggles = new PluginToggleProperties();
+        toggles.put("stats", disabledToggle());
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE, log, false),
+                        new TestPlugin("stats", PluginKind.FEATURE, log, false)),
+                toggles);
+
+        registry.start();
+        assertThat(log).containsExactly("start:core");
+
+        log.clear();
+        registry.stop();
+        assertThat(log).containsExactly("stop:core");
+    }
+
+    private static PluginToggleProperties.PluginToggle disabledToggle() {
+        PluginToggleProperties.PluginToggle toggle = new PluginToggleProperties.PluginToggle();
+        toggle.setEnabled(false);
+        return toggle;
     }
 }

@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.maintenance;
+package top.sywyar.pixivdownload.plugin.api.maintenance;
 
 /**
  * 维护任务执行时的上下文。预留以便未来扩展（例如携带触发原因、运行 ID）。
