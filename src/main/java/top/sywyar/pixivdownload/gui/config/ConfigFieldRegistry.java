@@ -54,6 +54,7 @@ public final class ConfigFieldRegistry {
         return List.of(
                 message("gui.config.group.server"),
                 message("gui.config.group.download"),
+                message("gui.config.group.plugins"),
                 message("gui.config.group.proxy"),
                 message("gui.config.group.multi-mode"),
                 message("gui.config.group.guest-invite"),
@@ -71,6 +72,7 @@ public final class ConfigFieldRegistry {
     public static List<ConfigFieldSpec> allFields() {
         String groupServer = message("gui.config.group.server");
         String groupDownload = message("gui.config.group.download");
+        String groupPlugins = message("gui.config.group.plugins");
         String groupProxy = message("gui.config.group.proxy");
         String groupMultiMode = message("gui.config.group.multi-mode");
         String groupGuestInvite = message("gui.config.group.guest-invite");
@@ -155,6 +157,28 @@ public final class ConfigFieldRegistry {
                                 return message("gui.config.validation.valid-int");
                             }
                         })
+                        .build(),
+
+                // ── 内置插件开关（关闭后不注册其页面/导航/API/维护任务，核心数据照写；需重启）─────
+                ConfigFieldSpec.builder("plugins.download-workbench.enabled", message("gui.config.field.plugins.download-workbench.enabled.label"), BOOL, groupPlugins)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.plugins.enabled.help"))
+                        .build(),
+                ConfigFieldSpec.builder("plugins.gallery.enabled", message("gui.config.field.plugins.gallery.enabled.label"), BOOL, groupPlugins)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.plugins.enabled.help"))
+                        .build(),
+                ConfigFieldSpec.builder("plugins.novel.enabled", message("gui.config.field.plugins.novel.enabled.label"), BOOL, groupPlugins)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.plugins.enabled.help"))
+                        .build(),
+                ConfigFieldSpec.builder("plugins.stats.enabled", message("gui.config.field.plugins.stats.enabled.label"), BOOL, groupPlugins)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.plugins.enabled.help"))
+                        .build(),
+                ConfigFieldSpec.builder("plugins.duplicate.enabled", message("gui.config.field.plugins.duplicate.enabled.label"), BOOL, groupPlugins)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.plugins.enabled.help"))
                         .build(),
 
                 // ── 代理 ───────────────────────────────────────────────────────────

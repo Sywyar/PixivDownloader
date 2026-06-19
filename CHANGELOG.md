@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Features
 - 下载插画作品或小说时，会额外在作品目录保存一个 `{作品ID}.meta.json` 元数据文件，记录从 Pixiv 抓取到的原始结构性信息（逐页尺寸与原图地址、真实发布时间、是否原创、官方标题 / 简介翻译、约稿信息等；不含收藏 / 浏览等计数与登录账号相关字段，小说还会去掉已另存的正文与内嵌图），供后续功能免重新联网即可读取；同时把「发布时间」与「原创标记」一并落库为可查询字段。这些信息全部取自下载时本就已抓到的数据，不会为此对 Pixiv 发起任何额外请求。该元数据文件被视为作品自身的一部分：随作品移动 / 删除而同步迁移 / 清除，并不计入配额打包与小说导出。此为后台基础能力，暂无界面直接展示。
-- `config.yaml` 新增「内置插件开关」配置 `plugins.<插件 id>.enabled`（`plugins.download-workbench.enabled`、`plugins.gallery.enabled`、`plugins.novel.enabled`、`plugins.stats.enabled`、`plugins.duplicate.enabled`，默认全部启用），可单独关闭某个内置功能模块。关闭后该模块的页面、导航入口、API 与其维护任务都不再注册（访问其页面 / API 会返回 404），但核心数据照常写入——下载历史、作品元数据、标签 / 作者 / 系列关系、小说正文、图片 Hash 等均不受任何插件开关影响，也不会删除数据库或文件，重新启用即可基于既有数据恢复。修改后需重启服务生效。
+- `config.yaml` 新增「内置插件开关」配置 `plugins.<插件 id>.enabled`（`plugins.download-workbench.enabled`、`plugins.gallery.enabled`、`plugins.novel.enabled`、`plugins.stats.enabled`、`plugins.duplicate.enabled`，默认全部启用），可单独关闭某个内置功能模块。关闭后该模块的页面、导航入口、API 与其维护任务都不再注册（访问其页面 / API 会返回 404），但核心数据照常写入——下载历史、作品元数据、标签 / 作者 / 系列关系、小说正文、图片 Hash 等均不受任何插件开关影响，也不会删除数据库或文件，重新启用即可基于既有数据恢复。这些开关也可在 GUI 配置页新增的「插件」标签页用复选框编辑。修改后需重启服务生效。
 
 ## [v1.14.0-beta.1] - 2026.6.14
 
