@@ -121,6 +121,8 @@ class RegisteredPluginsTest {
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean("novelDownloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
+            // 作品类型执行器注册中心用真实 Bean：收集下载工作台贡献的插画执行器 + 小说插件贡献的小说执行器，
+            // 验证 schedule 引擎经核心注册中心装配、不再注入单一 novel delegate。
             .withUserConfiguration(
                     CorePluginConfiguration.class,
                     DownloadWorkbenchPluginConfiguration.class,
@@ -129,6 +131,7 @@ class RegisteredPluginsTest {
                     StatsPluginConfiguration.class,
                     DuplicatePluginConfiguration.class,
                     PluginRegistry.class,
+                    top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry.class,
                     DatabaseSchemaRegistry.class);
 
     @Test

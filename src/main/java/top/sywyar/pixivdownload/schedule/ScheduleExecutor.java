@@ -14,16 +14,18 @@ import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationService;
-import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
-import top.sywyar.pixivdownload.novel.download.NovelDownloader;
-import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
-import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustSettings;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustWork;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelSettings;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelWork;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.push.MarkdownEscape;
@@ -31,6 +33,9 @@ import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
+import top.sywyar.pixivdownload.schedule.source.DiscoveryMode;
+import top.sywyar.pixivdownload.schedule.source.ScheduledSource;
+import top.sywyar.pixivdownload.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.text.SimpleDateFormat;
@@ -91,15 +96,24 @@ public class ScheduleExecutor {
     private static final String KIND_NOVEL = "novel";
 
     private final ScheduledTaskStore store;
-    /** 计划任务来源注册中心：runTask 顶部的来源解析门据此把任务存量 type 解析到对应来源 provider。 */
+    /**
+     * 计划任务来源注册中心：{@code runTask} 顶部把任务存量 {@code type} 解析到对应来源 provider，
+     * 再向下转型为 {@link ScheduledSource} 派发其发现 / 模式 / 谓词——调度主编排不再按
+     * {@link ScheduledTaskType} 枚举 switch 调具体来源实现。解析不到即来源不可用、干净挂起。
+     */
     private final ScheduledSourceRegistry scheduledSourceRegistry;
     private final PixivFetchService pixivFetchService;
     private final PixivDatabase pixivDatabase;
     private final WorkMetaCaptureService workMetaCaptureService;
     private final ArtworkDownloader artworkDownloader;
-    private final NovelDownloader novelDownloader;
+    /**
+     * 作品类型执行器注册中心（核心 owned）：调度壳准备好中性 work 后按作品类型（{@code illust} / {@code novel}）
+     * 解析执行器派发下载 / 系列合订 / 取翻译状态——插画执行器住调度壳、小说执行器由小说插件贡献，调度壳因此既不
+     * 强依赖任一具体下载实现、也不再为小说单列分支、更不 import novel 包。某类型执行器缺席（贡献它的插件被禁 /
+     * 卸载）时解析为空，对应类型任务标记不可用、干净挂起（见 {@link #requireWorkRunner}）。
+     */
+    private final ScheduledWorkRunnerRegistry workRunnerRegistry;
     private final NovelMetadataRepository novelMetadataRepository;
-    private final NovelMergeService novelMergeService;
     private final ScheduleConfig scheduleConfig;
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
@@ -323,21 +337,37 @@ public class ScheduleExecutor {
      */
     private int runTask(ScheduledTask task, List<PendingExhaustedNotification> pendingNotifications,
                         boolean[] degraded) throws Exception {
-        // ── 来源解析门：经插件注册中心把任务存量 type（枚举名，如 USER_NEW）解析到对应来源 provider。
-        //    解析不到（来源插件被禁 / 卸载、或该类型已被移除）→ 标记来源不可用并干净挂起，绝不读 cookie /
-        //    探站内信 / 发现 / 派发。这是注册中心的首个运行期消费者，也是插件禁用 / 热卸载语义的接缝。
-        //    当前 7 个内置来源恒由核心插件贡献，故生产路径恒命中；解析成功后实际发现 / 派发仍走下方枚举分支
-        //    （provider 暂仅承载身份 + legacy 映射，发现逻辑随首个真实 provider 一起落地，见 runTask 下方各分支）。
-        if (scheduledSourceRegistry.resolve(task.type().name()).isEmpty()) {
-            throw new ScheduleSourceUnavailableException(task.type().name());
-        }
-        String cookie = ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())
-                ? store.findCookieSnapshot(task.id())
-                : null;
+        // ── 来源解析门 + 派发对象：把任务存量 type（枚举名，如 USER_NEW）解析到对应来源 provider，并向下转型为
+        //    执行契约 ScheduledSource。解析不到 / 非执行型（来源插件被禁 / 卸载、或该类型已被移除）→ 标记来源不可用
+        //    并干净挂起，绝不读 cookie / 探站内信 / 发现 / 派发。当前 7 个内置来源恒由下载工作台贡献并实现
+        //    ScheduledSource，故生产路径恒命中。下方发现 / 模式判定 / 账号私有判定 / 系列合订全部经该 source 对象，
+        //    调度主编排不再按 ScheduledTaskType 枚举 switch 调具体来源实现。
+        ScheduledSource sourceProvider = scheduledSourceRegistry.resolve(task.type().name())
+                .filter(ScheduledSource.class::isInstance)
+                .map(ScheduledSource.class::cast)
+                .orElseThrow(() -> new ScheduleSourceUnavailableException(task.type().name()));
 
         JsonNode root = objectMapper.readTree(task.paramsJson() == null ? "{}" : task.paramsJson());
         boolean novel = KIND_NOVEL.equalsIgnoreCase(root.path("kind").asText("illust"));
         JsonNode source = root.path("source");
+        DiscoveryMode discoveryMode = sourceProvider.mode(source);
+
+        // ── 作品类型执行器解析门：本任务要派发的每种作品类型都必须有对应执行器（runner），否则标记不可用、干净
+        //    挂起。与上面的来源解析门并列在读 cookie / 探站内信 / 发现 / 派发之前——缺执行器（如小说插件被禁 /
+        //    卸载、或未提供该类型执行器）时绝不读 cookie / 发现 / 派发。COLLECTION 是插画 + 小说混合来源，需两类
+        //    执行器都在场；其余按任务 kind 取单一类型。插画执行器恒由下载工作台内置贡献，故插画任务不受小说执行器
+        //    缺席影响。复用 SOURCE_UNAVAILABLE 终态（语义在本包扩展为「来源或作品类型执行器不可用」）。
+        if (discoveryMode == DiscoveryMode.COLLECTION) {
+            requireWorkRunner(ScheduledWorkKind.ILLUST, task);
+            requireWorkRunner(ScheduledWorkKind.NOVEL, task);
+        } else {
+            requireWorkRunner(novel ? ScheduledWorkKind.NOVEL : ScheduledWorkKind.ILLUST, task);
+        }
+
+        String cookie = ScheduledTask.COOKIE_BOUND.equals(task.cookieMode())
+                ? store.findCookieSnapshot(task.id())
+                : null;
+
         Filters filters = parseFilters(root.path("filters"));
         Download download = parseDownload(root.path("download"));
         // 抓取上限（0 = 不限 / 全量）。语义随来源是否「ID 单调可水位线」二分：
@@ -353,7 +383,7 @@ public class ScheduleExecutor {
             OveruseWarningService.Result result =
                     overuseWarningService.check(cookie, task.ackWarningTime(), System.currentTimeMillis());
             if (result.isCookieDead()) {
-                if (isCookieDependent(root) || isAccountScopedType(task.type())) {
+                if (isCookieDependent(root) || sourceProvider.accountScoped()) {
                     // 账号私有来源（收藏 / 关注新作 / 珍藏集）无法匿名续跑，dead cookie 一律挂起。
                     throw new ScheduleSuspendException(ScheduleSuspendException.Reason.COOKIE_DEAD);
                 }
@@ -369,8 +399,8 @@ public class ScheduleExecutor {
             }
         }
 
-        // COLLECTION 是插画+小说混合来源，分两遍各自走对应下载管线，单独处理。
-        if (task.type() == ScheduledTaskType.COLLECTION) {
+        // COLLECTION 是插画+小说混合来源，分两遍各自走对应下载管线，单独处理（不经共享扫描驱动）。
+        if (discoveryMode == DiscoveryMode.COLLECTION) {
             return runCollectionTask(task, source, cookie, filters, download, fetchLimit, pendingNotifications);
         }
 
@@ -393,34 +423,27 @@ public class ScheduleExecutor {
             //    若作品在隔离期间已被其它路径（手动 / 别的任务）下载，先清隔离表条目、跳过重试。──
             retryPending(task.id(), runner, politeDelay, alreadyDownloaded);
 
-            if (isWatermarkMode(task.type(), source)) {
-                runWatermarkMode(task, novel, source, cookie, runner, run, alreadyDownloaded, politeDelay, fetchLimit);
-            } else if (isDownloadedBoundarySearchMode(task.type(), source)) {
-                runDownloadedBoundarySearch(novel, source, cookie, runner, run, alreadyDownloaded, politeDelay, fetchLimit);
-            } else {
-                // 全量发现 + 跳过已下载（SEARCH 固定页 / SERIES / MY_BOOKMARKS）。
-                // 仅 MY_BOOKMARKS 应用「每轮上限」（收藏顺序非单调、无水位线，逐轮各抓 fetchLimit 个新作抽干积压）；
-                // SERIES / 固定页 SEARCH 不封顶（前端也隐藏该字段，此处即便误带也不生效）。
-                int queueLimit = task.type() == ScheduledTaskType.MY_BOOKMARKS && fetchLimit > 0 ? fetchLimit : 0;
-                List<String> ids = discoverIds(task.type(), novel, source, cookie);
-                WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
-                runFullDiscoveryCapScan(ids, alreadyDownloaded, dispatcher, politeDelay, run, queueLimit);
-            }
+            // 经来源 provider 发现并派发本轮新作（水位线 / 边界 / 全量按来源在 discoverAndDispatch 内自定；
+            // 共享扫描驱动 / 作品级并发 / 限流 / 过度访问检查 / 水位线推进封装在 RunContext 背后的调度壳里）。
+            sourceProvider.discoverAndDispatch(
+                    new RunContext(task, source, cookie, novel, fetchLimit, run, runner, alreadyDownloaded, politeDelay));
         } finally {
             // 等本轮所有在途下载完成：保证挂起 / 异常 unwind 时已派发的下载跑完、失败者已入隔离表，
-            // 终态标记与「watermark 不推进」一致（updateWatermark 已在 runWatermarkMode 内 join 后才执行）。
+            // 终态标记与「watermark 不推进」一致（updateWatermark 已在 watermarkScan 内 join 后才执行）。
             runner.awaitAll();
         }
 
         int completed = runner.completed();
 
         // 小说系列合订：best-effort、幂等；本轮有新章节时立即合订（已在上面 join，章节均已落库）。
-        if (novel && task.type() == ScheduledTaskType.SERIES && download.novelMerge() && completed > 0) {
+        // 经核心契约 ScheduledWorkRunner.mergeSeries 走小说执行器（novel 任务已由解析门保证执行器在场）。
+        if (novel && sourceProvider.seriesMergeApplies() && download.novelMerge() && completed > 0) {
             long seriesId = source.path("seriesId").asLong(0);
             if (seriesId > 0) {
                 try {
-                    novelMergeService.merge(seriesId,
-                            NovelDownloadService.NovelFormat.parse(download.novelMergeFormat()));
+                    workRunnerRegistry.resolve(ScheduledWorkKind.NOVEL)
+                            .orElseThrow(() -> new IllegalStateException("novel work runner unavailable"))
+                            .mergeSeries(seriesId, download.novelMergeFormat());
                 } catch (Exception e) {
                     log.warn("Scheduled task {} series merge failed [{}]: {}",
                             task.id(), e.getClass().getSimpleName(), summarizeError(e));
@@ -428,6 +451,20 @@ public class ScheduleExecutor {
             }
         }
         return completed;
+    }
+
+    /**
+     * 作品类型执行器解析门：解析对应作品类型（{@code kind}）的执行器，缺席即抛
+     * {@link ScheduleSourceUnavailableException}，让 {@code runTaskAndRecord} 标记 {@code SOURCE_UNAVAILABLE}
+     * 干净挂起（该终态语义在本包扩展为「来源 <b>或</b> 作品类型执行器不可用」）。在读 cookie / 发现 / 派发之前调用，
+     * 故缺执行器时绝不读 cookie / 探站内信 / 发现 / 派发。返回执行器仅表达「在场」，实际派发时由各 prepare 方法
+     * 再次解析（恒命中）。
+     */
+    private ScheduledWorkRunner requireWorkRunner(String kind, ScheduledTask task)
+            throws ScheduleSourceUnavailableException {
+        return workRunnerRegistry.resolve(kind)
+                .orElseThrow(() -> new ScheduleSourceUnavailableException(
+                        task.type().name() + " (work kind: " + kind + ")"));
     }
 
     /**
@@ -455,65 +492,6 @@ public class ScheduleExecutor {
         }
     }
 
-    private List<String> discoverIds(ScheduledTaskType type, boolean novel, JsonNode source, String cookie)
-            throws Exception {
-        return switch (type) {
-            case USER_NEW -> {
-                String userId = source.path("userId").asText("");
-                yield novel ? pixivFetchService.discoverUserNovelIds(userId, cookie)
-                            : pixivFetchService.discoverUserArtworkIds(userId, cookie);
-            }
-            // USER_REQUEST 走 ID 水位线增量（runWatermarkMode），不经此全量入口。
-            case USER_REQUEST -> throw new IllegalStateException("USER_REQUEST handled by runWatermarkMode");
-            case SEARCH -> {
-                String word = source.path("word").asText("");
-                String order = source.path("order").asText("date_d");
-                String mode = source.path("mode").asText("all");
-                String sMode = source.path("sMode").asText("s_tag");
-                int maxPages = source.path("maxPages").asInt(3);
-                yield novel ? pixivFetchService.discoverSearchNovelIds(word, order, mode, sMode, maxPages, cookie)
-                            : pixivFetchService.discoverSearchArtworkIds(word, order, mode, sMode, maxPages, cookie);
-            }
-            case SERIES -> {
-                String seriesId = source.path("seriesId").asText("");
-                yield novel ? pixivFetchService.discoverNovelSeriesIds(seriesId, cookie)
-                            : pixivFetchService.discoverSeriesArtworkIds(seriesId, cookie);
-            }
-            case MY_BOOKMARKS -> {
-                String rest = source.path("rest").asText("show");
-                yield novel ? pixivFetchService.discoverMyNovelBookmarkIds(rest, cookie)
-                            : pixivFetchService.discoverMyIllustBookmarkIds(rest, cookie);
-            }
-            case FOLLOW_LATEST -> pixivFetchService.discoverFollowLatestIllustIds(cookie);
-            // COLLECTION 是混合（插画+小说）来源，由 runCollectionTask 单独处理，不经此单 kind 入口。
-            case COLLECTION -> throw new IllegalStateException("COLLECTION handled by runCollectionTask");
-        };
-    }
-
-    /**
-     * 「最新在前 + 只追加 + ID 单调」的来源走 ID 水位线增量发现：
-     * <ul>
-     *   <li>USER_NEW —— 单画师全量发现（ID 降序）；</li>
-     *   <li>USER_REQUEST —— 单画师约稿成品全量发现（{@code parseRequestArtworkIds} 已按 ID 降序，与 USER_NEW 同构）；</li>
-     *   <li>FOLLOW_LATEST —— 已关注用户的新作 feed（按发布时间倒序 ≈ ID 降序，仅头部追加）；</li>
-     *   <li>SEARCH —— 仅 {@code date_d + maxPages==-1} 的增量搜索（按时间倒序、逐页翻到追平历史）。</li>
-     * </ul>
-     */
-    static boolean isWatermarkMode(ScheduledTaskType type, JsonNode source) {
-        if (type == ScheduledTaskType.USER_NEW) return true;
-        if (type == ScheduledTaskType.USER_REQUEST) return true;
-        if (type == ScheduledTaskType.FOLLOW_LATEST) return true;
-        return type == ScheduledTaskType.SEARCH
-                && source.path("maxPages").asInt(3) == -1
-                && "date_d".equals(source.path("order").asText("date_d"));
-    }
-
-    private static boolean isDownloadedBoundarySearchMode(ScheduledTaskType type, JsonNode source) {
-        return type == ScheduledTaskType.SEARCH
-                && source.path("maxPages").asInt(3) == -1
-                && !"date_d".equals(source.path("order").asText("date_d"));
-    }
-
     /**
      * 判定任务是否「cookie 依赖型」（满足任一）：
      * <ul>
@@ -533,16 +511,6 @@ public class ScheduleExecutor {
             return true;
         }
         return root.path("download").path("bookmark").asBoolean(false);
-    }
-
-    /**
-     * 账号私有来源类型：收藏 / 已关注用户的新作 / 珍藏集。这类发现接口必须用账号 cookie，
-     * 无法匿名续跑，因此 dead / 缺失 cookie 时一律挂起 {@code AUTH_EXPIRED}（与 {@link #isCookieDependent} 合并判定）。
-     */
-    static boolean isAccountScopedType(ScheduledTaskType type) {
-        return type == ScheduledTaskType.MY_BOOKMARKS
-                || type == ScheduledTaskType.FOLLOW_LATEST
-                || type == ScheduledTaskType.COLLECTION;
     }
 
     /**
@@ -633,91 +601,105 @@ public class ScheduleExecutor {
         return runner.completed();
     }
 
-    private void runWatermarkMode(ScheduledTask task, boolean novel, JsonNode source, String cookie,
-                                  WorkRunner runner, ScheduleRunQueue.Run run,
-                                  LongPredicate alreadyDownloaded, Runnable politeDelay,
-                                  int fetchLimit) throws Exception {
-        PageSupplier pages;
-        Runnable pageDelay;
-        if (task.type() == ScheduledTaskType.USER_NEW) {
-            String userId = source.path("userId").asText("");
-            List<String> all = novel ? pixivFetchService.discoverUserNovelIds(userId, cookie)
-                                     : pixivFetchService.discoverUserArtworkIds(userId, cookie);
-            pages = p -> p == 1 ? all : List.of();
-            pageDelay = () -> {}; // 单次全量发现，无翻页
-        } else if (task.type() == ScheduledTaskType.USER_REQUEST) {
-            // 约稿成品仅插画（kind 锁 illust）：单次全量发现（已按 ID 降序），与 USER_NEW 同构。
-            String userId = source.path("userId").asText("");
-            List<String> all = pixivFetchService.discoverUserRequestArtworkIds(userId, cookie);
-            pages = p -> p == 1 ? all : List.of();
-            pageDelay = () -> {}; // 单次全量发现，无翻页
-        } else if (task.type() == ScheduledTaskType.FOLLOW_LATEST) {
-            pages = followLatestPages(cookie);
-            pageDelay = () -> {}; // 与既有 follow_latest 全量发现一致，页间不强制延迟
-        } else {
-            pages = searchPages(novel, source, cookie);
-            pageDelay = this::watermarkPageDelay; // SEARCH 翻页前强制 10s 礼貌延迟
-        }
-        WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
-        long watermark = task.watermarkId() == null ? 0L : task.watermarkId();
-        // 仅首轮（水位线未建立）封顶：入队数达到上限即停，newestSeen 已记到最新 ID、水位线照常推进到最新，
-        // 更老的积压会被永久跳过（这正是「只要最新 N 个、之后只追新」的预期语义）。
-        int queueLimit = (watermark == 0 && fetchLimit > 0) ? fetchLimit : 0;
-        WatermarkScanResult result = runWatermarkScan(
-                pages, watermark, alreadyDownloaded, dispatcher, politeDelay, pageDelay, run, queueLimit);
-        // 扫描正常返回（无挂起异常）后，先等本轮在途下载完成再推进水位线：确保失败者已入隔离表、
-        // watermark 推进不会越过尚未真正落盘的作品（崩溃抗空洞）。挂起异常上抛时本方法不会执行到这里。
-        runner.awaitAll();
-        // reached 边界且无挂起条件即推进（哪怕本轮有作品进隔离表）。
-        if (result.newestSeen() > 0) {
-            store.updateWatermark(task.id(), result.newestSeen());
-        }
-    }
-
-    private void runDownloadedBoundarySearch(boolean novel, JsonNode source, String cookie,
-                                             WorkRunner runner, ScheduleRunQueue.Run run,
-                                             LongPredicate alreadyDownloaded, Runnable politeDelay,
-                                             int fetchLimit) throws Exception {
-        PageSupplier pages = searchPages(novel, source, cookie);
-        WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
-        // 非 date_d 的「翻页到底」没有可靠的 ID 水位线 → 封顶按「每轮上限」语义（每轮最多登记 fetchLimit 个队列项）。
-        int queueLimit = fetchLimit > 0 ? fetchLimit : 0;
-        runDownloadedBoundaryScan(
-                pages, alreadyDownloaded, dispatcher, politeDelay, this::watermarkPageDelay, run, queueLimit);
-    }
-
-    private PageSupplier searchPages(boolean novel, JsonNode source, String cookie) {
-        String word = source.path("word").asText("");
-        String order = source.path("order").asText("date_d");
-        String mode = source.path("mode").asText("all");
-        String sMode = source.path("sMode").asText("s_tag");
-        return novel
-                ? p -> pixivFetchService.discoverSearchNovelIdsPage(word, order, mode, sMode, p, cookie)
-                : p -> pixivFetchService.discoverSearchArtworkIdsPage(word, order, mode, sMode, p, cookie);
-    }
-
     /**
-     * FOLLOW_LATEST 的逐页 supplier：依次拉 follow_latest 单页喂给水位线扫描。{@code isLastPage}
-     * 命中后下一次取页直接返回空 → 扫描自然停止（兼顾 Pixiv 偶发越界页不返回空数组的情形）。
+     * 来源 provider 的运行期上下文实现（调度壳内部类）：把共享扫描驱动 + 本轮任务级状态封装给来源对象。
+     * 来源经本上下文读参数 / 抓取 / 驱动扫描；背后的作品级并发、限流、过度访问轮内检查、隔离重试、水位线推进
+     * 全部留在调度壳，来源不接触。{@code watermarkScan} / {@code boundaryScan} / {@code fullScan} 是早前
+     * {@code runWatermarkMode} / {@code runDownloadedBoundarySearch} 去掉按类型分支后的等价封装。
      */
-    private PageSupplier followLatestPages(String cookie) {
-        boolean[] reachedLast = {false};
-        return p -> {
-            if (reachedLast[0]) {
-                return List.of();
-            }
-            PixivFetchService.FollowLatestPage page = pixivFetchService.fetchFollowLatestPage(p, cookie);
-            if (page.lastPage()) {
-                reachedLast[0] = true;
-            }
-            return page.ids();
-        };
-    }
+    private final class RunContext implements ScheduledSourceContext {
+        private final ScheduledTask task;
+        private final JsonNode source;
+        private final String cookie;
+        private final boolean novel;
+        private final int fetchLimit;
+        private final ScheduleRunQueue.Run run;
+        private final WorkRunner runner;
+        private final LongPredicate alreadyDownloaded;
+        private final Runnable politeDelay;
 
-    /** 给定页码返回该页作品 ID（按页内顺序）；空 / null 表示无更多结果。 */
-    @FunctionalInterface
-    interface PageSupplier {
-        List<String> get(int page) throws Exception;
+        RunContext(ScheduledTask task, JsonNode source, String cookie, boolean novel, int fetchLimit,
+                   ScheduleRunQueue.Run run, WorkRunner runner, LongPredicate alreadyDownloaded,
+                   Runnable politeDelay) {
+            this.task = task;
+            this.source = source;
+            this.cookie = cookie;
+            this.novel = novel;
+            this.fetchLimit = fetchLimit;
+            this.run = run;
+            this.runner = runner;
+            this.alreadyDownloaded = alreadyDownloaded;
+            this.politeDelay = politeDelay;
+        }
+
+        @Override
+        public ScheduledTask task() {
+            return task;
+        }
+
+        @Override
+        public JsonNode source() {
+            return source;
+        }
+
+        @Override
+        public String cookie() {
+            return cookie;
+        }
+
+        @Override
+        public boolean novel() {
+            return novel;
+        }
+
+        @Override
+        public int fetchLimit() {
+            return fetchLimit;
+        }
+
+        @Override
+        public PixivFetchService fetch() {
+            return pixivFetchService;
+        }
+
+        @Override
+        public Runnable watermarkPageDelay() {
+            return ScheduleExecutor.this::watermarkPageDelay;
+        }
+
+        @Override
+        public void watermarkScan(PageSupplier pages, Runnable pageDelay) throws Exception {
+            WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
+            long watermark = task.watermarkId() == null ? 0L : task.watermarkId();
+            // 仅首轮（水位线未建立）封顶：入队数达到上限即停，newestSeen 已记到最新 ID、水位线照常推进到最新，
+            // 更老的积压会被永久跳过（这正是「只要最新 N 个、之后只追新」的预期语义）。
+            int queueLimit = (watermark == 0 && fetchLimit > 0) ? fetchLimit : 0;
+            WatermarkScanResult result = runWatermarkScan(
+                    pages, watermark, alreadyDownloaded, dispatcher, politeDelay, pageDelay, run, queueLimit);
+            // 扫描正常返回（无挂起异常）后，先等本轮在途下载完成再推进水位线：确保失败者已入隔离表、
+            // watermark 推进不会越过尚未真正落盘的作品（崩溃抗空洞）。挂起异常上抛时本方法不会执行到这里。
+            runner.awaitAll();
+            // reached 边界且无挂起条件即推进（哪怕本轮有作品进隔离表）。
+            if (result.newestSeen() > 0) {
+                store.updateWatermark(task.id(), result.newestSeen());
+            }
+        }
+
+        @Override
+        public void boundaryScan(PageSupplier pages) throws Exception {
+            WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
+            // 非 date_d 的「翻页到底」没有可靠的 ID 水位线 → 封顶按「每轮上限」语义（每轮最多登记 fetchLimit 个队列项）。
+            int queueLimit = fetchLimit > 0 ? fetchLimit : 0;
+            runDownloadedBoundaryScan(
+                    pages, alreadyDownloaded, dispatcher, politeDelay,
+                    ScheduleExecutor.this::watermarkPageDelay, run, queueLimit);
+        }
+
+        @Override
+        public void fullScan(List<String> ids, int queueLimit) throws Exception {
+            WorkDispatcher dispatcher = (id, workId) -> runner.process(id, workId, false);
+            runFullDiscoveryCapScan(ids, alreadyDownloaded, dispatcher, politeDelay, run, queueLimit);
+        }
     }
 
     /**
@@ -900,42 +882,34 @@ public class ScheduleExecutor {
             run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
             return null;
         }
-        DownloadRequest.Other other = new DownloadRequest.Other();
-        other.setAuthorId(meta.authorId());
-        other.setAuthorName(meta.authorName());
-        other.setXRestrict(meta.xRestrict());
-        other.setAi(meta.ai());
-        other.setDescription(meta.description());
-        other.setTags(meta.tags());
-        other.setSeriesId(meta.seriesId());
-        other.setSeriesOrder(meta.seriesOrder());
-        other.setIllustType(meta.illustType());
-        other.setFileNameTemplate(download.fileNameTemplate());
-        other.setBookmark(download.bookmark());
-        other.setCollectionId(download.collectionId());
-        // 图片间隔仅对多图插画有意义（下载器在相邻图片间 sleep）；小说不涉及。
-        other.setDelayMs(download.imageDelayMs() == null ? 0 : Math.max(0, download.imageDelayMs()));
         // 系列富信息（标题 + 简介 + 封面）：与 web 链路一致，本轮按 seriesId 缓存、best-effort，失败不挡下载。
+        // 按「仅 seriesId 有效 + 非空白」过滤后填入中性载体（null 即不设置，执行器据此原样跳过 set）。
+        String seriesTitle = null;
+        String seriesDescription = null;
+        String seriesCoverUrl = null;
         if (meta.seriesId() != null && meta.seriesId() > 0) {
-            other.setSeriesTitle(meta.seriesTitle());
+            seriesTitle = meta.seriesTitle();
             PixivFetchService.IllustSeriesMeta sm = resolveIllustSeriesMeta(meta.seriesId(), cookie, seriesCache);
             if (sm != null) {
-                if (sm.caption() != null && !sm.caption().isBlank()) other.setSeriesDescription(sm.caption());
-                if (sm.coverUrl() != null && !sm.coverUrl().isBlank()) other.setSeriesCoverUrl(sm.coverUrl());
+                if (sm.caption() != null && !sm.caption().isBlank()) seriesDescription = sm.caption();
+                if (sm.coverUrl() != null && !sm.coverUrl().isBlank()) seriesCoverUrl = sm.coverUrl();
             }
         }
 
+        boolean ugoira = false;
+        String ugoiraZipUrl = null;
+        List<Integer> ugoiraDelays = null;
         List<String> imageUrls;
         JsonNode pagesBody = null;
         if (meta.isUgoira()) {
-            PixivFetchService.UgoiraInfo ugoira = pixivFetchService.resolveUgoira(id, cookie);
-            if (ugoira.zipUrl() == null || ugoira.zipUrl().isEmpty()) {
+            PixivFetchService.UgoiraInfo ug = pixivFetchService.resolveUgoira(id, cookie);
+            if (ug.zipUrl() == null || ug.zipUrl().isEmpty()) {
                 throw new IllegalStateException("empty ugoira zip url");
             }
-            other.setUgoira(true);
-            other.setUgoiraZipUrl(ugoira.zipUrl());
-            other.setUgoiraDelays(ugoira.delays());
-            imageUrls = List.of(ugoira.zipUrl());
+            ugoira = true;
+            ugoiraZipUrl = ug.zipUrl();
+            ugoiraDelays = ug.delays();
+            imageUrls = List.of(ug.zipUrl());
         } else {
             PixivFetchService.ArtworkPages pages = pixivFetchService.resolveArtworkPages(id, cookie);
             imageUrls = pages.urls();
@@ -945,15 +919,22 @@ public class ScheduleExecutor {
             }
         }
 
-        String title = meta.title();
-        List<String> urls = imageUrls;
-        String referer = PIXIV_REFERER + "artworks/" + id;
+        // 抓元数据 / 筛选 / 系列补全 / URL 解析在调度壳主线程完成后，把已解析好的中性载体交插画执行器构造下载请求
+        // 并阻塞下载——调度壳不直碰下载实现（图片间隔等下载设置由执行器映射进请求）。
+        ScheduledIllustWork work = new ScheduledIllustWork(
+                artworkId, meta.title(), meta.authorId(), meta.authorName(), meta.xRestrict(), meta.ai(),
+                meta.description(), meta.tags(), meta.seriesId(), meta.seriesOrder(), seriesTitle,
+                meta.illustType(), seriesDescription, seriesCoverUrl,
+                ugoira, ugoiraZipUrl, ugoiraDelays, imageUrls, PIXIV_REFERER + "artworks/" + id);
+        ScheduledIllustSettings settings = new ScheduledIllustSettings(
+                download.fileNameTemplate(), download.bookmark(), download.collectionId(), download.imageDelayMs());
+        ScheduledWorkRunner runner = workRunnerRegistry.resolve(ScheduledWorkKind.ILLUST)
+                .orElseThrow(() -> new IllegalStateException("illust work runner unavailable"));
         // 下载已抓的 illust / pages body 别丢——下载成功后旁路归一化 meta sidecar + 列投影（零额外请求、best-effort）。
         JsonNode illustBody = capture.body();
         JsonNode capturedPagesBody = pagesBody;
         return () -> {
-            boolean ok = artworkDownloader.downloadImagesBlocking(
-                    artworkId, title, urls, referer, other, cookie, null);
+            boolean ok = runner.download(work, settings, cookie);
             if (ok) {
                 workMetaCaptureService.captureArtwork(artworkId, illustBody, capturedPagesBody, "schedule");
             }
@@ -973,57 +954,42 @@ public class ScheduleExecutor {
             run.mark(id, ScheduleRunQueue.STATUS_SKIPPED_FILTER, null);
             return null;
         }
-        NovelDownloadRequest req = new NovelDownloadRequest();
-        req.setNovelId(d.novelId());
-        req.setTitle(d.title());
-        req.setCookie(cookie);
-        req.setContent(d.content());
-        NovelDownloadRequest.Other o = new NovelDownloadRequest.Other();
-        o.setAuthorId(d.authorId());
-        o.setAuthorName(d.authorName());
-        o.setXRestrict(d.xRestrict());
-        o.setAi(d.ai());
-        o.setOriginal(d.original());
-        o.setLanguage(d.language());
-        o.setWordCount(d.wordCount());
-        o.setTextLength(d.textLength());
-        o.setReadingTimeSeconds(d.readingTimeSeconds());
-        o.setPageCount(d.pageCount());
-        o.setDescription(d.description());
-        o.setTags(d.tags());
-        o.setSeriesId(d.seriesId());
-        o.setSeriesOrder(d.seriesOrder());
-        o.setSeriesTitle(d.seriesTitle());
-        o.setUploadTimestamp(d.uploadTimestamp());
-        o.setCoverUrl(d.coverUrl());
-        o.setEmbeddedImages(d.embeddedImages());
-        o.setFileNameTemplate(download.fileNameTemplate());
-        o.setBookmark(download.bookmark());
-        o.setCollectionId(download.collectionId());
-        o.setFormat(download.novelFormat());
-        // 下载即自动翻译（admin 身份运行，恒可触发）：翻译走服务端独立队列、不阻塞调度 tick；
-        // 译文合订交由每本译完后的合订（沿用下载设置的「生成合订本」），与 web 链路一致。
-        if (download.novelAutoTranslate()) {
-            o.setAutoTranslate(true);
-            o.setAutoTranslateLanguage(download.novelTranslateLanguage());
-            o.setAutoTranslateSegmentSize(download.novelTranslateSegmentSize());
-            o.setAutoTranslateMerge(download.novelMerge());
-            o.setAutoTranslateMergeFormat(download.novelMergeFormat());
-        }
         // 系列富信息（简介 + 封面 + 系列标签）：与 web 链路一致，本轮按 seriesId 缓存、best-effort，失败不挡下载。
+        // 按「非空白 / 非空集合」过滤后填入中性载体（null 即不设置，下载侧据此原样跳过 set）。
+        String seriesDescription = null;
+        String seriesCoverUrl = null;
+        List<TagDto> seriesTags = null;
         if (d.seriesId() != null && d.seriesId() > 0) {
             PixivFetchService.NovelSeriesMeta sm = resolveNovelSeriesMeta(d.seriesId(), cookie, seriesCache);
             if (sm != null) {
-                if (sm.caption() != null && !sm.caption().isBlank()) o.setSeriesDescription(sm.caption());
-                if (sm.coverUrl() != null && !sm.coverUrl().isBlank()) o.setSeriesCoverUrl(sm.coverUrl());
-                if (sm.tags() != null && !sm.tags().isEmpty()) o.setSeriesTags(sm.tags());
+                if (sm.caption() != null && !sm.caption().isBlank()) seriesDescription = sm.caption();
+                if (sm.coverUrl() != null && !sm.coverUrl().isBlank()) seriesCoverUrl = sm.coverUrl();
+                if (sm.tags() != null && !sm.tags().isEmpty()) seriesTags = sm.tags();
             }
         }
-        req.setOther(o);
+        // 抓详情 / 筛选 / 系列补全在调度壳完成后，把中性载体交小说插件构造 NovelDownloadRequest 并下载——
+        // 调度壳不再 import 任何 novel 包类型。
+        ScheduledNovelWork work = new ScheduledNovelWork(
+                d.novelId(), d.title(), d.content(),
+                d.authorId(), d.authorName(), d.xRestrict(), d.ai(),
+                d.original(), d.language(),
+                d.wordCount(), d.textLength(), d.readingTimeSeconds(), d.pageCount(),
+                d.description(), d.tags(),
+                d.seriesId(), d.seriesOrder(), d.seriesTitle(),
+                d.uploadTimestamp(), d.coverUrl(), d.embeddedImages(),
+                seriesDescription, seriesCoverUrl, seriesTags);
+        // 下载即自动翻译（admin 身份运行，恒可触发）：翻译走服务端独立队列、不阻塞调度 tick；译文合订交由
+        // 每本译完后的合订（沿用下载设置的「生成合订本」），与 web 链路一致。autoTranslate 为假时下载侧不应用后四字段。
+        ScheduledNovelSettings settings = new ScheduledNovelSettings(
+                download.fileNameTemplate(), download.bookmark(), download.collectionId(), download.novelFormat(),
+                download.novelAutoTranslate(), download.novelTranslateLanguage(),
+                download.novelTranslateSegmentSize(), download.novelMerge(), download.novelMergeFormat());
+        ScheduledWorkRunner runner = workRunnerRegistry.resolve(ScheduledWorkKind.NOVEL)
+                .orElseThrow(() -> new IllegalStateException("novel work runner unavailable"));
         // 下载已抓的 novel body 别丢——下载成功后旁路归一化 meta sidecar + upload_time 列投影（零额外请求、best-effort）。
         JsonNode novelBody = capture.body();
         return () -> {
-            boolean ok = novelDownloader.downloadBlocking(req, null);
+            boolean ok = runner.download(work, settings, cookie);
             if (ok) {
                 workMetaCaptureService.captureNovel(novelId, novelBody, "schedule");
             }
@@ -1484,21 +1450,20 @@ public class ScheduleExecutor {
         return String.join(html ? "<br>" : "\n", lines);
     }
 
-    /** 计划任务类型的本地化标签（与邮件 / 推送共用同一组 i18n key）。 */
+    /**
+     * 计划任务类型的本地化标签（与邮件 / 推送共用同一组 i18n key）。类型→标签 key 由各来源对象
+     * （{@link ScheduledSource#notificationLabelKey()}）承载，经来源注册中心解析——调度器不再按
+     * {@link ScheduledTaskType} 枚举 switch 取标签。解析不到（不应发生：自动挂起态不发通知）退化为「-」。
+     */
     private String taskTypeLabel(Locale locale, ScheduledTaskType type) {
         if (type == null) {
             return "-";
         }
-        String key = switch (type) {
-            case USER_NEW -> "mail.template.common.task-type.user-new";
-            case USER_REQUEST -> "mail.template.common.task-type.user-request";
-            case SEARCH -> "mail.template.common.task-type.search";
-            case SERIES -> "mail.template.common.task-type.series";
-            case MY_BOOKMARKS -> "mail.template.common.task-type.my-bookmarks";
-            case FOLLOW_LATEST -> "mail.template.common.task-type.follow-latest";
-            case COLLECTION -> "mail.template.common.task-type.collection";
-        };
-        return messages.get(locale, key);
+        return scheduledSourceRegistry.resolve(type.name())
+                .filter(ScheduledSource.class::isInstance)
+                .map(ScheduledSource.class::cast)
+                .map(source -> messages.get(locale, source.notificationLabelKey()))
+                .orElse("-");
     }
 
     /** 触发方式的本地化标签：{@code interval} → 「每 N 分钟」、{@code cron} → 「Cron：表达式」。 */

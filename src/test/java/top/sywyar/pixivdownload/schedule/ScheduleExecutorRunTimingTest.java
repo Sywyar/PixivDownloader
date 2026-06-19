@@ -15,8 +15,8 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationService;
-import top.sywyar.pixivdownload.novel.download.NovelDownloader;
-import top.sywyar.pixivdownload.novel.export.NovelMergeService;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
@@ -52,11 +52,7 @@ class ScheduleExecutorRunTimingTest {
     @Mock
     private ArtworkDownloader artworkDownloader;
     @Mock
-    private NovelDownloader novelDownloader;
-    @Mock
     private NovelMetadataRepository novelMetadataRepository;
-    @Mock
-    private NovelMergeService novelMergeService;
     @Mock
     private OveruseWarningService overuseWarningService;
     @Mock
@@ -82,13 +78,17 @@ class ScheduleExecutorRunTimingTest {
      * 用指定下载池构造被测执行器（默认 DownloadConfig：图片/小说池各 10）。
      * 来源注册中心用内置插件全集（7 个枚举来源全可解析），故 runTask 顶部的来源解析门恒命中、
      * 既有发现 / 派发行为不变（解析门只在来源缺失时改道，见 ScheduleExecutorSourceResolutionTest）。
+     * 作品类型执行器注册中心装入真实插画执行器（薄包被 mock 的 ArtworkDownloader）：本测试全为 illust 任务，
+     * 执行器经注册中心解析后仍调用同一 ArtworkDownloader，既有下载断言不变。
      */
     private ScheduleExecutor newExecutor(TaskExecutor imagePool, TaskExecutor novelPool) {
+        ScheduledWorkRunnerRegistry workRunnerRegistry = new ScheduledWorkRunnerRegistry(
+                List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
         return new ScheduleExecutor(store,
                 top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.forBuiltInPlugins(),
                 pixivFetchService, pixivDatabase,
                 org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class),
-                artworkDownloader, novelDownloader, novelMetadataRepository, novelMergeService,
+                artworkDownloader, workRunnerRegistry, novelMetadataRepository,
                 new ScheduleConfig(), runState, new ScheduleRunQueue(), new ObjectMapper(),
                 overuseWarningService, notificationService, appMessages, setupService,
                 new top.sywyar.pixivdownload.core.appconfig.DownloadConfig(), imagePool, novelPool);

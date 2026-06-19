@@ -9,11 +9,9 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.notification.NotificationService;
-import top.sywyar.pixivdownload.novel.download.NovelDownloader;
-import top.sywyar.pixivdownload.novel.export.NovelMergeService;
-import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.schedule.OveruseWarningService;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
@@ -23,6 +21,7 @@ import top.sywyar.pixivdownload.schedule.ScheduleRunState;
 import top.sywyar.pixivdownload.schedule.ScheduleRunner;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
+import top.sywyar.pixivdownload.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.setup.SetupService;
 
@@ -39,11 +38,13 @@ import top.sywyar.pixivdownload.setup.SetupService;
  * {@code ScheduledTaskStore} 读写——它把 mapper 收拢为内部实现，由 Spring 注入这些 {@code @Bean}。
  * （{@code ScheduledTaskStore} 与 {@code ScheduledTaskMapper} 均不在本收敛、各自经根包 / mapper 扫描注册。）
  * <p>
- * <b>schedule → novel 既有耦合（显性化偏差）：</b>schedule 引擎对插画 / 小说下载与翻译实现
- * （{@code ArtworkDownloader} / {@code NovelDownloader} / {@code NovelMergeService} /
- * {@code NovelAutoTranslateService} / {@code NovelMetadataRepository}）的依赖是其作为跨域调度编排者的
- * 既有耦合，本收敛只是把它显式化在装配层。该耦合的彻底解耦待来源 provider 的执行契约落地后再拆，
- * 当前不在本插件收编 novel 业务 Bean、也不把 novel 依赖引入 plugin.api。
+ * <b>schedule → novel 解耦（已清偿）：</b>schedule 引擎不再 import 任何 novel 包类型，本装配层亦然。下载派发统一
+ * 经核心契约 {@code core.schedule.work.ScheduledWorkRunner} + 注册中心 {@code ScheduledWorkRunnerRegistry} 按
+ * 作品类型解析：插画执行器 {@link ScheduledIllustWorkRunner} 由本配置贡献（薄包 {@code ArtworkDownloader}），
+ * 小说执行器由小说插件贡献并显式装配；来源发现 / 派发经 {@code ScheduledSource} provider（下载工作台贡献、经来源
+ * 注册中心解析）完成。本配置注入的是核心注册中心 {@code ScheduledWorkRunnerRegistry}（Spring 收集各方执行器
+ * Bean），故装配层不 import 任何 novel 包类型。仅 {@code NovelMetadataRepository} 是核心去重接口
+ * （{@code core.metadata.novel}）、本就属核心，保留。
  */
 @Configuration
 public class DownloadWorkbenchPluginConfiguration {
@@ -51,6 +52,12 @@ public class DownloadWorkbenchPluginConfiguration {
     @Bean
     public DownloadWorkbenchPlugin downloadWorkbenchPlugin() {
         return new DownloadWorkbenchPlugin();
+    }
+
+    /** 插画作品类型的计划任务下载执行器（薄包核心窄接缝 {@code ArtworkDownloader}），经注册中心按 kind 解析。 */
+    @Bean
+    public ScheduledIllustWorkRunner scheduledIllustWorkRunner(ArtworkDownloader artworkDownloader) {
+        return new ScheduledIllustWorkRunner(artworkDownloader);
     }
 
     @Bean
@@ -75,9 +82,8 @@ public class DownloadWorkbenchPluginConfiguration {
                                              PixivDatabase pixivDatabase,
                                              WorkMetaCaptureService workMetaCaptureService,
                                              ArtworkDownloader artworkDownloader,
-                                             NovelDownloader novelDownloader,
+                                             ScheduledWorkRunnerRegistry workRunnerRegistry,
                                              NovelMetadataRepository novelMetadataRepository,
-                                             NovelMergeService novelMergeService,
                                              ScheduleConfig scheduleConfig,
                                              ScheduleRunState runState,
                                              ScheduleRunQueue runQueue,
@@ -90,8 +96,8 @@ public class DownloadWorkbenchPluginConfiguration {
                                              @Qualifier("downloadTaskExecutor") TaskExecutor downloadTaskExecutor,
                                              @Qualifier("novelDownloadTaskExecutor") TaskExecutor novelDownloadTaskExecutor) {
         return new ScheduleExecutor(store, scheduledSourceRegistry, pixivFetchService, pixivDatabase,
-                workMetaCaptureService, artworkDownloader, novelDownloader, novelMetadataRepository,
-                novelMergeService, scheduleConfig, runState, runQueue, objectMapper, overuseWarningService,
+                workMetaCaptureService, artworkDownloader, workRunnerRegistry, novelMetadataRepository,
+                scheduleConfig, runState, runQueue, objectMapper, overuseWarningService,
                 notificationService, messages, setupService, downloadConfig,
                 downloadTaskExecutor, novelDownloadTaskExecutor);
     }
@@ -102,8 +108,8 @@ public class DownloadWorkbenchPluginConfiguration {
                                            ScheduleConfig config,
                                            ScheduleRunState runState,
                                            ScheduleRunQueue runQueue,
-                                           NovelAutoTranslateService novelAutoTranslateService) {
-        return new ScheduleService(store, executor, config, runState, runQueue, novelAutoTranslateService);
+                                           ScheduledWorkRunnerRegistry workRunnerRegistry) {
+        return new ScheduleService(store, executor, config, runState, runQueue, workRunnerRegistry);
     }
 
     @Bean

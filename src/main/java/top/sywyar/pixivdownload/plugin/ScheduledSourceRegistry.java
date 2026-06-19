@@ -23,7 +23,8 @@ import java.util.Optional;
  * 抛出，使应用启动失败而不是带病运行——否则 {@link #resolve} 的「先规范后 legacy」会把存量任务的
  * {@code type} 静默解析到错误 provider。
  *
- * <p>本类维护可逆快照与索引，但调度器仍按自身的派发逻辑执行、尚未改用本注册中心，因此目前无运行期消费者。
+ * <p>{@code ScheduleExecutor.runTask} 顶部经 {@link #resolve} 把任务存量 {@code type} 解析到来源 provider 并
+ * 向下转型为执行契约派发，通知标签也经此解析——调度主编排不再按枚举 switch 调具体来源实现。
  */
 @Component
 public class ScheduledSourceRegistry {

@@ -12,6 +12,8 @@ import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.download.NovelDownloader;
+import top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
@@ -32,6 +34,10 @@ import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
  * 不强拆，其 Bean 仍走根包扫描、在 controller 装配处按参数注入。
  * {@link NovelGalleryRepository} 已收编进核心数据层（{@code core.metadata}），作为根包扫描的
  * 核心 Bean 注入到画廊 controller，不再由本配置提供。
+ * <p>
+ * 计划任务的小说下载执行器 {@link ScheduledNovelDownloadDelegate}（实现核心契约
+ * {@code core.schedule.work.ScheduledWorkRunner}）也随小说插件生命周期归属、由本配置显式装配：小说插件被禁 /
+ * 卸载时它随之缺席，调度壳解析不到 {@code novel} 执行器即把小说计划任务标记为不可用并干净挂起（不偷跑、不启动失败）。
  */
 @Configuration
 public class NovelPluginConfiguration {
@@ -39,6 +45,15 @@ public class NovelPluginConfiguration {
     @Bean
     public NovelPlugin novelPlugin() {
         return new NovelPlugin();
+    }
+
+    @Bean
+    public ScheduledNovelDownloadDelegate scheduledNovelDownloadDelegate(
+            NovelDownloader novelDownloader,
+            NovelMergeService novelMergeService,
+            NovelAutoTranslateService novelAutoTranslateService) {
+        return new ScheduledNovelDownloadDelegate(
+                novelDownloader, novelMergeService, novelAutoTranslateService);
     }
 
     @Bean

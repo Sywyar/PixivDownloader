@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.core.db.TagDto;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -322,66 +321,15 @@ class ScheduleExecutorFilterTest {
         }
     }
 
-    @Nested
-    @DisplayName("账号私有来源类型 isAccountScopedType")
-    class AccountScopedType {
-
-        @Test
-        @DisplayName("收藏 / 关注新作 / 珍藏集为账号私有（dead cookie 一律挂起）")
-        void accountScopedTypes() {
-            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.MY_BOOKMARKS)).isTrue();
-            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.FOLLOW_LATEST)).isTrue();
-            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.COLLECTION)).isTrue();
-        }
-
-        @Test
-        @DisplayName("画师 / 搜索 / 系列非账号私有")
-        void nonAccountScopedTypes() {
-            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.USER_NEW)).isFalse();
-            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.SEARCH)).isFalse();
-            assertThat(ScheduleExecutor.isAccountScopedType(ScheduledTaskType.SERIES)).isFalse();
-        }
-    }
-
-    @Nested
-    @DisplayName("水位线模式判定 isWatermarkMode")
-    class WatermarkModeDecision {
-
-        private boolean wm(ScheduledTaskType type, String sourceJson) throws Exception {
-            return ScheduleExecutor.isWatermarkMode(type, MAPPER.readTree(sourceJson));
-        }
-
-        @Test
-        @DisplayName("USER_NEW / USER_REQUEST / FOLLOW_LATEST 恒走 ID 水位线（最新在前 + 只追加 + ID 单调）")
-        void userNewAndFollowLatestAlwaysWatermark() throws Exception {
-            assertThat(wm(ScheduledTaskType.USER_NEW, "{}")).isTrue();
-            assertThat(wm(ScheduledTaskType.USER_REQUEST, "{}")).isTrue();
-            assertThat(wm(ScheduledTaskType.FOLLOW_LATEST, "{}")).isTrue();
-        }
-
-        @Test
-        @DisplayName("SEARCH 仅 date_d + maxPages==-1 才走水位线")
-        void searchOnlyWhenIncrementalDateDesc() throws Exception {
-            assertThat(wm(ScheduledTaskType.SEARCH, "{\"order\":\"date_d\",\"maxPages\":-1}")).isTrue();
-            assertThat(wm(ScheduledTaskType.SEARCH, "{\"order\":\"popular_d\",\"maxPages\":-1}")).isFalse();
-            assertThat(wm(ScheduledTaskType.SEARCH, "{\"order\":\"date_d\",\"maxPages\":3}")).isFalse();
-        }
-
-        @Test
-        @DisplayName("SERIES / MY_BOOKMARKS / COLLECTION 不走水位线（顺序不单调或单次发现）")
-        void nonWatermarkTypes() throws Exception {
-            assertThat(wm(ScheduledTaskType.SERIES, "{}")).isFalse();
-            assertThat(wm(ScheduledTaskType.MY_BOOKMARKS, "{}")).isFalse();
-            assertThat(wm(ScheduledTaskType.COLLECTION, "{}")).isFalse();
-        }
-    }
+    // 账号私有来源类型（isAccountScopedType）与水位线模式判定（isWatermarkMode）已随发现 / 派发逻辑迁入
+    // 各 ScheduledSource（schedule.source），其对应单测移至 ScheduledSourceTest。
 
     @Nested
     @DisplayName("水位线增量扫描 runWatermarkScan")
     class WatermarkScan {
 
         /** 把分页结果拼成 PageSupplier：第 N 页取 pages[N-1]，越界返回空列表。 */
-        private ScheduleExecutor.PageSupplier supplier(List<List<String>> pages, AtomicInteger calls) {
+        private PageSupplier supplier(List<List<String>> pages, AtomicInteger calls) {
             return page -> {
                 calls.incrementAndGet();
                 return page >= 1 && page <= pages.size() ? pages.get(page - 1) : List.of();
@@ -392,7 +340,7 @@ class ScheduleExecutorFilterTest {
         @DisplayName("命中水位线（id<=watermark）即停整轮：其上的新作派发、命中及其后不再处理")
         void stopsWhenReachingWatermark() throws Exception {
             List<String> dispatched = new ArrayList<>();
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("100", "99", "98", "97")), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 98L, id -> false,
@@ -408,7 +356,7 @@ class ScheduleExecutorFilterTest {
         void stopsWhenWholePageAlreadyDownloaded() throws Exception {
             AtomicInteger calls = new AtomicInteger();
             List<String> dispatched = new ArrayList<>();
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("100", "99"), List.of("98", "97")), calls);
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 0L, id -> true,
@@ -423,7 +371,7 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("累积 newestSeen = 所有发现到的 ID 的最大值（跨页）")
         void accumulatesNewestSeenAsMax() throws Exception {
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("30", "20"), List.of("50", "10"), List.of()), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 0L, id -> false,
@@ -437,7 +385,7 @@ class ScheduleExecutorFilterTest {
         @DisplayName("单作品被隔离（dispatcher 返 false）仍计入队列数，且 watermark 仍可推进")
         void isolatedWorkStillAdvancesWatermark() throws Exception {
             List<String> seen = new ArrayList<>();
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("3", "2", "1"), List.of()), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 0L, id -> false,
@@ -454,7 +402,7 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("挂起信号（过度访问）上抛、停止整轮且不返回（不推进 watermark）")
         void overuseWarningPropagates() {
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("2", "1")), new AtomicInteger());
             assertThatThrownBy(() -> ScheduleExecutor.runWatermarkScan(pages, 0L, id -> false,
                     (id, workId) -> { throw new OveruseWarningException(123L, ""); }, () -> {}, () -> {},
@@ -468,7 +416,7 @@ class ScheduleExecutorFilterTest {
             AtomicInteger calls = new AtomicInteger();
             AtomicInteger pageDelays = new AtomicInteger();
             Set<Long> none = Set.of();
-            ScheduleExecutor.PageSupplier pages = page -> {
+            PageSupplier pages = page -> {
                 calls.incrementAndGet();
                 return page <= 3 ? List.of(String.valueOf(100000 - page)) : List.of();
             };
@@ -485,7 +433,7 @@ class ScheduleExecutorFilterTest {
         @DisplayName("首轮封顶（queueLimit>0）：入队数达上限即停，newestSeen 仍为最新 ID（水位线推进到最新）")
         void firstRunLimitStopsAtCapButKeepsNewestSeen() throws Exception {
             List<String> dispatched = new ArrayList<>();
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("100", "99", "98", "97", "96")), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 0L, id -> false,
@@ -500,7 +448,7 @@ class ScheduleExecutorFilterTest {
         @DisplayName("首轮封顶按入队数计算：已下载跳过也占额度")
         void firstRunLimitCountsQueuedWorks() throws Exception {
             List<String> dispatched = new ArrayList<>();
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("100", "99", "98", "97", "96")), new AtomicInteger());
             ScheduleExecutor.WatermarkScanResult r = ScheduleExecutor.runWatermarkScan(
                     pages, 0L, id -> id == 100L || id == 99L, // 最新两个已下载
@@ -516,7 +464,7 @@ class ScheduleExecutorFilterTest {
     @DisplayName("已下载边界扫描 runDownloadedBoundaryScan")
     class DownloadedBoundaryScan {
 
-        private ScheduleExecutor.PageSupplier supplier(List<List<String>> pages, AtomicInteger calls) {
+        private PageSupplier supplier(List<List<String>> pages, AtomicInteger calls) {
             return page -> {
                 calls.incrementAndGet();
                 return page >= 1 && page <= pages.size() ? pages.get(page - 1) : List.of();
@@ -528,7 +476,7 @@ class ScheduleExecutorFilterTest {
         void stopsOnFirstDownloadedWork() throws Exception {
             AtomicInteger calls = new AtomicInteger();
             List<String> dispatched = new ArrayList<>();
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("100", "99", "98"), List.of("97")), calls);
 
             int count = ScheduleExecutor.runDownloadedBoundaryScan(
@@ -546,7 +494,7 @@ class ScheduleExecutorFilterTest {
         void scansUntilEmptyAndDelaysBetweenPages() throws Exception {
             AtomicInteger calls = new AtomicInteger();
             AtomicInteger pageDelays = new AtomicInteger();
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("100"), List.of("99"), List.of()), calls);
 
             int count = ScheduleExecutor.runDownloadedBoundaryScan(
@@ -565,7 +513,7 @@ class ScheduleExecutorFilterTest {
         void perRunLimitStopsAtCap() throws Exception {
             AtomicInteger calls = new AtomicInteger();
             List<String> dispatched = new ArrayList<>();
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("100", "99", "98"), List.of("97", "96")), calls);
 
             int count = ScheduleExecutor.runDownloadedBoundaryScan(
@@ -583,7 +531,7 @@ class ScheduleExecutorFilterTest {
         void perRunLimitCountsQueuedWorks() throws Exception {
             AtomicInteger calls = new AtomicInteger();
             List<String> attempted = new ArrayList<>();
-            ScheduleExecutor.PageSupplier pages = supplier(
+            PageSupplier pages = supplier(
                     List.of(List.of("100", "99", "98"), List.of("97", "96")), calls);
 
             int count = ScheduleExecutor.runDownloadedBoundaryScan(

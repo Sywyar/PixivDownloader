@@ -254,6 +254,59 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("schedule 编排层不得依赖 novel 插件包：小说下载 / 系列合订 / 翻译状态只能经核心契约 ScheduledWorkRunner")
+    void scheduleDoesNotDependOnNovelPlugin() {
+        // 计划任务的小说一侧（构造 NovelDownloadRequest + downloadBlocking + 系列合订 + 队列视图翻译状态叠加）已收口
+        // 到核心契约 core.schedule.work.ScheduledWorkRunner（按作品类型解析、由小说插件贡献小说执行器实现）。调度编排层
+        //（schedule 包：执行器 / 服务 / 来源 provider / 上下文 / 插画执行器等）只依赖该核心接口与中性载体，不得 import
+        // 任何 novel 包类型——发现 / 服务端筛选 / 系列富信息补全 / sidecar 捕获 / 异常分类 / 限流 / 熔断 / 代理 / 运行队列
+        // 等共享调度机器仍留调度壳，小说插件经正常 plugin→core 方向实现契约，故无 schedule↔novel 互相 import。
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.novel..")
+                .because("计划任务的小说下载 / 系列合订 / 翻译状态经核心契约 core.schedule.work.ScheduledWorkRunner"
+                        + "（小说插件贡献执行器实现）完成，调度编排层不得 import 任何 novel 包类型；小说插件经 plugin→core 正向"
+                        + "依赖实现该契约，发现 / 筛选 / 系列补全 / 共享调度机器仍留调度壳")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("作品类型执行器必须 @PluginManagedBean（不得根包扫描）：随贡献它的插件生命周期归属")
+    void scheduledWorkRunnersMustBePluginManaged() {
+        // ScheduledNovelDownloadDelegate 这类 ScheduledWorkRunner 实现（小说执行器住 novel 包、插画执行器住 schedule
+        // 包）必须标 @PluginManagedBean、由各自 XxxPluginConfiguration 显式装配、排除出根包扫描——否则贡献它的插件被禁 /
+        // 卸载后，根扫描的 @Service 仍会注册执行器偷跑，破坏「缺执行器即该作品类型不可用」语义。接口本身不在约束面。
+        classes()
+                .that().areAssignableTo(
+                        top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner.class)
+                .and().areNotInterfaces()
+                .should().beAnnotatedWith(
+                        top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
+                .andShould().notBeAnnotatedWith(org.springframework.stereotype.Service.class)
+                .because("作品类型执行器随贡献它的插件生命周期归属：必须 @PluginManagedBean 由对应 "
+                        + "XxxPluginConfiguration 显式装配、排除出根包扫描，不得用 @Service / @Component 根扫描注册，"
+                        + "否则插件禁用后仍被注册偷跑")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("下载工作台 schedule 装配层不得 import novel 包：执行器装配只经核心契约 + 注册中心")
+    void downloadWorkbenchScheduleAssemblyDoesNotImportNovel() {
+        // 下载工作台插件配置装配 schedule 引擎 Bean（ScheduleExecutor / ScheduleService / 插画执行器等）+ 注入核心
+        // 作品类型执行器注册中心 ScheduledWorkRunnerRegistry。它不得 import 任何 novel 包类型——小说执行器由
+        // NovelPluginConfiguration 贡献、经注册中心按 kind 解析，装配层只依赖核心契约。
+        noClasses()
+                .that().haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.download.DownloadWorkbenchPluginConfiguration")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.novel..")
+                .because("下载工作台 schedule 装配层经核心契约 ScheduledWorkRunner + 注册中心 "
+                        + "ScheduledWorkRunnerRegistry 装配，小说执行器由小说插件贡献，装配层不得 import 任何 novel 包类型")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("插件托管业务 Bean 不得直连数据库底层：JDBC / MyBatis 与核心 DB 实现层只能经核心语义 Store/API")
     void pluginManagedBeansMustNotAccessRawDatabaseDirectly() {
         // 「@PluginManagedBean」精确等于「插件 Configuration 经 @Bean 显式装配、排除出根包扫描的那一组业务 Bean」——

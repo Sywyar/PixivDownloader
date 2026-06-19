@@ -6,7 +6,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkTranslateStatus;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
@@ -35,12 +38,15 @@ class ScheduleServiceTest {
     private ScheduleExecutor executor;
     @Mock
     private ScheduleRunQueue runQueue;
-    @Mock
-    private NovelAutoTranslateService novelAutoTranslateService;
+
+    /** 默认空作品类型执行器注册中心（多数用例不触发翻译状态叠加）。 */
+    private static ScheduledWorkRunnerRegistry emptyRunnerRegistry() {
+        return new ScheduledWorkRunnerRegistry(List.of());
+    }
 
     private ScheduleService newService() {
         return new ScheduleService(store, executor, new ScheduleConfig(), new ScheduleRunState(),
-                runQueue, novelAutoTranslateService);
+                runQueue, emptyRunnerRegistry());
     }
 
     private static ScheduledTask task(long id, String accountId, String status, String message) {
@@ -113,7 +119,7 @@ class ScheduleServiceTest {
 
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleService service = new ScheduleService(
-                store, executor, new ScheduleConfig(), runState, runQueue, novelAutoTranslateService);
+                store, executor, new ScheduleConfig(), runState, runQueue, emptyRunnerRegistry());
         // 模拟任务正在跑：先挂一个 Claim，pause 后该 Claim 应被标为待取消
         ScheduleRunState.Claim claim = runState.tryMarkQueued(42L);
         assertThat(claim).isNotNull();
@@ -132,7 +138,7 @@ class ScheduleServiceTest {
 
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleService service = new ScheduleService(
-                store, executor, new ScheduleConfig(), runState, runQueue, novelAutoTranslateService);
+                store, executor, new ScheduleConfig(), runState, runQueue, emptyRunnerRegistry());
 
         assertThatThrownBy(() -> service.pause(99L)).isInstanceOf(LocalizedException.class);
         verify(store, never()).setStatus(anyLong(), anyString());
@@ -145,7 +151,7 @@ class ScheduleServiceTest {
         ScheduleRunState runState = new ScheduleRunState();
         runState.tryMarkQueued(7L);
         ScheduleService service = new ScheduleService(
-                store, executor, new ScheduleConfig(), runState, runQueue, novelAutoTranslateService);
+                store, executor, new ScheduleConfig(), runState, runQueue, emptyRunnerRegistry());
 
         assertThatThrownBy(() -> service.manualRun(7L)).isInstanceOf(LocalizedException.class);
         verify(executor, never()).runTaskAsync(anyLong(), any());
@@ -288,17 +294,22 @@ class ScheduleServiceTest {
         run.discovered("222", ScheduleRunQueue.KIND_NOVEL);
         run.mark("222", ScheduleRunQueue.STATUS_SKIPPED_DOWNLOADED, null);
         when(runQueue.get(1L)).thenReturn(run);
-        when(novelAutoTranslateService.getStatus(111L)).thenReturn(
-                new NovelAutoTranslateService.StatusView("TRANSLATING", 5L, 0, "en-US", false, false, null));
+        // 翻译状态经核心契约由小说执行器提供：装一个 kind=novel 的执行器，仅 111 有状态。
+        ScheduledWorkRunner novelRunner = org.mockito.Mockito.mock(ScheduledWorkRunner.class);
+        when(novelRunner.kind()).thenReturn(ScheduledWorkKind.NOVEL);
+        when(novelRunner.translateStatus(111L)).thenReturn(
+                new ScheduledWorkTranslateStatus("TRANSLATING", 5L, 0));
+        ScheduleService service = new ScheduleService(store, executor, new ScheduleConfig(),
+                new ScheduleRunState(), runQueue, new ScheduledWorkRunnerRegistry(List.of(novelRunner)));
 
-        List<ScheduleQueueView.Item> items = newService().queue(1L).items();
+        List<ScheduleQueueView.Item> items = service.queue(1L).items();
 
         ScheduleQueueView.Item submitted = items.stream().filter(i -> i.id().equals("111")).findFirst().orElseThrow();
         ScheduleQueueView.Item skipped = items.stream().filter(i -> i.id().equals("222")).findFirst().orElseThrow();
         assertThat(submitted.translatePhase()).isEqualTo("TRANSLATING");
         assertThat(skipped.translatePhase()).isNull();
-        verify(novelAutoTranslateService).getStatus(111L);
-        verify(novelAutoTranslateService, never()).getStatus(222L);
+        verify(novelRunner).translateStatus(111L);
+        verify(novelRunner, never()).translateStatus(222L);
     }
 
     @Test
@@ -308,7 +319,7 @@ class ScheduleServiceTest {
         ScheduleRunState runState = new ScheduleRunState();
         runState.tryMarkRunning(11L);
         ScheduleService service = new ScheduleService(
-                store, executor, new ScheduleConfig(), runState, runQueue, novelAutoTranslateService);
+                store, executor, new ScheduleConfig(), runState, runQueue, emptyRunnerRegistry());
 
         assertThatThrownBy(() -> service.delete(11L)).isInstanceOf(LocalizedException.class);
         verify(store, never()).delete(anyLong());

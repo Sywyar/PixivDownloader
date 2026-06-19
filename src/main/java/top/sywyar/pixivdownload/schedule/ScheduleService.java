@@ -6,7 +6,9 @@ import org.springframework.scheduling.support.CronExpression;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkTranslateStatus;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskInsert;
@@ -36,7 +38,12 @@ public class ScheduleService {
     private final ScheduleConfig config;
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
-    private final NovelAutoTranslateService novelAutoTranslateService;
+    /**
+     * 作品类型执行器注册中心：队列视图的翻译状态叠加经小说执行器（{@code novel}）取得——它实现可选的
+     * {@code translateStatus} 能力。执行器缺席（小说插件被禁 / 卸载）时解析为空、不叠加翻译状态，队列视图照常返回。
+     * ScheduleService 因此不再 import 任何 novel 包类型。
+     */
+    private final ScheduledWorkRunnerRegistry workRunnerRegistry;
 
     public List<ScheduleTaskView> list() {
         return store.findAll().stream()
@@ -156,7 +163,10 @@ public class ScheduleService {
         if (ScheduleRunQueue.KIND_NOVEL.equals(it.getKind()) && it.isAutoTranslateSubmitted()) {
             try {
                 long novelId = Long.parseLong(it.getId());
-                NovelAutoTranslateService.StatusView tv = novelAutoTranslateService.getStatus(novelId);
+                // 经核心契约取小说执行器的翻译状态能力；执行器缺席（小说插件被禁 / 卸载）则不叠加。
+                ScheduledWorkTranslateStatus tv = workRunnerRegistry.resolve(ScheduledWorkKind.NOVEL)
+                        .map(runner -> runner.translateStatus(novelId))
+                        .orElse(null);
                 if (tv != null) {
                     translatePhase = tv.phase();
                     translateElapsed = tv.elapsedSeconds();

@@ -11,7 +11,13 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-import top.sywyar.pixivdownload.schedule.source.EnumScheduledSourceProvider;
+import top.sywyar.pixivdownload.schedule.source.CollectionSource;
+import top.sywyar.pixivdownload.schedule.source.FollowLatestSource;
+import top.sywyar.pixivdownload.schedule.source.MyBookmarksSource;
+import top.sywyar.pixivdownload.schedule.source.SearchSource;
+import top.sywyar.pixivdownload.schedule.source.SeriesSource;
+import top.sywyar.pixivdownload.schedule.source.UserNewSource;
+import top.sywyar.pixivdownload.schedule.source.UserRequestSource;
 
 import java.util.List;
 import java.util.Set;
@@ -23,9 +29,9 @@ import java.util.Set;
  * 计划任务归本插件子能力、不独立成插件（UI 焊进下载页、本插件是 required 插件）；
  * {@code ScheduledSourceProvider} SPI 保留，其他插件仍可经 {@code scheduledSources()} 贡献来源。
  * {@code scheduled_tasks} 表仍归核心（卸载投影 + 核心数据不受插件开关影响），故其 schema 由核心
- * contribution 保证、不入本插件声明；schedule 引擎对 {@code scheduled_tasks} 的访问全经根包扫描的
- * MyBatis {@code ScheduledTaskMapper}（核心机器，与 {@code ArtworkDownloadExecutor} 同口径不计入
- * {@code coreColumnUsages}），收编的业务 Bean 自身不写直接 SQL，故本插件无核心列使用声明。
+ * contribution 保证、不入本插件声明；schedule 引擎对 {@code scheduled_tasks} 的访问全经核心 owned 语义 Store
+ * {@code ScheduledTaskStore}（核心实现层把 MyBatis mapper 收拢在 {@code core.schedule.db} 之后），收编的业务
+ * Bean 只依赖该核心接口、自身不写直接 SQL，故本插件无核心列使用声明。
  * <p>
  * 横切 / 共享的下载数据 API（{@code /api/download/status*}、{@code /api/downloaded/*} 统计 / 历史 /
  * 图片字节 serving、本地放行特例）由核心声明：它们被核心 monitor 页与画廊等其它页面跨插件消费，
@@ -127,10 +133,17 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<ScheduledSourceProvider> scheduledSources() {
-        // 现有 7 个计划任务来源（USER_NEW / USER_REQUEST / SEARCH / SERIES / MY_BOOKMARKS /
-        // FOLLOW_LATEST / COLLECTION）随 schedule 能力收编进下载工作台声明，跨插画 / 小说统一调度。
-        // 各 provider 仅承载身份 + legacy 类型映射，发现 / 派发语义由调度器的枚举分支承载。
-        // 其他插件（如未来的小说定时下载）仍可经各自 scheduledSources() 贡献新来源。
-        return EnumScheduledSourceProvider.builtIn();
+        // 现有 7 个计划任务来源随 schedule 能力收编进下载工作台声明，跨插画 / 小说统一调度。每个来源是一个
+        // ScheduledSource（在 plugin.api 身份 SPI 之上附加发现 / 模式 / 谓词执行行为），调度器经来源注册中心
+        // 解析后直接派发——调度主编排不再按类型枚举 switch 调具体来源实现。其他插件仍可经各自
+        // scheduledSources() 贡献新来源。
+        return List.of(
+                new UserNewSource(),
+                new UserRequestSource(),
+                new SearchSource(),
+                new SeriesSource(),
+                new MyBookmarksSource(),
+                new FollowLatestSource(),
+                new CollectionSource());
     }
 }
