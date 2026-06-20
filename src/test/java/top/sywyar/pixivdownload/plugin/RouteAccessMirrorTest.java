@@ -231,8 +231,9 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/pixiv-novel-download/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/stats/**", "stats", AccessPolicy.ADMIN);
         assertOwnerPolicy("/api/duplicates/**", "duplicate", AccessPolicy.ADMIN);
-        // 下载工作台：计划任务管理（仅管理员）+ 下载页 / 提交 / 队列 / 扩展点（VISITOR，复刻未声明现状）。
-        assertOwnerPolicy("/api/schedule/**", "download-workbench", AccessPolicy.ADMIN);
+        // 计划任务宿主：计划任务管理 API（仅管理员），归 schedule 宿主插件声明。
+        assertOwnerPolicy("/api/schedule/**", "schedule", AccessPolicy.ADMIN);
+        // 下载工作台：下载页 / 提交 / 队列 / 扩展点（VISITOR，复刻未声明现状）。
         assertOwnerPolicy("/api/download/extensions", "download-workbench", AccessPolicy.VISITOR);
         assertOwnerPolicy("/pixiv-batch.html", "download-workbench", AccessPolicy.VISITOR);
         assertOwnerPolicy("/pixiv-batch/**", "download-workbench", AccessPolicy.VISITOR);

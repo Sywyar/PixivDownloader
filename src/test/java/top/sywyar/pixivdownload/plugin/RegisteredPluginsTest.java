@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.schedule.ScheduleHostPluginConfiguration;
 import top.sywyar.pixivdownload.stats.StatsPluginConfiguration;
 
 import java.util.Set;
@@ -84,11 +85,11 @@ class RegisteredPluginsTest {
             })
             .withBean(top.sywyar.pixivdownload.i18n.AppMessages.class,
                     top.sywyar.pixivdownload.i18n.TestI18nBeans::appMessages)
-            // schedule 引擎 Bean 随 schedule 能力收编进 DownloadWorkbenchPluginConfiguration：
-            // 其依赖的核心 / 下载 / 小说机器在本切片里一律 mock 兜底（ScheduleConfig 用默认值实例），
+            // schedule 引擎 Bean 由计划任务宿主插件配置 ScheduleHostPluginConfiguration 装配：
+            // 其依赖的核心 / 下载机器在本切片里一律 mock 兜底（ScheduleConfig 用默认值实例），
             // 两个下载池按 bean 名提供 SyncTaskExecutor（ScheduleExecutor 经 @Qualifier 按名解析）。
             // scheduled_tasks 的读写经核心 owned 语义 Store ScheduledTaskStore（core.schedule 接口，实现 root 扫描，本切片 mock 兜底），
-            // 收编的引擎 Bean 不再直接依赖 MyBatis ScheduledTaskMapper。
+            // 宿主引擎 Bean 不直接依赖 MyBatis ScheduledTaskMapper。
             .withBean(top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore.class))
             // 统计聚合经核心 owned 语义 Store StatsQueryStore（core.stats 接口，实现 root 扫描，本切片 mock 兜底）：
@@ -132,6 +133,7 @@ class RegisteredPluginsTest {
             .withUserConfiguration(
                     CorePluginConfiguration.class,
                     DownloadWorkbenchPluginConfiguration.class,
+                    ScheduleHostPluginConfiguration.class,
                     GalleryPluginConfiguration.class,
                     NovelPluginConfiguration.class,
                     StatsPluginConfiguration.class,
@@ -141,14 +143,14 @@ class RegisteredPluginsTest {
                     DatabaseSchemaRegistry.class);
 
     @Test
-    @DisplayName("六个空插件经各自 Configuration 注册进 PluginRegistry")
+    @DisplayName("七个内置插件经各自 Configuration 注册进 PluginRegistry")
     void allPluginsRegistered() {
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins())
                     .extracting(PixivFeaturePlugin::id)
                     .containsExactlyInAnyOrder(
-                            "core", "download-workbench", "gallery", "novel", "stats", "duplicate");
+                            "core", "download-workbench", "schedule", "gallery", "novel", "stats", "duplicate");
         });
     }
 
@@ -165,13 +167,17 @@ class RegisteredPluginsTest {
     }
 
     @Test
-    @DisplayName("各插件 contribution 边界：core 独占 schema、声明共享静态资源与横切 / 共享路由，stats/duplicate/gallery/novel 占功能路由 + 导航 + 页面静态资源、download-workbench 占 schedule 路由 + 下载页静态资源 + userscript 来源、i18n namespace 六插件全员声明")
+    @DisplayName("各插件 contribution 边界：core 独占 schema、声明共享静态资源与横切 / 共享路由，stats/duplicate/gallery/novel 占功能路由 + 导航 + 页面静态资源、download-workbench 占下载页路由 + 下载页静态资源 + userscript 来源、schedule 宿主占 /api/schedule 路由（无前端贡献）、i18n namespace 由六个有前端的插件声明")
     void emptyPluginsContributeNothing() {
         // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
         // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）；
-        // download-workbench 随 schedule 能力收编声明 /api/schedule/** 路由（下载页其余 API 是跨插件共享、留核心）。
+        // download-workbench 声明下载页与提交 / 队列 / 状态 API；计划任务宿主 schedule 声明 /api/schedule/** 路由
+        //（下载页其余 API 是跨插件共享、留核心）。
         // 导航：四个 web 功能插件 + core（监控 / 邀请码管理基础入口）+ download-workbench（下载页入口，前端导航开槽）。
-        Set<String> routeContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
+        Set<String> routeContributingPlugins = Set.of("core", "download-workbench", "schedule", "stats", "duplicate", "gallery", "novel");
+        // i18n namespace 由有前端页面的六个插件声明（页面跟插件走、核心/共享 namespace 留 core）；计划任务宿主
+        // schedule 是无前端的调度宿主（只声明 /api/schedule 路由），不声明 i18n namespace。
+        Set<String> i18nContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
         Set<String> navContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
         Set<String> staticResourceContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
         // 下载页扩展点：作品类型由「下载什么」的插件声明（download-workbench=illust，novel=novel）；
@@ -209,9 +215,14 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.coreColumnUsages()).isEmpty();
                 }
-                // i18n namespace 静态 map 退役后由六插件全员声明：页面跟插件走、核心/共享
-                // namespace（common/translate/tour 等）留 core、batch/userscript 归下载工作台
-                assertThat(plugin.i18n()).isNotEmpty();
+                // i18n namespace 由有前端页面的六个插件声明：页面跟插件走、核心/共享
+                // namespace（common/translate/tour 等）留 core、batch/userscript 归下载工作台；
+                // 无前端的计划任务宿主 schedule 不声明 i18n namespace。
+                if (i18nContributingPlugins.contains(plugin.id())) {
+                    assertThat(plugin.i18n()).isNotEmpty();
+                } else {
+                    assertThat(plugin.i18n()).isEmpty();
+                }
                 // 路由：四个 web 功能插件 + core（横切 / 共享路由）+ download-workbench（schedule 路由）声明
                 if (routeContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.routes()).isNotEmpty();

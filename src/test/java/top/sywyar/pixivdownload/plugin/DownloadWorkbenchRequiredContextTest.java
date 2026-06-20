@@ -9,23 +9,17 @@ import org.springframework.context.ApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.schedule.OveruseWarningService;
-import top.sywyar.pixivdownload.schedule.ScheduleExecutor;
-import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
-import top.sywyar.pixivdownload.schedule.ScheduleRunState;
-import top.sywyar.pixivdownload.schedule.ScheduleRunner;
-import top.sywyar.pixivdownload.schedule.ScheduleService;
-import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
-import top.sywyar.pixivdownload.schedule.work.ScheduledIllustWorkRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 必选插件语义（真实 Spring 上下文）：下载工作台是必选插件，即便配置
- * {@code plugins.download-workbench.enabled=false} 也<b>被忽略</b>——插件仍进入活动快照、schedule 引擎全部
- * 托管 Bean（含唯一 {@code @Scheduled} tick {@link ScheduleRunner}）照常装配、插画作品类型执行器解析得到、
- * 下载工作台路由照常声明、{@code /redirect} 默认落点仍为下载页。
+ * {@code plugins.download-workbench.enabled=false} 也<b>被忽略</b>——插件仍进入活动快照、其托管 Bean
+ *（向计划任务宿主贡献的插画作品类型执行器 {@link ScheduledIllustWorkRunner}）照常装配、illust 执行器解析得到、
+ * 下载工作台路由照常声明、{@code /redirect} 默认落点仍为下载页。计划任务调度安全壳与 {@code /api/schedule/**}
+ * 路由归计划任务宿主插件（见 {@code ScheduleHostRequiredContextTest}）。
  */
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -71,31 +65,18 @@ class DownloadWorkbenchRequiredContextTest {
     }
 
     @Test
-    @DisplayName("schedule 引擎托管 Bean 全部在场（含唯一 @Scheduled tick），后台调度照常运行")
-    void scheduleEngineBeansPresent() {
-        assertThat(context.getBeanNamesForType(ScheduleRunner.class)).hasSize(1);
-        assertThat(context.getBeanNamesForType(ScheduleExecutor.class)).hasSize(1);
-        assertThat(context.getBeanNamesForType(ScheduleService.class)).hasSize(1);
-        assertThat(context.getBeanNamesForType(ScheduleController.class)).hasSize(1);
-        assertThat(context.getBeanNamesForType(ScheduledIllustWorkRunner.class)).hasSize(1);
-        assertThat(context.getBeanNamesForType(ScheduleRunState.class)).hasSize(1);
-        assertThat(context.getBeanNamesForType(ScheduleRunQueue.class)).hasSize(1);
-        assertThat(context.getBeanNamesForType(OveruseWarningService.class)).hasSize(1);
-    }
-
-    @Test
-    @DisplayName("作品类型执行器：illust 解析得到（插画下载执行器在场）")
+    @DisplayName("下载工作台贡献的插画执行器照常装配、illust 解析得到（禁用开关被忽略）")
     void illustWorkRunnerPresent() {
+        assertThat(context.getBeanNamesForType(ScheduledIllustWorkRunner.class)).hasSize(1);
         assertThat(workRunnerRegistry.resolve(ScheduledWorkKind.ILLUST)).isPresent();
     }
 
     @Test
-    @DisplayName("下载工作台路由照常声明：schedule / 下载页 URL 已声明")
+    @DisplayName("下载工作台路由照常声明：下载页 URL 已声明")
     void workbenchRoutesDeclared() {
         assertThat(routeAccessRegistry.routes())
                 .extracting(RouteAccessRegistry.RegisteredRoute::pluginId).contains("download-workbench");
         assertThat(routeAccessRegistry.isDeclared("/pixiv-batch.html")).isTrue();
-        assertThat(routeAccessRegistry.isDeclared("/api/schedule/tasks")).isTrue();
     }
 
     @Test

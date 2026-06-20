@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.source;
+package top.sywyar.pixivdownload.download.schedule.source;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;

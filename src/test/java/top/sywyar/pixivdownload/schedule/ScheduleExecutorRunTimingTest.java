@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.download.request.DownloadRequest;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationService;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
-import top.sywyar.pixivdownload.schedule.work.ScheduledIllustWorkRunner;
+import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;

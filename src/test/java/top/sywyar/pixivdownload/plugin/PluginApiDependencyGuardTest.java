@@ -229,14 +229,14 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("下载工作台收编的 schedule 引擎 Bean 不得依赖核心计划任务数据实现层：只能经 core.schedule 语义 Store/API 读写")
+    @DisplayName("计划任务宿主 schedule 引擎 Bean 不得依赖核心计划任务数据实现层：只能经 core.schedule 语义 Store/API 读写")
     void scheduleEngineBeansMustNotAccessCoreScheduleImplDirectly() {
         // scheduled_tasks / scheduled_task_pending 是核心 owned schema；其语义数据访问门面 ScheduledTaskStore
         // 已是核心 owned 接口（core.schedule），底层 MyBatis ScheduledTaskMapper / schema 初始化 / 数据库方言适配
-        // 收口在核心实现层 core.schedule.db。随 schedule 能力收编进下载工作台插件的引擎 Bean（ScheduleExecutor /
-        // ScheduleService / ScheduleRunner / ScheduleController 等，均为 @PluginManagedBean）只能依赖 core.schedule
-        // 语义 Store/API 与行模型，不得直接依赖 core.schedule.db 实现层、池化 DataSource、JdbcTemplate、裸 Connection
-        // 或 MyBatis 自由 SQL 访问核心表。
+        // 收口在核心实现层 core.schedule.db。计划任务宿主插件的引擎 Bean（ScheduleExecutor / ScheduleService /
+        // ScheduleRunner / ScheduleController 等，均为 @PluginManagedBean）只能依赖 core.schedule 语义 Store/API 与
+        // 行模型，不得直接依赖 core.schedule.db 实现层、池化 DataSource、JdbcTemplate、裸 Connection 或 MyBatis
+        // 自由 SQL 访问核心表。
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
                 .should().dependOnClassesThat()
@@ -247,20 +247,21 @@ class PluginApiDependencyGuardTest {
                         "org.apache.ibatis..")
                 .because("scheduled_tasks / scheduled_task_pending 是核心 owned schema；其语义数据访问门面 "
                         + "ScheduledTaskStore 是核心 owned 接口（core.schedule），底层 mapper / schema 初始化 / 方言适配 "
-                        + "收口在核心实现层 core.schedule.db。收编进下载工作台插件的 schedule 引擎 Bean 只能依赖 "
+                        + "收口在核心实现层 core.schedule.db。计划任务宿主插件的 schedule 引擎 Bean 只能依赖 "
                         + "core.schedule 语义 Store/API 与行模型，不得直接依赖 core.schedule.db 实现层、ScheduledTaskMapper / "
                         + "DataSource / JdbcTemplate / Connection / MyBatis 自由 SQL 访问核心表")
                 .check(CLASSES);
     }
 
     @Test
-    @DisplayName("schedule 编排层不得依赖 novel 插件包：小说下载 / 系列合订 / 翻译状态只能经核心契约 ScheduledWorkRunner")
+    @DisplayName("schedule 宿主不得依赖 novel 插件包：小说下载 / 系列合订 / 翻译状态只能经核心契约 ScheduledWorkRunner")
     void scheduleDoesNotDependOnNovelPlugin() {
         // 计划任务的小说一侧（构造 NovelDownloadRequest + downloadBlocking + 系列合订 + 队列视图翻译状态叠加）已收口
-        // 到核心契约 core.schedule.work.ScheduledWorkRunner（按作品类型解析、由小说插件贡献小说执行器实现）。调度编排层
-        //（schedule 包：执行器 / 服务 / 来源 provider / 上下文 / 插画执行器等）只依赖该核心接口与中性载体，不得 import
-        // 任何 novel 包类型——发现 / 服务端筛选 / 系列富信息补全 / sidecar 捕获 / 异常分类 / 限流 / 熔断 / 代理 / 运行队列
-        // 等共享调度机器仍留调度壳，小说插件经正常 plugin→core 方向实现契约，故无 schedule↔novel 互相 import。
+        // 到核心契约 core.schedule.work.ScheduledWorkRunner（按作品类型解析、由小说插件贡献小说执行器实现）。计划任务
+        // 宿主（schedule 包：执行器 / 服务 / tick runner / 控制器 / 运行状态 / 运行队列 / 过度访问告警）只依赖该核心接口
+        // 与中性载体，不得 import 任何 novel 包类型——限流 / 熔断 / 代理 / 运行队列 / 水位线等共享调度机器留调度壳，来源
+        // 执行契约住下载工作台域（download.schedule.source），小说插件经正常 plugin→core 方向实现契约，故无
+        // schedule↔novel 互相 import。
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
                 .should().dependOnClassesThat()
@@ -291,18 +292,19 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("下载工作台 schedule 装配层不得 import novel 包：执行器装配只经核心契约 + 注册中心")
-    void downloadWorkbenchScheduleAssemblyDoesNotImportNovel() {
-        // 下载工作台插件配置装配 schedule 引擎 Bean（ScheduleExecutor / ScheduleService / 插画执行器等）+ 注入核心
-        // 作品类型执行器注册中心 ScheduledWorkRunnerRegistry。它不得 import 任何 novel 包类型——小说执行器由
-        // NovelPluginConfiguration 贡献、经注册中心按 kind 解析，装配层只依赖核心契约。
+    @DisplayName("下载工作台计划任务来源 / 执行器不得依赖 novel 包：发现与下载只经核心契约 + 中性载体")
+    void downloadScheduleSourcesAndRunnerDoNotDependOnNovel() {
+        // 计划任务来源（download.schedule.source，怎么找作品）与插画作品类型执行器（download.schedule.work）由下载
+        // 工作台贡献给计划任务宿主。它们随 schedule 能力拆出宿主插件后离开了 schedule.. 包，但「计划任务逻辑对 novel
+        // 保持解耦」的不变量仍须守住：来源经 PixivFetchService + 中性载体发现插画 / 小说作品（不 import 任何 novel
+        // 类型），插画执行器只薄包核心窄接缝 ArtworkDownloader；小说下载由小说插件贡献的执行器经核心契约
+        // core.schedule.work.ScheduledWorkRunner 按 kind 解析完成。
         noClasses()
-                .that().haveFullyQualifiedName(
-                        "top.sywyar.pixivdownload.download.DownloadWorkbenchPluginConfiguration")
+                .that().resideInAPackage("top.sywyar.pixivdownload.download.schedule..")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.novel..")
-                .because("下载工作台 schedule 装配层经核心契约 ScheduledWorkRunner + 注册中心 "
-                        + "ScheduledWorkRunnerRegistry 装配，小说执行器由小说插件贡献，装配层不得 import 任何 novel 包类型")
+                .because("计划任务来源 / 插画执行器经 PixivFetchService + 中性载体 + 核心契约 ScheduledWorkRunner "
+                        + "工作，不得 import 任何 novel 包类型；小说下载由小说插件贡献的执行器按 kind 解析完成")
                 .check(CLASSES);
     }
 

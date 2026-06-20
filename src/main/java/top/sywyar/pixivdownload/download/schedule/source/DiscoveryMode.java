@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.source;
+package top.sywyar.pixivdownload.download.schedule.source;
 
 /** 计划任务来源的发现模式：决定调度壳用哪种共享扫描驱动派发。 */
 public enum DiscoveryMode {

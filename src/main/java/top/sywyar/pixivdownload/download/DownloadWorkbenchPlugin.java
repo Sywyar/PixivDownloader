@@ -13,27 +13,27 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-import top.sywyar.pixivdownload.schedule.source.CollectionSource;
-import top.sywyar.pixivdownload.schedule.source.FollowLatestSource;
-import top.sywyar.pixivdownload.schedule.source.MyBookmarksSource;
-import top.sywyar.pixivdownload.schedule.source.SearchSource;
-import top.sywyar.pixivdownload.schedule.source.SeriesSource;
-import top.sywyar.pixivdownload.schedule.source.UserNewSource;
-import top.sywyar.pixivdownload.schedule.source.UserRequestSource;
+import top.sywyar.pixivdownload.download.schedule.source.CollectionSource;
+import top.sywyar.pixivdownload.download.schedule.source.FollowLatestSource;
+import top.sywyar.pixivdownload.download.schedule.source.MyBookmarksSource;
+import top.sywyar.pixivdownload.download.schedule.source.SearchSource;
+import top.sywyar.pixivdownload.download.schedule.source.SeriesSource;
+import top.sywyar.pixivdownload.download.schedule.source.UserNewSource;
+import top.sywyar.pixivdownload.download.schedule.source.UserRequestSource;
 
 import java.util.List;
 import java.util.Set;
 
 /**
- * 下载工作台插件：{@code pixiv-batch} 页面、下载队列、油猴脚本入口与下载执行，
- * 并收编计划任务能力（scheduler 引擎 + {@code /api/schedule/**} 路由 + 下载域计划任务来源）。
+ * 下载工作台插件：{@code pixiv-batch} 页面、下载队列、油猴脚本入口与下载执行。
  * <p>
- * 计划任务归本插件子能力、不独立成插件（UI 焊进下载页、本插件是 required 插件）；
- * {@code ScheduledSourceProvider} SPI 保留，其他插件仍可经 {@code scheduledSources()} 贡献来源。
- * {@code scheduled_tasks} 表仍归核心（卸载投影 + 核心数据不受插件开关影响），故其 schema 由核心
- * contribution 保证、不入本插件声明；schedule 引擎对 {@code scheduled_tasks} 的访问全经核心 owned 语义 Store
- * {@code ScheduledTaskStore}（核心实现层把 MyBatis mapper 收拢在 {@code core.schedule.db} 之后），收编的业务
- * Bean 只依赖该核心接口、自身不写直接 SQL，故本插件无核心列使用声明。
+ * <b>计划任务能力归计划任务宿主插件（{@code schedule}）：</b>调度安全壳（引擎 / tick / 队列 / 限流 / 熔断 /
+ * cookie·proxy 作用域 / 隔离重试 / 水位线）与 {@code /api/schedule/**} 路由由 {@code ScheduleHostPlugin} 拥有。
+ * 下载工作台作为来源贡献方向宿主声明其 7 个内置计划任务来源（{@code scheduledSources()}，怎么找作品）与插画作品类型
+ * 执行器（{@code ScheduledIllustWorkRunner}，下载什么）；{@code ScheduledSourceProvider} SPI 保留，其他插件（如小说）
+ * 仍可经各自 {@code scheduledSources()} / 作品类型执行器贡献。来源执行契约住下载工作台域
+ * （{@code download.schedule.source}），由宿主调度壳解析后派发。计划任务的创建 / 状态 UI 目前随下载页呈现、经
+ * {@code /api/schedule/**} 与宿主交互。
  * <p>
  * 横切 / 共享的下载数据 API（{@code /api/download/status*}、{@code /api/downloaded/*} 统计 / 历史 /
  * 图片字节 serving、本地放行特例）由核心声明：它们被核心 monitor 页与画廊等其它页面跨插件消费，
@@ -64,7 +64,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return PluginKind.FEATURE;
     }
 
-    /** 下载工作台是必选插件：下载页、下载执行与计划任务调度是核心使用路径，不允许关闭。 */
+    /** 下载工作台是必选插件：下载页与下载执行是核心使用路径，不允许关闭。 */
     @Override
     public boolean required() {
         return true;
@@ -72,16 +72,15 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<WebRouteContribution> routes() {
-        // 计划任务管理 API：仅管理员（solo / multi 均仅 monitor），随本插件收编的 schedule 能力声明。
         // 下载页与其提交 / 队列 / 状态 API：下载页 /pixiv-batch.html、其拆分静态目录 /pixiv-batch/**，以及
         // 下载提交（/api/download/pixiv）、取消（/api/cancel/**、/api/download/cancel/**）、队列清理
         //（/api/download/queue/**）、批量状态（/api/batch/**）、扩展点装配（/api/download/extensions）一律
         // VISITOR——复刻现状「未受管页面 / 未声明 API」的涌现行为：multi 访客可达（走配额） / solo 需会话 /
         // 邀请访客 403 / 不入 monitor。AuthFilter 不为 VISITOR 派生任何清单、命中后落默认会话 / 访客分支，
         // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫，随插件启停。
-        // 其它跨插件共享的下载数据 API（status/downloaded 统计 / 历史 / 图片字节）由核心声明（见类注释）。
+        // 计划任务管理 API（/api/schedule/**）归计划任务宿主插件 schedule 声明；其它跨插件共享的下载数据 API
+        //（status/downloaded 统计 / 历史 / 图片字节）由核心声明（见类注释）。
         return List.of(
-                WebRouteContribution.admin("/api/schedule/**"),
                 WebRouteContribution.visitor("/pixiv-batch.html"),
                 WebRouteContribution.visitor("/pixiv-batch/**"),
                 WebRouteContribution.visitor("/api/download/pixiv"),
@@ -156,10 +155,10 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<ScheduledSourceProvider> scheduledSources() {
-        // 现有 7 个计划任务来源随 schedule 能力收编进下载工作台声明，跨插画 / 小说统一调度。每个来源是一个
-        // ScheduledSource（在 plugin.api 身份 SPI 之上附加发现 / 模式 / 谓词执行行为），调度器经来源注册中心
-        // 解析后直接派发——调度主编排不再按类型枚举 switch 调具体来源实现。其他插件仍可经各自
-        // scheduledSources() 贡献新来源。
+        // 下载工作台作为来源贡献方，向计划任务宿主插件声明其 7 个内置来源（怎么找作品），跨插画 / 小说统一调度。
+        // 每个来源是一个 ScheduledSource（在 plugin.api 身份 SPI 之上附加发现 / 模式 / 谓词执行行为，住下载工作台域
+        // download.schedule.source），宿主调度壳经来源注册中心解析后直接派发——调度主编排不再按类型枚举 switch 调
+        // 具体来源实现。其他插件仍可经各自 scheduledSources() 贡献新来源。
         return List.of(
                 new UserNewSource(),
                 new UserRequestSource(),

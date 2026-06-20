@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule;
+package top.sywyar.pixivdownload.download.schedule.source;
 
 import java.util.List;
 

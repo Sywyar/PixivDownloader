@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.work;
+package top.sywyar.pixivdownload.download.schedule.work;
 
 import lombok.RequiredArgsConstructor;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledIllustSettings;

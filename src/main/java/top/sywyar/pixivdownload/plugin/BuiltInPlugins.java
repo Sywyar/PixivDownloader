@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.duplicate.DuplicatePlugin;
 import top.sywyar.pixivdownload.gallery.GalleryPlugin;
 import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.schedule.ScheduleHostPlugin;
 import top.sywyar.pixivdownload.stats.StatsPlugin;
 
 import java.util.List;
@@ -27,6 +28,7 @@ public final class BuiltInPlugins {
         return List.of(
                 new CorePlugin(),
                 new DownloadWorkbenchPlugin(),
+                new ScheduleHostPlugin(),
                 new GalleryPlugin(),
                 new NovelPlugin(),
                 new StatsPlugin(),

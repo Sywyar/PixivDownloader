@@ -33,9 +33,10 @@ import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
-import top.sywyar.pixivdownload.schedule.source.DiscoveryMode;
-import top.sywyar.pixivdownload.schedule.source.ScheduledSource;
-import top.sywyar.pixivdownload.schedule.source.ScheduledSourceContext;
+import top.sywyar.pixivdownload.download.schedule.source.DiscoveryMode;
+import top.sywyar.pixivdownload.download.schedule.source.PageSupplier;
+import top.sywyar.pixivdownload.download.schedule.source.ScheduledSource;
+import top.sywyar.pixivdownload.download.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.text.SimpleDateFormat;

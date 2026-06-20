@@ -113,7 +113,7 @@ class FeaturePluginsDisabledContextTest {
     }
 
     @Test
-    @DisplayName("禁用上述插件不影响 novel / download-workbench 托管 Bean")
+    @DisplayName("禁用上述插件不影响 novel / 计划任务宿主托管 Bean")
     void unrelatedPluginsUnaffected() {
         assertThat(context.getBeanNamesForType(NovelGalleryController.class)).hasSize(1);
         assertThat(context.getBeanNamesForType(ScheduleRunner.class)).hasSize(1);

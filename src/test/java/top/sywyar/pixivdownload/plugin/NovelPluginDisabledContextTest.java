@@ -106,7 +106,7 @@ class NovelPluginDisabledContextTest {
     }
 
     @Test
-    @DisplayName("禁用 novel 不影响其它插件：下载工作台 / 画廊 Bean 在场，核心 Hash 写入接缝在场")
+    @DisplayName("禁用 novel 不影响其它插件：计划任务宿主 / 画廊 Bean 在场，核心 Hash 写入接缝在场")
     void otherPluginsUnaffected() {
         assertThat(context.getBeanNamesForType(ScheduleRunner.class)).hasSize(1);
         assertThat(context.getBeanNamesForType(GalleryController.class)).hasSize(1);

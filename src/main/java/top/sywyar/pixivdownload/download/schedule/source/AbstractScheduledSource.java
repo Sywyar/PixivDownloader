@@ -1,4 +1,4 @@
-package top.sywyar.pixivdownload.schedule.source;
+package top.sywyar.pixivdownload.download.schedule.source;
 
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskType;
 
