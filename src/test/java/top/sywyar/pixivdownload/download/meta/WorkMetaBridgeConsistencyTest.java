@@ -28,6 +28,7 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.download.ArtworkFileLocator;
 import top.sywyar.pixivdownload.download.ArtworkFileService;
 import top.sywyar.pixivdownload.download.LocalWorkAssetService;
+import top.sywyar.pixivdownload.download.StagedFileDeletion;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
@@ -117,8 +118,9 @@ class WorkMetaBridgeConsistencyTest {
                 sqlSession.getMapper(NovelMapper.class), pixivDatabase, codec, initializer, novelMetadataRepository);
         novelDatabase.init();
 
+        StagedFileDeletion stagedFileDeletion = new StagedFileDeletion(TestI18nBeans.appMessages());
         ArtworkFileLocator artworkFileLocator = new ArtworkFileLocator(
-                pixivDatabase, downloadConfig, TestI18nBeans.appMessages());
+                pixivDatabase, downloadConfig, TestI18nBeans.appMessages(), stagedFileDeletion);
         WorkSidecarStore sidecarStore = new WorkSidecarStore(mapper);
 
         captureService = new WorkMetaCaptureService(
@@ -135,7 +137,7 @@ class WorkMetaBridgeConsistencyTest {
         // findSidecarMeta 不经 ArtworkFileService（仅插画字节服务用它），可放心 mock
         assetService = new LocalWorkAssetService(
                 mock(ArtworkFileService.class), artworkFileLocator, pixivDatabase, novelMetadataRepository,
-                downloadConfig, sidecarStore, TestI18nBeans.appMessages());
+                downloadConfig, sidecarStore, TestI18nBeans.appMessages(), stagedFileDeletion);
     }
 
     @AfterEach

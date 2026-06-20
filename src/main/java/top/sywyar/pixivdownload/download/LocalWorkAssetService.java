@@ -49,6 +49,7 @@ public class LocalWorkAssetService implements WorkAssetService {
     private final DownloadConfig downloadConfig;
     private final WorkSidecarStore sidecarStore;
     private final AppMessages messages;
+    private final StagedFileDeletion stagedFileDeletion;
 
     @Override
     public Optional<LocalWorkAsset> findAsset(WorkType workType, long workId) {
@@ -228,11 +229,13 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     /**
      * 删除小说磁盘文件：每本小说独占 {@code {rootFolder}/novel-{novelId}/} 目录（小说无重定位语义），
-     * 因此目录名必须匹配 {@code novel-{novelId}} 才会被递归删除。守卫与递归删除逻辑自小说画廊
-     * 服务逐字下沉，无下载记录视为「无事可做」（{@code true}）。
+     * 因此目录名必须匹配 {@code novel-{novelId}} 才会被删除。目录下全部常规文件（含 meta sidecar
+     * 与子目录内嵌资源）经共享 {@link StagedFileDeletion} <b>原子删除</b>（先暂存再删，任一失败回滚到删除前状态）——
+     * 失败时小说文件原样保留、不会半损坏。文件全删成功后再移除清空的目录壳（子目录 + {@code novel-{id}} 本身），
+     * 目录壳可再生，移除失败仅记日志、不影响删除成败。守卫逻辑自小说画廊服务下沉，无下载记录视为「无事可做」（{@code true}）。
      *
-     * @return 文件层清理结果：{@code true} 表示所有尝试的删除都成功（或没有可删的文件 / 被边界守卫跳过），
-     *         调用方可继续删 DB 行；{@code false} 表示有文件因锁定 / 权限不足等原因删除失败，
+     * @return 文件层清理结果：{@code true} 表示文件全部删除成功（或没有可删的文件 / 被边界守卫跳过），
+     *         调用方可继续删 DB 行；{@code false} 表示有文件因锁定 / 权限不足等原因删除失败、已回滚复原，
      *         调用方必须中止 DB 清理。
      */
     private boolean deleteNovelFiles(long workId) {
@@ -244,21 +247,33 @@ public class LocalWorkAssetService implements WorkAssetService {
         if (dir == null) {
             return true;
         }
-        boolean[] allDeleted = {true};
+        List<Path> files;
+        try (var stream = Files.walk(dir)) {
+            files = stream.filter(Files::isRegularFile).toList();
+        } catch (IOException e) {
+            log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), record.folder()));
+            return false;
+        }
+        if (!stagedFileDeletion.deleteAtomically(files)) {
+            return false;
+        }
+        removeEmptyDirectoryTree(dir, record);
+        return true;
+    }
+
+    /** 移除已清空的小说独占目录壳（子目录 + 目录本身）；可再生，删失败仅记日志、不影响删除成败。 */
+    private void removeEmptyDirectoryTree(Path dir, NovelRecord record) {
         try (var stream = Files.walk(dir)) {
             stream.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.deleteIfExists(p);
                 } catch (IOException e) {
-                    log.warn(logMessage("novel.gallery.log.delete-file-failed", p));
-                    allDeleted[0] = false;
+                    log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), record.folder()));
                 }
             });
         } catch (IOException e) {
             log.warn(logMessage("novel.gallery.log.clean-directory-failed", record.novelId(), record.folder()));
-            return false;
         }
-        return allDeleted[0];
     }
 
     /**

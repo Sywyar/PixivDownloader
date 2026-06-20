@@ -48,6 +48,7 @@ public final class RuntimeFiles {
     public static final String EDGE_TTS_CHROMIUM_VERSION = "chromium-version.txt";
     public static final String BACKFILL_DIR = "backfill";
     public static final String BACKFILL_UNREACHABLE_FILE = "unreachable.json";
+    public static final String DELETE_STAGING_DIR = "delete-staging";
     public static final String DOWNLOAD_ROOT_MARKER = "download_root_marker.txt";
     public static final String NARRATION_VOICE_DIR = "narration-voice";
     private static final String LEGACY_COLLECTION_ICONS_DIR = "_collection_icons";
@@ -111,6 +112,36 @@ public final class RuntimeFiles {
 
     public static Path resolveBackfillUnreachablePath() {
         return backfillDirectory().resolve(BACKFILL_UNREACHABLE_FILE).normalize();
+    }
+
+    /**
+     * 作品删除的暂存目录：{@code data/delete-staging/}。原子删除时先把待删文件复制到本目录下的独立子目录，
+     * 删原文件失败再从这里复制回滚；放在 {@code data/} 下而非系统临时目录，避免跨卷拷贝、不受 OS 临时清理影响、
+     * 位置可预测。崩溃残留由 {@link #clearDeleteStagingLeftovers()} 在启动时统一清扫。
+     */
+    public static Path deleteStagingDirectory() {
+        Path target = dataDirectory().resolve(DELETE_STAGING_DIR);
+        try {
+            Files.createDirectories(target);
+        } catch (IOException e) {
+            throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
+        }
+        return target.normalize();
+    }
+
+    /**
+     * 清扫 {@code data/delete-staging/} 下上次运行（含异常退出）残留的暂存子目录。每次删除操作使用独立子目录
+     * 并在结束时删除，正常情况下应为空；启动时再统一兜底全清，避免崩溃残留长期占用磁盘。清扫失败仅记日志。
+     */
+    public static void clearDeleteStagingLeftovers() {
+        Path stagingRoot = deleteStagingDirectory();
+        try (Stream<Path> children = Files.list(stagingRoot)) {
+            for (Path child : children.toList()) {
+                deleteDirectoryTree(child);
+            }
+        } catch (IOException e) {
+            log.warn(message("runtime.log.delete-staging.sweep-failed", stagingRoot));
+        }
     }
 
     /**
@@ -202,6 +233,7 @@ public final class RuntimeFiles {
         collectionIconsDirectory();
         guiStateDirectory();
         ttsDataDirectory();
+        clearDeleteStagingLeftovers();
     }
 
     public static String readDownloadRootFromConfig(Path configPath, String defaultRootFolder) {

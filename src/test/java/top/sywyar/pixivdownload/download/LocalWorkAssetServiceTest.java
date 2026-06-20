@@ -1,11 +1,13 @@
 package top.sywyar.pixivdownload.download;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
@@ -46,6 +48,8 @@ class LocalWorkAssetServiceTest {
 
     @BeforeEach
     void setUp() {
+        // 小说删除经真实 StagedFileDeletion 走原子删除，暂存目录指向临时 data 目录避免污染工作目录
+        System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, tempDir.resolve("rt-data").toString());
         artworkFileService = mock(ArtworkFileService.class);
         artworkFileLocator = mock(ArtworkFileLocator.class);
         pixivDatabase = mock(PixivDatabase.class);
@@ -53,7 +57,13 @@ class LocalWorkAssetServiceTest {
         downloadConfig = mock(DownloadConfig.class);
         sidecarStore = new WorkSidecarStore(new ObjectMapper());
         service = new LocalWorkAssetService(artworkFileService, artworkFileLocator, pixivDatabase,
-                novelMetadataRepository, downloadConfig, sidecarStore, TestI18nBeans.appMessages());
+                novelMetadataRepository, downloadConfig, sidecarStore, TestI18nBeans.appMessages(),
+                new StagedFileDeletion(TestI18nBeans.appMessages()));
+    }
+
+    @AfterEach
+    void clearStagingDirectoryProperty() {
+        System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
     }
 
     private static ArtworkRecord artwork(long artworkId, int count) {
@@ -406,5 +416,39 @@ class LocalWorkAssetServiceTest {
 
             assertTrue(service.deleteLocalFiles(WorkType.NOVEL, 404L));
         }
+
+        @Test
+        @DisplayName("deleteLocalFiles 某文件删除失败时原子回滚：小说目录与全部文件复原、返回 false")
+        void deleteLocalFilesRollsBackWhenDeletionFails() throws Exception {
+            Path dir = novelDir(7L);
+            Path txt = Files.writeString(dir.resolve("7_p0.txt"), "text");
+            Path sidecar = Files.writeString(dir.resolve("7.meta.json"), "{\"schemaVersion\":1}");
+            when(novelMetadataRepository.getNovel(7L)).thenReturn(novel(7L, dir.toString(), null, "jpg"));
+            when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+
+            LocalWorkAssetService failingService = new LocalWorkAssetService(
+                    artworkFileService, artworkFileLocator, pixivDatabase, novelMetadataRepository,
+                    downloadConfig, sidecarStore, TestI18nBeans.appMessages(),
+                    failOn(dir.resolve("7.meta.json")));
+
+            assertFalse(failingService.deleteLocalFiles(WorkType.NOVEL, 7L), "删除失败应返回 false");
+            assertTrue(Files.exists(txt), "正文文件应被回滚复原");
+            assertTrue(Files.exists(sidecar), "sidecar 应保留");
+            assertTrue(Files.isDirectory(dir), "回滚后小说目录不应被移除");
+        }
+    }
+
+    /** 删除指定路径时抛 IOException 的 StagedFileDeletion，用于确定性模拟删除失败。 */
+    private static StagedFileDeletion failOn(Path poison) {
+        Path normalizedPoison = poison.toAbsolutePath().normalize();
+        return new StagedFileDeletion(TestI18nBeans.appMessages()) {
+            @Override
+            void deleteFile(Path original) throws java.io.IOException {
+                if (original.toAbsolutePath().normalize().equals(normalizedPoison)) {
+                    throw new java.io.IOException("simulated lock on " + original);
+                }
+                super.deleteFile(original);
+            }
+        };
     }
 }

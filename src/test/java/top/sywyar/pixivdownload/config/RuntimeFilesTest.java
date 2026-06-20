@@ -177,6 +177,23 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("启动清扫应删除残留的删除暂存子目录但保留暂存根目录")
+    void shouldClearLeftoverDeleteStagingSubdirectories() throws IOException {
+        Path stagingRoot = RuntimeFiles.deleteStagingDirectory();
+        Path leftover = Files.createDirectories(stagingRoot.resolve("crashed-op"));
+        Files.writeString(leftover.resolve("0_a.jpg"), "x", StandardCharsets.UTF_8);
+        Path strayFile = stagingRoot.resolve("stray.tmp");
+        Files.writeString(strayFile, "y", StandardCharsets.UTF_8);
+
+        RuntimeFiles.clearDeleteStagingLeftovers();
+
+        assertThat(leftover).doesNotExist();
+        assertThat(strayFile).doesNotExist();
+        assertThat(stagingRoot).isEqualTo(dataDir.resolve(RuntimeFiles.DELETE_STAGING_DIR));
+        assertThat(stagingRoot).isDirectory();
+    }
+
+    @Test
     @DisplayName("should prefer explicitly configured single-instance directory")
     void shouldPreferConfiguredSingleInstanceDirectory() {
         Path instanceDir = tempDir.resolve("instance");
