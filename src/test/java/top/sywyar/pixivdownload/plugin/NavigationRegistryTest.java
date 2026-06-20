@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -18,24 +19,54 @@ class NavigationRegistryTest {
     }
 
     private static NavigationContribution nav(String id) {
-        return new NavigationContribution(id, "nav.label", "/" + id + ".html", "icon",
+        return new NavigationContribution(id, "app.top", "nav.label", "/" + id + ".html", "icon",
                 AccessPolicy.ADMIN, 10);
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集全部内置插件导航项（四个功能插件各一条）")
+    @DisplayName("构造时从 PluginRegistry 收集全部内置插件导航项（主入口 + 类型切换 + 统计页画廊视图 + 图标）")
     void collectsNavigationFromBuiltInPlugins() {
         NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+        // 每条导航项是一个逻辑入口（id 全局唯一、可经 placements 同时进入多个 slot）。内置入口全集：
+        // 下载工作台 / 监控 / 邀请码管理（基础）+ 画廊主入口及其类型切换 / 统计页视图三链 + 小说主入口及其类型切换
+        // + 统计 + 疑似重复。画廊 / 统计的疑似重复页图标由主入口经 placement 兼任、不另立 id。
         assertThat(registry.navigation())
                 .extracting(registered -> registered.navigation().id())
-                .containsExactlyInAnyOrder("gallery", "novel", "stats", "duplicate");
+                .containsExactlyInAnyOrder(
+                        "download-workbench", "monitor", "invite-manage",
+                        "gallery", "gallery-type-switch",
+                        "gallery-view-all", "gallery-view-authors", "gallery-view-series",
+                        "novel", "novel-type-switch", "stats", "duplicate");
+        // 画廊主入口归 gallery 插件、INVITED_GUEST 可见、进入顶部栏 + 中立主侧栏 + 画廊侧栏 + 疑似重复图标区四个 placement。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("gallery"))
                 .singleElement()
                 .satisfies(registered -> {
                     assertThat(registered.pluginId()).isEqualTo("gallery");
                     assertThat(registered.navigation().visibleTo()).isEqualTo(AccessPolicy.INVITED_GUEST);
+                    assertThat(registered.navigation().placements())
+                            .containsExactlyInAnyOrder("app.top", "app.sidebar", "gallery.sidebar", "duplicates.header-icons");
                 });
+        // 下载工作台导航：VISITOR（访客 / 管理员可见、受邀访客不可见），归 download-workbench 插件，进顶部栏 + 中立主侧栏 + 两家族侧栏。
+        assertThat(registry.navigation())
+                .filteredOn(registered -> registered.navigation().id().equals("download-workbench"))
+                .singleElement()
+                .satisfies(registered -> {
+                    assertThat(registered.pluginId()).isEqualTo("download-workbench");
+                    assertThat(registered.navigation().visibleTo()).isEqualTo(AccessPolicy.VISITOR);
+                    assertThat(registered.navigation().placements())
+                            .containsExactlyInAnyOrder("app.top", "app.sidebar", "gallery.sidebar", "novel.sidebar");
+                });
+        // 监控 / 邀请码管理导航归 core 插件、ADMIN 可见；邀请码管理只进侧栏、不进顶部栏 placement。
+        assertThat(registry.navigation())
+                .filteredOn(registered -> registered.pluginId().equals("core"))
+                .extracting(registered -> registered.navigation().id())
+                .containsExactlyInAnyOrder("monitor", "invite-manage");
+        assertThat(registry.navigation())
+                .filteredOn(registered -> registered.navigation().id().equals("invite-manage"))
+                .singleElement()
+                .satisfies(registered -> assertThat(registered.navigation().placements())
+                        .containsExactlyInAnyOrder("app.sidebar", "gallery.sidebar", "novel.sidebar"));
     }
 
     @Test
@@ -89,32 +120,55 @@ class NavigationRegistryTest {
     }
 
     @Test
-    @DisplayName("导航 href 全局冲突立即抛出（跨插件不同 id 指向同一 href）")
-    void duplicateNavigationHrefAcrossPluginsRejected() {
+    @DisplayName("同一 placement 内导航 href 冲突立即抛出（同一菜单不可有两条指向同一页的入口）")
+    void duplicateNavigationHrefWithinPlacementRejected() {
         NavigationRegistry registry = emptyRegistry();
         registry.register("a", List.of(new NavigationContribution(
-                "a-id", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
+                "a-id", "app.top", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
         assertThatThrownBy(() -> registry.register("b", List.of(new NavigationContribution(
-                "b-id", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10))))
+                "b-id", "app.top", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/shared.html")
-                .hasMessageContaining("b");
+                .hasMessageContaining("app.top");
     }
 
     @Test
-    @DisplayName("同一插件内导航 href 重复也立即抛出（不同 id 指向同一 href）")
+    @DisplayName("同一插件、同一 placement 内 href 重复也立即抛出（不同 id 指向同一 href）")
     void duplicateNavigationHrefWithinPluginRejected() {
         NavigationRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("x", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0),
-                new NavigationContribution("y", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution("x", "app.top", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0),
+                new NavigationContribution("y", "app.top", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/dup.html")
                 .hasMessageContaining("demo");
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId / id / labelI18nKey / href 非空，visibleTo 非 null，导航列表非空")
+    @DisplayName("不同 placement 可复用同一 href（href 仅在 placement 内唯一，如类型切换 tab 与图标都指向画廊）")
+    void sameHrefAcrossPlacementsAllowed() {
+        NavigationRegistry registry = emptyRegistry();
+        registry.register("a", List.of(new NavigationContribution(
+                "a-id", "app.top", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
+        registry.register("b", List.of(new NavigationContribution(
+                "b-id", "gallery.sidebar", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
+        assertThat(registry.navigation()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("一条导航项可同时进入多个 placement（placements 集合保真）")
+    void multiPlacementContributionPreserved() {
+        NavigationRegistry registry = emptyRegistry();
+        registry.register("demo", List.of(new NavigationContribution(
+                "multi", Set.of("app.top", "gallery.sidebar", "novel.sidebar"),
+                "nav.label", "/multi.html", "icon", AccessPolicy.ADMIN, 10)));
+        assertThat(registry.navigation()).singleElement()
+                .satisfies(registered -> assertThat(registered.navigation().placements())
+                        .containsExactlyInAnyOrder("app.top", "gallery.sidebar", "novel.sidebar"));
+    }
+
+    @Test
+    @DisplayName("非法输入拒绝：pluginId / id / labelI18nKey / href 非空，visibleTo 非 null，placements 非空、不含空白")
     void invalidInputRejected() {
         NavigationRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register(" ", List.of(nav("a"))))
@@ -122,16 +176,24 @@ class NavigationRegistryTest {
         assertThatThrownBy(() -> registry.register("demo", List.of()))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution(" ", "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution(" ", "app.top", "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", " ", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution("a", "app.top", " ", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", "nav.label", " ", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution("a", "app.top", "nav.label", " ", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", "nav.label", "/a.html", "icon", null, 0))))
+                new NavigationContribution("a", "app.top", "nav.label", "/a.html", "icon", null, 0))))
+                .isInstanceOf(IllegalStateException.class);
+        // placements 为空
+        assertThatThrownBy(() -> registry.register("demo", List.of(
+                new NavigationContribution("a", Set.<String>of(), "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
+                .isInstanceOf(IllegalStateException.class);
+        // placements 含空白项
+        assertThatThrownBy(() -> registry.register("demo", List.of(
+                new NavigationContribution("a", Set.of(" "), "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
     }
 

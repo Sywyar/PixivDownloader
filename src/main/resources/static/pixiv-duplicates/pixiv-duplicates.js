@@ -404,6 +404,7 @@
             onChange: function (nextClient) {
                 pageI18n = nextClient;
                 applyStaticTranslations();
+                if (window.PixivNav) PixivNav.refresh();
                 loadGroups();
             }
         });

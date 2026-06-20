@@ -192,13 +192,15 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/tts/edge/voices", "core", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/api/tts/edge/synthesize", "core", AccessPolicy.INVITED_GUEST);
         assertOwnerPolicy("/js/pixiv-side-modules.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
+        // 通用页面区块渲染器：与 /api/page-sections 同口径显式声明（不靠 /js/** 的 VISITOR 兜底），受邀访客可加载。
+        assertOwnerPolicy("/js/pixiv-page-sections.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/favicon.ico", "core", AccessPolicy.PUBLIC);
         assertOwnerPolicy("/api/downloaded/**", "core", AccessPolicy.LOCAL);
         // 核心新声明的横切 / 公开 / 直通 / GUI / 本地 URL（本前置包补齐的「全 URL 声明」）
         assertOwnerPolicy("/api/auth/**", "core", AccessPolicy.PUBLIC);
         assertOwnerPolicy("/api/i18n/**", "core", AccessPolicy.PUBLIC);
         assertOwnerPolicy("/index.html", "core", AccessPolicy.PUBLIC);
-        assertOwnerPolicy("/api/navigation", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/navigation", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/api/quota/**", "core", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/archive/**", "core", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/pixiv/me/**", "core", AccessPolicy.VISITOR);

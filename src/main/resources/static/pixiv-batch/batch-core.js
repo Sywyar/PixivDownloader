@@ -105,6 +105,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
             onChange: async function (nextClient) {
                 pageI18n = nextClient;
                 applyStaticPageTranslations();
+                if (window.PixivNav) PixivNav.refresh();
                 // 目标语言未自定义时跟随新语言刷新默认显示值
                 refreshNovelTranslateLangDefault();
                 renderQuotaBar();

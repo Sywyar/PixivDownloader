@@ -25,10 +25,12 @@ import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.StartupRouteRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.quota.RateLimitService;
@@ -82,6 +84,9 @@ public class AuthFilter extends OncePerRequestFilter {
     /** 默认启动落点注册中心：{@code /redirect} 据此按模式选定首选插件落点（缺失则回退 / 兜底）。 */
     private final StartupRouteRegistry startupRouteRegistry;
 
+    /** 落点注册中心：GET {@code /invite} 兑换成功后据此按受邀访客落点优先级解析目标页（缺失则回登录页），与导航排序解耦。 */
+    private final LandingRegistry landingRegistry;
+
     /** 最近一次派生结果（含其来源快照引用）；仅当 registry 快照引用变化时按需重算，避免每个请求重复派生。 */
     private volatile DerivedRouteAccess derivedRouteAccess;
 
@@ -89,8 +94,8 @@ public class AuthFilter extends OncePerRequestFilter {
     private boolean sslEnabled;
 
     /**
-     * 运行期构造：注入 Spring 管理的 {@link RouteAccessRegistry}（反映已启用插件，请求侧读取其不可变快照）
-     * 与 {@link StartupRouteRegistry}（{@code /redirect} 默认落点）。
+     * 运行期构造：注入 Spring 管理的 {@link RouteAccessRegistry}（反映已启用插件，请求侧读取其不可变快照）、
+     * {@link StartupRouteRegistry}（{@code /redirect} 默认落点）与 {@link LandingRegistry}（GET 邀请兑换落点）。
      */
     @Autowired
     public AuthFilter(SetupService setupService,
@@ -102,7 +107,8 @@ public class AuthFilter extends OncePerRequestFilter {
                       GuestInviteService guestInviteService,
                       GuiTokenProvider guiTokenProvider,
                       RouteAccessRegistry routeAccessRegistry,
-                      StartupRouteRegistry startupRouteRegistry) {
+                      StartupRouteRegistry startupRouteRegistry,
+                      LandingRegistry landingRegistry) {
         this.setupService = setupService;
         this.staticResourceRateLimitService = staticResourceRateLimitService;
         this.rateLimitService = rateLimitService;
@@ -113,11 +119,12 @@ public class AuthFilter extends OncePerRequestFilter {
         this.guiTokenProvider = guiTokenProvider;
         this.routeAccessRegistry = routeAccessRegistry;
         this.startupRouteRegistry = startupRouteRegistry;
+        this.landingRegistry = landingRegistry;
     }
 
     /**
-     * 单元测试 / 启动期校验构造（自定义 {@link RouteAccessRegistry}）：启动落点 registry 从内置插件清单构建，
-     * 与运行期一致；供 {@code AuthFilterRegistrySnapshotTest} 注入定制路由 registry 而落点行为不变。
+     * 单元测试 / 启动期校验构造（自定义 {@link RouteAccessRegistry}）：启动落点与落点 registry 从内置插件清单构建，
+     * 与运行期一致；供 {@code AuthFilterRegistrySnapshotTest} 注入定制路由 registry 而落点 / 邀请兑换落点行为不变。
      */
     public AuthFilter(SetupService setupService,
                       StaticResourceRateLimitService staticResourceRateLimitService,
@@ -131,7 +138,8 @@ public class AuthFilter extends OncePerRequestFilter {
         this(setupService, staticResourceRateLimitService, rateLimitService, localeResolver,
                 messages, maintenanceCoordinatorProvider, guestInviteService, guiTokenProvider,
                 routeAccessRegistry,
-                new StartupRouteRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
+                new StartupRouteRegistry(new PluginRegistry(BuiltInPlugins.createAll())),
+                new LandingRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
     }
 
     /**
@@ -775,7 +783,10 @@ public class AuthFilter extends OncePerRequestFilter {
         ResponseCookie cookie = ResponseCookie.from(INVITE_COOKIE, session.get().code())
                 .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").build();
         res.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-        res.sendRedirect("/pixiv-gallery.html");
+        // 落点经独立的 LandingRegistry 按受邀访客落点优先级解析（画廊 priority 20 优先、禁用则回退小说 30），
+        // 全部缺失回登录页提示。与导航排序解耦，且与 InviteRedeemController 同口径（避免送进会 404 的坏入口）。
+        res.sendRedirect(landingRegistry.resolve(Audience.INVITED_GUEST)
+                .orElse("/login.html?inviteError=1"));
     }
 
     private void ensureUserUuidCookie(HttpServletRequest req, HttpServletResponse res) {

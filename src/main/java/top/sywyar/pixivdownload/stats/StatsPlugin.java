@@ -3,12 +3,14 @@ package top.sywyar.pixivdownload.stats;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 统计插件：统计仪表盘页面与 {@code /api/stats/**} 只读聚合。
@@ -65,7 +67,14 @@ public class StatsPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<NavigationContribution> navigation() {
+        // 统计入口：管理员可见（ADMIN）。placement——顶部栏 + 各侧栏主导航（含中立主侧栏 app.sidebar，即统计页
+        // 自己的侧栏所用 slot），并兼任疑似重复页顶部的统计图标（duplicates.header-icons，与画廊图标并列；该 slot 的
+        // 链接样式由页面 slot 的 link-class 决定，无需另立贡献）。priority 50：位于功能页面区段（画廊 30 < 统计 50 < 疑似重复 60）。
         return List.of(new NavigationContribution(
-                ID, "nav.label", "/pixiv-stats.html", "chart-bar", AccessPolicy.ADMIN, 60));
+                ID,
+                Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
+                        NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
+                        NavigationPlacements.DUPLICATES_HEADER_ICONS),
+                "stats:nav.label", "/pixiv-stats.html", "chart-bar", AccessPolicy.ADMIN, 50));
     }
 }

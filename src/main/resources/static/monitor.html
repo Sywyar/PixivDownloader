@@ -7,6 +7,7 @@
     <script src="/js/pixiv-i18n.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
+    <script src="/js/pixiv-navigation.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link href="/vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
@@ -33,16 +34,12 @@
         </div>
         <nav class="app-nav">
             <span class="app-nav-brand" data-i18n="nav.brand">PIXIV // SYS</span>
-            <a href="/monitor.html" class="app-nav-link active" target="_blank" rel="noopener">
-                <i class="fas fa-chart-line" style="font-size:.6rem;"></i><span data-i18n="nav.monitor">MONITOR</span>
-            </a>
-            <a href="/pixiv-batch.html" class="app-nav-link" target="_blank" rel="noopener">
-                <i class="fas fa-layer-group" style="font-size:.6rem;"></i><span data-i18n="nav.batch">BATCH</span>
-            </a>
-            <a href="/pixiv-gallery.html?view=all" class="app-nav-link" target="_blank" rel="noopener">
-                <i class="fas fa-images" style="font-size:.6rem;"></i><span data-i18n="nav.gallery">GALLERY</span>
-            </a>
-            <!-- future nav items -->
+            <!-- 跨插件导航 slot（app.top placement）：由 /js/pixiv-navigation.js 据 /api/navigation 动态渲染
+                 （禁用插件后其入口自然消失）。invite-manage 不进 app.top placement、故无需页面排除；
+                 当前项按 pathname 自动识别为监控。 -->
+            <span class="app-nav-links" data-nav-slot="app.top" data-nav-link-class="app-nav-link"
+                  data-nav-active-class="active"
+                  data-nav-target="_blank" data-nav-rel="noopener" style="display:contents"></span>
             <div class="app-nav-spacer"></div>
             <div class="app-nav-actions" id="langSwitcherAnchor"></div>
         </nav>

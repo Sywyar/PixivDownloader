@@ -226,6 +226,7 @@ window.PixivGallery = window.PixivGallery || {};
                 pageI18n = nextClient;
                 window.PixivInvitesI18n = nextClient;
                 applyStaticPageTranslations();
+                if (window.PixivNav) PixivNav.refresh();
                 renderCollections();
                 renderTagChips();
                 renderSeriesFilterChips();

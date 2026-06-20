@@ -170,14 +170,20 @@ class RegisteredPluginsTest {
         // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
         // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）；
         // download-workbench 随 schedule 能力收编声明 /api/schedule/** 路由（下载页其余 API 是跨插件共享、留核心）。
-        // 导航：仍仅四个 web 功能插件声明（core / download-workbench 不出现在导航栏）。
+        // 导航：四个 web 功能插件 + core（监控 / 邀请码管理基础入口）+ download-workbench（下载页入口，前端导航开槽）。
         Set<String> routeContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
-        Set<String> navContributingPlugins = Set.of("stats", "duplicate", "gallery", "novel");
+        Set<String> navContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
         Set<String> staticResourceContributingPlugins = Set.of("core", "download-workbench", "stats", "duplicate", "gallery", "novel");
         // 下载页扩展点：作品类型由「下载什么」的插件声明（download-workbench=illust，novel=novel）；
         // 获取方式标签页（怎么找作品）唯下载工作台声明。
         Set<String> queueTypeContributingPlugins = Set.of("download-workbench", "novel");
         Set<String> downloadTabContributingPlugins = Set.of("download-workbench");
+        // 落点 / 入口（landing）：受邀访客落点唯画廊（priority 20）+ 小说（priority 30）声明，
+        // 锁死契约面——其它插件不得静默声明落点（避免借落点 / 导航 order 间接改变业务落点）。
+        Set<String> landingContributingPlugins = Set.of("gallery", "novel");
+        // 页面区块（page sections）：唯画廊向统计页 placement 贡献「视图 / 收藏夹」借用区块，
+        // 统计页只声明空 section slot——其它插件不贡献区块（宿主不需要知道是哪个插件）。
+        Set<String> pageSectionContributingPlugins = Set.of("gallery");
         // coreColumnUsages 仍仅画廊 / 小说：download-workbench 收编的 schedule 引擎对 scheduled_tasks 的访问
         // 经核心 owned 语义 Store ScheduledTaskStore（core.schedule 接口，其核心实现 ScheduledTaskStoreImpl 再包装
         // 根包扫描的 MyBatis ScheduledTaskMapper，与 ArtworkDownloadExecutor 同口径属核心机器、不计入），
@@ -209,8 +215,8 @@ class RegisteredPluginsTest {
                 } else {
                     assertThat(plugin.routes()).isEmpty();
                 }
-                // 导航：仅四个 web 功能插件声明（无私有表，statistics、artwork_image_hashes 与 artworks 系
-                // 均按卸载投影测试归 core；core 声明横切路由但不进导航栏）
+                // 导航：四个 web 功能插件 + core（监控 / 邀请码管理）+ download-workbench（下载页入口）全员声明，
+                // 由 /api/navigation 按当前身份过滤后供前端跨插件导航 slot 渲染（前端导航开槽工作包）。
                 if (navContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.navigation()).isNotEmpty();
                 } else {
@@ -240,6 +246,18 @@ class RegisteredPluginsTest {
                     assertThat(plugin.downloadTabs()).isNotEmpty();
                 } else {
                     assertThat(plugin.downloadTabs()).isEmpty();
+                }
+                // 落点 / 入口：唯画廊 + 小说声明受邀访客落点；其余插件不得贡献落点
+                if (landingContributingPlugins.contains(plugin.id())) {
+                    assertThat(plugin.landings()).isNotEmpty();
+                } else {
+                    assertThat(plugin.landings()).isEmpty();
+                }
+                // 页面区块：唯画廊向统计页贡献借用区块；其余插件不贡献
+                if (pageSectionContributingPlugins.contains(plugin.id())) {
+                    assertThat(plugin.pageSections()).isNotEmpty();
+                } else {
+                    assertThat(plugin.pageSections()).isEmpty();
                 }
             });
         });

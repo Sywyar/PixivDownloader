@@ -5,7 +5,9 @@ import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.PageSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
@@ -103,6 +105,26 @@ public interface PixivFeaturePlugin {
 
     /** 插件声明的默认启动落点（{@code /redirect} 据此选定落点页）。 */
     default List<StartupRouteContribution> startupRoutes() {
+        return List.of();
+    }
+
+    /**
+     * 插件声明的默认落点 / 入口（landing entrypoint）：供业务流程按<b>身份</b>解析默认跳转目标，
+     * 例如受邀访客兑换邀请码成功后的落地页。与导航排序解耦：落点选择只消费
+     * {@link LandingContribution#priority()}（landing/entrypoint 优先级），<b>不</b>复用
+     * {@link NavigationContribution#priority()}（导航展示顺序）——两者是各自独立的契约，第三方插件即便注册一个
+     * 导航 priority 极小的项也无法间接改变业务落点，必须显式声明 {@link LandingContribution} 才参与落点竞争。
+     */
+    default List<LandingContribution> landings() {
+        return List.of();
+    }
+
+    /**
+     * 插件声明的页面区块 / slot 贡献（{@code /api/page-sections} 按当前身份过滤后返回）：让宿主页面只声明稳定的
+     * section slot，复杂区块（标题 / 操作入口 / 内嵌导航 slot / 由贡献方自有 JS 渲染的列表）的内容完全由活动插件
+     * 注册——宿主不需要知道是哪个插件、是否启用。禁用插件后其 section 自然消失。
+     */
+    default List<PageSectionContribution> pageSections() {
         return List.of();
     }
 

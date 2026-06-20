@@ -4,12 +4,14 @@ import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 重复检测插件：基于核心图片 Hash 索引的疑似重复页面、API 与手动重扫入口。
@@ -73,8 +75,14 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
 
     @Override
     public List<NavigationContribution> navigation() {
+        // 疑似重复入口：管理员可见（ADMIN）。placement——顶部栏 + 各侧栏主导航（含中立主侧栏 app.sidebar）。
+        // priority 60：功能页面区段末位。本页顶部自身的图标入口区（画廊 / 统计）由画廊 / 统计插件向
+        // duplicates.header-icons 贡献，不在此声明。
         return List.of(new NavigationContribution(
-                ID, "nav.label", "/pixiv-duplicates.html", "copy", AccessPolicy.ADMIN, 70));
+                ID,
+                Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
+                        NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
+                "duplicates:nav.label", "/pixiv-duplicates.html", "copy", AccessPolicy.ADMIN, 60));
     }
 
     @Override

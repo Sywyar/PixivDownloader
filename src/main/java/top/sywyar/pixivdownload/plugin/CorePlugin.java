@@ -15,6 +15,8 @@ import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.core.schedule.db.ScheduleSchemaContribution;
@@ -141,10 +143,21 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitorAndInvitedGuest("/js/invite-modals.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-i18n.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-lang-switcher.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-navigation.js"),
+                // 通用页面区块渲染器：与 /api/page-sections（VISITOR_AND_INVITED_GUEST）同口径显式声明，
+                // 使受邀访客页面也能加载该共享 section 渲染器；不依赖 /js/** 的 VISITOR 兜底（否则邀请访客 403）。
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-page-sections.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-novel-render.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-side-modules.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-theme.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-translate.js"),
+                // 核心导航装配端点（NavigationController 读 NavigationRegistry 跨插件聚合、按身份可见性过滤）：
+                // 改为 VISITOR_AND_INVITED_GUEST，使受邀访客也能为其画廊 / 小说页拉取动态导航（历史 VISITOR 会被
+                // AuthFilter 挡成 403）；仍不入 monitor，multi 匿名访客与受邀访客各自只读得到对应身份可见导航。
+                WebRouteContribution.visitorAndInvitedGuest("/api/navigation"),
+                // 核心页面区块装配端点（PageSectionController 读 PageSectionRegistry 跨插件聚合、按身份可见性过滤）：
+                // 同 /api/navigation 口径 VISITOR_AND_INVITED_GUEST，供宿主页面把活动插件贡献的区块渲染进 section slot。
+                WebRouteContribution.visitorAndInvitedGuest("/api/page-sections"),
                 // ── 公开（两种模式均公开）：基础页面、公开 API、公开静态前缀 ──────────────────────
                 WebRouteContribution.publicRoute("/"),
                 WebRouteContribution.publicRoute("/index"),
@@ -177,8 +190,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 // /api/scripts** 用无尾斜杠 startsWith（同 /api/authors**）：覆盖裸列表端点 /api/scripts 与 /api/scripts/{id}。
                 WebRouteContribution.visitor("/api/setup/**"),
                 WebRouteContribution.visitor("/api/scripts**"),
-                // 核心导航装配端点（NavigationController 读 NavigationRegistry 跨插件聚合、按可见性过滤）。
-                WebRouteContribution.visitor("/api/navigation"),
+                // （/api/navigation 改归上面的 VISITOR_AND_INVITED_GUEST 块，使受邀访客可读动态导航。）
                 // 应用信息 / 配额 / 归档 / 迁移：随页面消费的访客可用 API（历史未声明 API 的涌现行为）。
                 WebRouteContribution.visitor("/api/app/info"),
                 WebRouteContribution.visitor("/api/quota/**"),
@@ -238,5 +250,29 @@ public class CorePlugin implements PixivFeaturePlugin {
                 new I18nContribution("invite", "i18n.web.invite", 17),
                 new I18nContribution("tour", "i18n.web.tour", 18),
                 new I18nContribution("maintenance", "i18n.web.maintenance", 19));
+    }
+
+    @Override
+    public List<NavigationContribution> navigation() {
+        // 核心拥有的跨页基础入口：监控（管理员运行监控）与邀请码管理（管理员邀请治理）。两者均 ADMIN，
+        // 仅管理员身份在 /api/navigation 可见（受邀访客 / multi 匿名访客看不到、点开本会 403）。标签走核心
+        // 自有 i18n namespace（monitor / invite），与各功能插件的 nav.label 同一套「插件自有 i18n」机制。
+        //
+        // placement：监控是基础页面，进顶部栏 + 各侧栏（含中立主侧栏 app.sidebar，priority 20，仅次于下载工作台 10，
+        // 排在功能页面之前）。邀请码管理是管理入口，只进各侧栏、不进顶部栏（priority 80：侧栏内最末，符合「管理入口
+        // 在底部」现状）——这正是「invite-manage 不靠 data-nav-exclude 从顶部栏排除，而是只注册到适合的 placement」的体现。
+        // 两者均把主入口同时贡献到 app.sidebar（统计等中立宿主页的主侧栏），与画廊 / 小说家族侧栏正交。
+        return List.of(
+                new NavigationContribution(
+                        "monitor",
+                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
+                                NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
+                        "monitor:nav.label", "/monitor.html", "monitor", AccessPolicy.ADMIN, 20),
+                new NavigationContribution(
+                        "invite-manage",
+                        Set.of(NavigationPlacements.APP_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR,
+                                NavigationPlacements.NOVEL_SIDEBAR),
+                        "invite:nav.label", "/pixiv-invite-manage.html",
+                        "invite-manage", AccessPolicy.ADMIN, 80));
     }
 }

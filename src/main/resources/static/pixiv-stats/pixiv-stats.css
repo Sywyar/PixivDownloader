@@ -146,6 +146,8 @@ button, input {
     display: none;
 }
 
+/* 借用画廊能力的侧栏区块（视图 / 收藏夹）由画廊插件经 /api/page-sections 贡献、/js/pixiv-page-sections.js 渲染进
+   下方 data-section-slot；以下 .section-header / .section-add / .collection-* / .nav-* 等是这些区块复用的侧栏部件样式。 */
 .section-header {
     display: flex;
     align-items: center;
@@ -651,12 +653,6 @@ a.bar-row:hover .bar-name {
     background: var(--soft-bg);
     color: var(--brand);
     line-height: 1.3;
-    cursor: pointer;
-    transition: filter 0.15s;
-}
-
-.tag-chip:hover {
-    filter: brightness(0.94);
 }
 
 .tag-chip .tag-chip-count {

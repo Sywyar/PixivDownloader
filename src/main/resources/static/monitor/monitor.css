@@ -1206,6 +1206,12 @@
             background: var(--nav-hover-bg);
             border-color: var(--border-bright);
         }
+        /* 动态导航 slot 用内联 SVG 图标（替代旧的 Font Awesome <i>），按链接字号缩放。 */
+        .app-nav-link svg {
+            width: 1em;
+            height: 1em;
+            flex: 0 0 auto;
+        }
         .app-nav-spacer { flex: 1; }
         .app-nav-actions {
             display: inline-flex;

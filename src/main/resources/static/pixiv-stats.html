@@ -8,6 +8,8 @@
     <script src="/js/pixiv-side-modules.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
+    <script src="/js/pixiv-navigation.js"></script>
+    <script src="/js/pixiv-page-sections.js"></script>
     <link rel="stylesheet" href="/css/admin-visibility.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
@@ -23,143 +25,32 @@
                     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
                 </svg>
             </div>
-            <span class="sidebar-brand" data-i18n="gallery:sidebar.brand">Pixiv Gallery</span>
+            <span class="sidebar-brand" data-i18n="sidebar.brand">Pixiv 统计</span>
         </div>
+
+        <!-- 借用其它插件能力的页面内区块由活动插件经 /api/page-sections 贡献：统计页只声明这一空 section slot
+             （stats.sidebar.sections），区块标题 / 快捷入口 / 列表与创建入口全部由活动插件渲染（/js/pixiv-page-sections.js）。
+             禁用某插件后它贡献的区块自然消失——统计页不硬编码任何具体插件的 href / API，也不按插件 id 显隐；
+             统计页不需要知道是哪个插件提供了这些区块。 -->
+        <div data-section-slot="stats.sidebar.sections"></div>
 
         <div class="section-header">
-            <span class="section-title" data-i18n="gallery:section.view">视图</span>
+            <span class="section-title" data-i18n="sidebar.navigation">导航</span>
         </div>
-        <nav class="sidebar-nav">
-            <a class="nav-item" id="navViewAll" href="/pixiv-gallery.html?view=all">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <rect x="3" y="3" width="7" height="7" rx="1"/>
-                        <rect x="14" y="3" width="7" height="7" rx="1"/>
-                        <rect x="3" y="14" width="7" height="7" rx="1"/>
-                        <rect x="14" y="14" width="7" height="7" rx="1"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="gallery:nav.all">全部图片</span>
-            </a>
-            <a class="nav-item" id="navViewAuthors" href="/pixiv-gallery.html?view=authors">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                        <circle cx="9" cy="7" r="4"/>
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="gallery:nav.authors">按作者查看图片</span>
-            </a>
-            <a class="nav-item" id="navViewSeries" href="/pixiv-gallery.html?view=series">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="gallery:nav.series">按系列漫画查看</span>
-            </a>
-        </nav>
-
-        <div class="sidebar-divider"></div>
-
-        <div class="section-header">
-            <span class="section-title" data-i18n="gallery:section.collections">收藏夹</span>
-            <a class="section-add" id="btnCreateCollection" href="/pixiv-gallery.html?view=all&createCollection=1"
-               data-i18n-title="gallery:collection.new" data-i18n-aria-label="gallery:collection.new">
-                <svg viewBox="0 0 24 24">
-                    <line x1="12" y1="5" x2="12" y2="19"/>
-                    <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-            </a>
-        </div>
-        <div class="sidebar-nav" id="collectionList"></div>
-
-        <div class="sidebar-divider"></div>
-
-        <div class="section-header">
-            <span class="section-title" data-i18n="gallery:section.navigation">导航</span>
-        </div>
-        <nav class="sidebar-nav">
-            <a class="nav-item" id="navGalleryHome" href="/pixiv-gallery.html?view=all">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                        <circle cx="8.5" cy="8.5" r="1.5"/>
-                        <polyline points="21 15 16 10 5 21"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="gallery:nav.gallery">画廊</span>
-            </a>
-            <a class="nav-item" href="/pixiv-batch.html" target="_blank" rel="noopener">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="7 10 12 15 17 10"/>
-                        <line x1="12" y1="15" x2="12" y2="3"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="gallery:nav.download">下载</span>
-            </a>
-            <a class="nav-item" href="/monitor.html" target="_blank" rel="noopener">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                        <line x1="8" y1="21" x2="16" y2="21"/>
-                        <line x1="12" y1="17" x2="12" y2="21"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="gallery:nav.monitor">监控</span>
-            </a>
-            <div class="nav-item current" aria-current="page">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <line x1="18" y1="20" x2="18" y2="10"/>
-                        <line x1="12" y1="20" x2="12" y2="4"/>
-                        <line x1="6" y1="20" x2="6" y2="14"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="gallery:nav.stats">统计</span>
-            </div>
-            <a class="nav-item admin-only" id="navDuplicates" href="/pixiv-duplicates.html" target="_blank" rel="noopener">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <rect x="3" y="3" width="8" height="8" rx="1"/>
-                        <rect x="13" y="13" width="8" height="8" rx="1"/>
-                        <path d="M13 7h5a3 3 0 0 1 3 3v5"/>
-                        <path d="M11 17H6a3 3 0 0 1-3-3V9"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="gallery:nav.duplicates">疑似重复</span>
-            </a>
-            <a class="nav-item admin-only" id="navInviteManage" href="/pixiv-invite-manage.html" target="_blank" rel="noopener">
-                <div class="nav-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                         stroke-linejoin="round">
-                        <path d="M9 11l3 3L22 4"/>
-                        <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-                    </svg>
-                </div>
-                <span class="nav-label" data-i18n="gallery:nav.invite-manage">邀请码管理</span>
-            </a>
-        </nav>
+        <!-- 通用主侧栏导航 slot（app.sidebar placement，plugin-neutral）：由 /js/pixiv-navigation.js 据 /api/navigation
+             动态渲染（禁用插件后其入口自然消失）。统计页声明宿主中立的主侧栏 slot、内容全由注册到该 placement 的导航贡献
+             决定，统计页不需要知道有哪些插件；当前项按 pathname 自动识别为统计（current 不可点击）。 -->
+        <nav class="sidebar-nav" data-nav-slot="app.sidebar"
+             data-nav-link-class="nav-item" data-nav-active-class="current"
+             data-nav-icon-wrap-class="nav-icon" data-nav-label-class="nav-label"
+             data-nav-target="_blank" data-nav-rel="noopener"></nav>
 
         <div class="sidebar-footer">
             <div class="user-card">
                 <div class="user-avatar">P</div>
                 <div class="user-info">
                     <div class="user-name">Pixiv User</div>
-                    <div class="user-status" data-i18n="gallery:status.online">在线</div>
+                    <div class="user-status" data-i18n="status.online">在线</div>
                 </div>
             </div>
         </div>
@@ -169,7 +60,7 @@
 
     <main class="main-content">
         <div class="topbar">
-            <button class="mobile-menu-btn" id="mobileMenuBtn" type="button" data-i18n-aria-label="gallery:button.open-menu">
+            <button class="mobile-menu-btn" id="mobileMenuBtn" type="button" data-i18n-aria-label="button.open-menu">
                 <svg viewBox="0 0 24 24">
                     <line x1="3" y1="12" x2="21" y2="12"/>
                     <line x1="3" y1="6" x2="21" y2="6"/>

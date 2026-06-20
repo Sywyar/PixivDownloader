@@ -39,11 +39,24 @@ public final class BuiltInPlugins {
             .map(PixivFeaturePlugin::id)
             .collect(Collectors.toUnmodifiableSet());
 
+    /** 全部内置插件 id 集合，随内置清单固定。 */
+    private static final Set<String> BUILT_IN_IDS = createAll().stream()
+            .map(PixivFeaturePlugin::id)
+            .collect(Collectors.toUnmodifiableSet());
+
     /**
      * 给定 id 是否为必选插件（不可经 {@code plugins.<id>.enabled} 禁用）。供 Bean 注册期的
      * {@link OnPluginEnabledCondition} 在拿不到插件实例、只有 id 时判定必选语义。
      */
     public static boolean isRequired(String pluginId) {
         return pluginId != null && REQUIRED_IDS.contains(pluginId);
+    }
+
+    /**
+     * 给定 id 是否为内置插件。用于导航排序的来源层级判定：内置插件（核心 / 必选基础页面 / 可选功能插件）
+     * 恒排在第三方插件之前——第三方插件即便声明很小的 priority，也只能追加在内置项之后。
+     */
+    public static boolean isBuiltIn(String pluginId) {
+        return pluginId != null && BUILT_IN_IDS.contains(pluginId);
     }
 }

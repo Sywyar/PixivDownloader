@@ -3,7 +3,10 @@ package top.sywyar.pixivdownload.download;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
+import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
@@ -19,6 +22,7 @@ import top.sywyar.pixivdownload.schedule.source.UserNewSource;
 import top.sywyar.pixivdownload.schedule.source.UserRequestSource;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 下载工作台插件：{@code pixiv-batch} 页面、下载队列、油猴脚本入口与下载执行，
@@ -98,6 +102,19 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     public List<StartupRouteContribution> startupRoutes() {
         // multi 模式默认落点：下载工作台页（/redirect 在 multi 模式以本插件为首选）。
         return List.of(new StartupRouteContribution(ID, "/pixiv-batch.html", 10));
+    }
+
+    @Override
+    public List<NavigationContribution> navigation() {
+        // 下载工作台跨页入口。VISITOR：multi 匿名访客与管理员在 /api/navigation 可见、受邀访客看不到
+        //（下载页对受邀访客 403，故不进其导航栏）。本插件 required，配置写 false 也仍贡献导航（恒进活动快照）。
+        // placement：顶部栏 + 各侧栏（含中立主侧栏 app.sidebar）；priority 10 为内置项最小值，使「自带基础页面」
+        // 在每个 slot 内恒排最前。标签走本插件自有 namespace batch 的 nav.label。
+        return List.of(new NavigationContribution(
+                ID,
+                Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
+                        NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
+                "batch:nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10));
     }
 
     @Override

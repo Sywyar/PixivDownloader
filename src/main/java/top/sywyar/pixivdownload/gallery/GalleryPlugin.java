@@ -1,9 +1,13 @@
 package top.sywyar.pixivdownload.gallery;
 
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
+import top.sywyar.pixivdownload.plugin.api.web.PageSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
@@ -11,6 +15,7 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 画廊插件：画廊 / 作品详情 / 精选集 / 系列四个页面，以及 {@code /api/gallery} 下插画作品 /
@@ -95,8 +100,64 @@ public class GalleryPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<NavigationContribution> navigation() {
-        return List.of(new NavigationContribution(
-                ID, "nav.label", "/pixiv-gallery.html", "images", AccessPolicy.INVITED_GUEST, 20));
+        // 画廊主入口：顶部栏 + 画廊家族侧栏（画廊 / 系列页共用）+ 中立主侧栏 app.sidebar（统计等宿主页据此显示
+        // 画廊入口，禁用画廊后自然消失、宿主页不需要知道画廊），并兼任疑似重复页顶部的画廊图标
+        //（duplicates.header-icons）。priority 30（功能区段首位）。href 由贡献方完整声明为 /pixiv-gallery.html?view=all
+        //（与历史入口一致）——前端公共导航渲染器不再为内置插件 id 补默认 query。
+        //
+        // 类型切换入口：向小说画廊页的「小说↔画廊」类型切换（novel.type-switch）注册指向画廊的「漫画」tab——
+        // 取代小说页此前硬编码 /pixiv-gallery.html + data-nav-requires 的做法（label 用类型名 nav.type-illust=漫画，
+        // 非页面名 nav.label=画廊）。该 slot 为 label-only tab，忽略 icon；href 显式带 ?view=all。
+        //
+        // 统计页画廊视图快捷入口：向 stats.gallery-links 注册「全部 / 按作者 / 按系列」三条画廊视图链接——
+        // 取代统计页此前硬编码这些 href 的做法。这三条链接作为「视图」区块（见 pageSections()）内嵌导航 slot 的内容；
+        // priority 31/32/33 仅决定三者相对顺序。全部 INVITED_GUEST，禁用画廊后这些入口（含疑似重复页图标）一并消失。
+        return List.of(
+                new NavigationContribution(
+                        ID,
+                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
+                                NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.DUPLICATES_HEADER_ICONS),
+                        "gallery:nav.label", "/pixiv-gallery.html?view=all", "images", AccessPolicy.INVITED_GUEST, 30),
+                new NavigationContribution(
+                        "gallery-type-switch",
+                        Set.of(NavigationPlacements.NOVEL_TYPE_SWITCH),
+                        "gallery:nav.type-illust", "/pixiv-gallery.html?view=all", "images",
+                        AccessPolicy.INVITED_GUEST, 30),
+                new NavigationContribution(
+                        "gallery-view-all",
+                        Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
+                        "gallery:nav.all", "/pixiv-gallery.html?view=all", "grid",
+                        AccessPolicy.INVITED_GUEST, 31),
+                new NavigationContribution(
+                        "gallery-view-authors",
+                        Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
+                        "gallery:nav.authors", "/pixiv-gallery.html?view=authors", "users",
+                        AccessPolicy.INVITED_GUEST, 32),
+                new NavigationContribution(
+                        "gallery-view-series",
+                        Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
+                        "gallery:nav.series", "/pixiv-gallery.html?view=series", "book",
+                        AccessPolicy.INVITED_GUEST, 33));
+    }
+
+    @Override
+    public List<PageSectionContribution> pageSections() {
+        // 统计页侧栏借用画廊能力的页面内区块（stats.sidebar.sections）：统计页只声明空 section slot，本插件向它贡献
+        // 两个区块——禁用画廊后两区块（含其内嵌导航、创建入口、收藏夹列表）自然消失，统计页不需要知道画廊是否存在。
+        //   ① 「视图」区块：内嵌导航 slot = stats.gallery-links（全部 / 按作者 / 按系列三链由本插件 navigation() 供给）。
+        //   ② 「收藏夹」区块：操作入口 = 新建收藏夹（actionHref 完整声明），moduleUrl 指向本插件自有前端模块，
+        //      由该模块拉 /api/collections 渲染收藏夹列表（API 调用在本插件代码内，统计页不触达 collection API）。
+        // 两区块均 INVITED_GUEST（与画廊页面同级可见性，管理员 / 受邀访客可见）；title / 操作标题用本插件 namespace key。
+        return List.of(
+                new PageSectionContribution(
+                        ID, "gallery-stats-views", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
+                        "gallery:section.view", NavigationPlacements.STATS_GALLERY_LINKS,
+                        null, null, null, null, AccessPolicy.INVITED_GUEST, 10),
+                new PageSectionContribution(
+                        ID, "gallery-stats-collections", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
+                        "gallery:section.collections", null,
+                        "/pixiv-gallery.html?view=all&createCollection=1", "plus", "gallery:collection.new",
+                        "/pixiv-gallery/gallery-stats-embed.js", AccessPolicy.INVITED_GUEST, 20));
     }
 
     @Override
@@ -104,6 +165,15 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         // solo 模式默认落点：画廊页（/redirect 在 solo 模式以本插件为首选）；
         // 也是 multi 模式下禁用下载工作台后按 order 回退的下一落点。
         return List.of(new StartupRouteContribution(ID, "/pixiv-gallery.html", 20));
+    }
+
+    @Override
+    public List<LandingContribution> landings() {
+        // 受邀访客的默认落点：画廊页（landing/entrypoint priority 20，优先于小说 30）。priority 是落点优先级、
+        // 不是导航 order；禁用画廊后本落点不进活动快照、邀请兑换自动回退到小说。/pixiv-gallery.html 对受邀访客
+        // 可达（routes() 声明为 INVITED_GUEST），可达性由 LandingRegistryTest 守卫。
+        return List.of(new LandingContribution(
+                ID, "gallery", Audience.INVITED_GUEST, "/pixiv-gallery.html", 20));
     }
 
     @Override

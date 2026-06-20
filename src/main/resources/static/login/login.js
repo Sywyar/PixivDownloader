@@ -175,7 +175,9 @@ async function doInviteRedeem() {
       btn.disabled = false;
       return;
     }
-    window.location.href = data.redirect || '/pixiv-gallery.html?view=all';
+    // 后端按受邀访客可见导航解析落点（画廊优先、禁用则回退小说，详见 InviteRedeemController）；
+    // 仅当响应异常缺失 redirect 时才用公开首页兜底，绝不再硬跳可能已禁用的 /pixiv-gallery.html。
+    window.location.href = data.redirect || '/';
   } catch (e) {
     showInviteErrorKey('error.network', '网络错误：{message}', {message: e.message});
     btn.disabled = false;

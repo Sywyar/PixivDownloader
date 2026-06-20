@@ -2,11 +2,9 @@
     'use strict';
 
     var SVG_NS = 'http://www.w3.org/2000/svg';
-    var HEART_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21l-1.45-1.32C5.4 14.99 2 11.9 2 8.05 2 5.4 4.06 3.3 6.7 3.3c1.5 0 2.94.7 3.88 1.81L12 6.5l1.42-1.39A5.2 5.2 0 0 1 17.3 3.3C19.94 3.3 22 5.4 22 8.05c0 3.85-3.4 6.94-8.55 11.63L12 21z"/></svg>';
 
     var pageI18n = null;
     var dashboard = null;
-    var state = { collections: [] };
 
     function t(key, fallback, vars) {
         return pageI18n ? pageI18n.t(key, fallback, vars) : (fallback || key);
@@ -18,15 +16,6 @@
         } catch (e) {
             return String(n || 0);
         }
-    }
-
-    function escapeHtml(value) {
-        return String(value == null ? '' : value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
     }
 
     async function api(url) {
@@ -57,37 +46,6 @@
             var res = await fetch('/api/admin/invites/access-check', { credentials: 'same-origin' });
             if (res.ok) document.body.classList.add('admin-mode');
         } catch (_) { /* not admin */ }
-    }
-
-    async function loadCollections() {
-        try {
-            var resp = await api('/api/collections');
-            state.collections = (resp && resp.collections) || [];
-            renderCollections();
-        } catch (e) {
-            // 收藏夹侧栏是附属信息，加载失败不影响仪表盘
-        }
-    }
-
-    function renderCollections() {
-        var list = document.getElementById('collectionList');
-        if (!list) return;
-        if (!state.collections.length) {
-            list.innerHTML = '<div class="collection-empty">'
-                + escapeHtml(t('gallery:status.no-collections', 'No collections')) + '</div>';
-            return;
-        }
-        list.innerHTML = state.collections.map(function (c) {
-            var icon = c.iconExt
-                ? '<img src="/api/collections/' + c.id + '/icon?v=' + encodeURIComponent(c.createdTime || '') + '" alt="">'
-                : HEART_SVG;
-            var href = '/pixiv-gallery.html?view=all&collectionIds=' + encodeURIComponent(c.id);
-            return '<a class="collection-item" href="' + escapeHtml(href) + '">'
-                + '<div class="collection-icon">' + icon + '</div>'
-                + '<span class="collection-label">' + escapeHtml(c.name) + '</span>'
-                + '<span class="collection-count">' + escapeHtml(c.artworkCount != null ? c.artworkCount : 0) + '</span>'
-                + '</a>';
-        }).join('');
     }
 
     // ---------- dashboard rendering ----------
@@ -128,14 +86,6 @@
         show('overviewGrid');
     }
 
-    function authorHref(a) {
-        var params = new URLSearchParams();
-        params.set('view', 'all');
-        params.set('filterAuthorId', String(a.authorId));
-        if (a.name) params.set('filterAuthorName', a.name);
-        return '/pixiv-gallery.html?' + params.toString();
-    }
-
     function renderAuthors(authors) {
         var list = document.getElementById('authorsList');
         if (!list) return;
@@ -150,9 +100,10 @@
         }
         var max = authors.reduce(function (m, a) { return Math.max(m, a.count); }, 0) || 1;
         authors.forEach(function (a) {
-            var row = document.createElement('a');
+            // 统计是 admin-only 的核心面板：仅展示数据，不硬编码到任何其它插件页面的下钻链接（跨插件 href / 过滤参数
+            // 属该插件业务，不应出现在统计页源码）。点击下钻入口的解耦留作后续「插件贡献的语义下钻链接」契约。
+            var row = document.createElement('div');
             row.className = 'bar-row';
-            row.href = authorHref(a);
             row.title = a.name;
 
             var name = document.createElement('span');
@@ -178,15 +129,6 @@
         show('authorsPanel');
     }
 
-    function tagHref(tag) {
-        var params = new URLSearchParams();
-        params.set('view', 'all');
-        params.set('filterTagId', String(tag.tagId));
-        if (tag.name) params.set('filterTag', tag.name);
-        if (tag.translatedName) params.set('filterTagTranslated', tag.translatedName);
-        return '/pixiv-gallery.html?' + params.toString();
-    }
-
     function renderTags(tags) {
         var cloud = document.getElementById('tagCloud');
         if (!cloud) return;
@@ -202,9 +144,9 @@
         var max = tags.reduce(function (m, x) { return Math.max(m, x.count); }, 0) || 1;
         var min = tags.reduce(function (m, x) { return Math.min(m, x.count); }, max);
         tags.forEach(function (tag) {
-            var chip = document.createElement('a');
+            // 同作者面板：仅展示数据，不硬编码到任何其它插件页面的下钻链接（见 renderAuthors 说明）。
+            var chip = document.createElement('span');
             chip.className = 'tag-chip';
-            chip.href = tagHref(tag);
             var ratio = max === min ? 1 : (tag.count - min) / (max - min);
             chip.style.fontSize = (12 + ratio * 12).toFixed(1) + 'px';
 
@@ -315,14 +257,15 @@
     }
 
     async function initI18n() {
-        pageI18n = await PixivI18n.create({ namespaces: ['stats', 'gallery', 'common'] });
+        pageI18n = await PixivI18n.create({ namespaces: ['stats', 'common'] });
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,
             onChange: function (nextClient) {
                 pageI18n = nextClient;
                 applyStaticTranslations();
-                renderCollections();
+                if (window.PixivNav) PixivNav.refresh();
+                if (window.PixivPageSections) PixivPageSections.refresh();
                 renderAll();
             }
         });
@@ -341,7 +284,8 @@
         wireSidebar();
         await initI18n();
         setupAdminMode();
-        loadCollections();
+        // 侧栏借用其它插件能力的区块由 /js/pixiv-page-sections.js 据 /api/page-sections 自渲染——禁用某插件则它
+        // 贡献的区块自然消失，统计页无需在此判断任何插件是否可用，也不触达任何具体插件的 href / API。
         await loadDashboard();
     });
 })();

@@ -585,9 +585,11 @@ class AuthFilterTest {
                 "/css/admin-visibility.css",
                 "/js/pixiv-novel-render.js",
                 "/css/pixiv-side-modules.css",
-                "/js/pixiv-side-modules.js"
+                "/js/pixiv-side-modules.js",
+                "/js/pixiv-navigation.js",
+                "/js/pixiv-page-sections.js"
         })
-        @DisplayName("访客邀请会话应能加载画廊/小说页共享静态依赖")
+        @DisplayName("访客邀请会话应能加载画廊/小说页共享静态依赖（含导航与页面区块渲染器）")
         void shouldAllowGuestInviteToLoadSharedStaticResource(String path) throws Exception {
             when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
@@ -1404,15 +1406,15 @@ class AuthFilterTest {
     // ========== 核心导航装配端点（归 core、VISITOR：声明路由但不改变旧访问行为） ==========
 
     @Nested
-    @DisplayName("核心导航端点 /api/navigation 访问级别（归 core、VISITOR）")
+    @DisplayName("核心导航端点 /api/navigation 访问级别（归 core、VISITOR_AND_INVITED_GUEST）")
     class NavigationEndpointTests {
 
-        // /api/navigation 由 CorePlugin.routes() 以 VISITOR 声明：AuthFilter 不为该级别派生
-        // 任何清单、命中后落默认会话/访客分支，访问行为与「未声明路由」时逐字等价——声明只为消除歧义、
-        // 纳入路由镜像守护，不扩大任何 guest/public 权限。三态：multi 访客可读 / solo 未登录 401 / 邀请访客 403。
+        // /api/navigation 由 CorePlugin.routes() 以 VISITOR_AND_INVITED_GUEST 声明（前端导航开槽工作包改）：
+        // 不入 monitor，访客与受邀访客均可只读放行（各自得到对应身份可见导航），令受邀访客的画廊 / 小说页
+        // 也能拉取动态导航。三态：multi 访客可读 / solo 未登录 401 / 受邀访客可读（历史 VISITOR 曾 403）。
 
         @Test
-        @DisplayName("多人模式普通访客可读取（controller 返回匿名可见导航，访问行为不变）")
+        @DisplayName("多人模式普通访客可读取（controller 返回访客可见导航，访问行为不变）")
         void multiVisitorAllowed() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
@@ -1445,10 +1447,11 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("邀请访客越界访问应 403（导航端点不在访客白名单，声明 VISITOR 不扩大邀请访客权限）")
-        void invitedGuestForbidden() throws Exception {
+        @DisplayName("邀请访客可读取（VISITOR_AND_INVITED_GUEST 放行受邀访客只读，使其页面能拉取动态导航）")
+        void invitedGuestAllowed() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowedForInvite(any())).thenReturn(true);
             when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
@@ -1462,8 +1465,7 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(403);
-            verify(filterChain, never()).doFilter(request, response);
+            verify(filterChain).doFilter(request, response);
         }
     }
 

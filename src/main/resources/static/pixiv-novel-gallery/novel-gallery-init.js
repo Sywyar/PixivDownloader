@@ -1,11 +1,16 @@
 'use strict';
 
 function setupNovelCrossPageHandoff() {
-    document.querySelectorAll('.gallery-type-switch a[href]').forEach(link => {
-        link.addEventListener('click', () => {
-            writeNovelGalleryCrossTransfer();
-        });
+    // 类型切换链接由 /js/pixiv-navigation.js 异步渲染进 slot，渲染时机不确定：
+    //  · 点击：用事件委托（监听 document），无论链接何时生成都能在跳转前写入跨页交接；
+    //  · href：监听 'pixivnav:rendered'，每次导航渲染完成后把当前 view 同步进 slot 内链接
+    //    （slot 重新生成会覆盖 href，故需重新同步），不特判对方页面路径。
+    document.addEventListener('click', e => {
+        const link = e.target.closest && e.target.closest('.gallery-type-switch a[href]');
+        if (link) writeNovelGalleryCrossTransfer();
     });
+    window.addEventListener('pixivnav:rendered', syncNovelTypeSwitchHrefs);
+    syncNovelTypeSwitchHrefs();
 }
 
 async function init() {
@@ -21,6 +26,7 @@ async function init() {
         onChange: (next) => {
             pageI18n = next;
             pageI18n.apply();
+            if (window.PixivNav) PixivNav.refresh();
             updateSearchPlaceholder();
             updateOrderToggleLabel();
             syncCollectionFormTitle();

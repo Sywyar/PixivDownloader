@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
 
 import java.util.List;
 
@@ -79,5 +80,73 @@ class PluginDisableSemanticsTest {
         assertThat(new DatabaseSchemaRegistry(disabled).mergedSchema().tables().keySet())
                 .isEqualTo(new DatabaseSchemaRegistry(allEnabled()).mergedSchema().tables().keySet());
         assertThat(routeOwners(disabled)).doesNotContain("stats", "duplicate");
+    }
+
+    private static List<String> navIds(PluginRegistry registry) {
+        return new NavigationRegistry(registry).navigation().stream()
+                .map(registered -> registered.navigation().id())
+                .toList();
+    }
+
+    @Test
+    @DisplayName("禁用各功能插件：其导航项从 NavigationRegistry 消失（前端据此让跨插件入口自然隐藏）")
+    void disablingFeaturePluginsDropsTheirNavigation() {
+        assertThat(navIds(registryDisabling("gallery"))).doesNotContain("gallery");
+        assertThat(navIds(registryDisabling("novel"))).doesNotContain("novel");
+        assertThat(navIds(registryDisabling("stats"))).doesNotContain("stats");
+        assertThat(navIds(registryDisabling("duplicate"))).doesNotContain("duplicate");
+    }
+
+    private static List<String> pageSectionOwners(PluginRegistry registry) {
+        return new PageSectionRegistry(registry).sections().stream()
+                .map(PageSectionRegistry.RegisteredSection::pluginId)
+                .toList();
+    }
+
+    @Test
+    @DisplayName("禁用画廊：其页面区块从 PageSectionRegistry 消失（统计页借用的视图 / 收藏夹区块随插件自然隐藏）")
+    void disablingGalleryDropsItsPageSections() {
+        // 启用时画廊向统计页贡献区块；禁用后这些区块不再注册——统计页只声明空 slot，无残留画廊业务入口。
+        assertThat(pageSectionOwners(allEnabled())).contains("gallery");
+        assertThat(pageSectionOwners(registryDisabling("gallery"))).doesNotContain("gallery");
+    }
+
+    private static List<String> landingOwners(PluginRegistry registry) {
+        return new LandingRegistry(registry).landings().stream()
+                .map(LandingRegistry.RegisteredLanding::pluginId)
+                .toList();
+    }
+
+    @Test
+    @DisplayName("禁用功能插件：其落点从 LandingRegistry 消失，邀请落点按落点优先级自动回退到其它已启用插件")
+    void disablingFeaturePluginsDropsTheirLandings() {
+        // 禁用画廊：画廊落点不再注册，受邀访客邀请落点回退到小说（priority 30，仍启用）。
+        assertThat(landingOwners(registryDisabling("gallery"))).doesNotContain("gallery").contains("novel");
+        assertThat(new LandingRegistry(registryDisabling("gallery")).resolve(Audience.INVITED_GUEST))
+                .contains("/pixiv-novel-gallery.html");
+        // 画廊 + 小说都禁用：无受邀访客落点（调用方兜底回登录页）。
+        assertThat(new LandingRegistry(registryDisabling("gallery", "novel")).resolve(Audience.INVITED_GUEST))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("禁用单个功能插件不影响其它插件导航（跨插件独立）")
+    void disablingOnePluginKeepsOtherNavigation() {
+        List<String> ids = navIds(registryDisabling("gallery"));
+        // 仅 gallery 入口消失；下载工作台 / 监控 / 小说 / 统计 / 疑似重复 / 邀请码管理仍在。
+        assertThat(ids).contains(
+                "download-workbench", "monitor", "novel", "stats", "duplicate", "invite-manage");
+    }
+
+    @Test
+    @DisplayName("下载工作台为必选插件：即便配置 enabled=false 也仍贡献下载页导航（无法被关闭）")
+    void requiredDownloadWorkbenchKeepsNavigationEvenWhenDisabled() {
+        assertThat(navIds(registryDisabling("download-workbench"))).contains("download-workbench");
+    }
+
+    @Test
+    @DisplayName("core 始终贡献监控 / 邀请码管理基础入口（不可禁用）")
+    void coreAlwaysContributesBaseNavigation() {
+        assertThat(navIds(allEnabled())).contains("monitor", "invite-manage");
     }
 }

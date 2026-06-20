@@ -7,6 +7,7 @@
     <script src="/js/pixiv-i18n.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
+    <script src="/js/pixiv-navigation.js"></script>
     <script src="/js/pixiv-tour.js"></script>
     <script src="/js/pixiv-onboarding.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
@@ -19,15 +20,12 @@
 
 <nav class="app-nav">
     <span class="app-nav-brand" data-i18n="nav.brand">Pixiv 下载助手</span>
-    <a href="/monitor.html" class="app-nav-link" target="_blank" rel="noopener">
-        <i class="fas fa-chart-line"></i> <span data-i18n="nav.monitor">MONITOR</span>
-    </a>
-    <span class="app-nav-link active" aria-current="page">
-        <i class="fas fa-layer-group"></i> <span data-i18n="nav.batch">BATCH</span>
-    </span>
-    <a href="/pixiv-gallery.html?view=all" class="app-nav-link" target="_blank" rel="noopener">
-        <i class="fas fa-images"></i> <span data-i18n="nav.gallery">GALLERY</span>
-    </a>
+    <!-- 跨插件导航 slot（app.top placement）：由 /js/pixiv-navigation.js 据 /api/navigation 动态渲染
+         （禁用插件后其入口自然消失）。invite-manage 不进 app.top placement、故无需页面排除；
+         当前项按 pathname 自动识别为下载工作台。 -->
+    <span class="app-nav-links" data-nav-slot="app.top" data-nav-link-class="app-nav-link"
+          data-nav-active-class="active"
+          data-nav-target="_blank" data-nav-rel="noopener" style="display:contents"></span>
     <div class="app-nav-spacer"></div>
     <div class="app-nav-actions" id="langSwitcherAnchor"></div>
     <button id="login-btn" style="display:none;" class="app-nav-login"

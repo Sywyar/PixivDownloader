@@ -1,9 +1,12 @@
 package top.sywyar.pixivdownload.novel;
 
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
@@ -11,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 小说插件：小说画廊/详情页面、小说下载与合订、TTS 与 AI 听书入口。
@@ -117,8 +121,31 @@ public class NovelPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<NavigationContribution> navigation() {
-        return List.of(new NavigationContribution(
-                ID, "nav.label", "/pixiv-novel-gallery.html", "book", AccessPolicy.INVITED_GUEST, 30));
+        // 小说主入口：顶部栏 + 小说侧栏（不进画廊家族侧栏——画廊页经类型切换抵达小说）。priority 40（功能区段）。
+        // href 由贡献方完整声明为 /pixiv-novel-gallery.html?view=all（与历史入口一致）——前端公共导航渲染器不再
+        // 为内置插件 id 补默认 query。
+        // 类型切换入口：向画廊页的「画廊↔小说」类型切换（gallery.type-switch）注册指向小说画廊的「小说」tab——
+        // 取代画廊页此前硬编码 /pixiv-novel-gallery.html + data-nav-requires 的做法。该 slot 为 label-only tab，
+        // 忽略 icon；href 显式带 ?view=all。两条均 INVITED_GUEST，禁用小说后一并消失。
+        return List.of(
+                new NavigationContribution(
+                        ID,
+                        Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.NOVEL_SIDEBAR),
+                        "novel:nav.label", "/pixiv-novel-gallery.html?view=all", "book", AccessPolicy.INVITED_GUEST, 40),
+                new NavigationContribution(
+                        "novel-type-switch",
+                        Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
+                        "novel:nav.label", "/pixiv-novel-gallery.html?view=all", "book",
+                        AccessPolicy.INVITED_GUEST, 40));
+    }
+
+    @Override
+    public List<LandingContribution> landings() {
+        // 受邀访客的次选落点：小说画廊页（landing/entrypoint priority 30，低于画廊 20）。当画廊启用时邀请兑换
+        // 落到画廊，禁用画廊后回退到本落点。priority 是落点优先级、不是导航 order。/pixiv-novel-gallery.html
+        // 对受邀访客可达（routes() 声明为 INVITED_GUEST），可达性由 LandingRegistryTest 守卫。
+        return List.of(new LandingContribution(
+                ID, "novel", Audience.INVITED_GUEST, "/pixiv-novel-gallery.html", 30));
     }
 
     @Override

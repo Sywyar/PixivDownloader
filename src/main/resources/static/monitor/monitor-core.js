@@ -41,6 +41,7 @@
             onChange: function (nextClient) {
                 pageI18n = nextClient;
                 applyStaticPageTranslations();
+                if (window.PixivNav) PixivNav.refresh();
                 renderFromCache();
                 renderActiveDownloads();
                 renderAuthorFilterPopupIfOpen();
