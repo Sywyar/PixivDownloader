@@ -1,22 +1,17 @@
 package top.sywyar.pixivdownload.gallery;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
@@ -32,19 +27,16 @@ import java.util.*;
 /**
  * 画廊页面服务：列表 / 详情 / 标签 / 关联查询统一走核心接口——{@link WorkQueryService}
  * 取 id 分页与目录聚合、{@link WorkMetadataRepository} 批量补全行数据（search → hydrate 两步）；
- * 删除链路同样走核心接口——{@link WorkAssetService} 删文件、{@link WorkDeletionService}
- * 标记软删除，不再直接依赖底层数据库与下载侧文件定位。
+ * 删除链路委托核心统一删除入口 {@link WorkDeletionService#delete} / {@link WorkDeletionService#deleteAll}
+ *（判存 → 删文件 → 软删 DB 的编排封装在核心实现），不再直接依赖底层数据库与下载侧文件定位。
  */
-@Slf4j
 @PluginManagedBean
 @RequiredArgsConstructor
 public class GalleryService {
 
     private final WorkQueryService workQueryService;
     private final WorkMetadataRepository workMetadataRepository;
-    private final WorkAssetService workAssetService;
     private final WorkDeletionService workDeletionService;
-    private final AppMessages messages;
 
     public PagedHistoryResponse query(GalleryQuery query) {
         PagedResult<WorkSummary> result = workQueryService.search(toWorkQuery(query));
@@ -112,47 +104,18 @@ public class GalleryService {
     }
 
     /**
-     * 删除单个作品：先删磁盘文件（图片 / 缩略图 / 图库缓存 / 空目录，经
-     * {@link WorkAssetService#deleteLocalFiles}），再清理 DB 派生数据并标记软删除
-     * （感知哈希 / 标签关联 / 收藏夹关联照旧清理，主行保留并置 {@code deleted = 1}，经
-     * {@link WorkDeletionService#markDeleted}）——使下载判重能识别「已下载过，但被删除」、
-     * 避免被当作未下载重新下载。作品不存在或已被标记删除时返回 {@code false}。磁盘文件删除失败
-     * （被锁定 / 权限不足等）会立即抛出，不再继续动 DB，避免 DB 与磁盘状态不一致出现孤儿文件。
+     * 删除单个作品：委托核心统一删除入口 {@link WorkDeletionService#delete}——判存 → 删磁盘文件
+     *（图片 / 缩略图 / 图库缓存 / 空目录）→ 清理 DB 派生数据并软删主行的编排封装在核心实现，使下载判重
+     * 能识别「已下载过，但被删除」、避免被当作未下载重新下载。作品不存在或已被标记删除时返回
+     * {@code false}；磁盘文件删除失败（被锁定 / 权限不足等）抛出 409、不触碰数据库。
      */
     public boolean deleteArtwork(long artworkId) {
-        if (!workQueryService.hasActiveWork(WorkType.ARTWORK, artworkId)) {
-            return false;
-        }
-        if (!workAssetService.deleteLocalFiles(WorkType.ARTWORK, artworkId)) {
-            throw new LocalizedException(HttpStatus.CONFLICT,
-                    "gallery.delete.file-failed",
-                    "作品 {0} 的磁盘文件未能全部删除，已中止数据库清理",
-                    artworkId);
-        }
-        workDeletionService.markDeleted(WorkType.ARTWORK, artworkId);
-        log.info(logMessage("gallery.log.deleted", artworkId));
-        return true;
+        return workDeletionService.delete(WorkType.ARTWORK, artworkId);
     }
 
     /** 批量删除作品，返回实际删除的数量。 */
     public int deleteArtworks(Collection<Long> artworkIds) {
-        if (artworkIds == null || artworkIds.isEmpty()) {
-            return 0;
-        }
-        int deleted = 0;
-        for (Long id : new LinkedHashSet<>(artworkIds)) {
-            if (id == null) continue;
-            try {
-                if (deleteArtwork(id)) deleted++;
-            } catch (Exception e) {
-                log.warn(logMessage("gallery.log.delete-failed", id, e.getMessage()));
-            }
-        }
-        return deleted;
-    }
-
-    private String logMessage(String code, Object... args) {
-        return messages.getForLog(code, args);
+        return workDeletionService.deleteAll(WorkType.ARTWORK, artworkIds);
     }
 
     private int clampLimit(int limit) {

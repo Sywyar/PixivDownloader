@@ -5,7 +5,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.collection.CollectionService;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
-import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
@@ -37,11 +36,8 @@ public class GalleryPluginConfiguration {
     @ConditionalOnPluginEnabled("gallery")
     public GalleryService galleryService(WorkQueryService workQueryService,
                                          WorkMetadataRepository workMetadataRepository,
-                                         WorkAssetService workAssetService,
-                                         WorkDeletionService workDeletionService,
-                                         AppMessages messages) {
-        return new GalleryService(
-                workQueryService, workMetadataRepository, workAssetService, workDeletionService, messages);
+                                         WorkDeletionService workDeletionService) {
+        return new GalleryService(workQueryService, workMetadataRepository, workDeletionService);
     }
 
     @Bean

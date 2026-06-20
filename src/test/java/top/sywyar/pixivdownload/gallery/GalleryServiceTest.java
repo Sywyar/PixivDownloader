@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
@@ -14,11 +13,9 @@ import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.download.response.DownloadedResponse;
 import top.sywyar.pixivdownload.download.response.PagedHistoryResponse;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.work.model.PagedResult;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
@@ -32,12 +29,9 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,85 +45,33 @@ class GalleryServiceTest {
     @Mock
     private WorkMetadataRepository workMetadataRepository;
     @Mock
-    private WorkAssetService workAssetService;
-    @Mock
     private WorkDeletionService workDeletionService;
 
     private GalleryService galleryService;
 
     @BeforeEach
     void setUp() {
-        galleryService = new GalleryService(workQueryService, workMetadataRepository,
-                workAssetService, workDeletionService, TestI18nBeans.appMessages());
+        galleryService = new GalleryService(workQueryService, workMetadataRepository, workDeletionService);
     }
 
     @Test
-    @DisplayName("作品不存在时返回 false，且不删除文件或标记数据库记录")
-    void shouldNotDeleteWhenArtworkMissing() {
-        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 1L)).thenReturn(false);
-
-        assertThat(galleryService.deleteArtwork(1L)).isFalse();
-
-        verify(workAssetService, never()).deleteLocalFiles(any(), anyLong());
-        verify(workDeletionService, never()).markDeleted(any(), anyLong());
-    }
-
-    @Test
-    @DisplayName("已被标记删除的作品返回 false，不再触碰磁盘或重复标记")
-    void shouldNotDeleteWhenAlreadyMarkedDeleted() {
-        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 1L)).thenReturn(false);
-
-        assertThat(galleryService.deleteArtwork(1L)).isFalse();
-
-        verify(workAssetService, never()).deleteLocalFiles(any(), anyLong());
-        verify(workDeletionService, never()).markDeleted(any(), anyLong());
-    }
-
-    @Test
-    @DisplayName("删除作品应先删磁盘文件，再标记数据库软删除（主行保留）")
-    void shouldDeleteFilesThenDatabase() {
-        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 12345L)).thenReturn(true);
-        when(workAssetService.deleteLocalFiles(WorkType.ARTWORK, 12345L)).thenReturn(true);
-
+    @DisplayName("deleteArtwork 委托核心统一删除入口并透传布尔结果")
+    void shouldDelegateDeleteArtworkToCore() {
+        when(workDeletionService.delete(WorkType.ARTWORK, 12345L)).thenReturn(true);
         assertThat(galleryService.deleteArtwork(12345L)).isTrue();
+        verify(workDeletionService).delete(WorkType.ARTWORK, 12345L);
 
-        InOrder inOrder = inOrder(workAssetService, workDeletionService);
-        inOrder.verify(workAssetService).deleteLocalFiles(WorkType.ARTWORK, 12345L);
-        inOrder.verify(workDeletionService).markDeleted(WorkType.ARTWORK, 12345L);
+        when(workDeletionService.delete(WorkType.ARTWORK, 404L)).thenReturn(false);
+        assertThat(galleryService.deleteArtwork(404L)).isFalse();
+        verify(workDeletionService).delete(WorkType.ARTWORK, 404L);
     }
 
     @Test
-    @DisplayName("磁盘文件删除失败时不标记数据库记录，并抛出异常以阻止状态不一致")
-    void shouldAbortWhenFileDeletionFails() {
-        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 999L)).thenReturn(true);
-        when(workAssetService.deleteLocalFiles(WorkType.ARTWORK, 999L)).thenReturn(false);
-
-        assertThatThrownBy(() -> galleryService.deleteArtwork(999L))
-                .isInstanceOf(top.sywyar.pixivdownload.i18n.LocalizedException.class);
-
-        verify(workDeletionService, never()).markDeleted(any(), anyLong());
-    }
-
-    @Test
-    @DisplayName("批量删除应去重并返回实际删除数量")
-    void shouldBatchDeleteDistinctAndCount() {
-        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 1L)).thenReturn(true);
-        when(workQueryService.hasActiveWork(WorkType.ARTWORK, 2L)).thenReturn(false);
-        when(workAssetService.deleteLocalFiles(WorkType.ARTWORK, 1L)).thenReturn(true);
-
-        int deleted = galleryService.deleteArtworks(List.of(1L, 2L, 1L));
-
-        assertThat(deleted).isEqualTo(1);
-        verify(workDeletionService, times(1)).markDeleted(WorkType.ARTWORK, 1L);
-        verify(workDeletionService, never()).markDeleted(WorkType.ARTWORK, 2L);
-    }
-
-    @Test
-    @DisplayName("批量删除入参为空时返回 0")
-    void shouldReturnZeroForEmptyBatch() {
-        assertThat(galleryService.deleteArtworks(null)).isZero();
-        assertThat(galleryService.deleteArtworks(List.of())).isZero();
-        verify(workDeletionService, never()).markDeleted(any(), anyLong());
+    @DisplayName("deleteArtworks 委托核心批量删除入口并透传删除计数")
+    void shouldDelegateDeleteArtworksToCore() {
+        when(workDeletionService.deleteAll(WorkType.ARTWORK, List.of(1L, 2L, 1L))).thenReturn(2);
+        assertThat(galleryService.deleteArtworks(List.of(1L, 2L, 1L))).isEqualTo(2);
+        verify(workDeletionService).deleteAll(WorkType.ARTWORK, List.of(1L, 2L, 1L));
     }
 
     @Nested

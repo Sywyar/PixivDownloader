@@ -68,11 +68,8 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public NovelGalleryService novelGalleryService(WorkQueryService workQueryService,
                                                    WorkMetadataRepository workMetadataRepository,
-                                                   WorkAssetService workAssetService,
-                                                   WorkDeletionService workDeletionService,
-                                                   AppMessages messages) {
-        return new NovelGalleryService(
-                workQueryService, workMetadataRepository, workAssetService, workDeletionService, messages);
+                                                   WorkDeletionService workDeletionService) {
+        return new NovelGalleryService(workQueryService, workMetadataRepository, workDeletionService);
     }
 
     @Bean

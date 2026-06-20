@@ -6,11 +6,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.AuthorSummary;
 import top.sywyar.pixivdownload.plugin.api.work.model.NovelWorkDetails;
@@ -19,7 +16,6 @@ import top.sywyar.pixivdownload.plugin.api.work.query.SeriesQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesSummary;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
@@ -35,11 +31,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -53,16 +46,13 @@ class NovelGalleryServiceTest {
     @Mock
     private WorkMetadataRepository workMetadataRepository;
     @Mock
-    private WorkAssetService workAssetService;
-    @Mock
     private WorkDeletionService workDeletionService;
 
     private NovelGalleryService novelGalleryService;
 
     @BeforeEach
     void setUp() {
-        novelGalleryService = new NovelGalleryService(workQueryService, workMetadataRepository,
-                workAssetService, workDeletionService, TestI18nBeans.appMessages());
+        novelGalleryService = new NovelGalleryService(workQueryService, workMetadataRepository, workDeletionService);
     }
 
     private static WorkMetadata meta(long id, Long authorId, Long seriesId) {
@@ -76,72 +66,23 @@ class NovelGalleryServiceTest {
     }
 
     @Test
-    @DisplayName("小说不存在时返回 false，且不删除文件或标记数据库记录")
-    void shouldNotDeleteWhenNovelMissing() {
-        when(workQueryService.hasActiveWork(WorkType.NOVEL, 1L)).thenReturn(false);
-
-        assertThat(novelGalleryService.deleteNovel(1L)).isFalse();
-
-        verify(workAssetService, never()).deleteLocalFiles(any(), anyLong());
-        verify(workDeletionService, never()).markDeleted(any(), anyLong());
-    }
-
-    @Test
-    @DisplayName("已被标记删除的小说返回 false，不再触碰磁盘或重复标记")
-    void shouldNotDeleteWhenAlreadyMarkedDeleted() {
-        when(workQueryService.hasActiveWork(WorkType.NOVEL, 1L)).thenReturn(false);
-
-        assertThat(novelGalleryService.deleteNovel(1L)).isFalse();
-
-        verify(workAssetService, never()).deleteLocalFiles(any(), anyLong());
-        verify(workDeletionService, never()).markDeleted(any(), anyLong());
-    }
-
-    @Test
-    @DisplayName("删除小说应先删磁盘文件，再标记数据库软删除（WorkDeletionService.markDeleted，主行保留）")
-    void shouldDeleteFilesThenDatabase() {
-        when(workQueryService.hasActiveWork(WorkType.NOVEL, 100L)).thenReturn(true);
-        when(workAssetService.deleteLocalFiles(WorkType.NOVEL, 100L)).thenReturn(true);
-
+    @DisplayName("deleteNovel 委托核心统一删除入口并透传布尔结果")
+    void shouldDelegateDeleteNovelToCore() {
+        when(workDeletionService.delete(WorkType.NOVEL, 100L)).thenReturn(true);
         assertThat(novelGalleryService.deleteNovel(100L)).isTrue();
+        verify(workDeletionService).delete(WorkType.NOVEL, 100L);
 
-        InOrder inOrder = inOrder(workAssetService, workDeletionService);
-        inOrder.verify(workAssetService).deleteLocalFiles(WorkType.NOVEL, 100L);
-        inOrder.verify(workDeletionService).markDeleted(WorkType.NOVEL, 100L);
+        when(workDeletionService.delete(WorkType.NOVEL, 404L)).thenReturn(false);
+        assertThat(novelGalleryService.deleteNovel(404L)).isFalse();
+        verify(workDeletionService).delete(WorkType.NOVEL, 404L);
     }
 
     @Test
-    @DisplayName("磁盘文件删除失败时不标记数据库记录，并抛出异常以阻止状态不一致")
-    void shouldAbortWhenFileDeletionFails() {
-        when(workQueryService.hasActiveWork(WorkType.NOVEL, 999L)).thenReturn(true);
-        when(workAssetService.deleteLocalFiles(WorkType.NOVEL, 999L)).thenReturn(false);
-
-        assertThatThrownBy(() -> novelGalleryService.deleteNovel(999L))
-                .isInstanceOf(LocalizedException.class);
-
-        verify(workDeletionService, never()).markDeleted(any(), anyLong());
-    }
-
-    @Test
-    @DisplayName("批量删除应去重并返回实际删除数量")
-    void shouldBatchDeleteDistinctAndCount() {
-        when(workQueryService.hasActiveWork(WorkType.NOVEL, 1L)).thenReturn(true);
-        when(workQueryService.hasActiveWork(WorkType.NOVEL, 2L)).thenReturn(false);
-        when(workAssetService.deleteLocalFiles(WorkType.NOVEL, 1L)).thenReturn(true);
-
-        int deleted = novelGalleryService.deleteNovels(List.of(1L, 2L, 1L));
-
-        assertThat(deleted).isEqualTo(1);
-        verify(workDeletionService, times(1)).markDeleted(WorkType.NOVEL, 1L);
-        verify(workDeletionService, never()).markDeleted(WorkType.NOVEL, 2L);
-    }
-
-    @Test
-    @DisplayName("批量删除入参为空时返回 0")
-    void shouldReturnZeroForEmptyBatch() {
-        assertThat(novelGalleryService.deleteNovels(null)).isZero();
-        assertThat(novelGalleryService.deleteNovels(List.of())).isZero();
-        verify(workDeletionService, never()).markDeleted(any(), anyLong());
+    @DisplayName("deleteNovels 委托核心批量删除入口并透传删除计数")
+    void shouldDelegateDeleteNovelsToCore() {
+        when(workDeletionService.deleteAll(WorkType.NOVEL, List.of(1L, 2L, 1L))).thenReturn(2);
+        assertThat(novelGalleryService.deleteNovels(List.of(1L, 2L, 1L))).isEqualTo(2);
+        verify(workDeletionService).deleteAll(WorkType.NOVEL, List.of(1L, 2L, 1L));
     }
 
     @Nested

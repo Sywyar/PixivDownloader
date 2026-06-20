@@ -1,12 +1,8 @@
 package top.sywyar.pixivdownload.novel;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelAuthorSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesSummary;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelTagOption;
@@ -18,7 +14,6 @@ import top.sywyar.pixivdownload.plugin.api.work.query.SeriesNeighbors;
 import top.sywyar.pixivdownload.plugin.api.work.query.SeriesQuery;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.work.query.TagQuery;
-import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkMetadataRepository;
@@ -33,7 +28,6 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -41,23 +35,16 @@ import java.util.Set;
 /**
  * 小说画廊页面服务：列表 / 详情 / 系列 / 目录查询统一走核心接口——{@link WorkQueryService}
  * 取 id 分页与目录聚合、{@link WorkMetadataRepository} 批量补全行数据（search → hydrate 两步）；
- * 删除链路同样走核心接口——{@link WorkAssetService} 删文件、{@link WorkDeletionService}
- * 标记软删除，不再直接依赖底层数据库与作者池实现。
+ * 删除链路委托核心统一删除入口 {@link WorkDeletionService#delete} / {@link WorkDeletionService#deleteAll}
+ *（判存 → 删文件 → 软删 DB 的编排封装在核心实现），不再直接依赖底层数据库与作者池实现。
  */
-@Slf4j
 @PluginManagedBean
 @RequiredArgsConstructor
 public class NovelGalleryService {
 
     private final WorkQueryService workQueryService;
     private final WorkMetadataRepository workMetadataRepository;
-    private final WorkAssetService workAssetService;
     private final WorkDeletionService workDeletionService;
-    private final AppMessages messages;
-
-    private String logMessage(String code, Object... args) {
-        return messages.getForLog(code, args);
-    }
 
     public PagedNovels query(NovelGalleryQuery q) {
         PagedResult<WorkSummary> result = workQueryService.search(toWorkQuery(q));
@@ -77,44 +64,19 @@ public class NovelGalleryService {
     }
 
     /**
-     * 删除单本小说：先删磁盘文件（正文 TXT/HTML/EPUB、封面、内嵌图、独占目录，经
-     * {@link WorkAssetService#deleteLocalFiles}），再清理 DB 派生数据并标记软删除
-     * （{@code novel_tags} / {@code novel_collections} / {@code novel_images} / 译文 / 朗读脚本 / FTS
-     * 照旧清理，主行保留并置 {@code deleted = 1}，经 {@link WorkDeletionService#markDeleted}）
-     * ——使下载判重能识别「已下载过，但被删除」、避免被当作未下载重新下载。系列封面与合订文件
-     * 属于系列、不在此删除。小说不存在或已被标记删除时返回 {@code false}。磁盘文件删除失败
-     * （被锁定 / 权限不足等）会立即抛出，不再继续动 DB，避免 DB 与磁盘状态不一致。
+     * 删除单本小说：委托核心统一删除入口 {@link WorkDeletionService#delete}——判存 → 删磁盘文件
+     *（正文 TXT/HTML/EPUB、封面、内嵌图、独占目录）→ 清理 DB 派生数据并软删主行的编排封装在核心实现，
+     * 使下载判重能识别「已下载过，但被删除」、避免被当作未下载重新下载。系列封面与合订文件属于系列、
+     * 不在此删除。小说不存在或已被标记删除时返回 {@code false}；磁盘文件删除失败（被锁定 / 权限不足等）
+     * 抛出 409、不触碰数据库。
      */
     public boolean deleteNovel(long novelId) {
-        if (!workQueryService.hasActiveWork(WorkType.NOVEL, novelId)) {
-            return false;
-        }
-        if (!workAssetService.deleteLocalFiles(WorkType.NOVEL, novelId)) {
-            throw new LocalizedException(HttpStatus.CONFLICT,
-                    "novel.delete.file-failed",
-                    "小说 {0} 的磁盘文件未能全部删除，已中止数据库清理",
-                    novelId);
-        }
-        workDeletionService.markDeleted(WorkType.NOVEL, novelId);
-        log.info(logMessage("novel.gallery.log.deleted", novelId));
-        return true;
+        return workDeletionService.delete(WorkType.NOVEL, novelId);
     }
 
     /** 批量删除小说，返回实际删除的数量。 */
     public int deleteNovels(Collection<Long> novelIds) {
-        if (novelIds == null || novelIds.isEmpty()) {
-            return 0;
-        }
-        int deleted = 0;
-        for (Long id : new LinkedHashSet<>(novelIds)) {
-            if (id == null) continue;
-            try {
-                if (deleteNovel(id)) deleted++;
-            } catch (Exception e) {
-                log.warn(logMessage("novel.gallery.log.delete-failed", id, e.getMessage()));
-            }
-        }
-        return deleted;
+        return workDeletionService.deleteAll(WorkType.NOVEL, novelIds);
     }
 
     public List<NovelView> bySeries(long seriesId, int limit) {
