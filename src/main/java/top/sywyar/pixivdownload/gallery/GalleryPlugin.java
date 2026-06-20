@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.gallery;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
+import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
+import top.sywyar.pixivdownload.plugin.api.web.DrilldownPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
@@ -158,6 +160,27 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                         "gallery:section.collections", null,
                         "/pixiv-gallery.html?view=all&createCollection=1", "plus", "gallery:collection.new",
                         "/pixiv-gallery/gallery-stats-embed.js", AccessPolicy.INVITED_GUEST, 20));
+    }
+
+    @Override
+    public List<DrilldownContribution> drilldowns() {
+        // 统计页 Top 作者 / 热门标签的语义下钻（stats.top-authors / stats.top-tags）：统计页只认得这两个语义 placement，
+        // 由本插件贡献「按作者 / 标签过滤画廊」的 href 模板——目标页面路径与查询参数名只出现在本贡献里，统计页源码
+        // 不含任何画廊知识。模板里的 {变量名} 占位由前端通用下钻渲染器（/js/pixiv-drilldowns.js）做 encodeURIComponent
+        // 后替换，统计页只提供变量值。两条均 INVITED_GUEST（与画廊页面同级可见性，管理员 / 受邀访客可见），priority 10。
+        // 查询参数名与画廊筛选入口现状一致（gallery-filters.js：作者 filterAuthorId/filterAuthorName、
+        // 标签 filterTagId/filterTag/filterTagTranslated），保持现有画廊入口语义；禁用画廊后这两条贡献自然消失，
+        // 统计页 /api/drilldowns 对应 placement 无内容、回到纯展示。
+        return List.of(
+                new DrilldownContribution(
+                        ID, "gallery-stats-author", DrilldownPlacements.STATS_TOP_AUTHORS,
+                        "/pixiv-gallery.html?view=all&filterAuthorId={authorId}&filterAuthorName={authorName}",
+                        AccessPolicy.INVITED_GUEST, 10),
+                new DrilldownContribution(
+                        ID, "gallery-stats-tag", DrilldownPlacements.STATS_TOP_TAGS,
+                        "/pixiv-gallery.html?view=all&filterTagId={tagId}&filterTag={tagName}"
+                                + "&filterTagTranslated={tagTranslatedName}",
+                        AccessPolicy.INVITED_GUEST, 10));
     }
 
     @Override

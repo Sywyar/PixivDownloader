@@ -111,6 +111,30 @@ class PluginDisableSemanticsTest {
         assertThat(pageSectionOwners(registryDisabling("gallery"))).doesNotContain("gallery");
     }
 
+    private static List<String> drilldownOwners(PluginRegistry registry) {
+        return new DrilldownRegistry(registry).drilldowns().stream()
+                .map(DrilldownRegistry.RegisteredDrilldown::pluginId)
+                .toList();
+    }
+
+    private static List<String> drilldownIds(PluginRegistry registry) {
+        return new DrilldownRegistry(registry).drilldowns().stream()
+                .map(registered -> registered.drilldown().id())
+                .toList();
+    }
+
+    @Test
+    @DisplayName("禁用画廊：其语义下钻贡献从 DrilldownRegistry 消失（统计页 Top 作者 / 热门标签随插件回到纯展示）")
+    void disablingGalleryDropsItsDrilldowns() {
+        // 启用时画廊向统计页两个语义 placement 贡献下钻模板；禁用后这些贡献不再注册——统计页 /api/drilldowns 对应
+        // placement 无内容、下钻链接自然消失（回到纯展示），统计页不需要知道画廊是否存在。
+        assertThat(drilldownOwners(allEnabled())).contains("gallery");
+        assertThat(drilldownIds(allEnabled())).contains("gallery-stats-author", "gallery-stats-tag");
+        assertThat(drilldownOwners(registryDisabling("gallery"))).doesNotContain("gallery");
+        assertThat(drilldownIds(registryDisabling("gallery")))
+                .doesNotContain("gallery-stats-author", "gallery-stats-tag");
+    }
+
     private static List<String> landingOwners(PluginRegistry registry) {
         return new LandingRegistry(registry).landings().stream()
                 .map(LandingRegistry.RegisteredLanding::pluginId)

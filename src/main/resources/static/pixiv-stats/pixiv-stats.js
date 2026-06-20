@@ -68,6 +68,14 @@
         if (el) el.hidden = false;
     }
 
+    // 按语义 placement 向通用下钻渲染器请求一个 href（统计页只认得 placement 与变量名，不知道目标页面 / 查询参数 /
+    // 是哪个插件贡献）。无渲染器、无贡献、当前身份不可见或模板不可用时返回 null，调用方据此回退纯展示。
+    function drilldownHref(placement, variables) {
+        return (window.PixivDrilldowns && typeof PixivDrilldowns.href === 'function')
+            ? PixivDrilldowns.href(placement, variables)
+            : null;
+    }
+
     function renderOverview(o) {
         if (!o) return;
         var map = {
@@ -100,11 +108,13 @@
         }
         var max = authors.reduce(function (m, a) { return Math.max(m, a.count); }, 0) || 1;
         authors.forEach(function (a) {
-            // 统计是 admin-only 的核心面板：仅展示数据，不硬编码到任何其它插件页面的下钻链接（跨插件 href / 过滤参数
-            // 属该插件业务，不应出现在统计页源码）。点击下钻入口的解耦留作后续「插件贡献的语义下钻链接」契约。
-            var row = document.createElement('div');
+            // 语义下钻（stats.top-authors）：有 href（贡献存在且当前身份可见）则渲染可点击的 a，否则保持纯展示 div。
+            // 统计页只提供变量值（作者 id / 名称），不知道目标页面路径或查询参数名——这些由贡献方插件决定。
+            var href = drilldownHref('stats.top-authors', { authorId: a.authorId, authorName: a.name });
+            var row = document.createElement(href ? 'a' : 'div');
             row.className = 'bar-row';
             row.title = a.name;
+            if (href) row.href = href;
 
             var name = document.createElement('span');
             name.className = 'bar-name';
@@ -144,9 +154,13 @@
         var max = tags.reduce(function (m, x) { return Math.max(m, x.count); }, 0) || 1;
         var min = tags.reduce(function (m, x) { return Math.min(m, x.count); }, max);
         tags.forEach(function (tag) {
-            // 同作者面板：仅展示数据，不硬编码到任何其它插件页面的下钻链接（见 renderAuthors 说明）。
-            var chip = document.createElement('span');
+            // 语义下钻（stats.top-tags）：有 href 则渲染可点击的 a，否则保持纯展示 span（见 renderAuthors 说明）。
+            var href = drilldownHref('stats.top-tags', {
+                tagId: tag.tagId, tagName: tag.name, tagTranslatedName: tag.translatedName || ''
+            });
+            var chip = document.createElement(href ? 'a' : 'span');
             chip.className = 'tag-chip';
+            if (href) chip.href = href;
             var ratio = max === min ? 1 : (tag.count - min) / (max - min);
             chip.style.fontSize = (12 + ratio * 12).toFixed(1) + 'px';
 
@@ -286,6 +300,9 @@
         setupAdminMode();
         // 侧栏借用其它插件能力的区块由 /js/pixiv-page-sections.js 据 /api/page-sections 自渲染——禁用某插件则它
         // 贡献的区块自然消失，统计页无需在此判断任何插件是否可用，也不触达任何具体插件的 href / API。
+        // 先等通用下钻渲染器拉完 /api/drilldowns（成功或失败都 resolve），使首次 renderAll 能同步解析 Top 作者 /
+        // 热门标签的下钻 href；无贡献时 href() 返回 null、保持纯展示。语言切换重渲染复用已缓存贡献、无需再拉取。
+        if (window.PixivDrilldowns) await PixivDrilldowns.ready();
         await loadDashboard();
     });
 })();

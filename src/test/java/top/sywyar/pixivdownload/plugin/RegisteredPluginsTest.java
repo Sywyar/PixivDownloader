@@ -184,6 +184,9 @@ class RegisteredPluginsTest {
         // 页面区块（page sections）：唯画廊向统计页 placement 贡献「视图 / 收藏夹」借用区块，
         // 统计页只声明空 section slot——其它插件不贡献区块（宿主不需要知道是哪个插件）。
         Set<String> pageSectionContributingPlugins = Set.of("gallery");
+        // 语义下钻（drilldowns）：唯画廊向统计页两个语义 placement（stats.top-authors / stats.top-tags）贡献
+        // 下钻模板——统计页只认得语义 placement，其它插件不贡献下钻（宿主不需要知道是哪个插件）。
+        Set<String> drilldownContributingPlugins = Set.of("gallery");
         // coreColumnUsages 仍仅画廊 / 小说：download-workbench 收编的 schedule 引擎对 scheduled_tasks 的访问
         // 经核心 owned 语义 Store ScheduledTaskStore（core.schedule 接口，其核心实现 ScheduledTaskStoreImpl 再包装
         // 根包扫描的 MyBatis ScheduledTaskMapper，与 ArtworkDownloadExecutor 同口径属核心机器、不计入），
@@ -258,6 +261,12 @@ class RegisteredPluginsTest {
                     assertThat(plugin.pageSections()).isNotEmpty();
                 } else {
                     assertThat(plugin.pageSections()).isEmpty();
+                }
+                // 语义下钻：唯画廊向统计页贡献作者 / 标签下钻模板；其余插件不贡献
+                if (drilldownContributingPlugins.contains(plugin.id())) {
+                    assertThat(plugin.drilldowns()).isNotEmpty();
+                } else {
+                    assertThat(plugin.drilldowns()).isEmpty();
                 }
             });
         });

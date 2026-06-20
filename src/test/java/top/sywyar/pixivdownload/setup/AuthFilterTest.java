@@ -587,9 +587,10 @@ class AuthFilterTest {
                 "/css/pixiv-side-modules.css",
                 "/js/pixiv-side-modules.js",
                 "/js/pixiv-navigation.js",
-                "/js/pixiv-page-sections.js"
+                "/js/pixiv-page-sections.js",
+                "/js/pixiv-drilldowns.js"
         })
-        @DisplayName("访客邀请会话应能加载画廊/小说页共享静态依赖（含导航与页面区块渲染器）")
+        @DisplayName("访客邀请会话应能加载画廊/小说页共享静态依赖（含导航、页面区块与下钻渲染器）")
         void shouldAllowGuestInviteToLoadSharedStaticResource(String path) throws Exception {
             when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
@@ -1460,6 +1461,72 @@ class AuthFilterTest {
 
             request.setMethod("GET");
             request.setRequestURI("/api/navigation");
+            request.setRemoteAddr("192.168.1.100");
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+    }
+
+    // ========== 核心下钻装配端点（归 core、VISITOR_AND_INVITED_GUEST：声明路由但不改变旧访问行为） ==========
+
+    @Nested
+    @DisplayName("核心下钻端点 /api/drilldowns 访问级别（归 core、VISITOR_AND_INVITED_GUEST）")
+    class DrilldownEndpointTests {
+
+        // /api/drilldowns 由 CorePlugin.routes() 以 VISITOR_AND_INVITED_GUEST 声明（同 /api/navigation /
+        // /api/page-sections）：不入 monitor，访客与受邀访客均可只读放行（各自得到对应身份可见下钻贡献）。
+        // 三态：multi 访客可读 / solo 未登录 401 / 受邀访客可读。
+
+        @Test
+        @DisplayName("多人模式普通访客可读取（controller 返回访客可见下钻，访问行为不变）")
+        void multiVisitorAllowed() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowed(any())).thenReturn(true);
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/drilldowns");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            verify(filterChain).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("solo 模式未登录访问应 401（声明路由不放宽未登录可达面）")
+        void soloUnauthorizedRejected() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("solo");
+            when(setupService.isValidSession(any())).thenReturn(false);
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/drilldowns");
+            request.setRemoteAddr("192.168.1.100");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(401);
+            verify(filterChain, never()).doFilter(request, response);
+        }
+
+        @Test
+        @DisplayName("邀请访客可读取（VISITOR_AND_INVITED_GUEST 放行受邀访客只读，使其页面能解析下钻）")
+        void invitedGuestAllowed() throws Exception {
+            when(setupService.isSetupComplete()).thenReturn(true);
+            when(setupService.getMode()).thenReturn("multi");
+            when(rateLimitService.isAllowedForInvite(any())).thenReturn(true);
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
+                    1L, "invite-code", true, false, false,
+                    true, Set.of(), true, Set.of(),
+                    true, Set.of(), true, Set.of()
+            )));
+
+            request.setMethod("GET");
+            request.setRequestURI("/api/drilldowns");
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
 

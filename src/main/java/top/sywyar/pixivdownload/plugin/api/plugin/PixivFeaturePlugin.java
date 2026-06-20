@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
+import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
@@ -125,6 +126,15 @@ public interface PixivFeaturePlugin {
      * 注册——宿主不需要知道是哪个插件、是否启用。禁用插件后其 section 自然消失。
      */
     default List<PageSectionContribution> pageSections() {
+        return List.of();
+    }
+
+    /**
+     * 插件声明的语义下钻贡献（{@code /api/drilldowns} 按当前身份过滤后返回）：让宿主页面只在语义 placement 上以运行期
+     * 变量请求一个 href，跨插件下钻链接的目标页面路径 / 查询参数名完全由活动插件以 {@link DrilldownContribution#hrefTemplate()}
+     * 决定——宿主不需要知道是哪个插件。禁用插件后其下钻贡献自然消失，宿主回到纯展示。
+     */
+    default List<DrilldownContribution> drilldowns() {
         return List.of();
     }
 

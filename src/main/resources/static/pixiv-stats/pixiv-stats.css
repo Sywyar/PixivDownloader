@@ -660,6 +660,16 @@ a.bar-row:hover .bar-name {
     color: var(--muted);
 }
 
+/* 下钻可点击的标签项：渲染为 a.tag-chip。全局 a 规则已去下划线、.tag-chip 仍 inline-flex（与 span 版同布局，
+   无下划线 / 无布局跳动）；仅补一个轻微 hover 提示可点击，与 a.bar-row:hover 对称。 */
+a.tag-chip {
+    transition: background 0.15s;
+}
+
+a.tag-chip:hover {
+    background: var(--active-bg);
+}
+
 /* 月度折线图（内联 SVG） */
 .chart-wrap {
     width: 100%;

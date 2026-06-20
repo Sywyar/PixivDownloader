@@ -147,6 +147,9 @@ public class CorePlugin implements PixivFeaturePlugin {
                 // 通用页面区块渲染器：与 /api/page-sections（VISITOR_AND_INVITED_GUEST）同口径显式声明，
                 // 使受邀访客页面也能加载该共享 section 渲染器；不依赖 /js/** 的 VISITOR 兜底（否则邀请访客 403）。
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-page-sections.js"),
+                // 通用下钻渲染器：与 /api/drilldowns（VISITOR_AND_INVITED_GUEST）同口径显式声明，使受邀访客页面也能
+                // 加载该共享下钻 helper；同 page-sections 不依赖 /js/** 的 VISITOR 兜底（否则邀请访客 403）。
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-drilldowns.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-novel-render.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-side-modules.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-theme.js"),
@@ -158,6 +161,9 @@ public class CorePlugin implements PixivFeaturePlugin {
                 // 核心页面区块装配端点（PageSectionController 读 PageSectionRegistry 跨插件聚合、按身份可见性过滤）：
                 // 同 /api/navigation 口径 VISITOR_AND_INVITED_GUEST，供宿主页面把活动插件贡献的区块渲染进 section slot。
                 WebRouteContribution.visitorAndInvitedGuest("/api/page-sections"),
+                // 核心下钻装配端点（DrilldownController 读 DrilldownRegistry 跨插件聚合、按身份可见性过滤）：
+                // 同 /api/navigation 口径 VISITOR_AND_INVITED_GUEST，供宿主页面按语义 placement 解析活动插件贡献的下钻链接。
+                WebRouteContribution.visitorAndInvitedGuest("/api/drilldowns"),
                 // ── 公开（两种模式均公开）：基础页面、公开 API、公开静态前缀 ──────────────────────
                 WebRouteContribution.publicRoute("/"),
                 WebRouteContribution.publicRoute("/index"),
