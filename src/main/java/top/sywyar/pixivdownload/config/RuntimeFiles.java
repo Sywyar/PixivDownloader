@@ -115,9 +115,10 @@ public final class RuntimeFiles {
     }
 
     /**
-     * 作品删除的暂存目录：{@code data/delete-staging/}。原子删除时先把待删文件复制到本目录下的独立子目录，
-     * 删原文件失败再从这里复制回滚；放在 {@code data/} 下而非系统临时目录，避免跨卷拷贝、不受 OS 临时清理影响、
-     * 位置可预测。崩溃残留由 {@link #clearDeleteStagingLeftovers()} 在启动时统一清扫。
+     * 作品删除的暂存目录：{@code data/delete-staging/}。原子删除时先把待删文件复制到本目录下的独立子目录
+     * （并写一份恢复清单 {@code manifest.properties}），删原文件失败再从这里复制回滚；放在 {@code data/} 下而非
+     * 系统临时目录，避免跨卷拷贝、不受 OS 临时清理影响、位置可预测。进程中途崩溃残留的子目录由
+     * {@link #recoverDeleteStagingLeftovers()} 在启动时按清单恢复或保留（不再无条件清扫）。
      */
     public static Path deleteStagingDirectory() {
         Path target = dataDirectory().resolve(DELETE_STAGING_DIR);
@@ -130,18 +131,13 @@ public final class RuntimeFiles {
     }
 
     /**
-     * 清扫 {@code data/delete-staging/} 下上次运行（含异常退出）残留的暂存子目录。每次删除操作使用独立子目录
-     * 并在结束时删除，正常情况下应为空；启动时再统一兜底全清，避免崩溃残留长期占用磁盘。清扫失败仅记日志。
+     * 启动时恢复 {@code data/delete-staging/} 下上次运行（含异常退出）残留的暂存子目录：按各子目录的恢复清单
+     * 把仍缺失的原文件从暂存复制回原位，全部就位后才删除该子目录；清单缺失 / 损坏 / 任一恢复失败时<b>保留</b>子目录
+     * 并记日志，供人工恢复。<b>不再无条件清扫</b>——避免在「已删部分原文件、尚未完成回滚或软删」之间崩溃时误删
+     * 唯一备份、把半删除状态永久化。恢复细节见 {@link DeleteStagingManifest}。
      */
-    public static void clearDeleteStagingLeftovers() {
-        Path stagingRoot = deleteStagingDirectory();
-        try (Stream<Path> children = Files.list(stagingRoot)) {
-            for (Path child : children.toList()) {
-                deleteDirectoryTree(child);
-            }
-        } catch (IOException e) {
-            log.warn(message("runtime.log.delete-staging.sweep-failed", stagingRoot));
-        }
+    public static void recoverDeleteStagingLeftovers() {
+        DeleteStagingManifest.recoverLeftovers(deleteStagingDirectory());
     }
 
     /**
@@ -233,7 +229,7 @@ public final class RuntimeFiles {
         collectionIconsDirectory();
         guiStateDirectory();
         ttsDataDirectory();
-        clearDeleteStagingLeftovers();
+        recoverDeleteStagingLeftovers();
     }
 
     public static String readDownloadRootFromConfig(Path configPath, String defaultRootFolder) {

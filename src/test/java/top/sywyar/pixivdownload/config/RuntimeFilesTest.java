@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -177,19 +178,41 @@ class RuntimeFilesTest {
     }
 
     @Test
-    @DisplayName("启动清扫应删除残留的删除暂存子目录但保留暂存根目录")
-    void shouldClearLeftoverDeleteStagingSubdirectories() throws IOException {
+    @DisplayName("启动恢复应据恢复清单把中断删除中缺失的原文件复制回原位并清理暂存子目录")
+    void shouldRecoverInterruptedDeletionFromManifest() throws IOException {
         Path stagingRoot = RuntimeFiles.deleteStagingDirectory();
-        Path leftover = Files.createDirectories(stagingRoot.resolve("crashed-op"));
-        Files.writeString(leftover.resolve("0_a.jpg"), "x", StandardCharsets.UTF_8);
-        Path strayFile = stagingRoot.resolve("stray.tmp");
-        Files.writeString(strayFile, "y", StandardCharsets.UTF_8);
+        Path subdir = Files.createDirectories(stagingRoot.resolve("crashed-op"));
+        // 模拟「已暂存、原文件已删、未来得及回滚 / 软删」：原文件缺失，暂存副本仍在，清单记录映射
+        Path original = downloadRoot.resolve("300").resolve("300_p0.jpg");
+        Files.writeString(subdir.resolve("0_300_p0.jpg"), "p0-bytes", StandardCharsets.UTF_8);
+        DeleteStagingManifest.write(subdir, List.of(new DeleteStagingManifest.Entry(
+                original.toAbsolutePath().normalize(), "0_300_p0.jpg")));
 
-        RuntimeFiles.clearDeleteStagingLeftovers();
+        RuntimeFiles.recoverDeleteStagingLeftovers();
 
-        assertThat(leftover).doesNotExist();
-        assertThat(strayFile).doesNotExist();
+        assertThat(original).exists();
+        assertThat(Files.readString(original, StandardCharsets.UTF_8)).isEqualTo("p0-bytes");
+        assertThat(subdir).doesNotExist();
         assertThat(stagingRoot).isEqualTo(dataDir.resolve(RuntimeFiles.DELETE_STAGING_DIR));
+        assertThat(stagingRoot).isDirectory();
+    }
+
+    @Test
+    @DisplayName("启动恢复对清单缺失 / 损坏的暂存子目录一律保留，不删除唯一备份")
+    void shouldKeepLeftoverWhenManifestMissingOrCorrupt() throws IOException {
+        Path stagingRoot = RuntimeFiles.deleteStagingDirectory();
+        Path noManifest = Files.createDirectories(stagingRoot.resolve("no-manifest"));
+        Files.writeString(noManifest.resolve("0_a.jpg"), "a", StandardCharsets.UTF_8);
+        Path corrupt = Files.createDirectories(stagingRoot.resolve("corrupt"));
+        Files.writeString(corrupt.resolve("0_b.jpg"), "b", StandardCharsets.UTF_8);
+        Files.writeString(corrupt.resolve("manifest.properties"), "count=oops\n", StandardCharsets.UTF_8);
+
+        RuntimeFiles.recoverDeleteStagingLeftovers();
+
+        assertThat(noManifest).isDirectory();
+        assertThat(noManifest.resolve("0_a.jpg")).exists();
+        assertThat(corrupt).isDirectory();
+        assertThat(corrupt.resolve("0_b.jpg")).exists();
         assertThat(stagingRoot).isDirectory();
     }
 
