@@ -36,6 +36,14 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- 统计仪表盘功能插件：唯一边 BuiltInPlugins→StatsPlugin 单向依赖（stats 不反向依赖 app）；
+             产物随 spring-boot repackage 打进 BOOT-INF/lib，stats 页面 / API / i18n 经其 ClassLoader 解析 -->
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-stats</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>

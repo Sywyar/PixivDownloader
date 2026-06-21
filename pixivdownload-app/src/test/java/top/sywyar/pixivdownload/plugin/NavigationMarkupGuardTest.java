@@ -6,9 +6,9 @@ import top.sywyar.pixivdownload.plugin.api.web.DrilldownPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.nio.file.NoSuchFileException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -22,7 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 页面不得再用 include/exclude/requires 过滤 id，也不得硬编码其它插件的入口 href（否则禁用对应插件后
  * 前端残留点开即 404 的坏入口，违背前端导航开槽工作包目标）。
  * <p>
- * 直接扫描 {@code src/main/resources/static} 下的页面源码：
+ * 经 classpath 扫描各模块 {@code static/} 下的页面资源（已适配页面分散在主程序与各功能插件模块、随各自模块打包到
+ * 同一 boot jar，故按 classpath 资源而非单一模块的源码目录定位）：
  * <ul>
  *   <li>每个已适配页面声明其预期 placement slot（{@code data-nav-slot="<placement>"}）；</li>
  *   <li>已适配页面不再使用 {@code data-nav-include} / {@code data-nav-exclude} / {@code data-nav-requires}；</li>
@@ -41,7 +42,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("前端导航静态守卫：已适配页面只声明空 slot、不硬编码跨插件入口")
 class NavigationMarkupGuardTest {
 
-    private static final Path STATIC_ROOT = Path.of("src", "main", "resources", "static");
+    /** 已适配页面所在的 classpath 资源前缀（各模块 {@code src/main/resources/static} 在运行期合并于此）。 */
+    private static final String STATIC_CLASSPATH_ROOT = "static/";
 
     /** 已接入动态导航 slot 的页面 → 其预期声明的 placement slot。 */
     private static final Map<String, List<String>> EXPECTED_SLOTS = Map.of(
@@ -87,7 +89,13 @@ class NavigationMarkupGuardTest {
     private static final Pattern NAV_SLOT = Pattern.compile("data-nav-slot=\"([^\"]+)\"");
 
     private static String read(String page) throws IOException {
-        return Files.readString(STATIC_ROOT.resolve(page), StandardCharsets.UTF_8);
+        String resource = STATIC_CLASSPATH_ROOT + page;
+        try (InputStream in = NavigationMarkupGuardTest.class.getClassLoader().getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new NoSuchFileException(resource);
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
     @Test

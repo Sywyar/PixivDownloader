@@ -350,15 +350,18 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("必选插件的业务 Bean 不得标 @ConditionalOnPluginEnabled：plugin-runtime 删 isRequired 短路分支后由本守卫固化")
+    @DisplayName("必选插件的业务 Bean 不得标 @ConditionalOnPluginEnabled（method 级与 class 级都覆盖）：plugin-runtime 删 isRequired 短路分支后由本守卫固化")
     void requiredPluginBeansMustNotBeConditionalOnPluginEnabled() {
         // plugin-runtime 的 OnPluginEnabledCondition 已断掉对组合根 BuiltInPlugins 的反向引用（删除 isRequired
         // 短路分支、只读 plugins.<id>.enabled 开关）。该分支可安全删除的前提是「没有任何必选插件的业务 Bean 被
-        // @ConditionalOnPluginEnabled 门控」——否则必选插件会被开关误伤。生产中本注解只用于可选插件的 @Bean
-        // 工厂方法（gallery / novel / stats / duplicate）；必选插件（core / download-workbench / schedule）的 Bean
-        // 恒无条件装配。本守卫读注解的 value() 钉死该不变量：任一被它门控的 id 都不得是必选插件。
-        ArchCondition<JavaMethod> notGateRequiredPlugin =
-                new ArchCondition<>("不得用 @ConditionalOnPluginEnabled 门控必选插件") {
+        // @ConditionalOnPluginEnabled 门控」——否则必选插件会被开关误伤。@ConditionalOnPluginEnabled 的 @Target
+        // 同时含 METHOD 与 TYPE（既可标 @Bean 工厂方法，也可标整个 @Configuration 类一并门控其全部 @Bean），故本守卫
+        // 两端都扫：method 级与 class 级被注解的元素都读 value()、断言被门控 id 都不是必选插件。生产中本注解当前只用
+        // 于可选插件的 @Bean 工厂方法（gallery / novel / stats / duplicate）；必选插件（core / download-workbench /
+        // schedule）的 Bean 恒无条件装配。class 级当前无生产用法（allowEmptyShould 放行空集），是防未来有人用类级注解
+        // 门控必选插件的前向守卫。
+        ArchCondition<JavaMethod> methodNotGateRequiredPlugin =
+                new ArchCondition<>("@Bean 方法不得用 @ConditionalOnPluginEnabled 门控必选插件") {
                     @Override
                     public void check(JavaMethod method, ConditionEvents events) {
                         String pluginId = method.getAnnotationOfType(ConditionalOnPluginEnabled.class).value();
@@ -369,13 +372,34 @@ class PluginApiDependencyGuardTest {
                         }
                     }
                 };
+        ArchCondition<JavaClass> typeNotGateRequiredPlugin =
+                new ArchCondition<>("@Configuration 类不得用 @ConditionalOnPluginEnabled 门控必选插件") {
+                    @Override
+                    public void check(JavaClass clazz, ConditionEvents events) {
+                        String pluginId = clazz.getAnnotationOfType(ConditionalOnPluginEnabled.class).value();
+                        if (BuiltInPlugins.isRequired(pluginId)) {
+                            events.add(SimpleConditionEvent.violated(clazz,
+                                    clazz.getFullName() + " 用 @ConditionalOnPluginEnabled(\"" + pluginId
+                                            + "\") 门控了必选插件——必选插件不可禁用、其托管 Bean 必须恒无条件装配"));
+                        }
+                    }
+                };
+        String because = "OnPluginEnabledCondition 已删除 isRequired 短路分支（plugin-runtime 不再回指组合根 "
+                + "BuiltInPlugins）：删除安全的前提是『没有任何必选插件的 Bean 被 @ConditionalOnPluginEnabled "
+                + "门控』。本守卫固化此不变量——必选插件（core / download-workbench / schedule）的业务 Bean 一律"
+                + "不标本注解（method 级或 class 级都不行）、恒无条件装配；只有可选插件（gallery / novel / stats / "
+                + "duplicate）才用它按开关装配 / 缺席";
         methods()
                 .that().areAnnotatedWith(ConditionalOnPluginEnabled.class)
-                .should(notGateRequiredPlugin)
-                .because("OnPluginEnabledCondition 已删除 isRequired 短路分支（plugin-runtime 不再回指组合根 "
-                        + "BuiltInPlugins）：删除安全的前提是『没有任何必选插件的 Bean 被 @ConditionalOnPluginEnabled "
-                        + "门控』。本守卫固化此不变量——必选插件（core / download-workbench / schedule）的业务 Bean 一律"
-                        + "不标本注解、恒无条件装配；只有可选插件（gallery / novel / stats / duplicate）才用它按开关装配 / 缺席")
+                .should(methodNotGateRequiredPlugin)
+                .because(because)
+                .check(CLASSES);
+        // @Target 含 TYPE，但当前生产无类级用法 → allowEmptyShould 放行空集（前向守卫）。
+        classes()
+                .that().areAnnotatedWith(ConditionalOnPluginEnabled.class)
+                .should(typeNotGateRequiredPlugin)
+                .allowEmptyShould(true)
+                .because(because)
                 .check(CLASSES);
     }
 

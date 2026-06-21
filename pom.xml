@@ -34,6 +34,8 @@
         <module>pixivdownload-core-api</module>
         <!-- 插件框架的 Spring 耦合启用运行时（三件套），各功能插件模块编译期依赖之；产物打进 boot jar -->
         <module>pixivdownload-plugin-runtime</module>
+        <!-- 统计仪表盘功能插件（stats 整包），依赖上述契约 / 端口 / 运行时模块；产物打进 boot jar、app 经 BuiltInPlugins 单向依赖 -->
+        <module>pixivdownload-plugin-stats</module>
         <module>pixivdownload-app</module>
     </modules>
     <scm>
