@@ -47,14 +47,15 @@ class PluginRuntimeDependencyGuardTest {
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage(
                         "top.sywyar.pixivdownload.plugin",
-                        "top.sywyar.pixivdownload.plugin.runtime",
+                        "top.sywyar.pixivdownload.plugin.runtime..",
                         "top.sywyar.pixivdownload.plugin.api..",
                         "java..", "org.springframework..", "org.pf4j..", "org.slf4j..")
-                .because("plugin-runtime 是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接：只能"
-                        + "依赖 JDK、Spring（条件 / 绑定）、PF4J（PluginManager 等）、slf4j、plugin-api（跨插件契约，"
-                        + "发现桥接产出 PixivFeaturePlugin 需要它）与自身精确包 top.sywyar.pixivdownload.plugin（三件套）/ "
-                        + "top.sywyar.pixivdownload.plugin.runtime（PF4J 封装 + 发现桥接），不得依赖任何 app 业务包或具体"
-                        + "插件实现包（本规则主语已排除 plugin.api 自身，只约束本模块的 plugin / plugin.runtime 类）")
+                .because("plugin-runtime 是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接 / "
+                        + "描述符 / 兼容性 / 状态模型：只能依赖 JDK、Spring（条件 / 绑定）、PF4J（PluginManager 等）、slf4j、"
+                        + "plugin-api（跨插件契约，发现桥接产出 PixivFeaturePlugin、兼容判定委托 PluginApiVersion）与自身包 "
+                        + "top.sywyar.pixivdownload.plugin（三件套）/ top.sywyar.pixivdownload.plugin.runtime..（PF4J 封装 + "
+                        + "发现桥接 + descriptor / status 子包），不得依赖任何 app 业务包或具体插件实现包（本规则主语已排除 "
+                        + "plugin.api 自身，只约束本模块的 plugin / plugin.runtime 类）")
                 .check(CLASSES);
     }
 
@@ -130,5 +131,24 @@ class PluginRuntimeDependencyGuardTest {
         assertThat(CLASSES.contain(PixivPluginDiscoveryBridge.class.getName())).isTrue();
         assertThat(CLASSES.contain(DiscoveredFeaturePlugin.class.getName())).isTrue();
         assertThat(CLASSES.contain(PluginDiscoveryResult.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime 模块应包含描述符 / 兼容性 / 状态模型（防守卫 vacuous 通过）")
+    void pluginRuntimeContainsDescriptorAndStatusModel() {
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusEvaluator.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.PluginInventory.class.getName())).isTrue();
     }
 }

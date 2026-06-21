@@ -4,8 +4,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 /**
  * 核心壳侧装配 PF4J 外置插件运行时（{@link PluginRuntimeManager} 住 {@code pixivdownload-plugin-runtime}
@@ -36,12 +38,31 @@ public class PluginRuntimeConfiguration {
     }
 
     /**
-     * 发现已启动外置插件贡献的功能插件，供 {@link PluginRegistry} 接入。形参 {@code pluginRuntimeStatus} 仅用于排序
-     * （确保 {@code start()} 先完成、PF4J 实例已就绪），发现本身读运行时管理器缓存的已启动插件。
+     * 清点已启动外置插件的功能插件安装条目（统一描述符 + 兼容性基线状态 + classloader + 实例）与失败诊断，供
+     * {@link PluginDiscoveryResult}（注册接入）与 {@link PluginStatusService}（状态报告）共用同一次清点结果。
+     * 形参 {@code pluginRuntimeStatus} 仅用于排序（确保 {@code start()} 先完成、PF4J 实例已就绪）。
      */
     @Bean
-    public PluginDiscoveryResult pluginDiscoveryResult(PluginRuntimeManager pluginRuntimeManager,
-                                                       PluginRuntimeStatus pluginRuntimeStatus) {
-        return pluginRuntimeManager.discoverFeaturePlugins();
+    public PluginInventory pluginInventory(PluginRuntimeManager pluginRuntimeManager,
+                                           PluginRuntimeStatus pluginRuntimeStatus) {
+        return pluginRuntimeManager.inspectPlugins();
+    }
+
+    /**
+     * 投影出可接入 {@link PluginRegistry} 的外置功能插件发现结果：仅核心 API 兼容且已启动者进入 {@code discovered}，
+     * 不兼容 / 失败者并入 {@code failures}（拒绝接入）。
+     */
+    @Bean
+    public PluginDiscoveryResult pluginDiscoveryResult(PluginInventory pluginInventory) {
+        return pluginInventory.toDiscoveryResult();
+    }
+
+    /**
+     * 必选插件策略。当前装配空策略——本阶段只建模并诊断「必选但缺失 / 不兼容」状态，<b>不</b>据此改变核心启动 /
+     * 路由开放（必选插件缺失时的恢复 / 补齐模式属后续流程，届时由此 Bean 提供具体必选清单）。
+     */
+    @Bean
+    public RequiredPluginPolicy requiredPluginPolicy() {
+        return RequiredPluginPolicy.empty();
     }
 }

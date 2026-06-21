@@ -3,10 +3,14 @@ package top.sywyar.pixivdownload.plugin.runtime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pf4j.DefaultPluginDescriptor;
 import org.pf4j.Plugin;
+import org.pf4j.PluginDependency;
+import org.pf4j.PluginDescriptor;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
+import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -147,6 +151,95 @@ class PixivPluginDiscoveryBridgeTest {
         assertThat(result.failures()).isEmpty();
     }
 
+    @Test
+    @DisplayName("inspect 把 PF4J 描述符 + 功能插件元数据映射为统一描述符（id/displayName/kind 取功能插件，version/requires/deps/class 取插件包）")
+    void inspectMapsPf4jDescriptorToUnifiedDescriptor() {
+        DefaultPluginDescriptor pf4jDescriptor = new DefaultPluginDescriptor(
+                "ext-stats-pack", "Stats Pack", "com.example.ExtStatsPlugin", "2.1.0",
+                PluginApiVersion.MAJOR + "." + PluginApiVersion.MINOR, "Acme", "MIT");
+        pf4jDescriptor.addDependency(new PluginDependency("novel@1.0"));
+        PixivFeaturePlugin contributed = new TestFeaturePlugin("ext-stats");
+        PluginManager manager = managerWith(startedWrapperWith(
+                "ext-stats-pack", pf4jDescriptor, new GoodProviderPlugin(List.of(contributed)),
+                getClass().getClassLoader()));
+
+        PluginInventory inventory = bridge.inspect(manager);
+
+        assertThat(inventory.failures()).isEmpty();
+        assertThat(inventory.installations()).hasSize(1);
+        PluginInstallation installation = inventory.installations().get(0);
+        assertThat(installation.status()).isEqualTo(
+                top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.STARTED);
+        assertThat(installation.registrable()).isTrue();
+        assertThat(installation.plugin()).isSameAs(contributed);
+
+        var descriptor = installation.descriptor();
+        assertThat(descriptor.id()).isEqualTo("ext-stats");
+        assertThat(descriptor.sourcePluginId()).isEqualTo("ext-stats-pack");
+        assertThat(descriptor.version()).isEqualTo("2.1.0");
+        assertThat(descriptor.pluginClass()).isEqualTo("com.example.ExtStatsPlugin");
+        assertThat(descriptor.displayName()).isEqualTo("ext-stats.label");
+        assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
+        assertThat(descriptor.isApiCompatible()).isTrue();
+        assertThat(descriptor.dependencies()).singleElement()
+                .satisfies(dependency -> {
+                    assertThat(dependency.pluginId()).isEqualTo("novel");
+                    assertThat(dependency.optional()).isFalse();
+                });
+    }
+
+    @Test
+    @DisplayName("核心 API 不兼容的插件包：标记 INCOMPATIBLE、不提取功能插件（拒绝接入），discover 并入失败")
+    void inspectRejectsApiIncompatiblePackage() {
+        DefaultPluginDescriptor pf4jDescriptor = new DefaultPluginDescriptor(
+                "ext-future-pack", "Future", "com.example.FuturePlugin",
+                "1.0.0", (PluginApiVersion.MAJOR + 1) + ".0", "Acme", "MIT");
+        PluginManager manager = managerWith(startedWrapperWith(
+                "ext-future-pack", pf4jDescriptor,
+                new GoodProviderPlugin(List.of(new TestFeaturePlugin("ext-future"))), getClass().getClassLoader()));
+
+        PluginInventory inventory = bridge.inspect(manager);
+
+        assertThat(inventory.installations()).singleElement().satisfies(installation -> {
+            assertThat(installation.status()).isEqualTo(
+                    top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.INCOMPATIBLE);
+            assertThat(installation.registrable()).isFalse();
+            assertThat(installation.plugin()).isNull();
+            assertThat(installation.id()).isEqualTo("ext-future-pack");
+        });
+
+        // 投影为发现结果：不进入 discovered，并以兼容性诊断并入 failures（拒绝接入）
+        PluginDiscoveryResult result = inventory.toDiscoveryResult();
+        assertThat(result.discovered()).isEmpty();
+        assertThat(result.failures()).singleElement()
+                .satisfies(failure -> assertThat(failure.reason()).contains("incompatible"));
+    }
+
+    @Test
+    @DisplayName("discover 拒绝不兼容包但保留兼容包：混合批次只接入兼容者")
+    void discoverRejectsIncompatibleKeepsCompatible() {
+        DefaultPluginDescriptor incompatible = new DefaultPluginDescriptor(
+                "ext-future-pack", "Future", "com.example.FuturePlugin",
+                "1.0.0", (PluginApiVersion.MAJOR + 1) + ".0", "Acme", "MIT");
+        DefaultPluginDescriptor compatible = new DefaultPluginDescriptor(
+                "ext-ok-pack", "Ok", "com.example.OkPlugin", "1.0.0",
+                PluginApiVersion.MAJOR + "." + PluginApiVersion.MINOR, "Acme", "MIT");
+        PluginManager manager = managerWith(
+                startedWrapperWith("ext-future-pack", incompatible,
+                        new GoodProviderPlugin(List.of(new TestFeaturePlugin("ext-future"))),
+                        getClass().getClassLoader()),
+                startedWrapperWith("ext-ok-pack", compatible,
+                        new GoodProviderPlugin(List.of(new TestFeaturePlugin("ext-ok"))),
+                        getClass().getClassLoader()));
+
+        PluginDiscoveryResult result = bridge.discover(manager);
+
+        assertThat(result.discovered()).extracting(DiscoveredFeaturePlugin::featurePluginId)
+                .containsExactly("ext-ok");
+        assertThat(result.failures()).hasSize(1);
+        assertThat(result.failures().get(0).reason()).contains("incompatible");
+    }
+
     // ---- 测试夹具 ----
 
     private static PluginManager managerWith(PluginWrapper... wrappers) {
@@ -161,6 +254,13 @@ class PixivPluginDiscoveryBridgeTest {
         when(wrapper.getPluginState()).thenReturn(PluginState.STARTED);
         when(wrapper.getPlugin()).thenReturn(plugin);
         when(wrapper.getPluginClassLoader()).thenReturn(classLoader);
+        return wrapper;
+    }
+
+    private static PluginWrapper startedWrapperWith(String pluginId, PluginDescriptor descriptor,
+                                                    Plugin plugin, ClassLoader classLoader) {
+        PluginWrapper wrapper = startedWrapper(pluginId, plugin, classLoader);
+        when(wrapper.getDescriptor()).thenReturn(descriptor);
         return wrapper;
     }
 

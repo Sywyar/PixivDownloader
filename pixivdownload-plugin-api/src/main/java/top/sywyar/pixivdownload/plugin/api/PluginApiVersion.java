@@ -49,6 +49,25 @@ public final class PluginApiVersion {
      * @return 兼容返回 {@code true}
      */
     public static boolean isCompatibleWith(int requiredMajor, int requiredMinor) {
-        return requiredMajor == MAJOR && requiredMinor <= MINOR;
+        return isCompatible(MAJOR, MINOR, requiredMajor, requiredMinor);
+    }
+
+    /**
+     * 通用的 semver 兼容判定（同一套兼容规则的<b>唯一实现</b>）：一个提供方版本
+     * {@code providedMajor.providedMinor} 是否满足一个声明了 {@code requiredMajor.requiredMinor} 的依赖方。
+     * 规则与 {@link #isCompatibleWith(int, int)} 完全一致——MAJOR 必须相等，提供方 MINOR 不低于所需 MINOR；
+     * PATCH 不参与判定。{@link #isCompatibleWith(int, int)} 即本方法以核心 {@link #MAJOR}/{@link #MINOR} 为提供方的特例。
+     *
+     * <p>抽出本方法是为了让「核心 API ↔ 插件所需版本」与「被依赖插件版本 ↔ 依赖声明的版本」共用同一条兼容规则，
+     * 避免版本判断逻辑被复制到插件运行时。
+     *
+     * @param providedMajor 提供方主版本号
+     * @param providedMinor 提供方次版本号
+     * @param requiredMajor 依赖方所需主版本号
+     * @param requiredMinor 依赖方所需次版本号
+     * @return 兼容返回 {@code true}
+     */
+    public static boolean isCompatible(int providedMajor, int providedMinor, int requiredMajor, int requiredMinor) {
+        return requiredMajor == providedMajor && requiredMinor <= providedMinor;
     }
 }

@@ -107,18 +107,27 @@ public class PluginRuntimeManager {
     }
 
     /**
-     * 发现当前已启动的外置插件贡献的 {@link top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin}，
-     * 产出中性适配载体供核心壳接入 {@code PluginRegistry}。{@link #start()} 未运行、或当前目录为空 / 缺失（无
-     * PF4J 实例）时返回 {@link PluginDiscoveryResult#empty()}。本方法不抛出：单个外置插件的发现失败被收敛为
-     * {@link PluginDiscoveryResult#failures()} 条目。PF4J 完全收口在 {@link PixivPluginDiscoveryBridge} 内，
-     * 本方法及其返回值不向核心壳泄露任何 {@code org.pf4j} 类型。
+     * 清点当前已启动外置插件的功能插件安装条目（统一描述符 + 兼容性基线状态 + classloader + 实例）与失败诊断，
+     * 供核心壳的插件状态报告与注册接入统一消费。{@link #start()} 未运行、或当前目录为空 / 缺失（无 PF4J 实例）时
+     * 返回 {@link PluginInventory#empty()}。本方法不抛出：单个外置插件的清点失败被收敛为
+     * {@link PluginInventory#failures()} 条目。PF4J 完全收口在 {@link PixivPluginDiscoveryBridge} 内，本方法及其
+     * 返回值不向核心壳泄露任何 {@code org.pf4j} 类型。
      */
-    public PluginDiscoveryResult discoverFeaturePlugins() {
+    public PluginInventory inspectPlugins() {
         PluginManager manager = this.pluginManager;
         if (manager == null) {
-            return PluginDiscoveryResult.empty();
+            return PluginInventory.empty();
         }
-        return new PixivPluginDiscoveryBridge().discover(manager);
+        return new PixivPluginDiscoveryBridge().inspect(manager);
+    }
+
+    /**
+     * 发现当前已启动的外置插件贡献的、可接入核心 {@code PluginRegistry} 的 {@link top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin}
+     * （投影自 {@link #inspectPlugins()}：仅核心 API 兼容且已启动者进入 {@link PluginDiscoveryResult#discovered()}，
+     * 不兼容 / 失败者并入 {@link PluginDiscoveryResult#failures()}——即<b>不兼容插件被拒绝接入</b>）。
+     */
+    public PluginDiscoveryResult discoverFeaturePlugins() {
+        return inspectPlugins().toDiscoveryResult();
     }
 
     /** 配置的插件目录（未规范化为绝对路径，规范化绝对路径见 {@link PluginRuntimeStatus#directory()}）。 */

@@ -46,6 +46,24 @@ class PluginApiVersionTest {
     }
 
     @Test
+    @DisplayName("通用兼容判定 isCompatible：同 MAJOR 且提供方 MINOR≥所需即兼容，独立于核心常量")
+    void generalCompatibilityRuleIsReusable() {
+        // 任意提供方 2.3：满足所需 2.0 / 2.3（同 MAJOR、MINOR 不更高），不满足 2.4（MINOR 更高）/ 1.x / 3.x（MAJOR 不一致）
+        assertThat(PluginApiVersion.isCompatible(2, 3, 2, 0)).isTrue();
+        assertThat(PluginApiVersion.isCompatible(2, 3, 2, 3)).isTrue();
+        assertThat(PluginApiVersion.isCompatible(2, 3, 2, 4)).isFalse();
+        assertThat(PluginApiVersion.isCompatible(2, 3, 1, 3)).isFalse();
+        assertThat(PluginApiVersion.isCompatible(2, 3, 3, 0)).isFalse();
+        // isCompatibleWith 是「核心版本为提供方」的特例，必须与通用规则一致
+        int major = PluginApiVersion.MAJOR;
+        int minor = PluginApiVersion.MINOR;
+        assertThat(PluginApiVersion.isCompatibleWith(major, minor))
+                .isEqualTo(PluginApiVersion.isCompatible(major, minor, major, minor));
+        assertThat(PluginApiVersion.isCompatibleWith(major, minor + 1))
+                .isEqualTo(PluginApiVersion.isCompatible(major, minor, major, minor + 1));
+    }
+
+    @Test
     @DisplayName("PluginApiVersion 是不可实例化的无状态工具类（final + 私有构造器）")
     void isFinalUtilityClassWithPrivateConstructor() {
         assertThat(Modifier.isFinal(PluginApiVersion.class.getModifiers())).isTrue();
