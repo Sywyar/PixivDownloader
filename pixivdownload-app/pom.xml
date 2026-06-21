@@ -28,6 +28,14 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- 插件框架启用运行时：ConditionalOnPluginEnabled / OnPluginEnabledCondition / PluginToggleProperties
+             （Spring 耦合，零 plugin-api、零 app/插件反向依赖） -->
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-runtime</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>

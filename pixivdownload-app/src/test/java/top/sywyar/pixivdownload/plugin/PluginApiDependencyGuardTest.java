@@ -3,15 +3,20 @@ package top.sywyar.pixivdownload.plugin;
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
@@ -341,6 +346,36 @@ class PluginApiDependencyGuardTest {
                 .because("插件托管业务 Bean 对核心表的访问必须经核心语义 Store/API（ScheduledTaskStore / "
                         + "StatsQueryStore 等），不得自建 JdbcTemplate / 注入池化 DataSource / 直依赖 MyBatis mapper "
                         + "或核心 DB 实现层做自由 SQL；核心实现层（@Repository，非 @PluginManagedBean）不受此约束")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("必选插件的业务 Bean 不得标 @ConditionalOnPluginEnabled：plugin-runtime 删 isRequired 短路分支后由本守卫固化")
+    void requiredPluginBeansMustNotBeConditionalOnPluginEnabled() {
+        // plugin-runtime 的 OnPluginEnabledCondition 已断掉对组合根 BuiltInPlugins 的反向引用（删除 isRequired
+        // 短路分支、只读 plugins.<id>.enabled 开关）。该分支可安全删除的前提是「没有任何必选插件的业务 Bean 被
+        // @ConditionalOnPluginEnabled 门控」——否则必选插件会被开关误伤。生产中本注解只用于可选插件的 @Bean
+        // 工厂方法（gallery / novel / stats / duplicate）；必选插件（core / download-workbench / schedule）的 Bean
+        // 恒无条件装配。本守卫读注解的 value() 钉死该不变量：任一被它门控的 id 都不得是必选插件。
+        ArchCondition<JavaMethod> notGateRequiredPlugin =
+                new ArchCondition<>("不得用 @ConditionalOnPluginEnabled 门控必选插件") {
+                    @Override
+                    public void check(JavaMethod method, ConditionEvents events) {
+                        String pluginId = method.getAnnotationOfType(ConditionalOnPluginEnabled.class).value();
+                        if (BuiltInPlugins.isRequired(pluginId)) {
+                            events.add(SimpleConditionEvent.violated(method,
+                                    method.getFullName() + " 用 @ConditionalOnPluginEnabled(\"" + pluginId
+                                            + "\") 门控了必选插件——必选插件不可禁用、其业务 Bean 必须恒无条件装配"));
+                        }
+                    }
+                };
+        methods()
+                .that().areAnnotatedWith(ConditionalOnPluginEnabled.class)
+                .should(notGateRequiredPlugin)
+                .because("OnPluginEnabledCondition 已删除 isRequired 短路分支（plugin-runtime 不再回指组合根 "
+                        + "BuiltInPlugins）：删除安全的前提是『没有任何必选插件的 Bean 被 @ConditionalOnPluginEnabled "
+                        + "门控』。本守卫固化此不变量——必选插件（core / download-workbench / schedule）的业务 Bean 一律"
+                        + "不标本注解、恒无条件装配；只有可选插件（gallery / novel / stats / duplicate）才用它按开关装配 / 缺席")
                 .check(CLASSES);
     }
 

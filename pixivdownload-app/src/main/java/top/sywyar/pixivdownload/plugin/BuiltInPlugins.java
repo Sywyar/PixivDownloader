@@ -47,8 +47,11 @@ public final class BuiltInPlugins {
             .collect(Collectors.toUnmodifiableSet());
 
     /**
-     * 给定 id 是否为必选插件（不可经 {@code plugins.<id>.enabled} 禁用）。供 Bean 注册期的
-     * {@link OnPluginEnabledCondition} 在拿不到插件实例、只有 id 时判定必选语义。
+     * 给定 id 是否为必选插件（不可经 {@code plugins.<id>.enabled} 禁用）。必选语义在运行期由
+     * {@link PluginRegistry}（注册期 {@code required() || toggles.isEnabled}）强制；本方法供守卫
+     * {@code PluginApiDependencyGuardTest} 据此断言「必选插件的业务 Bean 不得标
+     * {@code @ConditionalOnPluginEnabled}」——plugin-runtime 的 {@code OnPluginEnabledCondition} 已不再
+     * 回指本类判定必选性（只读开关），该不变量改由上述守卫固化。
      */
     public static boolean isRequired(String pluginId) {
         return pluginId != null && REQUIRED_IDS.contains(pluginId);

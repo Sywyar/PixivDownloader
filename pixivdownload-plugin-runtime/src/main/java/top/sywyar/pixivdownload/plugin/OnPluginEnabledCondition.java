@@ -12,9 +12,11 @@ import java.util.Map;
  * 完全一致。条件在 Bean 注册期求值（早于 {@link PluginToggleProperties} 绑定为 Bean），因此直接读环境
  * 而非取该 Bean。
  * <p>
- * 必选插件（{@link BuiltInPlugins#isRequired(String)}）的开关被忽略、其托管 Bean 恒装配——与
- * {@link PluginRegistry} 对必选插件「即便开关为 false 也照常注册」保持一致，避免必选插件出现
- * 「贡献已注册但 Bean 缺席」的半装配态。
+ * 本条件<b>只读开关、不区分必选 / 可选插件</b>。必选插件（core / download-workbench / schedule）的
+ * 「不可禁用」由 app 侧 {@code PluginRegistry} 在注册期强制（必选插件即便开关为 {@code false} 也照常
+ * 注册），其业务 Bean 又一律<b>不</b>标 {@link ConditionalOnPluginEnabled}（恒无条件装配，由 app 侧守卫
+ * {@code PluginApiDependencyGuardTest} 固化）。因此本条件无需也<b>不得</b>回指 app 的组合根
+ * {@code BuiltInPlugins} 判定必选性——plugin-runtime 在所有插件模块之下，回指组合根会让模块依赖成环。
  */
 class OnPluginEnabledCondition implements Condition {
 
@@ -26,9 +28,6 @@ class OnPluginEnabledCondition implements Condition {
             return true;
         }
         String pluginId = (String) attributes.get("value");
-        if (BuiltInPlugins.isRequired(pluginId)) {
-            return true;
-        }
         return PluginToggleProperties.isEnabled(context.getEnvironment(), pluginId);
     }
 }

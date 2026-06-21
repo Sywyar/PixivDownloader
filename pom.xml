@@ -32,6 +32,8 @@
         <module>pixivdownload-plugin-api</module>
         <!-- 核心 owned 语义端口 + 结果 DTO（core.stats.*），Spring-free 纯 JDK；主程序依赖之，产物打进 boot jar -->
         <module>pixivdownload-core-api</module>
+        <!-- 插件框架的 Spring 耦合启用运行时（三件套），各功能插件模块编译期依赖之；产物打进 boot jar -->
+        <module>pixivdownload-plugin-runtime</module>
         <module>pixivdownload-app</module>
     </modules>
     <scm>

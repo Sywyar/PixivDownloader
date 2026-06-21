@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>top.sywyar.lovepopup</groupId>
+        <artifactId>pixivdownload-parent</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>pixivdownload-plugin-runtime</artifactId>
+    <name>PixivDownloader Plugin Runtime</name>
+    <description>插件框架的 Spring 耦合启用运行时（ConditionalOnPluginEnabled / OnPluginEnabledCondition / PluginToggleProperties）：各功能插件模块编译期依赖之，供主程序与插件共享。</description>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <!--
+      依赖边界（由 PluginRuntimeDependencyGuardTest 守护）：本模块只承载插件启停的 Spring 启用运行时设施，
+      允许 Spring（@Conditional / Condition / Environment / @ConfigurationProperties + Binder）+ JDK，但
+      零 plugin-api、零 app / 具体插件类反向依赖——尤其不得回指组合根 BuiltInPlugins / 运行时 PluginRegistry
+      （它们留在 app、在全部插件模块之上；回指会让 reactor 成环）。坐标版本随 spring-boot-starter-parent 管理。
+    -->
+    <dependencies>
+        <!-- @Conditional / Condition / ConditionContext / @Component（spring-context 传递 spring-core / spring-beans） -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-context</artifactId>
+        </dependency>
+        <!-- @ConfigurationProperties + Binder（条件在 Bean 注册期读环境的宽松绑定） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot</artifactId>
+        </dependency>
+
+        <!-- 模块自测（边界守卫 + 契约不变量），test 作用域，不外泄到主程序运行期类路径 -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 字节码级边界守卫：plugin-runtime 零 app / 插件类反向依赖（尤其 BuiltInPlugins / PluginRegistry） -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

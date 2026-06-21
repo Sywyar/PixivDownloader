@@ -10,13 +10,14 @@ import java.util.LinkedHashMap;
 /**
  * 插件启用开关配置，映射 config.yaml 中的 {@code plugins.<id>.enabled}（{@code <id>} 为插件 id）。
  * 本身就是一张以插件 id 为键的开关表：未在配置中出现的插件<b>默认视为启用</b>，因此新增插件或旧配置
- * 缺项时默认全部启用。它是插件启用状态的<b>单一事实源</b>：{@link PluginRegistry} 据此决定活动快照，
+ * 缺项时默认全部启用。它是插件启用状态的<b>单一事实源</b>：app 侧 {@code PluginRegistry} 据此决定活动快照，
  * {@link ConditionalOnPluginEnabled} 据此决定插件托管业务 Bean 是否装配。
  * <p>
- * 本类只反映 {@code config.yaml} 里的<b>原始开关值</b>；必选插件
- * （{@link top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin#required()}：核心插件，
- * 以及覆写返回 {@code true} 的功能插件如下载工作台）的「不可禁用」由 {@link PluginRegistry}
- * 注册时与 {@link OnPluginEnabledCondition} Bean 装配时强制（即便此处读到 {@code false} 也忽略），与本配置无关。
+ * 本类只反映 {@code config.yaml} 里的<b>原始开关值</b>；必选插件（{@code PixivFeaturePlugin.required()}：
+ * 核心插件，以及覆写返回 {@code true} 的功能插件如 download-workbench / schedule）的「不可禁用」由 app 侧
+ * {@code PluginRegistry} 在注册期强制（即便此处读到 {@code false} 也忽略），与本配置无关；必选插件的业务
+ * Bean 一律不标 {@link ConditionalOnPluginEnabled}（恒无条件装配），故 {@link OnPluginEnabledCondition}
+ * 只读开关、不再特判必选性。
  * <p>
  * Spring 上下文之外（{@code BuiltInPlugins.createAll()} 路径、单元测试）用空实例即代表全部启用。
  */
