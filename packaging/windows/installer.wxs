@@ -29,7 +29,7 @@
                  Value="packaging/windows/license.en-US.rtf"
                  Overridable="yes" />
 
-    <Icon Id="AppIcon" SourceFile="src/main/resources/static/favicon.ico" />
+    <Icon Id="AppIcon" SourceFile="pixivdownload-app/src/main/resources/static/favicon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">

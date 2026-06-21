@@ -124,12 +124,12 @@ function Invoke-External {
 }
 
 function Get-BuiltJar {
-    $jar = Get-ChildItem (Join-Path $ProjectRoot "target\PixivDownload-*.jar") -File |
+    $jar = Get-ChildItem (Join-Path $ProjectRoot "pixivdownload-app\target\PixivDownload-*.jar") -File |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
 
     if (-not $jar) {
-        throw "Could not find built JAR under target/."
+        throw "Could not find built JAR under pixivdownload-app/target/."
     }
 
     return $jar
@@ -277,7 +277,7 @@ try {
         "--main-jar", "$AppName-$Version.jar",
         "--main-class", $MainClass,
         "--runtime-image", $RuntimeDir,
-        "--icon", "src/main/resources/static/favicon.ico",
+        "--icon", "pixivdownload-app/src/main/resources/static/favicon.ico",
         "--java-options", "-Dfile.encoding=UTF-8",
         "--java-options", "-Dstdout.encoding=UTF-8",
         "--java-options", "-Dstderr.encoding=UTF-8",

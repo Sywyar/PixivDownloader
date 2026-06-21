@@ -21,8 +21,11 @@ RUN set -eux; \
 
 WORKDIR /build
 
-# 先拷贝 pom 预热依赖缓存，提高后续重建命中率。
+# 先拷贝聚合 pom 与各子模块 pom 预热依赖缓存，提高后续重建命中率。
+# 多模块 reactor 下 go-offline 需要全部子模块 pom 在场，否则会因子模块缺失而失败。
 COPY pom.xml .
+COPY pixivdownload-plugin-api/pom.xml pixivdownload-plugin-api/
+COPY pixivdownload-app/pom.xml pixivdownload-app/
 RUN mvn -B -q dependency:go-offline
 
 # 拷贝源码与构建期资源（油猴脚本、打包脚本等）。
@@ -43,7 +46,7 @@ RUN set -eux; \
 
 WORKDIR /app
 
-COPY --from=builder /build/target/PixivDownload-*.jar app.jar
+COPY --from=builder /build/pixivdownload-app/target/PixivDownload-*.jar app.jar
 
 # 默认 server.port（config.yaml 可改；如改端口需同步调整探针/compose 暴露端口）。
 EXPOSE 6999

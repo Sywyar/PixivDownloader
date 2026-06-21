@@ -51,13 +51,13 @@ jobs:
       - name: Rename JAR
         run: |
           VERSION=${GITHUB_REF_NAME:-snapshot}
-          mv target/PixivDownload-*.jar target/PixivDownload-${VERSION}.jar
+          mv pixivdownload-app/target/PixivDownload-*.jar pixivdownload-app/target/PixivDownload-${VERSION}.jar
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: jar
-          path: target/PixivDownload-*.jar
+          path: pixivdownload-app/target/PixivDownload-*.jar
 
       - name: Stage release userscripts
         shell: bash
