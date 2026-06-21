@@ -4,6 +4,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.runtime.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.PluginLoadFailure;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -198,6 +201,169 @@ class PluginRegistryTest {
         log.clear();
         registry.stop();
         assertThat(log).containsExactly("stop:core");
+    }
+
+    // ---- 双来源（内置 + 外置）----
+
+    private static DiscoveredFeaturePlugin external(String sourcePackageId, PixivFeaturePlugin plugin,
+                                                    ClassLoader classLoader) {
+        return new DiscoveredFeaturePlugin(sourcePackageId, plugin, classLoader);
+    }
+
+    @Test
+    @DisplayName("内置 + 外置同时注册：内置在前、外置按 id 排序在后，来源信息可区分")
+    void builtInAndExternalRegisterTogetherWithStableOrderAndSource() {
+        ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
+        PluginDiscoveryResult discovery = new PluginDiscoveryResult(List.of(
+                external("zeta-pack", new TestPlugin("ext-zeta"), extCl),
+                external("alpha-pack", new TestPlugin("ext-alpha"), extCl)), List.of());
+
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE), new TestPlugin("gallery")),
+                new PluginToggleProperties(), discovery);
+
+        // 内置保持装配顺序在前，外置按 feature id 排序追加在后
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id)
+                .containsExactly("core", "gallery", "ext-alpha", "ext-zeta");
+        assertThat(registry.source("core")).contains(PluginSource.BUILT_IN);
+        assertThat(registry.source("gallery")).contains(PluginSource.BUILT_IN);
+        assertThat(registry.source("ext-alpha")).contains(PluginSource.EXTERNAL);
+        assertThat(registry.source("ext-zeta")).contains(PluginSource.EXTERNAL);
+        // 外置插件也进入 allPlugins（schema 合并覆盖外置）
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id)
+                .contains("ext-alpha", "ext-zeta");
+    }
+
+    @Test
+    @DisplayName("外置插件携带其插件 classloader，内置插件用应用 classloader")
+    void externalPluginCarriesItsOwnClassLoader() {
+        ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
+        TestPlugin extPlugin = new TestPlugin("ext-stats");
+        PluginDiscoveryResult discovery = new PluginDiscoveryResult(
+                List.of(external("stats-pack", extPlugin, extCl)), List.of());
+
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties(), discovery);
+
+        PluginRegistry.RegisteredPlugin ext = registry.registeredPlugins().stream()
+                .filter(rp -> rp.id().equals("ext-stats")).findFirst().orElseThrow();
+        // registry 保留发现桥接给出的插件 classloader（而非 extPlugin.getClass() 的 app loader）
+        assertThat(ext.classLoader()).isSameAs(extCl);
+        PluginRegistry.RegisteredPlugin core = registry.registeredPlugins().stream()
+                .filter(rp -> rp.id().equals("core")).findFirst().orElseThrow();
+        assertThat(core.classLoader()).isSameAs(TestPlugin.class.getClassLoader());
+    }
+
+    @Test
+    @DisplayName("外置 pluginId 与内置冲突：构造期 fail-fast 并指出冲突双方来源")
+    void externalIdConflictingWithBuiltInFailsFast() {
+        PluginDiscoveryResult discovery = new PluginDiscoveryResult(
+                List.of(external("rogue-pack", new TestPlugin("gallery"),
+                        new ClassLoader(getClass().getClassLoader()) {})), List.of());
+
+        assertThatThrownBy(() -> new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE), new TestPlugin("gallery")),
+                new PluginToggleProperties(), discovery))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("duplicate plugin id 'gallery'")
+                .hasMessageContaining("BUILT_IN")
+                .hasMessageContaining("rogue-pack");
+    }
+
+    @Test
+    @DisplayName("两个外置插件 id 冲突：构造期 fail-fast")
+    void twoExternalsWithSameIdFailFast() {
+        ClassLoader cl = new ClassLoader(getClass().getClassLoader()) {};
+        PluginDiscoveryResult discovery = new PluginDiscoveryResult(List.of(
+                external("pack-a", new TestPlugin("ext-dup"), cl),
+                external("pack-b", new TestPlugin("ext-dup"), cl)), List.of());
+
+        assertThatThrownBy(() -> new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties(), discovery))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("duplicate plugin id 'ext-dup'");
+    }
+
+    @Test
+    @DisplayName("外置插件 register→unregister→再 register 可逆：plugins/registeredPlugins/allPlugins/source/classloader 全恢复")
+    void externalRegisterUnregisterReregisterIsReversible() {
+        ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
+        TestPlugin extPlugin = new TestPlugin("ext-stats");
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties(),
+                new PluginDiscoveryResult(List.of(external("stats-pack", extPlugin, extCl)), List.of()));
+        List<PixivFeaturePlugin> initial = registry.plugins();
+        List<PixivFeaturePlugin> initialAll = registry.allPlugins();
+        List<PluginRegistry.RegisteredPlugin> initialRegistered = registry.registeredPlugins();
+
+        registry.unregister("ext-stats");
+        // 安装态与活动快照同时移除：四个读视图都不再含外置插件，与从未注册过一致
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
+        assertThat(registry.registeredPlugins()).extracting(PluginRegistry.RegisteredPlugin::id)
+                .containsExactly("core");
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
+        assertThat(registry.disabledPlugins()).isEmpty();
+        assertThat(registry.find("ext-stats")).isEmpty();
+        assertThat(registry.source("ext-stats")).isEmpty();
+
+        registry.register(extPlugin, PluginSource.EXTERNAL, extCl);
+        assertThat(registry.plugins()).isEqualTo(initial);
+        assertThat(registry.allPlugins()).isEqualTo(initialAll);
+        assertThat(registry.registeredPlugins()).isEqualTo(initialRegistered);
+        assertThat(registry.source("ext-stats")).contains(PluginSource.EXTERNAL);
+        assertThat(registry.registeredPlugins().stream()
+                .filter(rp -> rp.id().equals("ext-stats")).findFirst().orElseThrow().classLoader())
+                .isSameAs(extCl);
+    }
+
+    @Test
+    @DisplayName("注销外置插件后 allPlugins 不再包含它（schema 合并不再覆盖该插件）")
+    void unregisterExternalDropsFromAllPlugins() {
+        ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties(),
+                new PluginDiscoveryResult(List.of(external("stats-pack", new TestPlugin("ext-stats"), extCl)),
+                        List.of()));
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).contains("ext-stats");
+
+        registry.unregister("ext-stats");
+
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
+        assertThat(registry.disabledPlugins()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("注销禁用（安装但未启用）的插件：从 allPlugins 与 disabledPlugins 一并移除")
+    void unregisterDisabledPluginDropsFromInstalled() {
+        PluginToggleProperties toggles = new PluginToggleProperties();
+        toggles.put("stats", disabledToggle());
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE), new TestPlugin("stats")), toggles);
+        // 禁用插件不在活动快照、但保留在 allPlugins / disabledPlugins
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("core", "stats");
+        assertThat(registry.disabledPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("stats");
+
+        // 安装态含该 id（活动快照不含），仍可注销
+        registry.unregister("stats");
+        assertThat(registry.allPlugins()).extracting(PixivFeaturePlugin::id).containsExactly("core");
+        assertThat(registry.disabledPlugins()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("外置发现失败诊断不致命：成功发现的外置插件照常注册")
+    void externalDiscoveryFailuresAreNonFatal() {
+        ClassLoader extCl = new ClassLoader(getClass().getClassLoader()) {};
+        PluginDiscoveryResult discovery = new PluginDiscoveryResult(
+                List.of(external("good-pack", new TestPlugin("ext-good"), extCl)),
+                List.of(new PluginLoadFailure("broken-pack", "does not implement PixivPluginProvider")));
+
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new TestPlugin("core", PluginKind.CORE)), new PluginToggleProperties(), discovery);
+
+        assertThat(registry.plugins()).extracting(PixivFeaturePlugin::id)
+                .containsExactly("core", "ext-good");
     }
 
     private static PluginToggleProperties.PluginToggle disabledToggle() {

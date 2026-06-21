@@ -2,9 +2,15 @@ package top.sywyar.pixivdownload.i18n;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
+import top.sywyar.pixivdownload.plugin.runtime.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -225,9 +231,61 @@ class WebI18nBundleRegistryTest {
         assertThat(registry.supportedNamespaces()).containsExactlyElementsOf(expected);
     }
 
+    @Test
+    @DisplayName("外置插件 i18n bundle 用桥接提供的 classloader 注册，而非插件对象 class 的 loader")
+    void externalI18nUsesBridgeClassLoaderNotPluginClassLoader() {
+        // 桥接捕获的插件 classloader（真实场景为 PF4J 插件 classloader），与插件实例 class 的 loader 不同
+        ClassLoader bridgeClassLoader = new ClassLoader(WebI18nBundleRegistryTest.class.getClassLoader()) {};
+        ExternalI18nPlugin external = new ExternalI18nPlugin();
+        // 前置：本测试只有在「插件对象 class 的 loader != 桥接 classloader」时才有意义
+        assertThat(external.getClass().getClassLoader()).isNotSameAs(bridgeClassLoader);
+
+        PluginDiscoveryResult discovery = new PluginDiscoveryResult(
+                List.of(new DiscoveredFeaturePlugin("ext-i18n-pack", external, bridgeClassLoader)), List.of());
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new CorePlaceholderPlugin()), new PluginToggleProperties(), discoveryProvider(discovery));
+        WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(registry);
+
+        WebI18nBundleRegistry.RegisteredBundle bundle = i18n.resolve("ext-i18n");
+        assertThat(bundle).isNotNull();
+        assertThat(bundle.classLoader())
+                .as("应使用 RegisteredPlugin.classLoader()（桥接 classloader），而非 plugin.getClass().getClassLoader()")
+                .isSameAs(bridgeClassLoader)
+                .isNotSameAs(external.getClass().getClassLoader());
+    }
+
     private static String ownerOf(WebI18nBundleRegistry registry, String namespace) {
         WebI18nBundleRegistry.RegisteredBundle bundle = registry.resolve(namespace);
         assertThat(bundle).as("namespace %s 应已注册", namespace).isNotNull();
         return bundle.pluginId();
+    }
+
+    /** 把单个发现结果包装为 {@link ObjectProvider}，驱动 {@link PluginRegistry} 的 Spring 构造器（i18n 包不可见包内构造器）。 */
+    private static ObjectProvider<PluginDiscoveryResult> discoveryProvider(PluginDiscoveryResult result) {
+        return new ObjectProvider<>() {
+            @Override
+            public PluginDiscoveryResult getObject() {
+                return result;
+            }
+        };
+    }
+
+    /** 最小核心插件占位（无 i18n），仅作对照。 */
+    private static final class CorePlaceholderPlugin implements PixivFeaturePlugin {
+        @Override public String id() { return "core"; }
+        @Override public String displayName() { return "core.label"; }
+        @Override public String description() { return "core.summary"; }
+        @Override public PluginKind kind() { return PluginKind.CORE; }
+    }
+
+    /** 外置功能插件：声明一个 i18n namespace，用于验证注册中心采用桥接 classloader。 */
+    private static final class ExternalI18nPlugin implements PixivFeaturePlugin {
+        @Override public String id() { return "ext-i18n"; }
+        @Override public String displayName() { return "ext-i18n.label"; }
+        @Override public String description() { return "ext-i18n.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+        @Override public List<I18nContribution> i18n() {
+            return List.of(new I18nContribution("ext-i18n", "i18n.web.ext-i18n"));
+        }
     }
 }

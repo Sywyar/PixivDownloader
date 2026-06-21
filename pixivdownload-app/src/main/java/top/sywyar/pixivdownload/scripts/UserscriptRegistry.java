@@ -16,10 +16,12 @@ import java.util.stream.Collectors;
  * 按 pluginId 可逆注册（{@link #register} / {@link #unregister}），
  * 读路径走不可变快照：注册变更时整体替换快照引用。
  * <p>
- * 脚本扫描经声明方插件的 ClassLoader（{@link RegisteredUserscript#classLoader()}）：
- * 现阶段唯下载工作台插件声明、共用应用 ClassLoader，扫描结果与退役前的全局
- * {@code classpath:/static/userscripts/*.user.js} 扫描完全一致；物理拆分为插件 jar 后，
- * 脚本随插件 ClassLoader 解析（见 {@link ScriptRegistry}）。
+ * 脚本扫描经声明方插件的 ClassLoader（{@link RegisteredUserscript#classLoader()}），该 ClassLoader 由
+ * {@link PluginRegistry} 的每条注册（{@link PluginRegistry.RegisteredPlugin#classLoader()}）权威提供：内置插件
+ * 是应用 ClassLoader（扫描结果与退役前的全局 {@code classpath:/static/userscripts/*.user.js} 扫描一致），外置插件
+ * 是发现桥接捕获的该插件自身 ClassLoader（见 {@link ScriptRegistry}）。故本注册中心消费
+ * {@link PluginRegistry#registeredPlugins()}（带来源 + ClassLoader），<b>不</b>从 {@code plugin.getClass().getClassLoader()}
+ * 自行推导——后者对「插件实例由共享 / 父 ClassLoader 创建」的外置插件会扫描错误的 ClassLoader 范围。
  * <p>
  * 扫描模式（{@code classpathPattern}）全局唯一：两个声明指向同一模式会重复扫描，
  * 故模式冲突（跨插件与同一批次内）一律在注册期拒绝。
@@ -37,10 +39,11 @@ public class UserscriptRegistry {
     private volatile List<RegisteredUserscript> snapshot = List.of();
 
     public UserscriptRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<UserscriptContribution> contributions = plugin.userscripts();
             if (!contributions.isEmpty()) {
-                register(plugin.id(), plugin.getClass().getClassLoader(), contributions);
+                register(plugin.id(), registered.classLoader(), contributions);
             }
         }
     }

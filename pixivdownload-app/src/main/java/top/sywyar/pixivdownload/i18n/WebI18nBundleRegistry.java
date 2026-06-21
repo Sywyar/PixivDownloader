@@ -18,9 +18,12 @@ import java.util.stream.Collectors;
  * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁
  * （{@code /api/i18n/**} 在每次请求上读取）。
  * <p>
- * bundle 解析经声明方插件的 ClassLoader（{@link RegisteredBundle#classLoader()}）：
- * 现阶段全部内置插件共用应用 ClassLoader，解析结果与退役前的静态 map 完全一致；
- * 物理拆分为插件 jar 后，各插件 properties 经各自 ClassLoader 解析、卸载时随之清缓存。
+ * bundle 解析经声明方插件的 ClassLoader（{@link RegisteredBundle#classLoader()}），该 ClassLoader 由
+ * {@link PluginRegistry} 的每条注册（{@link PluginRegistry.RegisteredPlugin#classLoader()}）权威提供：内置插件
+ * 是应用 ClassLoader（解析结果与退役前的静态 map 一致），外置插件是发现桥接捕获的该插件自身 ClassLoader、
+ * 卸载时随之清缓存。故本注册中心消费 {@link PluginRegistry#registeredPlugins()}（带来源 + ClassLoader），
+ * <b>不</b>从 {@code plugin.getClass().getClassLoader()} 自行推导——后者对「插件实例由共享 / 父 ClassLoader 创建」
+ * 的外置插件会误解析到错误的 ClassLoader。
  * <p>
  * namespace 全局唯一：跨插件用不同 baseName 指向同一 namespace 会让
  * {@code /api/i18n/messages/{namespace}} 解析不确定，故 namespace 冲突
@@ -38,10 +41,11 @@ public class WebI18nBundleRegistry {
     private volatile List<RegisteredBundle> snapshot = List.of();
 
     public WebI18nBundleRegistry(PluginRegistry pluginRegistry) {
-        for (PixivFeaturePlugin plugin : pluginRegistry.plugins()) {
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            PixivFeaturePlugin plugin = registered.plugin();
             List<I18nContribution> contributions = plugin.i18n();
             if (!contributions.isEmpty()) {
-                register(plugin.id(), plugin.getClass().getClassLoader(), contributions);
+                register(plugin.id(), registered.classLoader(), contributions);
             }
         }
     }

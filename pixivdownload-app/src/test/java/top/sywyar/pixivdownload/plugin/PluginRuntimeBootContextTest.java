@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 
@@ -54,6 +55,8 @@ class PluginRuntimeBootContextTest {
     @Autowired
     private PluginRuntimeStatus pluginRuntimeStatus;
     @Autowired
+    private PluginDiscoveryResult pluginDiscoveryResult;
+    @Autowired
     private PluginRegistry pluginRegistry;
 
     @Test
@@ -67,14 +70,20 @@ class PluginRuntimeBootContextTest {
         assertThat(Files.exists(pluginRuntimeStatus.directory())).isFalse();
         // 骨架已就绪：缺失目录路径不构造 PF4J 实例
         assertThat(pluginRuntimeManager.pluginManager()).isEmpty();
+        // 无外置插件：发现结果为空（既无发现也无失败）
+        assertThat(pluginDiscoveryResult.discovered()).isEmpty();
+        assertThat(pluginDiscoveryResult.hasFailures()).isFalse();
     }
 
     @Test
-    @DisplayName("内置插件注册 / required 语义不因 PF4J 骨架接线而改变：七个内置插件仍在活动快照")
+    @DisplayName("内置插件注册 / required 语义不因 PF4J 发现桥接接线而改变：七个内置插件仍在活动快照、来源均为内置")
     void builtInPluginRegistrationIntact() {
         assertThat(pluginRegistry.plugins())
                 .extracting(PixivFeaturePlugin::id)
                 .containsExactlyInAnyOrder(
                         "core", "download-workbench", "schedule", "gallery", "novel", "stats", "duplicate");
+        // 无外置插件接入：全部活动插件来源均为内置
+        assertThat(pluginRegistry.registeredPlugins())
+                .allSatisfy(rp -> assertThat(rp.source()).isEqualTo(PluginSource.BUILT_IN));
     }
 }

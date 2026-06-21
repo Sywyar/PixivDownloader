@@ -19,12 +19,20 @@
     <!--
       依赖边界（由 PluginRuntimeDependencyGuardTest 守护）：本模块承载插件框架的 Spring 耦合启用运行时
       （ConditionalOnPluginEnabled / OnPluginEnabledCondition / PluginToggleProperties 三件套）与 PF4J 外置插件
-      运行时骨架（plugin/runtime 子包：目录定位 / 加载 / 启动 / 诊断封装），允许 Spring + PF4J + slf4j + JDK，但
-      零 plugin-api、零 app / 具体插件类反向依赖——尤其不得回指组合根 BuiltInPlugins / 运行时 PluginRegistry
+      运行时骨架 + 发现桥接（plugin/runtime 子包：目录定位 / 加载 / 启动 / 诊断 / 把外置插件的 PixivFeaturePlugin
+      暴露给核心）。允许 Spring + PF4J + slf4j + plugin-api（跨插件契约，发现桥接产出 PixivFeaturePlugin 需要它）+
+      JDK，但零 app / 具体插件类反向依赖——尤其不得回指组合根 BuiltInPlugins / 运行时 PluginRegistry / CorePlugin
       （它们留在 app、在全部插件模块之上；回指会让 reactor 成环）。坐标版本随 spring-boot-starter-parent 与父工程的
       dependencyManagement 管理。PF4J 为 compile 作用域：本模块属核心壳、随 boot jar 装入，核心运行期需要它。
     -->
     <dependencies>
+        <!-- 跨插件契约模块：发现桥接把外置插件的 PixivFeaturePlugin / PixivPluginProvider 跨 classloader 暴露给核心，
+             这些是父 loader 共享的契约类型，故本模块编译期依赖之（reactor 中 plugin-api 先于本模块构建，无环） -->
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- @Conditional / Condition / ConditionContext / @Component（spring-context 传递 spring-core / spring-beans） -->
         <dependency>
             <groupId>org.springframework</groupId>
@@ -57,6 +65,13 @@
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 发现桥接单测以 Mockito 伪造 PF4J PluginManager / PluginWrapper 枚举，验证提取 / 诊断 / classloader 传播，
+             不必构建真实外置插件 jar（@TempDir 下的 jar 在 Windows 易触发清理文件锁）。版本随 spring-boot 父工程管理 -->
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

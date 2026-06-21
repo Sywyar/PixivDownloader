@@ -4,7 +4,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.runtime.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 
 import java.util.List;
 
@@ -158,5 +162,48 @@ class StaticResourceRegistryTest {
         assertThatThrownBy(() -> resources.add(
                 new StaticResourceRegistry.RegisteredStaticResource("x", res("x", "x"), CL)))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("外置插件静态资源用桥接提供的 classloader 注册，而非插件对象 class 的 loader")
+    void externalStaticResourceUsesBridgeClassLoaderNotPluginClassLoader() {
+        // 桥接捕获的插件 classloader（真实场景为 PF4J 插件 classloader），与插件实例 class 的 loader 不同
+        ClassLoader bridgeClassLoader = new ClassLoader(StaticResourceRegistryTest.class.getClassLoader()) {};
+        ExternalStaticPlugin external = new ExternalStaticPlugin();
+        // 前置：本测试只有在「插件对象 class 的 loader != 桥接 classloader」时才有意义
+        assertThat(external.getClass().getClassLoader()).isNotSameAs(bridgeClassLoader);
+
+        PluginRegistry registry = new PluginRegistry(
+                List.of(new CorePlaceholderPlugin()), new PluginToggleProperties(),
+                new PluginDiscoveryResult(
+                        List.of(new DiscoveredFeaturePlugin("ext-static-pack", external, bridgeClassLoader)),
+                        List.of()));
+        StaticResourceRegistry registry2 = new StaticResourceRegistry(registry);
+
+        StaticResourceRegistry.RegisteredStaticResource registered = registry2.resources().stream()
+                .filter(r -> r.pluginId().equals("ext-static")).findFirst().orElseThrow();
+        assertThat(registered.classLoader())
+                .as("应使用 RegisteredPlugin.classLoader()（桥接 classloader），而非 plugin.getClass().getClassLoader()")
+                .isSameAs(bridgeClassLoader)
+                .isNotSameAs(external.getClass().getClassLoader());
+    }
+
+    /** 最小核心插件占位（无静态资源），仅作对照。 */
+    private static final class CorePlaceholderPlugin implements PixivFeaturePlugin {
+        @Override public String id() { return "core"; }
+        @Override public String displayName() { return "core.label"; }
+        @Override public String description() { return "core.summary"; }
+        @Override public PluginKind kind() { return PluginKind.CORE; }
+    }
+
+    /** 外置功能插件：声明一条静态资源，用于验证注册中心采用桥接 classloader。 */
+    private static final class ExternalStaticPlugin implements PixivFeaturePlugin {
+        @Override public String id() { return "ext-static"; }
+        @Override public String displayName() { return "ext-static.label"; }
+        @Override public String description() { return "ext-static.summary"; }
+        @Override public PluginKind kind() { return PluginKind.FEATURE; }
+        @Override public List<StaticResourceContribution> staticResources() {
+            return List.of(new StaticResourceContribution("ext-static", "classpath:/ext-static/", "/ext-static/"));
+        }
     }
 }

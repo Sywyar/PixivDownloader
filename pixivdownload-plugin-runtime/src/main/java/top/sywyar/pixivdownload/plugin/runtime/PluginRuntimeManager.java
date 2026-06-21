@@ -55,9 +55,14 @@ public class PluginRuntimeManager {
      * 扫描插件目录并按需加载 / 启动外置插件，缓存并返回结果快照。可重复调用（每次重新扫描），
      * 当前由核心壳在启动期调用一次。任一异常路径都被收敛为诊断状态，<b>本方法不向调用方抛出</b>，
      * 以保证插件目录缺失 / 空 / 含坏包都不会让核心壳启动失败。
+     *
+     * <p>重新扫描一致性：每次调用先释放上一轮的 PF4J 实例（停止 / 卸载 / 置空），再按本轮目录状态决定是否
+     * 重建。这保证 {@code POPULATED → EMPTY} / {@code POPULATED → ABSENT} 等转换后 {@link #pluginManager()} /
+     * {@link #discoverFeaturePlugins()} 不会读到上一轮的陈旧实例。本方法不是热重载入口，仅修正可重复扫描的一致性。
      */
     public PluginRuntimeStatus start() {
         Path directory = pluginsRoot.toAbsolutePath().normalize();
+        resetPluginManager();
 
         if (!Files.exists(pluginsRoot)) {
             log.warn("Plugin directory not found: {} - no external plugins will be loaded; "
@@ -93,11 +98,27 @@ public class PluginRuntimeManager {
     }
 
     /**
-     * 已创建的 PF4J {@link PluginManager}（仅当目录存在且有候选包时才会创建，否则为空）。
-     * 供后续桥接流程把外置插件接入核心注册中心使用；当前运行时骨架不消费它的运行期行为。
+     * 已创建的 PF4J {@link PluginManager}（仅当目录存在且有候选包时才会创建，否则为空；重新扫描转入空 / 缺失
+     * 目录后会被置空，见 {@link #start()}）。本访问器供发现桥接 {@link #discoverFeaturePlugins()} 与运行时内部使用，
+     * <b>核心壳业务侧不直接消费它</b>（避免散落 PF4J 类型）。
      */
     public Optional<PluginManager> pluginManager() {
         return Optional.ofNullable(pluginManager);
+    }
+
+    /**
+     * 发现当前已启动的外置插件贡献的 {@link top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin}，
+     * 产出中性适配载体供核心壳接入 {@code PluginRegistry}。{@link #start()} 未运行、或当前目录为空 / 缺失（无
+     * PF4J 实例）时返回 {@link PluginDiscoveryResult#empty()}。本方法不抛出：单个外置插件的发现失败被收敛为
+     * {@link PluginDiscoveryResult#failures()} 条目。PF4J 完全收口在 {@link PixivPluginDiscoveryBridge} 内，
+     * 本方法及其返回值不向核心壳泄露任何 {@code org.pf4j} 类型。
+     */
+    public PluginDiscoveryResult discoverFeaturePlugins() {
+        PluginManager manager = this.pluginManager;
+        if (manager == null) {
+            return PluginDiscoveryResult.empty();
+        }
+        return new PixivPluginDiscoveryBridge().discover(manager);
     }
 
     /** 配置的插件目录（未规范化为绝对路径，规范化绝对路径见 {@link PluginRuntimeStatus#directory()}）。 */
@@ -143,6 +164,29 @@ public class PluginRuntimeManager {
                 directory, loaded.size(), started.size(), failures.size());
         return new PluginRuntimeStatus(
                 directory, PluginDirectoryState.POPULATED, loaded, started, failures);
+    }
+
+    /**
+     * 释放上一轮扫描创建的 PF4J 实例并置空，供 {@link #start()} 在每次重新扫描前调用。已加载的外置插件
+     * best-effort 停止 + 卸载（释放其 classloader），异常不致命。这保证转入空 / 缺失目录后
+     * {@link #pluginManager()} / {@link #discoverFeaturePlugins()} 不读到陈旧实例。
+     */
+    private void resetPluginManager() {
+        PluginManager previous = this.pluginManager;
+        this.pluginManager = null;
+        if (previous == null) {
+            return;
+        }
+        try {
+            previous.stopPlugins();
+        } catch (Exception e) {
+            log.warn("Error stopping previously loaded plugins during rescan: {}", describe(e));
+        }
+        try {
+            previous.unloadPlugins();
+        } catch (Exception e) {
+            log.warn("Error unloading previously loaded plugins during rescan: {}", describe(e));
+        }
     }
 
     private static PluginRuntimeStatus absent(Path directory) {

@@ -109,6 +109,60 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("重新扫描 POPULATED→EMPTY：清理陈旧 PF4J 实例，pluginManager() 与发现结果均为空")
+    void rescanFromPopulatedToEmptyClearsStaleManager() throws IOException {
+        Path broken = tempDir.resolve("broken-plugin.jar");
+        Files.writeString(broken, "not a valid plugin jar", StandardCharsets.UTF_8);
+        PluginRuntimeManager manager = new PluginRuntimeManager(tempDir);
+
+        PluginRuntimeStatus first = manager.start();
+        assertThat(first.state()).isEqualTo(PluginDirectoryState.POPULATED);
+        assertThat(manager.pluginManager()).isPresent();
+
+        // 移除候选包后重新扫描：目录转为空
+        Files.delete(broken);
+        PluginRuntimeStatus second = manager.start();
+
+        assertThat(second.state()).isEqualTo(PluginDirectoryState.EMPTY);
+        // 关键：不得读到上一轮的陈旧 PF4J 实例
+        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.discoverFeaturePlugins().discovered()).isEmpty();
+        assertThat(manager.discoverFeaturePlugins().failures()).isEmpty();
+        assertThat(manager.status()).contains(second);
+    }
+
+    @Test
+    @DisplayName("重新扫描 POPULATED→ABSENT：清理陈旧 PF4J 实例，pluginManager() 与发现结果均为空")
+    void rescanFromPopulatedToAbsentClearsStaleManager() throws IOException {
+        Path pluginsRoot = tempDir.resolve("plugins");
+        Files.createDirectory(pluginsRoot);
+        Path broken = pluginsRoot.resolve("broken-plugin.jar");
+        Files.writeString(broken, "not a valid plugin jar", StandardCharsets.UTF_8);
+        PluginRuntimeManager manager = new PluginRuntimeManager(pluginsRoot);
+
+        PluginRuntimeStatus first = manager.start();
+        assertThat(first.state()).isEqualTo(PluginDirectoryState.POPULATED);
+        assertThat(manager.pluginManager()).isPresent();
+
+        // 删除整个插件目录后重新扫描：目录转为缺失
+        Files.delete(broken);
+        Files.delete(pluginsRoot);
+        PluginRuntimeStatus second = manager.start();
+
+        assertThat(second.state()).isEqualTo(PluginDirectoryState.ABSENT);
+        assertThat(manager.pluginManager()).isEmpty();
+        assertThat(manager.discoverFeaturePlugins().discovered()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("未运行 start()（无 PF4J 实例）时发现结果为空")
+    void discoverBeforeStartIsEmpty() {
+        PluginRuntimeManager manager = new PluginRuntimeManager(tempDir);
+        assertThat(manager.discoverFeaturePlugins().discovered()).isEmpty();
+        assertThat(manager.discoverFeaturePlugins().hasFailures()).isFalse();
+    }
+
+    @Test
     @DisplayName("未运行 start() 前 status() 为空，运行后缓存结果")
     void statusIsCachedAfterStart() {
         PluginRuntimeManager manager = new PluginRuntimeManager(tempDir);
