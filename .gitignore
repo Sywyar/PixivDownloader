@@ -50,3 +50,18 @@ build/
 /test-data/
 /_gui/
 /_tts/
+# 主程序下沉为 pixivdownload-app 子模块后，开发期运行（从该目录启动）产生的运行期目录落在其下，同样忽略。
+/pixivdownload-app/pixiv-download-Enn/
+/pixivdownload-app/pixiv-download/
+/pixivdownload-app/config/
+/pixivdownload-app/state/
+/pixivdownload-app/data/
+/pixivdownload-app/image_classifier.properties
+/pixivdownload-app/test/
+/pixivdownload-app/config.yaml
+/pixivdownload-app/log/
+/pixivdownload-app/collection_icons/
+/pixivdownload-app/_collection_icons/
+/pixivdownload-app/test-data/
+/pixivdownload-app/_gui/
+/pixivdownload-app/_tts/
