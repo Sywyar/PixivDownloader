@@ -50,7 +50,23 @@
         <powershell.executable>pwsh</powershell.executable>
         <jacoco.version>0.8.12</jacoco.version>
         <jna.version>5.17.0</jna.version>
+        <pf4j.version>3.12.0</pf4j.version>
     </properties>
+
+    <!--
+      跨模块版本收口：PF4J 是插件框架运行时（外置插件目录定位 / 加载 / 启动），版本在此集中管理，
+      由 pixivdownload-plugin-runtime 承载、随 boot jar 装入；slf4j-api / spring 等其余坐标仍由
+      spring-boot-starter-parent 的 dependencyManagement 统一管理。
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.pf4j</groupId>
+                <artifactId>pf4j</artifactId>
+                <version>${pf4j.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <profiles>
         <profile>

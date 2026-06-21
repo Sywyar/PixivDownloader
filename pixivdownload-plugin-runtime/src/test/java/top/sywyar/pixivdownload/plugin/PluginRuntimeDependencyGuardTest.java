@@ -10,12 +10,15 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+
 /**
- * plugin-runtime 边界守卫：证明本模块是插件框架的 Spring 耦合启用运行时——只承载
+ * plugin-runtime 边界守卫：证明本模块是插件框架的 Spring 耦合启用运行时——承载
  * {@link ConditionalOnPluginEnabled} / {@link OnPluginEnabledCondition} / {@link PluginToggleProperties}
- * 三件套，允许 Spring（条件 / 环境 / {@code @ConfigurationProperties} 绑定）+ JDK，但<b>零 plugin-api、
- * 零 app / 具体插件类反向依赖</b>，尤其<b>不得回指组合根 {@code BuiltInPlugins} / 运行时
- * {@code PluginRegistry} / {@code CorePlugin}</b>（它们与本模块共享拆分包
+ * 三件套与 PF4J 外置插件运行时骨架（{@code plugin.runtime} 子包：{@link PluginRuntimeManager} 等目录定位 /
+ * 加载 / 启动 / 诊断封装），允许 Spring（条件 / 环境 / {@code @ConfigurationProperties} 绑定）、PF4J、slf4j 与
+ * JDK，但<b>零 plugin-api、零 app / 具体插件类反向依赖</b>，尤其<b>不得回指组合根 {@code BuiltInPlugins} /
+ * 运行时 {@code PluginRegistry} / {@code CorePlugin}</b>（它们与本模块共享拆分包
  * {@code top.sywyar.pixivdownload.plugin}，但留在 app、在全部插件模块之上）。
  *
  * <p>本守卫在 {@code pixivdownload-plugin-runtime} 模块内自包含运行：{@link ClassFileImporter} 只扫描本模块
@@ -30,15 +33,19 @@ class PluginRuntimeDependencyGuardTest {
             .importPackages("top.sywyar.pixivdownload");
 
     @Test
-    @DisplayName("plugin-runtime 必须自包含：只依赖 JDK、Spring 与自身 plugin 精确包（不含 plugin.api）")
+    @DisplayName("plugin-runtime 必须自包含：只依赖 JDK、Spring、PF4J、slf4j 与自身 plugin / plugin.runtime 包（不含 plugin.api）")
     void pluginRuntimeIsSelfContained() {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload..")
                 .should().onlyDependOnClassesThat()
-                .resideInAnyPackage("top.sywyar.pixivdownload.plugin", "java..", "org.springframework..")
-                .because("plugin-runtime 是插件框架的 Spring 耦合启用运行时：只能依赖 JDK、Spring 与自身精确包 "
-                        + "top.sywyar.pixivdownload.plugin（三件套互引），不得依赖 plugin.api（精确包不含 .api 子包）、"
-                        + "任何 app 业务包或具体插件实现包")
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.plugin",
+                        "top.sywyar.pixivdownload.plugin.runtime",
+                        "java..", "org.springframework..", "org.pf4j..", "org.slf4j..")
+                .because("plugin-runtime 是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架：只能依赖 JDK、"
+                        + "Spring（条件 / 绑定）、PF4J（PluginManager 等）、slf4j 与自身精确包 "
+                        + "top.sywyar.pixivdownload.plugin（三件套）/ top.sywyar.pixivdownload.plugin.runtime（PF4J 封装），"
+                        + "不得依赖 plugin.api（精确包不含 .api 子包，故 .api 仍被排除）、任何 app 业务包或具体插件实现包")
                 .check(CLASSES);
     }
 
@@ -100,5 +107,15 @@ class PluginRuntimeDependencyGuardTest {
         assertThat(CLASSES.contain(ConditionalOnPluginEnabled.class.getName())).isTrue();
         assertThat(CLASSES.contain(OnPluginEnabledCondition.class.getName())).isTrue();
         assertThat(CLASSES.contain(PluginToggleProperties.class.getName())).isTrue();
+    }
+
+    @Test
+    @DisplayName("plugin-runtime 模块应包含 PF4J 运行时骨架（防守卫 vacuous 通过）")
+    void pluginRuntimeContainsPf4jRuntimeSkeleton() {
+        assertThat(CLASSES.contain(PluginRuntimeManager.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus.class.getName())).isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.PluginDirectoryState.class.getName())).isTrue();
     }
 }

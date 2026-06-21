@@ -37,6 +37,7 @@ class RuntimeFilesTest {
         System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, stateDir.toString());
         System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, dataDir.toString());
         System.clearProperty(RuntimeFiles.INSTANCE_DIR_PROPERTY);
+        System.clearProperty(RuntimeFiles.PLUGINS_DIR_PROPERTY);
     }
 
     @AfterEach
@@ -45,6 +46,7 @@ class RuntimeFilesTest {
         System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
         System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
         System.clearProperty(RuntimeFiles.INSTANCE_DIR_PROPERTY);
+        System.clearProperty(RuntimeFiles.PLUGINS_DIR_PROPERTY);
     }
 
     @Test
@@ -214,6 +216,19 @@ class RuntimeFilesTest {
         assertThat(corrupt).isDirectory();
         assertThat(corrupt.resolve("0_b.jpg")).exists();
         assertThat(stagingRoot).isDirectory();
+    }
+
+    @Test
+    @DisplayName("插件目录默认为工作目录下 plugins、可经系统属性覆盖，且只解析不创建")
+    void shouldResolvePluginsDirectoryWithoutCreating() {
+        assertThat(RuntimeFiles.pluginsDirectory()).isEqualTo(Path.of(RuntimeFiles.DEFAULT_PLUGINS_DIR));
+
+        Path customPlugins = tempDir.resolve("custom-plugins");
+        System.setProperty(RuntimeFiles.PLUGINS_DIR_PROPERTY, customPlugins.toString());
+
+        assertThat(RuntimeFiles.pluginsDirectory()).isEqualTo(customPlugins);
+        // 只解析路径、不创建目录（缺失诊断由运行时骨架报告，目录创建归后续安装流程）
+        assertThat(customPlugins).doesNotExist();
     }
 
     @Test

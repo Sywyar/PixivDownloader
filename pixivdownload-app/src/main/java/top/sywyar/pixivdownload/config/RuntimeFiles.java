@@ -26,10 +26,12 @@ public final class RuntimeFiles {
     public static final String STATE_DIR_PROPERTY = "pixivdownload.state-dir";
     public static final String DATA_DIR_PROPERTY = "pixivdownload.data-dir";
     public static final String INSTANCE_DIR_PROPERTY = "pixivdownload.instance-dir";
+    public static final String PLUGINS_DIR_PROPERTY = "pixivdownload.plugins-dir";
 
     public static final String DEFAULT_CONFIG_DIR = "config";
     public static final String DEFAULT_STATE_DIR = "state";
     public static final String DEFAULT_DATA_DIR = "data";
+    public static final String DEFAULT_PLUGINS_DIR = "plugins";
     public static final String DEFAULT_DOWNLOAD_ROOT = "pixiv-download";
     private static final String WINDOWS_INSTANCE_ROOT_ENV = "LOCALAPPDATA";
     private static final String WINDOWS_INSTANCE_APP_DIR = AppInfo.LEGACY_ARTIFACT_NAME;
@@ -69,6 +71,16 @@ public final class RuntimeFiles {
 
     public static Path dataDirectory() {
         return resolveDirectory(DATA_DIR_PROPERTY, DEFAULT_DATA_DIR);
+    }
+
+    /**
+     * 外置插件目录：默认工作目录下 {@code plugins/}，可经系统属性 {@code pixivdownload.plugins-dir} 覆盖
+     *（与 config / state / data 同套覆盖机制）。它是 PF4J 从中加载外置插件包的安装目录，既非用户下载作品根
+     *（{@code rootFolder}）、也非可丢弃重建的 {@code state} / 应用管理数据 {@code data}，故作为独立的工作目录根级
+     * 安装目录单列。<b>本方法只解析路径、不创建目录</b>——目录缺失时由运行时骨架报告缺失诊断，目录创建归后续安装流程。
+     */
+    public static Path pluginsDirectory() {
+        return resolveDirectory(PLUGINS_DIR_PROPERTY, DEFAULT_PLUGINS_DIR);
     }
 
     public static Path collectionIconsDirectory() {
