@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>top.sywyar.lovepopup</groupId>
+        <artifactId>pixivdownload-parent</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <artifactId>pixivdownload-core-api</artifactId>
+    <name>PixivDownloader Core API</name>
+    <description>核心 owned、面向插件的语义端口 + 结果 DTO（core.stats.*）：Spring-free 纯 JDK，供主程序与各功能插件共享。</description>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <!--
+      依赖边界（由 CoreApiDependencyGuardTest 守护）：本模块只承载核心 owned 的语义查询端口与纯 JDK 结果 DTO，
+      编译期零内部依赖、零 Spring、零 SLF4J、零 JDBC/MyBatis——只允许 JDK。实现层（StatsQueryStoreImpl，
+      需 DataSource / JdbcTemplate）留在主程序 pixivdownload-app。将来若某端口确需共享类型，只能 +plugin-api 且须先在 PLAN 记录。
+    -->
+    <dependencies>
+        <!-- 模块自测（边界守卫 + 契约不变量），test 作用域，不外泄到主程序运行期类路径 -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 字节码级边界守卫：core-api 只依赖 JDK[+plugin-api]、零框架/实现层 -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit</artifactId>
+            <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

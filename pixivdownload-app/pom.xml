@@ -20,6 +20,14 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- 核心语义端口模块：core.stats.StatsQueryStore + StatsAggregates（Spring-free 纯 JDK）；
+             实现层 core.stats.db.StatsQueryStoreImpl 留本模块 -->
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-core-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>

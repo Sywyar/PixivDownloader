@@ -30,6 +30,8 @@
     <modules>
         <!-- 跨插件契约模块先构建（主程序依赖之），零业务依赖由编译期强制；产物仍打进主程序的单一 boot jar -->
         <module>pixivdownload-plugin-api</module>
+        <!-- 核心 owned 语义端口 + 结果 DTO（core.stats.*），Spring-free 纯 JDK；主程序依赖之，产物打进 boot jar -->
+        <module>pixivdownload-core-api</module>
         <module>pixivdownload-app</module>
     </modules>
     <scm>

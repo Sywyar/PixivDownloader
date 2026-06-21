@@ -25,6 +25,7 @@ WORKDIR /build
 # 多模块 reactor 下 go-offline 需要全部子模块 pom 在场，否则会因子模块缺失而失败。
 COPY pom.xml .
 COPY pixivdownload-plugin-api/pom.xml pixivdownload-plugin-api/
+COPY pixivdownload-core-api/pom.xml pixivdownload-core-api/
 COPY pixivdownload-app/pom.xml pixivdownload-app/
 RUN mvn -B -q dependency:go-offline
 
