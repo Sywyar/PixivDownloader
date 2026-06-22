@@ -36,9 +36,11 @@ import java.util.Set;
  *       全部子 context，释放其 Bean 与对父 Bean 的引用。</li>
  * </ul>
  *
- * <p>本管理器只负责子 context 的建立 / 持有 / 关闭与可观测（{@link #pluginIds()} / {@link #contextFor(String)}）；
- * 子 context 中 controller 等向核心请求分发表的动态注册是另行处理的后续接线，<b>不</b>在本管理器内进行。无外置插件
- * （插件目录缺失 / 空 / 无声明配置类的插件）时本管理器为空、透明无副作用。
+ * <p>子 context 建立后，其中的 controller 经 {@link PluginControllerRegistrar} 动态注册进核心壳（父 context）的
+ * 请求分发表，关闭前按插件注销——故子 context 的建立 / controller 注册是按插件<b>原子</b>的：controller 注册失败
+ *（典型：某映射缺路由声明）即关闭刚建立的子 context、不保留该插件，与其它插件隔离。本管理器负责子 context 的建立 /
+ * 持有 / 关闭、controller 注册 / 注销的编排，以及可观测（{@link #pluginIds()} / {@link #contextFor(String)}）。
+ * 无外置插件（插件目录缺失 / 空 / 无声明配置类的插件）时本管理器为空、透明无副作用。
  */
 @Slf4j
 @Component
@@ -47,6 +49,7 @@ public class ExternalPluginContextManager implements SmartLifecycle {
     private final ApplicationContext parent;
     private final PluginRuntimeManager pluginRuntimeManager;
     private final PluginApplicationContextFactory contextFactory;
+    private final PluginControllerRegistrar controllerRegistrar;
 
     private final Object lock = new Object();
     /** 按建立顺序保存的子 context（键为外置插件包 id）。仅在 {@link #lock} 内变更，读路径取其只读视图。 */
@@ -55,10 +58,12 @@ public class ExternalPluginContextManager implements SmartLifecycle {
 
     public ExternalPluginContextManager(ApplicationContext parent,
                                         PluginRuntimeManager pluginRuntimeManager,
-                                        PluginApplicationContextFactory contextFactory) {
+                                        PluginApplicationContextFactory contextFactory,
+                                        PluginControllerRegistrar controllerRegistrar) {
         this.parent = parent;
         this.pluginRuntimeManager = pluginRuntimeManager;
         this.contextFactory = contextFactory;
+        this.controllerRegistrar = controllerRegistrar;
     }
 
     @Override
@@ -77,17 +82,40 @@ public class ExternalPluginContextManager implements SmartLifecycle {
     }
 
     private void createContext(PluginContextModule module) {
-        if (contexts.containsKey(module.sourcePluginId())) {
-            log.warn("Duplicate plugin context module for '{}' - keeping the first, skipping.",
-                    module.sourcePluginId());
+        String pluginId = module.sourcePluginId();
+        if (contexts.containsKey(pluginId)) {
+            log.warn("Duplicate plugin context module for '{}' - keeping the first, skipping.", pluginId);
+            return;
+        }
+        ConfigurableApplicationContext child;
+        try {
+            child = contextFactory.create(parent, module);
+        } catch (Exception e) {
+            // 隔离失败：单个外置插件子 context 建立失败不影响其它插件、不致核心壳启动失败。
+            log.error("Failed to start plugin context for '{}': {}", pluginId, e.toString(), e);
             return;
         }
         try {
-            contexts.put(module.sourcePluginId(), contextFactory.create(parent, module));
+            controllerRegistrar.registerControllers(pluginId, child);
         } catch (Exception e) {
-            // 隔离失败：单个外置插件子 context 建立失败不影响其它插件、不致核心壳启动失败。
-            log.error("Failed to start plugin context for '{}': {}",
-                    module.sourcePluginId(), e.toString(), e);
+            // controller 注册失败（典型：映射缺路由声明，或某条 registerMapping 与已有 handler 冲突）→ 防御性注销该
+            // 插件可能残留的任何映射（registerControllers 失败时已自行回滚，此处兜底），再关闭刚建立的子 context、不保留，
+            // 按插件原子隔离——杜绝父分发表留下指向即将关闭的子 context bean 的陈旧 handler。
+            log.error("Failed to register controllers for plugin '{}': {} - closing its child context.",
+                    pluginId, e.toString(), e);
+            controllerRegistrar.unregisterControllers(pluginId);
+            closeQuietly(pluginId, child);
+            return;
+        }
+        contexts.put(pluginId, child);
+    }
+
+    private void closeQuietly(String pluginId, ConfigurableApplicationContext child) {
+        try {
+            child.close();
+        } catch (Exception e) {
+            log.warn("Error closing plugin context for '{}' after a failed controller registration: {}",
+                    pluginId, e.toString());
         }
     }
 
@@ -100,6 +128,8 @@ public class ExternalPluginContextManager implements SmartLifecycle {
             List<Map.Entry<String, ConfigurableApplicationContext>> ordered = new ArrayList<>(contexts.entrySet());
             Collections.reverse(ordered); // 逆序关闭
             for (Map.Entry<String, ConfigurableApplicationContext> entry : ordered) {
+                // 先把该插件的 controller 从父分发表注销，再关闭其子 context（停止新请求命中即将销毁的 handler）。
+                controllerRegistrar.unregisterControllers(entry.getKey());
                 try {
                     entry.getValue().close();
                 } catch (Exception e) {

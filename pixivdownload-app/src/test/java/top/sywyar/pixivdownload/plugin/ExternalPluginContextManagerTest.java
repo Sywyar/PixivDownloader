@@ -25,6 +25,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ExternalPluginContextManagerTest {
 
     private final PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
+    /**
+     * 真实但「空」的 controller 注册器：本测试聚焦子 context 生命周期，其 synthetic 插件 Bean 都不是 controller，
+     * 故注册器扫到 0 个 handler、不注册任何映射（也不需要初始化 mapping）。注册器自身行为另由
+     * {@link PluginControllerRegistrarTest} 覆盖。
+     */
+    private final PluginControllerRegistrar controllerRegistrar = new PluginControllerRegistrar(
+            new PluginAwareRequestMappingHandlerMapping(), new RouteAccessRegistry(new PluginRegistry(List.of())));
 
     private static PluginRuntimeManager runtimeReturning(List<PluginContextModule> modules) {
         return new PluginRuntimeManager(Path.of("target/no-such-plugins-dir")) {
@@ -43,7 +50,8 @@ class ExternalPluginContextManagerTest {
             PluginContextModule module = new PluginContextModule(
                     "ext-demo", getClass().getClassLoader(), List.of(PluginConfig.class));
             ExternalPluginContextManager manager =
-                    new ExternalPluginContextManager(parent, runtimeReturning(List.of(module)), factory);
+                    new ExternalPluginContextManager(parent, runtimeReturning(List.of(module)), factory,
+                            controllerRegistrar);
 
             manager.start();
 
@@ -72,7 +80,8 @@ class ExternalPluginContextManagerTest {
         try (AnnotationConfigApplicationContext parent =
                      new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
             ExternalPluginContextManager manager =
-                    new ExternalPluginContextManager(parent, runtimeReturning(List.of()), factory);
+                    new ExternalPluginContextManager(parent, runtimeReturning(List.of()), factory,
+                            controllerRegistrar);
 
             manager.start();
 
@@ -94,7 +103,8 @@ class ExternalPluginContextManagerTest {
             PluginContextModule good = new PluginContextModule(
                     "ext-good", getClass().getClassLoader(), List.of(PluginConfig.class));
             ExternalPluginContextManager manager =
-                    new ExternalPluginContextManager(parent, runtimeReturning(List.of(broken, good)), factory);
+                    new ExternalPluginContextManager(parent, runtimeReturning(List.of(broken, good)), factory,
+                            controllerRegistrar);
 
             manager.start();
 

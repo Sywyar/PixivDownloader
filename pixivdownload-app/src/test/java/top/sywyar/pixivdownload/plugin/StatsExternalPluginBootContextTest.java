@@ -10,6 +10,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -52,8 +53,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>控范围：本用例验证<b>启动期加载</b>、contribution 注册，以及外置 stats 的 {@code @RestController} /
  * {@code @Service} Bean 经 {@code StatsPluginConfiguration} 在 stats 专属子 {@code ApplicationContext} 中装配
- *（其 service 向父 context 解析核心 {@code StatsQueryStore}）。这些插件 Bean 只在子 context、<b>不</b>在父（核心
- * 应用）context；{@code /api/stats/**} handler 的动态注册是另行处理的后续接线，<b>不</b>在此验证。
+ *（其 service 向父 context 解析核心 {@code StatsQueryStore}）。这些插件 Bean 只在子 context、<b>不</b>是父（核心
+ * 应用）context 的 Bean；其 {@code /api/stats/**} controller 经 {@link PluginControllerRegistrar} 动态注册进父
+ * context 的请求分发表（{@code RequestMappingHandlerMapping}）——{@code /api/stats/dashboard} 安装后命中子 context
+ * 的 {@code StatsController}、注销后不再命中、可逆，均在此验证。
  *
  * <p>stats 构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} 传入（reactor 中先于 app 构建）；未就绪时
  * （如 IDE 未触发 reactor 构建）经类级 {@link EnabledIf} 整类跳过，不加载上下文。Windows 下 PF4J 加载 jar 会持有
@@ -112,6 +115,10 @@ class StatsExternalPluginBootContextTest {
     private WebI18nBundleRegistry webI18nBundleRegistry;
     @Autowired
     private ExternalPluginContextManager externalPluginContextManager;
+    @Autowired
+    private PluginControllerRegistrar pluginControllerRegistrar;
+    @Autowired
+    private RequestMappingHandlerMapping requestMappingHandlerMapping;
     @Autowired
     private ApplicationContext applicationContext;
 
@@ -219,9 +226,41 @@ class StatsExternalPluginBootContextTest {
         assertThat(child.getBeanNamesForType(statsControllerClass)).isNotEmpty();
         assertThat(child.getBean(statsControllerClass)).isNotNull();
 
-        // 这些插件 Bean 不在父（核心应用）context —— 本实现不做 controller 动态注册，/api/stats/** 仍无 handler
+        // 这些插件 Bean 不是父（核心应用）context 的 Bean —— 它们只在子 context（controller 经请求分发表接入父，
+        // 见 externalStatsControllerIsDynamicallyRegistered，但不作为父 context 的 Bean 定义存在）
         assertThat(applicationContext.getBeanNamesForType(statsControllerClass)).isEmpty();
         assertThat(applicationContext.getBeanNamesForType(statsServiceClass)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("外置 stats controller 动态注册：/api/stats/dashboard 命中子 context 的 StatsController；注销后不再命中、可逆")
+    void externalStatsControllerIsDynamicallyRegistered() throws Exception {
+        ConfigurableApplicationContext child = externalPluginContextManager.contextFor("stats").orElseThrow();
+        Class<?> statsControllerClass =
+                externalStatsClassLoader().loadClass("top.sywyar.pixivdownload.stats.StatsController");
+        Object statsControllerBean = child.getBean(statsControllerClass);
+
+        // 安装后：父 context 的请求分发表已注册 /api/stats/dashboard，handler 就是子 context 的 StatsController 实例
+        assertThat(pluginControllerRegistrar.registeredPluginIds()).contains("stats");
+        assertThat(statsDashboardHandlerBean()).isSameAs(statsControllerBean);
+
+        // 注销后：同 URL 不再命中 controller
+        pluginControllerRegistrar.unregisterControllers("stats");
+        assertThat(pluginControllerRegistrar.registeredPluginIds()).doesNotContain("stats");
+        assertThat(statsDashboardHandlerBean()).isNull();
+
+        // 可逆：重新注册恢复（也还原本类其它用例 / AfterAll 依赖的已注册状态）
+        int restored = pluginControllerRegistrar.registerControllers("stats", child);
+        assertThat(restored).isGreaterThanOrEqualTo(1);
+        assertThat(statsDashboardHandlerBean()).isSameAs(statsControllerBean);
+    }
+
+    /** 父 context 的请求分发表中映射到 {@code /api/stats/dashboard} 的 handler Bean；未注册时为 null。 */
+    private Object statsDashboardHandlerBean() {
+        return requestMappingHandlerMapping.getHandlerMethods().entrySet().stream()
+                .filter(e -> e.getKey().getPatternValues().contains("/api/stats/dashboard"))
+                .map(e -> e.getValue().getBean())
+                .findFirst().orElse(null);
     }
 
     private ClassLoader externalStatsClassLoader() {
