@@ -121,6 +121,8 @@ class StatsExternalPluginBootContextTest {
     @Autowired
     private PluginWebContributionRegistrar pluginWebContributionRegistrar;
     @Autowired
+    private PluginLifecycleService pluginLifecycleService;
+    @Autowired
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
     @Autowired
     private ApplicationContext applicationContext;
@@ -284,6 +286,43 @@ class StatsExternalPluginBootContextTest {
         assertThat(staticResourceRegistry.resources()).anyMatch(s -> s.pluginId().equals("stats"));
         assertThat(webI18nBundleRegistry.resolve("stats")).isNotNull();
         assertThat(navigationRegistry.navigation()).anyMatch(n -> n.pluginId().equals("stats"));
+    }
+
+    @Test
+    @DisplayName("外置 stats 运行期热启停：quiesce 保留路由声明，stop 拆除服务足迹（controller / route / 子 context 全去），start 可逆重建")
+    void externalStatsLifecycleQuiesceStopStartIsReversible() {
+        // 前置：stats 在服务，controller / route 在场。
+        assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.STARTED);
+        assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
+        assertThat(pluginControllerRegistrar.registeredPluginIds()).contains("stats");
+
+        // quiesce：阶段转 QUIESCED；路由声明仍在（新请求由 PluginQuiesceGate 拦截、不靠注销路由）。
+        pluginLifecycleService.quiesce("stats");
+        assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.QUIESCED);
+        assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
+
+        // stop：按序拆除服务足迹——controller 注销、web 贡献注销（URL「未声明」即 AuthFilter 404）、子 context 关闭。
+        ConfigurableApplicationContext beforeStop = externalPluginContextManager.contextFor("stats").orElseThrow();
+        pluginLifecycleService.stop("stats");
+        assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.STOPPED);
+        assertThat(pluginControllerRegistrar.registeredPluginIds()).doesNotContain("stats");
+        assertThat(statsDashboardHandlerBean()).isNull();
+        assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isFalse();
+        assertThat(staticResourceRegistry.resources()).noneMatch(s -> s.pluginId().equals("stats"));
+        assertThat(webI18nBundleRegistry.resolve("stats")).isNull();
+        assertThat(externalPluginContextManager.contextFor("stats")).isEmpty();
+        assertThat(beforeStop.isActive()).isFalse();
+
+        // start：可逆重建——子 context 重建、controller / web 贡献重新接入。
+        pluginLifecycleService.start("stats");
+        assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.STARTED);
+        assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
+        assertThat(pluginControllerRegistrar.registeredPluginIds()).contains("stats");
+        assertThat(staticResourceRegistry.resources()).anyMatch(s -> s.pluginId().equals("stats"));
+        assertThat(webI18nBundleRegistry.resolve("stats")).isNotNull();
+        ConfigurableApplicationContext afterStart = externalPluginContextManager.contextFor("stats").orElseThrow();
+        assertThat(afterStart.isActive()).isTrue();
+        assertThat(statsDashboardHandlerBean()).isNotNull();
     }
 
     /** 父 context 的请求分发表中映射到 {@code /api/stats/dashboard} 的 handler Bean；未注册时为 null。 */

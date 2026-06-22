@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -20,60 +21,24 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 核心壳外置插件子 context 生命周期管理器测试：用 synthetic 父 context（暴露核心服务）+ 一个返回 synthetic
- * 装配定义的 {@link PluginRuntimeManager}（匿名子类、不经 PF4J），验证管理器在 {@code start()} 建立子 context、
- * 子 context Bean 注入父 context 核心服务、插件 Bean 不在父 context，{@code stop()} 关闭全部子 context；
- * 无外置插件时透明无副作用；单个插件子 context 建立失败被隔离、不影响其它插件。
+ * 外置插件子 context 生命周期的 {@code SmartLifecycle} 驱动测试：验证 {@link ExternalPluginContextManager} 把核心壳
+ * 的启动 / 关闭时机桥接到 {@link PluginLifecycleService}，并转发可观测查询（子 context 持有情况）。具体的按插件
+ * 建立 / 拆除 / 热启停 / quiesce 编排由 {@link PluginLifecycleServiceTest} 覆盖。
  */
-@DisplayName("外置插件子 ApplicationContext 生命周期管理器")
+@DisplayName("外置插件子 context 生命周期 SmartLifecycle 驱动")
 class ExternalPluginContextManagerTest {
 
-    private final PluginApplicationContextFactory factory = new PluginApplicationContextFactory();
-    /**
-     * 真实但「空」的 controller 注册器：本测试聚焦子 context 生命周期，其 synthetic 插件 Bean 都不是 controller，
-     * 故注册器扫到 0 个 handler、不注册任何映射（也不需要初始化 mapping）。注册器自身行为另由
-     * {@link PluginControllerRegistrarTest} 覆盖。
-     */
-    private final PluginControllerRegistrar controllerRegistrar = new PluginControllerRegistrar(
-            new PluginAwareRequestMappingHandlerMapping(), new RouteAccessRegistry(new PluginRegistry(List.of())));
-    /** 空 PluginRegistry（无外置插件）：{@code stop()} 的 web 贡献注销遍历为空，本测试聚焦子 context 生命周期。 */
-    private final PluginRegistry emptyRegistry = new PluginRegistry(List.of());
-    /** 真实但「空」的 web 贡献注册器（各下游注册中心均空）：synthetic 插件无 web 贡献，注销为幂等空操作。 */
-    private final PluginWebContributionRegistrar webContributionRegistrar = newEmptyWebContributionRegistrar();
-
-    /** 用空注册中心组装 web 贡献注册器：本测试的 synthetic 插件不贡献 route/static/i18n/navigation/userscript。 */
-    private static PluginWebContributionRegistrar newEmptyWebContributionRegistrar() {
-        PluginRegistry empty = new PluginRegistry(List.of());
-        UserscriptRegistry userscripts = new UserscriptRegistry(empty);
-        ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
-        return new PluginWebContributionRegistrar(
-                new RouteAccessRegistry(empty),
-                new StaticResourceRegistry(empty),
-                new WebI18nBundleRegistry(empty),
-                new NavigationRegistry(empty),
-                userscripts,
-                scripts);
-    }
-
-    private static PluginRuntimeManager runtimeReturning(List<PluginContextModule> modules) {
-        return new PluginRuntimeManager(Path.of("target/no-such-plugins-dir")) {
-            @Override
-            public List<PluginContextModule> inspectContextModules() {
-                return modules;
-            }
-        };
-    }
-
     @Test
-    @DisplayName("start 为外置插件建立子 context：插件 Bean 注入父核心服务、不在父 context；stop 关闭子 context")
-    void startBuildsChildContextThenStopCloses() {
+    @DisplayName("start 驱动建立、stop 驱动拆除：转发 isRunning / count / pluginIds / contextFor")
+    void delegatesStartStopAndObservabilityToLifecycleService() {
         try (AnnotationConfigApplicationContext parent =
                      new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
             PluginContextModule module = new PluginContextModule(
                     "ext-demo", getClass().getClassLoader(), List.of(PluginConfig.class));
-            ExternalPluginContextManager manager =
-                    new ExternalPluginContextManager(parent, runtimeReturning(List.of(module)), factory,
-                            controllerRegistrar, emptyRegistry, webContributionRegistrar);
+            PluginLifecycleService service = lifecycleService(parent, List.of(module));
+            ExternalPluginContextManager manager = new ExternalPluginContextManager(service);
+
+            assertThat(manager.isRunning()).isFalse();
 
             manager.start();
 
@@ -82,11 +47,6 @@ class ExternalPluginContextManagerTest {
             assertThat(manager.pluginIds()).containsExactly("ext-demo");
             ConfigurableApplicationContext child = manager.contextFor("ext-demo").orElseThrow();
             assertThat(child.isActive()).isTrue();
-            // 子 context Bean 注入父 context 暴露的核心服务（同一实例）
-            assertThat(child.getBean(PluginBean.class).coreService())
-                    .isSameAs(parent.getBean(CoreApiService.class));
-            // 插件 Bean 不在父 context
-            assertThat(parent.getBeanNamesForType(PluginBean.class)).isEmpty();
 
             manager.stop();
 
@@ -97,13 +57,12 @@ class ExternalPluginContextManagerTest {
     }
 
     @Test
-    @DisplayName("无外置插件：管理器为空、透明无副作用")
+    @DisplayName("无外置插件：管理器透明无副作用")
     void noExternalPluginsIsTransparent() {
         try (AnnotationConfigApplicationContext parent =
                      new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
             ExternalPluginContextManager manager =
-                    new ExternalPluginContextManager(parent, runtimeReturning(List.of()), factory,
-                            controllerRegistrar, emptyRegistry, webContributionRegistrar);
+                    new ExternalPluginContextManager(lifecycleService(parent, List.of()));
 
             manager.start();
 
@@ -115,82 +74,48 @@ class ExternalPluginContextManagerTest {
         }
     }
 
-    @Test
-    @DisplayName("单个插件子 context 建立失败被隔离：不影响其它插件、不致核心壳启动失败")
-    void failingPluginContextIsIsolated() {
-        try (AnnotationConfigApplicationContext parent =
-                     new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
-            PluginContextModule broken = new PluginContextModule(
-                    "ext-broken", getClass().getClassLoader(), List.of(BrokenPluginConfig.class));
-            PluginContextModule good = new PluginContextModule(
-                    "ext-good", getClass().getClassLoader(), List.of(PluginConfig.class));
-            ExternalPluginContextManager manager =
-                    new ExternalPluginContextManager(parent, runtimeReturning(List.of(broken, good)), factory,
-                            controllerRegistrar, emptyRegistry, webContributionRegistrar);
-
-            manager.start();
-
-            // 坏插件被隔离、好插件照常建立
-            assertThat(manager.isRunning()).isTrue();
-            assertThat(manager.pluginIds()).containsExactly("ext-good");
-            assertThat(manager.contextFor("ext-broken")).isEmpty();
-            assertThat(manager.contextFor("ext-good")).isPresent();
-
-            manager.stop();
-        }
-    }
-
     // --- 夹具 ---
+
+    private static PluginLifecycleService lifecycleService(ApplicationContext parent,
+                                                           List<PluginContextModule> modules) {
+        PluginRuntimeManager runtime = new PluginRuntimeManager(Path.of("target/no-such-plugins-dir")) {
+            @Override
+            public List<PluginContextModule> inspectContextModules() {
+                return modules;
+            }
+        };
+        PluginControllerRegistrar controllerRegistrar = new PluginControllerRegistrar(
+                new PluginAwareRequestMappingHandlerMapping(), new RouteAccessRegistry(new PluginRegistry(List.of())));
+        PluginRegistry empty = new PluginRegistry(List.of());
+        UserscriptRegistry userscripts = new UserscriptRegistry(empty);
+        ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
+        PluginWebContributionRegistrar webRegistrar = new PluginWebContributionRegistrar(
+                new RouteAccessRegistry(empty), new StaticResourceRegistry(empty),
+                new WebI18nBundleRegistry(empty), new NavigationRegistry(empty), userscripts, scripts);
+        return new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
+                controllerRegistrar, webRegistrar, empty, new PluginLifecycleState());
+    }
 
     interface CoreApiService {
         String describe();
-    }
-
-    static final class CoreApiServiceImpl implements CoreApiService {
-        @Override
-        public String describe() {
-            return "core";
-        }
     }
 
     @Configuration
     static class ParentCoreConfig {
         @Bean
         CoreApiService coreApiService() {
-            return new CoreApiServiceImpl();
+            return () -> "core";
         }
     }
 
     static final class PluginBean {
-        private final CoreApiService coreService;
-
-        PluginBean(CoreApiService coreService) {
-            this.coreService = coreService;
-        }
-
-        CoreApiService coreService() {
-            return coreService;
-        }
     }
 
     @Configuration
     static class PluginConfig {
         @Bean
-        PluginBean pluginBean(CoreApiService coreService) {
-            return new PluginBean(coreService);
+        PluginBean pluginBean() {
+            return new PluginBean();
         }
-    }
-
-    /** 配置类：依赖一个父 context 不提供的类型，refresh 时无法满足 → 子 context 建立失败（用于验证失败隔离）。 */
-    @Configuration
-    static class BrokenPluginConfig {
-        @Bean
-        PluginBean brokenBean(MissingDependency missing) {
-            return new PluginBean(null);
-        }
-    }
-
-    /** 父 context 中不存在的依赖类型。 */
-    interface MissingDependency {
     }
 }
