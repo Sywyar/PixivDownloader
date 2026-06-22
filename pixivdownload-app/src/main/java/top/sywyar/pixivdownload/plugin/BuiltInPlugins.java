@@ -6,7 +6,6 @@ import top.sywyar.pixivdownload.gallery.GalleryPlugin;
 import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.schedule.ScheduleHostPlugin;
-import top.sywyar.pixivdownload.stats.StatsPlugin;
 
 import java.util.List;
 import java.util.Set;
@@ -14,10 +13,12 @@ import java.util.stream.Collectors;
 
 /**
  * 内置插件组合根清单。供 Spring 上下文之外的入口（如 GUI 启动期的 schema 检查）
- * 取得与运行期一致的插件 contribution 集合。
+ * 取得与运行期一致的内置插件 contribution 集合。
  * <p>
- * 必须与各 {@code XxxPluginConfiguration} 注册进 {@link PluginRegistry} 的插件集合
- * 保持一致（由 {@code RegisteredPluginsTest} 的镜像用例守护）。
+ * 必须与各 {@code XxxPluginConfiguration} 注册进 {@link PluginRegistry} 的内置插件集合
+ * 保持一致（由 {@code RegisteredPluginsTest} 的镜像用例守护）。<b>仅含随 boot jar 编译进来的内置插件</b>；
+ * 外置插件（如 stats）从 {@code plugins/} 目录由 PF4J 加载、经发现桥接接入 {@link PluginRegistry}（来源
+ * {@code EXTERNAL}），不在本清单内。
  */
 public final class BuiltInPlugins {
 
@@ -31,7 +32,6 @@ public final class BuiltInPlugins {
                 new ScheduleHostPlugin(),
                 new GalleryPlugin(),
                 new NovelPlugin(),
-                new StatsPlugin(),
                 new DuplicatePlugin());
     }
 

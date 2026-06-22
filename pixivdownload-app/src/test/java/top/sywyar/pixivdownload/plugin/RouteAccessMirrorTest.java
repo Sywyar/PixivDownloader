@@ -143,7 +143,7 @@ class RouteAccessMirrorTest {
                 matchersForPolicies(Set.of(AccessPolicy.INVITED_GUEST, AccessPolicy.VISITOR_AND_INVITED_GUEST));
         Set<String> publicMatchers = matchersForPolicies(Set.of(AccessPolicy.PUBLIC));
         List<WebRouteContribution> adminOnly = byPolicy(AccessPolicy.ADMIN);
-        assertThat(adminOnly).as("应有 ADMIN 路由（stats/duplicate/schedule/admin/监控页等）").isNotEmpty();
+        assertThat(adminOnly).as("应有 ADMIN 路由（duplicate/schedule/tts/监控页等）").isNotEmpty();
         adminOnly.forEach(route -> {
             assertThat(isMonitorPolicy(route.accessPolicy()))
                     .as("ADMIN 路由 %s 应受 monitor 保护", route.pathPattern()).isTrue();
@@ -229,7 +229,8 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/download/pixiv/novel", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/api/download/novel/status/**", "novel", AccessPolicy.VISITOR);
         assertOwnerPolicy("/pixiv-novel-download/**", "novel", AccessPolicy.VISITOR);
-        assertOwnerPolicy("/api/stats/**", "stats", AccessPolicy.ADMIN);
+        // 统计 stats 已外置：/api/stats/** 经外置插件 contribution 声明、不在内置快照（其 ADMIN 策略与
+        // classloader-aware 接入由外置加载的集成测试覆盖）。
         assertOwnerPolicy("/api/duplicates/**", "duplicate", AccessPolicy.ADMIN);
         // 计划任务宿主：计划任务管理 API（仅管理员），归 schedule 宿主插件声明。
         assertOwnerPolicy("/api/schedule/**", "schedule", AccessPolicy.ADMIN);

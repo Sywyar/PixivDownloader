@@ -24,13 +24,17 @@ class RouteAccessRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集全部内置插件路由（stats 三条在快照中）")
+    @DisplayName("构造时从 PluginRegistry 收集全部内置插件路由；已外置的 stats 路由不在内置快照")
     void collectsRoutesFromBuiltInPlugins() {
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
+        // 取仍内置的 duplicate 验证内置路由被收集到位（其 /api/duplicates/** 等）
         assertThat(registry.routes())
-                .filteredOn(registered -> registered.pluginId().equals("stats"))
+                .filteredOn(registered -> registered.pluginId().equals("duplicate"))
                 .extracting(registered -> registered.route().pathPattern())
-                .containsExactlyInAnyOrder("/pixiv-stats.html", "/pixiv-stats/**", "/api/stats/**");
+                .contains("/api/duplicates/**");
+        // stats 已改为外置 PF4J 插件：其路由经外置插件 contribution 注册，绝不出现在内置快照里
+        assertThat(registry.routes())
+                .noneMatch(registered -> registered.pluginId().equals("stats"));
     }
 
     @Test

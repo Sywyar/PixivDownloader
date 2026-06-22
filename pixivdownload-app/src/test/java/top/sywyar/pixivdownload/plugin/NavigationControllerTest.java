@@ -133,35 +133,35 @@ class NavigationControllerTest {
     // ========== 来源层级 + placement 内 priority 排序 ==========
 
     @Test
-    @DisplayName("管理员的 app.top placement 顺序：下载工作台、监控、画廊、小说、统计、疑似重复（自带基础页面在前）")
+    @DisplayName("管理员的 app.top placement 顺序：下载工作台、监控、画廊、小说、疑似重复（自带基础页面在前；stats 已外置）")
     void adminAppTopPlacementOrder() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
 
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("download-workbench", "monitor", "gallery", "novel", "stats", "duplicate");
+                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate");
     }
 
     @Test
-    @DisplayName("管理员的 app.sidebar（统计页中立主侧栏）顺序：下载工作台、监控、画廊、统计、疑似重复、邀请码管理（自带基础页面在前）")
+    @DisplayName("管理员的 app.sidebar（统计页中立主侧栏）顺序：下载工作台、监控、画廊、疑似重复、邀请码管理（自带基础页面在前；stats 已外置）")
     void adminAppSidebarPlacementOrder() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
 
         // 统计页用宿主中立的 app.sidebar slot：相关内置插件把主入口同时贡献到此，按 priority 排序、内置在前。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
-                .containsExactly("download-workbench", "monitor", "gallery", "stats", "duplicate", "invite-manage");
+                .containsExactly("download-workbench", "monitor", "gallery", "duplicate", "invite-manage");
     }
 
     @Test
-    @DisplayName("禁用画廊：app.sidebar 去掉画廊入口，但 monitor / 下载 / 统计 / 疑似重复 / 邀请码管理仍按注册贡献显示")
+    @DisplayName("禁用画廊：app.sidebar 去掉画廊入口，但 monitor / 下载 / 疑似重复 / 邀请码管理仍按注册贡献显示")
     void disablingGalleryKeepsAppSidebarNonGalleryEntries() {
         NavigationController controller = controllerFor(new NavigationRegistry(
                 new PluginRegistry(BuiltInPlugins.createAll(), disabling("gallery"))));
 
-        // 禁用画廊只撤掉画廊这一条贡献：统计页主侧栏其余按权限应显示的入口不受影响、顺序不变。
+        // 禁用画廊只撤掉画廊这一条贡献：主侧栏其余按权限应显示的入口不受影响、顺序不变。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
-                .containsExactly("download-workbench", "monitor", "stats", "duplicate", "invite-manage")
+                .containsExactly("download-workbench", "monitor", "duplicate", "invite-manage")
                 .doesNotContain("gallery");
     }
 
@@ -176,7 +176,7 @@ class NavigationControllerTest {
         NavigationController controller = controllerFor(new NavigationRegistry(new PluginRegistry(plugins)));
 
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("download-workbench", "monitor", "gallery", "novel", "stats", "duplicate",
+                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate",
                         "third-party-demo");
     }
 
@@ -196,8 +196,8 @@ class NavigationControllerTest {
         assertThat(idsInPlacement(controller, admin, "novel.type-switch")).isEmpty();
         // 统计页画廊视图 placement 空。
         assertThat(idsInPlacement(controller, admin, "stats.gallery-links")).isEmpty();
-        // 疑似重复页图标区只剩统计、无画廊。
-        assertThat(idsInPlacement(controller, admin, "duplicates.header-icons")).containsExactly("stats");
+        // 疑似重复页图标区为空：画廊图标已随画廊禁用消失，统计图标因 stats 已外置、未安装而不在内置集合。
+        assertThat(idsInPlacement(controller, admin, "duplicates.header-icons")).isEmpty();
     }
 
     @Test
@@ -214,17 +214,18 @@ class NavigationControllerTest {
     }
 
     @Test
-    @DisplayName("禁用统计：疑似重复页图标区的统计入口消失（只剩画廊）")
-    void disablingStatsRemovesDuplicatesHeaderStatsIcon() {
+    @DisplayName("stats 已外置、未安装：疑似重复页图标区只有画廊图标、无统计入口（内置集合不含 stats 导航）")
+    void builtInDuplicatesHeaderHasNoStatsIcon() {
         NavigationController controller = controllerFor(new NavigationRegistry(
-                new PluginRegistry(BuiltInPlugins.createAll(), disabling("stats"))));
+                new PluginRegistry(BuiltInPlugins.createAll())));
 
+        // 统计入口由外置 stats 插件经 duplicates.header-icons placement 贡献；未安装时该 slot 只剩画廊图标。
         assertThat(idsInPlacement(controller, adminRequest(), "duplicates.header-icons"))
                 .containsExactly("gallery");
     }
 
     @Test
-    @DisplayName("受邀访客的 /api/navigation 不泄露任何 ADMIN 项（监控 / 统计 / 疑似重复 / 邀请码管理）")
+    @DisplayName("受邀访客的 /api/navigation 不泄露任何 ADMIN 项（监控 / 疑似重复 / 邀请码管理）")
     void invitedGuestSeesNoAdminItems() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
@@ -237,7 +238,7 @@ class NavigationControllerTest {
 
         // 受邀访客可见画廊 / 小说（INVITED_GUEST）；不可见 ADMIN 项与 VISITOR 下载页。
         assertThat(ids).contains("gallery", "novel")
-                .doesNotContain("monitor", "stats", "duplicate", "invite-manage", "download-workbench");
+                .doesNotContain("monitor", "duplicate", "invite-manage", "download-workbench");
     }
 
     /** 最小测试插件：以给定 id 与导航项构造，其余 contribution 为空（非内置 → 来源层级为第三方）。 */

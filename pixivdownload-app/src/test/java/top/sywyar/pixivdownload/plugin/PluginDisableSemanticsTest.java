@@ -73,13 +73,13 @@ class PluginDisableSemanticsTest {
     }
 
     @Test
-    @DisplayName("禁用 stats / duplicate：受管 schema 不变，其路由不再注册")
-    void disablingStatsAndDuplicateKeepsSchemaIntact() {
-        PluginRegistry disabled = registryDisabling("stats", "duplicate");
+    @DisplayName("禁用 gallery / duplicate：受管 schema 不变，其路由不再注册")
+    void disablingGalleryAndDuplicateKeepsSchemaIntact() {
+        PluginRegistry disabled = registryDisabling("gallery", "duplicate");
 
         assertThat(new DatabaseSchemaRegistry(disabled).mergedSchema().tables().keySet())
                 .isEqualTo(new DatabaseSchemaRegistry(allEnabled()).mergedSchema().tables().keySet());
-        assertThat(routeOwners(disabled)).doesNotContain("stats", "duplicate");
+        assertThat(routeOwners(disabled)).doesNotContain("gallery", "duplicate");
     }
 
     private static List<String> navIds(PluginRegistry registry) {
@@ -93,7 +93,6 @@ class PluginDisableSemanticsTest {
     void disablingFeaturePluginsDropsTheirNavigation() {
         assertThat(navIds(registryDisabling("gallery"))).doesNotContain("gallery");
         assertThat(navIds(registryDisabling("novel"))).doesNotContain("novel");
-        assertThat(navIds(registryDisabling("stats"))).doesNotContain("stats");
         assertThat(navIds(registryDisabling("duplicate"))).doesNotContain("duplicate");
     }
 
@@ -157,9 +156,9 @@ class PluginDisableSemanticsTest {
     @DisplayName("禁用单个功能插件不影响其它插件导航（跨插件独立）")
     void disablingOnePluginKeepsOtherNavigation() {
         List<String> ids = navIds(registryDisabling("gallery"));
-        // 仅 gallery 入口消失；下载工作台 / 监控 / 小说 / 统计 / 疑似重复 / 邀请码管理仍在。
+        // 仅 gallery 入口消失；下载工作台 / 监控 / 小说 / 疑似重复 / 邀请码管理仍在（stats 已外置、不在内置导航）。
         assertThat(ids).contains(
-                "download-workbench", "monitor", "novel", "stats", "duplicate", "invite-manage");
+                "download-workbench", "monitor", "novel", "duplicate", "invite-manage");
     }
 
     @Test

@@ -10,52 +10,68 @@
     </parent>
     <artifactId>pixivdownload-plugin-stats</artifactId>
     <name>PixivDownloader Stats Plugin</name>
-    <description>统计仪表盘功能插件（stats.*）：管理员专属只读聚合页面与 /api/stats/**。依赖 plugin-api + core-api + plugin-runtime + Spring/Lombok，产物打进主程序的单一 boot jar；不依赖主程序 app。</description>
+    <description>统计仪表盘功能插件（stats.*）：管理员专属只读聚合页面与 /api/stats/**。打包为外置 PF4J 插件 jar（jar 根含 plugin.properties），放入 plugins/ 由运行时加载；不进主程序 boot jar、不依赖主程序 app。</description>
 
     <properties>
         <java.version>17</java.version>
     </properties>
 
     <!--
-      依赖边界（由 StatsPluginModuleDependencyGuardTest 守护）：本模块只承载统计仪表盘插件本体（5 类 +
-      static/pixiv-stats* + i18n/web/stats*），编译期依赖跨插件契约 plugin-api、核心语义端口 core-api
-      （core.stats.StatsQueryStore / StatsAggregates）、插件启用运行时 plugin-runtime
-      （@ConditionalOnPluginEnabled）与 Spring / Lombok，但<b>绝不依赖主程序 pixivdownload-app</b>——
-      app 经唯一边 BuiltInPlugins→StatsPlugin 单向依赖本模块。统计事实数据只经 core-api 语义端口读，
-      不得自建 JdbcTemplate / 注入 DataSource / 触碰核心 DB 实现层 core.stats.db。坐标版本随
-      spring-boot-starter-parent 管理。
+      依赖边界（由 StatsPluginModuleDependencyGuardTest 守护）：本模块只承载统计仪表盘插件本体（StatsPf4jPlugin +
+      StatsPlugin / StatsPluginConfiguration / StatsService / StatsController / StatsDto + static/pixiv-stats* +
+      i18n/web/stats* + 根部 plugin.properties），编译期依赖跨插件契约 plugin-api、核心语义端口 core-api
+      （core.stats.StatsQueryStore / StatsAggregates）、插件启用运行时 plugin-runtime（@ConditionalOnPluginEnabled）、
+      PF4J（外置插件主类）与 Spring / Lombok，但<b>绝不依赖主程序 pixivdownload-app</b>。统计事实数据只经 core-api
+      语义端口读，不得自建 JdbcTemplate / 注入 DataSource / 触碰核心 DB 实现层 core.stats.db。
+
+      打包形态 = thin 外置插件 jar：plugin-api / core-api / plugin-runtime / PF4J / Spring 均为 provided（由宿主
+      提供、不打入插件包），故产物只含本模块自身的 stats 类与资源 + plugin.properties——无需 assembly / shade
+      （所有依赖都由宿主父 classloader 提供，插件 jar 保持精简，共享契约类与宿主同一份 Class、桥接 instanceof 成立）。
+      坐标版本随 spring-boot-starter-parent 与父工程 dependencyManagement（PF4J）管理。
     -->
     <dependencies>
-        <!-- 跨插件契约：PixivFeaturePlugin / 各类 contribution / PluginManagedBean / AccessPolicy 等 -->
+        <!-- 跨插件契约：PixivFeaturePlugin / PixivPluginProvider / 各类 contribution / PluginManagedBean / AccessPolicy 等
+             （provided：由宿主父 classloader 提供，必须与宿主共享同一份 Class，桥接 instanceof 才成立——不可打入插件 jar） -->
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-api</artifactId>
             <version>${project.version}</version>
+            <scope>provided</scope>
         </dependency>
-        <!-- 核心语义端口：core.stats.StatsQueryStore + StatsAggregates（Spring-free 纯 JDK）；实现层 StatsQueryStoreImpl 留 app -->
+        <!-- 核心语义端口：core.stats.StatsQueryStore + StatsAggregates（Spring-free 纯 JDK）；实现层 StatsQueryStoreImpl 留 app（provided：宿主提供） -->
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-core-api</artifactId>
             <version>${project.version}</version>
+            <scope>provided</scope>
         </dependency>
-        <!-- 插件启用运行时：@ConditionalOnPluginEnabled（业务 Bean 随 plugins.stats.enabled 装配 / 缺席） -->
+        <!-- 插件启用运行时：@ConditionalOnPluginEnabled（业务 Bean 随 plugins.stats.enabled 装配 / 缺席，由 Web 动态注册能力消费；provided：宿主提供） -->
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-runtime</artifactId>
             <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!-- PF4J：外置插件主类 StatsPf4jPlugin 继承 org.pf4j.Plugin（provided：宿主随 boot jar 装入 PF4J，插件不打入） -->
+        <dependency>
+            <groupId>org.pf4j</groupId>
+            <artifactId>pf4j</artifactId>
+            <scope>provided</scope>
         </dependency>
 
-        <!-- @Configuration / @Bean：StatsPluginConfiguration 的 Bean 装配收敛点 -->
+        <!-- @Configuration / @Bean：StatsPluginConfiguration 的 Bean 装配收敛点（provided：宿主提供 Spring） -->
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-context</artifactId>
+            <scope>provided</scope>
         </dependency>
-        <!-- @RestController / @RequestMapping / @GetMapping / @RequestParam：StatsController 的 MVC 端点 -->
+        <!-- @RestController / @RequestMapping / @GetMapping / @RequestParam：StatsController 的 MVC 端点（provided：宿主提供 Spring） -->
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
+            <scope>provided</scope>
         </dependency>
-        <!-- @RequiredArgsConstructor：编译期注解处理（provided——运行期无需 lombok，boot jar 由 app 的 lombok 提供） -->
+        <!-- @RequiredArgsConstructor：编译期注解处理（provided——运行期无需 lombok） -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

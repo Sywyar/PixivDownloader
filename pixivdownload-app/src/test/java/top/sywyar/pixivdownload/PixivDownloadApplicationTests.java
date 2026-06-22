@@ -16,7 +16,6 @@ import top.sywyar.pixivdownload.duplicate.DuplicateService;
 import top.sywyar.pixivdownload.gallery.GalleryController;
 import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
-import top.sywyar.pixivdownload.stats.StatsController;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -71,13 +70,11 @@ class PixivDownloadApplicationTests {
     @Test
     @DisplayName("插件托管 controller 恰好注册一次且 MVC 映射不变")
     void pluginManagedControllerRegisteredExactlyOnce() {
-        assertThat(applicationContext.getBeanNamesForType(StatsController.class)).hasSize(1);
         assertThat(applicationContext.getBeanNamesForType(DuplicateController.class)).hasSize(1);
         assertThat(applicationContext.getBeanNamesForType(GalleryController.class)).hasSize(1);
         assertThat(applicationContext.getBeanNamesForType(NovelGalleryController.class)).hasSize(1);
         RequestMappingHandlerMapping handlerMapping = applicationContext
                 .getBean("requestMappingHandlerMapping", RequestMappingHandlerMapping.class);
-        assertThat(mappedPatterns(handlerMapping, "/api/stats/dashboard")).isTrue();
         assertThat(mappedPatterns(handlerMapping, "/api/duplicates/groups")).isTrue();
         assertThat(mappedPatterns(handlerMapping, "/api/gallery/artworks")).isTrue();
         assertThat(mappedPatterns(handlerMapping, "/api/gallery/novels")).isTrue();

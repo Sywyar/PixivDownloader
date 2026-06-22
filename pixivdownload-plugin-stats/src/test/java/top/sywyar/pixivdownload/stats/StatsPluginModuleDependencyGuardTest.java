@@ -33,7 +33,7 @@ class StatsPluginModuleDependencyGuardTest {
             .importPackages("top.sywyar.pixivdownload");
 
     @Test
-    @DisplayName("stats 模块必须自包含：只依赖 plugin.api / core.stats 端口 / plugin 运行时 / Spring / JDK / Lombok，不依赖 app")
+    @DisplayName("stats 模块必须自包含：只依赖 plugin.api / core.stats 端口 / plugin 运行时 / PF4J / Spring / JDK / Lombok，不依赖 app")
     void statsModuleIsSelfContained() {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload.stats..")
@@ -44,12 +44,14 @@ class StatsPluginModuleDependencyGuardTest {
                         "top.sywyar.pixivdownload.plugin",
                         "top.sywyar.pixivdownload.core.stats..",
                         "java..",
+                        "org.pf4j..",
                         "org.springframework..",
                         "lombok..")
                 .because("stats 插件本体只能依赖跨插件契约 plugin.api、核心语义端口 core.stats（core-api）、"
-                        + "插件启用运行时 top.sywyar.pixivdownload.plugin（plugin-runtime 的 @ConditionalOnPluginEnabled）"
-                        + "与 Spring / JDK / Lombok；绝不依赖主程序 pixivdownload-app 的任何业务实现包——"
-                        + "否则 app↔stats 成环、模块无法构建。app 经唯一边 BuiltInPlugins→StatsPlugin 单向依赖本模块")
+                        + "插件启用运行时 top.sywyar.pixivdownload.plugin（plugin-runtime 的 @ConditionalOnPluginEnabled）、"
+                        + "PF4J（外置插件主类 StatsPf4jPlugin 继承 org.pf4j.Plugin）与 Spring / JDK / Lombok；"
+                        + "绝不依赖主程序 pixivdownload-app 的任何业务实现包——否则 app↔stats 成环、模块无法构建。"
+                        + "app 不再依赖本模块；stats 作为外置 PF4J 插件 jar 经 plugins/ 目录由运行时加载")
                 .check(CLASSES);
     }
 
@@ -83,8 +85,9 @@ class StatsPluginModuleDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("stats 模块应包含统计插件五类（防守卫 vacuous 通过）")
+    @DisplayName("stats 模块应包含统计插件本体类与外置 PF4J 主类（防守卫 vacuous 通过）")
     void statsModuleContainsPluginClasses() {
+        assertThat(CLASSES.contain(StatsPf4jPlugin.class.getName())).isTrue();
         assertThat(CLASSES.contain(StatsPlugin.class.getName())).isTrue();
         assertThat(CLASSES.contain(StatsPluginConfiguration.class.getName())).isTrue();
         assertThat(CLASSES.contain(StatsService.class.getName())).isTrue();

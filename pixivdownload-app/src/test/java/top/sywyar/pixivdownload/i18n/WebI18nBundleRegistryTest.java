@@ -39,7 +39,6 @@ class WebI18nBundleRegistryTest {
         map.put("intro", "i18n.web.intro");
         map.put("batch", "i18n.web.batch");
         map.put("gallery", "i18n.web.gallery");
-        map.put("stats", "i18n.web.stats");
         map.put("duplicates", "i18n.web.duplicates");
         map.put("artwork", "i18n.web.artwork");
         map.put("showcase", "i18n.web.showcase");
@@ -68,7 +67,7 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价退役前的静态 map（19 条）")
+    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价退役前的静态 map（18 条；stats 已外置）")
     void mergedNamespacesMirrorLegacyStaticMap() {
         WebI18nBundleRegistry registry = builtInRegistry();
 
@@ -97,7 +96,6 @@ class WebI18nBundleRegistryTest {
         assertThat(ownerOf(registry, "artwork")).isEqualTo("gallery");
         assertThat(ownerOf(registry, "novel")).isEqualTo("novel");
         assertThat(ownerOf(registry, "narration")).isEqualTo("novel");
-        assertThat(ownerOf(registry, "stats")).isEqualTo("stats");
         assertThat(ownerOf(registry, "duplicates")).isEqualTo("duplicate");
     }
 

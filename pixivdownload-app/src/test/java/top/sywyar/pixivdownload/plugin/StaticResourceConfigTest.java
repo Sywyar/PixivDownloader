@@ -87,7 +87,7 @@ class StaticResourceConfigTest {
                 .contains("/js/**", "/css/**", "/vendor/**",
                         "/pixiv-gallery/**", "/pixiv-artwork/**", "/pixiv-showcase/**", "/pixiv-series/**",
                         "/pixiv-novel-gallery/**", "/pixiv-novel/**",
-                        "/pixiv-stats/**", "/pixiv-duplicates/**");
+                        "/pixiv-duplicates/**");
     }
 
     // --- 服务行为断言（真实经 DispatcherServlet → ResourceHttpRequestHandler）---

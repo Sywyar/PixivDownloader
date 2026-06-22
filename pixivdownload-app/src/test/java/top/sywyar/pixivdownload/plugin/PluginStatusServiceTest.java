@@ -44,12 +44,12 @@ class PluginStatusServiceTest {
         galleryOff.setEnabled(false);
         toggles.put("gallery", galleryOff);
         PluginRegistry registry = new PluginRegistry(
-                List.of(new TestPlugin("stats"), new TestPlugin("gallery")),
+                List.of(new TestPlugin("duplicate"), new TestPlugin("gallery")),
                 toggles, inventory.toDiscoveryResult());
 
         PluginStatusReport report = new PluginStatusService(registry, inventory, RequiredPluginPolicy.empty()).report();
 
-        assertThat(statusOf(report, "stats")).isEqualTo(PluginStatus.STARTED);
+        assertThat(statusOf(report, "duplicate")).isEqualTo(PluginStatus.STARTED);
         assertThat(statusOf(report, "gallery")).isEqualTo(PluginStatus.DISABLED);
         assertThat(statusOf(report, "ext-foo")).isEqualTo(PluginStatus.STARTED);
         assertThat(statusOf(report, "ext-bad")).isEqualTo(PluginStatus.INCOMPATIBLE);
@@ -79,14 +79,14 @@ class PluginStatusServiceTest {
     @DisplayName("空必选策略 + 无外置插件：只报告内置插件、无未满足要求")
     void emptyPolicyAndNoExternalReportsBuiltInsOnly() {
         PluginRegistry registry = new PluginRegistry(
-                List.of(new TestPlugin("core", PluginKind.CORE), new TestPlugin("stats")),
+                List.of(new TestPlugin("core", PluginKind.CORE), new TestPlugin("duplicate")),
                 new PluginToggleProperties());
 
         PluginStatusReport report = new PluginStatusService(
                 registry, PluginInventory.empty(), RequiredPluginPolicy.empty()).report();
 
         assertThat(report.diagnostics()).extracting(PluginDiagnostic::id)
-                .containsExactlyInAnyOrder("core", "stats");
+                .containsExactlyInAnyOrder("core", "duplicate");
         assertThat(report.hasUnmetRequirement()).isFalse();
         assertThat(report.withStatus(PluginStatus.STARTED)).hasSize(2);
     }

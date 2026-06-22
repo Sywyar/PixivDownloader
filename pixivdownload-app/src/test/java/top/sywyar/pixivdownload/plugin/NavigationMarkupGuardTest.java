@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.api.web.DrilldownPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 
 import java.io.IOException;
@@ -31,9 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>类型切换的对方入口（画廊页的「小说」、小说页的「漫画」）必须是 slot、不得硬编码对方 href。</li>
  * </ul>
  * 同插件内的页面自有链接不在禁止之列：画廊 / 系列页指向画廊视图的链接（{@code /pixiv-gallery.html?view=...}）是
- * 画廊家族页面的内部入口。统计页则不在此列——它借用画廊能力的侧栏区块（视图 / 收藏夹）已改由画廊插件经
- * {@code /api/page-sections} 贡献、由 {@code /js/pixiv-page-sections.js} 渲染，统计页源码（HTML + JS）不得再含任何
- * 画廊 href / collection API / 按插件 id 的可用性判断（由 {@link #statsPageHasNoGalleryPluginKnowledge()} 守卫）。
+ * 画廊家族页面的内部入口。统计页（pixiv-stats.html）已随 stats 外置迁出本模块 classpath，其「只声明中立 slot、
+ * 不含任何画廊插件知识」的页面守卫随静态资源一起迁到 stats 模块的 {@code StatsPageMarkupGuardTest}。
  * <p>
  * 另含两条与「跨插件未知」前提配套的渲染器守卫：公共导航渲染器不得为内置插件 id 硬编码默认 query
  * （{@link #navigationRendererHasNoBuiltInDefaultQuery()}）；类型切换跨页交接必须走 PixivNav 渲染生命周期事件、
@@ -52,8 +50,8 @@ class NavigationMarkupGuardTest {
             "pixiv-gallery.html", List.of(NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),
             "pixiv-novel-gallery.html", List.of(NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.NOVEL_TYPE_SWITCH),
             "pixiv-series.html", List.of(NavigationPlacements.GALLERY_SIDEBAR),
-            // 统计页改用宿主中立的主侧栏 placement（app.sidebar），不再借画廊家族侧栏（gallery.sidebar）。
-            "pixiv-stats.html", List.of(NavigationPlacements.APP_SIDEBAR),
+            // 统计页（pixiv-stats.html）已随 stats 外置迁出 app classpath，其页面守卫见 stats 模块的
+            // StatsPageMarkupGuardTest（仍校验统计页只声明中立 slot、不硬编码画廊知识）。
             "pixiv-duplicates.html", List.of(NavigationPlacements.DUPLICATES_HEADER_ICONS));
 
     /** 全部已知 placement（HTML slot 值必须取自此集合，确保前端 slot 与后端 contribution 名一致）。 */
@@ -81,8 +79,6 @@ class NavigationMarkupGuardTest {
                     "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
             "pixiv-series.html", List.of("/monitor.html", "/pixiv-novel-gallery.html",
                     "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
-            "pixiv-stats.html", List.of("/monitor.html", "/pixiv-gallery.html", "/pixiv-novel-gallery.html",
-                    "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
             "pixiv-duplicates.html", List.of("/pixiv-gallery.html", "/pixiv-stats.html",
                     "/monitor.html", "/pixiv-novel-gallery.html", "/pixiv-invite-manage.html"));
 
@@ -165,60 +161,6 @@ class NavigationMarkupGuardTest {
                         .contains(m.group(1));
             }
         }
-    }
-
-    @Test
-    @DisplayName("统计页（HTML + JS）不含任何画廊插件知识：无 gallery.sidebar、gallery: 命名、/pixiv-gallery.html、/api/collections、画廊筛选参数名、isAvailable('gallery')；只声明中立 slot 与语义 placement")
-    void statsPageHasNoGalleryPluginKnowledge() throws IOException {
-        // 借用画廊能力的区块改由 /api/page-sections 贡献、Top 作者 / 热门标签的下钻改由 /api/drilldowns 贡献、侧栏导航
-        // 改用宿主中立 placement：统计页外壳不再知道画廊是哪个插件、是否启用，故其 HTML 与 JS 源码都不得含画廊侧栏
-        // placement、画廊 i18n namespace、画廊页面 href、收藏夹 API、画廊筛选查询参数名或按插件 id 的可用性判断。
-        for (String source : List.of(read("pixiv-stats.html"), read("pixiv-stats/pixiv-stats.js"))) {
-            assertThat(source)
-                    .as("统计页外壳不应借用画廊家族侧栏 placement（改用中立的 app.sidebar）")
-                    .doesNotContain(NavigationPlacements.GALLERY_SIDEBAR);
-            assertThat(source)
-                    .as("统计页外壳不应借用画廊 i18n namespace（品牌 / 导航标题 / 在线 / 菜单按钮改用 stats namespace）")
-                    .doesNotContain("gallery:");
-            assertThat(source)
-                    .as("统计页不应硬编码画廊页面 href（画廊下钻 / 区块改由 /api/drilldowns、/api/page-sections 贡献）")
-                    .doesNotContain("/pixiv-gallery.html");
-            assertThat(source)
-                    .as("统计页不应调用画廊的收藏夹 API（收藏夹列表由画廊自有模块渲染）")
-                    .doesNotContain("/api/collections");
-            // 画廊筛选查询参数名属画廊业务，只能出现在画廊插件贡献的 hrefTemplate 里（运行期经 /api/drilldowns 下发），
-            // 不得出现在统计页源码——统计页只提供语义变量值（authorId/authorName/tagId/tagName/tagTranslatedName）。
-            assertThat(source)
-                    .as("统计页不应出现画廊作者筛选参数名 filterAuthorId（属画廊业务、由 hrefTemplate 承载）")
-                    .doesNotContain("filterAuthorId");
-            assertThat(source)
-                    .as("统计页不应出现画廊作者筛选参数名 filterAuthorName")
-                    .doesNotContain("filterAuthorName");
-            assertThat(source)
-                    .as("统计页不应出现画廊标签筛选参数名 filterTagId")
-                    .doesNotContain("filterTagId");
-            assertThat(source)
-                    .as("统计页不应出现画廊标签筛选参数名 filterTag / filterTagTranslated")
-                    .doesNotContain("filterTag");
-            assertThat(source)
-                    .as("统计页不应按插件 id 判断画廊是否可用（下钻 / 区块随插件禁用自然消失）")
-                    .doesNotContain("isAvailable('gallery')")
-                    .doesNotContain("isAvailable(\"gallery\")");
-        }
-        assertThat(read("pixiv-stats.html"))
-                .as("统计页应只声明通用区块 slot（内容由活动插件经 /api/page-sections 贡献）")
-                .contains("data-section-slot=\"" + NavigationPlacements.STATS_SIDEBAR_SECTIONS + "\"");
-        assertThat(read("pixiv-stats.html"))
-                .as("统计页主侧栏导航应声明宿主中立的 app.sidebar slot")
-                .contains("data-nav-slot=\"" + NavigationPlacements.APP_SIDEBAR + "\"");
-        // 统计页 JS 只按语义 placement 请求下钻 href（贡献方决定目标），故源码应出现这两个语义 placement 名。
-        String statsJs = read("pixiv-stats/pixiv-stats.js");
-        assertThat(statsJs)
-                .as("统计页 JS 应按语义 placement stats.top-authors 请求作者下钻 href")
-                .contains(DrilldownPlacements.STATS_TOP_AUTHORS);
-        assertThat(statsJs)
-                .as("统计页 JS 应按语义 placement stats.top-tags 请求标签下钻 href")
-                .contains(DrilldownPlacements.STATS_TOP_TAGS);
     }
 
     @Test
