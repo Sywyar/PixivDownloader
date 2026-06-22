@@ -181,15 +181,17 @@
                     <mainClass>top.sywyar.pixivdownload.gui.GuiLauncher</mainClass>
                 </configuration>
             </plugin>
-            <!-- 把外置 stats 插件的构建产物目录传给集成测试（StatsExternalPluginIntegrationTest 据此组装临时插件 jar
-                 做真实 PF4J 加载验证）。reactor 中 plugin-stats 先于 app 构建，故其 target/classes 在 app 测试期已就绪；
-                 缺失时该集成测试 assumeTrue 跳过（如 IDE 未触发 reactor 构建），不影响其它测试。 -->
+            <!-- 把外置插件的构建产物目录传给集成测试（据此组装临时插件 jar 做真实 PF4J 加载验证）：
+                 stats.plugin.classes 供 StatsExternalPluginIntegrationTest，recovery-sentinel.plugin.classes 供
+                 RecoverySentinelExternalPluginIntegrationTest。reactor 中这两个插件模块均先于 app 构建，故其 target/classes
+                 在 app 测试期已就绪；缺失时对应集成测试 assumeTrue 跳过（如 IDE 未触发 reactor 构建），不影响其它测试。 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <systemPropertyVariables>
                         <stats.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-stats/target/classes</stats.plugin.classes>
+                        <recovery-sentinel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-recovery-sentinel/target/classes</recovery-sentinel.plugin.classes>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>
