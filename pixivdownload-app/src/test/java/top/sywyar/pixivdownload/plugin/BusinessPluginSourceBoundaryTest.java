@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 模型 {@code WorkSidecarMeta}）读、普通作品文件经 {@code WorkAssetService} 枚举 / 读取。禁用 token 精确到
  * 不会误伤合法的接口名 {@code findSidecarMeta} 与模型名 {@code WorkSidecarMeta}（两者均不含任一禁用 token）。
  *
- * <p>source 范围沿 Y.3 口径：{@code gallery..} 整包 + {@code NovelGalleryService} + {@code NovelBatchService}。
+ * <p>source 范围：{@code gallery..} 整包 + {@code NovelGalleryService} + {@code NovelBatchService}。
  * 只扫 main 业务插件代码——测试代码自身（如本类、{@link PluginApiDependencyGuardTest}）允许出现这些 token。
  */
 @DisplayName("业务插件源码边界：不得硬编码 sidecar 文件名实现细节")
@@ -84,7 +84,7 @@ class BusinessPluginSourceBoundaryTest {
                 .isEmpty();
     }
 
-    /** gallery 整包的全部 .java + 两个小说画廊服务文件（沿 Y.3 source 口径）。 */
+    /** gallery 整包的全部 .java + 两个小说画廊服务文件。 */
     private static List<Path> businessPluginSources() {
         List<Path> sources = new ArrayList<>(collectJavaFiles(SOURCE_ROOT.resolve("gallery")));
         sources.add(SOURCE_ROOT.resolve("novel").resolve("NovelGalleryService.java"));
