@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -240,6 +241,62 @@ class PixivPluginDiscoveryBridgeTest {
         assertThat(result.failures().get(0).reason()).contains("incompatible");
     }
 
+    @Test
+    @DisplayName("inspectContextModules：已启动 + 兼容 + 声明配置类的插件包产出子 context 装配定义（来源 id / classloader / 配置类）")
+    void inspectContextModulesExposesConfigurationClasses() {
+        ClassLoader pluginClassLoader = getClass().getClassLoader();
+        PluginManager manager = managerWith(startedWrapper("ext-cfg-pack",
+                new ConfigProviderPlugin(List.of(SamplePluginConfig.class)), pluginClassLoader));
+
+        List<PluginContextModule> modules = bridge.inspectContextModules(manager);
+
+        assertThat(modules).singleElement().satisfies(module -> {
+            assertThat(module.sourcePluginId()).isEqualTo("ext-cfg-pack");
+            assertThat(module.classLoader()).isSameAs(pluginClassLoader);
+            assertThat(module.configurationClasses()).containsExactly(SamplePluginConfig.class);
+            assertThat(module.hasConfigurationClasses()).isTrue();
+        });
+    }
+
+    @Test
+    @DisplayName("inspectContextModules：未声明配置类的插件包不产出子 context 装配定义")
+    void inspectContextModulesSkipsPackageWithoutConfigurationClasses() {
+        PluginManager manager = managerWith(
+                startedWrapper("ext-cfg-pack", new ConfigProviderPlugin(List.of()), getClass().getClassLoader()),
+                startedWrapper("ext-plain-pack",
+                        new GoodProviderPlugin(List.of(new TestFeaturePlugin("ext-plain"))),
+                        getClass().getClassLoader()));
+
+        assertThat(bridge.inspectContextModules(manager)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("inspectContextModules：核心 API 不兼容的插件包不参与子 context 装配（同 inspect 的接入兼容门）")
+    void inspectContextModulesRejectsIncompatiblePackage() {
+        DefaultPluginDescriptor incompatible = new DefaultPluginDescriptor(
+                "ext-future-pack", "Future", "com.example.FuturePlugin",
+                "1.0.0", (PluginApiVersion.MAJOR + 1) + ".0", "Acme", "MIT");
+        PluginManager manager = managerWith(startedWrapperWith("ext-future-pack", incompatible,
+                new ConfigProviderPlugin(List.of(SamplePluginConfig.class)), getClass().getClassLoader()));
+
+        assertThat(bridge.inspectContextModules(manager)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("inspectContextModules：主类未实现入口契约的插件包被跳过，不致命")
+    void inspectContextModulesSkipsNonProvider() {
+        PluginManager manager = managerWith(
+                startedWrapper("ext-broken-pack", new NotAProviderPlugin(), getClass().getClassLoader()));
+
+        assertThat(bridge.inspectContextModules(manager)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("inspectContextModules：PluginManager 为 null 返回空")
+    void inspectContextModulesNullManagerYieldsEmpty() {
+        assertThat(bridge.inspectContextModules(null)).isEmpty();
+    }
+
     // ---- 测试夹具 ----
 
     private static PluginManager managerWith(PluginWrapper... wrappers) {
@@ -280,6 +337,29 @@ class PixivPluginDiscoveryBridgeTest {
 
     /** 主类未实现入口契约（典型坏插件 / 误把 plugin-api 打进插件包导致同名类不同 loader 的情形）。 */
     private static final class NotAProviderPlugin extends Plugin {
+    }
+
+    /** 入口契约声明了 Spring 配置类（用于子 context 装配定义清点）。 */
+    private static final class ConfigProviderPlugin extends Plugin implements PixivPluginProvider {
+        private final List<Class<?>> configurationClasses;
+
+        ConfigProviderPlugin(List<Class<?>> configurationClasses) {
+            this.configurationClasses = configurationClasses;
+        }
+
+        @Override
+        public List<PixivFeaturePlugin> featurePlugins() {
+            return List.of(new TestFeaturePlugin("ext-cfg"));
+        }
+
+        @Override
+        public List<Class<?>> configurationClasses() {
+            return configurationClasses;
+        }
+    }
+
+    /** 占位配置类令牌（清点只收集 Class 令牌，不实例化，故无需真实 @Configuration）。 */
+    private static final class SamplePluginConfig {
     }
 
     /** 入口方法抛错的插件。 */

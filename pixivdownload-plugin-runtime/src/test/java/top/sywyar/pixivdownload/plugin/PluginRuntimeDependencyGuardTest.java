@@ -151,4 +151,14 @@ class PluginRuntimeDependencyGuardTest {
         assertThat(CLASSES.contain(
                 top.sywyar.pixivdownload.plugin.runtime.PluginInventory.class.getName())).isTrue();
     }
+
+    @Test
+    @DisplayName("plugin-runtime 模块应包含每外置插件子 ApplicationContext 工厂与装配定义（防守卫 vacuous 通过）")
+    void pluginRuntimeContainsChildContextFactory() {
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory.class.getName()))
+                .isTrue();
+        assertThat(CLASSES.contain(
+                top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule.class.getName())).isTrue();
+    }
 }

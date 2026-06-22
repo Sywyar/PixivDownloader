@@ -24,4 +24,21 @@ public interface PixivPluginProvider {
      * 不贡献任何功能插件时返回空列表。
      */
     List<PixivFeaturePlugin> featurePlugins();
+
+    /**
+     * 本外置插件需要由宿主装配的 Spring {@code @Configuration} 配置类。宿主为每个外置插件建立一个子
+     * {@code ApplicationContext}（父 context 为核心应用），在其中实例化这里返回的配置类——插件的 Bean
+     *（{@code @Service} / {@code @RestController} 等）由各配置类以
+     * {@code @Bean} 显式装配，不经核心根包扫描。
+     *
+     * <p>子 context 的 Bean 可注入<b>父 context 暴露的核心 API / 服务接口</b>（如 {@code plugin.api} 的服务契约、
+     * 核心 owned 的语义端口），但<b>不得</b>直接依赖核心实现类；跨子 context 边界传递的类型仍限于 {@code plugin.api}、
+     * JDK 与宿主父 classloader 共享的规范依赖。
+     *
+     * <p>返回类型只用 JDK {@link Class}，本契约不引用 Spring 类型，保持 {@code plugin.api} 的零框架依赖。
+     * 默认返回空列表：不声明任何 Spring Bean 的插件无需覆写，宿主不为其建立子 context。不得返回 {@code null}。
+     */
+    default List<Class<?>> configurationClasses() {
+        return List.of();
+    }
 }

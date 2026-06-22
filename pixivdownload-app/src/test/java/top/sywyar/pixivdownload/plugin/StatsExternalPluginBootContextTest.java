@@ -7,6 +7,8 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
@@ -48,9 +50,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code new PluginRegistry(...)} 注入发现结果，本用例验证的是配置类把属性、运行时管理器与双来源注册中心
  * Bean 串起来后、真实容器里 stats 确实以 {@code EXTERNAL} 在场并贡献到位。
  *
- * <p>控范围：本用例只验证<b>启动期加载</b>与 contribution 注册。stats 的 {@code @RestController} / {@code @Service}
- * 的 Bean 装配与 {@code /api/stats/**} handler 注册依赖尚未启用的 Web 动态注册能力（{@code StatsPluginConfiguration}
- * 不在 app 组件扫描路径上），<b>不</b>在此验证。
+ * <p>控范围：本用例验证<b>启动期加载</b>、contribution 注册，以及外置 stats 的 {@code @RestController} /
+ * {@code @Service} Bean 经 {@code StatsPluginConfiguration} 在 stats 专属子 {@code ApplicationContext} 中装配
+ *（其 service 向父 context 解析核心 {@code StatsQueryStore}）。这些插件 Bean 只在子 context、<b>不</b>在父（核心
+ * 应用）context；{@code /api/stats/**} handler 的动态注册是另行处理的后续接线，<b>不</b>在此验证。
  *
  * <p>stats 构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} 传入（reactor 中先于 app 构建）；未就绪时
  * （如 IDE 未触发 reactor 构建）经类级 {@link EnabledIf} 整类跳过，不加载上下文。Windows 下 PF4J 加载 jar 会持有
@@ -107,6 +110,10 @@ class StatsExternalPluginBootContextTest {
     private StaticResourceRegistry staticResourceRegistry;
     @Autowired
     private WebI18nBundleRegistry webI18nBundleRegistry;
+    @Autowired
+    private ExternalPluginContextManager externalPluginContextManager;
+    @Autowired
+    private ApplicationContext applicationContext;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -192,6 +199,29 @@ class StatsExternalPluginBootContextTest {
         assertThat(externalCl.getResource("i18n/web/stats.properties")).isNotNull();
         assertThat(getClass().getClassLoader().getResource("static/pixiv-stats/pixiv-stats.css")).isNull();
         assertThat(getClass().getClassLoader().getResource("i18n/web/stats.properties")).isNull();
+    }
+
+    @Test
+    @DisplayName("外置 stats 子 ApplicationContext：StatsPluginConfiguration 的 service/controller Bean 在子 context、不在父 context")
+    void externalStatsChildContextHostsStatsBeans() throws Exception {
+        ConfigurableApplicationContext child = externalPluginContextManager.contextFor("stats").orElseThrow();
+        assertThat(child.isActive()).isTrue();
+        // 子 context 的父就是核心应用 context，classloader 是外置插件自己的
+        assertThat(child.getParent()).isSameAs(applicationContext);
+        ClassLoader externalCl = externalStatsClassLoader();
+        assertThat(child.getClassLoader()).isSameAs(externalCl);
+
+        Class<?> statsServiceClass = externalCl.loadClass("top.sywyar.pixivdownload.stats.StatsService");
+        Class<?> statsControllerClass = externalCl.loadClass("top.sywyar.pixivdownload.stats.StatsController");
+
+        // 子 context 实例化了 stats 的 service / controller Bean（其 service 注入父 context 的 StatsQueryStore）
+        assertThat(child.getBeanNamesForType(statsServiceClass)).isNotEmpty();
+        assertThat(child.getBeanNamesForType(statsControllerClass)).isNotEmpty();
+        assertThat(child.getBean(statsControllerClass)).isNotNull();
+
+        // 这些插件 Bean 不在父（核心应用）context —— 本实现不做 controller 动态注册，/api/stats/** 仍无 handler
+        assertThat(applicationContext.getBeanNamesForType(statsControllerClass)).isEmpty();
+        assertThat(applicationContext.getBeanNamesForType(statsServiceClass)).isEmpty();
     }
 
     private ClassLoader externalStatsClassLoader() {

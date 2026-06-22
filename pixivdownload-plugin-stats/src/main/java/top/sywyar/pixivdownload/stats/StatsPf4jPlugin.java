@@ -23,13 +23,20 @@ import java.util.List;
  * classloader 解析、与宿主共享同一份 Class，避免「插件自带契约副本→同名异 loader→{@code instanceof} 失败」。
  *
  * <p>功能贡献（route / static / i18n / navigation / schema）由 {@link StatsPlugin} 经 {@code PixivFeaturePlugin}
- * 接口方法声明，<b>不</b>依赖 Spring 组件扫描；统计 controller / service（{@code StatsController} / {@code StatsService}）
- * 的 Bean 装配与 {@code /api/stats/**} 处理器注册依赖尚未启用的 Web 动态注册能力，当前外置加载路径不涉及。
+ * 接口方法声明，<b>不</b>依赖 Spring 组件扫描。统计 controller / service（{@code StatsController} /
+ * {@code StatsService}）的 Bean 由 {@link StatsPluginConfiguration} 装配，经入口契约 {@link #configurationClasses()}
+ * 交给宿主在 stats 专属子 {@code ApplicationContext} 中实例化；其 {@code /api/stats/**} 处理器的动态注册是另行
+ * 处理的后续接线。
  */
 public class StatsPf4jPlugin extends Plugin implements PixivPluginProvider {
 
     @Override
     public List<PixivFeaturePlugin> featurePlugins() {
         return List.of(new StatsPlugin());
+    }
+
+    @Override
+    public List<Class<?>> configurationClasses() {
+        return List.of(StatsPluginConfiguration.class);
     }
 }

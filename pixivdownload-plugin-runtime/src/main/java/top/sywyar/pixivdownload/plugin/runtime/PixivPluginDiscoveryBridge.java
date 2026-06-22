@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -17,6 +18,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * PF4J 外置插件发现桥接：把 PF4J {@link PluginManager} 已加载 / 启动的外置插件，连同其插件框架描述符
@@ -72,6 +74,63 @@ public final class PixivPluginDiscoveryBridge {
      */
     public PluginDiscoveryResult discover(PluginManager manager) {
         return inspect(manager).toDiscoveryResult();
+    }
+
+    /**
+     * 清点已启动且核心 API 兼容的外置插件包声明的 Spring 子 context 装配定义（{@link PluginContextModule}：
+     * 配置类 + 插件 classloader + 来源 id）。仅返回声明了至少一个配置类的插件包——无 Spring Bean 的包不需要子 context。
+     *
+     * <p>与 {@link #inspect} 正交、各自独立施加同一道核心 API 兼容门（不信任不兼容插件的贡献）：清点是<b>功能插件</b>
+     * 粒度（核心注册中心接入），本方法是<b>插件包</b>粒度（按包建立子 context）。本方法不向上抛出：单个插件包的清点失败
+     * （未实现入口契约 / 入口方法抛错等，已由 {@link #inspect} 记诊断）在此被安静跳过。
+     */
+    public List<PluginContextModule> inspectContextModules(PluginManager manager) {
+        if (manager == null) {
+            return List.of();
+        }
+        List<PluginContextModule> modules = new ArrayList<>();
+        for (PluginWrapper wrapper : manager.getPlugins()) {
+            if (wrapper.getPluginState() != PluginState.STARTED) {
+                continue;
+            }
+            collectContextModule(wrapper, modules);
+        }
+        return modules;
+    }
+
+    private void collectContextModule(PluginWrapper wrapper, List<PluginContextModule> modules) {
+        org.pf4j.PluginDescriptor pf4jDescriptor = wrapper.getDescriptor();
+        PluginApiRequirement requires = PluginApiRequirement.parse(
+                pf4jDescriptor != null ? pf4jDescriptor.getRequires() : null);
+        // 与 inspect 一致的接入兼容门：不兼容插件包不参与子 context 装配（其 INCOMPATIBLE 诊断已由 inspect 给出）。
+        if (!requires.isSatisfiedByCurrentApi()) {
+            return;
+        }
+        Plugin plugin;
+        try {
+            plugin = wrapper.getPlugin();
+        } catch (Exception e) {
+            return; // 实例获取失败已由 inspect 收敛为诊断；此处只负责子 context 装配定义、安静跳过
+        }
+        if (!(plugin instanceof PixivPluginProvider provider)) {
+            return;
+        }
+        List<Class<?>> configurationClasses;
+        try {
+            configurationClasses = provider.configurationClasses();
+        } catch (Exception e) {
+            log.warn("External plugin {} configurationClasses() threw: {} - skipping its plugin context.",
+                    wrapper.getPluginId(), describe(e));
+            return;
+        }
+        if (configurationClasses == null) {
+            return;
+        }
+        List<Class<?>> sanitized = configurationClasses.stream().filter(Objects::nonNull).toList();
+        if (sanitized.isEmpty()) {
+            return;
+        }
+        modules.add(new PluginContextModule(wrapper.getPluginId(), wrapper.getPluginClassLoader(), sanitized));
     }
 
     private void inspectWrapper(PluginWrapper wrapper,

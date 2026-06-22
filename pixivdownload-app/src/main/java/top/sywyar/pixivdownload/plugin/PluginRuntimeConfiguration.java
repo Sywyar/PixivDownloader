@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
@@ -105,5 +106,15 @@ public class PluginRuntimeConfiguration {
     @Bean
     public ExternalPluginInstaller externalPluginInstaller() {
         return new ExternalPluginInstaller(RuntimeFiles.pluginsDirectory());
+    }
+
+    /**
+     * 每外置插件子 {@code ApplicationContext} 工厂（无状态 POJO，住 {@code pixivdownload-plugin-runtime}）：为每个
+     * 外置插件包建立子 context、父 context 为核心应用，在其中实例化插件声明的 {@code @Configuration} 配置类。
+     * 子 context 的生命周期由 {@link ExternalPluginContextManager} 持有并与外置插件启停对齐。
+     */
+    @Bean
+    public PluginApplicationContextFactory pluginApplicationContextFactory() {
+        return new PluginApplicationContextFactory();
     }
 }

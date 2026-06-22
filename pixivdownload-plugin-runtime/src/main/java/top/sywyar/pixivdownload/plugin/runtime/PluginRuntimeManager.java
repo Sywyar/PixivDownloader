@@ -130,6 +130,21 @@ public class PluginRuntimeManager {
         return inspectPlugins().toDiscoveryResult();
     }
 
+    /**
+     * 清点已启动且核心 API 兼容的外置插件包声明的 Spring 子 context 装配定义
+     * （{@link top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule}：配置类 + 插件 classloader +
+     * 来源 id），供核心壳为每个外置插件建立子 {@code ApplicationContext}。{@link #start()} 未运行、或当前目录为空 /
+     * 缺失（无 PF4J 实例）时返回空列表。委托发现桥接 {@link PixivPluginDiscoveryBridge#inspectContextModules}，
+     * PF4J 仍收口在桥接内，本方法及其返回值不向核心壳泄露任何 {@code org.pf4j} 类型。
+     */
+    public List<top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule> inspectContextModules() {
+        PluginManager manager = this.pluginManager;
+        if (manager == null) {
+            return List.of();
+        }
+        return new PixivPluginDiscoveryBridge().inspectContextModules(manager);
+    }
+
     /** 配置的插件目录（未规范化为绝对路径，规范化绝对路径见 {@link PluginRuntimeStatus#directory()}）。 */
     public Path pluginsRoot() {
         return pluginsRoot;
