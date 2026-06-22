@@ -17,10 +17,12 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.common.UuidUtils;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
+import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.PluginStreamRegistry;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import javax.crypto.Cipher;
@@ -54,9 +56,13 @@ public class SSEController {
     private static final int GCM_TAG_BITS = 128;
     private static final long CLOSE_TOKEN_MAX_AGE_MILLIS = Duration.ofHours(25).toMillis();
 
+    /** 下载进度 SSE 推流随下载工作台插件运行期归属：该插件 quiesce / 卸载时其全部连接由生命周期服务统一关闭。 */
+    private static final String STREAM_OWNER_PLUGIN_ID = DownloadWorkbenchPlugin.ID;
+
     private final TaskScheduler taskScheduler;
     private final SetupService setupService;
     private final AppMessages messages;
+    private final PluginStreamRegistry pluginStreamRegistry;
     private final ExecutorService sseProgressExecutor;
     private final SecureRandom secureRandom = new SecureRandom();
     private final byte[] closeTokenKey = new byte[32];
@@ -70,10 +76,12 @@ public class SSEController {
 
     public SSEController(TaskScheduler taskScheduler,
                          SetupService setupService,
-                         AppMessages messages) {
+                         AppMessages messages,
+                         PluginStreamRegistry pluginStreamRegistry) {
         this.taskScheduler = taskScheduler;
         this.setupService = setupService;
         this.messages = messages;
+        this.pluginStreamRegistry = pluginStreamRegistry;
         this.secureRandom.nextBytes(closeTokenKey);
         this.sseProgressExecutor = Executors.newSingleThreadExecutor(r -> {
             Thread thread = new Thread(r, "sse-progress-flush");
@@ -104,6 +112,8 @@ public class SSEController {
         String subscriptionKey = artworkSubscriptionKey(artworkId, ownerUuid, admin);
         emitters.put(subscriptionKey, new ArtworkSubscription(
                 emitter, artworkId, ownerUuid, admin, currentRequestLocale()));
+        pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, subscriptionKey,
+                () -> closeArtworkStreamUnavailable(subscriptionKey));
 
         emitter.onCompletion(() -> {
             cleanupArtworkEmitter(subscriptionKey);
@@ -144,6 +154,8 @@ public class SSEController {
         String ownerUuid = admin ? null : UuidUtils.extractOrGenerateUuid(request);
         aggregatedEmitters.put(connectionId, new AggregatedSubscription(
                 emitter, ownerUuid, admin, currentRequestLocale()));
+        pluginStreamRegistry.register(STREAM_OWNER_PLUGIN_ID, connectionId,
+                () -> closeAggregatedStreamUnavailable(connectionId));
 
         emitter.onCompletion(() -> {
             cleanupAggregatedEmitter(connectionId);
@@ -238,6 +250,7 @@ public class SSEController {
     private void completeArtworkEmitter(String subscriptionKey) {
         cancelHeartbeat(subscriptionKey);
         ArtworkSubscription subscription = emitters.remove(subscriptionKey);
+        pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, subscriptionKey);
         if (subscription != null && sendClosingEvent(subscription.emitter(), id(subscription.artworkId()))) {
             completeEmitter(subscription.emitter());
         }
@@ -245,6 +258,7 @@ public class SSEController {
 
     private void removeArtworkEmitter(String subscriptionKey, boolean complete) {
         ArtworkSubscription subscription = emitters.remove(subscriptionKey);
+        pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, subscriptionKey);
         if (complete && subscription != null) {
             completeEmitter(subscription.emitter());
         }
@@ -258,6 +272,7 @@ public class SSEController {
     private void completeAggregatedEmitter(String connectionId) {
         cancelAggregatedHeartbeat(connectionId);
         AggregatedSubscription sub = aggregatedEmitters.remove(connectionId);
+        pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, connectionId);
         if (sub != null && sendClosingEvent(sub.emitter(), connectionId)) {
             completeEmitter(sub.emitter());
         }
@@ -265,6 +280,7 @@ public class SSEController {
 
     private void removeAggregatedEmitter(String connectionId, boolean complete) {
         AggregatedSubscription sub = aggregatedEmitters.remove(connectionId);
+        pluginStreamRegistry.unregister(STREAM_OWNER_PLUGIN_ID, connectionId);
         if (complete && sub != null) {
             completeEmitter(sub.emitter());
         }
@@ -406,6 +422,36 @@ public class SSEController {
         } catch (IllegalStateException ignored) {
             // The emitter may already be closed by the client.
         }
+    }
+
+    /**
+     * 由 {@link PluginStreamRegistry#closeForPlugin} 调用（拥有它的插件 quiesce / 卸载时）：向作品级客户端发
+     * 「插件不可用」事件后关闭其连接。此处<b>不</b>反向注销该流——注册中心正遍历已原子摘下的快照；
+     * {@code emitter.complete()} 触发的 {@code onCompletion} 走 {@link #cleanupArtworkEmitter}，其 unregister
+     * 此时为安全 no-op（该插件条目已被注册中心移除）。
+     */
+    private void closeArtworkStreamUnavailable(String subscriptionKey) {
+        cancelHeartbeat(subscriptionKey);
+        ArtworkSubscription subscription = emitters.remove(subscriptionKey);
+        if (subscription != null && sendUnavailableEvent(subscription.emitter(), subscription.locale())) {
+            completeEmitter(subscription.emitter());
+        }
+    }
+
+    /** 同 {@link #closeArtworkStreamUnavailable}，作用于聚合连接。 */
+    private void closeAggregatedStreamUnavailable(String connectionId) {
+        cancelAggregatedHeartbeat(connectionId);
+        AggregatedSubscription sub = aggregatedEmitters.remove(connectionId);
+        if (sub != null && sendUnavailableEvent(sub.emitter(), sub.locale())) {
+            completeEmitter(sub.emitter());
+        }
+    }
+
+    private boolean sendUnavailableEvent(SseEmitter emitter, Locale locale) {
+        return sendEvent(emitter, SseEmitter.event()
+                .id(String.valueOf(System.currentTimeMillis()))
+                .name("plugin-unavailable")
+                .data(messages.get(locale, "plugin.unavailable.quiesced")));
     }
 
     private boolean shouldDeliverToSubscription(AggregatedSubscription sub, String eventOwnerUuid) {

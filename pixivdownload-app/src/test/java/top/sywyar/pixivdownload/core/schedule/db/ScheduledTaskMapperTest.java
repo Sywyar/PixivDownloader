@@ -270,6 +270,34 @@ class ScheduledTaskMapperTest {
     }
 
     @Test
+    @DisplayName("SOURCE_UNAVAILABLE 任务暂停但数据保留：clearSuspend 显式重激活后重新可被 findDue 调度（来源恢复路径）")
+    void sourceUnavailableTaskIsPausedButRecoverableWithoutDataLoss() {
+        try (SqlSession session = factory.openSession(true)) {
+            ScheduledTaskMapper mapper = session.getMapper(ScheduledTaskMapper.class);
+            long taskId = insertWithStatus(mapper, "来源不可用", ScheduledTask.STATUS_SOURCE_UNAVAILABLE);
+            mapper.updateWatermark(taskId, 555L); // 已推进过的水位线（断点）
+
+            // 暂停：不被 findDue 自动重跑（来源缺失下重跑只会每周期撞门空转）
+            assertThat(mapper.findDue(5000L).stream().map(ScheduledTask::id).toList()).doesNotContain(taskId);
+            // 数据保留：任务行仍在、定义 / 水位线完好（来源不可用绝不删用户任务数据）
+            ScheduledTask suspended = mapper.findById(taskId);
+            assertThat(suspended).isNotNull();
+            assertThat(suspended.lastStatus()).isEqualTo(ScheduledTask.STATUS_SOURCE_UNAVAILABLE);
+            assertThat(suspended.paramsJson()).isEqualTo("{\"userId\":\"123\"}");
+            assertThat(suspended.watermarkId()).isEqualTo(555L);
+
+            // 来源恢复后的显式重激活：清挂起 + 重置 next_run，任务重新可被调度、水位线仍从断点续跑
+            mapper.clearSuspend(taskId, 4000L);
+
+            ScheduledTask recovered = mapper.findById(taskId);
+            assertThat(recovered.lastStatus()).isNull();
+            assertThat(recovered.nextRunTime()).isEqualTo(4000L);
+            assertThat(recovered.watermarkId()).isEqualTo(555L);
+            assertThat(mapper.findDue(5000L).stream().map(ScheduledTask::id).toList()).contains(taskId);
+        }
+    }
+
+    @Test
     @DisplayName("freezeAccount 仅冻结同账号非挂起态任务；clearSuspendForAccount 清挂起并重置 next_run")
     void freezeAndClearAccount() {
         try (SqlSession session = factory.openSession(true)) {

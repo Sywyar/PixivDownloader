@@ -7,10 +7,13 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
+import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
@@ -19,6 +22,9 @@ import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -171,14 +177,34 @@ class PluginLifecycleServiceTest {
         final RecordingPlugin plugin = new RecordingPlugin("ext-demo");
         final PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
                 plugin, PluginSource.EXTERNAL, MockHarness.class.getClassLoader());
+        final RecordingQueueOperations ops;          // 非空当且仅当装置声明了 queueType
+        final QueueOperationRegistry queueRegistry;
+        final PluginStreamRegistry streamRegistry = new PluginStreamRegistry();
+        final RecordingStream stream = new RecordingStream();
         final PluginLifecycleService service;
 
         MockHarness() {
+            this(null);
+        }
+
+        /** {@code queueType != null} 时让 ext-demo 声明该作品类型并注册对应队列操作适配器（验证 drain）。 */
+        MockHarness(String queueType) {
+            plugin.queueType = queueType;
+            if (queueType != null) {
+                ops = new RecordingQueueOperations(queueType);
+                queueRegistry = new QueueOperationRegistry(List.of(ops));
+            } else {
+                ops = null;
+                queueRegistry = new QueueOperationRegistry(List.of());
+            }
             when(runtime.inspectContextModules()).thenReturn(List.of());
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
-                    new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, registry, state);
+                    new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, registry, state,
+                    queueRegistry, streamRegistry);
             service.startAll(); // 纯贡献插件登记为 STARTED
+            // 注册一条该插件拥有的 SSE 推流（验证 quiesce / 卸载时被关闭）。
+            streamRegistry.register("ext-demo", "conn-1", stream);
         }
     }
 
@@ -296,6 +322,67 @@ class PluginLifecycleServiceTest {
                 .hasMessageContaining("unknown external plugin");
     }
 
+    // ============================ 运行期任务清退组（quiesce / 卸载时 drain 在途队列 + 关闭 SSE）============================
+
+    @Test
+    @DisplayName("stop：经核心队列宿主注册中心排空该插件 queueType 的在途任务 + 关闭其 SSE 推流，阶段落 STOPPED")
+    void stopDrainsQueueTasksAndClosesStreams() {
+        MockHarness h = new MockHarness("ext-illust");
+
+        h.service.stop("ext-demo");
+
+        assertThat(h.ops.clearAllCount).isEqualTo(1);                       // 在途下载经 QueueOperations.clearAll 取消
+        assertThat(h.stream.closedCount).isEqualTo(1);                      // SSE 推流被关闭（客户端收到不可用事件）
+        assertThat(h.streamRegistry.activeStreamCount("ext-demo")).isZero(); // 关闭后不残留引用
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+    }
+
+    @Test
+    @DisplayName("quiesce：同样排空在途队列 + 关闭 SSE（quiesce 即停新 + 清退在途），阶段为 QUIESCED")
+    void quiesceDrainsQueueTasksAndClosesStreams() {
+        MockHarness h = new MockHarness("ext-illust");
+
+        h.service.quiesce("ext-demo");
+
+        assertThat(h.ops.clearAllCount).isEqualTo(1);
+        assertThat(h.stream.closedCount).isEqualTo(1);
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+    }
+
+    @Test
+    @DisplayName("无 queueType 的纯贡献插件：stop 不触达队列注册中心（drain 安全空操作），仍关闭其 SSE")
+    void stopWithoutQueueTypeStillClosesStreams() {
+        MockHarness h = new MockHarness(); // 无 queueType
+
+        h.service.stop("ext-demo");
+
+        assertThat(h.stream.closedCount).isEqualTo(1);
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+    }
+
+    @Test
+    @DisplayName("长任务在插件卸载时被取消：unload 触发 drain（clearAll），阻塞等待的下载线程被放行、干净退出")
+    void longRunningTaskIsCancelledOnUnload() throws Exception {
+        MockHarness h = new MockHarness("ext-illust");
+        AtomicBoolean released = new AtomicBoolean(false);
+        // 模拟一个在途下载长任务：阻塞等待，直到队列被排空（clearAll 放行 latch）才退出 —— 即「被取消」。
+        Thread worker = new Thread(() -> {
+            try {
+                released.set(h.ops.drained.await(2, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        worker.start();
+
+        h.service.unload("ext-demo"); // → stop（drain → clearAll 放行 latch）→ 从核心注册中心移除
+
+        worker.join(3000);
+        assertThat(released).isTrue();                 // 长任务观察到取消、干净退出（而非永久阻塞）
+        assertThat(h.ops.clearAllCount).isEqualTo(1);
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.UNLOADED);
+    }
+
     // ============================ 插件自身 start()/stop() 生命周期组（真实子 context + mock 注册器）============================
 
     /**
@@ -321,7 +408,8 @@ class PluginLifecycleServiceTest {
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                    controllerRegistrar, webRegistrar, registry, state);
+                    controllerRegistrar, webRegistrar, registry, state,
+                    new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
         }
 
         @Override
@@ -398,7 +486,7 @@ class PluginLifecycleServiceTest {
     private static PluginLifecycleService realService(ApplicationContext parent, List<PluginContextModule> modules) {
         return new PluginLifecycleService(parent, runtimeReturning(modules), new PluginApplicationContextFactory(),
                 emptyControllerRegistrar(), emptyWebRegistrar(), new PluginRegistry(List.of()),
-                new PluginLifecycleState());
+                new PluginLifecycleState(), new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
     }
 
     private static PluginRuntimeManager runtimeReturning(List<PluginContextModule> modules) {
@@ -430,6 +518,7 @@ class PluginLifecycleServiceTest {
         private int startCount;
         private int stopCount;
         private boolean failStart;
+        private String queueType; // 非空时声明对应作品类型（验证 quiesce / 卸载时排空其在途队列）
 
         RecordingPlugin(String id) {
             this.id = id;
@@ -438,6 +527,12 @@ class PluginLifecycleServiceTest {
         @Override
         public String id() {
             return id;
+        }
+
+        @Override
+        public List<QueueTypeContribution> queueTypes() {
+            return queueType == null ? List.of()
+                    : List.of(new QueueTypeContribution(id, queueType, id + ":label", 10, null));
         }
 
         @Override
@@ -466,6 +561,47 @@ class PluginLifecycleServiceTest {
         @Override
         public void stop() {
             stopCount++;
+        }
+    }
+
+    /**
+     * 记录 clearAll 调用并在排空时放行 {@code drained} latch 的队列操作夹具：模拟「在途下载被取消」——
+     * 一个阻塞等待该 latch 的下载线程在 clearAll 后被放行（即被取消、干净退出）。
+     */
+    private static final class RecordingQueueOperations implements QueueOperations {
+        private final String type;
+        int clearAllCount;
+        final CountDownLatch drained = new CountDownLatch(1);
+
+        RecordingQueueOperations(String type) {
+            this.type = type;
+        }
+
+        @Override
+        public String queueType() {
+            return type;
+        }
+
+        @Override
+        public int clearAll() {
+            clearAllCount++;
+            drained.countDown();
+            return 3;
+        }
+
+        @Override
+        public int clearForOwner(String ownerUuid) {
+            return 0;
+        }
+    }
+
+    /** 记录关闭次数的推流夹具（验证 quiesce / 卸载时被 closeForPlugin 关闭）。 */
+    private static final class RecordingStream implements PluginStream {
+        int closedCount;
+
+        @Override
+        public void closeUnavailable() {
+            closedCount++;
         }
     }
 

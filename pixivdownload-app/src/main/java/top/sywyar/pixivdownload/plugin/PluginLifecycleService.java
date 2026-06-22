@@ -4,7 +4,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
@@ -48,6 +50,16 @@ import java.util.Set;
  * 在<b>核心注册中心层面</b>对称增删（{@link PluginRegistry#register} / {@link PluginRegistry#unregister}，与启动期
  * 接入语义一致、可逆）；PF4J classloader 的物理装卸与回收不在本服务范围。
  *
+ * <h2>运行期任务清退（quiesce / 卸载时 drain + SSE）</h2>
+ * {@code quiesce} 与 {@code stop} 在标记 {@link PluginRuntimePhase#QUIESCED} 后、拆除服务足迹前，先经
+ * {@link #quiescePluginRuntimeTasks} 清退该插件的运行期任务（新请求已由 {@link PluginQuiesceGate} 在 HTTP 层
+ * 503 挡住，此处清退在途资源）：① 经 {@link PluginStreamRegistry#closeForPlugin} 关闭该插件全部活动 SSE 推流并向
+ * 客户端发「插件不可用」事件；② 据插件 {@link PixivFeaturePlugin#queueTypes()} 声明的每个 queueType 经核心队列宿主
+ * 注册中心 {@link QueueOperationRegistry} 解析操作适配器并 {@link top.sywyar.pixivdownload.core.download.queue.QueueOperations#clearAll()
+ * clearAll} 排空 / 取消其在途下载任务（不直依赖任一具体下载实现）。每步隔离（异常只记日志、不阻断后续清退）；
+ * 某 queueType 操作缺席（贡献它的插件已禁 / 卸）时跳过、不报错。在途下载经协作式取消（{@code DownloadStatus} 标志位）
+ * 停止——长任务据此干净退出。异步任务一律走核心受管执行器，本服务不新建线程池。
+ *
  * <p>本服务把外置插件标识为单一 {@code pluginId}：对全部在场外置插件，其功能插件 id 与 PF4J 包 id 重合，故子
  * context / controller / web 贡献 / 路由声明 / 状态机统一以该 id 为键。所有变更在本对象锁内串行；写入各注册中心
  * 复用其内部锁。无外置插件时本服务为空、透明无副作用。本服务不触碰鉴权（{@code AuthFilter} 按
@@ -64,6 +76,8 @@ public class PluginLifecycleService {
     private final PluginWebContributionRegistrar webContributionRegistrar;
     private final PluginRegistry pluginRegistry;
     private final PluginLifecycleState lifecycleState;
+    private final QueueOperationRegistry queueOperationRegistry;
+    private final PluginStreamRegistry pluginStreamRegistry;
 
     private final Object lock = new Object();
     /** 按接入顺序保存的受管外置插件（键 = pluginId）。仅在 {@link #lock} 内变更，读路径取只读视图。 */
@@ -76,7 +90,9 @@ public class PluginLifecycleService {
                                   PluginControllerRegistrar controllerRegistrar,
                                   PluginWebContributionRegistrar webContributionRegistrar,
                                   PluginRegistry pluginRegistry,
-                                  PluginLifecycleState lifecycleState) {
+                                  PluginLifecycleState lifecycleState,
+                                  QueueOperationRegistry queueOperationRegistry,
+                                  PluginStreamRegistry pluginStreamRegistry) {
         this.parent = parent;
         this.pluginRuntimeManager = pluginRuntimeManager;
         this.contextFactory = contextFactory;
@@ -84,6 +100,8 @@ public class PluginLifecycleService {
         this.webContributionRegistrar = webContributionRegistrar;
         this.pluginRegistry = pluginRegistry;
         this.lifecycleState = lifecycleState;
+        this.queueOperationRegistry = queueOperationRegistry;
+        this.pluginStreamRegistry = pluginStreamRegistry;
     }
 
     // ---- 启动期接入 / 关闭期收尾（由 ExternalPluginContextManager 驱动）----
@@ -270,6 +288,7 @@ public class PluginLifecycleService {
             throw new PluginLifecycleException("cannot quiesce plugin '" + record.pluginId + "' from phase " + phase);
         }
         lifecycleState.transition(record.pluginId, PluginRuntimePhase.QUIESCED);
+        quiescePluginRuntimeTasks(record);
         log.info("Quiesced plugin '{}': no longer accepting new requests.", record.pluginId);
     }
 
@@ -284,9 +303,11 @@ public class PluginLifecycleService {
         if (phase == PluginRuntimePhase.STARTED) {
             lifecycleState.transition(pluginId, PluginRuntimePhase.QUIESCED);
         }
-        // 2) 拆除服务足迹（每步隔离，异常不阻断后续清退）。
+        // 2) 清退运行期任务：关闭 SSE 推流 + 排空在途下载队列（幂等：若 quiesce 已先清退，此处为安全空操作）。
+        quiescePluginRuntimeTasks(record);
+        // 3) 拆除服务足迹（每步隔离，异常不阻断后续清退）。
         tearDownServing(record);
-        // 3) 强制落到 STOPPED（即便上面某步异常也保证状态与清退一致）。
+        // 4) 强制落到 STOPPED（即便上面某步异常也保证状态与清退一致）。
         lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
         log.info("Stopped plugin '{}'.", pluginId);
     }
@@ -408,6 +429,58 @@ public class PluginLifecycleService {
             }
         }
         lifecycleState.transition(pluginId, PluginRuntimePhase.STARTED);
+    }
+
+    /**
+     * 清退该插件的运行期在途任务（在 quiesce / stop 标记 {@link PluginRuntimePhase#QUIESCED} 后、拆除服务足迹前
+     * 调用）：先关闭其全部 SSE 推流（客户端收到「插件不可用」事件），再排空 / 取消其各 queueType 的在途下载任务。
+     * 每步隔离（异常只记日志、不阻断后续）；幂等（quiesce 已清退后 stop 再调为安全空操作）。
+     */
+    private void quiescePluginRuntimeTasks(ManagedPlugin record) {
+        String pluginId = record.pluginId;
+        try {
+            int closed = pluginStreamRegistry.closeForPlugin(pluginId);
+            if (closed > 0) {
+                log.info("Closed {} server-push stream(s) for plugin '{}'.", closed, pluginId);
+            }
+        } catch (RuntimeException e) {
+            log.warn("Error closing server-push streams for plugin '{}': {}", pluginId, e.toString());
+        }
+        drainQueueTasks(record);
+    }
+
+    /**
+     * 按插件声明的 {@link PixivFeaturePlugin#queueTypes() queueTypes} 经核心队列宿主注册中心
+     * {@link QueueOperationRegistry} 排空 / 取消其在途下载任务（{@code clearAll}）；不直依赖任一具体下载实现。
+     * 某 queueType 操作缺席（贡献它的插件已禁 / 卸）时跳过；逐个隔离异常。
+     */
+    private void drainQueueTasks(ManagedPlugin record) {
+        Optional<PixivFeaturePlugin> plugin = record.plugin();
+        if (plugin.isEmpty()) {
+            return;
+        }
+        List<QueueTypeContribution> queueTypes;
+        try {
+            queueTypes = plugin.get().queueTypes();
+        } catch (RuntimeException e) {
+            log.warn("Error reading queue types for plugin '{}': {}", record.pluginId, e.toString());
+            return;
+        }
+        for (QueueTypeContribution queueType : queueTypes) {
+            String type = queueType.type();
+            try {
+                queueOperationRegistry.resolve(type).ifPresent(ops -> {
+                    int drained = ops.clearAll();
+                    if (drained > 0) {
+                        log.info("Drained {} in-flight task(s) of queue type '{}' for plugin '{}'.",
+                                drained, type, record.pluginId);
+                    }
+                });
+            } catch (RuntimeException e) {
+                log.warn("Error draining queue type '{}' for plugin '{}': {}",
+                        type, record.pluginId, e.toString());
+            }
+        }
     }
 
     /**

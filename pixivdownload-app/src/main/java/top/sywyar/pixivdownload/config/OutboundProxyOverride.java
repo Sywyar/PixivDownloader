@@ -48,6 +48,23 @@ public final class OutboundProxyOverride {
         OVERRIDE.remove();
     }
 
+    /**
+     * 在当前线程上以任务级代理覆盖运行 {@code task}，结束（含异常）后<b>必定清除</b>覆盖——任务级上下文清理契约的
+     * 统一入口。{@code hostPort} 为 {@code null} / 空白 / 非法时等同不设置（仍保证 finally 清除）。
+     *
+     * <p>下载 / 计划任务线程池是共享池：任何在池线程上套用代理覆盖跑插件 / 计划任务的代码都应经本方法，避免忘记
+     * {@code finally clear()} 导致覆盖残留、污染后续无关请求（跨插件 / 跨任务上下文串用）。本覆盖只承载传输级
+     * {@link HttpHost}，不持有任何插件类型引用。
+     */
+    public static void runScoped(String hostPort, Runnable task) {
+        set(hostPort);
+        try {
+            task.run();
+        } finally {
+            clear();
+        }
+    }
+
     /** 当前线程的代理覆盖；未设置返回 {@code null}。 */
     public static HttpHost current() {
         return OVERRIDE.get();

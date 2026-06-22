@@ -15,9 +15,11 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import top.sywyar.pixivdownload.download.DownloadProgressEvent;
 import top.sywyar.pixivdownload.download.DownloadStatus;
+import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.plugin.PluginStreamRegistry;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;
@@ -52,10 +54,13 @@ class SSEControllerTest {
     private ScheduledFuture<?> heartbeatFuture;
 
     private SSEController controller;
+    private PluginStreamRegistry pluginStreamRegistry;
 
     @BeforeEach
     void setUp() {
-        controller = new SSEController(taskScheduler, setupService, TestI18nBeans.appMessages());
+        pluginStreamRegistry = new PluginStreamRegistry();
+        controller = new SSEController(taskScheduler, setupService, TestI18nBeans.appMessages(),
+                pluginStreamRegistry);
         lenient().when(taskScheduler.scheduleAtFixedRate(any(Runnable.class), eq(Duration.ofSeconds(30))))
                 .thenAnswer(invocation -> heartbeatFuture);
     }
@@ -268,6 +273,54 @@ class SSEControllerTest {
         assertThat(aggregatedHeartbeatTasks()).doesNotContainKey("broken");
         assertThat(emitter.completed).isFalse();
         verify(heartbeatFuture).cancel(false);
+    }
+
+    @Test
+    @DisplayName("作品级 / 聚合连接注册进插件推流注册中心；拥有它的插件 closeForPlugin 时全部关闭、注册中心清空")
+    void registersStreamsUnderOwningPluginAndClosesThemOnTeardown() {
+        when(setupService.hasAdminScope(any())).thenReturn(true);
+
+        controller.createSSEConnection(111L, new MockHttpServletRequest());
+        controller.createAggregatedSSEConnection(new MockHttpServletRequest());
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(2);
+
+        // 拥有它的插件 quiesce / 卸载 → 生命周期服务调 closeForPlugin → 关闭全部连接、注册中心不再残留引用
+        int closed = pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID);
+
+        assertThat(closed).isEqualTo(2);
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isZero();
+        assertThat(artworkEmitters()).isEmpty();
+        assertThat(aggregatedEmitters()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("插件 closeForPlugin 关闭作品级连接：客户端收到 plugin-unavailable 事件并被 complete")
+    void closeForPluginSendsUnavailableEventToArtworkClient() throws Exception {
+        RecordingSseEmitter emitter = new RecordingSseEmitter();
+        putArtworkSubscription(777L, emitter, Locale.US);
+        pluginStreamRegistry.register(DownloadWorkbenchPlugin.ID, "admin:777",
+                () -> ReflectionTestUtils.invokeMethod(controller, "closeArtworkStreamUnavailable", "admin:777"));
+
+        pluginStreamRegistry.closeForPlugin(DownloadWorkbenchPlugin.ID);
+
+        assertThat(emitter.events).hasSize(1);
+        assertThat(emitter.events.get(0).raw)
+                .contains("event:plugin-unavailable")
+                .contains("temporarily unavailable");
+        assertThat(emitter.completed).isTrue();
+        assertThat(artworkEmitters()).doesNotContainKey("admin:777");
+    }
+
+    @Test
+    @DisplayName("作品级连接正常关闭后从插件推流注册中心注销：closeForPlugin 不再触达它")
+    void normalCloseUnregistersStream() {
+        when(setupService.hasAdminScope(any())).thenReturn(true);
+        controller.createSSEConnection(222L, new MockHttpServletRequest());
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isEqualTo(1);
+
+        controller.closeSSEConnection(222L, new MockHttpServletRequest());
+
+        assertThat(pluginStreamRegistry.activeStreamCount(DownloadWorkbenchPlugin.ID)).isZero();
     }
 
     @SuppressWarnings("unchecked")

@@ -41,7 +41,8 @@ import java.util.Set;
  */
 public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
-    private static final String ID = "download-workbench";
+    /** 下载工作台插件 id：下载进度 SSE 推流随该插件运行期归属（停用 / 卸载时其推流被统一关闭）。 */
+    public static final String ID = "download-workbench";
 
     @Override
     public String id() {

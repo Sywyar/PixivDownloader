@@ -357,7 +357,7 @@ public class ScheduleExecutor {
         //    挂起。与上面的来源解析门并列在读 cookie / 探站内信 / 发现 / 派发之前——缺执行器（如小说插件被禁 /
         //    卸载、或未提供该类型执行器）时绝不读 cookie / 发现 / 派发。COLLECTION 是插画 + 小说混合来源，需两类
         //    执行器都在场；其余按任务 kind 取单一类型。插画执行器恒由下载工作台内置贡献，故插画任务不受小说执行器
-        //    缺席影响。复用 SOURCE_UNAVAILABLE 终态（语义在本包扩展为「来源或作品类型执行器不可用」）。
+        //    缺席影响。复用 SOURCE_UNAVAILABLE 终态（语义现扩展为「来源或作品类型执行器不可用」）。
         if (discoveryMode == DiscoveryMode.COLLECTION) {
             requireWorkRunner(ScheduledWorkKind.ILLUST, task);
             requireWorkRunner(ScheduledWorkKind.NOVEL, task);
@@ -457,7 +457,7 @@ public class ScheduleExecutor {
     /**
      * 作品类型执行器解析门：解析对应作品类型（{@code kind}）的执行器，缺席即抛
      * {@link ScheduleSourceUnavailableException}，让 {@code runTaskAndRecord} 标记 {@code SOURCE_UNAVAILABLE}
-     * 干净挂起（该终态语义在本包扩展为「来源 <b>或</b> 作品类型执行器不可用」）。在读 cookie / 发现 / 派发之前调用，
+     * 干净挂起（该终态语义现扩展为「来源 <b>或</b> 作品类型执行器不可用」）。在读 cookie / 发现 / 派发之前调用，
      * 故缺执行器时绝不读 cookie / 探站内信 / 发现 / 派发。返回执行器仅表达「在场」，实际派发时由各 prepare 方法
      * 再次解析（恒命中）。
      */
@@ -1184,23 +1184,21 @@ public class ScheduleExecutor {
                 throw new IllegalStateException("interrupted while scheduling download", e);
             }
             CompletableFuture<Void> f = CompletableFuture.runAsync(() -> {
-                boolean ok;
-                // 任务级单独代理：阻塞下载在池线程上执行（图片 / 动图 ZIP / 小说封面与内嵌图 / 下载后收藏
-                // 全部内联其中），与调度主线程同样以 try/finally 套用线程级覆盖。
-                OutboundProxyOverride.set(proxy);
+                boolean[] ok = {false};
+                // 任务级单独代理：阻塞下载在共享下载池线程上执行（图片 / 动图 ZIP / 小说封面与内嵌图 / 下载后收藏
+                // 全部内联其中）；经 runScoped 套用线程级覆盖并在结束后必定清除，避免污染后续交互式下载的代理路由
+                // （跨任务上下文清理契约，见 OutboundProxyOverride#runScoped）。
+                OutboundProxyOverride.runScoped(proxy, () -> {
+                    try {
+                        ok[0] = job.run();
+                    } catch (Exception e) {
+                        // 下载器抛出的 message 可能含上游错误 URL（带 PHPSESSID 查询串）或 cookie 头，先脱敏。
+                        log.warn("Scheduled task {} download work {} threw: {}",
+                                taskId, workId, redactCookies(String.valueOf(e.getMessage())));
+                    }
+                });
                 try {
-                    ok = job.run();
-                } catch (Exception e) {
-                    // 下载器抛出的 message 可能含上游错误 URL（带 PHPSESSID 查询串）或 cookie 头，先脱敏。
-                    log.warn("Scheduled task {} download work {} threw: {}",
-                            taskId, workId, redactCookies(String.valueOf(e.getMessage())));
-                    ok = false;
-                } finally {
-                    // 池线程是共享下载池，必须清除覆盖，避免污染后续交互式下载的代理路由。
-                    OutboundProxyOverride.clear();
-                }
-                try {
-                    onComplete(id, workId, isRetry, ok);
+                    onComplete(id, workId, isRetry, ok[0]);
                 } finally {
                     permits.release();
                 }
