@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.status;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -19,9 +20,12 @@ public record PluginStatusReport(List<PluginDiagnostic> diagnostics) {
         return new PluginStatusReport(List.of());
     }
 
-    /** 按 id 查诊断。 */
+    /** 按 id 查诊断（{@code pluginId} 为 {@code null} 时返回空，不抛出）。 */
     public Optional<PluginDiagnostic> byId(String pluginId) {
-        return diagnostics.stream().filter(d -> d.id().equals(pluginId)).findFirst();
+        if (pluginId == null) {
+            return Optional.empty();
+        }
+        return diagnostics.stream().filter(d -> Objects.equals(d.id(), pluginId)).findFirst();
     }
 
     /** 处于给定状态的全部诊断。 */

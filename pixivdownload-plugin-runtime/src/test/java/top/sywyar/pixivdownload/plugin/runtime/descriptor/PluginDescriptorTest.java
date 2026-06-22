@@ -94,6 +94,33 @@ class PluginDescriptorTest {
     }
 
     @Test
+    @DisplayName("外置 version 非合法 semver（残缺 1.0 / 1、非版本串 latest）：通用校验放行、外置完整性校验拒绝")
+    void externalVersionMustBeSemver() {
+        for (String badVersion : new String[]{"1.0", "1", "latest", "1.0.x", "v1.0.0", "1.0.0.0"}) {
+            PluginDescriptor descriptor = external("ext", badVersion, "1.0",
+                    "com.example.P", "x.label", PluginKind.FEATURE, List.of());
+            // 通用校验不约束 version 形态（内置插件版本恒为核心契约版本，无需 PF4J 风格 semver）
+            assertThat(descriptor.validationErrors()).isEmpty();
+            // 外置完整性校验要求合法 semver，否则报错（错误信息含 "version"）
+            assertThat(descriptor.externalValidationErrors())
+                    .as("external version '%s' must be rejected", badVersion)
+                    .anyMatch(e -> e.contains("version"));
+        }
+    }
+
+    @Test
+    @DisplayName("外置 version 合法 semver（major.minor.patch，含可选 -prerelease / +build）通过外置完整性校验")
+    void externalVersionAcceptsSemverForms() {
+        for (String okVersion : new String[]{"1.0.0", "2.3.1", "1.0.0-SNAPSHOT", "2.3.1-rc.1+build.9", "0.0.1"}) {
+            PluginDescriptor descriptor = external("ext", okVersion, "1.0",
+                    "com.example.P", "x.label", PluginKind.FEATURE, List.of());
+            assertThat(descriptor.externalValidationErrors())
+                    .as("external version '%s' must be accepted", okVersion)
+                    .isEmpty();
+        }
+    }
+
+    @Test
     @DisplayName("非法依赖 id 被通用校验拒绝")
     void rejectsInvalidDependencyId() {
         PluginDescriptor descriptor = external("ext", "1.0", "1.0", "com.example.P", "x.label",

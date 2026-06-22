@@ -55,6 +55,30 @@ class PluginApiRequirementTest {
     }
 
     @Test
+    @DisplayName("收紧：任意文字前缀（abc1.2 / version1.0）不再被误读为版本，判为无效")
+    void rejectsArbitraryTextPrefix() {
+        PluginApiRequirement abc = PluginApiRequirement.parse("abc1.2");
+        assertThat(abc.present()).isTrue();
+        assertThat(abc.valid()).isFalse();
+        assertThat(abc.isSatisfiedBy(1, 2)).isFalse();
+        assertThat(abc.display()).contains("abc1.2");
+
+        // 单个合法 v 前缀后必须紧跟数字；"version1.0" 的 v 之后是字母 → 无效
+        assertThat(PluginApiRequirement.parse("version1.0").valid()).isFalse();
+        assertThat(PluginApiRequirement.parse("ext-1.0").valid()).isFalse();
+    }
+
+    @Test
+    @DisplayName("星号 * 不限版本标记解析为未声明：兼容任何版本")
+    void asteriskParsesToUnspecified() {
+        PluginApiRequirement any = PluginApiRequirement.parse("*");
+        assertThat(any.present()).isFalse();
+        assertThat(any.valid()).isTrue();
+        assertThat(any.isSatisfiedByCurrentApi()).isTrue();
+        assertThat(any.isSatisfiedBy(7, 3)).isTrue();
+    }
+
+    @Test
     @DisplayName("兼容判定委托 PluginApiVersion 同一规则：同 MAJOR 且提供方 MINOR 不低于所需")
     void satisfactionDelegatesToVersionRule() {
         PluginApiRequirement needs1_2 = PluginApiRequirement.of(1, 2);

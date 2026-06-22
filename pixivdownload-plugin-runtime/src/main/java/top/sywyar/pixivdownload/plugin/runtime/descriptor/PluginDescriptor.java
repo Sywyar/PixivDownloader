@@ -49,6 +49,17 @@ public record PluginDescriptor(
     private static final Pattern CLASS_NAME_PATTERN =
             Pattern.compile("([A-Za-z_$][A-Za-z0-9_$]*)(\\.[A-Za-z_$][A-Za-z0-9_$]*)*");
 
+    /**
+     * 外置插件版本号规范：至少 {@code major.minor.patch} 三段数字的 semver，可选 {@code -prerelease} 段与
+     * {@code +build} 元数据段（如 {@code 1.0.0}、{@code 2.3.1-SNAPSHOT}、{@code 1.0.0-rc.1+build.5}）。
+     * 外置插件由插件框架据版本号解析依赖与排序，残缺（如 {@code 1.0}）或非版本字符串（如 {@code latest}）
+     * 必须在接入前被拒。纯 JDK 正则，不引入第三方 semver 库（描述符模型保持 JDK + {@code plugin.api}）。
+     */
+    private static final Pattern SEMVER_PATTERN = Pattern.compile(
+            "\\d+\\.\\d+\\.\\d+"
+                    + "(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?"
+                    + "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?");
+
     public PluginDescriptor {
         requires = requires != null ? requires : PluginApiRequirement.unspecified();
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
@@ -109,11 +120,15 @@ public record PluginDescriptor(
     /**
      * 外置插件附加完整性校验：在 {@link #validationErrors()} 基础上额外要求 {@code version} 与
      * {@code plugin-class} 必须声明（外置插件由 PF4J 据 {@code plugin-class} 实例化、据 {@code version} 解析依赖）。
+     * {@code version} 不仅须非空，还须是合法 semver（至少 {@code major.minor.patch}，见 {@link #SEMVER_PATTERN}）——
+     * 残缺或非版本字符串会让插件框架的依赖解析 / 排序失效，故在接入前判为外置完整性错误。
      */
     public List<String> externalValidationErrors() {
         List<String> errors = validationErrors();
         if (version == null || version.isBlank()) {
             errors.add("version must not be blank for an external plugin");
+        } else if (!SEMVER_PATTERN.matcher(version.trim()).matches()) {
+            errors.add("invalid version for an external plugin (expected semver major.minor.patch): " + version);
         }
         if (pluginClass == null || pluginClass.isBlank()) {
             errors.add("plugin-class must not be blank for an external plugin");

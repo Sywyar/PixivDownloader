@@ -106,6 +106,106 @@ class PluginStatusEvaluatorTest {
     }
 
     @Test
+    @DisplayName("依赖在场且版本兼容、但被禁用（DISABLED）→ 依赖方不再 STARTED（MISSING_REQUIRED），诊断含依赖与其状态")
+    void disabledDependencyBlocksDependent() {
+        PluginDescriptor dependency = descriptor("novel", "1.0", PluginApiRequirement.of(1, 0), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+                List.of(new PluginDependencyRef("novel", "1.0", false)));
+
+        PluginStatusReport report = evaluator.evaluate(List.of(
+                new ObservedPlugin(dependency, PluginStatus.DISABLED),
+                new ObservedPlugin(dependent, PluginStatus.STARTED)), RequiredPluginPolicy.empty());
+
+        assertThat(statusOf(report, "novel")).isEqualTo(PluginStatus.DISABLED);
+        PluginDiagnostic dependentDiag = report.byId("listen").orElseThrow();
+        assertThat(dependentDiag.status()).isEqualTo(PluginStatus.MISSING_REQUIRED);
+        assertThat(dependentDiag.messages()).anyMatch(m -> m.contains("novel") && m.contains("DISABLED"));
+        assertThat(report.hasUnmetRequirement()).isTrue();
+    }
+
+    @Test
+    @DisplayName("依赖运行期失败（FAILED）→ 依赖方降级为 MISSING_REQUIRED（不保持 STARTED）")
+    void failedDependencyBlocksDependent() {
+        PluginDescriptor dependency = descriptor("novel", "1.0", PluginApiRequirement.of(1, 0), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+                List.of(new PluginDependencyRef("novel", "1.0", false)));
+
+        PluginStatusReport report = evaluator.evaluate(List.of(
+                new ObservedPlugin(dependency, PluginStatus.FAILED),
+                new ObservedPlugin(dependent, PluginStatus.STARTED)), RequiredPluginPolicy.empty());
+
+        assertThat(statusOf(report, "novel")).isEqualTo(PluginStatus.FAILED);
+        assertThat(statusOf(report, "listen")).isEqualTo(PluginStatus.MISSING_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("依赖自身核心 API 不兼容（INCOMPATIBLE）→ 依赖方降级为 INCOMPATIBLE_REQUIRED")
+    void incompatibleDependencyBlocksDependent() {
+        PluginDescriptor dependency = descriptor("novel", "1.0",
+                PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR + 1), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+                List.of(new PluginDependencyRef("novel", "1.0", false)));
+
+        PluginStatusReport report = evaluator.evaluate(List.of(
+                new ObservedPlugin(dependency, PluginStatus.STARTED),
+                new ObservedPlugin(dependent, PluginStatus.STARTED)), RequiredPluginPolicy.empty());
+
+        assertThat(statusOf(report, "novel")).isEqualTo(PluginStatus.INCOMPATIBLE);
+        PluginDiagnostic dependentDiag = report.byId("listen").orElseThrow();
+        assertThat(dependentDiag.status()).isEqualTo(PluginStatus.INCOMPATIBLE_REQUIRED);
+        assertThat(dependentDiag.messages()).anyMatch(m -> m.contains("novel") && m.contains("INCOMPATIBLE"));
+    }
+
+    @Test
+    @DisplayName("依赖不可用沿链传递：A→B→C，C 被禁用则 B、A 都不再 STARTED")
+    void unavailabilityPropagatesTransitively() {
+        PluginDescriptor c = descriptor("c", "1.0", PluginApiRequirement.of(1, 0), List.of());
+        PluginDescriptor b = descriptor("b", "1.0", PluginApiRequirement.of(1, 0),
+                List.of(new PluginDependencyRef("c", "1.0", false)));
+        PluginDescriptor a = descriptor("a", "1.0", PluginApiRequirement.of(1, 0),
+                List.of(new PluginDependencyRef("b", "1.0", false)));
+
+        PluginStatusReport report = evaluator.evaluate(List.of(
+                new ObservedPlugin(c, PluginStatus.DISABLED),
+                new ObservedPlugin(b, PluginStatus.STARTED),
+                new ObservedPlugin(a, PluginStatus.STARTED)), RequiredPluginPolicy.empty());
+
+        assertThat(statusOf(report, "c")).isEqualTo(PluginStatus.DISABLED);
+        assertThat(statusOf(report, "b")).isEqualTo(PluginStatus.MISSING_REQUIRED);
+        assertThat(statusOf(report, "a")).isEqualTo(PluginStatus.MISSING_REQUIRED);
+    }
+
+    @Test
+    @DisplayName("可选依赖即使不可用也不阻断：依赖方保留 STARTED")
+    void unavailableOptionalDependencyDoesNotBlock() {
+        PluginDescriptor dependency = descriptor("novel", "1.0", PluginApiRequirement.of(1, 0), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+                List.of(new PluginDependencyRef("novel", "1.0", true)));
+
+        PluginStatusReport report = evaluator.evaluate(List.of(
+                new ObservedPlugin(dependency, PluginStatus.DISABLED),
+                new ObservedPlugin(dependent, PluginStatus.STARTED)), RequiredPluginPolicy.empty());
+
+        assertThat(statusOf(report, "listen")).isEqualTo(PluginStatus.STARTED);
+    }
+
+    @Test
+    @DisplayName("依赖健康（STARTED）时依赖方照常 STARTED（不误降级）")
+    void healthyDependencyKeepsDependentStarted() {
+        PluginDescriptor dependency = descriptor("novel", "1.0", PluginApiRequirement.of(1, 0), List.of());
+        PluginDescriptor dependent = descriptor("listen", "1.0", PluginApiRequirement.of(1, 0),
+                List.of(new PluginDependencyRef("novel", "1.0", false)));
+
+        PluginStatusReport report = evaluator.evaluate(List.of(
+                new ObservedPlugin(dependency, PluginStatus.STARTED),
+                new ObservedPlugin(dependent, PluginStatus.STARTED)), RequiredPluginPolicy.empty());
+
+        assertThat(statusOf(report, "novel")).isEqualTo(PluginStatus.STARTED);
+        assertThat(statusOf(report, "listen")).isEqualTo(PluginStatus.STARTED);
+        assertThat(report.hasUnmetRequirement()).isFalse();
+    }
+
+    @Test
     @DisplayName("必选策略：必选 pluginId 未安装 → 追加 MISSING_REQUIRED（无描述符）")
     void requiredPolicyMissing() {
         RequiredPluginPolicy policy = RequiredPluginPolicy.of(List.of(
@@ -171,6 +271,10 @@ class PluginStatusEvaluatorTest {
         assertThat(diagnostic.status()).isEqualTo(PluginStatus.STARTED);
         assertThat(diagnostic.requiredByPolicy()).isTrue();
         assertThat(report.hasUnmetRequirement()).isFalse();
+    }
+
+    private static PluginStatus statusOf(PluginStatusReport report, String id) {
+        return report.byId(id).orElseThrow().status();
     }
 
     private static ObservedPlugin observed(String id, String version, PluginStatus baseStatus) {

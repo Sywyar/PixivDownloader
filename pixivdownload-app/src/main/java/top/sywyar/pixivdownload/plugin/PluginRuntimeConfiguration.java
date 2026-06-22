@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 /**
@@ -21,7 +22,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
  *   <li>插件目录缺失 / 空 / 含坏包都<b>不</b>致核心壳启动失败（由 {@code PluginRuntimeManager} 收敛）；</li>
  *   <li>外置插件经 {@link PluginRegistry} 与内置插件统一注册（来源标记区分），但<b>不</b>改变内置插件注册 /
  *       禁用 / required 语义；外置 pluginId 与内置冲突由 {@link PluginRegistry} fail-fast。</li>
- *   <li><b>不</b>做热安装 / 热卸载，也不据诊断状态改变核心启动（必选插件清单 / 恢复流程据这些 Bean 暴露的状态另行判断）。</li>
+ *   <li><b>不</b>做热安装 / 热卸载，也不据诊断状态改变核心启动；必选清单与诊断状态仅经这些 Bean 暴露，是否据此处置不在本配置内决定。</li>
  * </ul>
  */
 @Configuration
@@ -58,11 +59,21 @@ public class PluginRuntimeConfiguration {
     }
 
     /**
-     * 必选插件策略。当前装配空策略——本阶段只建模并诊断「必选但缺失 / 不兼容」状态，<b>不</b>据此改变核心启动 /
-     * 路由开放（必选插件缺失时的恢复 / 补齐模式属后续流程，届时由此 Bean 提供具体必选清单）。
+     * 必选插件策略。当前装配空策略——只建模并诊断「必选但缺失 / 不兼容」状态，<b>不</b>据此改变核心启动 /
+     * 路由开放；必选插件缺失时的恢复 / 补齐能力不在本配置内触发。此 Bean 是必选清单与诊断策略的承载点。
      */
     @Bean
     public RequiredPluginPolicy requiredPluginPolicy() {
         return RequiredPluginPolicy.empty();
+    }
+
+    /**
+     * 外置插件安装器：把上传的 {@code .zip} / {@code .jar} 安装包安全装入 {@link RuntimeFiles#pluginsDirectory()}
+     *（PF4J 扫描的同一目录），处理 Zip Slip 防护、布局校验、核心 API 兼容门与重复 / 升级 / 降级。POJO、构造无副作用、
+     * 不创建目录（目录在首次安装提交时按需创建）。装为 Bean 供后续安装流程复用，本配置不在启动期调用安装、也不新增 UI。
+     */
+    @Bean
+    public ExternalPluginInstaller externalPluginInstaller() {
+        return new ExternalPluginInstaller(RuntimeFiles.pluginsDirectory());
     }
 }
