@@ -6,9 +6,13 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
+import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.scripts.ScriptRegistry;
+import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -32,6 +36,24 @@ class ExternalPluginContextManagerTest {
      */
     private final PluginControllerRegistrar controllerRegistrar = new PluginControllerRegistrar(
             new PluginAwareRequestMappingHandlerMapping(), new RouteAccessRegistry(new PluginRegistry(List.of())));
+    /** 空 PluginRegistry（无外置插件）：{@code stop()} 的 web 贡献注销遍历为空，本测试聚焦子 context 生命周期。 */
+    private final PluginRegistry emptyRegistry = new PluginRegistry(List.of());
+    /** 真实但「空」的 web 贡献注册器（各下游注册中心均空）：synthetic 插件无 web 贡献，注销为幂等空操作。 */
+    private final PluginWebContributionRegistrar webContributionRegistrar = newEmptyWebContributionRegistrar();
+
+    /** 用空注册中心组装 web 贡献注册器：本测试的 synthetic 插件不贡献 route/static/i18n/navigation/userscript。 */
+    private static PluginWebContributionRegistrar newEmptyWebContributionRegistrar() {
+        PluginRegistry empty = new PluginRegistry(List.of());
+        UserscriptRegistry userscripts = new UserscriptRegistry(empty);
+        ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
+        return new PluginWebContributionRegistrar(
+                new RouteAccessRegistry(empty),
+                new StaticResourceRegistry(empty),
+                new WebI18nBundleRegistry(empty),
+                new NavigationRegistry(empty),
+                userscripts,
+                scripts);
+    }
 
     private static PluginRuntimeManager runtimeReturning(List<PluginContextModule> modules) {
         return new PluginRuntimeManager(Path.of("target/no-such-plugins-dir")) {
@@ -51,7 +73,7 @@ class ExternalPluginContextManagerTest {
                     "ext-demo", getClass().getClassLoader(), List.of(PluginConfig.class));
             ExternalPluginContextManager manager =
                     new ExternalPluginContextManager(parent, runtimeReturning(List.of(module)), factory,
-                            controllerRegistrar);
+                            controllerRegistrar, emptyRegistry, webContributionRegistrar);
 
             manager.start();
 
@@ -81,7 +103,7 @@ class ExternalPluginContextManagerTest {
                      new AnnotationConfigApplicationContext(ParentCoreConfig.class)) {
             ExternalPluginContextManager manager =
                     new ExternalPluginContextManager(parent, runtimeReturning(List.of()), factory,
-                            controllerRegistrar);
+                            controllerRegistrar, emptyRegistry, webContributionRegistrar);
 
             manager.start();
 
@@ -104,7 +126,7 @@ class ExternalPluginContextManagerTest {
                     "ext-good", getClass().getClassLoader(), List.of(PluginConfig.class));
             ExternalPluginContextManager manager =
                     new ExternalPluginContextManager(parent, runtimeReturning(List.of(broken, good)), factory,
-                            controllerRegistrar);
+                            controllerRegistrar, emptyRegistry, webContributionRegistrar);
 
             manager.start();
 

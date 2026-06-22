@@ -48,19 +48,33 @@ public class ScriptRegistry {
     );
 
     private final AppMessages messages;
-    private final List<ScriptResource> scripts;
-    /** 文件名 → classpath 资源（经声明方 ClassLoader 解析），供内容按需读取。 */
-    private final Map<String, Resource> resourcesByFileName;
+    private final UserscriptRegistry userscriptRegistry;
+    /** 脚本列表 + 文件名→资源映射的不可变快照；{@link #refresh()} 整体替换引用（读侧无锁）。 */
+    private volatile Snapshot snapshot;
+
+    /** 一份脚本扫描结果：可安装脚本列表与「文件名 → classpath 资源（经声明方 ClassLoader 解析）」。 */
+    private record Snapshot(List<ScriptResource> scripts, Map<String, Resource> resourcesByFileName) {
+    }
 
     public ScriptRegistry(AppMessages messages, UserscriptRegistry userscriptRegistry) {
         this.messages = messages;
+        this.userscriptRegistry = userscriptRegistry;
+        refresh();
+    }
+
+    /**
+     * 按 {@link UserscriptRegistry} 当前快照重新扫描脚本与内容来源，整体替换不可变快照引用（读侧无锁）。
+     * 在外置插件 web 贡献注册 / 注销后由 {@code PluginWebContributionRegistrar} 调用，使某插件的 userscript
+     * 来源被注销后脚本层不再残留、再注册后恢复——脚本聚合结果不再是构造期一次性缓存。
+     */
+    public void refresh() {
         Map<String, Resource> byFileName = new LinkedHashMap<>();
-        this.scripts = List.copyOf(loadScripts(userscriptRegistry, byFileName));
-        this.resourcesByFileName = Map.copyOf(byFileName);
+        List<ScriptResource> loaded = List.copyOf(loadScripts(userscriptRegistry, byFileName));
+        this.snapshot = new Snapshot(loaded, Map.copyOf(byFileName));
     }
 
     public List<ScriptResource> getScripts() {
-        return scripts;
+        return snapshot.scripts();
     }
 
     private List<ScriptResource> loadScripts(UserscriptRegistry userscriptRegistry,
@@ -184,7 +198,7 @@ public class ScriptRegistry {
     }
 
     public Optional<ScriptResource> findById(String id) {
-        return scripts.stream().filter(s -> s.id().equals(id)).findFirst();
+        return snapshot.scripts().stream().filter(s -> s.id().equals(id)).findFirst();
     }
 
     /**
@@ -192,7 +206,7 @@ public class ScriptRegistry {
      * 未知文件名抛 {@link IOException}。
      */
     public String readContent(String fileName) throws IOException {
-        Resource resource = resourcesByFileName.get(fileName);
+        Resource resource = snapshot.resourcesByFileName().get(fileName);
         if (resource == null) {
             throw new IOException(message("script.log.content.not-found", fileName));
         }

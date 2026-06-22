@@ -41,6 +41,13 @@ import java.util.Set;
  *（典型：某映射缺路由声明）即关闭刚建立的子 context、不保留该插件，与其它插件隔离。本管理器负责子 context 的建立 /
  * 持有 / 关闭、controller 注册 / 注销的编排，以及可观测（{@link #pluginIds()} / {@link #contextFor(String)}）。
  * 无外置插件（插件目录缺失 / 空 / 无声明配置类的插件）时本管理器为空、透明无副作用。
+ *
+ * <p>外置插件的 web 贡献（route / static / i18n / navigation / userscript）由各下游注册中心在<b>构造期</b>从
+ * {@link PluginRegistry} 活动快照接入（启动期接入路径，内置插件行为不变）。本管理器负责其<b>注销</b>编排：
+ * {@link #stop()} 与上述失败路径都经 {@link PluginWebContributionRegistrar} 按 pluginId 撤销该插件的全部 web 贡献
+ *（并清其 classloader 的 i18n 缓存、刷新脚本层），顺序为<b>先注销 controller、再注销 web 贡献、最后关闭子 context</b>。
+ * 没有子 context 的纯贡献外置插件也在 {@code stop()} 中被注销，故注销后这些贡献无残留、静态资源 URL 经
+ * {@code AuthFilter}「未声明即 404」不可达（与禁用语义一致）。
  */
 @Slf4j
 @Component
@@ -50,6 +57,8 @@ public class ExternalPluginContextManager implements SmartLifecycle {
     private final PluginRuntimeManager pluginRuntimeManager;
     private final PluginApplicationContextFactory contextFactory;
     private final PluginControllerRegistrar controllerRegistrar;
+    private final PluginRegistry pluginRegistry;
+    private final PluginWebContributionRegistrar webContributionRegistrar;
 
     private final Object lock = new Object();
     /** 按建立顺序保存的子 context（键为外置插件包 id）。仅在 {@link #lock} 内变更，读路径取其只读视图。 */
@@ -59,11 +68,15 @@ public class ExternalPluginContextManager implements SmartLifecycle {
     public ExternalPluginContextManager(ApplicationContext parent,
                                         PluginRuntimeManager pluginRuntimeManager,
                                         PluginApplicationContextFactory contextFactory,
-                                        PluginControllerRegistrar controllerRegistrar) {
+                                        PluginControllerRegistrar controllerRegistrar,
+                                        PluginRegistry pluginRegistry,
+                                        PluginWebContributionRegistrar webContributionRegistrar) {
         this.parent = parent;
         this.pluginRuntimeManager = pluginRuntimeManager;
         this.contextFactory = contextFactory;
         this.controllerRegistrar = controllerRegistrar;
+        this.pluginRegistry = pluginRegistry;
+        this.webContributionRegistrar = webContributionRegistrar;
     }
 
     @Override
@@ -91,19 +104,23 @@ public class ExternalPluginContextManager implements SmartLifecycle {
         try {
             child = contextFactory.create(parent, module);
         } catch (Exception e) {
-            // 隔离失败：单个外置插件子 context 建立失败不影响其它插件、不致核心壳启动失败。
+            // 隔离失败：单个外置插件子 context 建立失败不影响其它插件、不致核心壳启动失败。该插件不可用，
+            // 撤掉它在各注册中心构造期接入的 web 贡献（route/static/i18n/navigation/userscript），避免留下
+            // 路由声明在却无 controller / 页面的半可用状态——按插件原子，与禁用语义一致（其 URL 转「未声明即 404」）。
             log.error("Failed to start plugin context for '{}': {}", pluginId, e.toString(), e);
+            webContributionRegistrar.unregister(pluginId, module.classLoader());
             return;
         }
         try {
             controllerRegistrar.registerControllers(pluginId, child);
         } catch (Exception e) {
-            // controller 注册失败（典型：映射缺路由声明，或某条 registerMapping 与已有 handler 冲突）→ 防御性注销该
-            // 插件可能残留的任何映射（registerControllers 失败时已自行回滚，此处兜底），再关闭刚建立的子 context、不保留，
-            // 按插件原子隔离——杜绝父分发表留下指向即将关闭的子 context bean 的陈旧 handler。
+            // controller 注册失败（典型：映射缺路由声明，或某条 registerMapping 与已有 handler 冲突）→ 按插件原子隔离：
+            // 先注销该插件可能残留的映射（registerControllers 失败时已自行回滚，此处兜底），再撤掉其 web 贡献，
+            // 最后关闭刚建立的子 context、不保留——杜绝父分发表 / 注册中心留下指向即将关闭插件的陈旧 handler / 贡献。
             log.error("Failed to register controllers for plugin '{}': {} - closing its child context.",
                     pluginId, e.toString(), e);
             controllerRegistrar.unregisterControllers(pluginId);
+            webContributionRegistrar.unregister(pluginId, module.classLoader());
             closeQuietly(pluginId, child);
             return;
         }
@@ -125,20 +142,47 @@ public class ExternalPluginContextManager implements SmartLifecycle {
             if (!running) {
                 return;
             }
-            List<Map.Entry<String, ConfigurableApplicationContext>> ordered = new ArrayList<>(contexts.entrySet());
-            Collections.reverse(ordered); // 逆序关闭
-            for (Map.Entry<String, ConfigurableApplicationContext> entry : ordered) {
-                // 先把该插件的 controller 从父分发表注销，再关闭其子 context（停止新请求命中即将销毁的 handler）。
-                controllerRegistrar.unregisterControllers(entry.getKey());
+            // 活动外置插件包 id → 来源 classloader（清其 i18n ResourceBundle 缓存用）。无外置插件时为空。
+            Map<String, ClassLoader> externalClassLoaders = externalClassLoadersById();
+
+            // 1) 有子 context 的插件（逆建立序）：先注销 controller，再注销 web 贡献（含清 i18n 缓存 + 刷新脚本层），
+            //    最后关闭子 context——停止新请求命中即将销毁的 handler / 已注销的路由。
+            List<String> contextIds = new ArrayList<>(contexts.keySet());
+            Collections.reverse(contextIds);
+            for (String pluginId : contextIds) {
+                ConfigurableApplicationContext child = contexts.get(pluginId);
+                controllerRegistrar.unregisterControllers(pluginId);
+                webContributionRegistrar.unregister(pluginId,
+                        externalClassLoaders.getOrDefault(pluginId, child.getClassLoader()));
                 try {
-                    entry.getValue().close();
+                    child.close();
                 } catch (Exception e) {
-                    log.warn("Error closing plugin context for '{}': {}", entry.getKey(), e.toString());
+                    log.warn("Error closing plugin context for '{}': {}", pluginId, e.toString());
                 }
             }
             contexts.clear();
+
+            // 2) 没有子 context 的纯贡献外置插件（逆注册序）：仅注销其 web 贡献（步骤 1 已处理的跳过）。
+            List<Map.Entry<String, ClassLoader>> externalReversed = new ArrayList<>(externalClassLoaders.entrySet());
+            Collections.reverse(externalReversed);
+            for (Map.Entry<String, ClassLoader> entry : externalReversed) {
+                if (!contextIds.contains(entry.getKey())) {
+                    webContributionRegistrar.unregister(entry.getKey(), entry.getValue());
+                }
+            }
             running = false;
         }
+    }
+
+    /** 当前活动外置插件包 id → 来源 classloader（保持注册顺序）。供 {@link #stop()} 按插件注销 web 贡献。 */
+    private Map<String, ClassLoader> externalClassLoadersById() {
+        Map<String, ClassLoader> byId = new LinkedHashMap<>();
+        for (PluginRegistry.RegisteredPlugin registered : pluginRegistry.registeredPlugins()) {
+            if (registered.source() == PluginSource.EXTERNAL) {
+                byId.put(registered.id(), registered.classLoader());
+            }
+        }
+        return byId;
     }
 
     @Override

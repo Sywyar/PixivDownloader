@@ -14,6 +14,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.runtime.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
@@ -117,6 +118,8 @@ class StatsExternalPluginBootContextTest {
     private ExternalPluginContextManager externalPluginContextManager;
     @Autowired
     private PluginControllerRegistrar pluginControllerRegistrar;
+    @Autowired
+    private PluginWebContributionRegistrar pluginWebContributionRegistrar;
     @Autowired
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
     @Autowired
@@ -253,6 +256,34 @@ class StatsExternalPluginBootContextTest {
         int restored = pluginControllerRegistrar.registerControllers("stats", child);
         assertThat(restored).isGreaterThanOrEqualTo(1);
         assertThat(statsDashboardHandlerBean()).isSameAs(statsControllerBean);
+    }
+
+    @Test
+    @DisplayName("外置 stats web 贡献注销后 route/static/i18n/navigation 不再暴露（URL 未声明即 AuthFilter 404）、可逆")
+    void externalStatsWebContributionsAreRevocable() {
+        PluginRegistry.RegisteredPlugin stats = pluginRegistry.registeredPlugins().stream()
+                .filter(rp -> rp.id().equals("stats")).findFirst().orElseThrow();
+
+        // 注销前：stats 的 web 贡献在场，其 API / 静态 URL 已被路由声明（AuthFilter 据此放行而非 404）。
+        assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
+        assertThat(routeAccessRegistry.isDeclared("/pixiv-stats/pixiv-stats.css", HttpMethod.GET)).isTrue();
+
+        pluginWebContributionRegistrar.unregister(stats);
+
+        // 注销后：route/static/i18n/navigation 快照不再含 stats，其 URL「未声明」→ AuthFilter「未声明即 404」、资源不可达。
+        assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isFalse();
+        assertThat(routeAccessRegistry.isDeclared("/pixiv-stats/pixiv-stats.css", HttpMethod.GET)).isFalse();
+        assertThat(routeAccessRegistry.routes()).noneMatch(r -> r.pluginId().equals("stats"));
+        assertThat(staticResourceRegistry.resources()).noneMatch(s -> s.pluginId().equals("stats"));
+        assertThat(webI18nBundleRegistry.resolve("stats")).isNull();
+        assertThat(navigationRegistry.navigation()).noneMatch(n -> n.pluginId().equals("stats"));
+
+        // 可逆：重新接入恢复（也还原本类其它用例 / AfterAll 依赖的已注册状态）。
+        pluginWebContributionRegistrar.register(stats);
+        assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
+        assertThat(staticResourceRegistry.resources()).anyMatch(s -> s.pluginId().equals("stats"));
+        assertThat(webI18nBundleRegistry.resolve("stats")).isNotNull();
+        assertThat(navigationRegistry.navigation()).anyMatch(n -> n.pluginId().equals("stats"));
     }
 
     /** 父 context 的请求分发表中映射到 {@code /api/stats/dashboard} 的 handler Bean；未注册时为 null。 */
