@@ -16,8 +16,8 @@ import java.util.Optional;
  * 插件在自己的描述符里宣称（外置插件无法自封必选）。{@link PluginStatusEvaluator} 据本策略把「必选但未安装 /
  * 已安装但不兼容」的 pluginId 标为 {@link PluginStatus#MISSING_REQUIRED} / {@link PluginStatus#INCOMPATIBLE_REQUIRED}。
  *
- * <p>本类只承载策略数据与诊断推导；它<b>不</b>据此改变核心启动 / 路由开放（必选插件缺失时的恢复 / 补齐模式属后续
- * 流程）。当前核心壳装配一个空策略，校验逻辑由测试覆盖。
+ * <p>本类只承载策略数据与诊断推导；它<b>不</b>自行改变核心启动 / 路由开放——是否据未满足的必选项进入恢复模式由
+ * 上层访问控制消费方判定。
  */
 public final class RequiredPluginPolicy {
 
@@ -53,7 +53,7 @@ public final class RequiredPluginPolicy {
         this.byId = Map.copyOf(map);
     }
 
-    /** 空策略：当前无任何 pluginId 被声明为必选（核心壳默认装配此实例）。 */
+    /** 空策略：无任何 pluginId 被声明为必选。 */
     public static RequiredPluginPolicy empty() {
         return EMPTY;
     }

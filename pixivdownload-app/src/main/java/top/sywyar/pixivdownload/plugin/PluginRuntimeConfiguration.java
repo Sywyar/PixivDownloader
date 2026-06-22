@@ -3,12 +3,16 @@ package top.sywyar.pixivdownload.plugin;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
+
+import java.util.List;
 
 /**
  * 核心壳侧装配 PF4J 外置插件运行时（{@link PluginRuntimeManager} 住 {@code pixivdownload-plugin-runtime}
@@ -59,12 +63,20 @@ public class PluginRuntimeConfiguration {
     }
 
     /**
-     * 必选插件策略。当前装配空策略——只建模并诊断「必选但缺失 / 不兼容」状态，<b>不</b>据此改变核心启动 /
-     * 路由开放；必选插件缺失时的恢复 / 补齐能力不在本配置内触发。此 Bean 是必选清单与诊断策略的承载点。
+     * 必选插件策略：声明核心 / 发行视角下必须在场的插件 id（首个为下载工作台 {@code download-workbench}）及其兼容
+     * 版本范围、是否允许禁用、缺失 / 不兼容时的提示文案键。{@link RecoveryModeService} 据本策略与插件状态报告判定是否
+     * 进入恢复模式；本配置只声明策略数据，不在启动期据此拦截请求（拦截由恢复模式访问控制 {@link RecoveryModeGate}
+     * 执行）。
+     * <p>下载工作台当前随主程序编译为内置必选插件、恒在场且与核心 API 同版本，故正常运行下该必选项恒满足。
      */
     @Bean
     public RequiredPluginPolicy requiredPluginPolicy() {
-        return RequiredPluginPolicy.empty();
+        return RequiredPluginPolicy.of(List.of(
+                new RequiredPluginPolicy.RequiredPlugin(
+                        "download-workbench",
+                        PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
+                        false,
+                        "plugin.recovery.missing.download-workbench")));
     }
 
     /**

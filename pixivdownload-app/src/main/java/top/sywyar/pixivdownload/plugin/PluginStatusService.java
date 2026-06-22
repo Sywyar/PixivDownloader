@@ -23,8 +23,9 @@ import java.util.stream.Collectors;
  * 外置插件清点 {@link PluginInventory}）与必选插件策略 {@link RequiredPluginPolicy} 综合为
  * {@link PluginStatusReport}，由 {@link PluginStatusEvaluator} 推导每个插件 id 的 {@link PluginStatus}。
  *
- * <p>本服务<b>只读、只报告</b>，不据状态改变核心启动 / 路由开放——必选插件缺失时的恢复 / 补齐模式属后续流程。
- * 它是状态模型「可由后端查询」的落点：管理 API / GUI 等后续入口复用本服务，不各自实现插件扫描。
+ * <p>本服务<b>只读、只报告</b>，不自行据状态改变核心启动 / 路由开放——是否据报告进入恢复模式由
+ * {@link RecoveryModeService} 与访问控制消费方判定。它是状态模型「可由后端查询」的落点：管理 API / GUI 等入口复用
+ * 本服务，不各自实现插件扫描。
  *
  * <p>内置插件的描述符由 {@link PluginDescriptor#forBuiltIn} 现造、基线状态取注册中心（活动=已启动、安装但未活动=已禁用）；
  * 外置插件的描述符与基线状态取清点结果（含被拒绝接入的不兼容条目）；无法读出描述符的包级加载失败追加为
