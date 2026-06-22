@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.download;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
 
 /**
@@ -32,5 +33,11 @@ public class DownloadWorkbenchPluginConfiguration {
     @Bean
     public ScheduledIllustWorkRunner scheduledIllustWorkRunner(ArtworkDownloader artworkDownloader) {
         return new ScheduledIllustWorkRunner(artworkDownloader);
+    }
+
+    /** 插画作品类型的跨类型队列宿主操作适配器（取消 / 清空），经核心队列宿主注册中心按 queueType 解析。 */
+    @Bean
+    public QueueOperations illustQueueOperations(ArtworkDownloadExecutor artworkDownloadExecutor) {
+        return new IllustQueueOperations(artworkDownloadExecutor);
     }
 }

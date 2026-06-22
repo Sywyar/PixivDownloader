@@ -404,6 +404,47 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("下载队列控制器不得直接依赖具体作品类型下载服务：取消 / 清空只经核心队列宿主注册中心 QueueOperationRegistry")
+    void downloadQueueControllerDoesNotDependOnConcreteDownloadServices() {
+        // 跨类型 cancel / clear 已收口为核心队列宿主注册中心 QueueOperationRegistry（按 queueType 解析操作适配器）。
+        // DownloadQueueController 只依赖该核心注册中心与中性 QueueOperations 契约，不得直接 import 任一具体作品类型
+        // 下载实现——插画 ArtworkDownloadExecutor（同插件、但仍属具体实现）与小说 NovelDownloadService（跨插件反向耦合）
+        // 都在禁用面内；插画 / 小说各经其 XxxPluginConfiguration 显式装配一个 QueueOperations 适配器贡献给注册中心。
+        // 仅针对该控制器：同包其它下载控制器（DownloadStatusController / DownloadTaskController 依赖插画执行器、
+        // PixivProxyController 依赖小说代理类型）是各自的合法路径、不在本守卫范围。
+        noClasses()
+                .that().haveFullyQualifiedName(
+                        "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
+                .should().dependOnClassesThat()
+                .belongToAnyOf(
+                        top.sywyar.pixivdownload.download.ArtworkDownloadExecutor.class,
+                        top.sywyar.pixivdownload.novel.download.NovelDownloadService.class)
+                .because("下载队列控制器的跨类型取消 / 清空经核心队列宿主注册中心 QueueOperationRegistry "
+                        + "+ 中性契约 QueueOperations 多态派发，不得直接 import 插画 / 小说等具体下载实现")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("队列宿主操作适配器必须 @PluginManagedBean（不得根包扫描）：随贡献它的插件生命周期归属")
+    void queueOperationsMustBePluginManaged() {
+        // IllustQueueOperations（住 download 包、下载工作台贡献）/ NovelQueueOperations（住 novel 包、小说插件贡献）
+        // 这类 QueueOperations 实现必须标 @PluginManagedBean、由各自 XxxPluginConfiguration 显式装配、排除出根包扫描——
+        // 否则贡献它的插件被禁 / 卸载后，根扫描的 @Service / @Component 仍会注册适配器偷跑，破坏「缺操作即该作品类型不
+        // 参与跨类型清空」语义（与作品类型执行器 ScheduledWorkRunner 同构）。接口本身不在约束面。
+        classes()
+                .that().areAssignableTo(
+                        top.sywyar.pixivdownload.core.download.queue.QueueOperations.class)
+                .and().areNotInterfaces()
+                .should().beAnnotatedWith(
+                        top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
+                .andShould().notBeAnnotatedWith(org.springframework.stereotype.Service.class)
+                .because("队列宿主操作适配器随贡献它的插件生命周期归属：必须 @PluginManagedBean 由对应 "
+                        + "XxxPluginConfiguration 显式装配、排除出根包扫描，不得用 @Service / @Component 根扫描注册，"
+                        + "否则插件禁用后仍被注册偷跑")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("common 不得依赖业务包：项目内仅允许 common/config/i18n")
     void commonDependsOnlyOnInfrastructure() {
         noClasses()

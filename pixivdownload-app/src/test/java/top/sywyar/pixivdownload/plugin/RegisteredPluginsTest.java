@@ -97,6 +97,9 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class))
             .withBean(top.sywyar.pixivdownload.download.ArtworkDownloader.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.ArtworkDownloader.class))
+            // 下载工作台贡献的插画队列操作适配器（IllustQueueOperations）依赖具体下载执行器，本切片 mock 兜底。
+            .withBean(top.sywyar.pixivdownload.download.ArtworkDownloadExecutor.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.ArtworkDownloadExecutor.class))
             .withBean(top.sywyar.pixivdownload.novel.download.NovelDownloader.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.novel.download.NovelDownloader.class))
             // 小说下载端点两个 controller 随小说插件启停收编进 NovelPluginConfiguration，其依赖的

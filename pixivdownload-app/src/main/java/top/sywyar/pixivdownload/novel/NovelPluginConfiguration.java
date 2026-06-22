@@ -11,8 +11,10 @@ import top.sywyar.pixivdownload.novel.controller.NovelDownloadLegacyForwardContr
 import top.sywyar.pixivdownload.novel.controller.NovelGalleryController;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
+import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.download.NovelDownloader;
+import top.sywyar.pixivdownload.novel.download.NovelQueueOperations;
 import top.sywyar.pixivdownload.novel.download.ScheduledNovelDownloadDelegate;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.plugin.api.work.service.WorkDeletionService;
@@ -52,6 +54,16 @@ public class NovelPluginConfiguration {
     @Bean
     public NovelPlugin novelPlugin() {
         return new NovelPlugin();
+    }
+
+    /**
+     * 小说作品类型的跨类型队列宿主操作适配器（清空 / 按 owner 清空；无单项取消）。随小说插件启停：禁用时缺席，
+     * 核心队列宿主注册中心解析不到 {@code novel} 操作、跨类型清空只作用于在场类型。
+     */
+    @Bean
+    @ConditionalOnPluginEnabled("novel")
+    public QueueOperations novelQueueOperations(NovelDownloadService novelDownloadService) {
+        return new NovelQueueOperations(novelDownloadService);
     }
 
     @Bean
