@@ -114,6 +114,18 @@ public class ScheduledSourceRegistry {
         return snapshot.sources();
     }
 
+    /**
+     * 该插件当前是否已注册过来源。供运行期接入做幂等判定：外置插件的来源在构造期已由本注册中心从
+     * {@link PluginRegistry} 活动快照接入（启动期路径），故 {@link PluginScheduleContributionRegistrar}
+     * 在启动期接入不重复注册来源、运行期重启（来源已被注销）时才注册。空白 pluginId 返回 {@code false}。
+     */
+    public boolean isRegistered(String pluginId) {
+        if (pluginId == null || pluginId.isBlank()) {
+            return false;
+        }
+        return snapshot.sources().stream().anyMatch(source -> source.pluginId().equals(pluginId));
+    }
+
     /** 按规范 type 字符串取 provider；空 / 无匹配返回 {@link Optional#empty()}。 */
     public Optional<ScheduledSourceProvider> byType(String type) {
         if (type == null || type.isBlank()) {

@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -9,10 +10,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
@@ -22,6 +28,7 @@ import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -30,8 +37,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -171,6 +180,7 @@ class PluginLifecycleServiceTest {
     private static final class MockHarness {
         final PluginControllerRegistrar controllerRegistrar = mock(PluginControllerRegistrar.class);
         final PluginWebContributionRegistrar webRegistrar = mock(PluginWebContributionRegistrar.class);
+        final PluginScheduleContributionRegistrar scheduleRegistrar = mock(PluginScheduleContributionRegistrar.class);
         final PluginRegistry registry = mock(PluginRegistry.class);
         final PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
         final PluginLifecycleState state = new PluginLifecycleState();
@@ -200,8 +210,8 @@ class PluginLifecycleServiceTest {
             when(runtime.inspectContextModules()).thenReturn(List.of());
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
-                    new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, registry, state,
-                    queueRegistry, streamRegistry);
+                    new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
+                    registry, state, queueRegistry, streamRegistry);
             service.startAll(); // 纯贡献插件登记为 STARTED
             // 注册一条该插件拥有的 SSE 推流（验证 quiesce / 卸载时被关闭）。
             streamRegistry.register("ext-demo", "conn-1", stream);
@@ -235,20 +245,40 @@ class PluginLifecycleServiceTest {
     }
 
     @Test
-    @DisplayName("stop：按序注销 controller / web 贡献、调插件 stop()，阶段落 STOPPED；重复 stop 幂等")
+    @DisplayName("quiesce：注销该插件 schedule 贡献（停新计划任务派发）；随后 stop 再注销为幂等 no-op、不重复出错")
+    void quiesceUnregistersScheduleContributionThenStopIsIdempotent() {
+        MockHarness h = new MockHarness();
+
+        h.service.quiesce("ext-demo");
+        verify(h.scheduleRegistrar, atLeastOnce()).unregister("ext-demo"); // quiesce 即停新计划任务派发（注销来源 / 执行器）
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.QUIESCED);
+
+        // stop after quiesce：shield + tearDownServing 再注销（幂等、不重复出错），stop 不抛、阶段落 STOPPED。
+        // 不写死注销次数（避免脆弱）：只验证 stop 仍幂等地再注销一次、且收尾到 STOPPED。
+        clearInvocations(h.scheduleRegistrar);
+        h.service.stop("ext-demo");
+        verify(h.scheduleRegistrar, atLeastOnce()).unregister("ext-demo");
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+    }
+
+    @Test
+    @DisplayName("stop：按序注销 controller / schedule 贡献 / web 贡献、调插件 stop()，阶段落 STOPPED；重复 stop 幂等")
     void stopTearsDownAndIsIdempotent() {
         MockHarness h = new MockHarness();
 
         h.service.stop("ext-demo");
 
         verify(h.controllerRegistrar).unregisterControllers("ext-demo");
+        verify(h.scheduleRegistrar, atLeastOnce()).unregister("ext-demo"); // shield（drain 前停派发）+ teardown 幂等再注销
         verify(h.webRegistrar).unregister(eq("ext-demo"), any());
         assertThat(h.plugin.stopCount).isEqualTo(1);
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
 
-        // 重复 stop 不破坏状态、不再次清退
+        // 重复 stop 不破坏状态、不再次清退（已 STOPPED → 早返回，schedule / web 注销与插件 stop() 都不再发生）
+        clearInvocations(h.scheduleRegistrar, h.webRegistrar);
         h.service.stop("ext-demo");
-        verify(h.webRegistrar, times(1)).unregister(eq("ext-demo"), any());
+        verify(h.scheduleRegistrar, never()).unregister("ext-demo");
+        verify(h.webRegistrar, never()).unregister(eq("ext-demo"), any());
         assertThat(h.plugin.stopCount).isEqualTo(1);
     }
 
@@ -273,6 +303,7 @@ class PluginLifecycleServiceTest {
 
         h.service.unload("ext-demo");
 
+        verify(h.scheduleRegistrar, atLeastOnce()).unregister("ext-demo"); // 经 stop（shield + teardown）注销 schedule 贡献
         verify(h.webRegistrar).unregister(eq("ext-demo"), any()); // 经 stop 拆服务足迹
         verify(h.registry).unregister("ext-demo");                // 从核心注册中心移除
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.UNLOADED);
@@ -383,6 +414,79 @@ class PluginLifecycleServiceTest {
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.UNLOADED);
     }
 
+    // ============================ 停派发先于清退在途组（direct stop / unload / reload from STARTED）============================
+
+    /**
+     * 全 mock 协作者（含 mock 的 {@link PluginStreamRegistry} / {@link QueueOperationRegistry}）的装置：用 {@link InOrder}
+     * 验证「停新计划任务派发（注销 schedule 贡献）先于清退在途（关 SSE → drain 队列）」——即 direct stop / unload / reload
+     * 从 STARTED 进入 {@code doStop} 时也先 shield 再 drain，drain 窗口内调度器解析不到其来源 / 执行器、不再派发新一轮 run。
+     */
+    private static final class OrderHarness {
+        final PluginControllerRegistrar controllerRegistrar = mock(PluginControllerRegistrar.class);
+        final PluginWebContributionRegistrar webRegistrar = mock(PluginWebContributionRegistrar.class);
+        final PluginScheduleContributionRegistrar scheduleRegistrar = mock(PluginScheduleContributionRegistrar.class);
+        final PluginRegistry registry = mock(PluginRegistry.class);
+        final PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
+        final PluginLifecycleState state = new PluginLifecycleState();
+        final RecordingPlugin plugin = new RecordingPlugin("ext-demo");
+        final PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
+                plugin, PluginSource.EXTERNAL, OrderHarness.class.getClassLoader());
+        final PluginStreamRegistry streamRegistry = mock(PluginStreamRegistry.class);
+        final QueueOperationRegistry queueRegistry = mock(QueueOperationRegistry.class);
+        final PluginLifecycleService service;
+
+        OrderHarness() {
+            plugin.queueType = "ext-illust"; // 声明作品类型 → drain 会经 queueRegistry.resolve 解析其操作适配器
+            when(runtime.inspectContextModules()).thenReturn(List.of());
+            when(registry.registeredPlugins()).thenReturn(List.of(registered));
+            service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
+                    new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
+                    registry, state, queueRegistry, streamRegistry);
+            service.startAll(); // 纯贡献插件登记为 STARTED
+        }
+
+        /** 断言 schedule 注销（停派发）→ 关 SSE → drain 队列 的相对调用顺序（schedule 注销可发生多次，只校验首次在前）。 */
+        void verifyShieldThenDrain() {
+            InOrder ord = inOrder(scheduleRegistrar, streamRegistry, queueRegistry);
+            ord.verify(scheduleRegistrar).unregister("ext-demo");   // ① 先停新计划任务派发（注销来源 / 执行器）
+            ord.verify(streamRegistry).closeForPlugin("ext-demo");  // ② 再关闭 SSE 推流
+            ord.verify(queueRegistry).resolve("ext-illust");        // ③ 再 drain 在途下载队列
+        }
+    }
+
+    @Test
+    @DisplayName("direct stop（from STARTED）：schedule 注销（停派发）发生在关 SSE / drain 队列之前")
+    void directStopShieldsScheduleBeforeDrain() {
+        OrderHarness h = new OrderHarness();
+
+        h.service.stop("ext-demo");
+
+        h.verifyShieldThenDrain();
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STOPPED);
+    }
+
+    @Test
+    @DisplayName("unload（from STARTED）：经 doStop 同样先停派发再清退在途，最终落 UNLOADED")
+    void unloadFromStartedShieldsScheduleBeforeDrain() {
+        OrderHarness h = new OrderHarness();
+
+        h.service.unload("ext-demo");
+
+        h.verifyShieldThenDrain();
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.UNLOADED);
+    }
+
+    @Test
+    @DisplayName("reload（from STARTED）：stop 段先停派发再清退在途，随后 start 重建足迹回 STARTED")
+    void reloadFromStartedShieldsBeforeDrainThenRestarts() {
+        OrderHarness h = new OrderHarness();
+
+        h.service.reload("ext-demo"); // STARTED → stop（先 shield 再 drain）→ start（重建足迹）
+
+        h.verifyShieldThenDrain();
+        assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.STARTED);
+    }
+
     // ============================ 插件自身 start()/stop() 生命周期组（真实子 context + mock 注册器）============================
 
     /**
@@ -408,7 +512,7 @@ class PluginLifecycleServiceTest {
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                    controllerRegistrar, webRegistrar, registry, state,
+                    controllerRegistrar, webRegistrar, emptyScheduleRegistrar(), registry, state,
                     new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
         }
 
@@ -481,12 +585,181 @@ class PluginLifecycleServiceTest {
         }
     }
 
+    // ============================ schedule 贡献热插拔组（真实子 context + 真实调度注册中心）============================
+
+    @Test
+    @DisplayName("startAll 注册外置插件 schedule 来源 + 执行器：规范 type / legacy 名 / 作品类型均可解析")
+    void startAllRegistersScheduleSourceAndRunner() {
+        try (ScheduleHarness h = new ScheduleHarness()) {
+            h.service.startAll();
+
+            assertThat(h.sourceRegistry.resolve("ext-source")).isPresent();
+            assertThat(h.sourceRegistry.resolve("EXT_SOURCE")).isPresent(); // legacy 名解析到同一来源
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isPresent();   // 执行器从子 context 发现
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STARTED);
+        }
+    }
+
+    @Test
+    @DisplayName("stop 注销 schedule 来源 + 执行器：解析均落空（残留任务即进 SOURCE_UNAVAILABLE 干净挂起、数据不删）")
+    void stopUnregistersScheduleContributions() {
+        try (ScheduleHarness h = new ScheduleHarness()) {
+            h.service.startAll();
+
+            h.service.stop("ext-sched");
+
+            assertThat(h.sourceRegistry.resolve("ext-source")).isEmpty();
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isEmpty();
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STOPPED);
+        }
+    }
+
+    @Test
+    @DisplayName("unload 注销 schedule 来源 + 执行器并从核心注册中心移除")
+    void unloadUnregistersScheduleContributions() {
+        try (ScheduleHarness h = new ScheduleHarness()) {
+            h.service.startAll();
+
+            h.service.unload("ext-sched");
+
+            assertThat(h.sourceRegistry.resolve("ext-source")).isEmpty();
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isEmpty();
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.UNLOADED);
+        }
+    }
+
+    @Test
+    @DisplayName("reload 后 schedule 来源 + 执行器恢复：规范 type / 作品类型再次可解析（来源恢复路径）")
+    void reloadRestoresScheduleContributions() {
+        try (ScheduleHarness h = new ScheduleHarness()) {
+            h.service.startAll();
+
+            h.service.reload("ext-sched");
+
+            assertThat(h.sourceRegistry.resolve("ext-source")).isPresent();
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isPresent();
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STARTED);
+        }
+    }
+
+    @Test
+    @DisplayName("stop → start 往返：执行器解析 缺失→恢复（镜像 SOURCE_UNAVAILABLE 挂起后来源恢复可再被 findDue）")
+    void stopThenStartRecoversRunnerResolution() {
+        try (ScheduleHarness h = new ScheduleHarness()) {
+            h.service.startAll();
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isPresent();
+
+            h.service.stop("ext-sched");
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isEmpty(); // 缺执行器 → 任务挂起、数据不删
+
+            h.service.start("ext-sched");
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isPresent(); // 来源 / 执行器恢复、可再被调度
+            assertThat(h.sourceRegistry.resolve("ext-source")).isPresent();
+        }
+    }
+
+    @Test
+    @DisplayName("schedule 注册失败（执行器 kind 冲突）：回滚 web/controller/子 context，落 STOPPED、本次来源不泄漏、既有执行器不污染")
+    void scheduleRegisterFailureRollsBackFootprint() {
+        // 预置一个 kind 与插件执行器冲突的执行器 → 插件执行器注册 fail-fast
+        try (ScheduleHarness h = new ScheduleHarness(workRunner("ext-kind"))) {
+            h.service.startAll();
+
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STOPPED); // 不进入 STARTED
+            assertThat(h.service.contextFor("ext-sched")).isEmpty();                       // 子 context 已回收
+            assertThat(h.sourceRegistry.resolve("ext-source")).isEmpty();                  // 本次来源被回滚、不泄漏
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isPresent();                  // 预置执行器未被污染
+            verify(h.controllerRegistrar).unregisterControllers("ext-sched");              // controller 足迹回滚（无注册项仍被调）
+            verify(h.webRegistrar).unregister(eq("ext-sched"), any());                     // web 贡献回滚
+        }
+    }
+
+    @Test
+    @DisplayName("运行期 start 时插件 start() 抛异常：schedule 贡献随足迹一并回滚，落 STOPPED")
+    void pluginStartFailureRollsBackScheduleContributions() {
+        try (ScheduleHarness h = new ScheduleHarness()) {
+            h.service.startAll();
+            h.service.stop("ext-sched");
+            h.plugin.failStart = true;
+
+            h.service.start("ext-sched"); // 足迹重建（schedule 再注册成功）后 plugin.start() 抛异常 → 回滚
+
+            assertThat(h.plugin.startCount).isEqualTo(1);
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(h.sourceRegistry.resolve("ext-source")).isEmpty();  // schedule 贡献被回滚
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("quiesce 注销 schedule 来源 + 执行器：解析均落空（残留任务即 SOURCE_UNAVAILABLE 干净挂起、数据不删），子 context 仍在")
+    void quiesceUnregistersScheduleContributions() {
+        try (ScheduleHarness h = new ScheduleHarness()) {
+            h.service.startAll();
+            assertThat(h.sourceRegistry.resolve("ext-source")).isPresent();
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isPresent();
+
+            h.service.quiesce("ext-sched");
+
+            // 来源 / 执行器随 quiesce 注销 → ScheduleExecutor 解析不到 → 残留任务即 SOURCE_UNAVAILABLE 干净挂起、数据不删
+            //（「解析落空 → SOURCE_UNAVAILABLE 且不读 cookie / 不发现 / 不派发 / 不删数据」链路由 ScheduleExecutorSourceResolutionTest 钉死）。
+            assertThat(h.sourceRegistry.resolve("ext-source")).isEmpty();
+            assertThat(h.sourceRegistry.resolve("EXT_SOURCE")).isEmpty(); // legacy 名同样解析落空
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isEmpty();
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.QUIESCED);
+            // quiesce 仅停新派发 + 清退在途、不拆服务足迹：子 context 仍在（待 stop 才关闭）。
+            assertThat(h.service.contextFor("ext-sched")).isPresent();
+        }
+    }
+
+    @Test
+    @DisplayName("quiesce 后 stop 幂等：schedule 注销不重复出错、解析仍落空，阶段经 QUIESCED 落 STOPPED、子 context 关闭")
+    void quiesceThenStopKeepsScheduleUnregisteredIdempotently() {
+        try (ScheduleHarness h = new ScheduleHarness()) {
+            h.service.startAll();
+
+            h.service.quiesce("ext-sched");
+            assertThat(h.sourceRegistry.resolve("ext-source")).isEmpty();
+
+            // stop after quiesce：tearDownServing 再注销 schedule 为安全 no-op（幂等、不二次出错），其余足迹照常拆除。
+            h.service.stop("ext-sched");
+
+            assertThat(h.sourceRegistry.resolve("ext-source")).isEmpty();
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isEmpty();
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STOPPED);
+            assertThat(h.service.contextFor("ext-sched")).isEmpty(); // stop 才关闭子 context
+        }
+    }
+
+    @Test
+    @DisplayName("reload from QUIESCED：stop 后 start，schedule 来源 + 执行器恢复、阶段回 STARTED")
+    void reloadFromQuiescedRestoresScheduleContributions() {
+        try (ScheduleHarness h = new ScheduleHarness()) {
+            h.service.startAll();
+            h.service.quiesce("ext-sched");
+            assertThat(h.sourceRegistry.resolve("ext-source")).isEmpty();
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isEmpty();
+
+            h.service.reload("ext-sched"); // QUIESCED → stop → start
+
+            assertThat(h.sourceRegistry.resolve("ext-source")).isPresent();
+            assertThat(h.sourceRegistry.resolve("EXT_SOURCE")).isPresent();
+            assertThat(h.runnerRegistry.resolve("ext-kind")).isPresent();
+            assertThat(h.service.phase("ext-sched")).contains(PluginRuntimePhase.STARTED);
+        }
+    }
+
     // ============================ 夹具 ============================
 
     private static PluginLifecycleService realService(ApplicationContext parent, List<PluginContextModule> modules) {
         return new PluginLifecycleService(parent, runtimeReturning(modules), new PluginApplicationContextFactory(),
-                emptyControllerRegistrar(), emptyWebRegistrar(), new PluginRegistry(List.of()),
+                emptyControllerRegistrar(), emptyWebRegistrar(), emptyScheduleRegistrar(), new PluginRegistry(List.of()),
                 new PluginLifecycleState(), new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
+    }
+
+    private static PluginScheduleContributionRegistrar emptyScheduleRegistrar() {
+        return new PluginScheduleContributionRegistrar(
+                new ScheduledSourceRegistry(new PluginRegistry(List.of())), new ScheduledWorkRunnerRegistry(List.of()));
     }
 
     private static PluginRuntimeManager runtimeReturning(List<PluginContextModule> modules) {
@@ -519,6 +792,7 @@ class PluginLifecycleServiceTest {
         private int stopCount;
         private boolean failStart;
         private String queueType; // 非空时声明对应作品类型（验证 quiesce / 卸载时排空其在途队列）
+        private List<ScheduledSourceProvider> scheduledSources = List.of(); // 非空时贡献计划任务来源（验证 schedule 热插拔）
 
         RecordingPlugin(String id) {
             this.id = id;
@@ -533,6 +807,11 @@ class PluginLifecycleServiceTest {
         public List<QueueTypeContribution> queueTypes() {
             return queueType == null ? List.of()
                     : List.of(new QueueTypeContribution(id, queueType, id + ":label", 10, null));
+        }
+
+        @Override
+        public List<ScheduledSourceProvider> scheduledSources() {
+            return scheduledSources;
         }
 
         @Override
@@ -647,5 +926,89 @@ class PluginLifecycleServiceTest {
     }
 
     interface MissingDependency {
+    }
+
+    // --- schedule 贡献夹具 ---
+
+    /**
+     * 真实父 + 真实子 context + 真实调度注册中心 + mock web/controller 注册器的装置：验证 schedule 来源 / 执行器随
+     * 插件 start/stop/unload/reload 热插拔与注册失败回滚。{@code ext-sched} 贡献一个来源（规范 {@code ext-source} +
+     * legacy {@code EXT_SOURCE}）且其子 context 含一个执行器（kind={@code ext-kind}）；可注入预置执行器制造 kind 冲突。
+     */
+    private static final class ScheduleHarness implements AutoCloseable {
+        final AnnotationConfigApplicationContext parent =
+                new AnnotationConfigApplicationContext(ParentCoreConfig.class);
+        final PluginControllerRegistrar controllerRegistrar = mock(PluginControllerRegistrar.class);
+        final PluginWebContributionRegistrar webRegistrar = mock(PluginWebContributionRegistrar.class);
+        final PluginRegistry registry = mock(PluginRegistry.class);
+        final PluginRuntimeManager runtime = mock(PluginRuntimeManager.class);
+        final PluginLifecycleState state = new PluginLifecycleState();
+        final RecordingPlugin plugin = new RecordingPlugin("ext-sched");
+        final PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
+                plugin, PluginSource.EXTERNAL, ScheduleHarness.class.getClassLoader());
+        final ScheduledSourceRegistry sourceRegistry = new ScheduledSourceRegistry(new PluginRegistry(List.of()));
+        final ScheduledWorkRunnerRegistry runnerRegistry;
+        final PluginScheduleContributionRegistrar scheduleRegistrar;
+        final PluginLifecycleService service;
+
+        ScheduleHarness(ScheduledWorkRunner... preexistingRunners) {
+            plugin.scheduledSources = List.of(sourceProvider("ext-source", "EXT_SOURCE"));
+            runnerRegistry = new ScheduledWorkRunnerRegistry(List.of(preexistingRunners));
+            scheduleRegistrar = new PluginScheduleContributionRegistrar(sourceRegistry, runnerRegistry);
+            PluginContextModule module = new PluginContextModule(
+                    "ext-sched", ScheduleHarness.class.getClassLoader(), List.of(ScheduleContribConfig.class));
+            when(runtime.inspectContextModules()).thenReturn(List.of(module));
+            when(registry.registeredPlugins()).thenReturn(List.of(registered));
+            service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
+                    controllerRegistrar, webRegistrar, scheduleRegistrar, registry, state,
+                    new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
+        }
+
+        @Override
+        public void close() {
+            parent.close();
+        }
+    }
+
+    private static ScheduledSourceProvider sourceProvider(String type, String... legacy) {
+        return new ScheduledSourceProvider() {
+            @Override
+            public String type() {
+                return type;
+            }
+
+            @Override
+            public Set<String> legacyTypeNames() {
+                return Set.of(legacy);
+            }
+        };
+    }
+
+    private static ScheduledWorkRunner workRunner(String kind) {
+        return new ScheduledWorkRunner() {
+            @Override
+            public String kind() {
+                return kind;
+            }
+
+            @Override
+            public boolean download(ScheduledWork work, ScheduledWorkSettings settings, String cookie) {
+                return true;
+            }
+        };
+    }
+
+    /** 子 context 装配定义：核心服务消费 Bean + 一个 kind=ext-kind 的执行器（验证从子 context 发现执行器）。 */
+    @Configuration
+    static class ScheduleContribConfig {
+        @Bean
+        PluginBean pluginBean(CoreApiService coreService) {
+            return new PluginBean(coreService);
+        }
+
+        @Bean
+        ScheduledWorkRunner extWorkRunner() {
+            return workRunner("ext-kind");
+        }
     }
 }

@@ -8,6 +8,7 @@ import org.springframework.context.annotation.AnnotationConfigApplicationContext
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
+import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
@@ -93,8 +94,10 @@ class ExternalPluginContextManagerTest {
         PluginWebContributionRegistrar webRegistrar = new PluginWebContributionRegistrar(
                 new RouteAccessRegistry(empty), new StaticResourceRegistry(empty),
                 new WebI18nBundleRegistry(empty), new NavigationRegistry(empty), userscripts, scripts);
+        PluginScheduleContributionRegistrar scheduleRegistrar = new PluginScheduleContributionRegistrar(
+                new ScheduledSourceRegistry(empty), new ScheduledWorkRunnerRegistry(List.of()));
         return new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                controllerRegistrar, webRegistrar, empty, new PluginLifecycleState(),
+                controllerRegistrar, webRegistrar, scheduleRegistrar, empty, new PluginLifecycleState(),
                 new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
     }
 
