@@ -126,6 +126,15 @@ class StaticResourceConfigTest {
     }
 
     @Test
+    @DisplayName("共享 Vue 槽位挂载 helper /js/pixiv-vue.js 经 /js/ contribution 返回 200，MIME 为 JS 类型")
+    void servesSharedVueMountHelper() throws Exception {
+        // 小说搜索网格经此 helper 懒加载核心 Vue 运行时；缺失即页面侧优雅回退命令式渲染。
+        mockMvc.perform(get("/js/pixiv-vue.js"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", containsString("javascript")));
+    }
+
+    @Test
     @DisplayName("不存在的静态资源返回 404")
     void missingResourceReturnsNotFound() throws Exception {
         mockMvc.perform(get("/js/no-such-resource-xyz.js"))

@@ -7,6 +7,9 @@
     <script src="/js/pixiv-i18n.js"></script>
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
+    <!-- Vue 槽位挂载共享 helper（加性、加载即无副作用；运行时单一来源 /vendor/vue/ 由 PixivVue.ensure() 按需懒加载）。
+         小说搜索结果网格（novel-queue-type.js）据此做 reactive 渲染；缺失即优雅回退命令式渲染。 -->
+    <script src="/js/pixiv-vue.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
     <script src="/js/pixiv-tour.js"></script>
     <script src="/js/pixiv-onboarding.js"></script>
