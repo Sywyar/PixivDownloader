@@ -116,6 +116,16 @@ class StaticResourceConfigTest {
     }
 
     @Test
+    @DisplayName("核心 Vue 运行时 /vendor/vue/vue.global.prod.js 经既有 /vendor/ contribution 返回 200，MIME 为 JS 类型")
+    void servesVendoredVueRuntime() throws Exception {
+        // 单一来源的 Vue 全局构建版落在既有 classpath:/static/vendor/ → /vendor/ 处理器下，
+        // 无需新增 StaticResourceContribution / 路由声明即被 serving。
+        mockMvc.perform(get("/vendor/vue/vue.global.prod.js"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Type", containsString("javascript")));
+    }
+
+    @Test
     @DisplayName("不存在的静态资源返回 404")
     void missingResourceReturnsNotFound() throws Exception {
         mockMvc.perform(get("/js/no-such-resource-xyz.js"))
