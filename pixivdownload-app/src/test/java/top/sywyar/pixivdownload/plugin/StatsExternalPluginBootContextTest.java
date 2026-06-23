@@ -296,7 +296,7 @@ class StatsExternalPluginBootContextTest {
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
         assertThat(pluginControllerRegistrar.registeredPluginIds()).contains("stats");
 
-        // quiesce：阶段转 QUIESCED；路由声明仍在（新请求由 PluginQuiesceGate 拦截、不靠注销路由）。
+        // quiesce：状态转 QUIESCED；路由声明仍在（新请求由 PluginQuiesceGate 拦截、不靠注销路由）。
         pluginLifecycleService.quiesce("stats");
         assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.QUIESCED);
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
@@ -323,6 +323,52 @@ class StatsExternalPluginBootContextTest {
         ConfigurableApplicationContext afterStart = externalPluginContextManager.contextFor("stats").orElseThrow();
         assertThat(afterStart.isActive()).isTrue();
         assertThat(statsDashboardHandlerBean()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("外置 stats reload 周期 + classloader 级泄漏回归：stop 后请求分发表无任何 stats classloader 的 handler、子 context 关闭，reload/start 后恢复")
+    void externalStatsReloadCycleLeavesNoHandlerFromPluginClassLoader() {
+        ClassLoader statsCl = externalStatsClassLoader();
+
+        // reload()（运行期热重载 = stop 后 start）：状态回 STARTED、handler 在场、子 context 重建为新对象但 classloader 不变。
+        ConfigurableApplicationContext beforeReload = externalPluginContextManager.contextFor("stats").orElseThrow();
+        pluginLifecycleService.reload("stats");
+        assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.STARTED);
+        assertThat(statsDashboardHandlerBean()).isNotNull();
+        ConfigurableApplicationContext afterReload = externalPluginContextManager.contextFor("stats").orElseThrow();
+        assertThat(afterReload).isNotSameAs(beforeReload);       // 子 context 被重建
+        assertThat(beforeReload.isActive()).isFalse();           // 旧子 context 已关闭
+        assertThat(afterReload.getClassLoader()).isSameAs(statsCl); // 同一外置插件 classloader（reload 不换 loader）
+
+        // stop：classloader 级泄漏回归——请求分发表中不再有任何 handler Bean 由 stats classloader 加载（强于按 URL 判定）。
+        ConfigurableApplicationContext beforeStop = externalPluginContextManager.contextFor("stats").orElseThrow();
+        pluginLifecycleService.stop("stats");
+        assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.STOPPED);
+        assertThat(anyHandlerLoadedBy(statsCl))
+                .as("stop 后请求分发表不应残留任何由 stats classloader 加载的 handler Bean")
+                .isFalse();
+        assertThat(externalPluginContextManager.contextFor("stats")).isEmpty(); // lifecycle 不再持有子 context
+        assertThat(beforeStop.isActive()).isFalse();                            // 子 context 已关闭
+        // 下游 web 注册中心快照不再暴露 stats（route/static/i18n/navigation 一并清退）。
+        assertThat(routeAccessRegistry.routes()).noneMatch(r -> r.pluginId().equals("stats"));
+        assertThat(staticResourceRegistry.resources()).noneMatch(s -> s.pluginId().equals("stats"));
+        assertThat(webI18nBundleRegistry.resolve("stats")).isNull();
+        assertThat(navigationRegistry.navigation()).noneMatch(n -> n.pluginId().equals("stats"));
+
+        // start：恢复服务足迹（也还原本类其它用例 / AfterAll 依赖的已启动状态）。
+        pluginLifecycleService.start("stats");
+        assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.STARTED);
+        assertThat(statsDashboardHandlerBean()).isNotNull();
+        assertThat(anyHandlerLoadedBy(statsCl)).isTrue(); // 恢复后 handler 由（同一）stats classloader 加载
+        assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
+    }
+
+    /** 请求分发表中是否存在<b>任何</b>由给定 classloader 加载的 handler Bean（classloader 级泄漏判据）。 */
+    private boolean anyHandlerLoadedBy(ClassLoader classLoader) {
+        return requestMappingHandlerMapping.getHandlerMethods().values().stream()
+                .map(handlerMethod -> handlerMethod.getBean())
+                .filter(bean -> !(bean instanceof String)) // handler 可能以 Bean 名（String）登记，跳过
+                .anyMatch(bean -> bean.getClass().getClassLoader() == classLoader);
     }
 
     /** 父 context 的请求分发表中映射到 {@code /api/stats/dashboard} 的 handler Bean；未注册时为 null。 */
