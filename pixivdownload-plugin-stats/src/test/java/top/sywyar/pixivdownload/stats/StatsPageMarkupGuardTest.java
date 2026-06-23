@@ -73,6 +73,10 @@ class StatsPageMarkupGuardTest {
         assertThat(read("static/pixiv-stats.html"))
                 .as("统计页主侧栏导航应声明宿主中立的 app.sidebar slot")
                 .contains("data-nav-slot=\"" + NavigationPlacements.APP_SIDEBAR + "\"");
+        assertThat(read("static/pixiv-stats.html"))
+                .as("统计页应加载核心共享 Vue 挂载 helper /js/pixiv-vue.js（导航 / 区块据其挂 Vue 主渲染，缺失即命令式回退；"
+                        + "引用核心 /js/ 资源、非本插件自带运行时）")
+                .contains("src=\"/js/pixiv-vue.js\"");
         // 统计页 JS 只按语义 placement 请求下钻 href（贡献方决定目标），故源码应出现这两个语义 placement 名。
         String statsJs = read("static/pixiv-stats/pixiv-stats.js");
         assertThat(statsJs)

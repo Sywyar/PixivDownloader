@@ -27,6 +27,20 @@
             --modal-shadow: rgba(0, 0, 0, .28);
         }
 
+        /* Vue 槽位挂载宿主（pixiv-vue.js 的 prepareSlotHosts / anchorFor 在每个 data-qt-slot 的原开槽位置
+           备好的 [data-vue-slot] 宿主）：
+           · 非空（Vue 主路径已把该槽位片段渲染进宿主）→ display:contents：宿主自身不生成盒子，其 Vue 子节点
+             作为父容器的**真实子节点**参与布局，保持 .quick-actions / .search-extra-grid 的 grid、.kind-switcher /
+             .quick-kind-switcher 的 inline-flex 与相邻 / 分隔线 CSS，内容出现在该槽位的真实位置；
+           · 空（无片段 / 命令式回退把片段注入为锚点兄弟节点而非宿主内）→ display:none：不在 flex/grid 里多占一个
+             gap、不插入可见空盒。:empty 比 [data-vue-slot] 特异性更高，空时 display:none 覆盖 display:contents。 */
+        [data-vue-slot] {
+            display: contents;
+        }
+        [data-vue-slot]:empty {
+            display: none;
+        }
+
         html[data-theme="dark"] {
             --page-bg: #101216;
             --surface: #171a21;
@@ -264,7 +278,17 @@
             user-select: none;
         }
 
-        .kind-switcher label + label {
+        /* 分隔线用 :not(:first-child)（与 .quick-kind-switcher 同款），不依赖 label + label 的严格相邻——
+           这样 Vue 槽位宿主 [data-vue-slot] 即便插在两个 label 之间（如 kind-option-user 落在插画/约稿之间），
+           后一个 label 仍保留左分隔线（不再靠把宿主挪到末尾规避相邻耦合）。 */
+        .kind-switcher label:not(:first-child) {
+            border-left: 1px solid var(--line-strong, #ccc);
+        }
+
+        /* Vue 主路径下槽位贡献的 kind 选项 <label> 渲染在 display:contents 的 [data-vue-slot] 宿主内，相对
+           .kind-switcher 不再是直接子节点 → 上面的 :not(:first-child) 选不中它（它是宿主的首子节点）；本页所有
+           kind 槽位锚点前都有内置「插画」label，故宿主内 label 必为非首项，补一条左分隔线与命令式路径视觉一致。 */
+        .kind-switcher [data-vue-slot] > label {
             border-left: 1px solid var(--line-strong, #ccc);
         }
 
@@ -2486,6 +2510,11 @@ body.schedule-modal-open {
 }
 
 .quick-kind-switcher label:not(:first-child) {
+    border-left: 1px solid var(--line, #ddd);
+}
+
+/* 同 .kind-switcher：快捷获取二层 kind 槽位贡献的 <label> 渲染在 display:contents 宿主内，补左分隔线。 */
+.quick-kind-switcher [data-vue-slot] > label {
     border-left: 1px solid var(--line, #ddd);
 }
 

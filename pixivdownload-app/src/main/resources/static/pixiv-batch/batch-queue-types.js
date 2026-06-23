@@ -19,15 +19,16 @@
 //    不注入（对应入口在宿主页自然消失）+ 取得侧钩子缺席（宿主回退插画、不再发起其专属抓取）
 //    + 残留队列项标记暂停（见 processSingle）。
 //
-//  通用槽位机制：宿主页在各开放位置放置 <template data-qt-slot="<名字>"> 锚点；本模块据已启用类型
-//  把各类型 descriptor.slots[名字] 注入为锚点处的**真实兄弟节点**（保留相邻选择器 / flex 布局），再移除
-//  模板锚点。锚点名字是宿主与贡献方之间的通用契约，不含任何具体类型字样——插画为内置类型（无 slots、
-//  由宿主内联注册行为），小说等由各自插件经 moduleUrl 指向的行为模块贡献 slots。
+//  通用槽位机制：宿主页在各开放位置放置 <template data-qt-slot="<名字>"> 锚点；本模块据已启用类型把各类型
+//  descriptor.slots[名字] 的片段渲染进该锚点在模板原位备好的 [data-vue-slot] 宿主——**主路径经共享 helper 用
+//  Vue 渲染**（renderSlots → PixivVue.mount），命令式注入为锚点真实兄弟节点只是 Vue 不可用 / 运行时加载失败 /
+//  挂载失败时的回退；随后移除模板锚点。锚点名字是宿主与贡献方之间的通用契约，不含任何具体类型字样——插画为
+//  内置类型（无 slots、由宿主内联注册行为），小说等由各自插件经 moduleUrl 指向的行为模块贡献 slots。
 //
 //  Web UI 槽位清单（uiSlots）：/api/download/extensions 现额外返回各活动插件向后端声明的 UI 槽位
 //  （{slotId, target, moduleUrl, order, metadata}）——把「页面槽位」从纯前端约定提升为后端可追踪、随插件
-//  生命周期动态注册/注销的契约。本模块拉取后存为清单并经 uiSlots() 暴露；当前片段注入仍由上面的
-//  descriptor.slots（行为模块提供 HTML）承载、行为不变，清单为声明式来源（插件停用即其槽位从清单消失）。
+//  生命周期动态注册/注销的契约。本模块拉取后存为清单并经 uiSlots() 暴露；片段的实际渲染由上面的
+//  descriptor.slots（行为模块提供 HTML）经 Vue 主路径承载、命令式回退兜底，清单为声明式来源（插件停用即其槽位从清单消失）。
 // ============================================================
 window.PixivBatch = window.PixivBatch || {};
 window.PixivBatch.queueTypes = (function () {
@@ -187,14 +188,15 @@ window.PixivBatch.queueTypes = (function () {
         await Promise.all(queueTypes
             .filter(t => t.moduleUrl)
             .map(t => loadModule(t.moduleUrl)));
-        renderSlots();
+        // await：renderSlots 主路径走 Vue（异步挂载），需在此 await 完成后下载页 init 才读取 kind 单选 /
+        // 设置卡 / 专属筛选等控件（init `await bootstrap()`）——保证控件就位、无「尚未注入」竞态。
+        await renderSlots();
     }
 
-    // 据已启用作品类型，把各类型 descriptor.slots 贡献的 DOM 片段注入宿主锚点。
-    // 锚点 <template data-qt-slot="名字"> 渲染为空（JS 未跑 / 拉取失败时入口自然缺席）；本流程把每个已启用
-    // 类型的 slots[名字] 以 beforebegin 插到同名锚点前（真实兄弟节点、按类型 order 叠放），随后移除全部锚点模板。
-    // 本流程一次性（锚点被消费 / 移除）。某类型禁用 → 其 slots 不渲染 → 对应取得侧入口在宿主页消失。
-    function renderSlots() {
+    // 把各已启用作品类型 descriptor.slots 贡献的片段按 target 聚合（贡献 order：orderedTypes × slot 键序）。
+    // 返回 Map<target, html[]>（同一 target 可有多个类型贡献，按序叠放）。
+    function collectSlotFragments() {
+        const byTarget = new Map();
         orderedTypes.forEach(type => {
             if (!enabledTypes.has(type)) return;
             const descriptor = behaviors.get(type);
@@ -203,12 +205,71 @@ window.PixivBatch.queueTypes = (function () {
                 const raw = slots[name];
                 const html = typeof raw === 'function' ? raw() : raw;
                 if (html == null) return;
-                document.querySelectorAll('template[data-qt-slot="' + name + '"]')
-                    .forEach(marker => marker.insertAdjacentHTML('beforebegin', html));
+                if (!byTarget.has(name)) byTarget.set(name, []);
+                byTarget.get(name).push(html);
             });
         });
-        // 注入的片段带 data-i18n，重跑页面级 i18n 绑定（与语言切换同一幂等流程）后再清理锚点。
+        return byTarget;
+    }
+
+    // 据 target 定位其全部 <template data-qt-slot> 锚点：**固定字面**选择器 + getAttribute 精确比较——
+    // target **绝不**拼进选择器字符串（任意 CSS 元字符都不会触发 SyntaxError；找不到即空集）。
+    function templatesForTarget(target) {
+        const out = [];
+        document.querySelectorAll('template[data-qt-slot]').forEach(t => {
+            if (t.getAttribute('data-qt-slot') === target) out.push(t);
+        });
+        return out;
+    }
+
+    // Vue 主路径：把某 target 的片段交由共享 helper 用 Vue 渲染进其稳定宿主（[data-vue-slot]，在模板原位备好）。
+    // 返回是否成功（Vue 不可用 / 锚点缺失 / 挂载失败 → false，调用方据此命令式回退）。PixivVue.mount 内部已把
+    // 挂载抛错收敛为 null、且失败前还原宿主既有内容，绝不向此处抛异常。
+    function mountSlotViaVue(target, html) {
+        if (!window.PixivVue || typeof window.PixivVue.mount !== 'function') {
+            return Promise.resolve(false);
+        }
+        // PixivVue.mount 内部已收敛挂载抛错为 null；额外 .catch 兜底任何意外 rejection，绝不让 renderSlots
+        // 的 await 在下载页 init 关键路径上抛出（失败一律视为「未走 Vue」→ 命令式回退）。
+        return window.PixivVue.mount(target, { template: html })
+            .then(handle => !!(handle && handle.app))
+            .catch(() => false);
+    }
+
+    // 命令式回退：把片段以 beforebegin 插到 target 的每个模板锚点前（真实兄弟节点、按 order 叠放）。
+    // **仅在 Vue 不可用 / 挂载失败时调用**（见 renderSlots）——正常路径走 Vue、不命令式注入。
+    function injectSlotImperative(target, fragments) {
+        const html = fragments.join('');
+        templatesForTarget(target).forEach(marker => marker.insertAdjacentHTML('beforebegin', html));
+    }
+
+    // 据已启用作品类型，把各类型 descriptor.slots 贡献的 DOM 片段渲染进宿主锚点。
+    //
+    // **主路径 = Vue 渲染**：每个 data-qt-slot 槽位的片段交由共享 helper 经 Vue（createApp().mount 到该槽位在
+    // 模板原位备好的 [data-vue-slot] 宿主）渲染；宿主 display:contents（空时 display:none，见 pixiv-batch.css）
+    // 使 Vue 内容作为父容器的真实子节点参与布局（保持 .quick-actions / .search-extra-grid 的 grid、.kind-switcher
+    // 的 inline-flex 与相邻 / 分隔线 CSS）。**命令式 descriptor.slots 注入只是 Vue 不可用 / 运行时加载失败 / 挂载
+    // 失败时的回退**（insertAdjacentHTML 为锚点兄弟节点），不再是常态主路径。
+    //
+    // **init 时序安全**：本函数为 async，且由 bootstrap `await` 之、bootstrap 又被下载页 init `await`（见
+    // batch-init.js）——故无论走 Vue 还是回退，kind 单选 / 设置卡 / 专属筛选等控件都在 init 读取它们**之前**已就位
+    //（Vue 主路径下宿主 init 等 Vue 槽位渲染完成，无「控件尚未注入」竞态）。
+    //
+    // 本流程一次性（锚点被消费 / 移除）。某类型禁用 → 其无片段 → 既不 Vue 挂载也不命令式注入 → 对应入口缺席。
+    async function renderSlots() {
+        const byTarget = collectSlotFragments();
+        // 移除模板**之前**，为每个 data-qt-slot 槽位在模板原位备好稳定 Vue 挂载宿主（幂等；helper 缺失即跳过）。
+        if (window.PixivVue && typeof window.PixivVue.prepareSlotHosts === 'function') {
+            window.PixivVue.prepareSlotHosts(document);
+        }
+        // 逐槽位走 Vue 主路径；仅在 Vue 不可用 / 挂载失败时命令式回退（保证「正常路径走 Vue」）。
+        for (const [target, fragments] of byTarget) {
+            const mounted = await mountSlotViaVue(target, fragments.join(''));
+            if (!mounted) injectSlotImperative(target, fragments);
+        }
+        // 片段带 data-i18n：重跑页面级 i18n 绑定（与语言切换同一幂等流程）后再清理锚点。
         if (typeof pageI18n !== 'undefined' && pageI18n) pageI18n.apply(document.body);
+        // 锚点一律移除（一次性消费）。固定字面选择器，不拼 target。
         document.querySelectorAll('template[data-qt-slot]').forEach(t => t.remove());
     }
 

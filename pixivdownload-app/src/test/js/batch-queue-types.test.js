@@ -67,14 +67,11 @@ function makeDom(slotNames) {
         t.setAttribute('data-qt-slot', name);
         body.appendChild(t);
     });
-    // 极简选择器：仅支持 template[data-qt-slot] 与 template[data-qt-slot="X"]
-    function queryAll(root, name) {
+    // 收集全部 <template data-qt-slot> 锚点（不按 target 过滤——按 target 定位由 renderSlots 经 getAttribute 完成）。
+    function queryAll(root) {
         const out = [];
         (function walk(node) {
-            if (node.tag === 'template' && 'data-qt-slot' in node.attrs
-                && (name === undefined || node.attrs['data-qt-slot'] === name)) {
-                out.push(node);
-            }
+            if (node.tag === 'template' && 'data-qt-slot' in node.attrs) out.push(node);
             node.children.forEach(walk);
         })(root);
         return out;
@@ -83,17 +80,21 @@ function makeDom(slotNames) {
         head,
         body,
         createElement: tag => new El(tag),
+        // 仅支持**固定字面** template[data-qt-slot]；把 target 拼进选择器（如 template[data-qt-slot="X"]）即抛错
+        // ——这是「renderSlots 绝不把 target 拼进 querySelector」的守卫（回归到拼接形态时此处抛错、测试失败）。
         querySelectorAll(selector) {
-            const m = selector.match(/^template\[data-qt-slot(?:="([^"]+)")?\]$/);
-            if (!m) return [];
-            return queryAll(body, m[1]);
+            if (selector !== 'template[data-qt-slot]') {
+                throw new Error('Unexpected selector (target must never be interpolated): ' + selector);
+            }
+            return queryAll(body);
         }
     };
     return {document, body};
 }
 
-// 在沙箱里加载真实的 batch-queue-types.js，返回 {queueTypes, document, body, fetchData 控制器}。
-function loadRegistry(extensionsData, slotNames) {
+// 在沙箱里加载真实的 batch-queue-types.js，返回 {queueTypes, document, body}。pixivVue 给定时注入为
+// window.PixivVue（供 renderSlots 走 Vue 主路径）；不给则 window.PixivVue 缺失 → renderSlots 命令式回退。
+function loadRegistry(extensionsData, slotNames, pixivVue) {
     const {document, body} = makeDom(slotNames);
     const sandbox = {
         window: {},
@@ -109,9 +110,25 @@ function loadRegistry(extensionsData, slotNames) {
             json: () => Promise.resolve(extensionsData)
         })
     };
+    if (pixivVue) sandbox.window.PixivVue = pixivVue;
     vm.createContext(sandbox);
     vm.runInContext(SOURCE, sandbox);
     return {qt: sandbox.window.PixivBatch.queueTypes, document, body};
+}
+
+// PixivVue 桩（供「Vue 主路径」场景）：记录 prepareSlotHosts / mount 调用；mount 默认成功，置 mountFails=true 模拟挂载失败。
+function makePixivVueStub() {
+    const record = {mounts: [], prepareCalls: 0, mountFails: false};
+    return {
+        record,
+        stub: {
+            prepareSlotHosts() { record.prepareCalls++; return []; },
+            mount(target, comp) {
+                record.mounts.push({target, comp});
+                return Promise.resolve(record.mountFails ? null : {app: {}, vm: {}, el: {}});
+            }
+        }
+    };
 }
 
 function injectedHtmls(body) {
@@ -213,8 +230,48 @@ function ok(label, cond) {
         ok('C: 拉取失败时 novel 不可用(模块未加载)', qt.isTypeAvailable('novel') === false);
         ok('C: 拉取失败时 resolveType(novel)=illust', qt.resolveType('novel') === 'illust');
     })
+    // ========== 场景 D：PixivVue 就位 → 槽位片段走 Vue 主路径（不命令式注入）==========
+    .then(async function scenarioVueMainPath() {
+        const pv = makePixivVueStub();
+        const {qt, document, body} = loadRegistry(
+            {queueTypes: [{type: 'illust', order: 1}, {type: 'novel', order: 2, moduleUrl: '/x.js'}], tabs: []},
+            SLOT_NAMES, pv.stub);
+        qt.register('illust', {pluginId: 'download-workbench', type: 'illust', process() {}});
+        qt.register('novel', novelDescriptor());
+        await qt.bootstrap();
+
+        ok('D: 经 prepareSlotHosts 在模板原位备 Vue 宿主', pv.record.prepareCalls >= 1);
+        const mountedTargets = pv.record.mounts.map(m => m.target).sort();
+        ok('D: 每个有片段的槽位都经 PixivVue.mount 走 Vue 主路径（novel 的 3 个 slots）',
+            mountedTargets.join(',') === 'kind-option-user,search-filter,settings-card');
+        ok('D: 每个 mount 收到组件定义（含 template 片段字符串）',
+            pv.record.mounts.every(m => m.comp && typeof m.comp.template === 'string' && m.comp.template.length > 0));
+        ok('D: kind-option-user 的 Vue 模板即该槽位片段（含 data-kind="novel"）',
+            /data-kind="novel"/.test(pv.record.mounts.find(m => m.target === 'kind-option-user').comp.template));
+        // 正常路径走 Vue → 不命令式注入（descriptor.slots / NOVEL_SLOTS 仅作 Vue 不可用时的回退）。
+        ok('D: Vue 主路径下无命令式注入（无 #injected 兄弟节点）', injectedHtmls(body).length === 0);
+        ok('D: 锚点仍一律移除（一次性消费）', remainingTemplates(document).length === 0);
+    })
+    // ========== 场景 E：PixivVue 就位但挂载失败 → 命令式回退注入 ==========
+    .then(async function scenarioVueMountFailsFallback() {
+        const pv = makePixivVueStub();
+        pv.record.mountFails = true; // 模拟 Vue 挂载失败（mount 解析为 null）
+        const {qt, document, body} = loadRegistry(
+            {queueTypes: [{type: 'illust', order: 1}, {type: 'novel', order: 2, moduleUrl: '/x.js'}], tabs: []},
+            SLOT_NAMES, pv.stub);
+        qt.register('illust', {pluginId: 'download-workbench', type: 'illust', process() {}});
+        qt.register('novel', novelDescriptor());
+        await qt.bootstrap();
+
+        ok('E: 挂载失败时每个有片段的槽位仍先尝试 Vue 主路径', pv.record.mounts.length === 3);
+        const injected = injectedHtmls(body);
+        ok('E: Vue 挂载失败 → 命令式回退注入 kind-option-user', injected.some(h => /data-kind="novel"/.test(h)));
+        ok('E: Vue 挂载失败 → 命令式回退注入 settings-card', injected.some(h => /novel-settings-card/.test(h)));
+        ok('E: Vue 挂载失败 → 命令式回退注入 search-filter', injected.some(h => /search-novel-only/.test(h)));
+        ok('E: 锚点仍一律移除', remainingTemplates(document).length === 0);
+    })
     .then(() => {
-        console.log(`\nbatch-queue-types.test.js: ${passed} assertions passed (3 scenarios) ✓`);
+        console.log(`\nbatch-queue-types.test.js: ${passed} assertions passed (5 scenarios) ✓`);
     })
     .catch(err => {
         console.error('TEST FAILED:', err && err.message ? err.message : err);

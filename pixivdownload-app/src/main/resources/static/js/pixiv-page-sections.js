@@ -11,6 +11,16 @@
     //  数据来源：GET /api/page-sections?placement=<placement> —— 后端按当前请求身份过滤、按 priority 排序，
     //  只返回当前用户可见的区块。前端隐藏不是安全边界：区块内任何 href / API 仍由后端 AuthFilter 鉴权。
     //
+    //  渲染路径（reactive 主路径 + 命令式回退）：区块**骨架**（page-section / header / 标题 / 操作入口 / 空的内嵌
+    //  导航 slot 容器 / 空的 page-section-body 容器 / 分隔线）由 Vue（reactive 数据驱动）渲染——经共享 helper
+    //  window.PixivVue.ensure() 按需懒加载核心 Vue 运行时（运行时为单一来源、路径只由 helper 解析、本模块不硬编码），用
+    //  PixivVue.mountOn(slot, 组件) 把一个 Vue app 挂到该 [data-section-slot]；语言切换即由共享 reactive i18n 自动
+    //  重译标题。**职责分离**：Vue 只拥有区块骨架，**内嵌导航的链接仍由 PixivNav 填充、moduleUrl body 的内容仍由
+    //  贡献方模块填充**——故骨架模板把 <nav data-nav-slot> 与 .page-section-body 渲染为**空** Vue 元素（无 Vue 子
+    //  节点）：Vue 在重渲染时对「无子节点」的元素不动其实际子节点，PixivNav / 贡献方填进去的内容因此**不被覆盖**。
+    //  **始终保留命令式回退**：window.PixivVue 缺失 / Vue 运行时加载 / 挂载失败的 slot 一律命令式渲染（innerHTML），
+    //  **绝不向宿主 init 抛异常**。slot 元素只经**固定字面**选择器 [data-section-slot] + getAttribute 定位。
+    //
     //  宿主页约定（声明式 data 属性，无需每页写 JS）：
     //   <容器 data-section-slot="<placement>" ...>：空 slot 锚点。可选地用 data-section-*-class 覆盖各部件 class，
     //       缺省取常见侧栏 class（section-header / section-title / section-add / sidebar-nav / sidebar-divider /
@@ -42,6 +52,13 @@
     var loaded = false;
     var inFlight = false;
     var languageSubscribed = false;
+    var currentI18n = null;        // 最近一次按当前语言构造的 i18n 解析器（命令式 + Vue 共用）
+
+    // —— Vue 主渲染状态 ——
+    var vueRuntime = null;         // window.Vue（ensure() 解析后缓存）
+    var vueState = null;           // Vue.reactive({ i18n })：各 slot app 共享，置换 i18n 即触发标题重译
+    var slotApps = [];             // [{ el, app }] 已挂载的 slot Vue app（幂等复用）
+    var vueMode = false;           // 是否已进入 Vue 主渲染稳态
 
     var resolveReady;
     var readyPromise = new global.Promise(function (resolve) { resolveReady = resolve; });
@@ -130,14 +147,100 @@
             + header + navSlotHtml(slot, section) + body + '</div>' + divider;
     }
 
-    async function fetchSections(placement) {
-        var url = ENDPOINT + '?placement=' + encodeURIComponent(placement);
-        var res = await global.fetch(url, { credentials: 'same-origin' });
-        if (!res.ok) {
-            throw new Error('page-sections http ' + res.status);
+    // —— Vue 主渲染 ——
+
+    // 区块骨架模板：page-section / header / 标题 / 操作入口 / 空内嵌导航 slot / 空 body 容器 / 分隔线均为真实
+    // Vue 元素。**内嵌 <nav data-nav-slot> 与 .page-section-body 刻意无 Vue 子节点**——Vue 重渲染对「无子节点」
+    // 元素不动其实际子节点，故 PixivNav 填的链接 / 贡献方模块填的列表不被覆盖（职责分离）。属性为 null 时 Vue 省略。
+    var SECTION_TEMPLATE =
+        '<template v-for="s in sections" :key="s.id">'
+        + '<div class="page-section" :data-section-id="s.id">'
+        + '<div :class="cls.header">'
+        + '<span :class="cls.title">{{ titleOf(s) }}</span>'
+        + '<a v-if="s.actionHref" :class="cls.action" :href="s.actionHref" :title="actionTitleOf(s)"'
+        + ' :aria-label="actionTitleOf(s)" v-html="actionIconOf(s)"></a>'
+        + '</div>'
+        + '<nav v-if="s.navPlacement" :class="cls.nav" :data-nav-slot="s.navPlacement"'
+        + ' :data-nav-link-class="cls.navLink" :data-nav-active-class="cls.navActive"'
+        + ' :data-nav-icon-wrap-class="cls.navIconWrap" :data-nav-label-class="cls.navLabel"></nav>'
+        + '<div v-if="s.moduleUrl" :class="cls.body" class="page-section-body" :data-section-id="s.id"></div>'
+        + '</div>'
+        + '<div v-if="cls.divider" :class="cls.divider"></div>'
+        + '</template>';
+
+    // 据 slotState 构造其 Vue 组件：读取一次该 slot 的部件 class 与（fetch 一次得到的、静态的）sections，
+    // 标题 / 操作标题渲染读共享 reactive 状态（vueState.i18n）——语言变化即自动重译。
+    function buildSectionComponent(slotState) {
+        var sections = slotState.sections || [];
+        var cls = {
+            header: classFor(slotState, 'header'), title: classFor(slotState, 'title'),
+            action: classFor(slotState, 'action'), nav: classFor(slotState, 'nav'),
+            body: classFor(slotState, 'body'), divider: classFor(slotState, 'divider'),
+            navLink: classFor(slotState, 'navLink'), navActive: classFor(slotState, 'navActive'),
+            navIconWrap: classFor(slotState, 'navIconWrap'), navLabel: classFor(slotState, 'navLabel')
+        };
+        return {
+            setup: function () {
+                return {
+                    sections: sections,
+                    cls: cls,
+                    titleOf: function (s) { return resolveText(vueState.i18n, s.titleI18nKey, s.id); },
+                    actionTitleOf: function (s) {
+                        if (!s.actionTitleI18nKey) return null;
+                        return resolveText(vueState.i18n, s.actionTitleI18nKey, '') || null;
+                    },
+                    actionIconOf: function (s) { return actionIconSvg(s.actionIcon); }
+                };
+            },
+            template: SECTION_TEMPLATE
+        };
+    }
+
+    function hasSlotApp(el) {
+        for (var i = 0; i < slotApps.length; i++) {
+            if (slotApps[i].el === el) return true;
         }
-        var data = await res.json();
-        return Array.isArray(data) ? data : [];
+        return false;
+    }
+
+    // 升级 / 维持 Vue 主渲染：懒加载运行时 → 建 / 更新共享 reactive i18n → 为「有 sections 且尚未挂载」的 slot
+    // 经统一 helper mountOn 挂 Vue app。PixivVue 缺失 / 加载失败一律收敛、不抛（调用方对未接管的 slot 命令式兜底）。
+    function renderSectionsVue() {
+        if (!global.PixivVue || typeof global.PixivVue.ensure !== 'function') {
+            return global.Promise.resolve(false);
+        }
+        return global.PixivVue.ensure().then(function (Vue) {
+            if (!Vue) return false;
+            vueRuntime = Vue;
+            if (!vueState) vueState = Vue.reactive({ i18n: null });
+            vueState.i18n = currentI18n;
+            var pending = [];
+            slotsState.forEach(function (ss) {
+                if (!ss.placement || ss.sections == null || hasSlotApp(ss.el)) return;
+                pending.push(global.PixivVue.mountOn(ss.el, buildSectionComponent(ss)).then(function (handle) {
+                    if (handle && handle.app) slotApps.push({ el: ss.el, app: handle.app });
+                }));
+            });
+            return global.Promise.all(pending).then(function () {
+                vueMode = slotApps.length > 0;
+                return vueMode;
+            });
+        }).catch(function (e) {
+            console.warn('[PixivPageSections] Vue 运行时不可用，沿用命令式渲染：', e);
+            return false;
+        });
+    }
+
+    function fetchSections(placement) {
+        var url = ENDPOINT + '?placement=' + encodeURIComponent(placement);
+        return global.fetch(url, { credentials: 'same-origin' }).then(function (res) {
+            if (!res.ok) {
+                throw new Error('page-sections http ' + res.status);
+            }
+            return res.json();
+        }).then(function (data) {
+            return Array.isArray(data) ? data : [];
+        });
     }
 
     async function buildI18n() {
@@ -171,17 +274,20 @@
     }
 
     async function renderAll() {
-        var i18n = await buildI18n();
+        currentI18n = await buildI18n();
+        // Vue 主渲染：把有 sections 的 slot 升级为 Vue（骨架）。失败 / 无 Vue / sections 为 null 的 slot 走命令式。
+        await renderSectionsVue();
         slotsState.forEach(function (slot) {
-            if (!slot.sections) {
+            if (hasSlotApp(slot.el)) return;   // 已被 Vue 接管（骨架由 Vue 渲染）
+            if (!slot.sections) {              // 失败降级：清空（不残留按 id 显隐的旧业务块）
                 slot.el.innerHTML = '';
                 return;
             }
             slot.el.innerHTML = slot.sections.map(function (s) {
-                return sectionHtml(slot, s, i18n);
+                return sectionHtml(slot, s, currentI18n);
             }).join('');
         });
-        // 内嵌导航 slot 此刻已注入：让 PixivNav 重渲染全部 slot（含新注入者）。
+        // 内嵌导航 slot 此刻已注入（Vue 或命令式）：让 PixivNav 重渲染全部 slot（含新注入者）。
         if (global.PixivNav && typeof global.PixivNav.refresh === 'function') {
             global.PixivNav.refresh();
         }
