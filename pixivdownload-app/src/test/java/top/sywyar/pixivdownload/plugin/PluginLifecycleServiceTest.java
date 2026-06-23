@@ -782,7 +782,8 @@ class PluginLifecycleServiceTest {
         ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
         return new PluginWebContributionRegistrar(
                 new RouteAccessRegistry(empty), new StaticResourceRegistry(empty),
-                new WebI18nBundleRegistry(empty), new NavigationRegistry(empty), userscripts, scripts);
+                new WebI18nBundleRegistry(empty), new NavigationRegistry(empty),
+                new WebUiSlotRegistry(empty), userscripts, scripts);
     }
 
     /** 记录 start() / stop() 调用次数的功能插件夹具（验证生命周期被调、幂等，{@code failStart} 可令 start() 抛异常）。 */

@@ -93,7 +93,8 @@ class ExternalPluginContextManagerTest {
         ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
         PluginWebContributionRegistrar webRegistrar = new PluginWebContributionRegistrar(
                 new RouteAccessRegistry(empty), new StaticResourceRegistry(empty),
-                new WebI18nBundleRegistry(empty), new NavigationRegistry(empty), userscripts, scripts);
+                new WebI18nBundleRegistry(empty), new NavigationRegistry(empty),
+                new WebUiSlotRegistry(empty), userscripts, scripts);
         PluginScheduleContributionRegistrar scheduleRegistrar = new PluginScheduleContributionRegistrar(
                 new ScheduledSourceRegistry(empty), new ScheduledWorkRunnerRegistry(List.of()));
         return new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),

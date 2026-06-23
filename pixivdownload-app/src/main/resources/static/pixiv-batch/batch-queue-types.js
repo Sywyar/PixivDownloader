@@ -23,6 +23,11 @@
 //  把各类型 descriptor.slots[名字] 注入为锚点处的**真实兄弟节点**（保留相邻选择器 / flex 布局），再移除
 //  模板锚点。锚点名字是宿主与贡献方之间的通用契约，不含任何具体类型字样——插画为内置类型（无 slots、
 //  由宿主内联注册行为），小说等由各自插件经 moduleUrl 指向的行为模块贡献 slots。
+//
+//  Web UI 槽位清单（uiSlots）：/api/download/extensions 现额外返回各活动插件向后端声明的 UI 槽位
+//  （{slotId, target, moduleUrl, order, metadata}）——把「页面槽位」从纯前端约定提升为后端可追踪、随插件
+//  生命周期动态注册/注销的契约。本模块拉取后存为清单并经 uiSlots() 暴露；当前片段注入仍由上面的
+//  descriptor.slots（行为模块提供 HTML）承载、行为不变，清单为声明式来源（插件停用即其槽位从清单消失）。
 // ============================================================
 window.PixivBatch = window.PixivBatch || {};
 window.PixivBatch.queueTypes = (function () {
@@ -31,6 +36,7 @@ window.PixivBatch.queueTypes = (function () {
     let enabledTypes = new Set();   // 后端报告为已启用的作品类型
     let orderedTypes = [];          // 已启用作品类型按贡献 order 排序（slots 渲染与子模式顺序据此）
     let tabMeta = [];               // [{tabId, order, supportedQueueTypes}]
+    let uiSlotsManifest = [];       // 后端声明的 UI 槽位清单（/api/download/extensions 的 uiSlots，按 order 已排序）
     let bootstrapped = false;       // 是否已拿到 /api/download/extensions 权威数据
 
     // 注册一个作品类型的行为 + UI 贡献。descriptor 至少含 process(item)（下载行为）；
@@ -137,6 +143,12 @@ window.PixivBatch.queueTypes = (function () {
             .map(d => Object.assign({type: d.type}, d[key]));
     }
 
+    // 后端声明的 UI 槽位清单（来自 /api/download/extensions 的 uiSlots，已按 order 排序）。
+    // 返回副本防外部改写内部状态。拿到权威数据前为空（与「未 bootstrap 即不渲染插件槽位」一致）。
+    function uiSlots() {
+        return uiSlotsManifest.slice();
+    }
+
     function loadModule(url) {
         if (!url || loadedModules.has(url)) return Promise.resolve();
         loadedModules.add(url);
@@ -170,6 +182,7 @@ window.PixivBatch.queueTypes = (function () {
         enabledTypes = new Set(queueTypes.map(t => t.type));
         orderedTypes = queueTypes.map(t => t.type);
         tabMeta = data.tabs || [];
+        uiSlotsManifest = Array.isArray(data.uiSlots) ? data.uiSlots : [];
         bootstrapped = true;
         await Promise.all(queueTypes
             .filter(t => t.moduleUrl)
@@ -200,7 +213,7 @@ window.PixivBatch.queueTypes = (function () {
     }
 
     return {
-        register, get, has, isEnabled, bootstrap,
+        register, get, has, isEnabled, bootstrap, uiSlots,
         isTypeAvailable, resolveType, normalizeSelectedType, descriptor,
         acquisition, acquisitionList, filtersFor, settingsFor, quickActionsFor, contributionsOf
     };

@@ -85,7 +85,7 @@ class PluginClassLoaderLeakProbeTest {
         UserscriptRegistry userscripts = new UserscriptRegistry(empty);
         ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
         PluginWebContributionRegistrar web = new PluginWebContributionRegistrar(
-                routes, statics, i18n, navigation, userscripts, scripts);
+                routes, statics, i18n, navigation, new WebUiSlotRegistry(empty), userscripts, scripts);
         ScheduledSourceRegistry sources = new ScheduledSourceRegistry(empty);
         ScheduledWorkRunnerRegistry runners = new ScheduledWorkRunnerRegistry(List.of());
         PluginStreamRegistry streams = new PluginStreamRegistry();

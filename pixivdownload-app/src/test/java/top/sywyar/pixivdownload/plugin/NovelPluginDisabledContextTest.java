@@ -63,6 +63,8 @@ class NovelPluginDisabledContextTest {
     @Autowired
     private QueueTypeRegistry queueTypeRegistry;
     @Autowired
+    private WebUiSlotRegistry webUiSlotRegistry;
+    @Autowired
     private DatabaseSchemaRegistry databaseSchemaRegistry;
 
     @Test
@@ -92,7 +94,7 @@ class NovelPluginDisabledContextTest {
     }
 
     @Test
-    @DisplayName("小说贡献不注册：导航 / 路由 / 队列类型缺席，新旧小说下载 URL 未声明（运行期 404）")
+    @DisplayName("小说贡献不注册：导航 / 路由 / 队列类型 / UI 槽位缺席，新旧小说下载 URL 未声明（运行期 404）")
     void novelContributionsAbsent() {
         assertThat(navigationRegistry.navigation())
                 .extracting(NavigationRegistry.RegisteredNavigation::pluginId).doesNotContain("novel");
@@ -100,6 +102,8 @@ class NovelPluginDisabledContextTest {
                 .extracting(RouteAccessRegistry.RegisteredRoute::pluginId).doesNotContain("novel");
         assertThat(queueTypeRegistry.queueTypes())
                 .extracting(QueueTypeRegistry.RegisteredQueueType::pluginId).doesNotContain("novel");
+        assertThat(webUiSlotRegistry.slots())
+                .extracting(WebUiSlotRegistry.RegisteredUiSlot::pluginId).doesNotContain("novel");
         assertThat(routeAccessRegistry.isDeclared("/pixiv-novel-gallery.html")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/novel/download")).isFalse();
         assertThat(routeAccessRegistry.isDeclared("/api/download/pixiv/novel")).isFalse();

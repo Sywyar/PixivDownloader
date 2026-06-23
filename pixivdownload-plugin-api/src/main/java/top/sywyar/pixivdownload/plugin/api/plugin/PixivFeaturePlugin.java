@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.List;
 
@@ -126,6 +127,16 @@ public interface PixivFeaturePlugin {
      * 注册——宿主不需要知道是哪个插件、是否启用。禁用插件后其 section 自然消失。
      */
     default List<PageSectionContribution> pageSections() {
+        return List.of();
+    }
+
+    /**
+     * 插件声明的 Web UI 槽位贡献（mount point）：让宿主页面只声明稳定的槽位锚点，锚点内渲染什么、由哪个插件
+     * 渲染、是否渲染，全部由活动插件声明——宿主不需要知道是哪个插件、是否启用。经核心 {@code WebUiSlotRegistry}
+     * 合并、随插件生命周期动态注册 / 注销；禁用 / 停用插件后其槽位自然从快照消失、宿主入口缺席。复杂内容仍由
+     * {@link WebUiSlotContribution#moduleUrl()} 指向的前端模块渲染。
+     */
+    default List<WebUiSlotContribution> uiSlots() {
         return List.of();
     }
 

@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 
 import java.util.List;
 import java.util.Set;
@@ -107,6 +108,27 @@ public class NovelPlugin implements PixivFeaturePlugin {
         //（子模式单选 DOM 仍在下载页 HTML、由「类型是否启用」统一显隐；标签键位于 novel namespace 是历史现状）。
         return List.of(new QueueTypeContribution(
                 ID, "novel", "novel:batch.user.kind-novel", 20, "/pixiv-novel-download/novel-queue-type.js"));
+    }
+
+    /** 下载页 novel 队列类型行为模块的 serving URL（同时渲染下面声明的各 UI 槽位）。 */
+    private static final String NOVEL_MODULE_URL = "/pixiv-novel-download/novel-queue-type.js";
+
+    /**
+     * 下载页 novel 作品类型向宿主贡献的 UI 槽位锚点（宿主页以 {@code <template data-qt-slot="<target>">} 声明）。
+     * 各锚点的实际 DOM 片段由 {@link #NOVEL_MODULE_URL} 指向的行为模块渲染；此处声明「哪些锚点、哪个模块渲染、
+     * 何顺序」的后端契约，使小说插件禁用 / 停用时这些槽位从扩展点快照消失、下载页对应入口随之缺席。
+     */
+    private static final List<String> NOVEL_UI_SLOT_TARGETS = List.of(
+            "kind-option-user", "kind-option-search", "kind-option-quick",
+            "quick-actions-bookmarks", "quick-actions-mine",
+            "import-hint", "search-filter", "settings-card");
+
+    @Override
+    public List<WebUiSlotContribution> uiSlots() {
+        return NOVEL_UI_SLOT_TARGETS.stream()
+                .map(target -> new WebUiSlotContribution(
+                        ID, ID + "." + target, target, NOVEL_MODULE_URL, 20))
+                .toList();
     }
 
     @Override
