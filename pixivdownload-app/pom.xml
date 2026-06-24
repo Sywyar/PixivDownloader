@@ -9,7 +9,7 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>PixivDownload</artifactId>
-    <name>PixivDownloader</name>
+    <name>PixivDownloader App</name>
     <description>PixivDownloader</description>
 
     <dependencies>
