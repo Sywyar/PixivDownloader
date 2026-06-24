@@ -426,9 +426,7 @@
         if (state.isRunning && added > 0) {
             ensureWorkers();
         }
-        syncSearchResultsQueueState();
-        syncSeriesResultsQueueState();
-        syncUserResultsQueueState();
+        syncAllResultsQueueState();
         return added;
     }
 
@@ -629,6 +627,16 @@
         storeRemove(storageKey());
     }
 
+    // 队列发生增 / 删 / 清空后，统一把四个模式预览网格的「✓ 在队列中」标记与最新 state.queue 对齐，
+    // 避免清除队列或移除单项后 User / Search / 系列 / 快捷获取 预览残留过期的在队列标记。
+    // 各 sync 在自身 state 为空或 DOM 不存在时自行早退，故任意当前模式下调用都安全。
+    function syncAllResultsQueueState() {
+        syncSearchResultsQueueState();
+        syncSeriesResultsQueueState();
+        syncUserResultsQueueState();
+        syncQuickQueueState();
+    }
+
     function removeFromQueue(id) {
         const idx = state.queue.findIndex(q => q.id === String(id));
         if (idx === -1) return false;
@@ -638,13 +646,11 @@
         updateStats();
         saveQueue();
         renderQueue();
-        syncSearchResultsQueueState();
-        syncSeriesResultsQueueState();
-        syncUserResultsQueueState();
+        syncAllResultsQueueState();
         return true;
     }
 
 
 // ---- PixivBatch facade ----
 window.PixivBatch.queue = window.PixivBatch.queue || {};
-window.PixivBatch.queue = Object.assign(window.PixivBatch.queue, { addItemsToQueue, removeFromQueue, renderQueue, buildQueueItemHtml, updateStats, setCurrent, handleExport, handleExportFailed, dedupeQueueItems, queueItemDisplayTitle, renderQueueMessageHtml });
+window.PixivBatch.queue = Object.assign(window.PixivBatch.queue, { addItemsToQueue, removeFromQueue, syncAllResultsQueueState, renderQueue, buildQueueItemHtml, updateStats, setCurrent, handleExport, handleExportFailed, dedupeQueueItems, queueItemDisplayTitle, renderQueueMessageHtml });
