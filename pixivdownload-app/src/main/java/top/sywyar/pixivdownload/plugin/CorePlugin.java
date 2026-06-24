@@ -103,6 +103,9 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/api/downloaded/batch"),
                 // （/api/schedule/** 随 schedule 能力收编进下载工作台，由 DownloadWorkbenchPlugin 声明）
                 WebRouteContribution.admin("/api/admin/**"),
+                // 插件管理后端 API（PluginManagementController）：状态查询 + 外置插件运行期生命周期动词，仅管理员。
+                // 与恢复模式访问放行 /api/plugins/ 同前缀，使核心进入恢复模式时管理员仍可查询状态并驱动修复。
+                WebRouteContribution.admin("/api/plugins/**"),
                 WebRouteContribution.admin("/api/tts/**"),
                 WebRouteContribution.admin("/api/narration/**"),
                 WebRouteContribution.admin("/monitor/**"),

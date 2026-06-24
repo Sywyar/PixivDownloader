@@ -187,6 +187,8 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/api/pixiv/artwork/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/api/pixiv/novel/**", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/api/tts/**", "core", AccessPolicy.ADMIN);
+        // 插件管理后端 API：状态查询 + 外置插件运行期生命周期动词，仅管理员（admin-only）。
+        assertOwnerPolicy("/api/plugins/**", "core", AccessPolicy.ADMIN);
         // 小说听书 TTS 端点 = INVITED_GUEST（受邀访客可读、匿名 multi 访客被 monitor 挡，与小说详情页同面）：
         // 窄声明经 resolve 覆盖宽 /api/tts/** = ADMIN，AccessPolicy 即其真实可达面（详见 RouteAccessRegistryTest）。
         assertOwnerPolicy("/api/tts/edge/voices", "core", AccessPolicy.INVITED_GUEST);
