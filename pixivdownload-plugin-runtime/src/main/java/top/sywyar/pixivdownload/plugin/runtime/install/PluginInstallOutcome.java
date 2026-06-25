@@ -42,6 +42,18 @@ public enum PluginInstallOutcome {
     /** 含越界 entry（Zip Slip），拒绝整包。 */
     REJECTED_UNSAFE(false),
 
+    /**
+     * 资源规模超出安全上限（归档体积 / entry 数量 / 单 entry 或总解压字节 / 压缩比 / 描述符读取字节），
+     * 防 Zip Bomb 与解压资源耗尽；零落盘。
+     */
+    REJECTED_TOO_LARGE(false),
+
+    /**
+     * 未通过完整性校验：来源声明的期望大小 / SHA-256 / 签名与实际不符（或声明了签名但当前无可用校验器，
+     * fail-closed 拒绝）。本地上传无此类期望、永不触发；仅受信 catalog 元数据驱动的来源才带完整性期望。
+     */
+    REJECTED_INTEGRITY(false),
+
     /** 安装过程发生 IO 失败；安装器已清理暂存、不留半成品。 */
     FAILED(false);
 

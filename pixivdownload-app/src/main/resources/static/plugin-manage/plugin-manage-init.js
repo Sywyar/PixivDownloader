@@ -102,13 +102,81 @@
         if (global.PixivNav) PixivNav.refresh();
     }
 
+    // 本地包安装：提交当前选中的 .jar / .zip 到后端安装端点，按结构化结果渲染（仅落盘、重启后生效，不热加载）。
+    async function submitInstall() {
+        if (PM.state.installBusy) return;
+        var fileInput = document.getElementById('pm-install-file');
+        var file = fileInput && fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+        if (!file) {
+            // 未选文件：本地校验，不发请求。
+            PM.showInstallResult(PM.localInstallNotice(
+                PM.t('install.choose-file', '请先选择要安装的插件包（.jar / .zip）。'), 'warn'));
+            return;
+        }
+        if (!PM.hasAcceptedExtension(file.name)) {
+            // 扩展名非 .jar / .zip：本地校验，不发请求（后端仍是权威校验）。
+            PM.showInstallResult(PM.localInstallNotice(
+                PM.t('install.invalid-extension', '仅支持 .jar / .zip 插件包，请重新选择。'), 'warn'));
+            return;
+        }
+        var allow = document.getElementById('pm-install-allow-downgrade');
+        var allowDowngrade = !!(allow && allow.checked);
+
+        PM.setInstallSubmitting(true);
+        PM.clearInstallResult();
+        try {
+            var response = await PM.installPackage(file, allowDowngrade);
+            var model = PM.buildInstallResult(response);
+            PM.showInstallResult(model);
+            if (model.accepted) {
+                // accepted=落盘存在：明确提示「重启后生效」，绝不暗示已热加载，也不把新包伪造成已受管插件。
+                PM.toast(PM.t('install.toast.accepted', '已安装到本地插件目录，重启后生效。'), 'ok');
+            } else {
+                PM.toast(PM.t('install.toast.rejected', '未安装：{message}',
+                    { message: model.message || model.outcome || '' }), 'error');
+            }
+        } catch (e) {
+            if (e && e.localValidation) {
+                PM.showInstallResult(PM.localInstallNotice(
+                    PM.t('install.choose-file', '请先选择要安装的插件包（.jar / .zip）。'), 'warn'));
+            } else {
+                PM.showInstallResult(PM.localInstallNotice(
+                    PM.t('install.error.generic', '安装请求失败，请重试。'), 'bad'));
+                PM.toast(PM.t('install.error.generic', '安装请求失败，请重试。'), 'error');
+            }
+        } finally {
+            PM.setInstallSubmitting(false);
+        }
+    }
+
+    // 安装弹窗事件：打开 / 关闭（按钮 + 背板 + Esc）、文件选择回显、提交。
+    function wireInstall() {
+        document.getElementById('installBtn').addEventListener('click', function () { PM.openInstallModal(); });
+        document.getElementById('pm-install-submit').addEventListener('click', function () { submitInstall(); });
+
+        var fileInput = document.getElementById('pm-install-file');
+        fileInput.addEventListener('change', function () {
+            var f = fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+            PM.setInstallFilename(f ? f.name : null);
+            PM.clearInstallResult();   // 换选文件后清掉上一次结果，避免误读
+        });
+
+        var modal = document.getElementById('pm-install-modal');
+        modal.addEventListener('click', function (e) {
+            if (e.target.closest('[data-pm-install-dismiss]')) {
+                PM.closeInstallModal();
+            }
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && !modal.hidden) {
+                PM.closeInstallModal();
+            }
+        });
+    }
+
     function wireEvents() {
         document.getElementById('refreshBtn').addEventListener('click', function () { load(); });
-
-        // 从 URL 安装：后端暂无安装端点；先给出明确提示，待后端实现后接线。
-        document.getElementById('installBtn').addEventListener('click', function () {
-            PM.toast(PM.t('install.todo', '「从 URL 安装」功能尚未接入后端。'), 'info');
-        });
+        wireInstall();
 
         var search = document.getElementById('pm-search-input');
         search.addEventListener('input', function () {

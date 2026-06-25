@@ -172,6 +172,26 @@ class PluginPackageReaderTest {
         assertReason(zip, PluginPackageException.Reason.MALFORMED);
     }
 
+    @Test
+    @DisplayName("描述符超出读取上限：抛 TOO_LARGE（按实际读取字节，不信 header）")
+    void rejectsOversizedDescriptor() {
+        Path zip = PluginPackageFixtures.explodedZip(tempDir.resolve("bigdesc.zip"),
+                "ext", "1.0.0", null, "com.example.SomewhatLongPluginClassName");
+        // 描述符上限 8 字节，真实 plugin.properties 数十字节 → 超限
+        PluginPackageLimits tiny = new PluginPackageLimits(
+                PluginPackageLimits.DEFAULT_MAX_ARCHIVE_BYTES,
+                PluginPackageLimits.DEFAULT_MAX_ENTRIES,
+                PluginPackageLimits.DEFAULT_MAX_TOTAL_UNCOMPRESSED_BYTES,
+                PluginPackageLimits.DEFAULT_MAX_ENTRY_UNCOMPRESSED_BYTES,
+                8,
+                PluginPackageLimits.DEFAULT_MAX_COMPRESSION_RATIO);
+
+        assertThatThrownBy(() -> PluginPackageReader.inspect(zip, tiny))
+                .isInstanceOf(PluginPackageException.class)
+                .satisfies(e -> assertThat(((PluginPackageException) e).reason())
+                        .isEqualTo(PluginPackageException.Reason.TOO_LARGE));
+    }
+
     private void assertReason(Path packagePath, PluginPackageException.Reason reason) {
         assertThatThrownBy(() -> PluginPackageReader.inspect(packagePath))
                 .isInstanceOf(PluginPackageException.class)

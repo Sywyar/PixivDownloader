@@ -24,7 +24,12 @@ public class PluginPackageException extends RuntimeException {
         /** 布局歧义：根同时存在描述符与插件 jar，或存在多个根插件 jar 候选，无法确定唯一插件。 */
         AMBIGUOUS,
         /** 越界 entry：解压后会逃逸出安装目录（Zip Slip）。 */
-        UNSAFE
+        UNSAFE,
+        /**
+         * 资源规模超限：归档文件体积、entry 数量、单 entry / 总解压字节、压缩比或描述符读取字节超出
+         * {@link PluginPackageLimits} 安全上限（防 Zip Bomb / 解压资源耗尽）。
+         */
+        TOO_LARGE
     }
 
     private final Reason reason;

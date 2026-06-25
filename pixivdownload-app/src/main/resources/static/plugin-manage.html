@@ -46,7 +46,7 @@
                 <i class="fa-solid fa-rotate"></i><span data-i18n="refresh">刷新</span>
             </button>
             <button class="pm-btn pm-btn--primary" id="installBtn">
-                <i class="fa-solid fa-link"></i><span data-i18n="install.url">从 URL 安装</span>
+                <i class="fa-solid fa-upload"></i><span data-i18n="install.open">安装本地插件</span>
             </button>
         </div>
     </div>
@@ -81,6 +81,47 @@
         插件运行于本地，仅供个人学习与研究使用 · 请尊重创作者版权 · 本工具与 Pixiv 无任何关联
     </div>
 
+</div>
+
+<!-- 本地插件包安装弹窗（默认隐藏，由 installBtn 打开）：只做本地 .jar / .zip 文件选择 + 提交，消费
+     POST /api/plugins/install。安装仅校验并落盘、不热加载，新装 / 升级包重启后才生效（结果区会明确提示）。
+     不提供从 URL 安装 / 插件市场 / 更新检查 / 删除等动作。 -->
+<div class="pm-modal" id="pm-install-modal" hidden role="dialog" aria-modal="true" aria-labelledby="pm-install-title">
+    <div class="pm-modal-backdrop" data-pm-install-dismiss></div>
+    <div class="pm-modal-card" role="document">
+        <div class="pm-modal-head">
+            <h2 class="pm-modal-title" id="pm-install-title">
+                <i class="fa-solid fa-box-open"></i><span data-i18n="install.title">安装本地插件包</span>
+            </h2>
+            <button type="button" class="pm-modal-close" data-pm-install-dismiss
+                    data-i18n-aria-label="install.close" aria-label="关闭"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <p class="pm-modal-desc" data-i18n="install.desc">选择本地 .jar / .zip 插件包安装到工作目录的 plugins/ 文件夹。安装只校验并落盘、不会立即加载，需重启后生效。</p>
+
+        <label class="pm-file">
+            <input type="file" id="pm-install-file" accept=".jar,.zip">
+            <span class="pm-file-btn"><i class="fa-solid fa-folder-open"></i><span data-i18n="install.pick">选择插件包…</span></span>
+            <span class="pm-file-name" id="pm-install-filename" data-i18n="install.no-file">未选择文件</span>
+        </label>
+
+        <details class="pm-advanced">
+            <summary><i class="fa-solid fa-sliders"></i><span data-i18n="install.advanced">高级选项</span></summary>
+            <label class="pm-check pm-check--danger">
+                <input type="checkbox" id="pm-install-allow-downgrade">
+                <span data-i18n="install.allow-downgrade">允许安装更低版本（覆盖已安装的更高版本）。危险操作，需重启后生效。</span>
+            </label>
+        </details>
+
+        <!-- 安装结果区：由 JS 据 PluginInstallResponse 填充（结果码 + 本地化说明 + 诊断 / 依赖，全部转义渲染）。 -->
+        <div class="pm-install-result" id="pm-install-result"></div>
+
+        <div class="pm-modal-foot">
+            <button type="button" class="pm-btn pm-btn--gray" data-pm-install-dismiss data-i18n="install.cancel">取消</button>
+            <button type="button" class="pm-btn pm-btn--primary" id="pm-install-submit">
+                <i class="fa-solid fa-upload"></i><span data-i18n="install.submit">安装</span>
+            </button>
+        </div>
+    </div>
 </div>
 
 <div class="pm-toast" id="pm-toast" role="status" aria-live="polite"></div>

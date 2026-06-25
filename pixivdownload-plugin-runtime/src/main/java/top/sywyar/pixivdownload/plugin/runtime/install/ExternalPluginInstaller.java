@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 
 /**
@@ -26,6 +27,10 @@ import java.util.stream.Stream;
  * <ol>
  *   <li><b>检视</b>：{@link PluginPackageReader#inspect} 读出布局 + 包级描述符；非法包（空 / 缺描述符 / 歧义 / 损坏）
  *       直接返回对应拒绝结果，<b>零落盘</b>。</li>
+ *   <li><b>资源规模安全扫描</b>：在任何解压 / 落盘前对 {@code .zip} / {@code .jar} 做 {@link PluginPackageVerifier#verify}
+ *       （归档体积 / entry 数 / 单 entry 与总解压字节 / 压缩比上限，防 Zip Bomb），超限 → {@code REJECTED_TOO_LARGE}。</li>
+ *   <li><b>完整性校验</b>：{@link PluginPackageIntegrity#verify} 比对来源 {@link PluginPackageOrigin} 声明的期望
+ *       （大小 / SHA-256 / 签名）。本地上传无期望、直接通过；受信目录来源不符 → {@code REJECTED_INTEGRITY}。</li>
  *   <li><b>校验描述符</b>：{@link PluginDescriptor#externalValidationErrors()} 不通过 → {@code REJECTED_INVALID}。</li>
  *   <li><b>核心 API 兼容门</b>：{@code requires} 不被当前核心满足 → {@code REJECTED_INCOMPATIBLE}（不装为可加载状态）。</li>
  *   <li><b>Zip Slip 校验</b>：对 {@code .zip} 包做 {@link ZipSafety#assertNoTraversal}，含越界 entry → {@code REJECTED_UNSAFE}。</li>
@@ -47,6 +52,17 @@ import java.util.stream.Stream;
  * <p>POJO（无 Spring 注解），由核心壳侧配置 {@code @Bean} 装配（注入 {@code RuntimeFiles.pluginsDirectory()}）。
  * 构造不创建目录、无副作用；安装目录在首次 {@link #install} 提交时按需创建（目录创建本就归安装流程）。
  * 本安装器只负责落盘，不校验插件主类是否实现入口契约（需加载类，属运行期发现桥接）。
+ *
+ * <h2>并发串行化</h2>
+ * {@link #install} 从 {@link #listInstalled()} 读现存包到提交落盘是一段「检查后动作」临界区；本实例用一把
+ * {@link ReentrantLock} 把整段 {@code install} 串行化，使同一进程内对<b>同一安装目录</b>（即同一实例，@Bean 单例）的
+ * 并发安装不会交错——并发安装同一 pluginId 不会产生互相覆盖、不稳定落盘或 {@code .staging} 残留。锁只护本实例的
+ * 临界区、<b>不</b>持任何 classloader / 路径全局引用（不引入按目录的全局锁表，避免 {@link Path} 引用泄漏）。
+ *
+ * <h2>来源</h2>
+ * {@link #install(Path, boolean)} 默认按 {@link PluginPackageSource#LOCAL_UPLOAD} 处理（本地上传，无完整性期望，
+ * <b>当前唯一接入的来源</b>）。{@link #install(Path, boolean, PluginPackageOrigin)} 接受携带来源与完整性期望的描述，
+ * 供后续受信目录获取流程在落盘前做完整性校验；本类自身<b>不</b>发起任何网络访问。
  */
 public class ExternalPluginInstaller {
 
@@ -59,12 +75,20 @@ public class ExternalPluginInstaller {
     private static final String BACKUP_SUBDIR = "removed";
 
     private final Path pluginsDir;
+    private final PluginPackageLimits limits;
+    /** 把整段 {@link #install} 串行化（同一实例 / 同一安装目录的并发安装互斥）。 */
+    private final ReentrantLock installLock = new ReentrantLock();
 
     public ExternalPluginInstaller(Path pluginsDir) {
+        this(pluginsDir, PluginPackageLimits.defaults());
+    }
+
+    public ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits) {
         if (pluginsDir == null) {
             throw new IllegalArgumentException("pluginsDir must not be null");
         }
         this.pluginsDir = pluginsDir;
+        this.limits = Objects.requireNonNull(limits, "limits");
     }
 
     /** 配置的安装目录（未规范化）。 */
@@ -72,18 +96,40 @@ public class ExternalPluginInstaller {
         return pluginsDir;
     }
 
-    /** 安装一个插件包，默认<b>拒绝降级</b>（已存在更高版本则 {@code DOWNGRADE_REJECTED}）。 */
+    /** 安装一个本地上传的插件包，默认<b>拒绝降级</b>（已存在更高版本则 {@code DOWNGRADE_REJECTED}）。 */
     public PluginInstallResult install(Path packagePath) {
         return install(packagePath, false);
     }
 
     /**
-     * 安装一个插件包。
+     * 安装一个本地上传的插件包（来源 {@link PluginPackageSource#LOCAL_UPLOAD}，无完整性期望）。
      *
      * @param packagePath    {@code .zip} / {@code .jar} 安装包路径
      * @param allowDowngrade 是否允许覆盖更高版本（force；仅内部参数，无 UI）
      */
     public PluginInstallResult install(Path packagePath, boolean allowDowngrade) {
+        return install(packagePath, allowDowngrade, PluginPackageOrigin.localUpload());
+    }
+
+    /**
+     * 安装一个插件包，按来源 {@code origin} 决定是否做完整性校验。整段串行化（{@link #installLock}）。
+     *
+     * @param packagePath    {@code .zip} / {@code .jar} 安装包路径
+     * @param allowDowngrade 是否允许覆盖更高版本（force；仅内部参数，无 UI）
+     * @param origin         包来源 + 完整性期望（本地上传无期望；受信目录来源带期望）
+     */
+    public PluginInstallResult install(Path packagePath, boolean allowDowngrade, PluginPackageOrigin origin) {
+        installLock.lock();
+        try {
+            return installExclusive(packagePath, allowDowngrade,
+                    origin != null ? origin : PluginPackageOrigin.localUpload());
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    private PluginInstallResult installExclusive(Path packagePath, boolean allowDowngrade,
+                                                 PluginPackageOrigin origin) {
         if (packagePath == null || !Files.isRegularFile(packagePath)) {
             return rejected(PluginInstallOutcome.REJECTED_EMPTY, "package file not found: " + packagePath);
         }
@@ -94,10 +140,23 @@ public class ExternalPluginInstaller {
                     "unsupported package type (expected .zip or .jar): " + packagePath.getFileName());
         }
 
-        // 1. 检视：读布局 + 包级描述符
+        // 0. 资源规模安全扫描（.zip / .jar 同等），在任何解压 / 落盘前——防 Zip Bomb / 解压资源耗尽。
+        try {
+            PluginPackageVerifier.verify(packagePath, limits);
+        } catch (PluginPackageException e) {
+            return rejected(mapReason(e.reason()), e.getMessage());
+        }
+
+        // 0b. 完整性校验：本地上传无期望、直接通过；受信目录来源不符 → REJECTED_INTEGRITY。
+        PluginPackageIntegrity.Result integrity = PluginPackageIntegrity.verify(origin, packagePath);
+        if (!integrity.ok()) {
+            return rejected(PluginInstallOutcome.REJECTED_INTEGRITY, integrity.detail());
+        }
+
+        // 1. 检视：读布局 + 包级描述符（描述符读取字节受 limits 约束）
         PluginPackageInspection inspection;
         try {
-            inspection = PluginPackageReader.inspect(packagePath);
+            inspection = PluginPackageReader.inspect(packagePath, limits);
         } catch (PluginPackageException e) {
             return rejected(mapReason(e.reason()), e.getMessage());
         }
@@ -393,6 +452,7 @@ public class ExternalPluginInstaller {
             case NO_DESCRIPTOR -> PluginInstallOutcome.REJECTED_NO_DESCRIPTOR;
             case AMBIGUOUS -> PluginInstallOutcome.REJECTED_AMBIGUOUS;
             case UNSAFE -> PluginInstallOutcome.REJECTED_UNSAFE;
+            case TOO_LARGE -> PluginInstallOutcome.REJECTED_TOO_LARGE;
         };
     }
 

@@ -56,6 +56,11 @@ class PluginInstallOutcomeMappingTest {
         assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.REJECTED_INVALID))
                 .isEqualTo(HttpStatus.BAD_REQUEST);
 
+        assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.REJECTED_TOO_LARGE))
+                .isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.REJECTED_INTEGRITY))
+                .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+
         assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.REJECTED_INCOMPATIBLE))
                 .isEqualTo(HttpStatus.CONFLICT);
         assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.DOWNGRADE_REJECTED))

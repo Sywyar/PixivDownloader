@@ -240,6 +240,135 @@
         toastTimer = setTimeout(function () { el.className = 'pm-toast'; }, 3400);
     }
 
+    // —— 本地插件包安装弹窗 ——
+
+    function installToneIcon(tone) {
+        if (tone === 'ok') return 'fa-circle-check';
+        if (tone === 'info') return 'fa-circle-info';
+        if (tone === 'bad') return 'fa-circle-xmark';
+        return 'fa-triangle-exclamation'; // warn / 默认
+    }
+
+    function installMetaRow(labelKey, fallback, value) {
+        return '<div class="pm-install-meta-row"><span class="pm-install-meta-key">'
+            + E(PM.t(labelKey, fallback)) + '</span><span class="pm-install-meta-val">' + E(value) + '</span></div>';
+    }
+
+    function installList(labelKey, fallback, items, icon) {
+        if (!items || !items.length) return '';
+        return '<div class="pm-install-list">'
+            + '<div class="pm-install-list-title"><i class="fa-solid ' + icon + '"></i>'
+            + E(PM.t(labelKey, fallback)) + '</div>'
+            + '<ul>' + items.map(function (it) { return '<li>' + E(it) + '</li>'; }).join('') + '</ul>'
+            + '</div>';
+    }
+
+    // 安装结果区渲染（纯字符串，所有动态值——含后端 message / outcome / 诊断 / 依赖——均经 E() 转义，绝不注入 HTML）。
+    // 空模型 → 空串（渲染层据此清空结果区）。消费 PM.buildInstallResult 的视图模型。
+    function renderInstallResultHtml(model) {
+        if (!model) return '';
+        var tone = model.tone || 'warn';
+        var parts = [];
+        parts.push('<div class="pm-install-result-box pm-install-result-box--' + tone + '">');
+        parts.push('<div class="pm-install-result-head">');
+        parts.push('<i class="fa-solid ' + installToneIcon(tone) + '"></i>');
+        parts.push('<span class="pm-install-result-msg">'
+            + E(model.message || PM.t('install.error.generic', '安装请求失败，请重试。')) + '</span>');
+        if (model.outcome) {
+            parts.push('<span class="pm-install-code" title="' + E(PM.t('install.outcome-code', '结果代码')) + '">'
+                + E(model.outcome) + '</span>');
+        }
+        parts.push('</div>'); // head
+
+        // accepted 的包落盘成功、重启后生效；明确不暗示已热加载。
+        if (model.effectiveAfterRestart) {
+            parts.push('<div class="pm-install-restart"><i class="fa-solid fa-rotate-right"></i>'
+                + E(PM.t('install.restart-note', '已安装到本地插件目录，将在下次重启后生效。')) + '</div>');
+        }
+
+        var meta = [];
+        if (model.pluginId) meta.push(installMetaRow('install.field.plugin-id', '插件 ID', model.pluginId));
+        if (model.version) meta.push(installMetaRow('install.field.version', '版本', model.version));
+        if (model.previousVersion) meta.push(installMetaRow('install.field.previous-version', '原版本', model.previousVersion));
+        if (meta.length) {
+            parts.push('<div class="pm-install-meta">' + meta.join('') + '</div>');
+        }
+
+        parts.push(installList('install.warnings', '尚未满足的依赖', model.warnings, 'fa-diagram-project'));
+        parts.push(installList('install.errors', '诊断信息', model.errors, 'fa-circle-info'));
+
+        parts.push('</div>'); // box
+        return parts.join('');
+    }
+
+    function installModalEl() {
+        return document.getElementById('pm-install-modal');
+    }
+
+    function showInstallResult(model) {
+        var host = document.getElementById('pm-install-result');
+        if (host) host.innerHTML = renderInstallResultHtml(model);
+    }
+
+    function clearInstallResult() {
+        var host = document.getElementById('pm-install-result');
+        if (host) host.innerHTML = '';
+    }
+
+    // 文件名标签：选中文件 → 显示文件名并摘掉 data-i18n（避免语言切换时被 apply 覆盖回「未选择文件」）；
+    // 清空 → 还原 data-i18n + 当前语言的「未选择文件」文案。
+    function setInstallFilename(name) {
+        var el = document.getElementById('pm-install-filename');
+        if (!el) return;
+        if (name) {
+            el.removeAttribute('data-i18n');
+            el.textContent = name;
+            el.classList.add('has-file');
+        } else {
+            el.setAttribute('data-i18n', 'install.no-file');
+            el.textContent = PM.t('install.no-file', '未选择文件');
+            el.classList.remove('has-file');
+        }
+    }
+
+    function setInstallSubmitting(busy) {
+        var btn = document.getElementById('pm-install-submit');
+        if (btn) btn.disabled = !!busy;
+        PM.state.installBusy = !!busy;
+    }
+
+    // 打开弹窗：每次打开都重置文件选择、降级勾选、高级折叠、结果区与提交态，确保干净起点。
+    function openInstallModal() {
+        var modal = installModalEl();
+        if (!modal) return;
+        var fileInput = document.getElementById('pm-install-file');
+        if (fileInput) fileInput.value = '';
+        var allow = document.getElementById('pm-install-allow-downgrade');
+        if (allow) allow.checked = false;
+        var advanced = modal.querySelector('.pm-advanced');
+        if (advanced) advanced.removeAttribute('open');
+        setInstallFilename(null);
+        clearInstallResult();
+        setInstallSubmitting(false);
+        modal.hidden = false;
+        modal.classList.add('show');
+        if (fileInput && typeof fileInput.focus === 'function') fileInput.focus();
+    }
+
+    function closeInstallModal() {
+        var modal = installModalEl();
+        if (!modal) return;
+        modal.classList.remove('show');
+        modal.hidden = true;
+    }
+
     PM.renderAll = renderAll;
     PM.toast = toast;
+    PM.renderInstallResultHtml = renderInstallResultHtml;
+    PM.showInstallResult = showInstallResult;
+    PM.clearInstallResult = clearInstallResult;
+    PM.setInstallFilename = setInstallFilename;
+    PM.setInstallSubmitting = setInstallSubmitting;
+    PM.openInstallModal = openInstallModal;
+    PM.closeInstallModal = closeInstallModal;
 })(window);

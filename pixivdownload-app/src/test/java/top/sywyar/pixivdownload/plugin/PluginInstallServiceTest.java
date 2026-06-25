@@ -8,6 +8,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageLimits;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -158,6 +159,26 @@ class PluginInstallServiceTest {
         assertThat(report.dependencies()).extracting(PluginManagementService.PluginDependencyView::pluginId)
                 .containsExactlyInAnyOrder("download-workbench", "ghost-plugin");
         assertThat(report.unsatisfiedDependencies()).containsExactly("ghost-plugin");
+    }
+
+    @Test
+    @DisplayName("上传包超出资源上限（entry 数）：REJECTED_TOO_LARGE，零落盘")
+    void rejectsOversizedUpload() {
+        // 注入一个 entry 上限收紧到 1 的安装器；解压目录形态包有 3 个 entry → 超限
+        PluginPackageLimits tight = new PluginPackageLimits(
+                PluginPackageLimits.DEFAULT_MAX_ARCHIVE_BYTES,
+                1,
+                PluginPackageLimits.DEFAULT_MAX_TOTAL_UNCOMPRESSED_BYTES,
+                PluginPackageLimits.DEFAULT_MAX_ENTRY_UNCOMPRESSED_BYTES,
+                PluginPackageLimits.DEFAULT_MAX_DESCRIPTOR_BYTES,
+                PluginPackageLimits.DEFAULT_MAX_COMPRESSION_RATIO);
+        PluginInstallService limited = new PluginInstallService(new ExternalPluginInstaller(pluginsDir, tight));
+
+        PluginInstallReport report = limited.install(explodedUpload("big.zip", "ext", "1.0.0", null, null), false);
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_TOO_LARGE);
+        assertThat(report.accepted()).isFalse();
+        assertThat(pluginFiles()).isEmpty();
     }
 
     @Test

@@ -193,6 +193,22 @@ class PluginManagementControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/plugins/install 资源超限 → 413 + 稳定 outcome（REJECTED_TOO_LARGE）+ 本地化 message，not accepted")
+    void installTooLargeReturns413() throws Exception {
+        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+                PluginInstallOutcome.REJECTED_TOO_LARGE, false, false, null, null, null,
+                List.of(), List.of(), List.of("too many zip entries")));
+
+        mockMvc.perform(multipart("/api/plugins/install")
+                        .file(new MockMultipartFile("file", "bomb.zip", "application/zip", new byte[]{1, 2, 3})))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.outcome").value("REJECTED_TOO_LARGE"))
+                .andExpect(jsonPath("$.accepted").value(false))
+                .andExpect(jsonPath("$.status").value(413))
+                .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.rejected-too-large"));
+    }
+
+    @Test
     @DisplayName("POST /api/plugins/install 缺失 file 部分 → 委托 install(null, false) → 400 + 稳定 outcome（REJECTED_EMPTY），not accepted")
     void installMissingFileReturns400() throws Exception {
         when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(

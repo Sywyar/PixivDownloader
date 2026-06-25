@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -71,24 +72,35 @@ public final class PluginPackageReader {
     }
 
     /**
-     * 检视一个插件包（{@code .zip} 或 {@code .jar}），返回布局 + 包级描述符。包结构非法时抛
-     * {@link PluginPackageException}（携带 {@link PluginPackageException.Reason}）。
+     * 检视一个插件包（{@code .zip} 或 {@code .jar}），返回布局 + 包级描述符，描述符读取按
+     * {@link PluginPackageLimits#defaults()} 限制字节数。包结构非法时抛 {@link PluginPackageException}
+     * （携带 {@link PluginPackageException.Reason}）。
      */
     public static PluginPackageInspection inspect(Path packagePath) {
+        return inspect(packagePath, PluginPackageLimits.defaults());
+    }
+
+    /**
+     * 同 {@link #inspect(Path)}，但用给定 {@code limits} 的 {@link PluginPackageLimits#maxDescriptorBytes()} 限制
+     * {@value #PLUGIN_PROPERTIES} 读取字节数：描述符超限抛 {@link PluginPackageException.Reason#TOO_LARGE}。
+     */
+    public static PluginPackageInspection inspect(Path packagePath, PluginPackageLimits limits) {
         Objects.requireNonNull(packagePath, "packagePath");
+        Objects.requireNonNull(limits, "limits");
+        long maxDescriptorBytes = limits.maxDescriptorBytes();
         String name = packagePath.getFileName().toString().toLowerCase(Locale.ROOT);
         if (name.endsWith(".jar")) {
-            Properties properties = readPluginPropertiesFromArchive(packagePath);
+            Properties properties = readPluginPropertiesFromArchive(packagePath, maxDescriptorBytes);
             if (properties == null) {
                 throw new PluginPackageException(PluginPackageException.Reason.NO_DESCRIPTOR,
                         "jar contains no " + PLUGIN_PROPERTIES + ": " + packagePath.getFileName());
             }
             return new PluginPackageInspection(PluginPackageFormat.SINGLE_JAR, toDescriptor(properties), null);
         }
-        return inspectZip(packagePath);
+        return inspectZip(packagePath, maxDescriptorBytes);
     }
 
-    private static PluginPackageInspection inspectZip(Path zip) {
+    private static PluginPackageInspection inspectZip(Path zip, long maxDescriptorBytes) {
         boolean rootProperties = false;
         List<String> rootJars = new ArrayList<>();
         int entryCount = 0;
@@ -113,7 +125,7 @@ public final class PluginPackageReader {
             }
             if (rootProperties && rootJars.isEmpty()) {
                 return new PluginPackageInspection(PluginPackageFormat.EXPLODED_DIRECTORY,
-                        toDescriptor(loadProperties(zipFile, PLUGIN_PROPERTIES)), null);
+                        toDescriptor(loadProperties(zipFile, PLUGIN_PROPERTIES, maxDescriptorBytes)), null);
             }
             if (rootProperties) {
                 throw new PluginPackageException(PluginPackageException.Reason.AMBIGUOUS,
@@ -121,7 +133,7 @@ public final class PluginPackageReader {
             }
             if (rootJars.size() == 1) {
                 String jarEntry = rootJars.get(0);
-                Properties properties = loadInnerJarProperties(zipFile, jarEntry);
+                Properties properties = loadInnerJarProperties(zipFile, jarEntry, maxDescriptorBytes);
                 if (properties == null) {
                     throw new PluginPackageException(PluginPackageException.Reason.NO_DESCRIPTOR,
                             "root jar " + jarEntry + " contains no " + PLUGIN_PROPERTIES);
@@ -148,10 +160,10 @@ public final class PluginPackageReader {
         return entryName.indexOf('/') < 0 && entryName.toLowerCase(Locale.ROOT).endsWith(".jar");
     }
 
-    /** 从一个 zip / jar 归档的根读取 {@value #PLUGIN_PROPERTIES}（不存在返回 {@code null}）。 */
-    private static Properties readPluginPropertiesFromArchive(Path archive) {
+    /** 从一个 zip / jar 归档的根读取 {@value #PLUGIN_PROPERTIES}（不存在返回 {@code null}），读取字节受上限约束。 */
+    private static Properties readPluginPropertiesFromArchive(Path archive, long maxDescriptorBytes) {
         try (ZipFile zipFile = new ZipFile(archive.toFile())) {
-            return loadProperties(zipFile, PLUGIN_PROPERTIES);
+            return loadProperties(zipFile, PLUGIN_PROPERTIES, maxDescriptorBytes);
         } catch (ZipException e) {
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED,
                     "not a valid jar package: " + e.getMessage(), e);
@@ -161,21 +173,20 @@ public final class PluginPackageReader {
         }
     }
 
-    private static Properties loadProperties(ZipFile zipFile, String entryName) throws IOException {
+    private static Properties loadProperties(ZipFile zipFile, String entryName, long maxDescriptorBytes)
+            throws IOException {
         ZipEntry entry = zipFile.getEntry(entryName);
         if (entry == null) {
             return null;
         }
-        try (Reader reader = new InputStreamReader(
-                new BufferedInputStream(zipFile.getInputStream(entry)), StandardCharsets.UTF_8)) {
-            Properties properties = new Properties();
-            properties.load(reader);
-            return properties;
+        try (InputStream in = new BufferedInputStream(zipFile.getInputStream(entry))) {
+            return parseDescriptor(in, entryName, maxDescriptorBytes);
         }
     }
 
-    /** 从 zip 内某个 jar entry 的内部读取根 {@value #PLUGIN_PROPERTIES}（不存在返回 {@code null}）。 */
-    private static Properties loadInnerJarProperties(ZipFile zipFile, String jarEntryName) throws IOException {
+    /** 从 zip 内某个 jar entry 的内部读取根 {@value #PLUGIN_PROPERTIES}（不存在返回 {@code null}），读取字节受上限约束。 */
+    private static Properties loadInnerJarProperties(ZipFile zipFile, String jarEntryName, long maxDescriptorBytes)
+            throws IOException {
         ZipEntry jarEntry = zipFile.getEntry(jarEntryName);
         if (jarEntry == null) {
             return null;
@@ -188,14 +199,43 @@ public final class PluginPackageReader {
                     continue;
                 }
                 if (inner.getName().replace('\\', '/').equals(PLUGIN_PROPERTIES)) {
-                    Properties properties = new Properties();
-                    // 不要关闭这个 reader：它会连带关闭 jarStream
-                    properties.load(new InputStreamReader(jarStream, StandardCharsets.UTF_8));
-                    return properties;
+                    return parseDescriptor(jarStream, jarEntryName + "!" + PLUGIN_PROPERTIES, maxDescriptorBytes);
                 }
             }
         }
         return null;
+    }
+
+    /**
+     * 把描述符 entry 的<b>实际读取</b>字节累计到上限内（不信任 header 声明的 size），超出
+     * {@code maxDescriptorBytes} 抛 {@link PluginPackageException.Reason#TOO_LARGE}；否则按 UTF-8 解析为
+     * {@link Properties}。不关闭传入流（外层 try-with-resources 负责，inner jar 流尤其不能在此关闭）。
+     */
+    private static Properties parseDescriptor(InputStream in, String entryName, long maxDescriptorBytes)
+            throws IOException {
+        byte[] data = readBounded(in, maxDescriptorBytes, entryName);
+        Properties properties = new Properties();
+        try (Reader reader = new InputStreamReader(new ByteArrayInputStream(data), StandardCharsets.UTF_8)) {
+            properties.load(reader);
+        }
+        return properties;
+    }
+
+    /** 按实际读取字节累计、超过 {@code limit} 立即抛 {@code TOO_LARGE}（不一次性读入未知大小的流）。 */
+    private static byte[] readBounded(InputStream in, long limit, String entryName) throws IOException {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+        long total = 0;
+        int read;
+        while ((read = in.read(buffer)) != -1) {
+            total += read;
+            if (total > limit) {
+                throw new PluginPackageException(PluginPackageException.Reason.TOO_LARGE,
+                        "descriptor " + entryName + " exceeds " + limit + " bytes");
+            }
+            out.write(buffer, 0, read);
+        }
+        return out.toByteArray();
     }
 
     /**

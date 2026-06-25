@@ -14,6 +14,9 @@
 (function (global) {
     var STATUS_URL = '/api/plugins/status';
     var ACTION_URL_PREFIX = '/api/plugins/';
+    var INSTALL_URL = '/api/plugins/install';
+    // 受支持的本地插件包扩展名（与后端安装器一致：仅 .jar / .zip）；用于 <input accept> 与本地预校验。
+    var INSTALL_ACCEPT = '.jar,.zip';
 
     // 共享视图状态：渲染层只读，init 层写。
     var state = {
@@ -22,7 +25,8 @@
         error: null,
         activeTab: 'all',  // all | enabled | disabled | external
         search: '',
-        busyId: null       // 正在执行运行期动词的插件 id（期间禁用其卡片按钮，动作串行化）
+        busyId: null,      // 正在执行运行期动词的插件 id（期间禁用其卡片按钮，动作串行化）
+        installBusy: false // 本地包安装请求在途（期间禁用安装提交按钮，避免重复提交）
     };
 
     // i18n 客户端容器（init 创建 / 切语言时替换；渲染层经 t / tns 读取当前客户端）。
@@ -279,9 +283,59 @@
         };
     }
 
+    // —— 本地插件包安装（消费 POST /api/plugins/install 的 PluginInstallResponse） ——
+
+    // 本地预校验：文件名是否为受支持的扩展名（.jar / .zip，大小写不敏感）。仅作即时反馈；包是否合法仍以后端为准。
+    function hasAcceptedExtension(filename) {
+        var name = filename == null ? '' : String(filename).toLowerCase();
+        return name.endsWith('.jar') || name.endsWith('.zip');
+    }
+
+    // 安装结果色调：accepted（落盘存在）里 DUPLICATE（已存在、无改动）记为中性 info，其余（新装 / 升级 / 降级）记为
+    // 成功 ok；未 accepted（各类拒绝 / 失败）一律记为 bad。仅用于结果区的着色，不参与任何机器判别。
+    function installTone(outcome, accepted) {
+        if (!accepted) return 'bad';
+        return outcome === 'DUPLICATE' ? 'info' : 'ok';
+    }
+
+    // 后端 PluginInstallResponse → 安装结果区视图模型（纯映射，无副作用）。message 由后端按请求语言解析、直接展示；
+    // outcome 是稳定机器码（结果区以代码片展示，便于排错）；errors=安装器诊断说明、warnings=尚未满足的依赖（建议性）。
+    // 任何字符串都不在此拼接 HTML——渲染层统一转义。
+    function buildInstallResult(response) {
+        var r = response || {};
+        var outcome = r.outcome || null;
+        var accepted = r.accepted === true;
+        return {
+            outcome: outcome,
+            accepted: accepted,
+            effectiveAfterRestart: r.effectiveAfterRestart === true,
+            status: typeof r.status === 'number' ? r.status : null,
+            tone: installTone(outcome, accepted),
+            message: r.message || null,
+            pluginId: r.pluginId || null,
+            version: r.version || null,
+            previousVersion: r.previousVersion || null,
+            errors: Array.isArray(r.diagnostics) ? r.diagnostics : [],
+            warnings: Array.isArray(r.unsatisfiedDependencies) ? r.unsatisfiedDependencies : [],
+            localValidation: false
+        };
+    }
+
+    // 纯前端的本地校验提示（未选文件 / 非法选择 / 网络异常等）：与 buildInstallResult 同形态，供结果区统一渲染。
+    function localInstallNotice(message, tone) {
+        return {
+            outcome: null, accepted: false, effectiveAfterRestart: false, status: null,
+            tone: tone || 'warn', message: message || null,
+            pluginId: null, version: null, previousVersion: null,
+            errors: [], warnings: [], localValidation: true
+        };
+    }
+
     global.PixivPluginManage = {
         STATUS_URL: STATUS_URL,
         ACTION_URL_PREFIX: ACTION_URL_PREFIX,
+        INSTALL_URL: INSTALL_URL,
+        INSTALL_ACCEPT: INSTALL_ACCEPT,
         state: state,
         i18n: i18n,
         t: t,
@@ -294,6 +348,9 @@
         allViewModels: allViewModels,
         tabsModel: tabsModel,
         filterModels: filterModels,
-        stats: stats
+        stats: stats,
+        hasAcceptedExtension: hasAcceptedExtension,
+        buildInstallResult: buildInstallResult,
+        localInstallNotice: localInstallNotice
     };
 })(window);

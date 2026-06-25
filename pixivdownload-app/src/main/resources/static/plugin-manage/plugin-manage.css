@@ -872,6 +872,324 @@ body {
 .pm-toast--error { border-left-color: var(--status-red); }
 .pm-toast--info { border-left-color: var(--accent-pixiv); }
 
+/* ── 本地插件包安装弹窗 ── */
+.pm-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.pm-modal[hidden] {
+    display: none;
+}
+
+.pm-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .45);
+}
+
+.pm-modal-card {
+    position: relative;
+    width: 100%;
+    max-width: 520px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-raised);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.pm-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.pm-modal-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.pm-modal-title i {
+    color: var(--accent-pixiv);
+    font-size: 16px;
+}
+
+.pm-modal-close {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 15px;
+    transition: background var(--transition), color var(--transition);
+}
+
+.pm-modal-close:hover {
+    background: var(--control-muted-bg);
+    color: var(--text);
+}
+
+.pm-modal-desc {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--muted);
+}
+
+/* 文件选择（隐藏原生 input，用自定义按钮 + 文件名标签） */
+.pm-file {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    background: var(--surface-muted);
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition);
+}
+
+.pm-file:hover {
+    border-color: var(--accent-pixiv);
+}
+
+.pm-file input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+}
+
+.pm-file-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 32px;
+    padding: 0 14px;
+    border-radius: var(--radius-sm);
+    background: var(--control-muted-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.pm-file-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pm-file-name.has-file {
+    color: var(--text);
+}
+
+/* 高级选项（折叠的危险开关：默认折叠，不作为主路径） */
+.pm-advanced {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0 12px;
+}
+
+.pm-advanced summary {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    list-style: none;
+}
+
+.pm-advanced summary::-webkit-details-marker {
+    display: none;
+}
+
+.pm-advanced summary i {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.pm-advanced[open] summary {
+    border-bottom: 1px solid var(--border);
+}
+
+.pm-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 12px 2px;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.pm-check input[type="checkbox"] {
+    margin-top: 1px;
+    flex-shrink: 0;
+}
+
+.pm-check--danger {
+    color: var(--accent-red);
+}
+
+/* 安装结果区（据 PluginInstallResponse 渲染；全部内容经 JS 转义） */
+.pm-install-result:empty {
+    display: none;
+}
+
+.pm-install-result-box {
+    border: 1px solid var(--border);
+    border-left-width: 3px;
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    background: var(--surface-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pm-install-result-box--ok { border-left-color: var(--status-green); }
+.pm-install-result-box--info { border-left-color: var(--status-blue); }
+.pm-install-result-box--warn { border-left-color: var(--status-yellow); }
+.pm-install-result-box--bad { border-left-color: var(--status-red); }
+
+.pm-install-result-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+}
+
+.pm-install-result-head > i {
+    font-size: 15px;
+    flex-shrink: 0;
+}
+
+.pm-install-result-box--ok .pm-install-result-head > i { color: var(--status-green); }
+.pm-install-result-box--info .pm-install-result-head > i { color: var(--status-blue); }
+.pm-install-result-box--warn .pm-install-result-head > i { color: var(--status-yellow); }
+.pm-install-result-box--bad .pm-install-result-head > i { color: var(--status-red); }
+
+.pm-install-result-msg {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.5;
+}
+
+.pm-install-code {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    background: var(--control-muted-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xs);
+    padding: 2px 7px;
+}
+
+.pm-install-restart {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.pm-install-restart i {
+    color: var(--accent-pixiv);
+}
+
+.pm-install-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pm-install-meta-row {
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.pm-install-meta-key {
+    color: var(--muted);
+    min-width: 64px;
+}
+
+.pm-install-meta-val {
+    color: var(--text);
+    font-family: var(--font-mono);
+    word-break: break-all;
+}
+
+.pm-install-list {
+    font-size: 12px;
+}
+
+.pm-install-list-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    color: var(--muted);
+    margin-bottom: 4px;
+}
+
+.pm-install-list ul {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+.pm-install-list li {
+    word-break: break-all;
+}
+
+.pm-modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 2px;
+}
+
 /* ── 响应式 ── */
 @media (max-width: 860px) {
     .pm-stats { grid-template-columns: repeat(2, 1fr); }

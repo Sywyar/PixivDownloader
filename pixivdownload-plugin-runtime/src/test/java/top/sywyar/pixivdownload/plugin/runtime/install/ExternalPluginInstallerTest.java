@@ -11,9 +11,15 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -275,7 +281,124 @@ class ExternalPluginInstallerTest {
         assertThat(Files.exists(pluginsDir.resolve(ExternalPluginInstaller.STAGING_DIR))).isFalse();
     }
 
+    // ---------- 资源规模上限（防 Zip Bomb） ----------
+
+    @Test
+    @DisplayName("entry 数量超出安装器上限：REJECTED_TOO_LARGE，零落盘")
+    void rejectsTooManyEntries() {
+        // 解压目录形态包有 plugin.properties + classes/ + classes/Marker.class 共 3 个 entry
+        ExternalPluginInstaller limited = new ExternalPluginInstaller(pluginsDir,
+                limits(64 << 20, 1, 256L << 20, 64 << 20, 1 << 20, Long.MAX_VALUE));
+
+        PluginInstallResult result = limited.install(exploded("ext", "1.0.0"));
+
+        assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_TOO_LARGE);
+        assertThat(result.accepted()).isFalse();
+        assertThat(pluginFiles()).isEmpty();
+        assertThat(Files.exists(pluginsDir.resolve(ExternalPluginInstaller.STAGING_DIR))).isFalse();
+    }
+
+    @Test
+    @DisplayName("plugin.properties 超出描述符读取上限：REJECTED_TOO_LARGE，零落盘")
+    void rejectsOversizedDescriptor() {
+        // 资源扫描上限放宽、仅描述符上限收紧到 8 字节（真实 plugin.properties 数十字节）
+        ExternalPluginInstaller limited = new ExternalPluginInstaller(pluginsDir,
+                limits(64 << 20, 20000, 256L << 20, 64 << 20, 8, Long.MAX_VALUE));
+
+        PluginInstallResult result = limited.install(exploded("ext", "1.0.0"));
+
+        assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_TOO_LARGE);
+        assertThat(pluginFiles()).isEmpty();
+    }
+
+    // ---------- 完整性校验（受信目录来源；本地上传无期望） ----------
+
+    @Test
+    @DisplayName("受信目录来源 + 正确 SHA-256/大小：正常安装为 INSTALLED")
+    void trustedCatalogMatchingShaInstalls() throws IOException {
+        Path src = exploded("ext", "1.0.0");
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                Files.size(src), PluginPackageIntegrity.sha256Hex(src), null);
+
+        PluginInstallResult result = installer.install(src, false, origin);
+
+        assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(pluginFiles()).containsExactly("ext-1.0.0.zip");
+    }
+
+    @Test
+    @DisplayName("受信目录来源 + 错误 SHA-256：REJECTED_INTEGRITY，零落盘")
+    void trustedCatalogWrongShaRejected() {
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                null, "0000000000000000000000000000000000000000000000000000000000000000", null);
+
+        PluginInstallResult result = installer.install(exploded("ext", "1.0.0"), false, origin);
+
+        assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(result.accepted()).isFalse();
+        assertThat(pluginFiles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("受信目录来源声明签名但无校验器：fail-closed → REJECTED_INTEGRITY，零落盘")
+    void trustedCatalogSignatureFailsClosed() {
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(null, null, "sig");
+
+        PluginInstallResult result = installer.install(exploded("ext", "1.0.0"), false, origin);
+
+        assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(pluginFiles()).isEmpty();
+    }
+
+    // ---------- 并发安装串行化 ----------
+
+    @Test
+    @DisplayName("并发安装同一 pluginId：串行化，恰好一个 INSTALLED 其余 DUPLICATE，落盘唯一规范包、无 .staging 残留")
+    void concurrentInstallsOfSameIdAreSerialized() throws Exception {
+        int threads = 8;
+        // 每个线程一份独立源 zip（同 id/version），避免共享源文件读竞争
+        List<Path> sources = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            sources.add(PluginPackageFixtures.explodedZip(
+                    home.resolve("src-" + i + ".zip"), "ext", "1.0.0", null, "com.example.P"));
+        }
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CyclicBarrier barrier = new CyclicBarrier(threads);
+        List<Future<PluginInstallResult>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < threads; i++) {
+                Path src = sources.get(i);
+                futures.add(pool.submit(() -> {
+                    barrier.await(10, TimeUnit.SECONDS);
+                    return installer.install(src);
+                }));
+            }
+            List<PluginInstallOutcome> outcomes = new ArrayList<>();
+            for (Future<PluginInstallResult> future : futures) {
+                outcomes.add(future.get(30, TimeUnit.SECONDS).outcome());
+            }
+
+            long installed = outcomes.stream().filter(o -> o == PluginInstallOutcome.INSTALLED).count();
+            long duplicate = outcomes.stream().filter(o -> o == PluginInstallOutcome.DUPLICATE).count();
+            assertThat(installed).as("恰好一次真正落盘").isEqualTo(1);
+            assertThat(duplicate).as("其余皆幂等 DUPLICATE").isEqualTo(threads - 1);
+            assertThat(outcomes).allMatch(o ->
+                    o == PluginInstallOutcome.INSTALLED || o == PluginInstallOutcome.DUPLICATE);
+            // 落盘唯一规范包、无半成品 / 无 .staging 残留
+            assertThat(pluginFiles()).containsExactly("ext-1.0.0.zip");
+            assertThat(installer.listInstalled()).extracting(InstalledPlugin::id).containsExactly("ext");
+            assertThat(Files.exists(pluginsDir.resolve(ExternalPluginInstaller.STAGING_DIR))).isFalse();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     // ---------- helpers ----------
+
+    private static PluginPackageLimits limits(long archive, int entries, long total, long entry,
+                                              long descriptor, long ratio) {
+        return new PluginPackageLimits(archive, entries, total, entry, descriptor, ratio);
+    }
 
     private void assertZipSlipRejected(Path pkg) {
         long filesBefore = countRegularFilesUnder(home);
