@@ -180,6 +180,10 @@ class PixivPluginDiscoveryBridgeTest {
         assertThat(descriptor.version()).isEqualTo("2.1.0");
         assertThat(descriptor.pluginClass()).isEqualTo("com.example.ExtStatsPlugin");
         assertThat(descriptor.displayName()).isEqualTo("ext-stats.label");
+        assertThat(descriptor.description()).isEqualTo("ext-stats.summary");
+        // 功能插件未覆写 iconKey/colorToken：经桥接映射出 plugin-api 默认受控 token，不丢字段。
+        assertThat(descriptor.iconKey()).isEqualTo("puzzle");
+        assertThat(descriptor.colorToken()).isEqualTo("neutral");
         assertThat(descriptor.kind()).isEqualTo(PluginKind.FEATURE);
         assertThat(descriptor.isApiCompatible()).isTrue();
         assertThat(descriptor.dependencies()).singleElement()

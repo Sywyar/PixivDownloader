@@ -4,11 +4,12 @@
  * 本模块只定义全局命名空间 PixivPluginManage，无任何顶层副作用（启动逻辑收拢在 plugin-manage-init.js）。
  *
  * 数据来源：后端管理 API（admin-only，已接线）。后端响应见 PluginManagementService.PluginManagementReport：
- *   { recoveryMode, plugins: [ { id, displayNamespace, displayNameKey, version, kind, apiRequirement,
- *     dependencies, source, status, runtimePhase, managed, requiredByPolicy, allowDisable,
- *     availableActions, messages } ] }
- * 设计稿里后端暂未提供的字段（更新机制 / 体积 / 下载量 / 每插件图标色 / 作者 / 描述）在此处优雅留空
- * （见各 vm.hasUpdate 等占位字段与 describe()），待后端补齐对应数据后再点亮。
+ *   { recoveryMode, plugins: [ { id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken,
+ *     version, kind, apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
+ *     allowDisable, availableActions, messages } ] }
+ * 其中 descriptionKey 是纯 i18n key（在 displayNamespace 内解析）；iconKey / colorToken 是<b>受控展示 token</b>
+ * （非 URL / CSS / 远程资源），在本模块经本地白名单映射为图标 class / 颜色 class，未知值回退默认。设计稿里后端仍未
+ * 提供的字段（更新机制 / 体积 / 下载量 / 作者）在此处优雅留空（见各 vm.hasUpdate 等占位字段），待后端补齐后再点亮。
  */
 (function (global) {
     var STATUS_URL = '/api/plugins/status';
@@ -115,27 +116,54 @@
         STARTED: 'ok', LOADED: 'info', QUIESCED: 'warn', STOPPED: 'idle', UNLOADED: 'idle'
     };
 
-    // 图标贴片的图标 / 强调色：后端暂无每插件展示元数据，按来源派生（待后端补齐每插件 presentation 字段后再读取）。
-    var PRESENTATION = {
-        'built-in':      { icon: 'fa-solid fa-puzzle-piece', color: 'var(--accent-pixiv)' },
-        'external':      { icon: 'fa-solid fa-cube', color: 'var(--accent-purple)' },
-        'not-installed': { icon: 'fa-solid fa-box-open', color: 'var(--accent-gray)' }
+    // 图标受控 token（后端 iconKey）→ FontAwesome class 的<b>本地白名单</b>：后端只给受控 token（绝非 URL / SVG /
+    // HTML），前端在此固定映射；白名单外的未知 token 一律回退到默认 puzzle，原始 token 绝不被当作类名直接渲染。
+    var ICON_CLASSES = {
+        puzzle:    'fa-solid fa-puzzle-piece',
+        gear:      'fa-solid fa-gear',
+        download:  'fa-solid fa-download',
+        clock:     'fa-solid fa-clock',
+        gallery:   'fa-solid fa-images',
+        book:      'fa-solid fa-book',
+        duplicate: 'fa-solid fa-clone',
+        chart:     'fa-solid fa-chart-line',
+        shield:    'fa-solid fa-shield-halved',
+        cube:      'fa-solid fa-cube'
     };
+    var DEFAULT_ICON = 'puzzle';
 
-    function presentationOf(source) {
-        return PRESENTATION[source] || PRESENTATION['built-in'];
+    function iconClass(iconKey) {
+        return ICON_CLASSES[iconKey] || ICON_CLASSES[DEFAULT_ICON];
     }
 
-    // 卡片描述：后端条目暂不携带每插件简介（仅核心 / 计划任务宿主有 summary key，且未投影到条目）。
-    // 退化为按来源给出的通用描述（待后端补齐每插件 descriptionKey 后再读取）。
-    function describe(entry) {
-        if (entry.source === 'not-installed') {
+    // 强调色受控 token（后端 colorToken）→ 稳定 CSS class 后缀的<b>本地白名单</b>（颜色只用于卡片可扫描性、非主题
+    // 系统）：白名单外的未知 token 回退到默认 neutral；渲染层据此拼出固定的 pm-card-icon--<token> class，绝不接触
+    // 任意颜色值。
+    var COLOR_TOKENS = {
+        neutral: 1, pixiv: 1, blue: 1, teal: 1, amber: 1, purple: 1, orange: 1, red: 1, green: 1
+    };
+    var DEFAULT_COLOR = 'neutral';
+
+    function colorTokenOf(token) {
+        return Object.prototype.hasOwnProperty.call(COLOR_TOKENS, token) ? token : DEFAULT_COLOR;
+    }
+
+    // 按来源的通用简介（descriptionKey 缺失时的回退文案）。
+    function sourceDesc(source) {
+        if (source === 'not-installed') {
             return t('desc.not-installed', '该插件尚未安装。');
         }
-        if (entry.source === 'external') {
+        if (source === 'external') {
             return t('desc.external', '外置插件，可在运行期启停。');
         }
         return t('desc.built-in', '内置插件，随主程序编译。');
+    }
+
+    // 卡片描述：优先用后端投影的每插件简介纯 key descriptionKey（在 displayNamespace 内经 tns 解析）；缺失
+    // （未安装无描述符 / 无 namespace / 缺 bundle key）时优雅回退到按来源的通用文案，不影响渲染。
+    function describe(entry) {
+        var fallback = sourceDesc(entry.source);
+        return entry.descriptionKey ? tns(entry.displayNamespace, entry.descriptionKey, fallback) : fallback;
     }
 
     // 后端条目 → 卡片视图模型。
@@ -146,7 +174,6 @@
         var running = status === 'STARTED';
         var phase = entry.runtimePhase || null;
         var name = tns(entry.displayNamespace, entry.displayNameKey, entry.id);
-        var presentation = presentationOf(source);
         var version = entry.version ? ('v' + entry.version) : null;
         var sub = [entry.id, version, t('source.' + source, source)].filter(Boolean).join(' · ');
 
@@ -177,8 +204,8 @@
             runtimePhase: phase,
             phaseLabel: phase ? t('phase.' + String(phase).toLowerCase(), phase) : null,
             phaseTone: phase ? (PHASE_TONE[phase] || 'idle') : null,
-            icon: presentation.icon,
-            iconColor: presentation.color,
+            icon: iconClass(entry.iconKey),
+            colorToken: colorTokenOf(entry.colorToken),
             badgeKey: 'source.' + source,
             badgeTone: source === 'built-in' ? 'success' : (source === 'external' ? 'idle' : 'warn'),
             desc: describe(entry),

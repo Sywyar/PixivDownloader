@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin;
 
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
@@ -75,6 +76,9 @@ public class PluginManagementService {
                 id,
                 descriptor != null ? descriptor.displayNamespace() : null,
                 descriptor != null ? descriptor.displayName() : null,
+                descriptor != null ? descriptor.description() : null,
+                iconTokenOf(descriptor),
+                colorTokenOf(descriptor),
                 descriptor != null ? descriptor.version() : null,
                 descriptor != null ? descriptor.kind() : null,
                 descriptor != null ? PluginApiRequirementView.from(descriptor.requires()) : null,
@@ -102,6 +106,21 @@ public class PluginManagementService {
             return "not-installed"; // 必选策略要求但未安装的 id：只有要求、没有描述符
         }
         return BuiltInPlugins.isBuiltIn(id) ? "built-in" : "external";
+    }
+
+    /**
+     * 展示图标受控 token：取描述符声明的 token；无描述符（未安装的必选项）或包级描述符无 token 时回退到 plugin-api
+     * 默认 token（{@link PixivFeaturePlugin#DEFAULT_ICON_KEY}），使每个条目恒有稳定 token（前端再按本地白名单渲染）。
+     */
+    private static String iconTokenOf(PluginDescriptor descriptor) {
+        return descriptor != null && descriptor.iconKey() != null
+                ? descriptor.iconKey() : PixivFeaturePlugin.DEFAULT_ICON_KEY;
+    }
+
+    /** 卡片强调色受控 token：语义同 {@link #iconTokenOf}，缺省回退到 {@link PixivFeaturePlugin#DEFAULT_COLOR_TOKEN}。 */
+    private static String colorTokenOf(PluginDescriptor descriptor) {
+        return descriptor != null && descriptor.colorToken() != null
+                ? descriptor.colorToken() : PixivFeaturePlugin.DEFAULT_COLOR_TOKEN;
     }
 
     /**
@@ -230,13 +249,17 @@ public class PluginManagementService {
     }
 
     /**
-     * 单个插件管理条目（对外）。{@code displayNameKey} 是<b>纯</b> i18n key、{@code displayNamespace} 是其所在
-     * namespace（前端在该 namespace 按当前语言解析、不在后端 bake 文案）；{@code messages} 是评估器给出的诊断说明
-     * （自由文本、供管理诊断）。
+     * 单个插件管理条目（对外）。{@code displayNameKey} / {@code descriptionKey} 是<b>纯</b> i18n key、
+     * {@code displayNamespace} 是其所在 namespace（前端在该 namespace 按当前语言解析、不在后端 bake 文案）；
+     * {@code iconKey} / {@code colorToken} 是<b>受控展示 token</b>（不是 URL / CSS / 远程资源，前端按本地白名单映射、
+     * 未知值回退默认），仅供本地卡片展示、非插件市场字段；{@code messages} 是评估器给出的诊断说明（自由文本、供管理诊断）。
      *
      * @param id               插件 id
-     * @param displayNamespace 展示名称 / 简介所在 i18n namespace（前端在此 namespace 解析 {@code displayNameKey}；未安装的必选项 / 无 namespace 时为 {@code null}）
+     * @param displayNamespace 展示名称 / 简介所在 i18n namespace（前端在此 namespace 解析 {@code displayNameKey} / {@code descriptionKey}；未安装的必选项 / 无 namespace 时为 {@code null}）
      * @param displayNameKey   展示名称 i18n key（<b>纯 key</b>；未安装的必选项为 {@code null}）
+     * @param descriptionKey   简介 i18n key（<b>纯 key</b>，在 {@code displayNamespace} 内解析；未安装 / 无简介时为 {@code null}，前端优雅回退）
+     * @param iconKey          展示图标受控 token（恒非空：缺省回退到 plugin-api 默认 token，前端按本地白名单渲染）
+     * @param colorToken       卡片强调色受控 token（恒非空：缺省回退到 plugin-api 默认 token，前端映射到固定 CSS class）
      * @param version          插件版本（未安装的必选项为 {@code null}）
      * @param kind             插件类别（未安装的必选项为 {@code null}）
      * @param apiRequirement   对核心 API 的版本要求投影（未安装的必选项无描述符时为 {@code null}）
@@ -254,6 +277,9 @@ public class PluginManagementService {
             String id,
             String displayNamespace,
             String displayNameKey,
+            String descriptionKey,
+            String iconKey,
+            String colorToken,
             String version,
             PluginKind kind,
             PluginApiRequirementView apiRequirement,

@@ -39,6 +39,17 @@ public class StatsPlugin implements PixivFeaturePlugin {
         return "plugin.summary";
     }
 
+    // 卡片展示用受控 token（非 URL / CSS / 远程资源；由插件管理页本地白名单映射）：统计仪表盘。
+    @Override
+    public String iconKey() {
+        return "chart";
+    }
+
+    @Override
+    public String colorToken() {
+        return "purple";
+    }
+
     @Override
     public PluginKind kind() {
         return PluginKind.FEATURE;

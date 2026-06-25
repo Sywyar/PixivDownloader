@@ -201,7 +201,8 @@ public final class PluginPackageReader {
     /**
      * 把 PF4J {@value #PLUGIN_PROPERTIES} 映射为包级 {@link PluginDescriptor}（{@code id == sourcePluginId}、
      * {@code kind = FEATURE}）。缺失 / 空字段保留为 {@code null} 交由
-     * {@link PluginDescriptor#externalValidationErrors()} 判定，本方法不在此处兜底校验。
+     * {@link PluginDescriptor#externalValidationErrors()} 判定，本方法不在此处兜底校验。安装期尚未加载功能插件实例，
+     * 故简介 i18n key 与展示 token（{@code description} / {@code iconKey} / {@code colorToken}）一律为 {@code null}。
      */
     private static PluginDescriptor toDescriptor(Properties properties) {
         String id = trimToNull(properties.getProperty(KEY_ID));
@@ -211,7 +212,8 @@ public final class PluginPackageReader {
         PluginApiRequirement requires = PluginApiRequirement.parse(properties.getProperty(KEY_REQUIRES));
         List<PluginDependencyRef> dependencies = parseDependencies(properties.getProperty(KEY_DEPENDENCIES));
         String displayName = (description != null) ? description : id;
-        return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, null, displayName, PluginKind.FEATURE);
+        return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, null, displayName,
+                null, null, null, PluginKind.FEATURE);
     }
 
     /**

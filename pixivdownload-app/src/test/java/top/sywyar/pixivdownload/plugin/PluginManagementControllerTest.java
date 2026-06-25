@@ -6,12 +6,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.PluginManagementService.LifecycleAction;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 
 import java.util.List;
@@ -20,11 +22,15 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -42,11 +48,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PluginManagementControllerTest {
 
     private PluginManagementService service;
+    private PluginInstallService installService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         service = mock(PluginManagementService.class);
+        installService = mock(PluginInstallService.class);
         AppMessages messages = mock(AppMessages.class);
         AppLocaleResolver localeResolver = mock(AppLocaleResolver.class);
         when(localeResolver.resolveLocale(any())).thenReturn(Locale.ENGLISH);
@@ -54,7 +62,7 @@ class PluginManagementControllerTest {
         when(messages.getOrDefault(any(Locale.class), anyString(), anyString()))
                 .thenAnswer(inv -> "localized:" + inv.getArgument(1));
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new PluginManagementController(service, messages, localeResolver))
+                .standaloneSetup(new PluginManagementController(service, installService, messages, localeResolver))
                 .build();
     }
 
@@ -63,7 +71,7 @@ class PluginManagementControllerTest {
     void statusReturnsReport() throws Exception {
         when(service.list()).thenReturn(new PluginManagementService.PluginManagementReport(false, List.of(
                 new PluginManagementService.PluginManagementEntry(
-                        "demo-ext", "demo-ext", "nav.label", "1.0.0", PluginKind.FEATURE,
+                        "demo-ext", "demo-ext", "nav.label", "nav.summary", "book", "amber", "1.0.0", PluginKind.FEATURE,
                         new PluginManagementService.PluginApiRequirementView(true, true, "1.0"),
                         List.of(new PluginManagementService.PluginDependencyView("download-workbench", "1.0", false)),
                         "external", PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, true,
@@ -73,6 +81,9 @@ class PluginManagementControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recoveryMode").value(false))
                 .andExpect(jsonPath("$.plugins[0].id").value("demo-ext"))
+                .andExpect(jsonPath("$.plugins[0].descriptionKey").value("nav.summary"))
+                .andExpect(jsonPath("$.plugins[0].iconKey").value("book"))
+                .andExpect(jsonPath("$.plugins[0].colorToken").value("amber"))
                 .andExpect(jsonPath("$.plugins[0].source").value("external"))
                 .andExpect(jsonPath("$.plugins[0].runtimePhase").value("STARTED"))
                 .andExpect(jsonPath("$.plugins[0].managed").value(true))
@@ -141,5 +152,61 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.pluginId").value("download-workbench"))
                 .andExpect(jsonPath("$.action").value("stop"))
                 .andExpect(jsonPath("$.runtimePhase").value("STARTED"));
+    }
+
+    @Test
+    @DisplayName("POST /api/plugins/install 接受 → 200 + 稳定 outcome（INSTALLED）+ effectiveAfterRestart + 本地化 message")
+    void installAcceptedReturns200() throws Exception {
+        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+                PluginInstallOutcome.INSTALLED, true, true, "ext-demo", "1.0.0", null,
+                List.of(), List.of(), List.of("INSTALLED ext-demo 1.0.0")));
+
+        mockMvc.perform(multipart("/api/plugins/install")
+                        .file(new MockMultipartFile("file", "ext-demo.zip", "application/zip", new byte[]{1, 2, 3})))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("INSTALLED"))
+                .andExpect(jsonPath("$.accepted").value(true))
+                .andExpect(jsonPath("$.effectiveAfterRestart").value(true))
+                .andExpect(jsonPath("$.status").value(200))
+                .andExpect(jsonPath("$.pluginId").value("ext-demo"))
+                .andExpect(jsonPath("$.version").value("1.0.0"))
+                .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.installed"));
+
+        verify(installService).install(any(), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("POST /api/plugins/install 不兼容 → 409 + 稳定 outcome（REJECTED_INCOMPATIBLE）+ 本地化 message，not accepted")
+    void installIncompatibleReturns409() throws Exception {
+        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+                PluginInstallOutcome.REJECTED_INCOMPATIBLE, false, false, "ext-demo", "1.0.0", null,
+                List.of(), List.of(), List.of("requires core API 2.0")));
+
+        mockMvc.perform(multipart("/api/plugins/install")
+                        .file(new MockMultipartFile("file", "ext-demo.zip", "application/zip", new byte[]{1, 2, 3})))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.outcome").value("REJECTED_INCOMPATIBLE"))
+                .andExpect(jsonPath("$.accepted").value(false))
+                .andExpect(jsonPath("$.effectiveAfterRestart").value(false))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.rejected-incompatible"));
+    }
+
+    @Test
+    @DisplayName("POST /api/plugins/install 缺失 file 部分 → 委托 install(null, false) → 400 + 稳定 outcome（REJECTED_EMPTY），not accepted")
+    void installMissingFileReturns400() throws Exception {
+        when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
+                PluginInstallOutcome.REJECTED_EMPTY, false, false, null, null, null,
+                List.of(), List.of(), List.of("no plugin package uploaded")));
+
+        mockMvc.perform(multipart("/api/plugins/install"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.outcome").value("REJECTED_EMPTY"))
+                .andExpect(jsonPath("$.accepted").value(false))
+                .andExpect(jsonPath("$.effectiveAfterRestart").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.rejected-empty"));
+
+        verify(installService).install(isNull(), eq(false));
     }
 }

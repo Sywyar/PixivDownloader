@@ -80,10 +80,10 @@
                 + E(PM.t('update.available', '有新版本可更新到 v{latest}', { latest: vm.latest })) + '</div>');
         }
 
-        // 头部：图标贴片 + 标题块 + 开关。
+        // 头部：图标贴片 + 标题块 + 开关。图标 class 与强调色 class 均来自 core 的本地白名单（受控 token），
+        // 不把后端原始 token 当颜色 / 类名直接注入（颜色由 .pm-card-icon--<token> CSS 规则决定）。
         parts.push('<div class="pm-card-head">');
-        parts.push('<div class="pm-card-icon" style="background: color-mix(in srgb, ' + vm.iconColor
-            + ' 14%, transparent); color: ' + vm.iconColor + ';"><i class="' + E(vm.icon) + '"></i></div>');
+        parts.push('<div class="pm-card-icon pm-card-icon--' + E(vm.colorToken) + '"><i class="' + E(vm.icon) + '"></i></div>');
         parts.push('<div class="pm-card-titleblock">');
         parts.push('<div class="pm-card-name-row"><span class="pm-card-name">' + E(vm.name) + '</span>'
             + '<span class="pm-badge pm-badge--' + vm.badgeTone + '">' + E(PM.t(vm.badgeKey, vm.source)) + '</span>'

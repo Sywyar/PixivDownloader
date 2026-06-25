@@ -62,6 +62,31 @@ public interface PixivFeaturePlugin {
         return contributions.isEmpty() ? null : contributions.get(0).namespace();
     }
 
+    /** {@link #iconKey()} 未声明时的默认受控 token。 */
+    String DEFAULT_ICON_KEY = "puzzle";
+
+    /** {@link #colorToken()} 未声明时的默认受控 token。 */
+    String DEFAULT_COLOR_TOKEN = "neutral";
+
+    /**
+     * 展示图标的<b>受控 token</b>（如 {@code download} / {@code book}）：仅一个稳定标识符，<b>不是</b> URL / SVG / HTML /
+     * 远程资源，由消费端（Web 插件管理页）在<b>本地白名单</b>内映射为图标。白名单外的未知 token 一律回退到
+     * {@value #DEFAULT_ICON_KEY}，原始 token 绝不被当作图标类名 / 标记直接渲染。默认 {@value #DEFAULT_ICON_KEY}；
+     * 插件可覆写为白名单内的其它 token。此 token 仅用于本地展示的可扫描性，<b>不是</b>插件市场 / catalog 字段。
+     */
+    default String iconKey() {
+        return DEFAULT_ICON_KEY;
+    }
+
+    /**
+     * 卡片强调色的<b>受控 token</b>（如 {@code blue} / {@code green}）：仅一个稳定标识符，<b>不是</b>任意 CSS 颜色，
+     * 由消费端映射为固定的 CSS class / data 属性。白名单外的未知 token 一律回退到 {@value #DEFAULT_COLOR_TOKEN}。
+     * 默认 {@value #DEFAULT_COLOR_TOKEN}。颜色仅用于卡片的可扫描性，<b>不</b>构成主题系统，也<b>不是</b>插件市场字段。
+     */
+    default String colorToken() {
+        return DEFAULT_COLOR_TOKEN;
+    }
+
     /** 插件类别。 */
     PluginKind kind();
 

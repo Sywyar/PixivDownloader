@@ -38,7 +38,7 @@ class PluginManagementServiceTest {
 
     private static PluginDescriptor descriptor(String id, PluginKind kind) {
         return new PluginDescriptor(id, id, "1.0.0", PluginApiRequirement.unspecified(),
-                List.of(), id + ".Plugin", id, "nav.label", kind);
+                List.of(), id + ".Plugin", id, "nav.label", id + ".summary", "book", "amber", kind);
     }
 
     private static PluginManagementService service(PluginStatusService status,
@@ -90,6 +90,10 @@ class PluginManagementServiceTest {
         assertThat(external.apiRequirement().satisfied()).isTrue();
         assertThat(external.apiRequirement().required()).isEqualTo("(unspecified)");
         assertThat(external.dependencies()).isEmpty();
+        // 展示元数据投影：descriptionKey 来自描述符 description（纯 key），iconKey/colorToken 为描述符声明的受控 token。
+        assertThat(external.descriptionKey()).isEqualTo(EXTERNAL_ID + ".summary");
+        assertThat(external.iconKey()).isEqualTo("book");
+        assertThat(external.colorToken()).isEqualTo("amber");
 
         PluginManagementService.PluginManagementEntry missing = entry(report, MISSING_ID);
         assertThat(missing.source()).isEqualTo("not-installed");
@@ -99,6 +103,10 @@ class PluginManagementServiceTest {
         // 未安装的必选项无描述符 → apiRequirement 为 null、dependencies 为空列表（不抛、不臆造）。
         assertThat(missing.apiRequirement()).isNull();
         assertThat(missing.dependencies()).isEmpty();
+        // 无描述符 → descriptionKey 为 null（前端优雅回退）；iconKey/colorToken 回退到 plugin-api 默认占位 token。
+        assertThat(missing.descriptionKey()).isNull();
+        assertThat(missing.iconKey()).isEqualTo("puzzle");
+        assertThat(missing.colorToken()).isEqualTo("neutral");
     }
 
     @Test
@@ -114,12 +122,13 @@ class PluginManagementServiceTest {
                 PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
                 List.of(new PluginDependencyRef("download-workbench", "1.0", false),
                         new PluginDependencyRef("gallery", "*", true)),
-                EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", PluginKind.FEATURE);
+                EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", null, "puzzle", "neutral", PluginKind.FEATURE);
         // 高于当前核心 API 的 requires：specified=true 但 satisfied=false。
         PluginDescriptor unsatisfied = new PluginDescriptor(
                 REQUIRED_EXTERNAL_ID, REQUIRED_EXTERNAL_ID, "2.0.0",
                 PluginApiRequirement.of(PluginApiVersion.MAJOR + 1, 0),
-                List.of(), REQUIRED_EXTERNAL_ID + ".Plugin", REQUIRED_EXTERNAL_ID, "nav.label", PluginKind.FEATURE);
+                List.of(), REQUIRED_EXTERNAL_ID + ".Plugin", REQUIRED_EXTERNAL_ID, "nav.label",
+                null, "puzzle", "neutral", PluginKind.FEATURE);
         when(status.report()).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, satisfied, false, List.of()),
                 new PluginDiagnostic(REQUIRED_EXTERNAL_ID, PluginStatus.INCOMPATIBLE, unsatisfied, false,

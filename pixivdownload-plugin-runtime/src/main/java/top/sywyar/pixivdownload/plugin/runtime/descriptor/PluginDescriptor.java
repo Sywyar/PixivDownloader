@@ -31,6 +31,9 @@ import java.util.regex.Pattern;
  * @param pluginClass      插件主类全限定名（外置=PF4J {@code Plugin-Class}；内置=插件实现类名；可空）
  * @param displayNamespace 展示名称 / 简介所在的 i18n namespace（来自 {@link PixivFeaturePlugin#displayNamespace()}；可空）
  * @param displayName      展示名称 i18n key（纯 key，来自 {@link PixivFeaturePlugin#displayName()}）
+ * @param description      简介 i18n key（纯 key，来自 {@link PixivFeaturePlugin#description()}；在 {@link #displayNamespace} 内解析；无功能插件实例的包级描述符为 {@code null}）
+ * @param iconKey          展示图标的受控 token（来自 {@link PixivFeaturePlugin#iconKey()}；包级描述符为 {@code null}，由消费端回退默认）
+ * @param colorToken       卡片强调色的受控 token（来自 {@link PixivFeaturePlugin#colorToken()}；包级描述符为 {@code null}，由消费端回退默认）
  * @param kind             插件类别
  */
 public record PluginDescriptor(
@@ -42,6 +45,9 @@ public record PluginDescriptor(
         String pluginClass,
         String displayNamespace,
         String displayName,
+        String description,
+        String iconKey,
+        String colorToken,
         PluginKind kind) {
 
     /** 插件 id 规范：小写短横线，如 {@code download-workbench}（与核心注册中心一致）。 */
@@ -69,8 +75,8 @@ public record PluginDescriptor(
 
     /**
      * 从内置功能插件构造描述符：版本取当前核心 API 契约版本、{@code requires} 取当前核心 API（恒兼容）、无插件依赖、
-     * {@code pluginClass} 取插件实现类名、{@code displayName} / {@code kind} 取插件自身元数据。内置插件随主程序编译、
-     * 与核心同契约版本，故恒兼容。
+     * {@code pluginClass} 取插件实现类名、{@code displayName} / {@code description} / {@code iconKey} / {@code colorToken} /
+     * {@code kind} 取插件自身元数据。内置插件随主程序编译、与核心同契约版本，故恒兼容。
      */
     public static PluginDescriptor forBuiltIn(PixivFeaturePlugin plugin) {
         Objects.requireNonNull(plugin, "plugin");
@@ -83,6 +89,9 @@ public record PluginDescriptor(
                 plugin.getClass().getName(),
                 plugin.displayNamespace(),
                 plugin.displayName(),
+                plugin.description(),
+                plugin.iconKey(),
+                plugin.colorToken(),
                 plugin.kind());
     }
 

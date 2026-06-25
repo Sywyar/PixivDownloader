@@ -35,6 +35,17 @@ public class RecoverySentinelPlugin implements PixivFeaturePlugin {
         return "plugin.summary";
     }
 
+    // 卡片展示用受控 token（非 URL / CSS / 远程资源；由插件管理页本地白名单映射）：恢复模式存在性探针。
+    @Override
+    public String iconKey() {
+        return "shield";
+    }
+
+    @Override
+    public String colorToken() {
+        return "orange";
+    }
+
     @Override
     public PluginKind kind() {
         return PluginKind.FEATURE;

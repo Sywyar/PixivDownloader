@@ -60,6 +60,17 @@ public class ScheduleHostPlugin implements PixivFeaturePlugin {
         return "summary.schedule";
     }
 
+    // 卡片展示用受控 token（非 URL / CSS / 远程资源；由插件管理页本地白名单映射）：计划任务宿主。
+    @Override
+    public String iconKey() {
+        return "clock";
+    }
+
+    @Override
+    public String colorToken() {
+        return "teal";
+    }
+
     @Override
     public PluginKind kind() {
         return PluginKind.FEATURE;

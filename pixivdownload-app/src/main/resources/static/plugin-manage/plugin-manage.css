@@ -567,7 +567,21 @@ body {
     align-items: center;
     justify-content: center;
     font-size: 21px;
+    /* 强调色由受控 token 决定（pm-card-icon--<token> 设置 --pm-accent）；默认 neutral=灰。 */
+    color: var(--pm-accent, var(--accent-gray));
+    background: color-mix(in srgb, var(--pm-accent, var(--accent-gray)) 14%, transparent);
 }
+
+/* colorToken 受控白名单 → 固定强调色（与 core 的 COLOR_TOKENS 一一对应；未知 token 由前端回退到 neutral）。 */
+.pm-card-icon--neutral { --pm-accent: var(--accent-gray); }
+.pm-card-icon--pixiv   { --pm-accent: var(--accent-pixiv); }
+.pm-card-icon--blue    { --pm-accent: var(--accent-blue); }
+.pm-card-icon--teal    { --pm-accent: var(--accent-teal); }
+.pm-card-icon--amber   { --pm-accent: var(--accent-amber); }
+.pm-card-icon--purple  { --pm-accent: var(--accent-purple); }
+.pm-card-icon--orange  { --pm-accent: var(--accent-orange); }
+.pm-card-icon--red     { --pm-accent: var(--accent-red); }
+.pm-card-icon--green   { --pm-accent: var(--accent-green); }
 
 .pm-card-titleblock {
     flex: 1;

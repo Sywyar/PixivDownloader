@@ -202,10 +202,17 @@ public final class PixivPluginDiscoveryBridge {
                 pf4jDescriptor != null ? pf4jDescriptor.getPluginClass() : null,
                 featurePlugin.displayNamespace(),
                 featurePlugin.displayName(),
+                featurePlugin.description(),
+                featurePlugin.iconKey(),
+                featurePlugin.colorToken(),
                 featurePlugin.kind());
     }
 
-    /** 不兼容插件包的包级描述符（不提取功能插件，故展示名退化为包描述 / 包 id、类别按外置默认 FEATURE）。 */
+    /**
+     * 不兼容插件包的包级描述符（不提取功能插件，故展示名退化为包描述 / 包 id、类别按外置默认 FEATURE）。
+     * 简介 i18n key 与展示 token（{@code description} / {@code iconKey} / {@code colorToken}）无功能插件实例可取、
+     * 一律为 {@code null}，由消费端按默认回退。
+     */
     private static PluginDescriptor packageDescriptor(String sourcePluginId,
                                                       org.pf4j.PluginDescriptor pf4jDescriptor,
                                                       PluginApiRequirement requires) {
@@ -223,6 +230,9 @@ public final class PixivPluginDiscoveryBridge {
                 pf4jDescriptor != null ? pf4jDescriptor.getPluginClass() : null,
                 null,
                 displayName,
+                null,
+                null,
+                null,
                 PluginKind.FEATURE);
     }
 
