@@ -77,7 +77,7 @@ class PluginDescriptorTest {
     @DisplayName("不可解析的 requires：通用校验拒绝、判为不兼容")
     void rejectsUnparseableRequires() {
         PluginDescriptor descriptor = new PluginDescriptor("ext", "ext-pack", "1.0",
-                PluginApiRequirement.parse("latest"), List.of(), "com.example.P", "x.label", PluginKind.FEATURE);
+                PluginApiRequirement.parse("latest"), List.of(), "com.example.P", "ns", "x.label", PluginKind.FEATURE);
 
         assertThat(descriptor.validationErrors()).anyMatch(e -> e.contains("unparseable requires"));
         assertThat(descriptor.isApiCompatible()).isFalse();
@@ -131,7 +131,7 @@ class PluginDescriptorTest {
     private static PluginDescriptor external(String id, String version, String requires, String pluginClass,
                                              String displayName, PluginKind kind, List<PluginDependencyRef> deps) {
         return new PluginDescriptor(id, id + "-pack", version, PluginApiRequirement.parse(requires),
-                deps, pluginClass, displayName, kind);
+                deps, pluginClass, null, displayName, kind);
     }
 
     private static final class TestFeaturePlugin implements PixivFeaturePlugin {

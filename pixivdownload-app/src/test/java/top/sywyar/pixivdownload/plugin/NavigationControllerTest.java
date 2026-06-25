@@ -31,12 +31,12 @@ class NavigationControllerTest {
     private static NavigationRegistry seededRegistry() {
         NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(List.of()));
         registry.register("plug", List.of(
-                new NavigationContribution("p3", "app.top", "nav.p3", "/p3.html", "i", AccessPolicy.PUBLIC, 30),
-                new NavigationContribution("p1", "app.top", "nav.p1", "/p1.html", "i", AccessPolicy.PUBLIC, 10),
-                new NavigationContribution("g2", "app.top", "nav.g2", "/g2.html", "i", AccessPolicy.INVITED_GUEST, 20),
+                new NavigationContribution("p3", "app.top", "ns", "nav.p3", "/p3.html", "i", AccessPolicy.PUBLIC, 30),
+                new NavigationContribution("p1", "app.top", "ns", "nav.p1", "/p1.html", "i", AccessPolicy.PUBLIC, 10),
+                new NavigationContribution("g2", "app.top", "ns", "nav.g2", "/g2.html", "i", AccessPolicy.INVITED_GUEST, 20),
                 // VISITOR 项（如下载工作台）：访客 + 管理员可见，受邀访客不可见（点开本会 403）。
-                new NavigationContribution("v1", "app.top", "nav.v1", "/v1.html", "i", AccessPolicy.VISITOR, 15),
-                new NavigationContribution("a1", "app.top", "nav.a1", "/a1.html", "i", AccessPolicy.ADMIN, 5)));
+                new NavigationContribution("v1", "app.top", "ns", "nav.v1", "/v1.html", "i", AccessPolicy.VISITOR, 15),
+                new NavigationContribution("a1", "app.top", "ns", "nav.a1", "/a1.html", "i", AccessPolicy.ADMIN, 5)));
         return registry;
     }
 
@@ -121,34 +121,52 @@ class NavigationControllerTest {
 
         assertThat(first.id()).isEqualTo("a1");
         assertThat(first.placements()).containsExactly("app.top");
+        assertThat(first.labelNamespace()).isEqualTo("ns");
         assertThat(first.labelI18nKey()).isEqualTo("nav.a1");
         assertThat(first.href()).isEqualTo("/a1.html");
         assertThat(first.icon()).isEqualTo("i");
         assertThat(first.priority()).isEqualTo(5);
         assertThat(NavigationController.NavigationView.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
-                .containsExactly("id", "placements", "labelI18nKey", "href", "icon", "priority");
+                .containsExactly("id", "placements", "labelNamespace", "labelI18nKey", "href", "icon", "priority");
+    }
+
+    @Test
+    @DisplayName("labelNamespace 缺省（null）原样透传到视图：消费端据此回退，控制器不代填默认 namespace")
+    void nullLabelNamespacePassesThroughToView() {
+        NavigationRegistry reg = new NavigationRegistry(new PluginRegistry(List.of()));
+        reg.register("plug", List.of(new NavigationContribution(
+                "n-null", "app.top", null, "nav.n", "/n-null.html", "i", AccessPolicy.PUBLIC, 10)));
+        when(setupService.hasAdminScope(any())).thenReturn(true);
+
+        NavigationController.NavigationView view = controllerFor(reg).navigation(new MockHttpServletRequest()).get(0);
+
+        assertThat(view.id()).isEqualTo("n-null");
+        assertThat(view.labelNamespace()).isNull();
+        assertThat(view.labelI18nKey()).isEqualTo("nav.n");
     }
 
     // ========== 来源层级 + placement 内 priority 排序 ==========
 
     @Test
-    @DisplayName("管理员的 app.top placement 顺序：下载工作台、监控、画廊、小说、疑似重复（自带基础页面在前；stats 已外置）")
+    @DisplayName("管理员的 app.top placement 顺序：下载工作台、监控、画廊、小说、疑似重复、插件管理（自带基础页面在前、插件管理在末；stats 已外置）")
     void adminAppTopPlacementOrder() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
 
+        // 插件管理（管理入口，priority 85）排在全部内置基础 / 功能页面之后——内置必选业务页面靠前。
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate");
+                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate", "plugin-manage");
     }
 
     @Test
-    @DisplayName("管理员的 app.sidebar（统计页中立主侧栏）顺序：下载工作台、监控、画廊、疑似重复、邀请码管理（自带基础页面在前；stats 已外置）")
+    @DisplayName("管理员的 app.sidebar（统计页中立主侧栏）顺序：下载工作台、监控、画廊、疑似重复、邀请码管理（自带基础页面在前；插件管理已移出侧栏、改入顶部栏；stats 已外置）")
     void adminAppSidebarPlacementOrder() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
 
         // 统计页用宿主中立的 app.sidebar slot：相关内置插件把主入口同时贡献到此，按 priority 排序、内置在前。
+        // 插件管理现仅进顶部栏 placement（app.top），不再出现在主侧栏。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
                 .containsExactly("download-workbench", "monitor", "gallery", "duplicate", "invite-manage");
     }
@@ -159,7 +177,7 @@ class NavigationControllerTest {
         NavigationController controller = controllerFor(new NavigationRegistry(
                 new PluginRegistry(BuiltInPlugins.createAll(), disabling("gallery"))));
 
-        // 禁用画廊只撤掉画廊这一条贡献：主侧栏其余按权限应显示的入口不受影响、顺序不变。
+        // 禁用画廊只撤掉画廊这一条贡献：主侧栏其余按权限应显示的入口不受影响、顺序不变（插件管理已移入顶部栏，不在主侧栏）。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
                 .containsExactly("download-workbench", "monitor", "duplicate", "invite-manage")
                 .doesNotContain("gallery");
@@ -169,14 +187,14 @@ class NavigationControllerTest {
     @DisplayName("第三方插件即便 priority=-100，也排在全部内置项之后（来源层级主导、priority 不能越级）")
     void thirdPartyStaysLastDespiteTinyPriority() {
         PixivFeaturePlugin thirdParty = new TestNavPlugin("third-party-demo", List.of(
-                new NavigationContribution("third-party-demo", "app.top", "nav.tp", "/third-party-demo.html",
+                new NavigationContribution("third-party-demo", "app.top", "ns", "nav.tp", "/third-party-demo.html",
                         "icon", AccessPolicy.ADMIN, -100)));
         List<PixivFeaturePlugin> plugins = new ArrayList<>(BuiltInPlugins.createAll());
         plugins.add(thirdParty);
         NavigationController controller = controllerFor(new NavigationRegistry(new PluginRegistry(plugins)));
 
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate",
+                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate", "plugin-manage",
                         "third-party-demo");
     }
 
@@ -238,7 +256,7 @@ class NavigationControllerTest {
 
         // 受邀访客可见画廊 / 小说（INVITED_GUEST）；不可见 ADMIN 项与 VISITOR 下载页。
         assertThat(ids).contains("gallery", "novel")
-                .doesNotContain("monitor", "duplicate", "invite-manage", "download-workbench");
+                .doesNotContain("monitor", "duplicate", "invite-manage", "plugin-manage", "download-workbench");
     }
 
     /** 最小测试插件：以给定 id 与导航项构造，其余 contribution 为空（非内置 → 来源层级为第三方）。 */

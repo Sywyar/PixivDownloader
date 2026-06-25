@@ -43,7 +43,7 @@ public class DownloadExtensionController {
                 .sorted(Comparator.comparingInt(QueueTypeContribution::order)
                         .thenComparing(QueueTypeContribution::type))
                 .map(item -> new QueueTypeView(
-                        item.type(), item.labelI18nKey(), item.order(), item.moduleUrl()))
+                        item.type(), item.labelNamespace(), item.labelI18nKey(), item.order(), item.moduleUrl()))
                 .toList();
         List<TabView> tabs = downloadTabRegistry.tabs().stream()
                 .map(DownloadTabRegistry.RegisteredTab::tab)
@@ -66,7 +66,7 @@ public class DownloadExtensionController {
     }
 
     /** 作品类型对外视图：刻意不含 {@code pluginId}（内部归属）。 */
-    public record QueueTypeView(String type, String labelI18nKey, int order, String moduleUrl) {
+    public record QueueTypeView(String type, String labelNamespace, String labelI18nKey, int order, String moduleUrl) {
     }
 
     /** 标签页对外视图：刻意不含 {@code pluginId}（内部归属）。 */

@@ -49,7 +49,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
-    // 下载工作台必选、永不在配置页「插件」分组呈现，故下列 key 不会被解析（仅为满足契约的占位）。
+    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（batch）。下载工作台必选、
+    // 不在配置页「插件」分组呈现（GUI 只列可禁用功能插件），但 Web 插件管理页会展示并解析它，故 key 须真实存在于 batch。
     @Override
     public String displayName() {
         return "plugin.label";
@@ -114,7 +115,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 ID,
                 Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
                         NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
-                "batch:nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10));
+                "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10));
     }
 
     @Override
@@ -137,8 +138,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     public List<QueueTypeContribution> queueTypes() {
         // 插画作品类型：下载工作台内置默认类型，行为由宿主队列引擎内联注册（moduleUrl 为 null、无需外部模块）。
         // 小说等其它类型由各自插件经 queueTypes() 贡献、附带 moduleUrl 指向其行为模块。
+        // 插画子模式标签复用小说插件的 batch.user.kind-illust 文案（历史沿用 novel namespace，故标签 namespace 为 novel）。
         return List.of(new QueueTypeContribution(
-                ID, "illust", "novel:batch.user.kind-illust", 10, null));
+                ID, "illust", "novel", "batch.user.kind-illust", 10, null));
     }
 
     @Override

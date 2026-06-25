@@ -38,7 +38,7 @@ class PluginManagementServiceTest {
 
     private static PluginDescriptor descriptor(String id, PluginKind kind) {
         return new PluginDescriptor(id, id, "1.0.0", PluginApiRequirement.unspecified(),
-                List.of(), id + ".Plugin", id + ":nav.label", kind);
+                List.of(), id + ".Plugin", id, "nav.label", kind);
     }
 
     private static PluginManagementService service(PluginStatusService status,
@@ -114,12 +114,12 @@ class PluginManagementServiceTest {
                 PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
                 List.of(new PluginDependencyRef("download-workbench", "1.0", false),
                         new PluginDependencyRef("gallery", "*", true)),
-                EXTERNAL_ID + ".Plugin", EXTERNAL_ID + ":nav.label", PluginKind.FEATURE);
+                EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", PluginKind.FEATURE);
         // 高于当前核心 API 的 requires：specified=true 但 satisfied=false。
         PluginDescriptor unsatisfied = new PluginDescriptor(
                 REQUIRED_EXTERNAL_ID, REQUIRED_EXTERNAL_ID, "2.0.0",
                 PluginApiRequirement.of(PluginApiVersion.MAJOR + 1, 0),
-                List.of(), REQUIRED_EXTERNAL_ID + ".Plugin", REQUIRED_EXTERNAL_ID + ":nav.label", PluginKind.FEATURE);
+                List.of(), REQUIRED_EXTERNAL_ID + ".Plugin", REQUIRED_EXTERNAL_ID, "nav.label", PluginKind.FEATURE);
         when(status.report()).thenReturn(new PluginStatusReport(List.of(
                 new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, satisfied, false, List.of()),
                 new PluginDiagnostic(REQUIRED_EXTERNAL_ID, PluginStatus.INCOMPATIBLE, unsatisfied, false,

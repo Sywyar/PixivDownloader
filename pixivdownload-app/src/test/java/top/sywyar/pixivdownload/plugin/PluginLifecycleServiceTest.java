@@ -807,7 +807,7 @@ class PluginLifecycleServiceTest {
         @Override
         public List<QueueTypeContribution> queueTypes() {
             return queueType == null ? List.of()
-                    : List.of(new QueueTypeContribution(id, queueType, id + ":label", 10, null));
+                    : List.of(new QueueTypeContribution(id, queueType, id, "label", 10, null));
         }
 
         @Override

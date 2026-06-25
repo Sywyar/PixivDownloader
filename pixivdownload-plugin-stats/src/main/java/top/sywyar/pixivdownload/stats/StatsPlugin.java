@@ -28,7 +28,7 @@ public class StatsPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
-    // 展示名 / 简介在本插件自有 namespace（stats）解析：名称复用已有的导航标签 nav.label，简介用专用 key。
+    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（stats）：名称复用已有的导航标签 nav.label，简介用专用 key。
     @Override
     public String displayName() {
         return "nav.label";
@@ -75,6 +75,6 @@ public class StatsPlugin implements PixivFeaturePlugin {
                 Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
                         NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
                         NavigationPlacements.DUPLICATES_HEADER_ICONS),
-                "stats:nav.label", "/pixiv-stats.html", "chart-bar", AccessPolicy.ADMIN, 50));
+                "stats", "nav.label", "/pixiv-stats.html", "chart-bar", AccessPolicy.ADMIN, 50));
     }
 }

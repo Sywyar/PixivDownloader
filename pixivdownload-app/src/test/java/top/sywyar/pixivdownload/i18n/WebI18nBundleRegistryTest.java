@@ -26,7 +26,7 @@ class WebI18nBundleRegistryTest {
     private static final ClassLoader LOADER = WebI18nBundleRegistryTest.class.getClassLoader();
 
     /**
-     * 退役前的静态 map 基线：namespace → baseName 共 19 条。合并后的 registry 必须逐条等价，
+     * namespace → baseName 基线：内置共 19 条（stats 已外置、不计）。合并后的 registry 必须逐条且按序等价，
      * 保证「所有页面 i18n 行为不变」。新增 namespace 时同步本基线。
      */
     private static final Map<String, String> LEGACY_NAMESPACE_BASENAMES = legacyBaseNames();
@@ -51,6 +51,7 @@ class WebI18nBundleRegistryTest {
         map.put("invite", "i18n.web.invite");
         map.put("tour", "i18n.web.tour");
         map.put("maintenance", "i18n.web.maintenance");
+        map.put("plugins", "i18n.web.plugins");
         return map;
     }
 
@@ -67,7 +68,7 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价退役前的静态 map（18 条；stats 已外置）")
+    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（19 条；stats 已外置）")
     void mergedNamespacesMirrorLegacyStaticMap() {
         WebI18nBundleRegistry registry = builtInRegistry();
 

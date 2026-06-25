@@ -240,7 +240,7 @@ class PluginClassLoaderLeakProbeTest {
         @Override
         public List<NavigationContribution> navigation() {
             return List.of(new NavigationContribution(
-                    "ext-leak-probe-nav", "main", "nav.label", "/ext-leak-probe/", null, AccessPolicy.ADMIN, 100));
+                    "ext-leak-probe-nav", "main", "ns", "nav.label", "/ext-leak-probe/", null, AccessPolicy.ADMIN, 100));
         }
 
         @Override

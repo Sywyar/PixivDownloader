@@ -33,6 +33,9 @@
   cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
+- Plugin management page (admin only): a card list showing every plugin (built-in / external / required-but-not-installed)
+  with status, source, version, runtime phase, core-API version requirement and inter-plugin dependencies, plus runtime
+  lifecycle actions (load / start / quiesce / stop / unload / reload) for external plugins (built-ins are compiled in and read-only)
 - Scheduled tasks: automatically discover and download new artworks in the background on a fixed interval or
   cron schedule, with three source types (artist new works / saved search / series — both illustrations and novels)
 - Email / push notifications: scheduled-task events needing manual attention (overuse pause, auth expired, circuit

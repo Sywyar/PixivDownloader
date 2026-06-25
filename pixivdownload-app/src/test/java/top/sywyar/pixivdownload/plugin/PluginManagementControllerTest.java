@@ -63,7 +63,7 @@ class PluginManagementControllerTest {
     void statusReturnsReport() throws Exception {
         when(service.list()).thenReturn(new PluginManagementService.PluginManagementReport(false, List.of(
                 new PluginManagementService.PluginManagementEntry(
-                        "demo-ext", "demo-ext:nav.label", "1.0.0", PluginKind.FEATURE,
+                        "demo-ext", "demo-ext", "nav.label", "1.0.0", PluginKind.FEATURE,
                         new PluginManagementService.PluginApiRequirementView(true, true, "1.0"),
                         List.of(new PluginManagementService.PluginDependencyView("download-workbench", "1.0", false)),
                         "external", PluginStatus.STARTED, PluginRuntimePhase.STARTED, true, false, true,

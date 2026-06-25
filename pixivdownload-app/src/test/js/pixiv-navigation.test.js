@@ -72,7 +72,20 @@ function makeFetch(items, okFlag) {
 
 // i18n：t(key, fallback) 直接回 'T:'+key（便于断言 label 走 i18n），create 解析为该解析器。
 const I18N = {
-    create() { return Promise.resolve({ t: (key, fb) => (key ? 'T:' + key : fb) }); },
+    lastNamespaces: null,                 // 记录最近一次 create({namespaces}) 收到的 namespace 集（断言「不加载空白 namespace」）
+    create(opts) {
+        I18N.lastNamespaces = (opts && opts.namespaces) || null;
+        return Promise.resolve({
+            t: (key, fb) => (key ? 'T:' + key : fb),
+            // 显式 namespace 解析（纯 key + namespace）：回 'T:<ns>:<key>'，便于断言 label 走 i18n。
+            // **镜像真实 PixivI18n.tns 的空白 namespace 规范化**：null/""/纯空白 → trim 后为空 → 退化为裸 key（'T:<key>'，无 ns 前缀），
+            // 使「空白 labelNamespace 的 label 按裸 key 回退」在桩上与真实模块一致（真实 tns 的规范化另由 pixiv-i18n.test.js 验证）。
+            tns: (ns, key, fb) => {
+                var n = ns == null ? '' : String(ns).trim();
+                return key ? 'T:' + (n ? n + ':' : '') + key : fb;
+            }
+        });
+    },
     onLanguageChange() {}
 };
 
@@ -117,9 +130,9 @@ function load(opts) {
 function renderedCount(record) { return record.events.filter(e => e.type === 'pixivnav:rendered').length; }
 
 const ITEMS = [
-    { id: 'gallery', placements: ['app.top', 'gallery.sidebar'], href: '/pixiv-gallery.html?view=all', icon: 'images', labelI18nKey: 'gallery:nav.label' },
-    { id: 'monitor', placements: ['app.top'], href: '/monitor.html', icon: 'monitor', labelI18nKey: 'nav.monitor' },
-    { id: 'novel', placements: ['gallery.sidebar'], href: '/pixiv-novel-gallery.html?view=all', icon: 'book', labelI18nKey: 'novel:nav.label' }
+    { id: 'gallery', placements: ['app.top', 'gallery.sidebar'], href: '/pixiv-gallery.html?view=all', icon: 'images', labelNamespace: 'gallery', labelI18nKey: 'nav.label' },
+    { id: 'monitor', placements: ['app.top'], href: '/monitor.html', icon: 'monitor', labelNamespace: 'monitor', labelI18nKey: 'nav.monitor' },
+    { id: 'novel', placements: ['gallery.sidebar'], href: '/pixiv-novel-gallery.html?view=all', icon: 'book', labelNamespace: 'novel', labelI18nKey: 'nav.label' }
 ];
 
 async function main() {
@@ -212,6 +225,37 @@ async function main() {
         const gi = iconComp.navItems().find(i => i.id === 'gallery');
         ok('5: iconOnly → 内层无 label span（label 进 aria-label/title）',
             iconComp.innerOf(gi).indexOf('<span') < 0 && iconComp.iconLabelOf(gi) === 'T:gallery:nav.label');
+    }
+
+    // ===== 场景 6：labelNamespace 为纯空白（NavigationContribution 可空 = 有意回退语义）=====
+    //   证明：① 前端不加载空白 namespace（collectNamespaces 跳过纯空白，create 收到的 namespaces 无空白项）；
+    //         ② 该项 label 按裸 key 回退解析（resolveLabel→tns 对空白 namespace 退化为 t()，无 namespace 前缀）。
+    {
+        const top = navSlot('app.top', { 'data-nav-link-class': 'app-nav-link' });
+        const items = [
+            { id: 'gallery', placements: ['app.top'], href: '/pixiv-gallery.html', icon: 'images', labelNamespace: 'gallery', labelI18nKey: 'nav.label' },
+            // 贡献方未绑定确定 namespace：labelNamespace 为纯空白（"  "）。
+            { id: 'plugins', placements: ['app.top'], href: '/plugin-manage.html', icon: 'puzzle', labelNamespace: '  ', labelI18nKey: 'nav.plugins' }
+        ];
+        I18N.lastNamespaces = null;
+        const { PixivNav, record } = load({ slots: [top], items: items, pixivVue: true, pathname: '/x' });
+        await PixivNav.ready();
+
+        // ① 不加载空白 namespace：加载集含 common + gallery、绝无空白项（每项 trim 后非空）。
+        ok('6: create 收到的 namespaces 含 common + gallery',
+            !!I18N.lastNamespaces && I18N.lastNamespaces.indexOf('common') >= 0 && I18N.lastNamespaces.indexOf('gallery') >= 0);
+        ok('6: 加载集不含空白 namespace（无 "  " / 空串，每项 trim 后非空）',
+            I18N.lastNamespaces.indexOf('  ') < 0 && I18N.lastNamespaces.indexOf('') < 0
+            && I18N.lastNamespaces.every(function (ns) { return String(ns).trim().length > 0; }));
+
+        // ② label 按裸 key 回退：空白 namespace 项 → 'T:nav.plugins'（无 namespace 前缀）；非空项仍按 namespace 解析。
+        const topComp = record.mounts.find(m => m.el === top).comp.setup();
+        const pluginsItem = topComp.navItems().find(i => i.id === 'plugins');
+        const galleryItem = topComp.navItems().find(i => i.id === 'gallery');
+        ok('6: 空白 namespace 项 label 走裸 key 回退（"T:nav.plugins"，无 namespace 前缀）',
+            topComp.innerOf(pluginsItem).indexOf('T:nav.plugins') >= 0 && topComp.innerOf(pluginsItem).indexOf('T:  :') < 0);
+        ok('6: 对照非空 namespace 项仍按 namespace 解析（"T:gallery:nav.label"）',
+            topComp.innerOf(galleryItem).indexOf('T:gallery:nav.label') >= 0);
     }
 
     console.log(`\npixiv-navigation.test.js: ${passed} assertions passed ✓`);

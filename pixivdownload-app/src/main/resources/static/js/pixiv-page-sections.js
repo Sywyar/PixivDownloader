@@ -79,26 +79,25 @@
             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    function namespaceOf(key) {
-        if (!key) return 'common';
-        var i = key.indexOf(':');
-        return i >= 0 ? key.slice(0, i) : 'common';
-    }
-
+    // 收集需预加载的 i18n namespace。titleNamespace 后端必填（注册期 fail-fast），actionTitleNamespace 随
+    // actionTitleI18nKey 条件必填、否则为 null：统一按「trim 后非空才收集」规范化，避免把 null / 纯空白当 namespace
+    // 去请求空白 bundle。标题 / 操作标题的实际解析仍由渲染期 resolveText→tns 统一处理（tns 对空白 namespace 回退）。
     function collectNamespaces(sectionsBySlot) {
         var seen = { 'common': true };
         sectionsBySlot.forEach(function (slot) {
             (slot.sections || []).forEach(function (s) {
-                seen[namespaceOf(s.titleI18nKey)] = true;
-                if (s.actionTitleI18nKey) seen[namespaceOf(s.actionTitleI18nKey)] = true;
+                var titleNs = s.titleNamespace == null ? '' : String(s.titleNamespace).trim();
+                if (titleNs) seen[titleNs] = true;
+                var actionNs = s.actionTitleNamespace == null ? '' : String(s.actionTitleNamespace).trim();
+                if (actionNs) seen[actionNs] = true;
             });
         });
         return Object.keys(seen);
     }
 
-    function resolveText(i18n, key, fallback) {
-        if (i18n && typeof i18n.t === 'function') {
-            return i18n.t(key, fallback != null ? fallback : key);
+    function resolveText(i18n, namespace, key, fallback) {
+        if (i18n && typeof i18n.tns === 'function') {
+            return i18n.tns(namespace, key, fallback != null ? fallback : key);
         }
         return fallback != null ? fallback : key;
     }
@@ -125,12 +124,12 @@
     }
 
     function sectionHtml(slot, section, i18n) {
-        var title = escapeText(resolveText(i18n, section.titleI18nKey, section.id));
+        var title = escapeText(resolveText(i18n, section.titleNamespace, section.titleI18nKey, section.id));
         var header = '<div class="' + escapeAttr(classFor(slot, 'header')) + '">'
             + '<span class="' + escapeAttr(classFor(slot, 'title')) + '">' + title + '</span>';
         if (section.actionHref) {
             var actionTitle = section.actionTitleI18nKey
-                ? escapeAttr(resolveText(i18n, section.actionTitleI18nKey, '')) : '';
+                ? escapeAttr(resolveText(i18n, section.actionTitleNamespace, section.actionTitleI18nKey, '')) : '';
             header += '<a class="' + escapeAttr(classFor(slot, 'action')) + '"'
                 + ' href="' + escapeAttr(section.actionHref) + '"'
                 + (actionTitle ? ' title="' + actionTitle + '" aria-label="' + actionTitle + '"' : '')
@@ -184,10 +183,10 @@
                 return {
                     sections: sections,
                     cls: cls,
-                    titleOf: function (s) { return resolveText(vueState.i18n, s.titleI18nKey, s.id); },
+                    titleOf: function (s) { return resolveText(vueState.i18n, s.titleNamespace, s.titleI18nKey, s.id); },
                     actionTitleOf: function (s) {
                         if (!s.actionTitleI18nKey) return null;
-                        return resolveText(vueState.i18n, s.actionTitleI18nKey, '') || null;
+                        return resolveText(vueState.i18n, s.actionTitleNamespace, s.actionTitleI18nKey, '') || null;
                     },
                     actionIconOf: function (s) { return actionIconSvg(s.actionIcon); }
                 };

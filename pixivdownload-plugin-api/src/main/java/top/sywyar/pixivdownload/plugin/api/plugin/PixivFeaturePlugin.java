@@ -36,19 +36,31 @@ public interface PixivFeaturePlugin {
     String id();
 
     /**
-     * 展示名称的 i18n key（插件本身不存文案，<b>必须由插件显式声明</b>，无默认实现）。该 key 在本插件自己声明的
-     * i18n namespace（{@link #i18n()} 贡献的 bundle，如 {@code i18n/web/<namespace>.properties}）中解析为本地化
-     * 文案——与导航标签 {@code nav.label} 同一套「插件自有 i18n」机制，文案归插件所有、不落在核心 GUI bundle 里。
-     * <b>具体 key 由插件自行决定</b>（无固定约定）：可复用插件已有的 key（如导航标签 {@code nav.label}），
-     * 也可在自有 namespace 中另立专用 key。
+     * 展示名称的 i18n key（<b>纯 key</b>，不带 namespace、不直接携带文案）；namespace 由 {@link #displayNamespace()}
+     * 提供（与导航 {@code NavigationContribution} 的「namespace 与 key 分离」模型一致）。<b>必须由插件显式声明</b>、
+     * 无默认实现。消费端（Web 插件管理页 / GUI 配置面板）按当前语言，在 {@link #displayNamespace()} 指定的 namespace
+     * （{@link #i18n()} 贡献的 bundle，如 {@code i18n/web/<namespace>.properties}）中解析为本地化文案——文案归插件
+     * 所有、不落在核心 GUI bundle 里。<b>具体 key 由插件自行决定</b>：可复用已有 key（如导航标签 {@code nav.label}），
+     * 也可另立专用 key。
      */
     String displayName();
 
     /**
-     * 一句话简介的 i18n key（语义同 {@link #displayName()}，在插件自有 namespace 中解析；<b>必须由插件显式声明</b>）。
-     * 具体 key 同样由插件自行决定。
+     * 一句话简介的 i18n key（<b>纯 key</b>，语义同 {@link #displayName()}：在 {@link #displayNamespace()} 指定的
+     * namespace 中解析；<b>必须由插件显式声明</b>）。
      */
     String description();
+
+    /**
+     * {@link #displayName()} / {@link #description()} 所在的 i18n namespace。默认取本插件 {@link #i18n()} 声明的
+     * <b>第一个</b> namespace——插件展示文案通常就放在自有首个 namespace；无 i18n 贡献时返回 {@code null}（消费端
+     * 无从解析、回退到插件 id）。无单一自有内容 namespace 的插件（如核心壳、计划任务宿主，其展示文案借用插件管理页
+     * 的 {@code plugins} namespace）覆写本方法显式返回承载其展示文案的 namespace。
+     */
+    default String displayNamespace() {
+        List<I18nContribution> contributions = i18n();
+        return contributions.isEmpty() ? null : contributions.get(0).namespace();
+    }
 
     /** 插件类别。 */
     PluginKind kind();

@@ -23,7 +23,8 @@ public class RecoverySentinelPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
-    // 展示名 / 简介为 i18n key；本插件不贡献 i18n namespace，这些 key 不解析（它不进入面向用户的页面 / 导航，仅作探针）。
+    // 展示名 / 简介为纯 i18n key。本探针插件不贡献任何 i18n namespace，故 displayNamespace() 默认返回 null、这些 key
+    // 不被解析（它不进入面向用户的页面 / 导航，消费端无 namespace 即回退到插件 id）；其存在仅为加载链路探针。
     @Override
     public String displayName() {
         return "plugin.name";

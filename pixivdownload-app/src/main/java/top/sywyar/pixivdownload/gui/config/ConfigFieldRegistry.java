@@ -1404,10 +1404,10 @@ public final class ConfigFieldRegistry {
             }
             fields.add(ConfigFieldSpec.builder(
                             "plugins." + plugin.id() + ".enabled",
-                            pluginText(plugin, plugin.displayName()),
+                            pluginText(plugin, plugin.displayNamespace(), plugin.displayName()),
                             BOOL, groupPlugins)
                     .defaultValue("true")
-                    .help(pluginText(plugin, plugin.description()))
+                    .help(pluginText(plugin, plugin.displayNamespace(), plugin.description()))
                     .build());
         }
 
@@ -1438,13 +1438,22 @@ public final class ConfigFieldRegistry {
             ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES);
 
     /**
-     * 在插件自有 i18n namespace（{@link PixivFeaturePlugin#i18n()} 贡献的 bundle，经插件自己的 ClassLoader 解析）
-     * 中把 key 解析为当前 GUI locale 的文案；任一 namespace 命中即返回，全部缺失则返回 key 本身（守卫测试会暴露）。
+     * 把插件声明的<b>纯 i18n key</b> 在指定 {@code namespace}（{@link PixivFeaturePlugin#displayNamespace()} 提供，
+     * 与导航 {@code NavigationContribution.labelNamespace} 同「namespace 与 key 分离」模型）中解析为当前 GUI locale
+     * 的文案：只在该 namespace（{@link PixivFeaturePlugin#i18n()} 贡献的 bundle，经插件自己的 ClassLoader 解析）中查
+     * key；命中即返回；{@code namespace} 为 {@code null}（插件无展示 namespace）或缺失对应文案则返回 key 本身（守卫
+     * 测试会暴露）。
      */
-    private static String pluginText(PixivFeaturePlugin plugin, String key) {
+    private static String pluginText(PixivFeaturePlugin plugin, String namespace, String key) {
+        if (namespace == null) {
+            return key;
+        }
         Locale locale = GuiMessages.currentLocale();
         ClassLoader classLoader = plugin.getClass().getClassLoader();
         for (I18nContribution ns : plugin.i18n()) {
+            if (!namespace.equals(ns.namespace())) {
+                continue;
+            }
             try {
                 ResourceBundle bundle = ResourceBundle.getBundle(
                         ns.baseName(), locale, classLoader, PLUGIN_BUNDLE_CONTROL);
@@ -1452,7 +1461,7 @@ public final class ConfigFieldRegistry {
                     return bundle.getString(key);
                 }
             } catch (MissingResourceException ignored) {
-                // 该 namespace 无对应 bundle，试下一个
+                // 该 namespace 无对应 bundle
             }
         }
         return key;

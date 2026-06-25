@@ -60,7 +60,7 @@ function makeDocument(slots) {
     };
 }
 
-const I18N = { create() { return Promise.resolve({ t: (key, fb) => (key ? 'T:' + key : fb) }); }, onLanguageChange() {} };
+const I18N = { create() { return Promise.resolve({ t: (key, fb) => (key ? 'T:' + key : fb), tns: (ns, key, fb) => (key ? 'T:' + (ns ? ns + ':' : '') + key : fb) }); }, onLanguageChange() {} };
 
 function makeVue() { return { reactive: o => o, nextTick: () => Promise.resolve(), createApp: () => ({ mount: () => ({}) }) }; }
 
@@ -74,8 +74,8 @@ function makePixivVue(record) {
 
 // GalleryPlugin.pageSections() 服务端投影后的两条区块（前端实际消费字段）。
 const SECTIONS = [
-    { id: 'gallery-stats-views', titleI18nKey: 'gallery:section.view', navPlacement: 'stats.gallery-links', actionHref: null, actionIcon: null, actionTitleI18nKey: null, moduleUrl: null },
-    { id: 'gallery-stats-collections', titleI18nKey: 'gallery:section.collections', navPlacement: null, actionHref: '/pixiv-gallery.html?view=all&createCollection=1', actionIcon: 'plus', actionTitleI18nKey: 'gallery:collection.new', moduleUrl: '/pixiv-gallery/gallery-stats-embed.js' }
+    { id: 'gallery-stats-views', titleNamespace: 'gallery', titleI18nKey: 'section.view', navPlacement: 'stats.gallery-links', actionHref: null, actionIcon: null, actionTitleNamespace: null, actionTitleI18nKey: null, moduleUrl: null },
+    { id: 'gallery-stats-collections', titleNamespace: 'gallery', titleI18nKey: 'section.collections', navPlacement: null, actionHref: '/pixiv-gallery.html?view=all&createCollection=1', actionIcon: 'plus', actionTitleNamespace: 'gallery', actionTitleI18nKey: 'collection.new', moduleUrl: '/pixiv-gallery/gallery-stats-embed.js' }
 ];
 
 function load(opts) {

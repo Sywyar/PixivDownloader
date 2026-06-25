@@ -152,7 +152,7 @@ class ExternalPluginContributionIntegrationTest {
 
         @Override
         public List<NavigationContribution> navigation() {
-            return List.of(new NavigationContribution("ext-demo-nav", "app.top", "ext-demo.nav.label",
+            return List.of(new NavigationContribution("ext-demo-nav", "app.top", "ns", "ext-demo.nav.label",
                     "/ext-demo/index.html", null, AccessPolicy.ADMIN, 500));
         }
 

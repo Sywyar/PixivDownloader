@@ -34,8 +34,8 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
         return ID;
     }
 
-    // 展示名 / 简介在本插件自有 namespace（duplicates）解析：导航标签是「疑似重复」、与插件名「重复检测」不同，
-    // 故名称用专用 key（不复用 nav.label），简介用专用 key。
+    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（duplicates）：导航标签
+    // 是「疑似重复」、与插件名「重复检测」不同，故名称用专用 key（不复用 nav.label），简介用专用 key。
     @Override
     public String displayName() {
         return "plugin.label";
@@ -82,7 +82,7 @@ public class DuplicatePlugin implements PixivFeaturePlugin {
                 ID,
                 Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
                         NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
-                "duplicates:nav.label", "/pixiv-duplicates.html", "copy", AccessPolicy.ADMIN, 60));
+                "duplicates", "nav.label", "/pixiv-duplicates.html", "copy", AccessPolicy.ADMIN, 60));
     }
 
     @Override

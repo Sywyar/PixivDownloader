@@ -73,6 +73,7 @@ public class PluginManagementService {
         boolean allowDisable = allowDisable(id);
         return new PluginManagementEntry(
                 id,
+                descriptor != null ? descriptor.displayNamespace() : null,
                 descriptor != null ? descriptor.displayName() : null,
                 descriptor != null ? descriptor.version() : null,
                 descriptor != null ? descriptor.kind() : null,
@@ -229,11 +230,13 @@ public class PluginManagementService {
     }
 
     /**
-     * 单个插件管理条目（对外）。{@code displayNameKey} 是插件自有 i18n namespace 中的 key（前端按当前语言解析、
-     * 不在后端 bake 文案）；{@code messages} 是评估器给出的诊断说明（自由文本、供管理诊断）。
+     * 单个插件管理条目（对外）。{@code displayNameKey} 是<b>纯</b> i18n key、{@code displayNamespace} 是其所在
+     * namespace（前端在该 namespace 按当前语言解析、不在后端 bake 文案）；{@code messages} 是评估器给出的诊断说明
+     * （自由文本、供管理诊断）。
      *
      * @param id               插件 id
-     * @param displayNameKey   展示名称 i18n key（未安装的必选项为 {@code null}）
+     * @param displayNamespace 展示名称 / 简介所在 i18n namespace（前端在此 namespace 解析 {@code displayNameKey}；未安装的必选项 / 无 namespace 时为 {@code null}）
+     * @param displayNameKey   展示名称 i18n key（<b>纯 key</b>；未安装的必选项为 {@code null}）
      * @param version          插件版本（未安装的必选项为 {@code null}）
      * @param kind             插件类别（未安装的必选项为 {@code null}）
      * @param apiRequirement   对核心 API 的版本要求投影（未安装的必选项无描述符时为 {@code null}）
@@ -249,6 +252,7 @@ public class PluginManagementService {
      */
     public record PluginManagementEntry(
             String id,
+            String displayNamespace,
             String displayNameKey,
             String version,
             PluginKind kind,

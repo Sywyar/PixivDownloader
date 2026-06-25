@@ -110,6 +110,19 @@ public class PageSectionRegistry {
             throw new IllegalStateException("page section without title i18n key: "
                     + section.id() + " (plugin: " + pluginId + ")");
         }
+        // titleNamespace 必填：titleI18nKey 是纯 key，必须有确定 namespace 才能在前端解析（tns(namespace, key)）。
+        // 留空会让前端 tns 退化为裸 key、在页面首个 namespace 内误解析，故注册期 fail-fast。
+        if (section.titleNamespace() == null || section.titleNamespace().isBlank()) {
+            throw new IllegalStateException("page section without title namespace: "
+                    + section.id() + " (plugin: " + pluginId + ")");
+        }
+        // 操作入口标题 namespace 随 actionTitleI18nKey 条件必填：两者都为空表示无操作标题（合法）；一旦声明了
+        // actionTitleI18nKey（纯 key），就必须随之声明 actionTitleNamespace，否则该纯 key 无确定 namespace 可解析。
+        if (section.actionTitleI18nKey() != null && !section.actionTitleI18nKey().isBlank()
+                && (section.actionTitleNamespace() == null || section.actionTitleNamespace().isBlank())) {
+            throw new IllegalStateException("page section action title i18n key without namespace: "
+                    + section.id() + " (plugin: " + pluginId + ")");
+        }
         if (section.visibleTo() == null) {
             throw new IllegalStateException("page section without access policy: "
                     + section.id() + " (plugin: " + pluginId + ")");

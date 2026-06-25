@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * 前端导航静态守卫：已接入「placement / slot」的页面只声明空 slot，跨插件入口由后端 placement 决定，
  * 页面不得再用 include/exclude/requires 过滤 id，也不得硬编码其它插件的入口 href（否则禁用对应插件后
- * 前端残留点开即 404 的坏入口，违背前端导航开槽工作包目标）。
+ * 前端残留点开即 404 的坏入口）。
  * <p>
  * 经 classpath 扫描各模块 {@code static/} 下的页面资源（已适配页面分散在主程序与各功能插件模块、随各自模块打包到
  * 同一 boot jar，故按 classpath 资源而非单一模块的源码目录定位）：
@@ -47,6 +47,7 @@ class NavigationMarkupGuardTest {
     private static final Map<String, List<String>> EXPECTED_SLOTS = Map.of(
             "monitor.html", List.of(NavigationPlacements.APP_TOP),
             "pixiv-batch.html", List.of(NavigationPlacements.APP_TOP),
+            "plugin-manage.html", List.of(NavigationPlacements.APP_TOP),
             "pixiv-gallery.html", List.of(NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.GALLERY_TYPE_SWITCH),
             "pixiv-novel-gallery.html", List.of(NavigationPlacements.NOVEL_SIDEBAR, NavigationPlacements.NOVEL_TYPE_SWITCH),
             "pixiv-series.html", List.of(NavigationPlacements.GALLERY_SIDEBAR),
@@ -72,6 +73,8 @@ class NavigationMarkupGuardTest {
             "monitor.html", List.of("/pixiv-gallery.html", "/pixiv-novel-gallery.html",
                     "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
             "pixiv-batch.html", List.of("/monitor.html", "/pixiv-gallery.html", "/pixiv-novel-gallery.html",
+                    "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
+            "plugin-manage.html", List.of("/monitor.html", "/pixiv-gallery.html", "/pixiv-novel-gallery.html",
                     "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),
             "pixiv-gallery.html", List.of("/monitor.html", "/pixiv-novel-gallery.html",
                     "/pixiv-stats.html", "/pixiv-duplicates.html", "/pixiv-invite-manage.html"),

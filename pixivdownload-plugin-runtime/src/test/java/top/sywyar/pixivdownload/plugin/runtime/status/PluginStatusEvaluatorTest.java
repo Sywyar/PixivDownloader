@@ -50,7 +50,7 @@ class PluginStatusEvaluatorTest {
     @DisplayName("描述符非法（缺字段）→ FAILED，诊断携带校验错误")
     void invalidDescriptorYieldsFailed() {
         PluginDescriptor invalid = new PluginDescriptor("ext", "ext-pack", "1.0",
-                PluginApiRequirement.of(1, 0), List.of(), "com.example.P", "  ", PluginKind.FEATURE);
+                PluginApiRequirement.of(1, 0), List.of(), "com.example.P", "ns", "  ", PluginKind.FEATURE);
 
         PluginStatusReport report = evaluator.evaluate(
                 List.of(new ObservedPlugin(invalid, PluginStatus.STARTED)), RequiredPluginPolicy.empty());
@@ -289,6 +289,6 @@ class PluginStatusEvaluatorTest {
         // plugin-class 必须是合法 Java FQN（不能含连字符，区别于可含连字符的 plugin id）
         String pluginClass = "com.example." + id.replace("-", "_");
         return new PluginDescriptor(id, id + "-pack", version, requires, deps,
-                pluginClass, id + ".label", PluginKind.FEATURE);
+                pluginClass, "ns", id + ".label", PluginKind.FEATURE);
     }
 }

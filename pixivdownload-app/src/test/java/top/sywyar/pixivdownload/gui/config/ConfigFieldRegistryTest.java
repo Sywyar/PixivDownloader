@@ -38,7 +38,7 @@ class ConfigFieldRegistryTest {
     @Test
     @DisplayName("可禁用功能插件各有一个 BOOL 开关：默认启用、需重启，名称/简介解析自插件自有 namespace")
     void pluginToggleFieldsRegistered() {
-        // 名称解析自各插件自有 namespace 的 plugin.name（中文 locale 下的预期值）。
+        // 名称 / 简介为纯 key（如 nav.label / plugin.label），在插件 displayNamespace 指定的 namespace 中解析（中文 locale 下的预期值）。
         // 统计 stats 已外置、不在内置清单：GUI 插件开关只列内置可禁用插件（外置插件的 GUI 开槽属后续工作）。
         Map<String, String> expectedNames = Map.of(
                 "gallery", "画廊",
@@ -65,7 +65,7 @@ class ConfigFieldRegistryTest {
                 assertThat(spec.group()).isEqualTo(pluginsGroup);
                 assertThat(spec.defaultValue()).isEqualTo("true");
                 assertThat(spec.requiresRestart()).as("插件开关需重启").isTrue();
-                // 标签 = 插件自有 namespace 的 plugin.name 解析值，且不是落回的「原始 key」。
+                // 标签 = 插件 displayNamespace 中纯 key 的解析值，且不是落回的「原始 key」。
                 assertThat(spec.label())
                         .as("名称解析自插件自有 namespace 的 %s", plugin.displayName())
                         .isEqualTo(expectedNames.get(id))

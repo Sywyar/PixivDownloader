@@ -82,7 +82,7 @@ class DownloadExtensionControllerTest {
 
         @Override
         public List<QueueTypeContribution> queueTypes() {
-            return List.of(new QueueTypeContribution("demo", "demo", "demo.kind", 5, "/demo/qt.js"));
+            return List.of(new QueueTypeContribution("demo", "demo", "demo", "demo.kind", 5, "/demo/qt.js"));
         }
 
         @Override

@@ -17,7 +17,7 @@ class QueueTypeRegistryTest {
     }
 
     private static QueueTypeContribution type(String type) {
-        return new QueueTypeContribution("demo", type, "label." + type, 10, null);
+        return new QueueTypeContribution("demo", type, "demo", "label." + type, 10, null);
     }
 
     @Test
@@ -103,10 +103,22 @@ class QueueTypeRegistryTest {
         assertThatThrownBy(() -> registry.register("demo", List.of()))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new QueueTypeContribution("demo", " ", "label", 0, null))))
+                new QueueTypeContribution("demo", " ", "ns", "label", 0, null))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new QueueTypeContribution("demo", "a", " ", 0, null))))
+                new QueueTypeContribution("demo", "a", "ns", " ", 0, null))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("labelNamespace 为 null / 空白立即抛出（纯 key 必须有确定 namespace 才能解析，必填语义）")
+    void blankLabelNamespaceRejected() {
+        QueueTypeRegistry registry = emptyRegistry();
+        assertThatThrownBy(() -> registry.register("demo", List.of(
+                new QueueTypeContribution("demo", "a", null, "label", 0, null))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> registry.register("demo", List.of(
+                new QueueTypeContribution("demo", "b", " ", "label", 0, null))))
                 .isInstanceOf(IllegalStateException.class);
     }
 

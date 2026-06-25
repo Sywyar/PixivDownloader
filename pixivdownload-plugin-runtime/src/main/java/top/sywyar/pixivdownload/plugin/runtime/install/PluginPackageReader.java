@@ -211,7 +211,7 @@ public final class PluginPackageReader {
         PluginApiRequirement requires = PluginApiRequirement.parse(properties.getProperty(KEY_REQUIRES));
         List<PluginDependencyRef> dependencies = parseDependencies(properties.getProperty(KEY_DEPENDENCIES));
         String displayName = (description != null) ? description : id;
-        return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, displayName, PluginKind.FEATURE);
+        return new PluginDescriptor(id, id, version, requires, dependencies, pluginClass, null, displayName, PluginKind.FEATURE);
     }
 
     /**

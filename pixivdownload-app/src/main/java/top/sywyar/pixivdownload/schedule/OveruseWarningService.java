@@ -15,7 +15,7 @@ import java.util.List;
  * <p>一次站内信读取两用：既判定 Pixiv 是否发来「过度访问」警告（需暂停同账号计划任务避免删号），
  * 也作为绑定 cookie 的存活探测——读不到（4xx / 登录重定向）即 cookie 已死。
  *
- * <p>判定「当前应处理的过度访问警告」需<b>同时</b>满足（{@code PLAN §1.2}）：
+ * <p>判定「当前应处理的过度访问警告」需<b>同时</b>满足以下业务规则：
  * <ol>
  *   <li>{@code thread_name == "pixiv事務局"} 且 {@code is_official} 为真；</li>
  *   <li>{@code latest_content} 同时含 {@code policies.pixiv.net} 与 {@code 14}（不匹配随语言变化的中文文案）；</li>

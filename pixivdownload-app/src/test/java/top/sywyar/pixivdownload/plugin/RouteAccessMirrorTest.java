@@ -199,6 +199,9 @@ class RouteAccessMirrorTest {
         // 通用下钻渲染器：与 /api/drilldowns 同口径显式声明（不靠 /js/** 的 VISITOR 兜底），受邀访客可加载。
         assertOwnerPolicy("/js/pixiv-drilldowns.js", "core", AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertOwnerPolicy("/favicon.ico", "core", AccessPolicy.PUBLIC);
+        // 插件管理页（admin-only）+ 其页面专属静态资源；与 /api/plugins/** 同归核心、同 ADMIN。
+        assertOwnerPolicy("/plugin-manage.html", "core", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/plugin-manage/**", "core", AccessPolicy.ADMIN);
         assertOwnerPolicy("/api/downloaded/**", "core", AccessPolicy.LOCAL);
         // 核心新声明的横切 / 公开 / 直通 / GUI / 本地 URL（本前置包补齐的「全 URL 声明」）
         assertOwnerPolicy("/api/auth/**", "core", AccessPolicy.PUBLIC);

@@ -13,14 +13,17 @@ package top.sywyar.pixivdownload.plugin.api.web;
  * 物理拆分为独立插件 jar 后随该插件 classloader 解析）。
  *
  * @param pluginId     声明该类型的插件 id
- * @param type         类型 id（与队列项 {@code kind}、{@code ScheduledSourceProvider} 共享口径，如 {@code illust} / {@code novel}）
- * @param labelI18nKey 子模式（kind 单选）标签的 i18n key（不直接携带文案）
- * @param order        子模式渲染顺序，越小越靠前
- * @param moduleUrl    前端行为模块 URL（内置类型为 {@code null}：宿主内联注册）
+ * @param type           类型 id（与队列项 {@code kind}、{@code ScheduledSourceProvider} 共享口径，如 {@code illust} / {@code novel}）
+ * @param labelNamespace 子模式标签所在的 i18n namespace（在该 namespace 内解析 {@code labelI18nKey}）；<b>必填</b>，
+ *                       注册期对 {@code null}/空白 fail-fast（纯 key 需确定 namespace 才能解析，留空会令前端误解析）
+ * @param labelI18nKey   子模式（kind 单选）标签的 i18n key（<b>纯 key</b>，不带 namespace、不直接携带文案）
+ * @param order          子模式渲染顺序，越小越靠前
+ * @param moduleUrl      前端行为模块 URL（内置类型为 {@code null}：宿主内联注册）
  */
 public record QueueTypeContribution(
         String pluginId,
         String type,
+        String labelNamespace,
         String labelI18nKey,
         int order,
         String moduleUrl

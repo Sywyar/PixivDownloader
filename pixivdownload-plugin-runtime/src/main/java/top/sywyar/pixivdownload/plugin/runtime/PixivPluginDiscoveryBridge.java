@@ -200,6 +200,7 @@ public final class PixivPluginDiscoveryBridge {
                 requires,
                 dependencyRefs(pf4jDescriptor),
                 pf4jDescriptor != null ? pf4jDescriptor.getPluginClass() : null,
+                featurePlugin.displayNamespace(),
                 featurePlugin.displayName(),
                 featurePlugin.kind());
     }
@@ -220,6 +221,7 @@ public final class PixivPluginDiscoveryBridge {
                 requires,
                 dependencyRefs(pf4jDescriptor),
                 pf4jDescriptor != null ? pf4jDescriptor.getPluginClass() : null,
+                null,
                 displayName,
                 PluginKind.FEATURE);
     }

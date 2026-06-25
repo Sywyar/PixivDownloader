@@ -85,7 +85,7 @@ class LandingRegistryTest {
             @Override
             public List<NavigationContribution> navigation() {
                 return List.of(new NavigationContribution(
-                        "intruder", "app.top", "nav.intruder", "/intruder.html", "icon",
+                        "intruder", "app.top", "ns", "nav.intruder", "/intruder.html", "icon",
                         AccessPolicy.INVITED_GUEST, 1));
             }
         };

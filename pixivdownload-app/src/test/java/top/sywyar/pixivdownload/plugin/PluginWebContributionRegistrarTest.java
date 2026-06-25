@@ -256,7 +256,7 @@ class PluginWebContributionRegistrarTest {
 
         @Override
         public List<NavigationContribution> navigation() {
-            return List.of(new NavigationContribution("web-demo-nav", "app.top", "web-demo.nav.label",
+            return List.of(new NavigationContribution("web-demo-nav", "app.top", "ns", "web-demo.nav.label",
                     "/web-demo.html", null, AccessPolicy.ADMIN, 500));
         }
 
@@ -353,7 +353,7 @@ class PluginWebContributionRegistrarTest {
 
         @Override
         public List<NavigationContribution> navigation() {
-            return List.of(new NavigationContribution("web-demo-3-nav", "app.top", "web-demo-3.nav.label",
+            return List.of(new NavigationContribution("web-demo-3-nav", "app.top", "ns", "web-demo-3.nav.label",
                     "/web-demo-3.html", null, AccessPolicy.ADMIN, 500));
         }
 

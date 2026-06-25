@@ -50,8 +50,10 @@ public class PageSectionController {
                         .thenComparing(registered -> registered.section().id()))
                 .map(registered -> {
                     PageSectionContribution s = registered.section();
-                    return new PageSectionView(s.id(), s.placement(), s.titleI18nKey(), s.navPlacement(),
-                            s.actionHref(), s.actionIcon(), s.actionTitleI18nKey(), s.moduleUrl(), s.priority());
+                    return new PageSectionView(s.id(), s.placement(),
+                            s.titleNamespace(), s.titleI18nKey(), s.navPlacement(),
+                            s.actionHref(), s.actionIcon(), s.actionTitleNamespace(), s.actionTitleI18nKey(),
+                            s.moduleUrl(), s.priority());
                 })
                 .toList();
     }
@@ -81,8 +83,9 @@ public class PageSectionController {
      * {@code navPlacement} / {@code actionHref} / {@code actionIcon} / {@code actionTitleI18nKey} / {@code moduleUrl}
      * 为 {@code null} 表示不提供对应能力。
      */
-    public record PageSectionView(String id, String placement, String titleI18nKey, String navPlacement,
-                                  String actionHref, String actionIcon, String actionTitleI18nKey,
+    public record PageSectionView(String id, String placement, String titleNamespace, String titleI18nKey,
+                                  String navPlacement, String actionHref, String actionIcon,
+                                  String actionTitleNamespace, String actionTitleI18nKey,
                                   String moduleUrl, int priority) {
     }
 }

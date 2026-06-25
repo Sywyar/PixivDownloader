@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>插件管理 · Pixiv 下载助手</title>
+    <script src="/js/pixiv-i18n.js"></script>
+    <script src="/js/pixiv-lang-switcher.js"></script>
+    <script src="/js/pixiv-theme.js"></script>
+    <script src="/js/pixiv-navigation.js"></script>
+    <link rel="stylesheet" href="/vendor/fonts/fonts.css">
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="/plugin-manage/plugin-manage.css">
+    <!-- 页面模块按依赖顺序加载：core（状态 / 视图模型）→ api（后端调用）→ views（渲染）→ init（启动 + 顶层事件）。 -->
+    <script src="/plugin-manage/plugin-manage-core.js"></script>
+    <script src="/plugin-manage/plugin-manage-api.js"></script>
+    <script src="/plugin-manage/plugin-manage-views.js"></script>
+    <script src="/plugin-manage/plugin-manage-init.js"></script>
+</head>
+<body>
+
+<nav class="app-nav">
+    <div class="app-nav-brand-wrap">
+        <span class="app-nav-logo"><i class="fa-solid fa-cloud-arrow-down"></i></span>
+        <span class="app-nav-brand" data-i18n="nav.brand">Pixiv 下载助手</span>
+    </div>
+    <!-- 跨插件导航 slot（app.top placement）：由 /js/pixiv-navigation.js 据 /api/navigation 动态渲染，
+         禁用某插件后其入口自然消失；当前页（插件管理）由 pathname 自动识别为激活项。 -->
+    <span class="app-nav-links" data-nav-slot="app.top" data-nav-link-class="app-nav-link"
+          data-nav-active-class="active" data-nav-target="_blank" data-nav-rel="noopener"></span>
+    <div class="app-nav-spacer"></div>
+    <div class="app-nav-actions" id="langSwitcherAnchor"></div>
+    <button class="app-nav-logout" id="logout-btn" onclick="pmLogout()" data-i18n="logout">退出</button>
+</nav>
+
+<div class="pm-page">
+
+    <!-- 标题行 -->
+    <div class="pm-titlebar">
+        <div class="pm-title-block">
+            <h1 class="pm-title"><i class="fa-solid fa-puzzle-piece"></i><span data-i18n="page.heading">插件管理</span></h1>
+            <p class="pm-subtitle" data-i18n="page.subtitle">扩展下载助手的能力，按需启用 / 停用各插件。</p>
+        </div>
+        <div class="pm-titlebar-actions">
+            <button class="pm-btn pm-btn--teal" id="refreshBtn">
+                <i class="fa-solid fa-rotate"></i><span data-i18n="refresh">刷新</span>
+            </button>
+            <button class="pm-btn pm-btn--primary" id="installBtn">
+                <i class="fa-solid fa-link"></i><span data-i18n="install.url">从 URL 安装</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 恢复 / 补齐模式横幅（仅 recoveryMode 时由 JS 填充并显示） -->
+    <div id="pm-recovery" hidden></div>
+
+    <!-- 概览统计（信息区，由 JS 据后端状态填充） -->
+    <div class="pm-stats" id="pm-stats"></div>
+
+    <!-- 工具栏：筛选标签 + 搜索 -->
+    <div class="pm-toolbar">
+        <div class="pm-tabs" id="pm-tabs"></div>
+        <div class="pm-toolbar-search">
+            <div class="pm-search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="pm-search-input" data-i18n-placeholder="search.placeholder"
+                       placeholder="搜索插件名称或标签…" autocomplete="off">
+            </div>
+            <span class="pm-result-count" id="pm-result-count"></span>
+        </div>
+    </div>
+
+    <!-- 插件卡片网格（由 JS 渲染；含加载 / 错误 / 空状态） -->
+    <div class="pm-grid" id="pm-grid"></div>
+    <div id="pm-state-host">
+        <div class="pm-state"><i class="fa-solid fa-spinner fa-spin"></i><span data-i18n="status.loading">正在加载插件状态…</span></div>
+    </div>
+
+    <!-- 免责声明 -->
+    <div class="pm-disclaimer" data-i18n="disclaimer">
+        插件运行于本地，仅供个人学习与研究使用 · 请尊重创作者版权 · 本工具与 Pixiv 无任何关联
+    </div>
+
+</div>
+
+<div class="pm-toast" id="pm-toast" role="status" aria-live="polite"></div>
+
+</body>
+</html>

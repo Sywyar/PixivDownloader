@@ -42,7 +42,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
-    // 展示名 / 简介在本插件自有 namespace（novel）解析：名称复用已有的导航标签 nav.label，简介用专用 key。
+    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（novel）：名称复用已有的导航标签 nav.label，简介用专用 key。
     @Override
     public String displayName() {
         return "nav.label";
@@ -107,7 +107,7 @@ public class NovelPlugin implements PixivFeaturePlugin {
         // 由 moduleUrl 指向的小说自有行为模块在运行期注册。labelI18nKey 复用现有 kind 单选标签键
         //（子模式单选 DOM 仍在下载页 HTML、由「类型是否启用」统一显隐；标签键位于 novel namespace 是历史现状）。
         return List.of(new QueueTypeContribution(
-                ID, "novel", "novel:batch.user.kind-novel", 20, "/pixiv-novel-download/novel-queue-type.js"));
+                ID, "novel", "novel", "batch.user.kind-novel", 20, "/pixiv-novel-download/novel-queue-type.js"));
     }
 
     /** 下载页 novel 队列类型行为模块的 serving URL（同时渲染下面声明的各 UI 槽位）。 */
@@ -153,11 +153,11 @@ public class NovelPlugin implements PixivFeaturePlugin {
                 new NavigationContribution(
                         ID,
                         Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.NOVEL_SIDEBAR),
-                        "novel:nav.label", "/pixiv-novel-gallery.html?view=all", "book", AccessPolicy.INVITED_GUEST, 40),
+                        "novel", "nav.label", "/pixiv-novel-gallery.html?view=all", "book", AccessPolicy.INVITED_GUEST, 40),
                 new NavigationContribution(
                         "novel-type-switch",
                         Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
-                        "novel:nav.label", "/pixiv-novel-gallery.html?view=all", "book",
+                        "novel", "nav.label", "/pixiv-novel-gallery.html?view=all", "book",
                         AccessPolicy.INVITED_GUEST, 40));
     }
 

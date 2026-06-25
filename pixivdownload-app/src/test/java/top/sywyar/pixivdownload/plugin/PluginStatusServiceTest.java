@@ -97,7 +97,7 @@ class PluginStatusServiceTest {
 
     private static PluginDescriptor external(String id, String version, PluginApiRequirement requires) {
         return new PluginDescriptor(id, id + "-pack", version, requires, List.of(),
-                "com.example." + id.replace("-", "_"), id + ".label", PluginKind.FEATURE);
+                "com.example." + id.replace("-", "_"), null, id + ".label", PluginKind.FEATURE);
     }
 
     private static final class TestPlugin implements PixivFeaturePlugin {

@@ -28,9 +28,10 @@ import java.util.regex.Pattern;
  * @param version        插件版本（外置=plugin.properties 版本；内置=核心 API 契约版本）
  * @param requires       所需核心 API 版本要求（解析自 {@code requires}，未声明则 {@link PluginApiRequirement#unspecified()}）
  * @param dependencies   对其它插件的依赖声明（中性载体）
- * @param pluginClass    插件主类全限定名（外置=PF4J {@code Plugin-Class}；内置=插件实现类名；可空）
- * @param displayName    展示名称 i18n key（来自 {@link PixivFeaturePlugin#displayName()}）
- * @param kind           插件类别
+ * @param pluginClass      插件主类全限定名（外置=PF4J {@code Plugin-Class}；内置=插件实现类名；可空）
+ * @param displayNamespace 展示名称 / 简介所在的 i18n namespace（来自 {@link PixivFeaturePlugin#displayNamespace()}；可空）
+ * @param displayName      展示名称 i18n key（纯 key，来自 {@link PixivFeaturePlugin#displayName()}）
+ * @param kind             插件类别
  */
 public record PluginDescriptor(
         String id,
@@ -39,6 +40,7 @@ public record PluginDescriptor(
         PluginApiRequirement requires,
         List<PluginDependencyRef> dependencies,
         String pluginClass,
+        String displayNamespace,
         String displayName,
         PluginKind kind) {
 
@@ -79,6 +81,7 @@ public record PluginDescriptor(
                 PluginApiRequirement.of(PluginApiVersion.MAJOR, PluginApiVersion.MINOR),
                 List.of(),
                 plugin.getClass().getName(),
+                plugin.displayNamespace(),
                 plugin.displayName(),
                 plugin.kind());
     }

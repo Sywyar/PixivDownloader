@@ -226,7 +226,7 @@ class RegisteredPluginsTest {
                     assertThat(plugin.routes()).isEmpty();
                 }
                 // 导航：四个 web 功能插件 + core（监控 / 邀请码管理）+ download-workbench（下载页入口）全员声明，
-                // 由 /api/navigation 按当前身份过滤后供前端跨插件导航 slot 渲染（前端导航开槽工作包）。
+                // 由 /api/navigation 按当前身份过滤后供前端跨插件导航 slot 渲染。
                 if (navContributingPlugins.contains(plugin.id())) {
                     assertThat(plugin.navigation()).isNotEmpty();
                 } else {

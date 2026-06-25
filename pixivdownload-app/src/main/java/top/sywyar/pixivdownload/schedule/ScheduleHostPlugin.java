@@ -42,15 +42,22 @@ public class ScheduleHostPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
-    // 计划任务宿主必选、永不在配置页「插件」分组呈现，故下列 key 不会被解析（仅为满足契约的占位）。
+    // 展示名 / 简介为纯 i18n key，namespace 由 displayNamespace() 提供。计划任务宿主自身无 i18n namespace（其 UI 在
+    // 下载页 batch namespace），GUI 不呈现它（必选），但 Web 插件管理页会展示并解析；故 displayNamespace() 显式借用
+    // 插件管理页的 plugins namespace。
+    @Override
+    public String displayNamespace() {
+        return "plugins";
+    }
+
     @Override
     public String displayName() {
-        return "plugin.label";
+        return "name.schedule";
     }
 
     @Override
     public String description() {
-        return "plugin.summary";
+        return "summary.schedule";
     }
 
     @Override

@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("NavigationRegistry 导航注册中心")
@@ -19,7 +20,7 @@ class NavigationRegistryTest {
     }
 
     private static NavigationContribution nav(String id) {
-        return new NavigationContribution(id, "app.top", "nav.label", "/" + id + ".html", "icon",
+        return new NavigationContribution(id, "app.top", "ns", "nav.label", "/" + id + ".html", "icon",
                 AccessPolicy.ADMIN, 10);
     }
 
@@ -28,13 +29,13 @@ class NavigationRegistryTest {
     void collectsNavigationFromBuiltInPlugins() {
         NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
         // 每条导航项是一个逻辑入口（id 全局唯一、可经 placements 同时进入多个 slot）。内置入口全集：
-        // 下载工作台 / 监控 / 邀请码管理（基础）+ 画廊主入口及其类型切换 / 统计页视图三链 + 小说主入口及其类型切换
+        // 下载工作台 / 监控 / 邀请码管理 / 插件管理（基础）+ 画廊主入口及其类型切换 / 统计页视图三链 + 小说主入口及其类型切换
         // + 疑似重复。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 已外置，其导航项经外置
         // 插件 contribution 注册、不在内置清单。
         assertThat(registry.navigation())
                 .extracting(registered -> registered.navigation().id())
                 .containsExactlyInAnyOrder(
-                        "download-workbench", "monitor", "invite-manage",
+                        "download-workbench", "monitor", "invite-manage", "plugin-manage",
                         "gallery", "gallery-type-switch",
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series",
                         "novel", "novel-type-switch", "duplicate");
@@ -58,16 +59,22 @@ class NavigationRegistryTest {
                     assertThat(registered.navigation().placements())
                             .containsExactlyInAnyOrder("app.top", "app.sidebar", "gallery.sidebar", "novel.sidebar");
                 });
-        // 监控 / 邀请码管理导航归 core 插件、ADMIN 可见；邀请码管理只进侧栏、不进顶部栏 placement。
+        // 监控 / 邀请码管理 / 插件管理导航归 core 插件、ADMIN 可见；邀请码管理只进侧栏、不进顶部栏 placement，
+        // 插件管理只进顶部栏 placement（app.top）、不进侧栏。
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.pluginId().equals("core"))
                 .extracting(registered -> registered.navigation().id())
-                .containsExactlyInAnyOrder("monitor", "invite-manage");
+                .containsExactlyInAnyOrder("monitor", "invite-manage", "plugin-manage");
         assertThat(registry.navigation())
                 .filteredOn(registered -> registered.navigation().id().equals("invite-manage"))
                 .singleElement()
                 .satisfies(registered -> assertThat(registered.navigation().placements())
                         .containsExactlyInAnyOrder("app.sidebar", "gallery.sidebar", "novel.sidebar"));
+        assertThat(registry.navigation())
+                .filteredOn(registered -> registered.navigation().id().equals("plugin-manage"))
+                .singleElement()
+                .satisfies(registered -> assertThat(registered.navigation().placements())
+                        .containsExactly("app.top"));
     }
 
     @Test
@@ -125,9 +132,9 @@ class NavigationRegistryTest {
     void duplicateNavigationHrefWithinPlacementRejected() {
         NavigationRegistry registry = emptyRegistry();
         registry.register("a", List.of(new NavigationContribution(
-                "a-id", "app.top", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
+                "a-id", "app.top", "ns", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
         assertThatThrownBy(() -> registry.register("b", List.of(new NavigationContribution(
-                "b-id", "app.top", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10))))
+                "b-id", "app.top", "ns", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/shared.html")
                 .hasMessageContaining("app.top");
@@ -138,8 +145,8 @@ class NavigationRegistryTest {
     void duplicateNavigationHrefWithinPluginRejected() {
         NavigationRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("x", "app.top", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0),
-                new NavigationContribution("y", "app.top", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution("x", "app.top", "ns", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0),
+                new NavigationContribution("y", "app.top", "ns", "nav.label", "/dup.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/dup.html")
                 .hasMessageContaining("demo");
@@ -150,9 +157,9 @@ class NavigationRegistryTest {
     void sameHrefAcrossPlacementsAllowed() {
         NavigationRegistry registry = emptyRegistry();
         registry.register("a", List.of(new NavigationContribution(
-                "a-id", "app.top", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
+                "a-id", "app.top", "ns", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
         registry.register("b", List.of(new NavigationContribution(
-                "b-id", "gallery.sidebar", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
+                "b-id", "gallery.sidebar", "ns", "nav.label", "/shared.html", "icon", AccessPolicy.ADMIN, 10)));
         assertThat(registry.navigation()).hasSize(2);
     }
 
@@ -162,7 +169,7 @@ class NavigationRegistryTest {
         NavigationRegistry registry = emptyRegistry();
         registry.register("demo", List.of(new NavigationContribution(
                 "multi", Set.of("app.top", "gallery.sidebar", "novel.sidebar"),
-                "nav.label", "/multi.html", "icon", AccessPolicy.ADMIN, 10)));
+                "ns", "nav.label", "/multi.html", "icon", AccessPolicy.ADMIN, 10)));
         assertThat(registry.navigation()).singleElement()
                 .satisfies(registered -> assertThat(registered.navigation().placements())
                         .containsExactlyInAnyOrder("app.top", "gallery.sidebar", "novel.sidebar"));
@@ -177,25 +184,48 @@ class NavigationRegistryTest {
         assertThatThrownBy(() -> registry.register("demo", List.of()))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution(" ", "app.top", "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution(" ", "app.top", "ns", "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", "app.top", " ", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution("a", "app.top", "ns", " ", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", "app.top", "nav.label", " ", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution("a", "app.top", "ns", "nav.label", " ", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", "app.top", "nav.label", "/a.html", "icon", null, 0))))
+                new NavigationContribution("a", "app.top", "ns", "nav.label", "/a.html", "icon", null, 0))))
                 .isInstanceOf(IllegalStateException.class);
         // placements 为空
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", Set.<String>of(), "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution("a", Set.<String>of(), "ns", "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
         // placements 含空白项
         assertThatThrownBy(() -> registry.register("demo", List.of(
-                new NavigationContribution("a", Set.of(" "), "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
+                new NavigationContribution("a", Set.of(" "), "ns", "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("labelNamespace 为 null / 空白被接受（有意的回退语义、不 fail-fast；缺省值原样保真供消费端回退）")
+    void blankLabelNamespaceAcceptedAsIntentionalFallback() {
+        NavigationRegistry registry = emptyRegistry();
+        // 与必填的 PageSection.titleNamespace / QueueType.labelNamespace 刻意不同：导航 labelNamespace 允许缺省，
+        // 表示该入口未绑定确定 namespace，由前端 tns 退化为裸 key、在页面首个 namespace 内解析。注册期不抛。
+        assertThatCode(() -> registry.register("a", List.of(new NavigationContribution(
+                "n-null", "app.top", null, "nav.label", "/n-null.html", "icon", AccessPolicy.ADMIN, 10))))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> registry.register("b", List.of(new NavigationContribution(
+                "n-blank", "app.top", "  ", "nav.label", "/n-blank.html", "icon", AccessPolicy.ADMIN, 10))))
+                .doesNotThrowAnyException();
+        // 缺省的 namespace 原样保真（消费端据此判定回退），不被规整成某个默认值。
+        assertThat(registry.navigation())
+                .filteredOn(r -> r.navigation().id().equals("n-null"))
+                .singleElement()
+                .satisfies(r -> assertThat(r.navigation().labelNamespace()).isNull());
+        assertThat(registry.navigation())
+                .filteredOn(r -> r.navigation().id().equals("n-blank"))
+                .singleElement()
+                .satisfies(r -> assertThat(r.navigation().labelNamespace()).isEqualTo("  "));
     }
 
     @Test

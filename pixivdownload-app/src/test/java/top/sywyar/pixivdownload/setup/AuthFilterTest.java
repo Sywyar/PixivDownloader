@@ -1410,7 +1410,7 @@ class AuthFilterTest {
     @DisplayName("核心导航端点 /api/navigation 访问级别（归 core、VISITOR_AND_INVITED_GUEST）")
     class NavigationEndpointTests {
 
-        // /api/navigation 由 CorePlugin.routes() 以 VISITOR_AND_INVITED_GUEST 声明（前端导航开槽工作包改）：
+        // /api/navigation 由 CorePlugin.routes() 以 VISITOR_AND_INVITED_GUEST 声明（供前端动态导航使用）：
         // 不入 monitor，访客与受邀访客均可只读放行（各自得到对应身份可见导航），令受邀访客的画廊 / 小说页
         // 也能拉取动态导航。三态：multi 访客可读 / solo 未登录 401 / 受邀访客可读（历史 VISITOR 曾 403）。
 

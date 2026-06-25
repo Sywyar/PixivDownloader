@@ -43,7 +43,7 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         return ID;
     }
 
-    // 展示名 / 简介在本插件自有 namespace（gallery）解析：名称复用已有的导航标签 nav.label，简介用专用 key。
+    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（gallery）：名称复用已有的导航标签 nav.label，简介用专用 key。
     @Override
     public String displayName() {
         return "nav.label";
@@ -119,26 +119,26 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                         ID,
                         Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
                                 NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.DUPLICATES_HEADER_ICONS),
-                        "gallery:nav.label", "/pixiv-gallery.html?view=all", "images", AccessPolicy.INVITED_GUEST, 30),
+                        "gallery", "nav.label", "/pixiv-gallery.html?view=all", "images", AccessPolicy.INVITED_GUEST, 30),
                 new NavigationContribution(
                         "gallery-type-switch",
                         Set.of(NavigationPlacements.NOVEL_TYPE_SWITCH),
-                        "gallery:nav.type-illust", "/pixiv-gallery.html?view=all", "images",
+                        "gallery", "nav.type-illust", "/pixiv-gallery.html?view=all", "images",
                         AccessPolicy.INVITED_GUEST, 30),
                 new NavigationContribution(
                         "gallery-view-all",
                         Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
-                        "gallery:nav.all", "/pixiv-gallery.html?view=all", "grid",
+                        "gallery", "nav.all", "/pixiv-gallery.html?view=all", "grid",
                         AccessPolicy.INVITED_GUEST, 31),
                 new NavigationContribution(
                         "gallery-view-authors",
                         Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
-                        "gallery:nav.authors", "/pixiv-gallery.html?view=authors", "users",
+                        "gallery", "nav.authors", "/pixiv-gallery.html?view=authors", "users",
                         AccessPolicy.INVITED_GUEST, 32),
                 new NavigationContribution(
                         "gallery-view-series",
                         Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
-                        "gallery:nav.series", "/pixiv-gallery.html?view=series", "book",
+                        "gallery", "nav.series", "/pixiv-gallery.html?view=series", "book",
                         AccessPolicy.INVITED_GUEST, 33));
     }
 
@@ -153,12 +153,12 @@ public class GalleryPlugin implements PixivFeaturePlugin {
         return List.of(
                 new PageSectionContribution(
                         ID, "gallery-stats-views", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
-                        "gallery:section.view", NavigationPlacements.STATS_GALLERY_LINKS,
-                        null, null, null, null, AccessPolicy.INVITED_GUEST, 10),
+                        "gallery", "section.view", NavigationPlacements.STATS_GALLERY_LINKS,
+                        null, null, null, null, null, AccessPolicy.INVITED_GUEST, 10),
                 new PageSectionContribution(
                         ID, "gallery-stats-collections", NavigationPlacements.STATS_SIDEBAR_SECTIONS,
-                        "gallery:section.collections", null,
-                        "/pixiv-gallery.html?view=all&createCollection=1", "plus", "gallery:collection.new",
+                        "gallery", "section.collections", null,
+                        "/pixiv-gallery.html?view=all&createCollection=1", "plus", "gallery", "collection.new",
                         "/pixiv-gallery/gallery-stats-embed.js", AccessPolicy.INVITED_GUEST, 20));
     }
 

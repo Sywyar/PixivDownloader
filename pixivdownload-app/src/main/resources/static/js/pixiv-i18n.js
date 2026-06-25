@@ -270,6 +270,21 @@
             t: function (key, fallback, vars) {
                 return translate(client, key, fallback, vars);
             },
+            // 显式 namespace 解析：key 为纯 key，在指定 namespace 内查（对应导航 labelNamespace / 插件 displayNamespace
+            // 等「namespace 与 key 分离」契约）。namespace 为 null / "" / 纯空白（有意回退语义）时统一退回 t() 的裸 key
+            // 行为（首个 namespace）；非空 namespace 先 trim 再查（容忍贡献方写入的首尾空白）。
+            tns: function (namespace, key, fallback, vars) {
+                var ns = namespace == null ? '' : String(namespace).trim();
+                if (!ns) {
+                    return translate(client, key, fallback, vars);
+                }
+                var namespaceMessages = client.bundleMap[ns] || {};
+                var template = namespaceMessages[key];
+                if (template == null) {
+                    template = fallback != null ? fallback : key;
+                }
+                return interpolate(template, vars);
+            },
             has: function (key) {
                 var resolved = resolveKey(client.namespaces, key);
                 var namespaceMessages = client.bundleMap[resolved.namespace] || {};

@@ -98,5 +98,11 @@ public class QueueTypeRegistry {
             throw new IllegalStateException("queue type without label i18n key: "
                     + queueType.type() + " (plugin: " + pluginId + ")");
         }
+        // labelNamespace 必填：labelI18nKey 是纯 key，必须有确定 namespace 才能在前端解析（tns(namespace, key)）。
+        // 留空会让前端 tns 退化为裸 key、在页面首个 namespace 内误解析，故注册期 fail-fast。
+        if (queueType.labelNamespace() == null || queueType.labelNamespace().isBlank()) {
+            throw new IllegalStateException("queue type without label namespace: "
+                    + queueType.type() + " (plugin: " + pluginId + ")");
+        }
     }
 }

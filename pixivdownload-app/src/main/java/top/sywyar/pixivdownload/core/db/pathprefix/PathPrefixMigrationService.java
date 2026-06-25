@@ -320,7 +320,7 @@ public class PathPrefixMigrationService {
      * <p>SQLite 的 UNIQUE 约束按语句即时校验，即便处于同一事务，顺序写入仍可能与「本批尚未改写的行」
      * 瞬时撞车（例如把 id2 改成 C，而占用 C 的 id3 还没被改）。因此先把每一行改成与表中任何真实路径都
      * 不可能相同的唯一临时占位值，再逐行写入最终目标路径；终态合法性已由 {@link #detectCollisions} 保证，
-     * 故第二阶段不会再冲突。
+     * 故写入最终目标路径时不会再冲突。
      */
     private void applyPending(LinkedHashMap<Long, String> pending) {
         String token = UUID.randomUUID().toString();

@@ -67,7 +67,8 @@ public class NavigationController {
                         .thenComparing(registered -> registered.navigation().id()))
                 .map(registered -> {
                     NavigationContribution item = registered.navigation();
-                    return new NavigationView(item.id(), item.placements(), item.labelI18nKey(),
+                    return new NavigationView(item.id(), item.placements(),
+                            item.labelNamespace(), item.labelI18nKey(),
                             item.href(), item.icon(), item.priority());
                 })
                 .toList();
@@ -100,7 +101,7 @@ public class NavigationController {
      * 导航项的对外视图：只含渲染所需字段，刻意不含 {@code visibleTo}（内部访问级别）。
      * {@link #placements()} 供前端把本项渲染进对应的空 slot（{@code data-nav-slot="<placement>"}）。
      */
-    public record NavigationView(String id, Set<String> placements, String labelI18nKey,
+    public record NavigationView(String id, Set<String> placements, String labelNamespace, String labelI18nKey,
                                  String href, String icon, int priority) {
     }
 }

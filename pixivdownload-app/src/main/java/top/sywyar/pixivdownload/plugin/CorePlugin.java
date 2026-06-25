@@ -41,15 +41,21 @@ public class CorePlugin implements PixivFeaturePlugin {
         return "core";
     }
 
-    // 核心插件必选、永不在配置页「插件」分组呈现，故下列 key 不会被解析（仅为满足契约的占位）。
+    // 展示名 / 简介为纯 i18n key，namespace 由 displayNamespace() 提供。核心插件无单一内容 namespace、GUI 不呈现它
+    // （必选），但 Web 插件管理页会展示并解析；故 displayNamespace() 显式借用插件管理页的 plugins namespace。
+    @Override
+    public String displayNamespace() {
+        return "plugins";
+    }
+
     @Override
     public String displayName() {
-        return "plugin.label";
+        return "name.core";
     }
 
     @Override
     public String description() {
-        return "plugin.summary";
+        return "summary.core";
     }
 
     @Override
@@ -100,6 +106,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/monitor.html"),
                 WebRouteContribution.admin("/pixiv-invite-manage.html"),
                 WebRouteContribution.admin("/pixiv-invite-detail.html"),
+                WebRouteContribution.admin("/plugin-manage.html"),
                 WebRouteContribution.admin("/api/downloaded/batch"),
                 // （/api/schedule/** 随 schedule 能力收编进下载工作台，由 DownloadWorkbenchPlugin 声明）
                 WebRouteContribution.admin("/api/admin/**"),
@@ -111,6 +118,8 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/monitor/**"),
                 WebRouteContribution.admin("/pixiv-invite-manage/**"),
                 WebRouteContribution.admin("/pixiv-invite-detail/**"),
+                // 插件管理页（plugin-manage.html）的页面专属静态资源（JS / CSS），仅管理员。
+                WebRouteContribution.admin("/plugin-manage/**"),
                 // ── monitor + 访客只读（受邀访客可读、multi 匿名访客被挡）─────────────────────────
                 WebRouteContribution.invitedGuest("/api/downloaded/statistics"),
                 WebRouteContribution.invitedGuest("/api/downloaded/history"),
@@ -258,14 +267,16 @@ public class CorePlugin implements PixivFeaturePlugin {
                 new I18nContribution("monitor", "i18n.web.monitor", 15),
                 new I18nContribution("invite", "i18n.web.invite", 17),
                 new I18nContribution("tour", "i18n.web.tour", 18),
-                new I18nContribution("maintenance", "i18n.web.maintenance", 19));
+                new I18nContribution("maintenance", "i18n.web.maintenance", 19),
+                // 插件管理页（plugin-manage.html）专属文案；同时承载无内容 namespace 的核心 / 计划任务宿主插件名称 / 简介。
+                new I18nContribution("plugins", "i18n.web.plugins", 20));
     }
 
     @Override
     public List<NavigationContribution> navigation() {
-        // 核心拥有的跨页基础入口：监控（管理员运行监控）与邀请码管理（管理员邀请治理）。两者均 ADMIN，
-        // 仅管理员身份在 /api/navigation 可见（受邀访客 / multi 匿名访客看不到、点开本会 403）。标签走核心
-        // 自有 i18n namespace（monitor / invite），与各功能插件的 nav.label 同一套「插件自有 i18n」机制。
+        // 核心拥有的跨页基础入口：监控（管理员运行监控）、邀请码管理（管理员邀请治理）与插件管理（管理员插件治理）。
+        // 三者均 ADMIN，仅管理员身份在 /api/navigation 可见（受邀访客 / multi 匿名访客看不到、点开本会 403）。标签走核心
+        // 自有 i18n namespace（monitor / invite / plugins），与各功能插件的 nav.label 同一套「插件自有 i18n」机制。
         //
         // placement：监控是基础页面，进顶部栏 + 各侧栏（含中立主侧栏 app.sidebar，priority 20，仅次于下载工作台 10，
         // 排在功能页面之前）。邀请码管理是管理入口，只进各侧栏、不进顶部栏（priority 80：侧栏内最末，符合「管理入口
@@ -276,12 +287,20 @@ public class CorePlugin implements PixivFeaturePlugin {
                         "monitor",
                         Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
                                 NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR),
-                        "monitor:nav.label", "/monitor.html", "monitor", AccessPolicy.ADMIN, 20),
+                        "monitor", "nav.label", "/monitor.html", "monitor", AccessPolicy.ADMIN, 20),
                 new NavigationContribution(
                         "invite-manage",
                         Set.of(NavigationPlacements.APP_SIDEBAR, NavigationPlacements.GALLERY_SIDEBAR,
                                 NavigationPlacements.NOVEL_SIDEBAR),
-                        "invite:nav.label", "/pixiv-invite-manage.html",
-                        "invite-manage", AccessPolicy.ADMIN, 80));
+                        "invite", "nav.label", "/pixiv-invite-manage.html",
+                        "invite-manage", AccessPolicy.ADMIN, 80),
+                // 插件管理：顶部应用导航栏入口，与下载工作台 / 监控 / 画廊 / 小说同级（不进各侧栏——它是顶部栏级页面、
+                // 非画廊 / 小说家族侧栏入口）。priority 85 仍为内置最大值，使其排在全部内置基础 / 功能页面之后
+                //（顶部栏内「管理入口在末尾」，内置必选业务页面靠前）。
+                new NavigationContribution(
+                        "plugin-manage",
+                        NavigationPlacements.APP_TOP,
+                        "plugins", "nav.label", "/plugin-manage.html",
+                        "puzzle", AccessPolicy.ADMIN, 85));
     }
 }
