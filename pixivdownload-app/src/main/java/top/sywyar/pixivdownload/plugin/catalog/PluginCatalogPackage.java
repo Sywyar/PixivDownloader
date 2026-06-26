@@ -15,6 +15,8 @@ import java.util.List;
  * @param dependencies      声明的插件间依赖（展示用；安装时由下载包描述符权威解析）
  * @param releasedTime      该版本发布时间（ISO-8601 字符串，可空；仅展示——版本历史 / 更新日志）
  * @param changeNotes       该版本更新说明条目（可空；仅展示——详情弹窗的更新日志）
+ * @param channel           发布通道（如 {@code stable} / {@code beta}；可空，{@code null} 视为 {@code stable}；仅展示 / 过滤）
+ * @param deprecated        该版本是否已下架 / 不建议安装（仅展示，页面可置灰；不阻断安装）
  */
 public record PluginCatalogPackage(
         String version,
@@ -25,7 +27,9 @@ public record PluginCatalogPackage(
         String requiredCoreApi,
         List<String> dependencies,
         String releasedTime,
-        List<String> changeNotes) {
+        List<String> changeNotes,
+        String channel,
+        boolean deprecated) {
 
     public PluginCatalogPackage {
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();

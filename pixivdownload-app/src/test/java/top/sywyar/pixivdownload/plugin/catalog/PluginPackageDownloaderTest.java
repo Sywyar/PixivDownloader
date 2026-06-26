@@ -133,7 +133,7 @@ class PluginPackageDownloaderTest {
     }
 
     private static PluginCatalogPackage pkg(String url, Long size, String sha256, String signature) {
-        return new PluginCatalogPackage("1.0.0", url, size, sha256, signature, null, List.of(), null, List.of());
+        return new PluginCatalogPackage("1.0.0", url, size, sha256, signature, null, List.of(), null, List.of(), null, false);
     }
 
     private static void assertCode(PluginPackageDownloader downloader, PluginCatalogPackage pkg,

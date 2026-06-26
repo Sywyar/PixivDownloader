@@ -64,10 +64,10 @@ class PluginCatalogControllerTest {
     @DisplayName("GET /api/plugins/catalog 启用：200 + enabled=true + 条目摘要（含兼容标记、不含市场字段）")
     void getCatalogEnabled() throws Exception {
         when(acquisitionService.isEnabled()).thenReturn(true);
-        when(acquisitionService.loadManifest()).thenReturn(new PluginCatalogManifest("1", List.of(
+        when(acquisitionService.loadManifest()).thenReturn(new PluginCatalogManifest("1", null, List.of(
                 new PluginCatalogEntry("stats", "stats:nav.label", "stats:plugin.summary", null, List.of(
                         new PluginCatalogPackage("1.2.3", "https://example.com/stats-1.2.3.jar",
-                                4096L, "abcdef", null, "1.0", List.of(), null, List.of()))))));
+                                4096L, "abcdef", null, "1.0", List.of(), null, List.of(), null, false))))));
 
         mockMvc.perform(get("/api/plugins/catalog"))
                 .andExpect(status().isOk())

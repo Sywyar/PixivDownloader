@@ -176,19 +176,26 @@ class PluginCatalogServiceTest {
     }
 
     @Test
-    @DisplayName("解析市场元数据：market 块（分类 / 作者 / 标签 / 评分 / 下载量 / 图标 token）+ 版本包发布时间 / 更新日志")
+    @DisplayName("解析市场元数据：market 块（本地化名称 / 简介 / 作者 / 来源 / 分类 / 标签 / 主页 / 许可证 / 评分 / 下载量 / token）+ 版本包发布时间 / 通道 / 下架 / 更新日志 + 清单生成时间")
     void parsesMarketMetadata() {
         PluginCatalogService service = service(false, "");
         String json = """
                 {
+                  "schemaVersion": "1",
+                  "generatedTime": "2026-06-27T00:00:00Z",
                   "entries": [
                     {
                       "pluginId": "stats",
                       "market": {
+                        "displayName": {"zh": "统计", "en": "Statistics"},
+                        "summary": {"zh": "下载统计仪表盘", "en": "Download stats dashboard"},
+                        "description": {"zh": "更详细的说明", "en": "Longer description"},
                         "author": "Sywyar",
                         "sourceType": "official",
                         "category": "utility",
                         "tags": ["stats", "dashboard"],
+                        "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+                        "license": "MIT",
                         "rating": 4.5,
                         "ratingCount": 12,
                         "downloadCount": 1820,
@@ -206,7 +213,9 @@ class PluginCatalogServiceTest {
                           "expectedSizeBytes": 4096,
                           "sha256": "abcdef",
                           "releasedTime": "2026-06-20",
-                          "changeNotes": ["fix A", "add B"]
+                          "changeNotes": ["fix A", "add B"],
+                          "channel": "beta",
+                          "deprecated": true
                         }
                       ]
                     }
@@ -216,13 +225,19 @@ class PluginCatalogServiceTest {
 
         PluginCatalogManifest manifest = service.parseManifest(json.getBytes(StandardCharsets.UTF_8));
 
+        assertThat(manifest.generatedTime()).isEqualTo("2026-06-27T00:00:00Z");
         PluginCatalogEntry entry = manifest.entries().get(0);
         PluginCatalogMarketMeta market = entry.market();
         assertThat(market).isNotNull();
+        assertThat(market.displayName()).containsEntry("zh", "统计").containsEntry("en", "Statistics");
+        assertThat(market.summary()).containsEntry("en", "Download stats dashboard");
+        assertThat(market.description()).containsEntry("zh", "更详细的说明");
         assertThat(market.author()).isEqualTo("Sywyar");
         assertThat(market.sourceType()).isEqualTo("official");
         assertThat(market.category()).isEqualTo("utility");
         assertThat(market.tags()).containsExactly("stats", "dashboard");
+        assertThat(market.homepageUrl()).isEqualTo("https://github.com/Sywyar/PixivDownloader");
+        assertThat(market.license()).isEqualTo("MIT");
         assertThat(market.rating()).isEqualTo(4.5);
         assertThat(market.ratingCount()).isEqualTo(12);
         assertThat(market.downloadCount()).isEqualTo(1820L);
@@ -232,6 +247,8 @@ class PluginCatalogServiceTest {
         PluginCatalogPackage pkg = entry.packages().get(0);
         assertThat(pkg.releasedTime()).isEqualTo("2026-06-20");
         assertThat(pkg.changeNotes()).containsExactly("fix A", "add B");
+        assertThat(pkg.channel()).isEqualTo("beta");
+        assertThat(pkg.deprecated()).isTrue();
     }
 
     @Test

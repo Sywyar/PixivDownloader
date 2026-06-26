@@ -9,9 +9,10 @@ import java.util.Optional;
  * updateAvailable）由解析器<b>忽略</b>，不夹带进当前最小后端闭环。
  *
  * @param schemaVersion 清单 schema 版本（前向兼容标记，可空）
+ * @param generatedTime 清单生成时间（ISO-8601 字符串，可空；仅作新鲜度 / 诊断展示）
  * @param entries       插件条目列表
  */
-public record PluginCatalogManifest(String schemaVersion, List<PluginCatalogEntry> entries) {
+public record PluginCatalogManifest(String schemaVersion, String generatedTime, List<PluginCatalogEntry> entries) {
 
     public PluginCatalogManifest {
         entries = entries != null ? List.copyOf(entries) : List.of();
@@ -19,7 +20,7 @@ public record PluginCatalogManifest(String schemaVersion, List<PluginCatalogEntr
 
     /** 空清单（catalog 未启用 / 无条目）。 */
     public static PluginCatalogManifest empty() {
-        return new PluginCatalogManifest(null, List.of());
+        return new PluginCatalogManifest(null, null, List.of());
     }
 
     /** 按插件 id 精确查找条目。 */
