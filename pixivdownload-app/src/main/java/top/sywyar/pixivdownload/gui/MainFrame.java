@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.panel.AboutPanel;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
+import top.sywyar.pixivdownload.gui.panel.PluginsPanel;
 import top.sywyar.pixivdownload.gui.panel.SecurityPanel;
 import top.sywyar.pixivdownload.gui.panel.StatusPanel;
 import top.sywyar.pixivdownload.gui.panel.ToolsPanel;
@@ -36,6 +37,7 @@ public class MainFrame extends JFrame {
     private StatusPanel statusPanel;
     private ToolsPanel toolsPanel;
     private ConfigPanel configPanel;
+    private PluginsPanel pluginsPanel;
 
     public MainFrame(int serverPort, String rootFolder, Path configPath) {
         super(GuiMessages.get("app.name"));
@@ -107,8 +109,11 @@ public class MainFrame extends JFrame {
 
         toolsPanel = new ToolsPanel(configPath);
         configPanel = new ConfigPanel(configPath, serverPort);
+        // Web URL 构造复用状态页（scheme 按 SSL、主机名按域名推导，不写死协议 / 主机），用于「打开 Web 插件管理页」。
+        pluginsPanel = new PluginsPanel(serverPort, statusPanel::getWebUrl);
         tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
         tabs.addTab(GuiMessages.get("gui.tab.config"), configPanel);
+        tabs.addTab(GuiMessages.get("gui.tab.plugins"), pluginsPanel);
         tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
         tabs.addTab(GuiMessages.get("gui.tab.security"), new SecurityPanel(serverPort));
         tabs.addTab(GuiMessages.get("gui.tab.about"), new AboutPanel());
@@ -139,6 +144,9 @@ public class MainFrame extends JFrame {
         }
         if (toolsPanel != null) {
             toolsPanel.dispose();
+        }
+        if (pluginsPanel != null) {
+            pluginsPanel.dispose();
         }
 
         setTitle(GuiMessages.get("app.name"));
@@ -187,6 +195,9 @@ public class MainFrame extends JFrame {
         }
         statusPanel.dispose();
         toolsPanel.dispose();
+        if (pluginsPanel != null) {
+            pluginsPanel.dispose();
+        }
         super.dispose();
     }
 
