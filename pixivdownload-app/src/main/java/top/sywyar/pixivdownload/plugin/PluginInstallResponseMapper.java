@@ -10,8 +10,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
 
 /**
  * 把后端事实 {@link PluginInstallReport} 映射为对外 {@link PluginInstallResponse}（叠加稳定 {@code outcome} + HTTP 状态 +
- * 本地化 {@code message}）。本地包上传安装（{@link PluginManagementController}）与受信 catalog 安装
- * （{@code PluginCatalogController}）共用同一映射，使两条安装路径的响应形态 / 状态分档 / 文案完全一致。
+ * 本地化 {@code message}）。本地包上传安装（{@link PluginManagementController}）与受信仓库市场安装
+ * （{@code PluginMarketController}）共用同一映射，使两条安装路径的响应形态 / 状态分档 / 文案完全一致。
  */
 @Component
 public class PluginInstallResponseMapper {

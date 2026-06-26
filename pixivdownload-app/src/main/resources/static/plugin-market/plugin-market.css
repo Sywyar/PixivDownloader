@@ -1,0 +1,208 @@
+/* 插件市场页样式（最小占位）：全部颜色走 CSS 变量令深色模式（html[data-theme="dark"]）自动跟随。
+   完整的市场卡片 / 筛选 / 详情弹窗界面随后提供，本页只渲染受信仓库状态与核心 API 版本。 */
+
+:root {
+    --page-bg: #f5f5f5;
+    --surface: #ffffff;
+    --surface-muted: #fafafa;
+    --border: #dddddd;
+    --text: #333333;
+    --text-secondary: #555555;
+    --muted: #888888;
+    --brand: #28a745;
+    --brand-text: #ffffff;
+    --accent-teal: #17a2b8;
+    --accent-purple: #6610f2;
+    --status-green: #22a447;
+    --status-red: #dc3545;
+    --status-idle: #9ca3af;
+    --warning-bg: #fff8e1;
+    --warning-text: #856404;
+    --shadow-card: 0 1px 4px rgba(0, 0, 0, .12);
+    --radius-sm: 5px;
+    --radius-md: 8px;
+    --radius-pill: 999px;
+    --transition: .18s cubic-bezier(.4, 0, .2, 1);
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+}
+
+html[data-theme="dark"] {
+    --page-bg: #101216;
+    --surface: #171a21;
+    --surface-muted: #151922;
+    --border: #303746;
+    --text: #f4f7fb;
+    --text-secondary: #c7cfdb;
+    --muted: #a7b0bf;
+    --brand: #2e7a3f;
+    --brand-text: #f4f7fb;
+    --warning-bg: #2a2410;
+    --warning-text: #e8c869;
+    --shadow-card: 0 1px 4px rgba(0, 0, 0, .4);
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background: var(--page-bg);
+    color: var(--text);
+}
+
+/* —— 顶部应用导航栏 —— */
+.app-nav {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+.app-nav-brand-wrap { display: flex; align-items: center; gap: 8px; }
+.app-nav-logo { color: var(--accent-purple); font-size: 18px; }
+.app-nav-brand { font-weight: 700; }
+.app-nav-links { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.app-nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 14px;
+    transition: var(--transition);
+}
+.app-nav-link:hover { background: var(--surface-muted); color: var(--text); }
+.app-nav-link.active { background: var(--accent-purple); color: #fff; }
+.app-nav-spacer { flex: 1; }
+.app-nav-actions { display: flex; align-items: center; gap: 8px; }
+.app-nav-logout {
+    border: 1px solid var(--border);
+    background: var(--surface-muted);
+    color: var(--text-secondary);
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 14px;
+}
+.app-nav-logout:hover { color: var(--text); }
+
+/* —— 页面主体 —— */
+.pmk-page { max-width: 1080px; margin: 0 auto; padding: 24px 20px 48px; }
+
+.pmk-titlebar {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+.pmk-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 6px;
+    font-size: 24px;
+}
+.pmk-title i { color: var(--accent-purple); }
+.pmk-subtitle { margin: 0; color: var(--muted); font-size: 14px; }
+.pmk-titlebar-actions { display: flex; gap: 8px; }
+
+.pmk-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 14px;
+    transition: var(--transition);
+}
+.pmk-btn:hover { background: var(--surface-muted); }
+.pmk-btn--teal { border-color: var(--accent-teal); color: var(--accent-teal); }
+
+/* —— 主开关横幅 —— */
+.pmk-master {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    margin-bottom: 18px;
+    font-size: 14px;
+}
+.pmk-master--on { background: rgba(40, 167, 69, .12); color: var(--status-green); }
+.pmk-master--off { background: var(--warning-bg); color: var(--warning-text); }
+.pmk-master .pmk-master-meta { margin-left: auto; color: var(--muted); font-size: 13px; }
+
+/* —— 仓库区 —— */
+.pmk-section { margin-bottom: 24px; }
+.pmk-section-title { font-size: 16px; margin: 0 0 12px; }
+.pmk-repo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+}
+.pmk-repo-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    box-shadow: var(--shadow-card);
+}
+.pmk-repo-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.pmk-repo-name { font-weight: 600; }
+.pmk-repo-id { color: var(--muted); font-size: 12px; }
+.pmk-repo-url {
+    color: var(--text-secondary);
+    font-size: 12px;
+    word-break: break-all;
+    margin: 6px 0;
+}
+.pmk-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.pmk-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    font-size: 12px;
+    background: var(--surface-muted);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+}
+.pmk-badge--on { background: rgba(40, 167, 69, .12); color: var(--status-green); border-color: transparent; }
+.pmk-badge--off { background: rgba(220, 53, 69, .12); color: var(--status-red); border-color: transparent; }
+.pmk-badge--official { background: rgba(102, 16, 242, .12); color: var(--accent-purple); border-color: transparent; }
+.pmk-badge--default { background: rgba(23, 162, 184, .12); color: var(--accent-teal); border-color: transparent; }
+
+/* —— 状态 / 空 / 错误 —— */
+.pmk-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 20px;
+    color: var(--muted);
+    font-size: 14px;
+}
+.pmk-state--error { color: var(--status-red); }
+
+.pmk-note {
+    background: var(--surface-muted);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+.pmk-disclaimer { color: var(--muted); font-size: 12px; text-align: center; }

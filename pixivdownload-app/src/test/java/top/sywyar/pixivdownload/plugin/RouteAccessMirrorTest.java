@@ -237,6 +237,10 @@ class RouteAccessMirrorTest {
         // 统计 stats 已外置：/api/stats/** 经外置插件 contribution 声明、不在内置快照（其 ADMIN 策略与
         // classloader-aware 接入由外置加载的集成测试覆盖）。
         assertOwnerPolicy("/api/duplicates/**", "duplicate", AccessPolicy.ADMIN);
+        // 插件市场：市场页 + 页面专属静态资源 + 后端市场 API，归 plugin-market 插件、ADMIN（admin-only，绝不入访客 / 公开）。
+        assertOwnerPolicy("/plugin-market.html", "plugin-market", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/plugin-market/**", "plugin-market", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/plugin-market/**", "plugin-market", AccessPolicy.ADMIN);
         // 计划任务宿主：计划任务管理 API（仅管理员），归 schedule 宿主插件声明。
         assertOwnerPolicy("/api/schedule/**", "schedule", AccessPolicy.ADMIN);
         // 下载工作台：下载页 / 提交 / 队列 / 扩展点（VISITOR，复刻未声明现状）。

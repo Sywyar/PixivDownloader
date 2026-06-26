@@ -45,13 +45,13 @@ class PluginStatusServiceBootContextTest {
     private PluginStatusService pluginStatusService;
 
     @Test
-    @DisplayName("六个内置插件全部 STARTED、API 兼容，无不兼容 / 失败 / 未满足必选要求（stats 已外置、不在内置清单）")
+    @DisplayName("七个内置插件全部 STARTED、API 兼容，无不兼容 / 失败 / 未满足必选要求（stats 已外置、不在内置清单）")
     void builtInPluginsAreAllStartedAndCompatible() {
         PluginStatusReport report = pluginStatusService.report();
 
         assertThat(report.withStatus(PluginStatus.STARTED)).extracting(PluginDiagnostic::id)
                 .containsExactlyInAnyOrder(
-                        "core", "download-workbench", "schedule", "gallery", "novel", "duplicate");
+                        "core", "download-workbench", "schedule", "gallery", "novel", "duplicate", "plugin-market");
         assertThat(report.withStatus(PluginStatus.INCOMPATIBLE)).isEmpty();
         assertThat(report.withStatus(PluginStatus.FAILED)).isEmpty();
         assertThat(report.hasUnmetRequirement()).isFalse();

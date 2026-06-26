@@ -76,12 +76,12 @@ class PluginRuntimeBootContextTest {
     }
 
     @Test
-    @DisplayName("内置插件注册 / required 语义不因 PF4J 发现桥接接线而改变：六个内置插件仍在活动快照、来源均为内置（stats 已外置）")
+    @DisplayName("内置插件注册 / required 语义不因 PF4J 发现桥接接线而改变：七个内置插件仍在活动快照、来源均为内置（stats 已外置）")
     void builtInPluginRegistrationIntact() {
         assertThat(pluginRegistry.plugins())
                 .extracting(PixivFeaturePlugin::id)
                 .containsExactlyInAnyOrder(
-                        "core", "download-workbench", "schedule", "gallery", "novel", "duplicate");
+                        "core", "download-workbench", "schedule", "gallery", "novel", "duplicate", "plugin-market");
         // 无外置插件接入：全部活动插件来源均为内置
         assertThat(pluginRegistry.registeredPlugins())
                 .allSatisfy(rp -> assertThat(rp.source()).isEqualTo(PluginSource.BUILT_IN));

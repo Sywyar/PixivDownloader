@@ -39,18 +39,32 @@ public class PluginCatalogAcquisitionService {
         return catalogService.isEnabled();
     }
 
-    /** 加载受信清单（未启用 → {@link PluginCatalogErrorCode#CATALOG_DISABLED}；不可用 → {@code CATALOG_UNAVAILABLE}）。 */
+    /** 加载默认仓库的受信清单（未启用 → {@link PluginCatalogErrorCode#CATALOG_DISABLED}；不可用 → {@code CATALOG_UNAVAILABLE}）。 */
     public PluginCatalogManifest loadManifest() {
         return catalogService.load();
     }
 
     /**
-     * 从受信 catalog 安装指定 id + version 的插件。catalog 禁用 / 不可用、未知 id、版本缺失、URL 不安全 / 阻断地址 /
+     * 从<b>默认仓库</b>安装指定 id + version 的插件。catalog 禁用 / 不可用、未知 id、版本缺失、URL 不安全 / 阻断地址 /
      * 超限 / 下载失败 → {@link PluginCatalogException}；下载成功后的安装结局（含完整性不符 {@code REJECTED_INTEGRITY}、
      * 不兼容、Zip Slip 等）由 {@link PluginInstallReport} 承载（复用本地安装的结果模型）。
      */
     public PluginInstallReport install(String pluginId, String version) {
-        PluginCatalogManifest manifest = catalogService.load(); // throws DISABLED / UNAVAILABLE
+        return installFrom(catalogService.load(), pluginId, version); // throws DISABLED / UNAVAILABLE
+    }
+
+    /**
+     * 从<b>指定仓库</b>（{@code repositoryId} 只能引用服务端已配置仓库，绝不接受任意 URL）安装指定 id + version 的插件。
+     * 未知仓库 → {@link PluginCatalogErrorCode#UNKNOWN_REPOSITORY}、仓库禁用 → {@code REPOSITORY_DISABLED}、代理策略不支持 →
+     * {@code PROXY_POLICY_UNSUPPORTED}、主开关关闭 → {@code CATALOG_DISABLED}、清单失败 → {@code CATALOG_UNAVAILABLE}、未知 id /
+     * 版本缺失 / URL 不安全 / 阻断地址 / 超限 / 下载失败 → 对应稳定码；下载成功后的安装结局由 {@link PluginInstallReport} 承载。
+     */
+    public PluginInstallReport install(String repositoryId, String pluginId, String version) {
+        return installFrom(catalogService.load(repositoryId), pluginId, version);
+    }
+
+    /** 在给定清单里按 id+version 选包 → SSRF 安全下载到临时文件 → 受信完整性 / 结构 / 兼容校验落盘 → 删临时文件。 */
+    private PluginInstallReport installFrom(PluginCatalogManifest manifest, String pluginId, String version) {
         PluginCatalogEntry entry = manifest.findEntry(pluginId).orElseThrow(() ->
                 new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_PLUGIN, pluginId, version,
                         "plugin not found in catalog: " + pluginId));

@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.download.DownloadWorkbenchPluginConfiguration;
 import top.sywyar.pixivdownload.duplicate.DuplicatePluginConfiguration;
 import top.sywyar.pixivdownload.gallery.GalleryPluginConfiguration;
 import top.sywyar.pixivdownload.novel.NovelPluginConfiguration;
+import top.sywyar.pixivdownload.plugin.market.PluginMarketPluginConfiguration;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -122,6 +123,19 @@ class RegisteredPluginsTest {
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean("novelDownloadTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
+            // 插件市场托管 Bean（PluginMarketService / PluginMarketController）随 PluginMarketPluginConfiguration 装配，
+            // 其依赖的 catalog 引擎（仓库注册中心 / 清单读取 / 受信安装编排，核心基础设施、根包扫描）与安装响应映射 /
+            // locale 解析在本切片里一律 mock 兜底。
+            .withBean(top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry.class))
+            .withBean(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.PluginInstallResponseMapper.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.PluginInstallResponseMapper.class))
+            .withBean(top.sywyar.pixivdownload.i18n.AppLocaleResolver.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.i18n.AppLocaleResolver.class))
             // 插件启用开关：空实例代表全部启用（本切片不验证禁用语义，只需 PluginRegistry 的 @Autowired 构造可解析）。
             .withBean(PluginToggleProperties.class, PluginToggleProperties::new)
             // 作品类型执行器注册中心用真实 Bean：收集下载工作台贡献的插画执行器 + 小说插件贡献的小说执行器，
@@ -133,19 +147,20 @@ class RegisteredPluginsTest {
                     GalleryPluginConfiguration.class,
                     NovelPluginConfiguration.class,
                     DuplicatePluginConfiguration.class,
+                    PluginMarketPluginConfiguration.class,
                     PluginRegistry.class,
                     top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry.class,
                     DatabaseSchemaRegistry.class);
 
     @Test
-    @DisplayName("六个内置插件经各自 Configuration 注册进 PluginRegistry（stats 已外置、不在内置清单）")
+    @DisplayName("七个内置插件经各自 Configuration 注册进 PluginRegistry（stats 已外置、不在内置清单）")
     void allPluginsRegistered() {
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins())
                     .extracting(PixivFeaturePlugin::id)
                     .containsExactlyInAnyOrder(
-                            "core", "download-workbench", "schedule", "gallery", "novel", "duplicate");
+                            "core", "download-workbench", "schedule", "gallery", "novel", "duplicate", "plugin-market");
         });
     }
 
@@ -169,13 +184,13 @@ class RegisteredPluginsTest {
         // download-workbench 声明下载页与提交 / 队列 / 状态 API；计划任务宿主 schedule 声明 /api/schedule/** 路由
         //（下载页其余 API 是跨插件共享、留核心）。
         // 导航：四个 web 功能插件 + core（监控 / 邀请码管理基础入口）+ download-workbench（下载页入口，前端导航开槽）。
-        Set<String> routeContributingPlugins = Set.of("core", "download-workbench", "schedule", "duplicate", "gallery", "novel");
+        Set<String> routeContributingPlugins = Set.of("core", "download-workbench", "schedule", "duplicate", "gallery", "novel", "plugin-market");
         // i18n namespace 由有前端页面的五个内置插件声明（页面跟插件走、核心/共享 namespace 留 core）；计划任务宿主
         // schedule 是无前端的调度宿主（只声明 /api/schedule 路由），不声明 i18n namespace；统计 stats 已外置、其
         // namespace 经外置插件 contribution 注册，不在内置清单。
-        Set<String> i18nContributingPlugins = Set.of("core", "download-workbench", "duplicate", "gallery", "novel");
-        Set<String> navContributingPlugins = Set.of("core", "download-workbench", "duplicate", "gallery", "novel");
-        Set<String> staticResourceContributingPlugins = Set.of("core", "download-workbench", "duplicate", "gallery", "novel");
+        Set<String> i18nContributingPlugins = Set.of("core", "download-workbench", "duplicate", "gallery", "novel", "plugin-market");
+        Set<String> navContributingPlugins = Set.of("core", "download-workbench", "duplicate", "gallery", "novel", "plugin-market");
+        Set<String> staticResourceContributingPlugins = Set.of("core", "download-workbench", "duplicate", "gallery", "novel", "plugin-market");
         // 下载页扩展点：作品类型由「下载什么」的插件声明（download-workbench=illust，novel=novel）；
         // 获取方式标签页（怎么找作品）唯下载工作台声明。
         Set<String> queueTypeContributingPlugins = Set.of("download-workbench", "novel");

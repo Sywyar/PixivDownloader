@@ -149,14 +149,15 @@ class NavigationControllerTest {
     // ========== 来源层级 + placement 内 priority 排序 ==========
 
     @Test
-    @DisplayName("管理员的 app.top placement 顺序：下载工作台、监控、画廊、小说、疑似重复、插件管理（自带基础页面在前、插件管理在末；stats 已外置）")
+    @DisplayName("管理员的 app.top placement 顺序：下载工作台、监控、画廊、小说、疑似重复、插件管理、插件市场（自带基础页面在前、管理入口在末；stats 已外置）")
     void adminAppTopPlacementOrder() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
 
-        // 插件管理（管理入口，priority 85）排在全部内置基础 / 功能页面之后——内置必选业务页面靠前。
+        // 插件管理（管理入口，priority 85）、插件市场（priority 86）排在全部内置基础 / 功能页面之后——内置必选业务页面靠前。
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate", "plugin-manage");
+                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate",
+                        "plugin-manage", "plugin-market");
     }
 
     @Test
@@ -194,8 +195,8 @@ class NavigationControllerTest {
         NavigationController controller = controllerFor(new NavigationRegistry(new PluginRegistry(plugins)));
 
         assertThat(idsInPlacement(controller, adminRequest(), "app.top"))
-                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate", "plugin-manage",
-                        "third-party-demo");
+                .containsExactly("download-workbench", "monitor", "gallery", "novel", "duplicate",
+                        "plugin-manage", "plugin-market", "third-party-demo");
     }
 
     // ========== placement 随插件禁用消失 ==========
@@ -254,9 +255,9 @@ class NavigationControllerTest {
         List<String> ids = controller.navigation(request).stream()
                 .map(NavigationController.NavigationView::id).toList();
 
-        // 受邀访客可见画廊 / 小说（INVITED_GUEST）；不可见 ADMIN 项与 VISITOR 下载页。
+        // 受邀访客可见画廊 / 小说（INVITED_GUEST）；不可见 ADMIN 项（监控 / 疑似重复 / 邀请码管理 / 插件管理 / 插件市场）与 VISITOR 下载页。
         assertThat(ids).contains("gallery", "novel")
-                .doesNotContain("monitor", "duplicate", "invite-manage", "plugin-manage", "download-workbench");
+                .doesNotContain("monitor", "duplicate", "invite-manage", "plugin-manage", "plugin-market", "download-workbench");
     }
 
     /** 最小测试插件：以给定 id 与导航项构造，其余 contribution 为空（非内置 → 来源层级为第三方）。 */

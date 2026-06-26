@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.duplicate.DuplicatePlugin;
 import top.sywyar.pixivdownload.gallery.GalleryPlugin;
 import top.sywyar.pixivdownload.novel.NovelPlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.market.PluginMarketPlugin;
 import top.sywyar.pixivdownload.schedule.ScheduleHostPlugin;
 
 import java.util.List;
@@ -32,7 +33,8 @@ public final class BuiltInPlugins {
                 new ScheduleHostPlugin(),
                 new GalleryPlugin(),
                 new NovelPlugin(),
-                new DuplicatePlugin());
+                new DuplicatePlugin(),
+                new PluginMarketPlugin());
     }
 
     /** 必选插件 id 集合（{@link PixivFeaturePlugin#required()}），随内置清单固定。 */

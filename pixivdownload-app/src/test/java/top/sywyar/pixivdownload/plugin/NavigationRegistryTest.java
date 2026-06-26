@@ -29,13 +29,13 @@ class NavigationRegistryTest {
     void collectsNavigationFromBuiltInPlugins() {
         NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
         // 每条导航项是一个逻辑入口（id 全局唯一、可经 placements 同时进入多个 slot）。内置入口全集：
-        // 下载工作台 / 监控 / 邀请码管理 / 插件管理（基础）+ 画廊主入口及其类型切换 / 统计页视图三链 + 小说主入口及其类型切换
-        // + 疑似重复。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 已外置，其导航项经外置
-        // 插件 contribution 注册、不在内置清单。
+        // 下载工作台 / 监控 / 邀请码管理 / 插件管理 / 插件市场（基础 + 管理）+ 画廊主入口及其类型切换 / 统计页视图三链
+        // + 小说主入口及其类型切换 + 疑似重复。画廊的疑似重复页图标由主入口经 placement 兼任、不另立 id。统计 stats 已外置，
+        // 其导航项经外置插件 contribution 注册、不在内置清单。
         assertThat(registry.navigation())
                 .extracting(registered -> registered.navigation().id())
                 .containsExactlyInAnyOrder(
-                        "download-workbench", "monitor", "invite-manage", "plugin-manage",
+                        "download-workbench", "monitor", "invite-manage", "plugin-manage", "plugin-market",
                         "gallery", "gallery-type-switch",
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series",
                         "novel", "novel-type-switch", "duplicate");
@@ -75,6 +75,15 @@ class NavigationRegistryTest {
                 .singleElement()
                 .satisfies(registered -> assertThat(registered.navigation().placements())
                         .containsExactly("app.top"));
+        // 插件市场导航归 plugin-market 插件、ADMIN 可见、只进顶部栏 placement（app.top）；随插件启停进出快照。
+        assertThat(registry.navigation())
+                .filteredOn(registered -> registered.navigation().id().equals("plugin-market"))
+                .singleElement()
+                .satisfies(registered -> {
+                    assertThat(registered.pluginId()).isEqualTo("plugin-market");
+                    assertThat(registered.navigation().visibleTo()).isEqualTo(AccessPolicy.ADMIN);
+                    assertThat(registered.navigation().placements()).containsExactly("app.top");
+                });
     }
 
     @Test
