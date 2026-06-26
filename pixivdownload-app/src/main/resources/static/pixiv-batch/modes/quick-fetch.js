@@ -348,6 +348,9 @@
         document.getElementById('quick-add-page').style.display = opts.showAdd ? '' : 'none';
         document.getElementById('quick-add-all').style.display = opts.showAdd ? '' : 'none';
         document.getElementById('quick-following-search').style.display = opts.showSearch ? '' : 'none';
+        // 收起按钮仅在有作品网格（可加入队列）时出现，与「加入队列」按钮同显隐。
+        const collapseBtn = document.getElementById('quick-collapse-page');
+        if (collapseBtn) collapseBtn.style.display = opts.showAdd ? '' : 'none';
     }
 
     // 加载态：转圈块 + 按钮 / 快捷按钮的 is-loading
@@ -386,7 +389,8 @@
         document.querySelectorAll('.quick-action').forEach(b => {
             b.classList.toggle('quick-active', b.dataset.quick === action);
         });
-        // 加载态：预览区转圈 + 当前按钮转圈
+        // 加载态：预览区转圈 + 当前按钮转圈（先展开预览，使加载态与新结果可见）
+        resetPreviewCollapse('quick-preview-area', 'quick-pagination');
         const area = document.getElementById('quick-preview-area');
         if (area) area.innerHTML = quickLoadingHtml();
         document.getElementById('quick-preview-toolbar').style.display = 'none';
@@ -1006,6 +1010,8 @@
     }
 
     function quickShowInnerSection() {
+        // 进入二层钻取：先展开内层预览，使新内容可见。
+        resetPreviewCollapse('quick-inner-area', 'quick-inner-pagination');
         const section = document.getElementById('quick-inner-section');
         if (section) {
             section.style.display = '';
@@ -1016,6 +1022,9 @@
     function quickShowInnerToolbar(opts) {
         document.getElementById('quick-inner-add-page').style.display = opts.showAdd ? '' : 'none';
         document.getElementById('quick-inner-add-all').style.display = opts.showAdd ? '' : 'none';
+        // 收起按钮与「加入队列」按钮同显隐。
+        const innerCollapse = document.getElementById('quick-inner-collapse-page');
+        if (innerCollapse) innerCollapse.style.display = opts.showAdd ? '' : 'none';
         const sw = document.getElementById('quick-inner-kind-switcher');
         sw.style.display = opts.showKindSwitcher ? '' : 'none';
         if (opts.showKindSwitcher && opts.kind) {

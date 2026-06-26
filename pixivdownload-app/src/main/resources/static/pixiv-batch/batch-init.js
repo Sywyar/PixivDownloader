@@ -258,8 +258,9 @@
             eligible: true,
             savedName: savedName || '',
             sel: {
-                cookieCard: '#cookie-card',
-                scriptsCard: '#userscripts-card',
+                // Cookie 与油猴脚本卡现折叠进「工具」抽屉：向导高亮抽屉条（始终可见），避免高亮抽屉内的隐藏元素。
+                cookieCard: '#tools-drawer',
+                scriptsCard: '#tools-drawer',
                 tabs: '.tabs',
                 singleImportTab: '#tab-single-import',
                 importTextarea: '#single-import-textarea',

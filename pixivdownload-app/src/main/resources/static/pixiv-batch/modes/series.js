@@ -182,6 +182,8 @@
     }
 
     function setSeriesLoading(message) {
+        // 新一轮加载 / 翻页：先展开预览，使加载态与新结果可见。
+        resetPreviewCollapse('series-results-area', 'series-pagination');
         document.getElementById('series-results-area').innerHTML =
             `<div style="color:#888;text-align:center;padding:24px 0;">${esc(message)}</div>`;
         updateSeriesQueueButtons(true);

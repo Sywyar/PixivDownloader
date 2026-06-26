@@ -90,12 +90,15 @@
     }
 
     function setUserLoading(message) {
+        // 新一轮加载 / 翻页：先展开预览，使加载态与新结果可见（用户可能此前手动收起了上一次的预览）。
+        resetPreviewCollapse('user-results-area', 'user-pagination');
         const area = document.getElementById('user-results-area');
         if (area) area.innerHTML = `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(message)}</div>`;
         updateUserQueueButtons(true);
     }
 
     function clearUserPreview() {
+        resetPreviewCollapse('user-results-area', 'user-pagination');
         cleanupUserBlobUrls();
         userState.allIds = [];
         userState.rawItems = [];

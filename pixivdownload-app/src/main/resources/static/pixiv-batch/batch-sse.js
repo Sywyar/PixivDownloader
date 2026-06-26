@@ -3,6 +3,8 @@
        SSE — 共享单连接版：所有作品复用同一条聚合 EventSource，按 artworkId 路由
     ============================================================ */
     function ensureSharedSSE() {
+        // 下载开始（worker 建立共享连接）即启动总速度计量；幂等。
+        startSpeedMeter();
         if (state.sharedSse) return;
         const src = new EventSource(`${BASE}/api/sse/download`);
         src.addEventListener('aggregated-ready', e => {
@@ -21,6 +23,8 @@
                 const aid = data && data.artworkId !== undefined && data.artworkId !== null
                     ? String(data.artworkId) : null;
                 if (!aid) return;
+                // 单一聚合连接是所有作品下载进度的汇聚点：在此累计字节用于总速度计量。
+                accumulateDownloadSpeed(aid, data);
                 (state.sseListeners[aid] || []).forEach(fn => fn(data));
             } catch {}
         });
@@ -72,6 +76,8 @@
     }
 
     function closeAllSSE() {
+        // 全部下载结束 / 队列清空：停止总速度计量并清零显示。
+        stopSpeedMeter();
         state.sseRefs = {};
         state.sseListeners = {};
         if (state.sharedSse) {

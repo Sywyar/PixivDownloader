@@ -21,6 +21,12 @@
         sseRefs: {},            // artworkId -> 引用计数；共享连接由批量任务生命周期统一关闭
         sseListeners: {},
         stats: {success: 0, failed: 0, active: 0, skipped: 0},
+        // 下载总速度计量（仅运行期，不持久化）：按 SSE 上报的字节进度算全局单调累计字节，定时采样得速度。
+        speedSamples: {},       // 传输流 key -> 已见累计字节（单调），用于算正增量
+        speedAccumBytes: 0,     // 全局累计下载字节（单调递增）
+        speedLastAccum: 0,      // 上次采样时的累计字节
+        speedLastTime: 0,       // 上次采样时间戳（ms）
+        speedTimer: null,       // 速度采样定时器句柄
         settings: {
             interval: 2,
             intervalUnit: 's',

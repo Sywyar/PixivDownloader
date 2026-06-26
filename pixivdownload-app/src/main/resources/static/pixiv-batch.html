@@ -36,572 +36,633 @@
     <button id="logout-btn" style="display:none;" class="app-nav-logout" onclick="doLogout()" data-i18n="auth.logout">Logout</button>
 </nav>
 
-<div class="page">
+<!-- 仪表盘式下载工作台：顶部统计 / 主操作条 → 左模式 rail · 中配置 · 右常驻队列 rail。
+     #download-workbench 为 display:contents 容器（CSS），其子节点（统计条 / 设置区 / 队列 rail）按 grid-area
+     落位；计划任务模式下 switchMode 把它整体 display:none（隐藏统计 / 设置 / 队列，保留左侧模式 rail 与计划面板）。 -->
+<div class="wb-shell">
 
-    <!-- Cookie -->
-    <div class="card" id="cookie-card">
-        <div class="card-title" data-i18n="cookie.title">Pixiv Cookie</div>
-        <div class="cookie-fmt">
-            <button id="fmt-header" class="active" onclick="setCookieFmt('header')" data-i18n="cookie.format.header">Header String</button>
-            <button id="fmt-json" onclick="setCookieFmt('json')" data-i18n="cookie.format.json">JSON</button>
-            <button id="fmt-netscape" onclick="setCookieFmt('netscape')" data-i18n="cookie.format.netscape">Netscape</button>
-        </div>
-        <div class="cookie-row">
-            <input type="password" id="cookie-input" data-i18n-placeholder="cookie.placeholder" placeholder="粘贴 Cookie...">
-            <button class="btn-sm" id="cookie-toggle" data-i18n="cookie.toggle.show">显示</button>
-            <button class="btn-cookie-save" id="cookie-save" data-i18n="common:button.save">保存</button>
-            <button class="btn-sm" id="cookie-import" hidden style="background:#e7f0fb;border-color:#1a73e8;" data-i18n="cookie.import">一键导入 Cookie</button>
-            <button class="btn-cookie-clear" id="cookie-clear" data-i18n="cookie.clear">清除</button>
-        </div>
-        <div class="cookie-status" id="cookie-status" role="status" aria-live="polite"></div>
-        <div class="cookie-hint" id="cookie-import-hint" hidden><span data-i18n="cookie.import-hint.prefix">「一键导入 Cookie」无效（如浏览器/脚本管理器无法读取登录态）时，请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.import-hint.suffix">，按其中步骤手动设置 Cookie。</span></div>
-        <div class="cookie-hint" id="cookie-hint"><span data-i18n="cookie.hint.prefix">支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。具体获取方法请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.hint.suffix">。</span></div>
-    </div>
-
-    <!-- Userscripts install card -->
-    <div class="card" id="userscripts-card">
-        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
-            <span data-i18n="userscripts.title">🧩 油猴脚本</span>
-            <button class="btn btn-green" style="padding:2px 10px;font-size:12px;" onclick="toggleUserscripts()" data-i18n="userscripts.toggle">展开 / 折叠</button>
-        </div>
-        <div id="userscripts-panel" hidden>
-            <div id="userscripts-hint" style="font-size:12px;color:#666;margin-bottom:10px;"><span data-i18n="userscripts.hint.prefix">需要先安装</span> <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> <span data-i18n="userscripts.hint.suffix">扩展。点击「安装」后 Tampermonkey 将弹出确认页面。</span></div>
-            <div id="userscripts-host-hint" style="font-size:12px;color:#17a2b8;margin-bottom:10px;display:none;"></div>
-            <div id="userscripts-list" style="display:flex;flex-direction:column;gap:10px;"></div>
-        </div>
-    </div>
-
-    <!-- Mode tabs -->
-    <div class="tabs">
+    <!-- 左：下载模式 rail（常驻；计划任务模式仍可见）。容器保留 .tabs 类（向导 / 新手引导以 .tabs 定位）。 -->
+    <aside class="mode-rail tabs" aria-label="下载模式">
+        <div class="mode-rail-title" data-i18n="dashboard.mode-rail">下载模式</div>
         <div class="tab active" id="tab-quick-fetch" onclick="switchMode('quick-fetch')" data-i18n="mode.quick-fetch">⭐ 快捷获取</div>
         <div class="tab" id="tab-single-import" onclick="switchMode('single-import')" data-i18n="mode.single-import">🎨 批量导入单作品</div>
         <div class="tab" id="tab-user" onclick="switchMode('user')" data-i18n="mode.user">👤 User 模式</div>
         <div class="tab" id="tab-search" onclick="switchMode('search')" data-i18n="mode.search">🔍 Search 模式</div>
         <div class="tab" id="tab-series" onclick="switchMode('series')" data-i18n="mode.series">📚 系列下载</div>
         <div class="tab" id="tab-schedule" style="display:none;" onclick="switchMode('schedule')" data-i18n="mode.schedule">⏰ 计划任务</div>
-    </div>
+    </aside>
 
-    <!-- Quick-fetch panel：基于当前 Cookie 主人 uid 拉取「我的」收藏 / 关注 / 珍藏集 / 作品。
-         无 Cookie（缺 PHPSESSID）时禁用所有动作按钮并显示提示。 -->
-    <div class="card mode-panel active" id="panel-quick-fetch">
-        <div class="card-title" data-i18n="quick.title">快捷获取账户相关作品</div>
-        <div class="quick-intro" data-i18n="quick.intro">通过当前保存的 Cookie 自动识别账号（基于 PHPSESSID 前缀），一键查看你的收藏 / 关注 / 珍藏集 / 自己的作品，并可直接加入下载队列。包含 hide（不公开）数据。</div>
-        <div class="quick-account" id="quick-account-bar">
-            <span data-i18n="quick.account.label">当前账号：</span>
-            <span id="quick-account-uid" class="quick-account-uid">-</span>
-            <span id="quick-account-hint" class="quick-account-hint" data-i18n="quick.account.hint-no-cookie">未检测到登录 Cookie，请先在上方保存含 PHPSESSID 的 Cookie</span>
-        </div>
-        <div class="quick-actions">
-            <button class="btn btn-blue quick-action" data-quick="my-illust-bookmarks-show" onclick="quickLoad('my-illust-bookmarks-show')" data-i18n="quick.action.illust-bookmarks-show">📖 我的收藏（插画/漫画，公开）</button>
-            <button class="btn btn-purple quick-action" data-quick="my-illust-bookmarks-hide" onclick="quickLoad('my-illust-bookmarks-hide')" data-i18n="quick.action.illust-bookmarks-hide">🔒 我的收藏（插画/漫画，不公开）</button>
-            <!-- 取得侧入口槽位：由作品类型插件经 queueTypes 贡献，禁用其插件时缺席（见 batch-queue-types.js） -->
-            <template data-qt-slot="quick-actions-bookmarks"></template>
-            <button class="btn btn-green quick-action" data-quick="my-illusts" onclick="quickLoad('my-illusts')" data-i18n="quick.action.my-illusts">🎨 我自己的作品（插画/漫画，含 hide）</button>
-            <template data-qt-slot="quick-actions-mine"></template>
-            <button class="btn btn-green quick-action" data-quick="my-request-artworks" onclick="quickLoad('my-request-artworks')" data-i18n="quick.action.my-request">🎁 我的约稿作品</button>
-            <button class="btn btn-cyan quick-action" data-quick="my-following-show" onclick="quickLoad('my-following-show')" data-i18n="quick.action.following-show">👥 我的关注（公开）</button>
-            <button class="btn btn-purple quick-action" data-quick="my-following-hide" onclick="quickLoad('my-following-hide')" data-i18n="quick.action.following-hide">🔒 我的关注（不公开）</button>
-            <button class="btn btn-orange quick-action" data-quick="my-following-new" onclick="quickLoad('my-following-new')" data-i18n="quick.action.following-new">📰 已关注的用户的新作</button>
-            <button class="btn btn-yellow quick-action" data-quick="my-collections" onclick="quickLoad('my-collections')" data-i18n="quick.action.collections">🗂 我的珍藏集</button>
-        </div>
-        <div class="quick-preview-toolbar" id="quick-preview-toolbar" style="display:none;">
-            <div class="quick-preview-title" id="quick-preview-title"></div>
-            <div class="quick-preview-actions">
-                <input type="text" id="quick-following-search" class="quick-search-input" data-i18n-placeholder="quick.preview.search-following" placeholder="按用户名 / 用户 ID 过滤..." oninput="quickFilterFollowing()" style="display:none;">
-                <button class="btn btn-cyan" id="quick-add-page" style="display:none;" onclick="quickAddCurrentPageToQueue()" data-i18n="quick.preview.add-page">将当前页加入队列</button>
-                <button class="btn btn-green" id="quick-add-all" style="display:none;" onclick="quickAddAllToQueue()" data-i18n="quick.preview.add-all">➕ 全部加入队列</button>
-            </div>
-        </div>
-        <div class="quick-preview" id="quick-preview-area">
-            <div class="quick-empty" data-i18n="quick.preview.empty">点击上方按钮加载内容</div>
-        </div>
-        <div class="search-pagination" id="quick-pagination" style="display:none;"></div>
+    <!-- 中：配置区（常驻控件：工具抽屉 / 各模式面板 / 附加筛选）。 -->
+    <div class="center-col">
 
-        <!-- 二层：点击关注用户 / 珍藏集后在外层列表下方追加这块作品预览（非替换式） -->
-        <div class="quick-inner-section" id="quick-inner-section" style="display:none;">
-            <div class="quick-preview-toolbar">
-                <div class="quick-preview-title" id="quick-inner-title"></div>
-                <div class="quick-preview-actions">
-                    <span class="quick-kind-switcher" id="quick-inner-kind-switcher" role="radiogroup" style="display:none;">
-                        <label class="quick-kind-active" data-quick-kind="illust"><input type="radio" name="quick-inner-kind" value="illust" checked> <span data-i18n="quick.preview.kind-illust">插画</span></label>
-                        <template data-qt-slot="kind-option-quick"></template>
-                    </span>
-                    <button class="btn btn-cyan" id="quick-inner-add-page" onclick="quickInnerAddCurrentPageToQueue()" data-i18n="quick.preview.add-page">将当前页加入队列</button>
-                    <button class="btn btn-green" id="quick-inner-add-all" onclick="quickInnerAddAllToQueue()" data-i18n="quick.preview.add-all">➕ 全部加入队列</button>
-                    <button class="btn btn-gray" id="quick-inner-close" onclick="quickCloseInner()" data-i18n="quick.preview.close">✕ 关闭</button>
-                </div>
-            </div>
-            <div class="quick-preview" id="quick-inner-area"></div>
-            <div class="search-pagination" id="quick-inner-pagination" style="display:none;"></div>
-        </div>
-    </div>
+        <!-- 工具抽屉（Cookie + 油猴脚本）：默认折叠，点击「工具」展开。 -->
+        <details class="tools-drawer" id="tools-drawer">
+            <summary class="tools-summary">
+                <span class="tools-summary-label">🍪 <span data-i18n="cookie.title">Pixiv Cookie</span> <span class="cookie-status-badge" id="cookie-status-badge" role="img"></span></span>
+                <span class="tools-summary-toggle"><span data-i18n="dashboard.tools">工具</span> <span class="tools-caret" aria-hidden="true">▾</span></span>
+            </summary>
+            <div class="tools-body">
 
-    <!-- Single-work import panel -->
-    <div class="card mode-panel" id="panel-single-import">
-        <div class="card-title" data-i18n="card.import">批量导入单作品</div>
-        <textarea id="single-import-textarea"
-                  data-i18n-placeholder="input.single-import.placeholder"
-                  placeholder="粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式..."></textarea>
-        <div class="import-format-box">
-            <div style="font-weight:700;"><span data-i18n="label.import-format">导入格式：</span><span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">url | title</span> <span data-i18n="label.import-format-or">或</span> <span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">id | title</span></div>
-            <div><span data-i18n="label.import-example">每行一条，例如：</span><span data-i18n="label.import-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">https://www.pixiv.net/artworks/12345678 | 示例标题</span></div>
-            <template data-qt-slot="import-hint"></template>
-            <div><span data-i18n="label.import-bare-id-example">仅 ID 示例：</span><span data-i18n="label.import-bare-id-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">12345678 | 示例标题</span></div>
-            <div data-i18n-html="hint.import-bare-id">仅写数字 ID 时默认按插画解析（等同于 https://www.pixiv.net/artworks/{id}）；若需要按小说解析，请在该行之前加一行 <code>novel:</code> 作为区段头。</div>
-            <div data-i18n-html="hint.import-section-header">区段头 <code>artwork:</code> / <code>novel:</code> 单独成行（大小写不敏感，全/半角冒号均可）；其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束。明确的链接始终按链接自身类型解析，与所在区段无关。</div>
-            <div data-i18n="hint.import-title-optional">标题可留空；下载前会自动获取真实标题。兼容 One-Tab，N-Tab 等标签页管理插件导出格式。</div>
-            <div data-i18n="hint.import-reimport">也兼容下方“导出全部”“导出未下载”按钮生成的作品列表，可直接重新导入。</div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:0;">
-            <button class="btn btn-blue" id="btn-single-import" onclick="parseSingleImport()" data-i18n="button.import">📋 导入并加入队列</button>
-            <button class="btn btn-orange" onclick="parseSingleImportFresh()" data-i18n="button.import-fresh">🗑 清空队列后重新导入</button>
-        </div>
-    </div>
-
-    <!-- User panel -->
-    <div class="card mode-panel" id="panel-user">
-        <div class="card-title" data-i18n="card.user">画师批量下载</div>
-        <div class="kind-switcher" id="user-kind-switcher" role="radiogroup">
-            <label class="active" data-kind="illust">
-                <input type="radio" name="user-kind" value="illust" checked>
-                <span data-i18n="novel:batch.user.kind-illust">插画+漫画+动图</span>
-            </label>
-            <template data-qt-slot="kind-option-user"></template>
-            <label data-kind="request">
-                <input type="radio" name="user-kind" value="request">
-                <span data-i18n="novel:batch.user.kind-request">约稿</span>
-            </label>
-        </div>
-        <div class="search-controls">
-            <input type="text" id="user-id-input" data-i18n-placeholder="input.user-id.placeholder" placeholder="用户 ID 或画师主页链接"
-                   onkeydown="if(event.key==='Enter')loadUserPreview()">
-            <button class="btn btn-blue" onclick="loadUserPreview()" data-i18n="button.user-preview">📥 解析并预览</button>
-            <button class="btn btn-cyan" id="btn-user-add-page" onclick="addCurrentUserPageToQueue()" disabled data-i18n="button.user-add-current-page">将当前页所有作品加入队列</button>
-            <button class="btn btn-green" id="btn-user-add-all" onclick="addAllUserResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
-        </div>
-        <div id="user-info-display" style="margin:8px 0;font-size:13px;color:#666;">-</div>
-        <div id="user-results-area">
-            <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.user-empty">输入画师 ID 后点击「解析并预览」</div>
-        </div>
-        <div class="search-pagination" id="user-pagination" style="display:none;"></div>
-    </div>
-
-    <!-- Search panel -->
-    <div class="card mode-panel" id="panel-search">
-        <div class="card-title" data-i18n="card.search">作品搜索</div>
-        <div class="kind-switcher" id="search-kind-switcher" role="radiogroup">
-            <label class="active" data-kind="illust">
-                <input type="radio" name="search-kind" value="illust" checked>
-                <span data-i18n="novel:batch.search.kind-illust">插画+漫画+动图</span>
-            </label>
-            <template data-qt-slot="kind-option-search"></template>
-        </div>
-        <div class="kind-switcher submode-switcher" id="search-submode-switcher" role="radiogroup">
-            <label class="active" data-submode="search">
-                <input type="radio" name="search-submode" value="search" checked>
-                <span data-i18n="search.submode.search">🔍 搜索模式</span>
-            </label>
-            <label data-submode="batch">
-                <input type="radio" name="search-submode" value="batch">
-                <span data-i18n="search.submode.batch">📦 作品批量获取模式</span>
-            </label>
-        </div>
-        <div class="search-controls">
-            <input type="text" id="search-word" data-i18n-placeholder="input.search-word.placeholder" placeholder="输入关键词..."
-                   onkeydown="if(event.key==='Enter')handleSearchEnter()">
-            <span id="search-mode-actions" class="search-action-group">
-                <button class="btn btn-blue" onclick="performSearch(1)" data-i18n="button.search">🔍 搜索</button>
-                <button class="btn btn-green" id="btn-add-all" onclick="addAllSearchResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
-            </span>
-            <span id="batch-mode-actions" class="search-action-group" style="display:none;">
-                <label class="batch-range-label" for="batch-start-page" data-i18n="search.batch.start-page">起始页</label>
-                <input type="number" id="batch-start-page" class="batch-range-input" min="1" step="1" value="1"
-                       onchange="handleBatchRangeChange()">
-                <label class="batch-range-label" for="batch-end-page" data-i18n="search.batch.end-page">结束页</label>
-                <input type="number" id="batch-end-page" class="batch-range-input" min="1" step="1" value="3"
-                       onchange="handleBatchRangeChange()">
-                <span class="search-fill-warning" data-i18n-title="dialog.search-batch-warning"
-                      title="按页码范围抓取 Pixiv 搜索结果并去重，再按 Pixiv 返回顺序本地分页（60/页）。范围过大会导致请求量暴增；solo 模式不限制；multi 模式下每次最多 multi-mode.limit-page 页（管理员不受限）。">⚠</span>
-                <button class="btn btn-yellow" id="btn-batch-fetch" onclick="runBatchFetch()" data-i18n="button.batch-fetch">📦 获取</button>
-                <button class="btn btn-cyan" id="btn-batch-add-page" onclick="addCurrentBatchPageToQueue()" disabled data-i18n="button.batch-add-page">将此页内容加入队列</button>
-                <button class="btn btn-green" id="btn-batch-add-all" onclick="addAllSearchResultsToQueue()" disabled data-i18n="button.batch-add-all">➕ 将全部结果加入队列</button>
-                <span class="search-fill-note" id="batch-limit-note"></span>
-                <span class="search-fill-note" id="batch-end-page-hint" style="display:none;" data-i18n="search.batch.end-page-sentinel">结束页填 -1 = 一直翻页直到遇到已下载作品为止（仅管理员，用于计划任务）</span>
-            </span>
-        </div>
-        <div class="search-filter-row">
-            <span data-i18n="label.search-mode">搜索方式:</span>
-            <label><input type="radio" name="search-smode" value="s_tag" checked> <span data-i18n="search.mode.tag">标签</span></label>
-            <label><input type="radio" name="search-smode" value="s_tc"> <span data-i18n="search.mode.title-desc">标题/描述</span></label>
-            <span style="margin-left:12px;" data-i18n="label.search-order">排序:</span>
-            <label><input type="radio" name="search-order" value="date_d" checked> <span data-i18n="search.order.latest">最新</span></label>
-            <label><input type="radio" name="search-order" value="date"> <span data-i18n="search.order.oldest">最旧</span></label>
-            <label data-i18n-title="dialog.search-order-popular" title="未购买 Pixiv Premium 时将自动按最新排序"><input type="radio" name="search-order"
-                                                                          value="popular_d"> <span data-i18n="search.order.popular">热门 ⚠</span></label>
-        </div>
-        <div id="search-premium-tip" style="display:none;font-size:11px;color:#e6a700;margin-bottom:8px;" data-i18n="dialog.search-premium">⚠ 热门排序需要 Pixiv Premium 会员，未购买时 Pixiv 将自动按最新排序返回结果</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
-            <input type="checkbox" id="search-blur-r18" onchange="toggleBlurR18()">
-            <label for="search-blur-r18" class="r18-blur-label" style="cursor:pointer;" data-i18n="search.blur-r18">模糊 R18 缩略图（悬停查看）</label>
-        </div>
-        <div id="search-results-area">
-            <div class="search-empty-text" style="text-align:center;padding:24px 0;font-size:13px;" data-i18n="status.search-empty">输入关键词后点击搜索；未保存 Cookie 时搜索结果可能减少</div>
-        </div>
-        <div class="search-pagination" id="search-pagination" style="display:none;"></div>
-    </div>
-
-    <!-- Series panel -->
-    <div class="card mode-panel" id="panel-series">
-        <div class="card-title" data-i18n="card.series">系列下载</div>
-        <div class="search-controls">
-            <input type="text" id="series-input-url" data-i18n-placeholder="input.series.placeholder"
-                   placeholder="粘贴漫画/小说系列 URL，或同系列作品 URL..."
-                   onkeydown="if(event.key==='Enter')loadSeriesPreview()">
-            <button class="btn btn-blue" onclick="loadSeriesPreview()" data-i18n="button.series-load">📚 解析并预览</button>
-            <button class="btn btn-cyan" id="btn-series-add-page" onclick="addCurrentSeriesPageToQueue()" disabled data-i18n="button.series-add-current-page">将当前页所有作品加入队列</button>
-            <button class="btn btn-green" id="btn-series-add-all" onclick="addAllSeriesResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
-        </div>
-        <div id="series-meta-display" style="margin:8px 0;font-size:13px;color:#666;"></div>
-        <div id="series-results-area">
-            <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.series-empty">粘贴漫画系列、小说系列或同系列作品链接</div>
-        </div>
-        <div class="search-pagination" id="series-pagination" style="display:none;"></div>
-    </div>
-
-    <!-- Schedule panel (admin-only; manage the auto-download tasks) -->
-    <div class="card mode-panel" id="panel-schedule">
-        <div class="card-title" data-i18n="schedule.title">计划任务管理</div>
-        <div class="schedule-intro" data-i18n="schedule.intro">后台按固定周期或 Cron 表达式自动发现并下载新作品。计划任务以管理员身份运行，仅管理员可见。要新建计划任务，请切换到 User / Search / 系列模式，配置好下载与筛选设置后，在下方「存为计划任务」中保存。</div>
-
-        <div class="schedule-list-title" data-i18n="schedule.list.title">已创建的计划任务</div>
-        <div id="schedule-list-status" class="schedule-status" role="status" aria-live="polite"></div>
-        <div id="schedule-list">
-            <div class="schedule-empty" data-i18n="schedule.list.empty">暂无计划任务</div>
-        </div>
-    </div>
-
-    <div id="schedule-snapshot-modal" class="schedule-snapshot-modal" hidden
-         role="dialog" aria-modal="true" aria-labelledby="schedule-snapshot-title"
-         onclick="if(event.target===this) closeScheduleSnapshotModal()">
-        <div class="schedule-snapshot-dialog">
-            <div class="schedule-snapshot-head">
-                <div id="schedule-snapshot-title" class="schedule-snapshot-title" data-i18n="schedule.snapshot.title">任务快照信息</div>
-                <button type="button" class="schedule-snapshot-close"
-                        onclick="closeScheduleSnapshotModal()"
-                        data-i18n-title="common:button.close" title="关闭">×</button>
-            </div>
-            <div id="schedule-snapshot-body" class="schedule-snapshot-body"></div>
-            <div class="schedule-snapshot-footer">
-                <span data-i18n="schedule.snapshot.footer">编辑请使用功能区域的编辑按钮。</span>
-                <button type="button" class="btn btn-gray" onclick="closeScheduleSnapshotModal()" data-i18n="common:button.close">关闭</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Per-task proxy/cookie override modal (opened from each schedule task card) -->
-    <div id="schedule-override-modal" class="schedule-snapshot-modal" hidden
-         role="dialog" aria-modal="true" aria-labelledby="schedule-override-title"
-         onclick="if(event.target===this) closeScheduleOverrideModal()">
-        <div class="schedule-snapshot-dialog schedule-override-dialog">
-            <div class="schedule-snapshot-head">
-                <div id="schedule-override-title" class="schedule-snapshot-title" data-i18n="schedule.override.title">指定单独的 代理/cookie</div>
-                <button type="button" class="schedule-snapshot-close"
-                        onclick="closeScheduleOverrideModal()"
-                        data-i18n-title="common:button.close" title="关闭">×</button>
-            </div>
-            <div class="schedule-snapshot-body schedule-override-body">
-                <div class="schedule-override-intro" data-i18n="schedule.override.intro">为该计划任务指定独立的下载代理与 Cookie。未勾选的项使用默认行为：全局代理设置 / 任务当前绑定的 Cookie；取消已生效的勾选并保存会清除对应设置。</div>
-                <label class="schedule-override-check"><input type="checkbox" id="sch-ov-proxy-enabled" onchange="onScheduleOverrideToggle('sch-ov')"> <span data-i18n="schedule.field.proxy-enabled">设置单独的代理</span></label>
-                <div id="sch-ov-proxy-row" class="schedule-override-row" style="display:none;">
-                    <input type="text" id="sch-ov-proxy" data-i18n-placeholder="schedule.field.proxy.placeholder" placeholder="127.0.0.1:7890">
-                    <div class="schedule-field-hint" data-i18n="schedule.field.proxy.hint">该任务每轮运行中对 Pixiv 的全部访问（发现 / 元数据 / 下载 / 站内信检测）都会改走此 HTTP 代理（host:port）；取消勾选则使用全局代理设置。</div>
-                </div>
-                <label class="schedule-override-check"><input type="checkbox" id="sch-ov-cookie-enabled" onchange="onScheduleOverrideToggle('sch-ov')"> <span data-i18n="schedule.field.cookie-enabled">设置单独的cookie</span></label>
-                <div id="sch-ov-cookie-row" class="schedule-override-row" style="display:none;">
-                    <div class="schedule-cookie-input-row">
-                        <input type="password" id="sch-ov-cookie" autocomplete="new-password" data-i18n-placeholder="schedule.field.cookie.placeholder" placeholder="粘贴含 PHPSESSID 的 Cookie，或点右侧按钮填入">
-                        <button type="button" class="btn btn-gray" onclick="fillScheduleCookieFromSaved('sch-ov-cookie')" data-i18n="schedule.action.use-saved-cookie">使用当前保存的cookie</button>
+                <!-- Cookie -->
+                <div class="card" id="cookie-card">
+                    <div class="card-title" data-i18n="cookie.title">Pixiv Cookie</div>
+                    <div class="cookie-fmt">
+                        <button id="fmt-header" class="active" onclick="setCookieFmt('header')" data-i18n="cookie.format.header">Header String</button>
+                        <button id="fmt-json" onclick="setCookieFmt('json')" data-i18n="cookie.format.json">JSON</button>
+                        <button id="fmt-netscape" onclick="setCookieFmt('netscape')" data-i18n="cookie.format.netscape">Netscape</button>
                     </div>
-                    <div class="schedule-field-hint" data-i18n="schedule.field.cookie.hint">该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。</div>
+                    <div class="cookie-row">
+                        <input type="password" id="cookie-input" data-i18n-placeholder="cookie.placeholder" placeholder="粘贴 Cookie...">
+                        <button class="btn-sm" id="cookie-toggle" data-i18n="cookie.toggle.show">显示</button>
+                        <button class="btn-cookie-save" id="cookie-save" data-i18n="common:button.save">保存</button>
+                        <button class="btn-sm" id="cookie-import" hidden style="background:#e7f0fb;border-color:#1a73e8;" data-i18n="cookie.import">一键导入 Cookie</button>
+                        <button class="btn-cookie-clear" id="cookie-clear" data-i18n="cookie.clear">清除</button>
+                    </div>
+                    <div class="cookie-status" id="cookie-status" role="status" aria-live="polite"></div>
+                    <div class="cookie-hint" id="cookie-import-hint" hidden><span data-i18n="cookie.import-hint.prefix">「一键导入 Cookie」无效（如浏览器/脚本管理器无法读取登录态）时，请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.import-hint.suffix">，按其中步骤手动设置 Cookie。</span></div>
+                    <div class="cookie-hint" id="cookie-hint"><span data-i18n="cookie.hint.prefix">支持三种格式：Header String（直接复制浏览器请求头）、JSON（对象格式）、Netscape（EditThisCookie 等工具导出）。具体获取方法请查看</span> <a data-i18n-href="cookie.guide.url" target="_blank" rel="noopener" data-i18n="cookie.guide.link">获取 Cookie 指南</a><span data-i18n="cookie.hint.suffix">。</span></div>
                 </div>
-                <div id="sch-ov-status" class="schedule-status" role="status" aria-live="polite"></div>
+
+                <!-- Userscripts install card -->
+                <div class="card" id="userscripts-card">
+                    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+                        <span data-i18n="userscripts.title">🧩 油猴脚本</span>
+                        <button class="btn btn-green" style="padding:2px 10px;font-size:12px;" onclick="toggleUserscripts()" data-i18n="userscripts.toggle">展开 / 折叠</button>
+                    </div>
+                    <div id="userscripts-panel" hidden>
+                        <div id="userscripts-hint" style="font-size:12px;color:#666;margin-bottom:10px;"><span data-i18n="userscripts.hint.prefix">需要先安装</span> <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a> <span data-i18n="userscripts.hint.suffix">扩展。点击「安装」后 Tampermonkey 将弹出确认页面。</span></div>
+                        <div id="userscripts-host-hint" style="font-size:12px;color:#17a2b8;margin-bottom:10px;display:none;"></div>
+                        <div id="userscripts-list" style="display:flex;flex-direction:column;gap:10px;"></div>
+                    </div>
+                </div>
+
             </div>
-            <div class="schedule-snapshot-footer">
-                <span></span>
-                <span class="schedule-override-footer-actions">
-                    <button type="button" class="btn btn-green" onclick="saveScheduleOverride()" data-i18n="common:button.save">保存</button>
-                    <button type="button" class="btn btn-gray" onclick="closeScheduleOverrideModal()" data-i18n="common:button.cancel">取消</button>
+        </details>
+
+        <!-- Quick-fetch panel：基于当前 Cookie 主人 uid 拉取「我的」收藏 / 关注 / 珍藏集 / 作品。
+             无 Cookie（缺 PHPSESSID）时禁用所有动作按钮并显示提示。 -->
+        <div class="card mode-panel active" id="panel-quick-fetch">
+            <div class="card-title" data-i18n="quick.title">快捷获取账户相关作品</div>
+            <div class="quick-intro" data-i18n="quick.intro">通过当前保存的 Cookie 自动识别账号（基于 PHPSESSID 前缀），一键查看你的收藏 / 关注 / 珍藏集 / 自己的作品，并可直接加入下载队列。包含 hide（不公开）数据。</div>
+            <div class="quick-account" id="quick-account-bar">
+                <span data-i18n="quick.account.label">当前账号：</span>
+                <span id="quick-account-uid" class="quick-account-uid">-</span>
+                <span id="quick-account-hint" class="quick-account-hint" data-i18n="quick.account.hint-no-cookie">未检测到登录 Cookie，请先在上方保存含 PHPSESSID 的 Cookie</span>
+            </div>
+            <div class="quick-actions">
+                <button class="btn btn-blue quick-action" data-quick="my-illust-bookmarks-show" onclick="quickLoad('my-illust-bookmarks-show')" data-i18n="quick.action.illust-bookmarks-show">📖 我的收藏（插画/漫画，公开）</button>
+                <button class="btn btn-purple quick-action" data-quick="my-illust-bookmarks-hide" onclick="quickLoad('my-illust-bookmarks-hide')" data-i18n="quick.action.illust-bookmarks-hide">🔒 我的收藏（插画/漫画，不公开）</button>
+                <!-- 取得侧入口槽位：由作品类型插件经 queueTypes 贡献，禁用其插件时缺席（见 batch-queue-types.js） -->
+                <template data-qt-slot="quick-actions-bookmarks"></template>
+                <button class="btn btn-green quick-action" data-quick="my-illusts" onclick="quickLoad('my-illusts')" data-i18n="quick.action.my-illusts">🎨 我自己的作品（插画/漫画，含 hide）</button>
+                <template data-qt-slot="quick-actions-mine"></template>
+                <button class="btn btn-green quick-action" data-quick="my-request-artworks" onclick="quickLoad('my-request-artworks')" data-i18n="quick.action.my-request">🎁 我的约稿作品</button>
+                <button class="btn btn-cyan quick-action" data-quick="my-following-show" onclick="quickLoad('my-following-show')" data-i18n="quick.action.following-show">👥 我的关注（公开）</button>
+                <button class="btn btn-purple quick-action" data-quick="my-following-hide" onclick="quickLoad('my-following-hide')" data-i18n="quick.action.following-hide">🔒 我的关注（不公开）</button>
+                <button class="btn btn-orange quick-action" data-quick="my-following-new" onclick="quickLoad('my-following-new')" data-i18n="quick.action.following-new">📰 已关注的用户的新作</button>
+                <button class="btn btn-yellow quick-action" data-quick="my-collections" onclick="quickLoad('my-collections')" data-i18n="quick.action.collections">🗂 我的珍藏集</button>
+            </div>
+            <div class="quick-preview-toolbar" id="quick-preview-toolbar" style="display:none;">
+                <div class="quick-preview-title" id="quick-preview-title"></div>
+                <div class="quick-preview-actions">
+                    <input type="text" id="quick-following-search" class="quick-search-input" data-i18n-placeholder="quick.preview.search-following" placeholder="按用户名 / 用户 ID 过滤..." oninput="quickFilterFollowing()" style="display:none;">
+                    <button class="btn btn-gray preview-collapse-btn" id="quick-collapse-page" style="display:none;" onclick="togglePreviewCollapse(this,'quick-preview-area','quick-pagination')" data-i18n-title="preview.collapse.title" title="收起 / 展开预览"><span class="preview-collapse-label" data-i18n="preview.collapse">收起</span> <span class="preview-collapse-caret" aria-hidden="true">▾</span></button>
+                    <button class="btn btn-cyan" id="quick-add-page" style="display:none;" onclick="quickAddCurrentPageToQueue()" data-i18n="quick.preview.add-page">将当前页加入队列</button>
+                    <button class="btn btn-green" id="quick-add-all" style="display:none;" onclick="quickAddAllToQueue()" data-i18n="quick.preview.add-all">➕ 全部加入队列</button>
+                </div>
+            </div>
+            <div class="quick-preview" id="quick-preview-area">
+                <div class="quick-empty" data-i18n="quick.preview.empty">点击上方按钮加载内容</div>
+            </div>
+            <div class="search-pagination" id="quick-pagination" style="display:none;"></div>
+
+            <!-- 二层：点击关注用户 / 珍藏集后在外层列表下方追加这块作品预览（非替换式） -->
+            <div class="quick-inner-section" id="quick-inner-section" style="display:none;">
+                <div class="quick-preview-toolbar">
+                    <div class="quick-preview-title" id="quick-inner-title"></div>
+                    <div class="quick-preview-actions">
+                        <span class="quick-kind-switcher" id="quick-inner-kind-switcher" role="radiogroup" style="display:none;">
+                            <label class="quick-kind-active" data-quick-kind="illust"><input type="radio" name="quick-inner-kind" value="illust" checked> <span data-i18n="quick.preview.kind-illust">插画</span></label>
+                            <template data-qt-slot="kind-option-quick"></template>
+                        </span>
+                        <button class="btn btn-gray preview-collapse-btn" id="quick-inner-collapse-page" onclick="togglePreviewCollapse(this,'quick-inner-area','quick-inner-pagination')" data-i18n-title="preview.collapse.title" title="收起 / 展开预览"><span class="preview-collapse-label" data-i18n="preview.collapse">收起</span> <span class="preview-collapse-caret" aria-hidden="true">▾</span></button>
+                        <button class="btn btn-cyan" id="quick-inner-add-page" onclick="quickInnerAddCurrentPageToQueue()" data-i18n="quick.preview.add-page">将当前页加入队列</button>
+                        <button class="btn btn-green" id="quick-inner-add-all" onclick="quickInnerAddAllToQueue()" data-i18n="quick.preview.add-all">➕ 全部加入队列</button>
+                        <button class="btn btn-gray" id="quick-inner-close" onclick="quickCloseInner()" data-i18n="quick.preview.close">✕ 关闭</button>
+                    </div>
+                </div>
+                <div class="quick-preview" id="quick-inner-area"></div>
+                <div class="search-pagination" id="quick-inner-pagination" style="display:none;"></div>
+            </div>
+        </div>
+
+        <!-- Single-work import panel -->
+        <div class="card mode-panel" id="panel-single-import">
+            <div class="card-title" data-i18n="card.import">批量导入单作品</div>
+            <textarea id="single-import-textarea"
+                      data-i18n-placeholder="input.single-import.placeholder"
+                      placeholder="粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式..."></textarea>
+            <div class="import-format-box">
+                <div style="font-weight:700;"><span data-i18n="label.import-format">导入格式：</span><span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">url | title</span> <span data-i18n="label.import-format-or">或</span> <span style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">id | title</span></div>
+                <div><span data-i18n="label.import-example">每行一条，例如：</span><span data-i18n="label.import-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">https://www.pixiv.net/artworks/12345678 | 示例标题</span></div>
+                <template data-qt-slot="import-hint"></template>
+                <div><span data-i18n="label.import-bare-id-example">仅 ID 示例：</span><span data-i18n="label.import-bare-id-example-value" style="font-family:monospace;background:#fff;border-radius:4px;padding:1px 6px;">12345678 | 示例标题</span></div>
+                <div data-i18n-html="hint.import-bare-id">仅写数字 ID 时默认按插画解析（等同于 https://www.pixiv.net/artworks/{id}）；若需要按小说解析，请在该行之前加一行 <code>novel:</code> 作为区段头。</div>
+                <div data-i18n-html="hint.import-section-header">区段头 <code>artwork:</code> / <code>novel:</code> 单独成行（大小写不敏感，全/半角冒号均可）；其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束。明确的链接始终按链接自身类型解析，与所在区段无关。</div>
+                <div data-i18n="hint.import-title-optional">标题可留空；下载前会自动获取真实标题。兼容 One-Tab，N-Tab 等标签页管理插件导出格式。</div>
+                <div data-i18n="hint.import-reimport">也兼容下方“导出全部”“导出未下载”按钮生成的作品列表，可直接重新导入。</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:0;">
+                <button class="btn btn-blue" id="btn-single-import" onclick="parseSingleImport()" data-i18n="button.import">📋 导入并加入队列</button>
+                <button class="btn btn-orange" onclick="parseSingleImportFresh()" data-i18n="button.import-fresh">🗑 清空队列后重新导入</button>
+            </div>
+        </div>
+
+        <!-- User panel -->
+        <div class="card mode-panel" id="panel-user">
+            <div class="card-title" data-i18n="card.user">画师批量下载</div>
+            <div class="kind-switcher" id="user-kind-switcher" role="radiogroup">
+                <label class="active" data-kind="illust">
+                    <input type="radio" name="user-kind" value="illust" checked>
+                    <span data-i18n="novel:batch.user.kind-illust">插画+漫画+动图</span>
+                </label>
+                <template data-qt-slot="kind-option-user"></template>
+                <label data-kind="request">
+                    <input type="radio" name="user-kind" value="request">
+                    <span data-i18n="novel:batch.user.kind-request">约稿</span>
+                </label>
+            </div>
+            <div class="search-controls">
+                <input type="text" id="user-id-input" data-i18n-placeholder="input.user-id.placeholder" placeholder="用户 ID 或画师主页链接"
+                       onkeydown="if(event.key==='Enter')loadUserPreview()">
+                <button class="btn btn-blue" onclick="loadUserPreview()" data-i18n="button.user-preview">📥 解析并预览</button>
+                <button class="btn btn-gray preview-collapse-btn" onclick="togglePreviewCollapse(this,'user-results-area','user-pagination')" data-i18n-title="preview.collapse.title" title="收起 / 展开预览"><span class="preview-collapse-label" data-i18n="preview.collapse">收起</span> <span class="preview-collapse-caret" aria-hidden="true">▾</span></button>
+                <button class="btn btn-cyan" id="btn-user-add-page" onclick="addCurrentUserPageToQueue()" disabled data-i18n="button.user-add-current-page">将当前页所有作品加入队列</button>
+                <button class="btn btn-green" id="btn-user-add-all" onclick="addAllUserResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
+            </div>
+            <div id="user-info-display" style="margin:8px 0;font-size:13px;color:#666;">-</div>
+            <div id="user-results-area">
+                <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.user-empty">输入画师 ID 后点击「解析并预览」</div>
+            </div>
+            <div class="search-pagination" id="user-pagination" style="display:none;"></div>
+        </div>
+
+        <!-- Search panel -->
+        <div class="card mode-panel" id="panel-search">
+            <div class="card-title" data-i18n="card.search">作品搜索</div>
+            <div class="kind-switcher" id="search-kind-switcher" role="radiogroup">
+                <label class="active" data-kind="illust">
+                    <input type="radio" name="search-kind" value="illust" checked>
+                    <span data-i18n="novel:batch.search.kind-illust">插画+漫画+动图</span>
+                </label>
+                <template data-qt-slot="kind-option-search"></template>
+            </div>
+            <div class="kind-switcher submode-switcher" id="search-submode-switcher" role="radiogroup">
+                <label class="active" data-submode="search">
+                    <input type="radio" name="search-submode" value="search" checked>
+                    <span data-i18n="search.submode.search">🔍 搜索模式</span>
+                </label>
+                <label data-submode="batch">
+                    <input type="radio" name="search-submode" value="batch">
+                    <span data-i18n="search.submode.batch">📦 作品批量获取模式</span>
+                </label>
+            </div>
+            <div class="search-controls">
+                <input type="text" id="search-word" data-i18n-placeholder="input.search-word.placeholder" placeholder="输入关键词..."
+                       onkeydown="if(event.key==='Enter')handleSearchEnter()">
+                <span id="search-mode-actions" class="search-action-group">
+                    <button class="btn btn-blue" onclick="performSearch(1)" data-i18n="button.search">🔍 搜索</button>
+                    <button class="btn btn-gray preview-collapse-btn" onclick="togglePreviewCollapse(this,'search-results-area','search-pagination')" data-i18n-title="preview.collapse.title" title="收起 / 展开预览"><span class="preview-collapse-label" data-i18n="preview.collapse">收起</span> <span class="preview-collapse-caret" aria-hidden="true">▾</span></button>
+                    <button class="btn btn-green" id="btn-add-all" onclick="addAllSearchResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
+                </span>
+                <span id="batch-mode-actions" class="search-action-group" style="display:none;">
+                    <label class="batch-range-label" for="batch-start-page" data-i18n="search.batch.start-page">起始页</label>
+                    <input type="number" id="batch-start-page" class="batch-range-input" min="1" step="1" value="1"
+                           onchange="handleBatchRangeChange()">
+                    <label class="batch-range-label" for="batch-end-page" data-i18n="search.batch.end-page">结束页</label>
+                    <input type="number" id="batch-end-page" class="batch-range-input" min="1" step="1" value="3"
+                           onchange="handleBatchRangeChange()">
+                    <span class="search-fill-warning" data-i18n-title="dialog.search-batch-warning"
+                          title="按页码范围抓取 Pixiv 搜索结果并去重，再按 Pixiv 返回顺序本地分页（60/页）。范围过大会导致请求量暴增；solo 模式不限制；multi 模式下每次最多 multi-mode.limit-page 页（管理员不受限）。">⚠</span>
+                    <button class="btn btn-yellow" id="btn-batch-fetch" onclick="runBatchFetch()" data-i18n="button.batch-fetch">📦 获取</button>
+                    <button class="btn btn-gray preview-collapse-btn" onclick="togglePreviewCollapse(this,'search-results-area','search-pagination')" data-i18n-title="preview.collapse.title" title="收起 / 展开预览"><span class="preview-collapse-label" data-i18n="preview.collapse">收起</span> <span class="preview-collapse-caret" aria-hidden="true">▾</span></button>
+                    <button class="btn btn-cyan" id="btn-batch-add-page" onclick="addCurrentBatchPageToQueue()" disabled data-i18n="button.batch-add-page">将此页内容加入队列</button>
+                    <button class="btn btn-green" id="btn-batch-add-all" onclick="addAllSearchResultsToQueue()" disabled data-i18n="button.batch-add-all">➕ 将全部结果加入队列</button>
+                    <span class="search-fill-note" id="batch-limit-note"></span>
+                    <span class="search-fill-note" id="batch-end-page-hint" style="display:none;" data-i18n="search.batch.end-page-sentinel">结束页填 -1 = 一直翻页直到遇到已下载作品为止（仅管理员，用于计划任务）</span>
                 </span>
             </div>
+            <div class="search-filter-row">
+                <span data-i18n="label.search-mode">搜索方式:</span>
+                <label><input type="radio" name="search-smode" value="s_tag" checked> <span data-i18n="search.mode.tag">标签</span></label>
+                <label><input type="radio" name="search-smode" value="s_tc"> <span data-i18n="search.mode.title-desc">标题/描述</span></label>
+                <span style="margin-left:12px;" data-i18n="label.search-order">排序:</span>
+                <label><input type="radio" name="search-order" value="date_d" checked> <span data-i18n="search.order.latest">最新</span></label>
+                <label><input type="radio" name="search-order" value="date"> <span data-i18n="search.order.oldest">最旧</span></label>
+                <label data-i18n-title="dialog.search-order-popular" title="未购买 Pixiv Premium 时将自动按最新排序"><input type="radio" name="search-order"
+                                                                              value="popular_d"> <span data-i18n="search.order.popular">热门 ⚠</span></label>
+            </div>
+            <div id="search-premium-tip" style="display:none;font-size:11px;color:#e6a700;margin-bottom:8px;" data-i18n="dialog.search-premium">⚠ 热门排序需要 Pixiv Premium 会员，未购买时 Pixiv 将自动按最新排序返回结果</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;">
+                <input type="checkbox" id="search-blur-r18" onchange="toggleBlurR18()">
+                <label for="search-blur-r18" class="r18-blur-label" style="cursor:pointer;" data-i18n="search.blur-r18">模糊 R18 缩略图（悬停查看）</label>
+            </div>
+            <div id="search-results-area">
+                <div class="search-empty-text" style="text-align:center;padding:24px 0;font-size:13px;" data-i18n="status.search-empty">输入关键词后点击搜索；未保存 Cookie 时搜索结果可能减少</div>
+            </div>
+            <div class="search-pagination" id="search-pagination" style="display:none;"></div>
         </div>
-    </div>
 
-    <!-- Shared extra-filters (live result filtering in Search; snapshotted into scheduled tasks in User/Search/Series) -->
-    <div class="search-extra-filters" id="extra-filters-card" style="display:none;">
-        <div class="search-extra-head">
-            <div class="search-extra-title" data-i18n="label.search-extra">附加筛选</div>
-            <div class="search-extra-note" data-i18n="label.search-extra-note">各模式预览时实时过滤当前页；实际下载时不符合条件的作品会被跳过并显示原因；管理员「存为计划任务」时按此条件在后台逐作品过滤</div>
+        <!-- Series panel -->
+        <div class="card mode-panel" id="panel-series">
+            <div class="card-title" data-i18n="card.series">系列下载</div>
+            <div class="search-controls">
+                <input type="text" id="series-input-url" data-i18n-placeholder="input.series.placeholder"
+                       placeholder="粘贴漫画/小说系列 URL，或同系列作品 URL..."
+                       onkeydown="if(event.key==='Enter')loadSeriesPreview()">
+                <button class="btn btn-blue" onclick="loadSeriesPreview()" data-i18n="button.series-load">📚 解析并预览</button>
+                <button class="btn btn-gray preview-collapse-btn" onclick="togglePreviewCollapse(this,'series-results-area','series-pagination')" data-i18n-title="preview.collapse.title" title="收起 / 展开预览"><span class="preview-collapse-label" data-i18n="preview.collapse">收起</span> <span class="preview-collapse-caret" aria-hidden="true">▾</span></button>
+                <button class="btn btn-cyan" id="btn-series-add-page" onclick="addCurrentSeriesPageToQueue()" disabled data-i18n="button.series-add-current-page">将当前页所有作品加入队列</button>
+                <button class="btn btn-green" id="btn-series-add-all" onclick="addAllSeriesResultsToQueue()" disabled data-i18n="button.add-all">➕ 全部加入队列</button>
+            </div>
+            <div id="series-meta-display" style="margin:8px 0;font-size:13px;color:#666;"></div>
+            <div id="series-results-area">
+                <div style="text-align:center;color:#aaa;padding:24px 0;font-size:13px;" data-i18n="status.series-empty">粘贴漫画系列、小说系列或同系列作品链接</div>
+            </div>
+            <div class="search-pagination" id="series-pagination" style="display:none;"></div>
         </div>
-        <div class="search-extra-note" id="extra-filters-quick-hint" style="display:none;color:var(--brand);" data-i18n="label.search-extra-quick-hint">展开具体作品列表（点开收藏 / 我的作品 / 关注新作，或点进某个画师 / 珍藏集）后即可实时预览过滤；当前筛选仍会在下载与计划任务时生效。</div>
-        <div class="search-extra-grid">
-            <div class="search-extra-item">
-                <label for="search-content-filter" data-i18n="label.search-content-rating">内容分级</label>
-                <select id="search-content-filter" onchange="handleSearchFilterChange()">
-                    <option value="all" data-i18n="search.content.all">全部</option>
-                    <option value="safe" data-i18n="search.content.safe">全年龄</option>
-                    <option value="r18plus" data-i18n="search.content.r18plus">R18+(R-18 + R-18G)</option>
-                    <option value="r18" data-i18n="search.content.r18">R-18</option>
-                    <option value="r18g" data-i18n="search.content.r18g">R-18G</option>
-                </select>
-            </div>
-            <div class="search-extra-item">
-                <label for="search-ai-filter" data-i18n="label.search-ai">AI 作品</label>
-                <select id="search-ai-filter" onchange="handleSearchFilterChange()">
-                    <option value="all" data-i18n="search.filter.all">全部</option>
-                    <option value="exclude" data-i18n="search.filter.exclude-ai">排除 AI</option>
-                    <option value="only" data-i18n="search.filter.only-ai">仅 AI</option>
-                </select>
-            </div>
-            <div class="search-extra-item">
-                <label for="search-tags-exact" data-i18n="label.search-tags-exact">标签(精确匹配)</label>
-                <input type="text" id="search-tags-exact" data-i18n-placeholder="search.tags.placeholder"
-                       placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
-            </div>
-            <div class="search-extra-item">
-                <label for="search-tags-fuzzy" data-i18n="label.search-tags-fuzzy">标签(模糊匹配)</label>
-                <input type="text" id="search-tags-fuzzy" data-i18n-placeholder="search.tags.placeholder"
-                       placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
-            </div>
-            <div class="search-extra-item search-illust-only">
-                <label for="search-type-filter" data-i18n="label.search-type">作品类型</label>
-                <select id="search-type-filter" onchange="handleSearchFilterChange()">
-                    <option value="all" data-i18n="search.filter.all">全部</option>
-                    <option value="illust" data-i18n="search.type.illust">插画</option>
-                    <option value="manga" data-i18n="search.type.manga">漫画</option>
-                    <option value="ugoira" data-i18n="search.type.ugoira">动图</option>
-                </select>
-            </div>
-            <div class="search-extra-item search-illust-only">
-                <label for="search-pages-min" data-i18n="label.search-pages-min">最少页数</label>
-                <input type="number" id="search-pages-min" min="1" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                       onchange="handleSearchFilterChange()">
-            </div>
-            <div class="search-extra-item search-illust-only">
-                <label for="search-pages-max" data-i18n="label.search-pages-max">最多页数</label>
-                <input type="number" id="search-pages-max" min="1" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                       onchange="handleSearchFilterChange()">
-            </div>
-            <!-- 取得侧专属筛选槽位：由作品类型插件经 queueTypes 贡献（如小说的最少/最多字数） -->
-            <template data-qt-slot="search-filter"></template>
-            <div class="search-extra-item">
-                <label for="search-bookmarks-min" data-i18n="label.search-bookmarks-min">最少收藏</label>
-                <input type="number" id="search-bookmarks-min" min="0" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                       onchange="handleSearchFilterChange()">
-            </div>
-            <div class="search-extra-item">
-                <label for="search-bookmarks-max" data-i18n="label.search-bookmarks-max">最多收藏</label>
-                <input type="number" id="search-bookmarks-max" min="0" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
-                       onchange="handleSearchFilterChange()">
-            </div>
-        </div>
-        <div class="search-extra-actions">
-            <button class="btn btn-red" style="padding:6px 10px;font-size:12px;" onclick="resetSearchFilters()" data-i18n="button.reset-search-filters">重置附加筛选</button>
-        </div>
-    </div>
 
-    <!-- Download workbench (shared settings/queue; hidden in schedule mode) -->
+        <!-- Schedule panel (admin-only; manage the auto-download tasks) -->
+        <div class="card mode-panel" id="panel-schedule">
+            <div class="card-title" data-i18n="schedule.title">计划任务管理</div>
+            <div class="schedule-intro" data-i18n="schedule.intro">后台按固定周期或 Cron 表达式自动发现并下载新作品。计划任务以管理员身份运行，仅管理员可见。要新建计划任务，请切换到 User / Search / 系列模式，配置好下载与筛选设置后，在下方「存为计划任务」中保存。</div>
+
+            <div class="schedule-list-title" data-i18n="schedule.list.title">已创建的计划任务</div>
+            <div id="schedule-list-status" class="schedule-status" role="status" aria-live="polite"></div>
+            <div id="schedule-list">
+                <div class="schedule-empty" data-i18n="schedule.list.empty">暂无计划任务</div>
+            </div>
+        </div>
+
+        <div id="schedule-snapshot-modal" class="schedule-snapshot-modal" hidden
+             role="dialog" aria-modal="true" aria-labelledby="schedule-snapshot-title"
+             onclick="if(event.target===this) closeScheduleSnapshotModal()">
+            <div class="schedule-snapshot-dialog">
+                <div class="schedule-snapshot-head">
+                    <div id="schedule-snapshot-title" class="schedule-snapshot-title" data-i18n="schedule.snapshot.title">任务快照信息</div>
+                    <button type="button" class="schedule-snapshot-close"
+                            onclick="closeScheduleSnapshotModal()"
+                            data-i18n-title="common:button.close" title="关闭">×</button>
+                </div>
+                <div id="schedule-snapshot-body" class="schedule-snapshot-body"></div>
+                <div class="schedule-snapshot-footer">
+                    <span data-i18n="schedule.snapshot.footer">编辑请使用功能区域的编辑按钮。</span>
+                    <button type="button" class="btn btn-gray" onclick="closeScheduleSnapshotModal()" data-i18n="common:button.close">关闭</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Per-task proxy/cookie override modal (opened from each schedule task card) -->
+        <div id="schedule-override-modal" class="schedule-snapshot-modal" hidden
+             role="dialog" aria-modal="true" aria-labelledby="schedule-override-title"
+             onclick="if(event.target===this) closeScheduleOverrideModal()">
+            <div class="schedule-snapshot-dialog schedule-override-dialog">
+                <div class="schedule-snapshot-head">
+                    <div id="schedule-override-title" class="schedule-snapshot-title" data-i18n="schedule.override.title">指定单独的 代理/cookie</div>
+                    <button type="button" class="schedule-snapshot-close"
+                            onclick="closeScheduleOverrideModal()"
+                            data-i18n-title="common:button.close" title="关闭">×</button>
+                </div>
+                <div class="schedule-snapshot-body schedule-override-body">
+                    <div class="schedule-override-intro" data-i18n="schedule.override.intro">为该计划任务指定独立的下载代理与 Cookie。未勾选的项使用默认行为：全局代理设置 / 任务当前绑定的 Cookie；取消已生效的勾选并保存会清除对应设置。</div>
+                    <label class="schedule-override-check"><input type="checkbox" id="sch-ov-proxy-enabled" onchange="onScheduleOverrideToggle('sch-ov')"> <span data-i18n="schedule.field.proxy-enabled">设置单独的代理</span></label>
+                    <div id="sch-ov-proxy-row" class="schedule-override-row" style="display:none;">
+                        <input type="text" id="sch-ov-proxy" data-i18n-placeholder="schedule.field.proxy.placeholder" placeholder="127.0.0.1:7890">
+                        <div class="schedule-field-hint" data-i18n="schedule.field.proxy.hint">该任务每轮运行中对 Pixiv 的全部访问（发现 / 元数据 / 下载 / 站内信检测）都会改走此 HTTP 代理（host:port）；取消勾选则使用全局代理设置。</div>
+                    </div>
+                    <label class="schedule-override-check"><input type="checkbox" id="sch-ov-cookie-enabled" onchange="onScheduleOverrideToggle('sch-ov')"> <span data-i18n="schedule.field.cookie-enabled">设置单独的cookie</span></label>
+                    <div id="sch-ov-cookie-row" class="schedule-override-row" style="display:none;">
+                        <div class="schedule-cookie-input-row">
+                            <input type="password" id="sch-ov-cookie" autocomplete="new-password" data-i18n-placeholder="schedule.field.cookie.placeholder" placeholder="粘贴含 PHPSESSID 的 Cookie，或点右侧按钮填入">
+                            <button type="button" class="btn btn-gray" onclick="fillScheduleCookieFromSaved('sch-ov-cookie')" data-i18n="schedule.action.use-saved-cookie">使用当前保存的cookie</button>
+                        </div>
+                        <div class="schedule-field-hint" data-i18n="schedule.field.cookie.hint">该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。</div>
+                    </div>
+                    <div id="sch-ov-status" class="schedule-status" role="status" aria-live="polite"></div>
+                </div>
+                <div class="schedule-snapshot-footer">
+                    <span></span>
+                    <span class="schedule-override-footer-actions">
+                        <button type="button" class="btn btn-green" onclick="saveScheduleOverride()" data-i18n="common:button.save">保存</button>
+                        <button type="button" class="btn btn-gray" onclick="closeScheduleOverrideModal()" data-i18n="common:button.cancel">取消</button>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Shared extra-filters (live result filtering in Search; snapshotted into scheduled tasks in User/Search/Series).
+             默认折叠的 <details>：summary 即「附加筛选」标题行，展开后才显示筛选字段；按模式显隐由
+             updateExtraFiltersCardVisibility 控制（style.display 作用于 <details> 元素本身）。 -->
+        <details class="search-extra-filters" id="extra-filters-card" style="display:none;">
+            <summary class="search-extra-head">
+                <span class="search-extra-title" data-i18n="label.search-extra">附加筛选</span>
+                <span class="search-extra-caret" aria-hidden="true">▾</span>
+            </summary>
+            <div class="search-extra-body">
+                <div class="search-extra-note" data-i18n="label.search-extra-note">各模式预览时实时过滤当前页；实际下载时不符合条件的作品会被跳过并显示原因；管理员「存为计划任务」时按此条件在后台逐作品过滤</div>
+                <div class="search-extra-note" id="extra-filters-quick-hint" style="display:none;color:var(--brand);" data-i18n="label.search-extra-quick-hint">展开具体作品列表（点开收藏 / 我的作品 / 关注新作，或点进某个画师 / 珍藏集）后即可实时预览过滤；当前筛选仍会在下载与计划任务时生效。</div>
+                <div class="search-extra-grid">
+                    <div class="search-extra-item">
+                        <label for="search-content-filter" data-i18n="label.search-content-rating">内容分级</label>
+                        <select id="search-content-filter" onchange="handleSearchFilterChange()">
+                            <option value="all" data-i18n="search.content.all">全部</option>
+                            <option value="safe" data-i18n="search.content.safe">全年龄</option>
+                            <option value="r18plus" data-i18n="search.content.r18plus">R18+(R-18 + R-18G)</option>
+                            <option value="r18" data-i18n="search.content.r18">R-18</option>
+                            <option value="r18g" data-i18n="search.content.r18g">R-18G</option>
+                        </select>
+                    </div>
+                    <div class="search-extra-item">
+                        <label for="search-ai-filter" data-i18n="label.search-ai">AI 作品</label>
+                        <select id="search-ai-filter" onchange="handleSearchFilterChange()">
+                            <option value="all" data-i18n="search.filter.all">全部</option>
+                            <option value="exclude" data-i18n="search.filter.exclude-ai">排除 AI</option>
+                            <option value="only" data-i18n="search.filter.only-ai">仅 AI</option>
+                        </select>
+                    </div>
+                    <div class="search-extra-item">
+                        <label for="search-tags-exact" data-i18n="label.search-tags-exact">标签(精确匹配)</label>
+                        <input type="text" id="search-tags-exact" data-i18n-placeholder="search.tags.placeholder"
+                               placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
+                    </div>
+                    <div class="search-extra-item">
+                        <label for="search-tags-fuzzy" data-i18n="label.search-tags-fuzzy">标签(模糊匹配)</label>
+                        <input type="text" id="search-tags-fuzzy" data-i18n-placeholder="search.tags.placeholder"
+                               placeholder="逗号分隔，全部命中" onchange="handleSearchFilterChange()">
+                    </div>
+                    <div class="search-extra-item search-illust-only">
+                        <label for="search-type-filter" data-i18n="label.search-type">作品类型</label>
+                        <select id="search-type-filter" onchange="handleSearchFilterChange()">
+                            <option value="all" data-i18n="search.filter.all">全部</option>
+                            <option value="illust" data-i18n="search.type.illust">插画</option>
+                            <option value="manga" data-i18n="search.type.manga">漫画</option>
+                            <option value="ugoira" data-i18n="search.type.ugoira">动图</option>
+                        </select>
+                    </div>
+                    <div class="search-extra-item search-illust-only">
+                        <label for="search-pages-min" data-i18n="label.search-pages-min">最少页数</label>
+                        <input type="number" id="search-pages-min" min="1" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                               onchange="handleSearchFilterChange()">
+                    </div>
+                    <div class="search-extra-item search-illust-only">
+                        <label for="search-pages-max" data-i18n="label.search-pages-max">最多页数</label>
+                        <input type="number" id="search-pages-max" min="1" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                               onchange="handleSearchFilterChange()">
+                    </div>
+                    <!-- 取得侧专属筛选槽位：由作品类型插件经 queueTypes 贡献（如小说的最少/最多字数） -->
+                    <template data-qt-slot="search-filter"></template>
+                    <div class="search-extra-item">
+                        <label for="search-bookmarks-min" data-i18n="label.search-bookmarks-min">最少收藏</label>
+                        <input type="number" id="search-bookmarks-min" min="0" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                               onchange="handleSearchFilterChange()">
+                    </div>
+                    <div class="search-extra-item">
+                        <label for="search-bookmarks-max" data-i18n="label.search-bookmarks-max">最多收藏</label>
+                        <input type="number" id="search-bookmarks-max" min="0" step="1" data-i18n-placeholder="search.unlimited" placeholder="不限"
+                               onchange="handleSearchFilterChange()">
+                    </div>
+                </div>
+                <div class="search-extra-actions">
+                    <button class="btn btn-red" style="padding:6px 10px;font-size:12px;" onclick="resetSearchFilters()" data-i18n="button.reset-search-filters">重置附加筛选</button>
+                </div>
+            </div>
+        </details>
+
+    </div><!-- /center-col -->
+
+    <!-- Download workbench (shared dashboard strip / settings / queue; hidden in schedule mode).
+         display:contents（CSS）使下方三块按 grid-area 分别落位到 顶部统计条 / 中部设置区 / 右侧队列 rail。 -->
     <div id="download-workbench">
 
-    <!-- Settings -->
-    <div class="card" id="download-settings-card">
-        <div class="card-title" data-i18n="card.settings">下载设置</div>
-        <div class="settings-grid">
-            <div class="setting-item">
-                <label data-i18n="label.settings.interval">作品间隔:</label>
-                <input type="number" id="s-interval" min="0" value="2">
-                <button class="unit-toggle" id="s-interval-unit" onclick="toggleIntervalUnit()">s</button>
-            </div>
-            <div class="setting-item">
-                <label data-i18n="label.settings.image-delay">图片间隔:</label>
-                <input type="number" id="s-image-delay" min="0" value="0">
-                <button class="unit-toggle" id="s-image-delay-unit" onclick="toggleImageDelayUnit()">ms</button>
-            </div>
-            <div class="setting-item">
-                <label data-i18n="label.settings.concurrent">最大并发数:</label>
-                <input type="number" id="s-concurrent" min="1" value="1" style="border-radius:4px;">
-            </div>
-            <div class="setting-item">
-                <input type="checkbox" id="s-skip">
-                <label for="s-skip" style="cursor:pointer;" data-i18n="label.settings.skip">跳过已下载作品</label>
-            </div>
-            <div class="setting-item" id="s-verify-files-wrap" style="display:none;">
-                <input type="checkbox" id="s-verify-files">
-                <label for="s-verify-files" style="cursor:pointer;" data-i18n="label.settings.verify">实际目录检测</label>
-                <span class="setting-help-icon" data-i18n-title="dialog.verify-files" title="通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载">?</span>
-            </div>
-            <div class="setting-item" id="s-redownload-deleted-wrap" style="display:none;">
-                <input type="checkbox" id="s-redownload-deleted">
-                <label for="s-redownload-deleted" style="cursor:pointer;" data-i18n="label.settings.redownload-deleted">允许已删除的作品被重新下载</label>
-                <span class="setting-help-icon" data-i18n-title="dialog.redownload-deleted" title="通过画廊删除的作品会保留删除标记：不勾选（默认）时视为已下载而跳过，原因为「已经下载过，但被删除」；勾选后视为未下载并重新下载，成功后删除标记自动清除">?</span>
-            </div>
-            <div class="setting-item">
-                <input type="checkbox" id="s-bookmark">
-                <label for="s-bookmark" style="cursor:pointer;" data-i18n="label.settings.bookmark">下载后自动收藏</label>
-            </div>
-            <div class="setting-item" id="s-collection-wrap" style="display:none;">
-                <label for="s-collection" data-i18n="label.settings.collection">收藏到:</label>
-                <select id="s-collection" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;max-width:200px;">
-                    <option value="" data-i18n="option.collection.none">（不加入收藏夹）</option>
-                </select>
-            </div>
-            <div class="setting-item filename-setting">
-                <label for="s-file-name-template" data-i18n="label.settings.filename-template">文件名格式:</label>
-                <input type="text" id="s-file-name-template" value="{artwork_id}_p{page}" spellcheck="false">
-            </div>
-            <details class="filename-help">
-                <summary data-i18n="filename.help.summary">模块变量</summary>
-                <div class="filename-token-grid">
-                    <div><code>{artwork_id}</code> <span data-i18n="filename.var.artwork-id">作品 ID</span></div>
-                    <div><code>{artwork_title}</code> <span data-i18n="filename.var.artwork-title">合规化作品标题</span></div>
-                    <div><code>{author_id}</code> <span data-i18n="filename.var.author-id">作者 ID</span></div>
-                    <div><code>{author_name}</code> <span data-i18n="filename.var.author-name">合规化作者名</span></div>
-                    <div><code>{timestamp}</code> <span data-i18n="filename.var.timestamp">毫秒级时间戳</span></div>
-                    <div><code>{page}</code> <span data-i18n="filename.var.page">当前页码</span></div>
-                    <div><code>{count}</code> <span data-i18n="filename.var.count">总页码</span></div>
-                    <div><code>{ai}</code> <span data-i18n="filename.var.ai">AI 时为 AI，否则为空</span></div>
-                    <div><code>{ai+}</code> <span data-i18n="filename.var.ai-plus">AI 或 Human</span></div>
-                    <div><code>{R18}</code> <span data-i18n="filename.var.r18">R18 / R18G / 空</span></div>
-                    <div><code>{R18+}</code> <span data-i18n="filename.var.r18-plus">SFW / R18 / R18G</span></div>
+        <!-- 顶部：仪表盘统计 / 主操作条 -->
+        <section class="dash-strip">
+            <div class="dash-inner">
+                <div class="dash-stats" role="group" aria-label="队列统计">
+                    <div class="stat-card stat-queued"><span class="stat-num" id="stat-count-pending">0</span><span class="stat-label" data-i18n="dashboard.stat.queued">队列</span></div>
+                    <div class="stat-card stat-success"><span class="stat-num" id="stat-count-success">0</span><span class="stat-label" data-i18n="dashboard.stat.success">成功</span></div>
+                    <div class="stat-card stat-failed"><span class="stat-num" id="stat-count-failed">0</span><span class="stat-label" data-i18n="dashboard.stat.failed">失败</span></div>
+                    <div class="stat-card stat-active"><span class="stat-num" id="stat-count-active">0</span><span class="stat-label" data-i18n="dashboard.stat.active">进行中</span></div>
+                    <div class="stat-card stat-skipped"><span class="stat-num" id="stat-count-skipped">0</span><span class="stat-label" data-i18n="dashboard.stat.skipped">跳过</span></div>
+                    <div class="stat-card stat-speed"><span class="stat-num"><span id="stat-speed-value">0</span><span class="stat-speed-unit" id="stat-speed-unit">B/s</span></span><span class="stat-label" data-i18n="dashboard.stat.speed">下载速度</span></div>
                 </div>
-                <div class="filename-help-note" data-i18n="filename.help.note">格式生成的是不含扩展名的文件名主干，重复名称会自动追加页码。</div>
-            </details>
-        </div>
-    </div>
-
-    <!-- 取得侧设置卡槽位：由作品类型插件经 queueTypes 贡献（如小说设置卡：格式 / 合订 / 自动翻译），
-         禁用其插件时缺席；其按模式 / kind 的显隐仍由宿主 applyNovelSettingsVisibility 负责（见 batch-settings.js）。 -->
-    <template data-qt-slot="settings-card"></template>
-
-    <!-- Save-as-scheduled-task (admin-only; snapshots the current mode + all download/filter settings) -->
-    <div class="card" id="save-as-schedule-card" style="display:none;">
-        <div class="card-title" data-i18n="schedule.save.title">⏰ 存为计划任务</div>
-        <div class="schedule-intro" data-i18n="schedule.save.intro">按当前模式来源与上方全部下载 / 筛选设置创建一个后台自动下载的计划任务（仅管理员）。在 User / Search / 系列模式下配置好后保存即可。</div>
-        <div class="schedule-form">
-            <div class="setting-item">
-                <label data-i18n="schedule.field.name">任务名称：</label>
-                <input type="text" id="sch-name" data-i18n-placeholder="schedule.field.name.placeholder" placeholder="为这个计划起个名字">
-            </div>
-            <div class="setting-item">
-                <label data-i18n="schedule.field.trigger">触发方式：</label>
-                <select id="sch-trigger" onchange="onScheduleTriggerChange()">
-                    <option value="interval" data-i18n="schedule.trigger.interval">固定周期</option>
-                    <option value="cron" data-i18n="schedule.trigger.cron">Cron 表达式</option>
-                </select>
-            </div>
-            <div class="setting-item sch-trigger-field sch-trigger-interval">
-                <label data-i18n="schedule.field.interval">周期（分钟）：</label>
-                <input type="number" id="sch-interval" min="1" value="1440">
-                <div class="schedule-field-hint" data-i18n="schedule.field.interval.hint">从上次运行算起，每隔这么多分钟自动运行一次（例如 1440 = 每天一次，60 = 每小时一次）。</div>
-            </div>
-            <div class="setting-item sch-trigger-field sch-trigger-cron">
-                <label data-i18n="schedule.field.cron">Cron 表达式：</label>
-                <input type="text" id="sch-cron" placeholder="0 0 3 * * *">
-                <div class="schedule-field-hint" data-i18n="schedule.field.cron.hint">使用 Spring 的 6 位格式「秒 分 时 日 月 周」（含秒，比常见的 5 位 Unix Cron 多出最前面的秒位）。示例：0 0 3 * * * = 每天 03:00:00；0 0 */6 * * * = 每 6 小时；0 30 8 * * 1 = 每周一 08:30:00。</div>
-            </div>
-            <div class="setting-item" id="sch-fetch-limit-row" style="display:none;">
-                <label data-i18n="schedule.field.fetch-limit">首次抓取上限：</label>
-                <input type="number" id="sch-fetch-limit" min="0" step="1" value="0">
-                <div class="schedule-field-hint" id="sch-fetch-limit-hint-watermark" data-i18n="schedule.field.fetch-limit.hint.watermark">仅计划任务生效。首次运行最多把最新的这么多个作品纳入本轮队列（已下载跳过 / 筛选跳过也占额度）；之后每轮只增量追新，更早的历史不再补下。0 = 全量抓取：首次运行会尝试下完该来源的全部历史，作品很多时可能触发 Pixiv 过度访问警告甚至封号，保存时会提示确认。</div>
-                <div class="schedule-field-hint" id="sch-fetch-limit-hint-per-run" style="display:none;" data-i18n="schedule.field.fetch-limit.hint.per-run">仅计划任务生效。该来源没有可靠的「最新」次序，按「每轮上限」执行：每次运行最多把这么多个作品纳入本轮队列（已下载跳过 / 筛选跳过也占额度），分多轮逐步抽干积压。若希望永远完整下载全部作品，设为 0 即可（不设上限）——但首轮 0 会一次性尝试下完全部，作品很多时可能触发 Pixiv 过度访问警告，保存时会提示确认。</div>
-            </div>
-            <div class="setting-item">
-                <label class="schedule-override-check"><input type="checkbox" id="sch-proxy-enabled" onchange="onScheduleOverrideToggle('sch')"> <span data-i18n="schedule.field.proxy-enabled">设置单独的代理</span></label>
-                <div id="sch-proxy-row" class="schedule-override-row" style="display:none;">
-                    <input type="text" id="sch-proxy" data-i18n-placeholder="schedule.field.proxy.placeholder" placeholder="127.0.0.1:7890">
-                    <div class="schedule-field-hint" data-i18n="schedule.field.proxy.hint">该任务每轮运行中对 Pixiv 的全部访问（发现 / 元数据 / 下载 / 站内信检测）都会改走此 HTTP 代理（host:port）；取消勾选则使用全局代理设置。</div>
+                <!-- 统计条文本（与 5 张卡片同源，updateStats 维护）：视觉隐藏，供读屏与回归保留 -->
+                <div id="stats-bar" class="sr-only">队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0</div>
+                <div class="dash-run">
+                    <span id="status-bar" class="dash-status" data-i18n="status.ready">准备就绪</span>
+                    <button class="btn btn-green dash-start-btn" id="btn-start" onclick="handleStart()" data-i18n="button.start">🚀 开始下载</button>
+                    <button class="btn btn-yellow" id="btn-pause" onclick="handlePause()" disabled data-i18n="button.pause">⏸ 暂停</button>
                 </div>
             </div>
-            <div class="setting-item">
-                <label class="schedule-override-check"><input type="checkbox" id="sch-cookie-enabled" onchange="onScheduleOverrideToggle('sch')"> <span data-i18n="schedule.field.cookie-enabled">设置单独的cookie</span></label>
-                <div id="sch-cookie-row" class="schedule-override-row" style="display:none;">
-                    <div class="schedule-cookie-input-row">
-                        <input type="password" id="sch-cookie" autocomplete="new-password" data-i18n-placeholder="schedule.field.cookie.placeholder" placeholder="粘贴含 PHPSESSID 的 Cookie，或点右侧按钮填入">
-                        <button type="button" class="btn btn-gray" onclick="fillScheduleCookieFromSaved('sch-cookie')" data-i18n="schedule.action.use-saved-cookie">使用当前保存的cookie</button>
+        </section>
+
+        <!-- 中部：下载设置 + 次级动作 -->
+        <div class="wb-center">
+
+            <!-- Settings -->
+            <div class="card" id="download-settings-card">
+                <div class="card-title" data-i18n="card.settings">下载设置</div>
+                <div class="settings-grid">
+                    <div class="setting-item">
+                        <label data-i18n="label.settings.interval">作品间隔:</label>
+                        <input type="number" id="s-interval" min="0" value="2">
+                        <button class="unit-toggle" id="s-interval-unit" onclick="toggleIntervalUnit()">s</button>
                     </div>
-                    <div class="schedule-field-hint" data-i18n="schedule.field.cookie.hint">该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。</div>
+                    <div class="setting-item">
+                        <label data-i18n="label.settings.image-delay">图片间隔:</label>
+                        <input type="number" id="s-image-delay" min="0" value="0">
+                        <button class="unit-toggle" id="s-image-delay-unit" onclick="toggleImageDelayUnit()">ms</button>
+                    </div>
+                    <div class="setting-item">
+                        <label data-i18n="label.settings.concurrent">最大并发数:</label>
+                        <input type="number" id="s-concurrent" min="1" value="1" style="border-radius:4px;">
+                    </div>
+                    <div class="setting-item">
+                        <input type="checkbox" id="s-skip">
+                        <label for="s-skip" style="cursor:pointer;" data-i18n="label.settings.skip">跳过已下载作品</label>
+                    </div>
+                    <div class="setting-item" id="s-verify-files-wrap" style="display:none;">
+                        <input type="checkbox" id="s-verify-files">
+                        <label for="s-verify-files" style="cursor:pointer;" data-i18n="label.settings.verify">实际目录检测</label>
+                        <span class="setting-help-icon" data-i18n-title="dialog.verify-files" title="通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载">?</span>
+                    </div>
+                    <div class="setting-item" id="s-redownload-deleted-wrap" style="display:none;">
+                        <input type="checkbox" id="s-redownload-deleted">
+                        <label for="s-redownload-deleted" style="cursor:pointer;" data-i18n="label.settings.redownload-deleted">允许已删除的作品被重新下载</label>
+                        <span class="setting-help-icon" data-i18n-title="dialog.redownload-deleted" title="通过画廊删除的作品会保留删除标记：不勾选（默认）时视为已下载而跳过，原因为「已经下载过，但被删除」；勾选后视为未下载并重新下载，成功后删除标记自动清除">?</span>
+                    </div>
+                    <div class="setting-item">
+                        <input type="checkbox" id="s-bookmark">
+                        <label for="s-bookmark" style="cursor:pointer;" data-i18n="label.settings.bookmark">下载后自动收藏</label>
+                    </div>
+                    <div class="setting-item" id="s-collection-wrap" style="display:none;">
+                        <label for="s-collection" data-i18n="label.settings.collection">收藏到:</label>
+                        <select id="s-collection" style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;max-width:200px;">
+                            <option value="" data-i18n="option.collection.none">（不加入收藏夹）</option>
+                        </select>
+                    </div>
+                    <div class="setting-item filename-setting">
+                        <label for="s-file-name-template" data-i18n="label.settings.filename-template">文件名格式:</label>
+                        <input type="text" id="s-file-name-template" value="{artwork_id}_p{page}" spellcheck="false">
+                    </div>
+                    <details class="filename-help">
+                        <summary data-i18n="filename.help.summary">模块变量</summary>
+                        <div class="filename-token-grid">
+                            <div><code>{artwork_id}</code> <span data-i18n="filename.var.artwork-id">作品 ID</span></div>
+                            <div><code>{artwork_title}</code> <span data-i18n="filename.var.artwork-title">合规化作品标题</span></div>
+                            <div><code>{author_id}</code> <span data-i18n="filename.var.author-id">作者 ID</span></div>
+                            <div><code>{author_name}</code> <span data-i18n="filename.var.author-name">合规化作者名</span></div>
+                            <div><code>{timestamp}</code> <span data-i18n="filename.var.timestamp">毫秒级时间戳</span></div>
+                            <div><code>{page}</code> <span data-i18n="filename.var.page">当前页码</span></div>
+                            <div><code>{count}</code> <span data-i18n="filename.var.count">总页码</span></div>
+                            <div><code>{ai}</code> <span data-i18n="filename.var.ai">AI 时为 AI，否则为空</span></div>
+                            <div><code>{ai+}</code> <span data-i18n="filename.var.ai-plus">AI 或 Human</span></div>
+                            <div><code>{R18}</code> <span data-i18n="filename.var.r18">R18 / R18G / 空</span></div>
+                            <div><code>{R18+}</code> <span data-i18n="filename.var.r18-plus">SFW / R18 / R18G</span></div>
+                        </div>
+                        <div class="filename-help-note" data-i18n="filename.help.note">格式生成的是不含扩展名的文件名主干，重复名称会自动追加页码。</div>
+                    </details>
                 </div>
             </div>
-            <div id="sch-quick-source" class="schedule-save-source" style="display:none;"></div>
-            <div id="sch-edit-source" class="schedule-save-source" style="display:none;"></div>
-            <div class="schedule-form-actions">
-                <button class="btn btn-green" id="sch-submit" onclick="submitScheduleTask()" data-i18n="schedule.action.create">➕ 创建任务</button>
-                <button class="btn btn-gray" id="sch-cancel" onclick="resetScheduleForm()" style="display:none;" data-i18n="schedule.action.cancel">取消编辑</button>
+
+            <!-- 取得侧设置卡槽位：由作品类型插件经 queueTypes 贡献（如小说设置卡：格式 / 合订 / 自动翻译），
+                 禁用其插件时缺席；其按模式 / kind 的显隐仍由宿主 applyNovelSettingsVisibility 负责（见 batch-settings.js）。 -->
+            <template data-qt-slot="settings-card"></template>
+
+            <!-- Save-as-scheduled-task (admin-only; snapshots the current mode + all download/filter settings) -->
+            <details class="card schedule-save-card" id="save-as-schedule-card" style="display:none;">
+                <summary class="schedule-save-summary">
+                    <span class="card-title" data-i18n="schedule.save.title">⏰ 存为计划任务</span>
+                    <span class="schedule-save-caret" aria-hidden="true">▾</span>
+                </summary>
+                <div class="schedule-intro" data-i18n="schedule.save.intro">按当前模式来源与上方全部下载 / 筛选设置创建一个后台自动下载的计划任务（仅管理员）。在 User / Search / 系列模式下配置好后保存即可。</div>
+                <div class="schedule-form">
+                    <div class="setting-item">
+                        <label data-i18n="schedule.field.name">任务名称：</label>
+                        <input type="text" id="sch-name" data-i18n-placeholder="schedule.field.name.placeholder" placeholder="为这个计划起个名字">
+                    </div>
+                    <div class="setting-item">
+                        <label data-i18n="schedule.field.trigger">触发方式：</label>
+                        <select id="sch-trigger" onchange="onScheduleTriggerChange()">
+                            <option value="interval" data-i18n="schedule.trigger.interval">固定周期</option>
+                            <option value="cron" data-i18n="schedule.trigger.cron">Cron 表达式</option>
+                        </select>
+                    </div>
+                    <div class="setting-item sch-trigger-field sch-trigger-interval">
+                        <label data-i18n="schedule.field.interval">周期（分钟）：</label>
+                        <input type="number" id="sch-interval" min="1" value="1440">
+                        <div class="schedule-field-hint" data-i18n="schedule.field.interval.hint">从上次运行算起，每隔这么多分钟自动运行一次（例如 1440 = 每天一次，60 = 每小时一次）。</div>
+                    </div>
+                    <div class="setting-item sch-trigger-field sch-trigger-cron">
+                        <label data-i18n="schedule.field.cron">Cron 表达式：</label>
+                        <input type="text" id="sch-cron" placeholder="0 0 3 * * *">
+                        <div class="schedule-field-hint" data-i18n="schedule.field.cron.hint">使用 Spring 的 6 位格式「秒 分 时 日 月 周」（含秒，比常见的 5 位 Unix Cron 多出最前面的秒位）。示例：0 0 3 * * * = 每天 03:00:00；0 0 */6 * * * = 每 6 小时；0 30 8 * * 1 = 每周一 08:30:00。</div>
+                    </div>
+                    <div class="setting-item" id="sch-fetch-limit-row" style="display:none;">
+                        <label data-i18n="schedule.field.fetch-limit">首次抓取上限：</label>
+                        <input type="number" id="sch-fetch-limit" min="0" step="1" value="0">
+                        <div class="schedule-field-hint" id="sch-fetch-limit-hint-watermark" data-i18n="schedule.field.fetch-limit.hint.watermark">仅计划任务生效。首次运行最多把最新的这么多个作品纳入本轮队列（已下载跳过 / 筛选跳过也占额度）；之后每轮只增量追新，更早的历史不再补下。0 = 全量抓取：首次运行会尝试下完该来源的全部历史，作品很多时可能触发 Pixiv 过度访问警告甚至封号，保存时会提示确认。</div>
+                        <div class="schedule-field-hint" id="sch-fetch-limit-hint-per-run" style="display:none;" data-i18n="schedule.field.fetch-limit.hint.per-run">仅计划任务生效。该来源没有可靠的「最新」次序，按「每轮上限」执行：每次运行最多把这么多个作品纳入本轮队列（已下载跳过 / 筛选跳过也占额度），分多轮逐步抽干积压。若希望永远完整下载全部作品，设为 0 即可（不设上限）——但首轮 0 会一次性尝试下完全部，作品很多时可能触发 Pixiv 过度访问警告，保存时会提示确认。</div>
+                    </div>
+                    <div class="setting-item">
+                        <label class="schedule-override-check"><input type="checkbox" id="sch-proxy-enabled" onchange="onScheduleOverrideToggle('sch')"> <span data-i18n="schedule.field.proxy-enabled">设置单独的代理</span></label>
+                        <div id="sch-proxy-row" class="schedule-override-row" style="display:none;">
+                            <input type="text" id="sch-proxy" data-i18n-placeholder="schedule.field.proxy.placeholder" placeholder="127.0.0.1:7890">
+                            <div class="schedule-field-hint" data-i18n="schedule.field.proxy.hint">该任务每轮运行中对 Pixiv 的全部访问（发现 / 元数据 / 下载 / 站内信检测）都会改走此 HTTP 代理（host:port）；取消勾选则使用全局代理设置。</div>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <label class="schedule-override-check"><input type="checkbox" id="sch-cookie-enabled" onchange="onScheduleOverrideToggle('sch')"> <span data-i18n="schedule.field.cookie-enabled">设置单独的cookie</span></label>
+                        <div id="sch-cookie-row" class="schedule-override-row" style="display:none;">
+                            <div class="schedule-cookie-input-row">
+                                <input type="password" id="sch-cookie" autocomplete="new-password" data-i18n-placeholder="schedule.field.cookie.placeholder" placeholder="粘贴含 PHPSESSID 的 Cookie，或点右侧按钮填入">
+                                <button type="button" class="btn btn-gray" onclick="fillScheduleCookieFromSaved('sch-cookie')" data-i18n="schedule.action.use-saved-cookie">使用当前保存的cookie</button>
+                            </div>
+                            <div class="schedule-field-hint" data-i18n="schedule.field.cookie.hint">该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。</div>
+                        </div>
+                    </div>
+                    <div id="sch-quick-source" class="schedule-save-source" style="display:none;"></div>
+                    <div id="sch-edit-source" class="schedule-save-source" style="display:none;"></div>
+                    <div class="schedule-form-actions">
+                        <button class="btn btn-green" id="sch-submit" onclick="submitScheduleTask()" data-i18n="schedule.action.create">➕ 创建任务</button>
+                        <button class="btn btn-gray" id="sch-cancel" onclick="resetScheduleForm()" style="display:none;" data-i18n="schedule.action.cancel">取消编辑</button>
+                    </div>
+                    <div id="sch-form-status" class="schedule-status"></div>
+                </div>
+            </details>
+
+            <!-- 次级动作：重试失败 / 清除队列 为直接按钮，导出全部 / 导出未下载 收进「更多」菜单 -->
+            <div class="wb-actions">
+                <button class="btn btn-cyan" id="btn-retry" onclick="handleRetry()" data-i18n="button.retry">🔁 重试失败</button>
+                <button class="btn btn-gray" id="btn-clear" onclick="handleClear()" data-i18n="button.clear-queue">🗑 清除队列</button>
+                <details class="more-menu">
+                    <summary class="more-summary"><span data-i18n="dashboard.more">更多</span> <span class="more-caret" aria-hidden="true">▾</span></summary>
+                    <div class="more-menu-panel">
+                        <button class="btn btn-blue" id="btn-export" onclick="handleExport()" data-i18n="button.export-all">📤 导出全部</button>
+                        <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()" data-i18n="button.export-undownloaded">📋 导出未下载</button>
+                    </div>
+                </details>
             </div>
-            <div id="sch-form-status" class="schedule-status"></div>
-        </div>
-    </div>
 
-    <!-- Buttons -->
-    <div class="card">
-        <div class="btn-grid">
-            <button class="btn btn-green" id="btn-start" onclick="handleStart()" data-i18n="button.start">🚀 开始下载</button>
-            <button class="btn btn-yellow" id="btn-pause" onclick="handlePause()" disabled data-i18n="button.pause">⏸ 暂停</button>
-            <button class="btn btn-cyan" id="btn-retry" onclick="handleRetry()" data-i18n="button.retry">🔁 重试失败</button>
-            <button class="btn btn-blue" id="btn-export" onclick="handleExport()" data-i18n="button.export-all">📤 导出全部</button>
-            <button class="btn btn-purple" id="btn-export-failed" onclick="handleExportFailed()" data-i18n="button.export-undownloaded">📋 导出未下载</button>
-            <button class="btn btn-gray" id="btn-clear" onclick="handleClear()" data-i18n="button.clear-queue">🗑 清除队列</button>
-        </div>
-    </div>
+        </div><!-- /wb-center -->
 
-    <!-- Quota bar (only shown in multi mode with quota enabled) -->
-    <div id="quota-bar">
-        <div class="qb-row">
-            <span class="qb-label"><span data-i18n="label.quota">下载配额：</span><span id="qb-used">0</span>/<span id="qb-max">50</span> <span data-i18n="label.quota-artworks">个作品</span></span>
-            <div class="qb-fill-bg">
-                <div class="qb-fill" id="qb-fill" style="width:0%"></div>
+        <!-- 右：常驻下载队列 rail（配额 / 压缩包 / 当前下载 / 队列） -->
+        <aside class="queue-rail">
+
+            <!-- Quota bar (only shown in multi mode with quota enabled) -->
+            <div id="quota-bar">
+                <div class="qb-row">
+                    <span class="qb-label"><span data-i18n="label.quota">下载配额：</span><span id="qb-used">0</span>/<span id="qb-max">50</span> <span data-i18n="label.quota-artworks">个作品</span></span>
+                    <div class="qb-fill-bg">
+                        <div class="qb-fill" id="qb-fill" style="width:0%"></div>
+                    </div>
+                </div>
+                <div class="qb-reset" id="qb-reset"></div>
             </div>
-        </div>
-        <div class="qb-reset" id="qb-reset"></div>
-    </div>
 
-    <!-- Archive download card -->
-    <div id="archive-card">
-        <div class="ac-title" id="ac-title" data-i18n="status.archive-limit">已达到下载限额</div>
-        <div class="ac-status" id="ac-status" data-i18n="status.archive-packing">正在打包已下载文件，请稍候...</div>
-        <div id="ac-dl-area" style="display:none;">
-            <a id="ac-dl-btn" class="btn-download" href="#" download data-i18n="status.archive-download">下载压缩包</a>
-            <div class="ac-countdown" id="ac-countdown"></div>
-        </div>
-        <div id="ac-expired-area" style="display:none;">
-            <div class="ac-expired" data-i18n="status.archive-expired">下载链接已过期</div>
-        </div>
-    </div>
+            <!-- Archive download card -->
+            <div id="archive-card">
+                <div class="ac-title" id="ac-title" data-i18n="status.archive-limit">已达到下载限额</div>
+                <div class="ac-status" id="ac-status" data-i18n="status.archive-packing">正在打包已下载文件，请稍候...</div>
+                <div id="ac-dl-area" style="display:none;">
+                    <a id="ac-dl-btn" class="btn-download" href="#" download data-i18n="status.archive-download">下载压缩包</a>
+                    <div class="ac-countdown" id="ac-countdown"></div>
+                </div>
+                <div id="ac-expired-area" style="display:none;">
+                    <div class="ac-expired" data-i18n="status.archive-expired">下载链接已过期</div>
+                </div>
+            </div>
 
-    <!-- Download progress (status + current + queue)：新手向导「正在下载示例作品」步会高亮此区域 -->
-    <div id="download-progress-area">
+            <!-- Download progress (current + queue)：新手向导「正在下载示例作品」步会高亮此区域 -->
+            <div id="download-progress-area">
 
-    <!-- Status -->
-    <div class="card" style="padding:12px 16px;">
-        <div id="status-bar" data-i18n="status.ready">准备就绪</div>
-        <div id="stats-bar">队列: 0 | 成功: 0 | 失败: 0 | 进行中: 0 | 跳过: 0</div>
-    </div>
+                <!-- Current -->
+                <div id="current-card"><strong data-i18n="label.current">当前下载:</strong> <span data-i18n="status.current-idle">无</span></div>
 
-    <!-- Current -->
-    <div id="current-card"><strong data-i18n="label.current">当前下载:</strong> <span data-i18n="status.current-idle">无</span></div>
+                <!-- Queue -->
+                <div class="card queue-card">
+                    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                        <span data-i18n="card.queue">下载队列</span>
+                        <button id="admin-pack-btn" style="display:none;padding:6px 12px;font-size:12px;"
+                                class="btn btn-blue" onclick="triggerAdminPack()" data-i18n="button.pack-completed">打包队列中已完成作品</button>
+                    </div>
+                    <div id="queue-list">
+                        <div class="queue-empty" data-i18n="status.queue-empty">队列为空</div>
+                    </div>
+                </div>
 
-    <!-- Queue -->
-    <div class="card" style="margin-top:14px;">
-        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-            <span data-i18n="card.queue">下载队列</span>
-            <button id="admin-pack-btn" style="display:none;padding:6px 12px;font-size:12px;"
-                    class="btn btn-blue" onclick="triggerAdminPack()" data-i18n="button.pack-completed">打包队列中已完成作品</button>
-        </div>
-        <div id="queue-list">
-            <div class="queue-empty" data-i18n="status.queue-empty">队列为空</div>
-        </div>
-    </div>
+            </div><!-- /download-progress-area -->
 
-    </div><!-- /download-progress-area -->
+        </aside><!-- /queue-rail -->
 
     </div><!-- /download-workbench -->
 
@@ -634,7 +695,7 @@
         </div>
     </footer>
 
-</div><!-- /page -->
+</div><!-- /wb-shell -->
 
 <script src="/pixiv-batch/batch-core.js"></script>
 <script src="/pixiv-batch/batch-queue-types.js"></script>

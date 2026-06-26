@@ -158,7 +158,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
             i18n: pageI18n,
             auto: auto,
             steps: [
-                {target: '#cookie-input', titleKey: 'tour:batch.cookie.title', bodyKey: 'tour:batch.cookie.body'},
+                {target: '#tools-drawer', titleKey: 'tour:batch.cookie.title', bodyKey: 'tour:batch.cookie.body'},
                 {target: '.tabs', titleKey: 'tour:batch.mode.title', bodyKey: 'tour:batch.mode.body'},
                 {target: '#btn-start', titleKey: 'tour:batch.start.title', bodyKey: 'tour:batch.start.body'},
                 {target: '#status-bar', titleKey: 'tour:batch.queue.title', bodyKey: 'tour:batch.queue.body'},
@@ -260,7 +260,46 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
             .replace(/"/g, '&quot;');
     }
 
+    /* ============================================================
+       预览结果「收起 / 展开」（User / Search / 系列 / 快捷获取 各预览界面共用）
+    ============================================================ */
+    // 切换某预览界面的收起 / 展开：隐藏 / 显示其结果区与分页，并同步按钮上的文案与箭头。
+    function togglePreviewCollapse(btn, areaId, pagerId) {
+        const area = document.getElementById(areaId);
+        const collapsed = area ? !area.classList.contains('preview-collapsed') : true;
+        applyPreviewCollapsed(areaId, pagerId, collapsed);
+        syncPreviewCollapseBtn(btn, collapsed);
+    }
+
+    function applyPreviewCollapsed(areaId, pagerId, collapsed) {
+        [areaId, pagerId].forEach(id => {
+            if (!id) return;
+            const el = document.getElementById(id);
+            if (el) el.classList.toggle('preview-collapsed', collapsed);
+        });
+    }
+
+    // 按钮文案 / 箭头随状态切换；data-i18n 同步为当前态的 key，保证切换界面语言时 pageI18n.apply 能正确重译。
+    function syncPreviewCollapseBtn(btn, collapsed) {
+        if (!btn) return;
+        btn.classList.toggle('is-collapsed', collapsed);
+        const label = btn.querySelector('.preview-collapse-label');
+        if (label) {
+            const key = collapsed ? 'preview.expand' : 'preview.collapse';
+            label.setAttribute('data-i18n', key);
+            label.textContent = bt(key, collapsed ? '展开' : '收起');
+        }
+    }
+
+    // 重新加载 / 翻页某预览界面时调用：强制展开，使新内容可见，并复位对应的全部收起按钮
+    //（同一结果区可能有多个收起按钮，如 Search 的搜索 / 批量两个子模式）。
+    function resetPreviewCollapse(areaId, pagerId) {
+        applyPreviewCollapsed(areaId, pagerId, false);
+        document.querySelectorAll('.preview-collapse-btn[onclick*="' + areaId + '"]')
+            .forEach(btn => syncPreviewCollapseBtn(btn, false));
+    }
+
 
 // ---- PixivBatch facade ----
 window.PixivBatch.core = window.PixivBatch.core || {};
-window.PixivBatch.core = Object.assign(window.PixivBatch.core, { bt, uiLang, interpolate, esc, escHtml, sleep, downloadTxt, formatBytes, formatSeconds, formatDurationMs, uiAlertKey, uiConfirmKey, loadAppInfo, BASE, setStatus, apiGet, checkBackend });
+window.PixivBatch.core = Object.assign(window.PixivBatch.core, { bt, uiLang, interpolate, esc, escHtml, sleep, downloadTxt, formatBytes, formatSeconds, formatDurationMs, uiAlertKey, uiConfirmKey, loadAppInfo, BASE, setStatus, apiGet, checkBackend, togglePreviewCollapse, resetPreviewCollapse });

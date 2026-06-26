@@ -121,6 +121,9 @@
     }
 
     function ensureUserscriptsExpanded() {
+        // 油猴脚本卡现位于「工具」抽屉内：先确保抽屉展开，卡片才可见 / 可滚动定位。
+        const drawer = document.getElementById('tools-drawer');
+        if (drawer && !drawer.open) drawer.open = true;
         const panel = document.getElementById('userscripts-panel');
         if (panel && panel.hidden) {
             toggleUserscripts();

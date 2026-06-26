@@ -133,6 +133,8 @@
         searchState.kind = kind;
         searchState.filterSeq++;
 
+        // 新一轮搜索：先展开预览，使加载态与新结果可见。
+        resetPreviewCollapse('search-results-area', 'search-pagination');
         document.getElementById('search-results-area').innerHTML =
             `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.searching', '搜索中...'))}</div>`;
         document.getElementById('search-pagination').style.display = 'none';
@@ -684,6 +686,8 @@
 
         const btn = document.getElementById('btn-batch-fetch');
         btn.disabled = true;
+        // 新一轮批量获取：先展开预览，使加载态与新结果可见。
+        resetPreviewCollapse('search-results-area', 'search-pagination');
         document.getElementById('search-results-area').innerHTML =
             `<div class="search-spinner"><span class="search-spinner-icon"></span>${esc(bt('status.batch-fetching', '批量获取第 {start}–{end} 页中...', {start, end: effEnd}))}</div>`;
         document.getElementById('search-pagination').style.display = 'none';

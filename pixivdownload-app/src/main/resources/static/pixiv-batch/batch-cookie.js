@@ -125,6 +125,17 @@
         });
         // 4) 帐号栏的提示文本（无 Cookie 时显示「未检测到登录 Cookie...」）
         updateQuickAccountBar();
+        // 5) 「工具」抽屉标题处的 Cookie 状态标记：有效（含 PHPSESSID）→ 绿色对号；否则 → 红色叉号。
+        //    data-i18n-title 同步为当前态的 key，切换界面语言时由 pageI18n.apply 重译提示文案。
+        const badge = document.getElementById('cookie-status-badge');
+        if (badge) {
+            badge.textContent = ok ? '✓' : '✕';
+            badge.classList.toggle('cookie-ok', ok);
+            badge.classList.toggle('cookie-bad', !ok);
+            const badgeKey = ok ? 'cookie.status.ok' : 'cookie.status.missing';
+            badge.setAttribute('data-i18n-title', badgeKey);
+            badge.title = bt(badgeKey, ok ? 'Cookie 有效（含 PHPSESSID）' : '未检测到有效 Cookie（缺少 PHPSESSID）');
+        }
     }
 
     function validateAndParseCookie(raw, fmt) {

@@ -694,7 +694,11 @@
         onScheduleTriggerChange();
         updateSaveScheduleCardVisibility();
         const card = document.getElementById('save-as-schedule-card');
-        if (card) card.scrollIntoView({behavior: 'smooth', block: 'center'});
+        // 「存为计划任务」默认折叠；进入编辑态时展开，让编辑表单立即可见。
+        if (card) {
+            card.open = true;
+            card.scrollIntoView({behavior: 'smooth', block: 'center'});
+        }
     }
 
     // 把快照的下载设置写回共享控件（不含内容分级等附加筛选，它们在 filters 段）

@@ -463,13 +463,123 @@
         state.stats.skipped = state.queue.filter(q => q.status === 'skipped').length;
         const pending = state.queue.filter(q =>
             ['idle', 'pending', 'paused'].includes(q.status)).length;
-        document.getElementById('stats-bar').textContent = formatStatsText(
-            pending,
-            state.stats.success,
-            state.stats.failed,
-            state.stats.active,
-            state.stats.skipped
-        );
+        const statsBar = document.getElementById('stats-bar');
+        if (statsBar) {
+            statsBar.textContent = formatStatsText(
+                pending,
+                state.stats.success,
+                state.stats.failed,
+                state.stats.active,
+                state.stats.skipped
+            );
+        }
+        // 顶部仪表盘 5 张统计卡：与 #stats-bar 同源，逐项写入对应数字（卡片缺失即跳过）。
+        setStatCount('stat-count-pending', pending);
+        setStatCount('stat-count-success', state.stats.success);
+        setStatCount('stat-count-failed', state.stats.failed);
+        setStatCount('stat-count-active', state.stats.active);
+        setStatCount('stat-count-skipped', state.stats.skipped);
+    }
+
+    function setStatCount(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    }
+
+    /* ============================================================
+       下载总速度计量
+       SSE 聚合连接是所有作品下载进度的汇聚点：每条 download-status 事件按其字节进度算「全局单调累计字节」，
+       定时器每秒采样累计值的增量得到速度。基线 / 定时器随下载生命周期（共享 SSE 的建立 / 关闭）启停。
+    ============================================================ */
+    function speedNowMs() {
+        return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    }
+
+    // 累计单条传输流的正增量：每个传输流（某作品的第 N 张图 / 动图包 / 小说封面）的字节单调递增，
+    // 用 key 记住上次见到的值，只把正增量计入全局累计，从而跨多作品 / 多图正确汇总。
+    function addSpeedSample(key, cur) {
+        if (!Number.isFinite(cur) || cur < 0) return;
+        const prev = state.speedSamples[key] || 0;
+        if (cur > prev) {
+            state.speedAccumBytes += (cur - prev);
+            state.speedSamples[key] = cur;
+        } else if (cur < prev) {
+            // 同 key 字节回退（极少见，视作新一段传输）：把当前值整体计入增量
+            state.speedAccumBytes += cur;
+            state.speedSamples[key] = cur;
+        }
+    }
+
+    function accumulateDownloadSpeed(aid, data) {
+        if (!aid || !data) return;
+        const ip = data.imageProgress;
+        if (ip) addSpeedSample(aid + ':img:' + (ip.imageNumber != null ? ip.imageNumber : 0), Number(ip.downloadedBytes));
+        const up = data.ugoiraProgress;
+        if (up) addSpeedSample(aid + ':zip', Number(up.zipDownloadedBytes));
+        if (data.coverDownloadedBytes != null) addSpeedSample(aid + ':cover', Number(data.coverDownloadedBytes));
+        // 该作品终态：清掉其传输流基线，避免 speedSamples 无限增长。
+        if (data.completed || data.failed || data.cancelled) clearSpeedSamplesForItem(aid);
+    }
+
+    function clearSpeedSamplesForItem(aid) {
+        const prefix = aid + ':';
+        Object.keys(state.speedSamples).forEach(k => {
+            if (k.indexOf(prefix) === 0) delete state.speedSamples[k];
+        });
+    }
+
+    function startSpeedMeter() {
+        if (state.speedTimer) return;   // 幂等：已在计量则不重置基线
+        state.speedSamples = {};
+        state.speedAccumBytes = 0;
+        state.speedLastAccum = 0;
+        state.speedLastTime = speedNowMs();
+        renderDownloadSpeed(0);
+        state.speedTimer = setInterval(sampleDownloadSpeed, 1000);
+    }
+
+    function stopSpeedMeter() {
+        if (state.speedTimer) {
+            clearInterval(state.speedTimer);
+            state.speedTimer = null;
+        }
+        state.speedSamples = {};
+        renderDownloadSpeed(0);
+    }
+
+    function sampleDownloadSpeed() {
+        const now = speedNowMs();
+        const dt = (now - state.speedLastTime) / 1000;
+        const delta = state.speedAccumBytes - state.speedLastAccum;
+        state.speedLastAccum = state.speedAccumBytes;
+        state.speedLastTime = now;
+        renderDownloadSpeed(dt > 0 ? Math.max(0, delta / dt) : 0);
+    }
+
+    // 按速度大小自适应单位：B/s · KB/s · MB/s · GB/s。
+    function formatSpeed(bytesPerSec) {
+        const b = Number(bytesPerSec);
+        if (!Number.isFinite(b) || b < 1) return {value: '0', unit: 'B/s'};
+        const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+        let v = b, i = 0;
+        while (v >= 1024 && i < units.length - 1) {
+            v /= 1024;
+            i++;
+        }
+        let value;
+        if (i === 0 || v >= 100) value = String(Math.round(v));
+        else if (v >= 10) value = v.toFixed(1);
+        else value = v.toFixed(2);
+        return {value, unit: units[i]};
+    }
+
+    function renderDownloadSpeed(bytesPerSec) {
+        const valEl = document.getElementById('stat-speed-value');
+        const unitEl = document.getElementById('stat-speed-unit');
+        if (!valEl && !unitEl) return;
+        const {value, unit} = formatSpeed(bytesPerSec);
+        if (valEl) valEl.textContent = value;
+        if (unitEl) unitEl.textContent = unit;
     }
 
     function setCurrent(item) {
