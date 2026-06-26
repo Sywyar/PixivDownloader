@@ -13,6 +13,8 @@ import java.util.List;
  * @param signature         期望签名（预留位，可空；一旦非空、当前无签名校验器即 <b>fail-closed</b> 拒绝安装）
  * @param requiredCoreApi   声明的核心 API 版本要求（展示 / 兼容标记用；安装时由<b>下载包描述符</b>权威裁定，不在此另立权威）
  * @param dependencies      声明的插件间依赖（展示用；安装时由下载包描述符权威解析）
+ * @param releasedTime      该版本发布时间（ISO-8601 字符串，可空；仅展示——版本历史 / 更新日志）
+ * @param changeNotes       该版本更新说明条目（可空；仅展示——详情弹窗的更新日志）
  */
 public record PluginCatalogPackage(
         String version,
@@ -21,10 +23,13 @@ public record PluginCatalogPackage(
         String sha256,
         String signature,
         String requiredCoreApi,
-        List<String> dependencies) {
+        List<String> dependencies,
+        String releasedTime,
+        List<String> changeNotes) {
 
     public PluginCatalogPackage {
         dependencies = dependencies != null ? List.copyOf(dependencies) : List.of();
+        changeNotes = changeNotes != null ? List.copyOf(changeNotes) : List.of();
     }
 
     /** 是否声明了非空签名（非空 + 无校验器 → 完整性校验 fail-closed 拒绝）。 */

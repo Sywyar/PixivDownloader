@@ -5,28 +5,37 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.module.paramnames.ParameterNamesModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 
 import java.nio.charset.StandardCharsets;
 
 /**
- * 受信 catalog 读取服务：从服务端配置的受信清单地址（{@code plugin-catalog.manifest-url}，仅 https）拉取并解析 catalog
- * manifest。<b>清单地址只来自服务端配置、绝不来自请求参数</b>；拉取经 SSRF 安全的 {@link PluginCatalogHttpClient}、请求
- * <b>字节</b>后按 UTF-8 解码（不请求 {@code String.class}），用 Jackson 解析为 {@link PluginCatalogManifest}（忽略未知
- * 字段、前向兼容）。
+ * 受信 catalog 读取服务：从<b>服务端配置的仓库列表</b>（{@link PluginRepositoryRegistry}，内嵌官方默认仓库 + 自定义仓库，
+ * 仅 https）解析 catalog manifest。<b>清单地址只来自服务端配置 / 内嵌常量、绝不来自请求参数</b>；按仓库代理策略经
+ * {@link PluginCatalogClientProvider} 取得 SSRF 安全的 {@link PluginCatalogHttpClient}，请求<b>字节</b>后按 UTF-8 解码
+ * （不请求 {@code String.class}），用 Jackson 解析为 {@link PluginCatalogManifest}（忽略未知字段、前向兼容）。
+ *
+ * <p>主开关（{@code plugin-catalog.enabled}）关闭时整体不可用、不联网；开启后默认操作内嵌官方仓库（除非配置了旧版
+ * {@code manifest-url} 兼容仓库），也可按 {@code repositoryId} 操作指定仓库。
  */
 @Service
 public class PluginCatalogService {
 
     private static final Logger log = LoggerFactory.getLogger(PluginCatalogService.class);
 
-    private final PluginCatalogProperties properties;
-    private final PluginCatalogHttpClient httpClient;
+    private final PluginRepositoryRegistry repositoryRegistry;
+    private final PluginCatalogClientProvider clientProvider;
     private final ObjectMapper objectMapper;
 
-    public PluginCatalogService(PluginCatalogProperties properties, PluginCatalogHttpClient pluginCatalogHttpClient) {
-        this.properties = properties;
-        this.httpClient = pluginCatalogHttpClient;
+    @Autowired
+    public PluginCatalogService(PluginRepositoryRegistry repositoryRegistry,
+                                PluginCatalogClientProvider clientProvider) {
+        this.repositoryRegistry = repositoryRegistry;
+        this.clientProvider = clientProvider;
         // 自建 ObjectMapper：显式注册 ParameterNamesModule（record 按构造参数名绑定）+ 忽略未知字段（前向兼容），
         // 不依赖全局 Boot ObjectMapper 的配置，使解析行为在生产与单测中确定一致。
         this.objectMapper = new ObjectMapper()
@@ -34,25 +43,66 @@ public class PluginCatalogService {
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
-    /** catalog 是否启用（启用且已配置 {@code manifest-url}）。 */
+    /**
+     * 便利构造（测试 / 简单装配）：从配置直接建仓库注册中心，并用一个固定客户端服务所有仓库（对接 loopback 桩）。
+     * 生产装配走 {@link #PluginCatalogService(PluginRepositoryRegistry, PluginCatalogClientProvider)}。
+     */
+    public PluginCatalogService(PluginCatalogProperties properties, PluginCatalogHttpClient httpClient) {
+        this(new PluginRepositoryRegistry(properties), repository -> httpClient);
+    }
+
+    /** catalog 是否启用（主开关开启且存在可用的默认仓库）。 */
     public boolean isEnabled() {
-        return properties.isEnabled() && properties.hasManifestUrl();
+        return repositoryRegistry.featureEnabled() && repositoryRegistry.defaultRepository().isPresent();
     }
 
     /**
-     * 加载受信 catalog 清单。未启用 → {@link PluginCatalogErrorCode#CATALOG_DISABLED}；启用但拉取（含不安全 URL /
-     * 阻断地址 / 超限 / 网络失败）或解析失败 → {@link PluginCatalogErrorCode#CATALOG_UNAVAILABLE}。
+     * 加载默认仓库的受信 catalog 清单。主开关关闭 / 无可用仓库 → {@link PluginCatalogErrorCode#CATALOG_DISABLED}；
+     * 拉取（含不安全 URL / 阻断地址 / 超限 / 网络失败）或解析失败 → {@link PluginCatalogErrorCode#CATALOG_UNAVAILABLE}。
      */
     public PluginCatalogManifest load() {
-        if (!isEnabled()) {
+        requireFeatureEnabled();
+        PluginRepository repository = repositoryRegistry.defaultRepository().orElseThrow(() ->
+                new PluginCatalogException(PluginCatalogErrorCode.CATALOG_DISABLED, "no enabled plugin repository"));
+        return loadRepository(repository);
+    }
+
+    /**
+     * 按 {@code repositoryId} 加载指定仓库的清单。主开关关闭 → {@code CATALOG_DISABLED}；未知 id →
+     * {@link PluginCatalogErrorCode#UNKNOWN_REPOSITORY}；仓库禁用 → {@link PluginCatalogErrorCode#REPOSITORY_DISABLED}；
+     * 代理策略不支持 → {@link PluginCatalogErrorCode#PROXY_POLICY_UNSUPPORTED}；拉取 / 解析失败 → {@code CATALOG_UNAVAILABLE}。
+     */
+    public PluginCatalogManifest load(String repositoryId) {
+        requireFeatureEnabled();
+        PluginRepository repository = repositoryRegistry.find(repositoryId).orElseThrow(() ->
+                new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_REPOSITORY,
+                        "unknown plugin repository: " + repositoryId));
+        if (!repository.enabled()) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_DISABLED,
+                    "plugin repository is disabled: " + repository.repositoryId());
+        }
+        return loadRepository(repository);
+    }
+
+    private void requireFeatureEnabled() {
+        if (!repositoryRegistry.featureEnabled()) {
             throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_DISABLED, "plugin catalog is disabled");
         }
+    }
+
+    /**
+     * 拉取并解析某仓库的清单。代理策略不支持时 {@link PluginCatalogClientProvider#clientFor} 抛
+     * {@code PROXY_POLICY_UNSUPPORTED}（在拉取前、直接传播）；拉取阶段（不安全 URL / 阻断地址 / 超限 / 网络）任何失败
+     * 统一归 {@code CATALOG_UNAVAILABLE}（清单地址是服务端配置，不暴露具体失败给请求方）。
+     */
+    private PluginCatalogManifest loadRepository(PluginRepository repository) {
+        PluginCatalogHttpClient httpClient = clientProvider.clientFor(repository);
         byte[] bytes;
         try {
-            bytes = httpClient.fetchBytes(properties.getManifestUrl(), properties.getMaxManifestBytes());
+            bytes = httpClient.fetchBytes(repository.manifestUrl(), repository.maxManifestBytes());
         } catch (PluginCatalogException e) {
-            // 清单地址是服务端配置；拉取阶段任何失败（不安全 URL / 阻断地址 / 超限 / 网络）统一归「catalog 不可用」。
-            log.warn("Failed to fetch plugin catalog manifest: {}", e.getMessage());
+            log.warn("Failed to fetch plugin catalog manifest from repository {}: {}",
+                    repository.repositoryId(), e.getMessage());
             throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                     "failed to fetch catalog manifest: " + e.getMessage());
         }

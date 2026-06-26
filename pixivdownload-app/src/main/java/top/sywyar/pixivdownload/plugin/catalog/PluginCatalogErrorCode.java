@@ -18,6 +18,15 @@ public enum PluginCatalogErrorCode {
     /** catalog 已启用但清单拉取 / 解析失败（网络错误、坏 JSON、不安全的清单地址等）。 */
     CATALOG_UNAVAILABLE(HttpStatus.BAD_GATEWAY, "plugin.catalog.error.unavailable"),
 
+    /** 引用了不存在的仓库 id（不在服务端配置的仓库列表中）。 */
+    UNKNOWN_REPOSITORY(HttpStatus.NOT_FOUND, "plugin.catalog.error.unknown-repository"),
+
+    /** 目标仓库存在但已被禁用（不参与解析 / 拉取）。 */
+    REPOSITORY_DISABLED(HttpStatus.CONFLICT, "plugin.catalog.error.repository-disabled"),
+
+    /** 仓库代理策略不受支持（未知策略，或当前运行时尚未接线的 {@code proxy-trusted}）。 */
+    PROXY_POLICY_UNSUPPORTED(HttpStatus.UNPROCESSABLE_ENTITY, "plugin.catalog.error.proxy-policy-unsupported"),
+
     /** catalog 中没有该插件 id。 */
     UNKNOWN_PLUGIN(HttpStatus.NOT_FOUND, "plugin.catalog.error.unknown-plugin"),
 

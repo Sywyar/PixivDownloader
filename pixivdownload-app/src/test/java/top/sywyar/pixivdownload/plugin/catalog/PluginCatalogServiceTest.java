@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogMarketMeta;
 
 import java.nio.charset.StandardCharsets;
 
@@ -36,11 +37,21 @@ class PluginCatalogServiceTest {
     }
 
     @Test
-    @DisplayName("启用但未配置 manifest-url：isEnabled=false，load() 抛 CATALOG_DISABLED")
-    void enabledButNoUrl() {
-        PluginCatalogService service = service(true, "");
+    @DisplayName("主开关开但无启用仓库（官方仓库禁用 + 未配置 manifest-url）：isEnabled=false，load() 抛 CATALOG_DISABLED")
+    void enabledButNoEnabledRepository() {
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setOfficialRepositoryEnabled(false);
+        PluginCatalogService service = new PluginCatalogService(props, relaxed);
         assertThat(service.isEnabled()).isFalse();
         assertCode(service, PluginCatalogErrorCode.CATALOG_DISABLED);
+    }
+
+    @Test
+    @DisplayName("主开关开 + 官方仓库默认启用 + 未配置自定义仓库：isEnabled=true（默认仓库为内嵌官方，不实际联网）")
+    void enabledWithOfficialDefault() {
+        PluginCatalogService service = service(true, "");
+        assertThat(service.isEnabled()).isTrue();
     }
 
     @Test
@@ -79,6 +90,7 @@ class PluginCatalogServiceTest {
         PluginCatalogEntry entry = manifest.entries().get(0);
         assertThat(entry.pluginId()).isEqualTo("stats");
         assertThat(entry.displayNameKey()).isEqualTo("stats:nav.label");
+        assertThat(entry.market()).as("无 market 块时市场元数据为 null").isNull();
         assertThat(entry.packages()).hasSize(1);
         PluginCatalogPackage pkg = entry.packages().get(0);
         assertThat(pkg.version()).isEqualTo("1.2.3");
@@ -161,6 +173,120 @@ class PluginCatalogServiceTest {
         PluginCatalogService service = service(true, "ht tp://example.com/c.json");
         assertThat(service.isEnabled()).isTrue();
         assertCode(service, PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("解析市场元数据：market 块（分类 / 作者 / 标签 / 评分 / 下载量 / 图标 token）+ 版本包发布时间 / 更新日志")
+    void parsesMarketMetadata() {
+        PluginCatalogService service = service(false, "");
+        String json = """
+                {
+                  "entries": [
+                    {
+                      "pluginId": "stats",
+                      "market": {
+                        "author": "Sywyar",
+                        "sourceType": "official",
+                        "category": "utility",
+                        "tags": ["stats", "dashboard"],
+                        "rating": 4.5,
+                        "ratingCount": 12,
+                        "downloadCount": 1820,
+                        "latestVersion": "1.2.3",
+                        "updatedTime": "2026-06-20",
+                        "iconToken": "chart-line",
+                        "colorToken": "green",
+                        "recommended": true,
+                        "officialRequired": false
+                      },
+                      "packages": [
+                        {
+                          "version": "1.2.3",
+                          "packageUrl": "https://example.com/stats-1.2.3.jar",
+                          "expectedSizeBytes": 4096,
+                          "sha256": "abcdef",
+                          "releasedTime": "2026-06-20",
+                          "changeNotes": ["fix A", "add B"]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        PluginCatalogManifest manifest = service.parseManifest(json.getBytes(StandardCharsets.UTF_8));
+
+        PluginCatalogEntry entry = manifest.entries().get(0);
+        PluginCatalogMarketMeta market = entry.market();
+        assertThat(market).isNotNull();
+        assertThat(market.author()).isEqualTo("Sywyar");
+        assertThat(market.sourceType()).isEqualTo("official");
+        assertThat(market.category()).isEqualTo("utility");
+        assertThat(market.tags()).containsExactly("stats", "dashboard");
+        assertThat(market.rating()).isEqualTo(4.5);
+        assertThat(market.ratingCount()).isEqualTo(12);
+        assertThat(market.downloadCount()).isEqualTo(1820L);
+        assertThat(market.latestVersion()).isEqualTo("1.2.3");
+        assertThat(market.iconToken()).isEqualTo("chart-line");
+        assertThat(market.recommended()).isTrue();
+        PluginCatalogPackage pkg = entry.packages().get(0);
+        assertThat(pkg.releasedTime()).isEqualTo("2026-06-20");
+        assertThat(pkg.changeNotes()).containsExactly("fix A", "add B");
+    }
+
+    @Test
+    @DisplayName("未知仓库 id：load(repositoryId) 抛 UNKNOWN_REPOSITORY")
+    void unknownRepository() {
+        PluginCatalogService service = service(true, "");
+        PluginCatalogException ex = catchThrowableOfType(
+                () -> service.load("ghost"), PluginCatalogException.class);
+        assertThat(ex).isNotNull();
+        assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.UNKNOWN_REPOSITORY);
+    }
+
+    @Test
+    @DisplayName("禁用的仓库：load(repositoryId) 抛 REPOSITORY_DISABLED（不发起拉取）")
+    void disabledRepository() {
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        PluginCatalogProperties.RepositoryConfig repo = new PluginCatalogProperties.RepositoryConfig();
+        repo.setId("custom");
+        repo.setManifestUrl("https://example.com/custom.json");
+        repo.setEnabled(false);
+        props.getRepositories().add(repo);
+        PluginCatalogService service = new PluginCatalogService(props, relaxed);
+
+        PluginCatalogException ex = catchThrowableOfType(
+                () -> service.load("custom"), PluginCatalogException.class);
+        assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.REPOSITORY_DISABLED);
+    }
+
+    @Test
+    @DisplayName("主开关关闭：load(repositoryId) 也抛 CATALOG_DISABLED（主开关优先于仓库解析）")
+    void masterOffRejectsRepositoryLoad() {
+        PluginCatalogService service = service(false, "");
+        PluginCatalogException ex = catchThrowableOfType(
+                () -> service.load("official"), PluginCatalogException.class);
+        assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.CATALOG_DISABLED);
+    }
+
+    @Test
+    @DisplayName("按 repositoryId 加载自定义仓库（loopback 桩）：解析成功")
+    void loadByRepositoryId() {
+        server = CatalogTestSupport.startServer();
+        String json = "{\"entries\":[{\"pluginId\":\"demo\",\"packages\":[]}]}";
+        CatalogTestSupport.serveBytes(server, "/c.json", json.getBytes(StandardCharsets.UTF_8));
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        PluginCatalogProperties.RepositoryConfig repo = new PluginCatalogProperties.RepositoryConfig();
+        repo.setId("custom");
+        repo.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/c.json"));
+        props.getRepositories().add(repo);
+        PluginCatalogService service = new PluginCatalogService(props, relaxed);
+
+        PluginCatalogManifest manifest = service.load("custom");
+
+        assertThat(manifest.findEntry("demo")).isPresent();
     }
 
     private PluginCatalogService service(boolean enabled, String manifestUrl) {
