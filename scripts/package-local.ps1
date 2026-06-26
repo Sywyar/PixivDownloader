@@ -2,6 +2,8 @@
 param(
     [string]$Version = "0.0.1-local",
     [string]$PrebuiltJar,
+    [string]$PrebuiltPluginsDir,
+    [switch]$SkipPlugins,
     [switch]$RunTests,
     [switch]$SkipPortable,
     [switch]$SkipOfflinePortable,
@@ -13,6 +15,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.IO.Compression | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
+
+# Shared official-plugin list + thin-jar / checksum primitives (one source of distribution truth,
+# also used by scripts/assemble-plugin-distribution.ps1).
+. (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildRoot = Join-Path $ProjectRoot "build"
@@ -160,6 +168,71 @@ function Resolve-PrebuiltJar {
     return $item.FullName
 }
 
+function Resolve-PrebuiltPluginsDir {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "PrebuiltPluginsDir not found or not a directory: $Path"
+    }
+    return (Resolve-Path -LiteralPath $Path).Path
+}
+
+function Stage-OfficialPlugins {
+    # Stage the official optional external thin plugin jars into <AppDir>\plugins so the portable zip
+    # and the installer (which copy the whole app-image) carry the "full offline" plugins/ layout.
+    # Each jar is thin-checked and copied under a STABLE, version-less name (<module>.jar): an in-place
+    # installer upgrade then overwrites only that exact path (the existing [Files] ignoreversion flag)
+    # and never leaves a stale duplicate, while third-party plugin jars under plugins/ - any other name -
+    # are not in the installer file list and are therefore preserved across upgrade. The plugin's own
+    # plugin.version (read from plugin.properties) is recorded in plugins-manifest.json.
+    param(
+        [Parameter(Mandatory = $true)][string]$AppDir,
+        [string]$PrebuiltPluginsDir,
+        [Parameter(Mandatory = $true)][string]$ProjectRoot
+    )
+    $pluginsDir = Join-Path $AppDir "plugins"
+    Ensure-Directory $pluginsDir
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $manifest = @()
+    $sumLines = @()
+    foreach ($plugin in (Get-OfficialOptionalPlugins)) {
+        if ($PrebuiltPluginsDir) {
+            $candidate = Get-ChildItem (Join-Path $PrebuiltPluginsDir "$($plugin.Module)-*.jar") -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+                Sort-Object LastWriteTime -Descending |
+                Select-Object -First 1
+            if (-not $candidate) {
+                throw "Prebuilt plugin jar for module $($plugin.Module) not found under $PrebuiltPluginsDir."
+            }
+            $sourceJar = $candidate.FullName
+        } else {
+            $sourceJar = Find-ModuleJar $plugin.Module $ProjectRoot
+        }
+        $descriptor = Assert-ThinPluginJar $sourceJar $plugin.Id
+        $stableName = "$($plugin.Module).jar"
+        $targetJar = Join-Path $pluginsDir $stableName
+        Copy-Item $sourceJar $targetJar -Force
+        $sha = Get-Sha256Hex $targetJar
+        [System.IO.File]::WriteAllText("$targetJar.sha256", "$sha  $stableName`n", $utf8NoBom)
+        $manifest += [ordered]@{
+            id       = $plugin.Id
+            version  = $descriptor["plugin.version"]
+            requires = $descriptor["plugin.requires"]
+            file     = $stableName
+            sha256   = $sha
+        }
+        $sumLines += "$sha  $stableName"
+        Write-Host ("    OK: staged {0} (id {1}, sha256 {2})." -f $stableName, $plugin.Id, $sha) -ForegroundColor Green
+    }
+    # Checksums + manifest live alongside the jars inside plugins/ (paths relative to plugins/).
+    [System.IO.File]::WriteAllText((Join-Path $pluginsDir "SHA256SUMS"), (($sumLines -join "`n") + "`n"), $utf8NoBom)
+    $manifestJson = ConvertTo-Json @($manifest) -Depth 5
+    [System.IO.File]::WriteAllText((Join-Path $pluginsDir "plugins-manifest.json"), $manifestJson + "`n", $utf8NoBom)
+    return $manifest.Count
+}
+
 function Get-InstallerVersion {
     param([string]$VersionText)
 
@@ -216,6 +289,10 @@ Push-Location $ProjectRoot
 try {
     Write-Step "Checking local toolchain"
     $InstallerVersion = Get-InstallerVersion $Version
+    $resolvedPrebuiltPluginsDir = ""
+    if (-not $SkipPlugins) {
+        $resolvedPrebuiltPluginsDir = Resolve-PrebuiltPluginsDir $PrebuiltPluginsDir
+    }
     $mavenCmd = $null
     if (-not $PrebuiltJar) {
         $mavenCmd = Get-MavenCommand
@@ -287,6 +364,19 @@ try {
     Write-Step "Patching launcher to request administrator rights"
     & $SetExeExecutionLevelScript -Path (Join-Path $OnlineAppDir "$AppName.exe") -Level "requireAdministrator"
 
+    # Stage the official optional external plugins into the (online) app-image plugins/ folder before
+    # packaging. Both the offline app-image (a copy of the online one) and the installer (which copies
+    # the whole app-image via the [Files] section) inherit plugins/ from here - one staging step feeds
+    # all three outputs. The download workbench is a built-in required plugin inside the boot jar, so
+    # the base download workflow works even with -SkipPlugins (no bundled optional plugins).
+    if (-not $SkipPlugins) {
+        Write-Step "Staging official optional external plugins into app-image plugins/"
+        $stagedCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir -ProjectRoot $ProjectRoot
+        Write-Host ("    {0} official optional plugin(s) staged under plugins/ (full-offline current form)." -f $stagedCount) -ForegroundColor Green
+    } else {
+        Write-Step "Skipping optional plugin staging (-SkipPlugins): default downloader without bundled plugins"
+    }
+
     if (-not $SkipPortable) {
         Write-Step "Packaging online portable zip"
         Compress-Archive -Path $OnlineAppDir -DestinationPath $OnlineZipPath -Force
@@ -334,6 +424,11 @@ try {
         Write-Host "Windows setup : $SetupPath"
     }
     Write-Host "App dir       : $OnlineAppDir"
+    if (-not $SkipPlugins) {
+        Write-Host "Plugins       : official optional plugins bundled under plugins/ (full-offline current form)"
+    } else {
+        Write-Host "Plugins       : none bundled (-SkipPlugins; default downloader works without optional plugins)"
+    }
     if ($MsiCultures -or $MsiVariants) {
         Write-Host "Note: MSI options are retained for compatibility and are ignored by the Inno Setup flow."
     }

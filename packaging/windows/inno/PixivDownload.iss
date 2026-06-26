@@ -120,9 +120,15 @@ Name: "downloadffmpeg"; Description: "{cm:TaskDownloadFfmpeg}"; GroupDescription
 ; jpackage 把版本号写进主 jar 文件名（PixivDownload-<version>.jar），升级时新旧 jar 会同时
 ; 残留在 {app}\app 下。安装文件复制前先清空该目录，避免旧版本 jar 堆积。
 ; 用户数据（config.yaml、pixiv-download\ 等）位于 {app} 根目录而非 {app}\app，不受影响。
+; 故意不清空 {app}\plugins：官方可选插件以稳定文件名（<module>.jar）随 app-image 携带，[Files] 的
+; ignoreversion 会就地覆盖同名文件、不留旧版本残留；用户自行安装的第三方插件（不同文件名）不在安装器
+; 文件清单内，升级时既不复制也不删除，得以保留。插件启用 / 禁用状态存放在 {app}\config\config.yaml
+; （plugins.<id>.enabled），同样位于 {app} 根目录、升级时不受影响。
 Type: filesandordirs; Name: "{app}\app"; Check: ShouldInstallApplicationFiles
 
 [Files]
+; app-image 根目录已含 plugins\（package-local.ps1 预置的官方可选插件 thin jar + 校验文件 + manifest）；
+; 此处递归复制即把 plugins\ 一并装入 {app}\plugins。
 Source: "{#AppImageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: ShouldInstallApplicationFiles
 
 [Registry]

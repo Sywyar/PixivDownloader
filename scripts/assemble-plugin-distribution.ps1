@@ -58,6 +58,9 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 
+# Shared official-plugin list + thin-jar / checksum primitives (one source of distribution truth).
+. (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
+
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 if (-not $OutputDir) {
     $OutputDir = Join-Path $ProjectRoot "build/dist"
@@ -66,12 +69,9 @@ $PluginsOutDir = Join-Path $OutputDir "plugins"
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 # Official optional external plugins (id / Maven module). recovery-sentinel only when -IncludeSentinel.
-$OptionalPlugins = @(
-    [pscustomobject]@{ Id = "stats"; Module = "pixivdownload-plugin-stats" }
-)
-if ($IncludeSentinel) {
-    $OptionalPlugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel" }
-}
+# Wrap in @() so a single-element result keeps array shape (the function return unwraps it otherwise),
+# preserving $OptionalPlugins.Count for the summary line.
+$OptionalPlugins = @(Get-OfficialOptionalPlugins -IncludeSentinel:$IncludeSentinel)
 
 function Write-Step {
     param([string]$Message)
@@ -112,81 +112,6 @@ function Assert-SafeRemovableDir {
         throw "Refusing to use an ancestor of the repository root as the output dir: $full"
     }
     return $full
-}
-
-function Get-Sha256Hex {
-    param([string]$Path)
-    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
-}
-
-function Get-ZipEntryNames {
-    param([string]$Path)
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
-    try {
-        return @($archive.Entries | ForEach-Object { $_.FullName })
-    } finally {
-        $archive.Dispose()
-    }
-}
-
-function Read-PluginDescriptor {
-    param([string]$JarPath)
-    $archive = [System.IO.Compression.ZipFile]::OpenRead($JarPath)
-    try {
-        $entry = $archive.GetEntry("plugin.properties")
-        if (-not $entry) { return $null }
-        $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8)
-        try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
-    } finally {
-        $archive.Dispose()
-    }
-    $props = @{}
-    foreach ($line in ($text -split "`r?`n")) {
-        $trimmed = $line.Trim()
-        if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
-        $idx = $trimmed.IndexOf("=")
-        if ($idx -lt 1) { continue }
-        $props[$trimmed.Substring(0, $idx).Trim()] = $trimmed.Substring($idx + 1).Trim()
-    }
-    return $props
-}
-
-function Find-ModuleJar {
-    param([string]$Module)
-    $targetDir = Join-Path $ProjectRoot "$Module/target"
-    if (-not (Test-Path $targetDir)) {
-        throw "Module target not built: $targetDir (run with -Build or 'mvn package' first)."
-    }
-    $jar = Get-ChildItem (Join-Path $targetDir "$Module-*.jar") -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
-    if (-not $jar) {
-        throw "Could not find built jar under $targetDir for module $Module."
-    }
-    return $jar.FullName
-}
-
-function Assert-ThinPluginJar {
-    param([string]$JarPath, [string]$ExpectedId)
-    $entries = Get-ZipEntryNames $JarPath
-    if ($entries -notcontains "plugin.properties") {
-        throw "Plugin jar is not a valid PF4J package (missing root plugin.properties): $JarPath"
-    }
-    foreach ($prefix in @("BOOT-INF/", "org/pf4j/", "org/springframework/", "top/sywyar/pixivdownload/plugin/api/")) {
-        $leaked = $entries | Where-Object { $_.StartsWith($prefix) }
-        if ($leaked) {
-            throw "Plugin jar is not thin - leaked '$prefix' entries (deps must be provided): $JarPath"
-        }
-    }
-    $descriptor = Read-PluginDescriptor $JarPath
-    if (-not $descriptor -or -not $descriptor["plugin.id"]) {
-        throw "Plugin jar plugin.properties missing plugin.id: $JarPath"
-    }
-    if ($descriptor["plugin.id"] -ne $ExpectedId) {
-        throw "Plugin jar declares id '$($descriptor['plugin.id'])' but expected '$ExpectedId': $JarPath"
-    }
-    return $descriptor
 }
 
 function Assert-BootJarBoundary {
@@ -250,7 +175,7 @@ try {
     $sumLines = @()
     foreach ($plugin in $OptionalPlugins) {
         Write-Step "Staging plugin '$($plugin.Id)'"
-        $sourceJar = Find-ModuleJar $plugin.Module
+        $sourceJar = Find-ModuleJar $plugin.Module $ProjectRoot
         $descriptor = Assert-ThinPluginJar $sourceJar $plugin.Id
         $pluginVersion = $descriptor["plugin.version"]
         $requires = $descriptor["plugin.requires"]

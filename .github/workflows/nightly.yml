@@ -75,6 +75,21 @@ jobs:
           name: jar
           path: pixivdownload-app/target/PixivDownload-*.jar
 
+      - name: Stage official optional plugins
+        shell: bash
+        run: |
+          mkdir -p build/release-plugins
+          cp pixivdownload-plugin-stats/target/pixivdownload-plugin-stats-*.jar build/release-plugins/
+          # Keep only the thin plugin jar (exclude sources/javadoc if ever produced).
+          rm -f build/release-plugins/*-sources.jar build/release-plugins/*-javadoc.jar
+          ls -l build/release-plugins/
+
+      - name: Upload plugins artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugins
+          path: build/release-plugins/*.jar
+
       - name: Stage release userscripts
         shell: bash
         run: |
@@ -119,6 +134,12 @@ jobs:
           name: jar
           path: artifacts/jar
 
+      - name: Download plugins artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: plugins
+          path: artifacts/plugins
+
       - name: Package Windows setup
         shell: pwsh
         run: |
@@ -127,9 +148,11 @@ jobs:
           if (-not $jar) {
             throw "Could not find downloaded JAR artifact under artifacts/jar"
           }
+          $pluginsDir = (Resolve-Path artifacts/plugins).Path
           ./scripts/package-local.ps1 `
             -Version $version `
             -PrebuiltJar $jar.FullName `
+            -PrebuiltPluginsDir $pluginsDir `
             -SkipPortable `
             -SkipOfflinePortable
 
