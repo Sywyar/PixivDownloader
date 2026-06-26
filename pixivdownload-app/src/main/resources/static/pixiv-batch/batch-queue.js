@@ -456,6 +456,17 @@
         );
     }
 
+    // 队列 Vue reactive 岛门面句柄（batch-queue-vue.js 注册）。缺失 / 未激活时各门面回退命令式渲染。
+    function queueVue() {
+        return window.PixivBatch && window.PixivBatch.queueVue;
+    }
+    function downloadQueueVueActive() {
+        const qv = queueVue();
+        return !!(qv && qv.isDownloadActive());
+    }
+
+    // 队列计数门面：始终重算 state.stats 并维护 sr-only #stats-bar（读屏 / 回归保留）。
+    // 仪表盘 5 张统计卡：Vue 岛激活时合并进 reactive store（与速度卡同 store），否则命令式逐项写入数字。
     function updateStats() {
         state.stats.success = state.queue.filter(q => q.status === 'completed').length;
         state.stats.failed = state.queue.filter(q => q.status === 'failed').length;
@@ -472,6 +483,16 @@
                 state.stats.active,
                 state.stats.skipped
             );
+        }
+        if (downloadQueueVueActive()) {
+            queueVue().syncDownloadStats({
+                pending,
+                success: state.stats.success,
+                failed: state.stats.failed,
+                active: state.stats.active,
+                skipped: state.stats.skipped
+            });
+            return;
         }
         // 顶部仪表盘 5 张统计卡：与 #stats-bar 同源，逐项写入对应数字（卡片缺失即跳过）。
         setStatCount('stat-count-pending', pending);
@@ -573,30 +594,50 @@
         return {value, unit: units[i]};
     }
 
+    // 速度卡门面：Vue 岛激活时合并进 reactive store（速度卡随 .dash-stats 一并由 Vue 渲染），
+    // 否则命令式写入数字 / 单位两个 span。formatSpeed 为两路共享口径。
     function renderDownloadSpeed(bytesPerSec) {
+        const {value, unit} = formatSpeed(bytesPerSec);
+        if (downloadQueueVueActive()) {
+            queueVue().syncDownloadSpeed(value, unit);
+            return;
+        }
         const valEl = document.getElementById('stat-speed-value');
         const unitEl = document.getElementById('stat-speed-unit');
         if (!valEl && !unitEl) return;
-        const {value, unit} = formatSpeed(bytesPerSec);
         if (valEl) valEl.textContent = value;
         if (unitEl) unitEl.textContent = unit;
     }
 
     function setCurrent(item) {
-        const el = document.getElementById('current-card');
         state.currentItemId = item ? String(item.id) : null;
-        el.innerHTML = formatCurrentCardHtml(item);
+        if (downloadQueueVueActive()) {
+            queueVue().syncDownloadCurrent(item);
+            return;
+        }
+        const el = document.getElementById('current-card');
+        if (el) el.innerHTML = formatCurrentCardHtml(item);
     }
 
+    // 队列列表门面：Vue 岛激活时合并一次 reactive 同步（按 :key + v-html 仅 patch 变化的行，不整队列重建），
+    // 否则命令式整块渲染。两路都刷新管理员打包按钮（仅依赖 state.queue，与渲染路径正交）。
     function renderQueue() {
+        if (downloadQueueVueActive()) {
+            queueVue().syncDownloadList();
+        } else {
+            renderQueueImperative();
+        }
+        updateAdminPackButton();
+    }
+
+    function renderQueueImperative() {
         const el = document.getElementById('queue-list');
+        if (!el) return;
         if (!state.queue.length) {
             el.innerHTML = `<div class="queue-empty">${esc(bt('status.queue-empty', '队列为空'))}</div>`;
-            updateAdminPackButton();
             return;
         }
         el.innerHTML = state.queue.map(q => buildQueueItemHtml(q, {removable: true})).join('');
-        updateAdminPackButton();
     }
 
     // 单个队列项的 HTML。下载工作区底部的「下载队列」与计划任务卡片底部的「本轮队列详情」共用此函数，

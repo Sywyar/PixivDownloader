@@ -41,6 +41,14 @@
             display: none;
         }
 
+        /* 队列行的 Vue reactive 宿主（batch-queue-vue.js 的列表 / 计划队列详情组件每行一个 v-html 宿主）：
+           display:contents 使宿主自身不生成盒子，其 v-html 渲染出的 .queue-item 作为 #queue-list /
+           .schedule-queue-list 的真实子节点参与布局——与命令式整块渲染（.queue-item 为直接子节点）视觉一致，
+           .queue-item 的 margin / border-left / 滚动容器口径均不变。 */
+        .q-item-host {
+            display: contents;
+        }
+
         html[data-theme="dark"] {
             --page-bg: #101216;
             --surface: #171a21;

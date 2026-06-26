@@ -207,6 +207,13 @@
         loadQueueForMode();
         updateButtonsState();
         updateStats();
+
+        // 把下载队列 / 统计 + 速度 / 当前卡升级为 Vue reactive 岛（加性、幂等、失败回退命令式）：异步懒加载
+        // Vue、不阻塞 init；挂载完成后经现有门面（updateStats / renderQueue / setCurrent）回灌当前 state。
+        // Vue 不可用 / 加载或挂载失败时各门面继续走命令式渲染。
+        if (window.PixivBatch && window.PixivBatch.queueVue) {
+            window.PixivBatch.queueVue.mountDownloadQueue();
+        }
     }
 
     document.addEventListener('DOMContentLoaded', async () => {

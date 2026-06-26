@@ -1761,12 +1761,47 @@
         });
     }
 
+    // 计划队列详情的 Vue reactive 岛句柄（batch-queue-vue.js 注册）。缺失 / 未激活 / 挂载失败时回退命令式。
+    function scheduleQueueVue() {
+        return window.PixivBatch && window.PixivBatch.queueVue;
+    }
+
+    // 给 Vue 岛提供「读当前任务本轮队列快照」的闭包：派生与命令式 renderScheduleQueueBody 完全同口径的
+    // 状态 / 统计 / 当前卡 / 列表（模型仍为 raw 字段，此处经 localizeScheduleQueueItem 按当前语言派生），
+    // 由 Vue 组件用共享的 buildQueueItemHtml / formatCurrentCardHtml 渲染（与普通队列不分叉）。
+    function scheduleQueueVueContext(id, body) {
+        id = Number(id);
+        return {
+            bodyEl: body,
+            read: function () {
+                const model = getScheduleQueueModel(id) || [];
+                const localized = model.map(localizeScheduleQueueItem);
+                const current = localized.find(q => q.status === 'downloading') || null;
+                const s = computeScheduleQueueStats(model);
+                return {
+                    statusText: buildScheduleQueueStatusText(id, model),
+                    statsText: formatStatsText(s.pending, s.success, s.failed, s.active, s.skipped),
+                    current: current,
+                    items: localized
+                };
+            }
+        };
+    }
+
     function renderScheduleQueueBodyInto(id) {
         if (!scheduleExpandedQueues.has(Number(id))) return;
         const wrap = document.querySelector(`.schedule-queue[data-task-id="${Number(id)}"]`);
         if (!wrap) return;
         const body = wrap.querySelector('.schedule-queue-body');
         if (!body) return;
+        const qv = scheduleQueueVue();
+        if (qv && qv.ensureScheduleQueue(Number(id), scheduleQueueVueContext(id, body))) {
+            // Vue 已接管该 body：合并一次 reactive 同步（Vue 据 :key + v-html 仅 patch 变化，不整块重建 .schedule-queue-body）。
+            qv.syncScheduleQueue(Number(id));
+            cancelScheduleQueueFlush(id); // 整体已交给 reactive：丢弃命令式脏行 / 低频刷新
+            return;
+        }
+        // —— 命令式回退（Vue 不可用 / 尚未挂载完成 / 挂载失败）——
         // 保留滚动位置：SSE / 快照刷新会替换正文 innerHTML，不保留则滚动条每次跳回顶部。
         const prevList = body.querySelector('.schedule-queue-list');
         const prevScroll = prevList ? prevList.scrollTop : 0;
@@ -1789,6 +1824,8 @@
             scheduleExpandedQueues.delete(id);
             unsubscribeScheduleQueueSse(id);
             cancelScheduleQueueFlush(id); // 折叠：取消待执行的局部刷新，隐藏视图不再消耗主线程
+            const qvCollapse = scheduleQueueVue();
+            if (qvCollapse) qvCollapse.unmountScheduleQueue(id); // 卸载 reactive 岛：再展开时命令式首屏 + 重挂
             if (body) body.hidden = true;
             if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
             if (caret) caret.textContent = '▸';
@@ -1946,6 +1983,12 @@
         scheduleQueueRowFlushHandles.delete(id);
         const dirty = scheduleQueueDirtyRows.get(id);
         scheduleQueueDirtyRows.delete(id);
+        const qv = scheduleQueueVue();
+        if (qv && qv.isScheduleActive(id)) {
+            // Vue 已接管：脏行 patch 交给 reactive 同步（合并到一帧、仅变化的行重渲染，不整块重建 .schedule-queue-body）。
+            qv.syncScheduleQueue(id);
+            return;
+        }
         if (!dirty || dirty.size === 0) return;
         if (!scheduleExpandedQueues.has(id)) return;
         const wrap = document.querySelector(`.schedule-queue[data-task-id="${id}"]`);
@@ -1976,6 +2019,11 @@
     function refreshScheduleQueueMeta(id) {
         id = Number(id);
         if (!scheduleExpandedQueues.has(id)) return;
+        const qv = scheduleQueueVue();
+        if (qv && qv.isScheduleActive(id)) {
+            qv.syncScheduleQueue(id); // 状态 / 统计 / 当前卡随整份 reactive 同步一并更新
+            return;
+        }
         const wrap = document.querySelector(`.schedule-queue[data-task-id="${id}"]`);
         if (!wrap) return;
         const body = wrap.querySelector('.schedule-queue-body');
@@ -2056,8 +2104,10 @@
             if (!liveIds.has(id)) stale.add(id);
         });
         for (const id of scheduleQueueWasRunning) if (!liveIds.has(id)) stale.add(id);
+        const qvRelease = scheduleQueueVue();
         stale.forEach(id => {
             unsubscribeScheduleQueueSse(id);
+            if (qvRelease) qvRelease.unmountScheduleQueue(id); // 任务下线：卸载其 reactive 岛
             scheduleExpandedQueues.delete(id);
             delete scheduleQueueModels[id];
             scheduleQueueWasRunning.delete(id);
