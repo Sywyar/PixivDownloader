@@ -61,8 +61,11 @@ class PluginManagementControllerTest {
         // 合成「本地化」串：与 i18n key、与稳定 code 都不同，确保 $.code 断言只能命中专门的稳定码字段。
         when(messages.getOrDefault(any(Locale.class), anyString(), anyString()))
                 .thenAnswer(inv -> "localized:" + inv.getArgument(1));
+        PluginInstallResponseMapper installResponseMapper =
+                new PluginInstallResponseMapper(messages, localeResolver);
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new PluginManagementController(service, installService, messages, localeResolver))
+                .standaloneSetup(new PluginManagementController(
+                        service, installService, installResponseMapper, messages, localeResolver))
                 .build();
     }
 

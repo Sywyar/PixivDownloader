@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.plugin;
 
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -17,7 +16,6 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.PluginManagementService.LifecycleAction;
 import top.sywyar.pixivdownload.plugin.PluginManagementService.PluginActionResult;
 import top.sywyar.pixivdownload.plugin.PluginManagementService.PluginManagementReport;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
 
 /**
  * 插件管理后端 API（admin-only）：把只读插件状态与外置插件运行期生命周期动词暴露为管理 HTTP 入口，供 Web / GUI
@@ -46,14 +44,17 @@ public class PluginManagementController {
 
     private final PluginManagementService pluginManagementService;
     private final PluginInstallService pluginInstallService;
+    private final PluginInstallResponseMapper installResponseMapper;
     private final AppMessages messages;
     private final AppLocaleResolver localeResolver;
 
     public PluginManagementController(PluginManagementService pluginManagementService,
                                       PluginInstallService pluginInstallService,
+                                      PluginInstallResponseMapper installResponseMapper,
                                       AppMessages messages, AppLocaleResolver localeResolver) {
         this.pluginManagementService = pluginManagementService;
         this.pluginInstallService = pluginInstallService;
+        this.installResponseMapper = installResponseMapper;
         this.messages = messages;
         this.localeResolver = localeResolver;
     }
@@ -115,24 +116,7 @@ public class PluginManagementController {
             @RequestParam(value = "allowDowngrade", defaultValue = "false") boolean allowDowngrade,
             HttpServletRequest request) {
         PluginInstallReport report = pluginInstallService.install(file, allowDowngrade);
-        PluginInstallOutcome outcome = report.outcome();
-        HttpStatus httpStatus = PluginInstallOutcomeMapping.httpStatus(outcome);
-        String fallback = report.diagnostics().isEmpty() ? outcome.name() : report.diagnostics().get(0);
-        String message = messages.getOrDefault(localeResolver.resolveLocale(request),
-                PluginInstallOutcomeMapping.messageKey(outcome), fallback);
-        PluginInstallResponse body = new PluginInstallResponse(
-                outcome.name(),
-                report.accepted(),
-                report.effectiveAfterRestart(),
-                httpStatus.value(),
-                message,
-                report.pluginId(),
-                report.version(),
-                report.previousVersion(),
-                report.dependencies(),
-                report.unsatisfiedDependencies(),
-                report.diagnostics());
-        return ResponseEntity.status(httpStatus).body(body);
+        return installResponseMapper.toResponse(report, request);
     }
 
     /**

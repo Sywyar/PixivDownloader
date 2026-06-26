@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -83,6 +84,20 @@ public class PluginInstallService {
         } finally {
             deleteQuietly(temp);
         }
+    }
+
+    /**
+     * 安装一个已下载到本地、来源为<b>受信 catalog</b>（{@link PluginPackageOrigin#forTrustedCatalog}）的插件包文件：交安装器
+     * 在落盘前做完整性校验（大小 / sha256 / 签名 fail-closed）+ 全部结构 / 兼容 / Zip Slip / 重复升降级校验，整理为
+     * {@link PluginInstallReport}。<b>不</b>删除入参文件——临时文件由调用方（受信 catalog 获取流程）拥有并清理。供
+     * {@code PluginCatalogAcquisitionService} 复用本服务的报告构建（依赖诊断等），不另写一套。
+     *
+     * @param packageFile    已下载到本地的 {@code .jar} / {@code .zip} 插件包路径
+     * @param allowDowngrade 是否允许覆盖更高版本（force）
+     * @param origin         包来源 + 完整性期望（受信 catalog 携带期望大小 / sha256 / 签名）
+     */
+    public PluginInstallReport installTrustedFile(Path packageFile, boolean allowDowngrade, PluginPackageOrigin origin) {
+        return toReport(installer.install(packageFile, allowDowngrade, origin));
     }
 
     private PluginInstallReport toReport(PluginInstallResult result) {

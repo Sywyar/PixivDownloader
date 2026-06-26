@@ -1,0 +1,239 @@
+package top.sywyar.pixivdownload.plugin.catalog;
+
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+
+import java.net.InetAddress;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
+
+/**
+ * {@link PluginCatalogHttpClient} 单测：URL scheme / 主机 / 解析 IP 的 SSRF 校验（生产严格策略），地址分类，以及对接
+ * loopback HTTP 桩的真实下载（流式上限、禁用重定向、非 200）。SSRF 阻断用例一律用 IP 字面量、不触发 DNS、不连真实网络。
+ */
+@DisplayName("PluginCatalogHttpClient 受信下载 SSRF 安全客户端")
+class PluginCatalogHttpClientTest {
+
+    /** 生产策略：仅 https、拒绝非公网地址。 */
+    private final PluginCatalogHttpClient strict = new PluginCatalogHttpClient(true, false, 2000, 2000);
+
+    @Nested
+    @DisplayName("URL / scheme 校验")
+    class UrlValidation {
+
+        @Test
+        @DisplayName("https + 公网 IP 字面量：通过校验")
+        void allowsHttpsPublicAddress() {
+            // 8.8.8.8 是公网地址、字面量解析不触发 DNS、不发起连接（仅校验）。
+            strict.verifyUrlAllowed("https://8.8.8.8/plugins/x.jar");
+        }
+
+        @Test
+        @DisplayName("校验通过后返回规范化（trim 后）的 URI——发请求用的就是这一个值")
+        void returnsTrimmedNormalizedUri() {
+            // 首尾空白在此 trim 掉；返回的 URI 即后续 send() 实际使用的值，杜绝「校验 trim 后、发请求用原始串」的不一致。
+            URI uri = strict.verifyUrlAllowed("  https://8.8.8.8/plugins/x.jar  ");
+            assertThat(uri).isEqualTo(URI.create("https://8.8.8.8/plugins/x.jar"));
+        }
+
+        @Test
+        @DisplayName("http:// 在仅 https 策略下被拒（INSECURE_URL）")
+        void rejectsHttpWhenHttpsOnly() {
+            assertCode("http://8.8.8.8/x.jar", PluginCatalogErrorCode.INSECURE_URL);
+        }
+
+        @Test
+        @DisplayName("file / jar / ftp / 其它 scheme 一律被拒（INSECURE_URL）")
+        void rejectsNonHttpsSchemes() {
+            assertCode("file:///etc/passwd", PluginCatalogErrorCode.INSECURE_URL);
+            assertCode("jar:https://example.com/a.jar!/x", PluginCatalogErrorCode.INSECURE_URL);
+            assertCode("ftp://example.com/a.jar", PluginCatalogErrorCode.INSECURE_URL);
+            assertCode("gopher://example.com/", PluginCatalogErrorCode.INSECURE_URL);
+        }
+
+        @Test
+        @DisplayName("空 / 畸形 URL / 缺主机：被拒（INSECURE_URL）")
+        void rejectsMalformed() {
+            assertCode(null, PluginCatalogErrorCode.INSECURE_URL);
+            assertCode("   ", PluginCatalogErrorCode.INSECURE_URL);
+            assertCode("https://", PluginCatalogErrorCode.INSECURE_URL);
+            assertCode("not a url", PluginCatalogErrorCode.INSECURE_URL);
+        }
+
+        @Test
+        @DisplayName("https 但解析到非公网地址：被拒（BLOCKED_ADDRESS）——loopback / 私网 / link-local / 组播 / 未指定 / CGNAT / IPv6 回环")
+        void rejectsNonPublicAddresses() {
+            assertCode("https://127.0.0.1/x.jar", PluginCatalogErrorCode.BLOCKED_ADDRESS);
+            assertCode("https://10.0.0.5/x.jar", PluginCatalogErrorCode.BLOCKED_ADDRESS);
+            assertCode("https://192.168.1.1/x.jar", PluginCatalogErrorCode.BLOCKED_ADDRESS);
+            assertCode("https://172.16.0.1/x.jar", PluginCatalogErrorCode.BLOCKED_ADDRESS);
+            assertCode("https://169.254.1.1/x.jar", PluginCatalogErrorCode.BLOCKED_ADDRESS);
+            assertCode("https://224.0.0.1/x.jar", PluginCatalogErrorCode.BLOCKED_ADDRESS);
+            assertCode("https://0.0.0.0/x.jar", PluginCatalogErrorCode.BLOCKED_ADDRESS);
+            assertCode("https://100.64.0.1/x.jar", PluginCatalogErrorCode.BLOCKED_ADDRESS);
+            assertCode("https://[::1]/x.jar", PluginCatalogErrorCode.BLOCKED_ADDRESS);
+        }
+
+        private void assertCode(String url, PluginCatalogErrorCode expected) {
+            PluginCatalogException ex = catchThrowableOfType(
+                    () -> strict.verifyUrlAllowed(url), PluginCatalogException.class);
+            assertThat(ex).as("应抛出 PluginCatalogException for %s", url).isNotNull();
+            assertThat(ex.code()).isEqualTo(expected);
+        }
+    }
+
+    @Nested
+    @DisplayName("地址分类 isBlockedAddress")
+    class AddressClassification {
+
+        @Test
+        @DisplayName("严格策略：各类非公网地址被判阻断，公网地址放行")
+        void strictPolicy() throws Exception {
+            assertThat(blocked("127.0.0.1")).isTrue();
+            assertThat(blocked("::1")).isTrue();
+            assertThat(blocked("10.1.2.3")).isTrue();
+            assertThat(blocked("192.168.0.1")).isTrue();
+            assertThat(blocked("169.254.10.10")).isTrue();
+            assertThat(blocked("224.0.0.1")).isTrue();
+            assertThat(blocked("0.0.0.0")).isTrue();
+            assertThat(blocked("100.64.0.1")).isTrue();
+            assertThat(blocked("fc00::1")).isTrue();
+            assertThat(blocked("8.8.8.8")).isFalse();
+            assertThat(blocked("1.1.1.1")).isFalse();
+        }
+
+        @Test
+        @DisplayName("放开策略（仅测试用）：loopback 等一律放行")
+        void permissivePolicy() throws Exception {
+            assertThat(PluginCatalogHttpClient.isBlockedAddress(
+                    InetAddress.getByName("127.0.0.1"), true)).isFalse();
+            assertThat(PluginCatalogHttpClient.isBlockedAddress(
+                    InetAddress.getByName("10.0.0.1"), true)).isFalse();
+        }
+
+        private boolean blocked(String literal) throws Exception {
+            return PluginCatalogHttpClient.isBlockedAddress(InetAddress.getByName(literal), false);
+        }
+    }
+
+    @Nested
+    @DisplayName("真实下载（loopback HTTP 桩，放开非公网地址 + 允许 http）")
+    class RealDownload {
+
+        private final PluginCatalogHttpClient relaxed = new PluginCatalogHttpClient(false, true, 2000, 2000);
+        private HttpServer server;
+
+        @AfterEach
+        void tearDown() {
+            if (server != null) {
+                server.stop(0);
+            }
+        }
+
+        @Test
+        @DisplayName("fetchBytes：200 正常返回全部字节")
+        void fetchBytesOk() {
+            server = CatalogTestSupport.startServer();
+            byte[] body = "hello-catalog".getBytes(StandardCharsets.UTF_8);
+            CatalogTestSupport.serveBytes(server, "/manifest.json", body);
+
+            byte[] got = relaxed.fetchBytes(CatalogTestSupport.loopbackUrl(server, "/manifest.json"), 1024);
+
+            assertThat(got).isEqualTo(body);
+        }
+
+        @Test
+        @DisplayName("streamToFile：200 正常落盘全部字节")
+        void streamToFileOk(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+            server = CatalogTestSupport.startServer();
+            byte[] body = new byte[4096];
+            for (int i = 0; i < body.length; i++) {
+                body[i] = (byte) i;
+            }
+            CatalogTestSupport.serveBytes(server, "/pkg.zip", body);
+            Path target = dir.resolve("out.zip");
+
+            long written = relaxed.streamToFile(CatalogTestSupport.loopbackUrl(server, "/pkg.zip"), 1L << 20, target);
+
+            assertThat(written).isEqualTo(body.length);
+            assertThat(Files.readAllBytes(target)).isEqualTo(body);
+        }
+
+        @Test
+        @DisplayName("fetchBytes URL 首尾空白：trim 后正常下载（绝不因 URI.create 抛 IllegalArgumentException 而 500）")
+        void fetchBytesTrimsSurroundingWhitespace() {
+            server = CatalogTestSupport.startServer();
+            byte[] body = "trimmed-ok".getBytes(StandardCharsets.UTF_8);
+            CatalogTestSupport.serveBytes(server, "/manifest.json", body);
+
+            // 旧实现 verifyUrlAllowed trim 校验、send 却用原始串 URI.create → 首尾空白即抛 IllegalArgumentException → 500。
+            byte[] got = relaxed.fetchBytes(
+                    "  " + CatalogTestSupport.loopbackUrl(server, "/manifest.json") + "  ", 1024);
+
+            assertThat(got).isEqualTo(body);
+        }
+
+        @Test
+        @DisplayName("streamToFile URL 首尾空白（含制表符）：trim 后正常落盘（packageUrl 带空白也安全）")
+        void streamToFileTrimsSurroundingWhitespace(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+            server = CatalogTestSupport.startServer();
+            byte[] body = "pkg-bytes".getBytes(StandardCharsets.UTF_8);
+            CatalogTestSupport.serveBytes(server, "/pkg.zip", body);
+            Path target = dir.resolve("out.zip");
+
+            long written = relaxed.streamToFile(
+                    "\t" + CatalogTestSupport.loopbackUrl(server, "/pkg.zip") + " ", 1L << 20, target);
+
+            assertThat(written).isEqualTo(body.length);
+            assertThat(Files.readAllBytes(target)).isEqualTo(body);
+        }
+
+        @Test
+        @DisplayName("超过最大字节数上限：中止并抛 DOWNLOAD_TOO_LARGE")
+        void fetchBytesTooLarge() {
+            server = CatalogTestSupport.startServer();
+            CatalogTestSupport.serveBytes(server, "/big", new byte[2048]);
+
+            assertThatThrownBy(() ->
+                    relaxed.fetchBytes(CatalogTestSupport.loopbackUrl(server, "/big"), 1024))
+                    .isInstanceOf(PluginCatalogException.class)
+                    .extracting(e -> ((PluginCatalogException) e).code())
+                    .isEqualTo(PluginCatalogErrorCode.DOWNLOAD_TOO_LARGE);
+        }
+
+        @Test
+        @DisplayName("3xx 重定向：禁用跟随，抛 DOWNLOAD_FAILED（绝不连二次地址）")
+        void redirectNotFollowed() {
+            server = CatalogTestSupport.startServer();
+            CatalogTestSupport.serveRedirect(server, "/redir", "https://10.0.0.1/secret");
+
+            assertThatThrownBy(() ->
+                    relaxed.fetchBytes(CatalogTestSupport.loopbackUrl(server, "/redir"), 1024))
+                    .isInstanceOf(PluginCatalogException.class)
+                    .extracting(e -> ((PluginCatalogException) e).code())
+                    .isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+        }
+
+        @Test
+        @DisplayName("非 200（404）：抛 DOWNLOAD_FAILED")
+        void nonOkStatus() {
+            server = CatalogTestSupport.startServer();
+            CatalogTestSupport.serveStatus(server, "/missing", 404);
+
+            assertThatThrownBy(() ->
+                    relaxed.fetchBytes(CatalogTestSupport.loopbackUrl(server, "/missing"), 1024))
+                    .isInstanceOf(PluginCatalogException.class)
+                    .extracting(e -> ((PluginCatalogException) e).code())
+                    .isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+        }
+    }
+}
