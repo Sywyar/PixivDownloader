@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
@@ -20,16 +21,19 @@ import java.util.Set;
 /**
  * 受信 catalog 专用的 <b>SSRF 安全</b> HTTP 客户端：只用于拉取受信清单字节与下载受信插件包。它的 public 方法接收的 URL
  * 由调用方（受信清单 / 选中的 catalog 包）给出，<b>不</b>对外暴露「任意请求参数 URL」入口；自身做 scheme + 主机 + 解析 IP
- * 校验、<b>禁用重定向</b>、设连接 / 读取超时、按最大字节数上限<b>流式</b>读取。
+ * 校验、设连接 / 读取超时、按最大字节数上限<b>流式</b>读取。
  *
  * <h2>安全边界</h2>
  * <ul>
  *   <li><b>仅 https</b>（生产；构造参数可放开供测试）。明确拒绝 file / http / jar / ftp 等其它 scheme。</li>
  *   <li><b>SSRF 防护</b>：解析主机到全部 IP，任一为 loopback / link-local / 私网（含 CGNAT / IPv6 ULA）/ 组播 /
  *       未指定地址（生产）即拒绝。</li>
- *   <li><b>禁用重定向</b>（{@link HttpClient.Redirect#NEVER}）：3xx 一律按失败处理、<b>绝不</b>跟随到二次地址，避免
- *       重定向绕过 IP 校验。</li>
- *   <li><b>不走代理</b>（{@link HttpClient.Builder#NO_PROXY}）：经代理会使本地 IP 校验失效（代理替我们解析 DNS）。</li>
+ *   <li><b>默认禁重定向</b>（{@link HttpClient.Redirect#NEVER}）：3xx 一律按失败处理、<b>绝不</b>跟随到二次地址，避免
+ *       重定向绕过 IP 校验。<b>受信仓库</b>（proxy-trusted）可经完整构造声明一份<b>重定向主机白名单</b>，仅对白名单内主机
+ *       <b>跟随至多一跳</b>（GitHub release 资产 CDN 的 302→签名 URL 即走此路），并对该跳重跑全部校验。</li>
+ *   <li><b>默认不走代理</b>（{@link HttpClient.Builder#NO_PROXY}）：经代理会使本地 IP 校验失效（代理替我们解析 DNS）。
+ *       受信仓库可经完整构造改走出站代理；此时 DNS 由代理完成，本地 IP 校验按上述原因<b>跳过</b>，安全边界改由
+ *       https + 重定向主机白名单 + 调用方的 sha256/size 完整性兜底承担。</li>
  *   <li>最大字节数上限：超过即中止（调用方清理临时文件）。</li>
  * </ul>
  *
@@ -45,10 +49,16 @@ public class PluginCatalogHttpClient {
 
     private final boolean httpsOnly;
     private final boolean allowNonPublicAddresses;
+    private final boolean proxied;
     private final int readTimeoutMs;
+    private final Set<String> redirectAllowlistDomains;
     private final HttpClient httpClient;
 
     /**
+     * 直连严格档（不走代理、不跟随任何重定向）。等价于
+     * {@link #PluginCatalogHttpClient(boolean, boolean, int, int, ProxySelector, Set)} 传 {@code proxySelector=null} +
+     * 空白名单。
+     *
      * @param httpsOnly               是否只允许 https（生产 {@code true}；测试可设 {@code false} 对接本地 http stub）
      * @param allowNonPublicAddresses 是否放开非公网地址校验（生产 {@code false}=严格 SSRF；测试可设 {@code true} 对接
      *                                loopback stub）
@@ -57,12 +67,33 @@ public class PluginCatalogHttpClient {
      */
     public PluginCatalogHttpClient(boolean httpsOnly, boolean allowNonPublicAddresses,
                                    int connectTimeoutMs, int readTimeoutMs) {
+        this(httpsOnly, allowNonPublicAddresses, connectTimeoutMs, readTimeoutMs, null, Set.of());
+    }
+
+    /**
+     * 完整构造：在严格档基础上，可选地<b>经出站代理</b>拉取，并<b>按主机白名单跟随至多一跳重定向</b>——仅供受信仓库
+     * （proxy-trusted）使用（直连严格档恒用上面的四参构造）。
+     *
+     * <ul>
+     *   <li>{@code proxySelector != null}：经该代理连接，并视为「已代理」：DNS 由代理完成，故 {@link #verifyUrlAllowed}
+     *       跳过本地解析与 IP 段校验（本地解析在受限网络下可能失败 / 被污染，且经代理后本地 IP 校验本就失效）。受信路径的
+     *       安全边界改由 https + 重定向主机白名单 + 调用方的 sha256/size 完整性兜底承担。</li>
+     *   <li>{@code redirectAllowlistDomains} 非空：遇 3xx 时，仅当 {@code Location} 主机命中白名单（相等或为其子域）才
+     *       <b>跟随一跳</b>（并对该跳目标重跑 {@link #verifyUrlAllowed}）；再遇 3xx 即失败。空白名单 = 不跟随（严格档行为不变）。</li>
+     * </ul>
+     */
+    public PluginCatalogHttpClient(boolean httpsOnly, boolean allowNonPublicAddresses,
+                                   int connectTimeoutMs, int readTimeoutMs,
+                                   ProxySelector proxySelector, Set<String> redirectAllowlistDomains) {
         this.httpsOnly = httpsOnly;
         this.allowNonPublicAddresses = allowNonPublicAddresses;
+        this.proxied = proxySelector != null;
         this.readTimeoutMs = readTimeoutMs > 0 ? readTimeoutMs : 60_000;
+        this.redirectAllowlistDomains = redirectAllowlistDomains == null
+                ? Set.of() : Set.copyOf(redirectAllowlistDomains);
         this.httpClient = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.NEVER)
-                .proxy(HttpClient.Builder.NO_PROXY)
+                .proxy(proxySelector != null ? proxySelector : HttpClient.Builder.NO_PROXY)
                 .connectTimeout(Duration.ofMillis(connectTimeoutMs > 0 ? connectTimeoutMs : 15_000))
                 .build();
     }
@@ -73,7 +104,7 @@ public class PluginCatalogHttpClient {
      */
     public byte[] fetchBytes(String url, long maxBytes) {
         URI uri = verifyUrlAllowed(url);
-        HttpResponse<InputStream> response = send(uri);
+        HttpResponse<InputStream> response = sendFollowingAllowedRedirect(uri);
         try (InputStream in = response.body()) {
             requireOk(response, uri);
             return readBounded(in, maxBytes, uri);
@@ -89,7 +120,7 @@ public class PluginCatalogHttpClient {
      */
     public long streamToFile(String url, long maxBytes, Path target) {
         URI uri = verifyUrlAllowed(url);
-        HttpResponse<InputStream> response = send(uri);
+        HttpResponse<InputStream> response = sendFollowingAllowedRedirect(uri);
         try (InputStream in = response.body();
              OutputStream out = Files.newOutputStream(target)) {
             requireOk(response, uri);
@@ -126,6 +157,70 @@ public class PluginCatalogHttpClient {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED, "download interrupted: " + uri);
+        }
+    }
+
+    /**
+     * 发送请求，并在配置了重定向白名单时<b>跟随至多一跳</b>白名单内的重定向（详见完整构造说明）。白名单为空时不跟随，
+     * 由后续 {@link #requireOk} 把 3xx 当失败拒绝（严格档行为）。
+     */
+    private HttpResponse<InputStream> sendFollowingAllowedRedirect(URI uri) {
+        HttpResponse<InputStream> response = send(uri);
+        if (isRedirect(response.statusCode()) && !redirectAllowlistDomains.isEmpty()) {
+            URI target = resolveAllowedRedirect(response, uri);
+            closeQuietly(response);
+            HttpResponse<InputStream> hop = send(target);
+            if (isRedirect(hop.statusCode())) {
+                closeQuietly(hop);
+                throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
+                        "refusing to follow more than one redirect for " + uri);
+            }
+            return hop;
+        }
+        return response;
+    }
+
+    private static boolean isRedirect(int code) {
+        return code >= 300 && code < 400;
+    }
+
+    /**
+     * 解析并校验一个 3xx 的 {@code Location}：必须存在、对该目标重跑 {@link #verifyUrlAllowed}（scheme / 主机；未代理时含
+     * SSRF/IP 段），且主机必须命中重定向白名单（相等或为白名单域的子域）。任一不满足 → {@code DOWNLOAD_FAILED}。
+     */
+    private URI resolveAllowedRedirect(HttpResponse<?> response, URI from) {
+        String location = response.headers().firstValue("Location").orElse(null);
+        if (location == null || location.isBlank()) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
+                    "redirect (HTTP " + response.statusCode() + ") without Location header for " + from);
+        }
+        URI target = verifyUrlAllowed(location.trim());
+        String host = target.getHost();
+        if (host == null || !isAllowedRedirectHost(host)) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
+                    "refusing to follow redirect to non-allowlisted host '" + host + "' for " + from);
+        }
+        return target;
+    }
+
+    /** 主机是否命中重定向白名单：与某白名单域相等，或为其子域（{@code endsWith("." + domain)}，带点边界、非子串匹配）。 */
+    private boolean isAllowedRedirectHost(String host) {
+        String h = stripBrackets(host).toLowerCase(Locale.ROOT);
+        for (String domain : redirectAllowlistDomains) {
+            String d = domain.toLowerCase(Locale.ROOT);
+            if (h.equals(d) || h.endsWith("." + d)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 尽力关闭一个响应体以释放连接（跟随重定向前丢弃首个响应 / 拒绝多跳时丢弃次响应）。 */
+    private static void closeQuietly(HttpResponse<InputStream> response) {
+        try {
+            response.body().close();
+        } catch (IOException ignored) {
+            // best-effort：连接释放失败不影响后续逻辑
         }
     }
 
@@ -195,16 +290,20 @@ public class PluginCatalogHttpClient {
         if (host == null || host.isBlank()) {
             throw new PluginCatalogException(PluginCatalogErrorCode.INSECURE_URL, "missing url host: " + url);
         }
-        InetAddress[] addresses;
-        try {
-            addresses = InetAddress.getAllByName(stripBrackets(host));
-        } catch (UnknownHostException e) {
-            throw new PluginCatalogException(PluginCatalogErrorCode.BLOCKED_ADDRESS, "cannot resolve host: " + host);
-        }
-        for (InetAddress address : addresses) {
-            if (isBlockedAddress(address, allowNonPublicAddresses)) {
-                throw new PluginCatalogException(PluginCatalogErrorCode.BLOCKED_ADDRESS,
-                        "refusing to connect to non-public address " + address.getHostAddress() + " for host " + host);
+        // 已配置出站代理时，DNS 由代理完成：跳过本地解析与 IP 段校验（本地解析在受限网络下可能失败 / 被污染，且经代理后
+        // 本地 IP 校验本就失效）。直连档（未代理）仍执行严格 SSRF 解析与阻断。
+        if (!proxied) {
+            InetAddress[] addresses;
+            try {
+                addresses = InetAddress.getAllByName(stripBrackets(host));
+            } catch (UnknownHostException e) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.BLOCKED_ADDRESS, "cannot resolve host: " + host);
+            }
+            for (InetAddress address : addresses) {
+                if (isBlockedAddress(address, allowNonPublicAddresses)) {
+                    throw new PluginCatalogException(PluginCatalogErrorCode.BLOCKED_ADDRESS,
+                            "refusing to connect to non-public address " + address.getHostAddress() + " for host " + host);
+                }
             }
         }
         return uri;

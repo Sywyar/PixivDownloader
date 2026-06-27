@@ -37,11 +37,9 @@ public record PluginRepository(
     /** 内嵌官方默认仓库的稳定 id。 */
     public static final String OFFICIAL_ID = "official";
 
-    /** 内嵌官方默认仓库的基础地址。 */
-    public static final String OFFICIAL_BASE_URL = "https://pixivdownload-plugin.sywyar.top";
-
-    /** 内嵌官方默认仓库的清单地址。 */
-    public static final String OFFICIAL_MANIFEST_URL = OFFICIAL_BASE_URL + "/manifest.json";
+    /** 内嵌官方默认仓库的清单地址：插件分发仓库 code 区的 manifest.json，经 raw.githubusercontent 200 直出（无重定向）。 */
+    public static final String OFFICIAL_MANIFEST_URL =
+            "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json";
 
     /** 官方仓库展示名 i18n key。 */
     public static final String OFFICIAL_DISPLAY_NAME_KEY = "plugin.market.repository.official.name";
@@ -53,19 +51,25 @@ public record PluginRepository(
     public static final String LEGACY_DISPLAY_NAME_KEY = "plugin.market.repository.configured.name";
 
     /**
-     * 构造内嵌官方默认仓库（{@code builtIn=true}、{@code official=true}、{@link RepositoryProxyPolicy#DIRECT_STRICT}）。
-     * 其 {@code enabled} 由服务端配置 {@code plugin-catalog.official-repository-enabled}（默认 {@code true}）决定，可被禁用。
+     * 构造内嵌官方默认仓库（{@code builtIn=true}、{@code official=true}、{@link RepositoryProxyPolicy#PROXY_TRUSTED}）。
+     * 官方仓库经核心出站代理拉取（GitHub 在受限网络下需代理），并按内置主机白名单跟随 GitHub release 资产的一跳重定向；
+     * 完整性仍由安装器的 sha256/size 逐字节兜底。其 {@code enabled} 由 {@code plugin-catalog.official-repository-enabled}
+     * （默认 {@code true}）决定，可被禁用。
      */
     public static PluginRepository official(boolean enabled,
                                             long connectTimeoutMs, long readTimeoutMs,
                                             long maxManifestBytes, long maxPackageBytes) {
         return new PluginRepository(OFFICIAL_ID, OFFICIAL_DISPLAY_NAME_KEY, OFFICIAL_MANIFEST_URL,
-                enabled, true, true, RepositoryProxyPolicy.DIRECT_STRICT, RepositoryProxyPolicy.DIRECT_STRICT.configId(),
+                enabled, true, true, RepositoryProxyPolicy.PROXY_TRUSTED, RepositoryProxyPolicy.PROXY_TRUSTED.configId(),
                 connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes);
     }
 
-    /** 该仓库的代理策略是否被当前运行时支持（仅 {@link RepositoryProxyPolicy#DIRECT_STRICT} 已接线）。 */
+    /**
+     * 该仓库的代理策略是否被当前运行时支持（{@link RepositoryProxyPolicy#DIRECT_STRICT} 与
+     * {@link RepositoryProxyPolicy#PROXY_TRUSTED} 均已接线；未知策略为 {@code null} → 不支持）。
+     */
     public boolean isProxyPolicySupported() {
-        return proxyPolicy == RepositoryProxyPolicy.DIRECT_STRICT;
+        return proxyPolicy == RepositoryProxyPolicy.DIRECT_STRICT
+                || proxyPolicy == RepositoryProxyPolicy.PROXY_TRUSTED;
     }
 }

@@ -28,7 +28,7 @@ class PluginRepositoryRegistryTest {
         assertThat(official.builtIn()).isTrue();
         assertThat(official.enabled()).isTrue();
         assertThat(official.manifestUrl()).isEqualTo(PluginRepository.OFFICIAL_MANIFEST_URL);
-        assertThat(official.proxyPolicy()).isEqualTo(RepositoryProxyPolicy.DIRECT_STRICT);
+        assertThat(official.proxyPolicy()).isEqualTo(RepositoryProxyPolicy.PROXY_TRUSTED);
         assertThat(registry.defaultRepository()).contains(official);
     }
 

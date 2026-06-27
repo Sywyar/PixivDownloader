@@ -7,10 +7,13 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -234,6 +237,91 @@ class PluginCatalogHttpClientTest {
                     .isInstanceOf(PluginCatalogException.class)
                     .extracting(e -> ((PluginCatalogException) e).code())
                     .isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+        }
+    }
+
+    @Nested
+    @DisplayName("受信白名单重定向 + 代理档跳过本地 SSRF（proxy-trusted）")
+    class TrustedRedirectAndProxied {
+
+        private HttpServer server;
+
+        @AfterEach
+        void tearDown() {
+            if (server != null) {
+                server.stop(0);
+            }
+        }
+
+        /** 白名单可含 loopback 主机的放开客户端（http + 非公网放开，未代理），用于在 loopback 桩上验证「按白名单跟随一跳」。 */
+        private PluginCatalogHttpClient allowlisted(String... domains) {
+            return new PluginCatalogHttpClient(false, true, 2000, 2000, null, Set.of(domains));
+        }
+
+        @Test
+        @DisplayName("跟随一跳白名单内重定向：取到最终 200 字节")
+        void followsSingleAllowlistedRedirect() {
+            server = CatalogTestSupport.startServer();
+            byte[] body = "after-redirect".getBytes(StandardCharsets.UTF_8);
+            CatalogTestSupport.serveBytes(server, "/final", body);
+            CatalogTestSupport.serveRedirect(server, "/redir", CatalogTestSupport.loopbackUrl(server, "/final"));
+
+            byte[] got = allowlisted("127.0.0.1").fetchBytes(CatalogTestSupport.loopbackUrl(server, "/redir"), 1024);
+
+            assertThat(got).isEqualTo(body);
+        }
+
+        @Test
+        @DisplayName("重定向目标主机不在白名单：拒绝跟随（DOWNLOAD_FAILED）")
+        void rejectsNonAllowlistedRedirectTarget() {
+            server = CatalogTestSupport.startServer();
+            CatalogTestSupport.serveBytes(server, "/final", new byte[]{1});
+            CatalogTestSupport.serveRedirect(server, "/redir", CatalogTestSupport.loopbackUrl(server, "/final"));
+
+            // 白名单只含 githubusercontent.com；重定向目标主机是 127.0.0.1 → 不命中。
+            assertThatThrownBy(() -> allowlisted("githubusercontent.com")
+                    .fetchBytes(CatalogTestSupport.loopbackUrl(server, "/redir"), 1024))
+                    .isInstanceOf(PluginCatalogException.class)
+                    .extracting(e -> ((PluginCatalogException) e).code())
+                    .isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+        }
+
+        @Test
+        @DisplayName("只跟随一跳：第二跳仍是 3xx 即失败（DOWNLOAD_FAILED）")
+        void refusesSecondHop() {
+            server = CatalogTestSupport.startServer();
+            CatalogTestSupport.serveRedirect(server, "/b", CatalogTestSupport.loopbackUrl(server, "/c"));
+            CatalogTestSupport.serveRedirect(server, "/a", CatalogTestSupport.loopbackUrl(server, "/b"));
+
+            assertThatThrownBy(() -> allowlisted("127.0.0.1")
+                    .fetchBytes(CatalogTestSupport.loopbackUrl(server, "/a"), 1024))
+                    .isInstanceOf(PluginCatalogException.class)
+                    .extracting(e -> ((PluginCatalogException) e).code())
+                    .isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+        }
+
+        @Test
+        @DisplayName("3xx 缺 Location 头：拒绝（DOWNLOAD_FAILED）")
+        void redirectWithoutLocation() {
+            server = CatalogTestSupport.startServer();
+            CatalogTestSupport.serveStatus(server, "/nolocation", 302);
+
+            assertThatThrownBy(() -> allowlisted("127.0.0.1")
+                    .fetchBytes(CatalogTestSupport.loopbackUrl(server, "/nolocation"), 1024))
+                    .isInstanceOf(PluginCatalogException.class)
+                    .extracting(e -> ((PluginCatalogException) e).code())
+                    .isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+        }
+
+        @Test
+        @DisplayName("已代理客户端：verifyUrlAllowed 跳过本地 SSRF（私网地址不再被本地阻断，交由代理解析）")
+        void proxiedSkipsLocalSsrf() {
+            // proxySelector 非空即视为「已代理」；私网地址在直连档会被拒，代理档放行（仅校验、不连接）。
+            PluginCatalogHttpClient proxied = new PluginCatalogHttpClient(true, false, 2000, 2000,
+                    ProxySelector.of(new InetSocketAddress("127.0.0.1", 7890)), Set.of("githubusercontent.com"));
+
+            assertThat(proxied.verifyUrlAllowed("https://10.0.0.1/x.jar"))
+                    .isEqualTo(URI.create("https://10.0.0.1/x.jar"));
         }
     }
 }
