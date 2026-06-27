@@ -17,6 +17,7 @@ class RepositoryProxyPolicyTest {
     void configIds() {
         assertThat(RepositoryProxyPolicy.DIRECT_STRICT.configId()).isEqualTo("direct-strict");
         assertThat(RepositoryProxyPolicy.PROXY_TRUSTED.configId()).isEqualTo("proxy-trusted");
+        assertThat(RepositoryProxyPolicy.CUSTOM.configId()).isEqualTo("custom");
         assertThat(RepositoryProxyPolicy.DEFAULT).isEqualTo(RepositoryProxyPolicy.DIRECT_STRICT);
     }
 
@@ -33,6 +34,7 @@ class RepositoryProxyPolicyTest {
     void knownPolicies() {
         assertThat(RepositoryProxyPolicy.fromConfig("direct-strict")).isEqualTo(RepositoryProxyPolicy.DIRECT_STRICT);
         assertThat(RepositoryProxyPolicy.fromConfig("  PROXY-TRUSTED ")).isEqualTo(RepositoryProxyPolicy.PROXY_TRUSTED);
+        assertThat(RepositoryProxyPolicy.fromConfig(" CUSTOM ")).isEqualTo(RepositoryProxyPolicy.CUSTOM);
         assertThat(RepositoryProxyPolicy.fromConfig("Direct-Strict")).isEqualTo(RepositoryProxyPolicy.DIRECT_STRICT);
     }
 

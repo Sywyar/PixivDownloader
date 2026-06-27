@@ -66,6 +66,7 @@ public class PluginRepositoryRegistry {
                     PluginRepository.LEGACY_DISPLAY_NAME_KEY, properties.getManifestUrl().trim(),
                     true, false, false, RepositoryProxyPolicy.DIRECT_STRICT,
                     RepositoryProxyPolicy.DIRECT_STRICT.configId(),
+                    false, true, false, false,
                     connectTimeout, readTimeout, maxManifest, maxPackage));
         }
 
@@ -106,6 +107,8 @@ public class PluginRepositoryRegistry {
         return new PluginRepository(normalizedId, displayNameKey(config, normalizedId), manifestUrl,
                 config.isEnabled(), false, false, policy,
                 rawPolicy == null || rawPolicy.isBlank() ? RepositoryProxyPolicy.DEFAULT.configId() : rawPolicy.trim(),
+                config.isAllowRedirects(), config.isStrictHttps(),
+                config.isAllowNonPublicAddresses(), config.isUseProxy(),
                 positiveOr(config.getConnectTimeoutMs(), defaultConnect),
                 positiveOr(config.getReadTimeoutMs(), defaultRead),
                 positiveOr(config.getMaxManifestBytes(), defaultManifest),

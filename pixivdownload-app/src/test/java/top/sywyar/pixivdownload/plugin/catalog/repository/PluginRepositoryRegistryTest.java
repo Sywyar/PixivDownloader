@@ -100,6 +100,25 @@ class PluginRepositoryRegistryTest {
     }
 
     @Test
+    @DisplayName("自定义代理策略：四个网络开关映射到不可变仓库模型")
+    void customNetworkPolicyOptions() {
+        PluginCatalogProperties.RepositoryConfig config =
+                repo("lan", "http://192.168.1.10/m.json", true, "custom", 0, 0);
+        config.setAllowRedirects(true);
+        config.setStrictHttps(false);
+        config.setAllowNonPublicAddresses(true);
+        config.setUseProxy(true);
+
+        PluginRepository repository = new PluginRepositoryRegistry(propsWith(config)).find("lan").orElseThrow();
+        assertThat(repository.proxyPolicy()).isEqualTo(RepositoryProxyPolicy.CUSTOM);
+        assertThat(repository.allowRedirects()).isTrue();
+        assertThat(repository.strictHttps()).isFalse();
+        assertThat(repository.allowNonPublicAddresses()).isTrue();
+        assertThat(repository.useProxy()).isTrue();
+        assertThat(repository.isProxyPolicySupported()).isTrue();
+    }
+
+    @Test
     @DisplayName("默认仓库优先级：兼容仓库 → 官方 → 首个启用的自定义仓库")
     void defaultRepositoryPrecedence() {
         // 官方禁用、无 manifest-url、仅一个启用自定义 → 默认为该自定义。

@@ -15,6 +15,10 @@ package top.sywyar.pixivdownload.plugin.catalog.repository;
  * @param builtIn         是否为程序内嵌（非用户配置；内嵌仓库不可被自定义配置以同 id 覆盖）
  * @param proxyPolicy     解析后的代理策略（配置串无法识别时为 {@code null} = 不支持，由拉取层稳定报错）
  * @param rawProxyPolicy  原始代理策略串（诊断用，保留用户原配置）
+ * @param allowRedirects  custom 档是否允许至多一跳重定向
+ * @param strictHttps     custom 档是否仅允许 HTTPS
+ * @param allowNonPublicAddresses custom 档是否允许非公网地址
+ * @param useProxy        custom 档是否使用应用全局代理（{@code proxy.*}）
  * @param connectTimeoutMs 连接超时（毫秒）
  * @param readTimeoutMs    读取超时（毫秒）
  * @param maxManifestBytes 清单拉取字节上限
@@ -29,6 +33,10 @@ public record PluginRepository(
         boolean builtIn,
         RepositoryProxyPolicy proxyPolicy,
         String rawProxyPolicy,
+        boolean allowRedirects,
+        boolean strictHttps,
+        boolean allowNonPublicAddresses,
+        boolean useProxy,
         long connectTimeoutMs,
         long readTimeoutMs,
         long maxManifestBytes,
@@ -52,7 +60,7 @@ public record PluginRepository(
 
     /**
      * 构造内嵌官方默认仓库（{@code builtIn=true}、{@code official=true}、{@link RepositoryProxyPolicy#PROXY_TRUSTED}）。
-     * 官方仓库经核心出站代理拉取（GitHub 在受限网络下需代理），并按内置主机白名单跟随 GitHub release 资产的一跳重定向；
+     * 官方仓库经应用全局代理拉取（GitHub 在受限网络下需代理），并按内置主机白名单跟随 GitHub release 资产的一跳重定向；
      * 完整性仍由安装器的 sha256/size 逐字节兜底。其 {@code enabled} 由 {@code plugin-catalog.official-repository-enabled}
      * （默认 {@code true}）决定，可被禁用。
      */
@@ -61,15 +69,18 @@ public record PluginRepository(
                                             long maxManifestBytes, long maxPackageBytes) {
         return new PluginRepository(OFFICIAL_ID, OFFICIAL_DISPLAY_NAME_KEY, OFFICIAL_MANIFEST_URL,
                 enabled, true, true, RepositoryProxyPolicy.PROXY_TRUSTED, RepositoryProxyPolicy.PROXY_TRUSTED.configId(),
+                false, true, false, false,
                 connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes);
     }
 
     /**
      * 该仓库的代理策略是否被当前运行时支持（{@link RepositoryProxyPolicy#DIRECT_STRICT} 与
-     * {@link RepositoryProxyPolicy#PROXY_TRUSTED} 均已接线；未知策略为 {@code null} → 不支持）。
+     * {@link RepositoryProxyPolicy#PROXY_TRUSTED} / {@link RepositoryProxyPolicy#CUSTOM} 均已接线；未知策略为
+     * {@code null} → 不支持）。
      */
     public boolean isProxyPolicySupported() {
         return proxyPolicy == RepositoryProxyPolicy.DIRECT_STRICT
-                || proxyPolicy == RepositoryProxyPolicy.PROXY_TRUSTED;
+                || proxyPolicy == RepositoryProxyPolicy.PROXY_TRUSTED
+                || proxyPolicy == RepositoryProxyPolicy.CUSTOM;
     }
 }

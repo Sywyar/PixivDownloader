@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSectionContext;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigTestClient;
 import top.sywyar.pixivdownload.gui.panel.configtab.NotificationConfigSection;
+import top.sywyar.pixivdownload.gui.panel.configtab.PluginMarketConfigSection;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.swing.*;
@@ -28,6 +29,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 
 /**
  * "配置" 标签页：Schema 驱动的字段渲染，按 group 分为子标签页。保存时调用 ConfigFileEditor 行内替换，
@@ -51,6 +53,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private final int serverPort;
     private final ConfigFileEditor editor;
     private final String currentMode;
+    /** Web 页 URL 构造器（scheme 按 SSL、主机名按域名推导），供「打开 Web 插件市场」入口复用。 */
+    private final Function<String, String> webUrlProvider;
 
     /** 字段元数据快照（按当前 locale），构造时从 ConfigFieldRegistry 拉取一次。 */
     private final List<ConfigFieldSpec> allFields;
@@ -79,9 +83,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private boolean autoStartSupported;
     private boolean updatingAutoStartCheckBox;
 
-    public ConfigPanel(Path configPath, int serverPort) {
+    public ConfigPanel(Path configPath, int serverPort, Function<String, String> webUrlProvider) {
         this.configPath = configPath;
         this.serverPort = serverPort;
+        this.webUrlProvider = webUrlProvider;
         this.editor = new ConfigFileEditor(configPath);
         this.currentMode = resolveCurrentMode();
         this.allFields = ConfigFieldRegistry.allFields();
@@ -128,10 +133,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private void buildUi() {
         setLayout(new BorderLayout(0, 0));
 
-        // 特殊分组（自带控件 / 异步测试 / 预设联动）的可插拔实现；普通分组仍走 buildGroupPanel 声明式渲染。
+        // 特殊分组（自带控件 / 异步测试 / 预设联动 / 列表编辑器）的可插拔实现；普通分组仍走 buildGroupPanel 声明式渲染。
         sections = List.of(
                 new NotificationConfigSection(this),
-                new AiConfigSection(this));
+                new AiConfigSection(this),
+                new PluginMarketConfigSection(this, configPath, webUrlProvider));
         sectionsByGroup = new LinkedHashMap<>();
         for (ConfigSection section : sections) {
             sectionsByGroup.put(section.group(), section);
@@ -518,12 +524,20 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
         try {
             editor.writeAll(values);
+            // 各 section 持久化自有的非字段网格状态（如插件市场仓库列表）；任一写入改动均为需重启项。
+            boolean sectionRestartChange = false;
+            for (ConfigSection s : sections) {
+                if (s.onSave()) {
+                    sectionRestartChange = true;
+                }
+            }
+            boolean restartRequired = hasRestartRequiredChanges || sectionRestartChange;
             log.info(logMessage("gui.config.log.saved", configPath));
             if (hasHotReloadChanges) {
                 showNotice(message("gui.config.notice.hot-reloading"));
-                reloadHotConfigAsync(hasRestartRequiredChanges);
+                reloadHotConfigAsync(restartRequired);
             } else {
-                showNotice(message(hasRestartRequiredChanges
+                showNotice(message(restartRequired
                         ? "gui.config.notice.saved"
                         : "gui.config.notice.saved-no-change"));
             }

@@ -24,7 +24,7 @@ public enum PluginCatalogErrorCode {
     /** 目标仓库存在但已被禁用（不参与解析 / 拉取）。 */
     REPOSITORY_DISABLED(HttpStatus.CONFLICT, "plugin.catalog.error.repository-disabled"),
 
-    /** 仓库代理策略不受支持（未知策略，或当前运行时尚未接线的 {@code proxy-trusted}）。 */
+    /** 仓库代理策略不受支持（无法识别的未知策略串；{@code direct-strict} 与 {@code proxy-trusted} 均已接线）。 */
     PROXY_POLICY_UNSUPPORTED(HttpStatus.UNPROCESSABLE_ENTITY, "plugin.catalog.error.proxy-policy-unsupported"),
 
     /** catalog 中没有该插件 id。 */

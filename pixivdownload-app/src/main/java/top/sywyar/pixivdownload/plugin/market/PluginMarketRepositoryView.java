@@ -15,8 +15,8 @@ import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
  * @param builtIn              是否程序内嵌（非用户配置）
  * @param legacy               是否由旧版单一 {@code manifest-url} 折出的兼容仓库（{@code configured}）
  * @param defaultRepository    是否为默认仓库（旧版无 repositoryId 入口解析到的仓库）
- * @param proxyPolicy          代理策略原始串（{@code direct-strict} / {@code proxy-trusted}）
- * @param proxyPolicySupported 当前运行时是否支持该代理策略（{@code proxy-trusted} 未接线 → false，拉取时稳定报错）
+ * @param proxyPolicy          代理策略原始串（{@code direct-strict} / {@code proxy-trusted} / {@code custom}）
+ * @param proxyPolicySupported 当前运行时是否支持该代理策略（三个内置策略均支持；仅无法识别的未知策略串 → false，拉取时稳定报错）
  * @param connectTimeoutMs     连接超时（毫秒）
  * @param readTimeoutMs        读取超时（毫秒）
  * @param maxManifestBytes     清单拉取字节上限

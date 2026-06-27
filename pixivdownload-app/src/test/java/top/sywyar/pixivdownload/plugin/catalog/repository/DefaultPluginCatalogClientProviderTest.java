@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
- * {@link DefaultPluginCatalogClientProvider} 单测：按代理策略装配客户端——{@code direct-strict} 与 {@code proxy-trusted}
+ * {@link DefaultPluginCatalogClientProvider} 单测：按代理策略装配客户端——{@code direct-strict}、{@code proxy-trusted} 与 custom
  * （含内嵌官方仓库）均返回客户端；代理关闭时受信档仍可装配（直连 + 白名单重定向）；未知策略（{@code null}）抛稳定的
  * {@code PROXY_POLICY_UNSUPPORTED}，不静默回落直连。
  */
@@ -23,7 +23,8 @@ class DefaultPluginCatalogClientProviderTest {
 
     private static PluginRepository repo(RepositoryProxyPolicy policy, String rawPolicy) {
         return new PluginRepository("r", "k", "https://x.example/m.json",
-                true, false, false, policy, rawPolicy, 3_000, 4_000, 1024, 2048);
+                true, false, false, policy, rawPolicy, false, true, false, false,
+                3_000, 4_000, 1024, 2048);
     }
 
     @Test
@@ -47,6 +48,15 @@ class DefaultPluginCatalogClientProviderTest {
         disabled.setEnabled(false);
         DefaultPluginCatalogClientProvider p = new DefaultPluginCatalogClientProvider(disabled);
         assertThat(p.clientFor(repo(RepositoryProxyPolicy.PROXY_TRUSTED, "proxy-trusted"))).isNotNull();
+    }
+
+    @Test
+    @DisplayName("custom 仓库：按仓库级网络开关返回 HTTP 客户端")
+    void customBuildsClient() {
+        PluginRepository custom = new PluginRepository("custom", "k", "http://127.0.0.1/m.json",
+                true, false, false, RepositoryProxyPolicy.CUSTOM, "custom",
+                true, false, true, true, 3_000, 4_000, 1024, 2048);
+        assertThat(provider.clientFor(custom)).isNotNull();
     }
 
     @Test

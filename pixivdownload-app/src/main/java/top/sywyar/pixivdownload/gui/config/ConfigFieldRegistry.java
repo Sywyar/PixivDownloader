@@ -41,6 +41,11 @@ public final class ConfigFieldRegistry {
         return message("gui.config.group.maintenance");
     }
 
+    /** 插件 / 插件市场分组名（按当前 locale）。{@code PluginMarketConfigSection} 据此接管该分组标签页。 */
+    public static String groupPlugins() {
+        return message("gui.config.group.plugins");
+    }
+
     /** AI 配置分组名（按当前 locale）。 */
     public static String groupAi() {
         return message("gui.config.group.ai");
@@ -180,6 +185,31 @@ public final class ConfigFieldRegistry {
                         .defaultValue("true")
                         .help(message("gui.config.field.plugin-catalog.official-repository-enabled.help"))
                         .enabledWhen(snap -> snap.isTrue("plugin-catalog.enabled"))
+                        .build(),
+
+                // 全局默认（仓库级可覆盖；自定义仓库列表本身由 PluginMarketConfigSection 的表格编辑器管理、不入字段网格）。
+                ConfigFieldSpec.builder("plugin-catalog.connect-timeout-ms", message("gui.config.field.plugin-catalog.connect-timeout-ms.label"), INT, groupPlugins)
+                        .defaultValue("15000")
+                        .help(message("gui.config.field.plugin-catalog.connect-timeout-ms.help"))
+                        .validator(ConfigFieldRegistry::validatePositiveInt)
+                        .build(),
+
+                ConfigFieldSpec.builder("plugin-catalog.read-timeout-ms", message("gui.config.field.plugin-catalog.read-timeout-ms.label"), INT, groupPlugins)
+                        .defaultValue("60000")
+                        .help(message("gui.config.field.plugin-catalog.read-timeout-ms.help"))
+                        .validator(ConfigFieldRegistry::validatePositiveInt)
+                        .build(),
+
+                ConfigFieldSpec.builder("plugin-catalog.max-manifest-bytes", message("gui.config.field.plugin-catalog.max-manifest-bytes.label"), INT, groupPlugins)
+                        .defaultValue("1048576")
+                        .help(message("gui.config.field.plugin-catalog.max-manifest-bytes.help"))
+                        .validator(ConfigFieldRegistry::validatePositiveInt)
+                        .build(),
+
+                ConfigFieldSpec.builder("plugin-catalog.max-package-bytes", message("gui.config.field.plugin-catalog.max-package-bytes.label"), INT, groupPlugins)
+                        .defaultValue("104857600")
+                        .help(message("gui.config.field.plugin-catalog.max-package-bytes.help"))
+                        .validator(ConfigFieldRegistry::validatePositiveInt)
                         .build(),
 
                 // ── 代理 ───────────────────────────────────────────────────────────
@@ -1485,5 +1515,13 @@ public final class ConfigFieldRegistry {
         return MaintenanceProperties.isValidTime(value)
                 ? null
                 : message("gui.config.validation.time-hh-mm");
+    }
+
+    private static String validatePositiveInt(String value) {
+        try {
+            return Integer.parseInt(value) >= 1 ? null : message("gui.config.validation.positive-int");
+        } catch (NumberFormatException e) {
+            return message("gui.config.validation.valid-int");
+        }
     }
 }

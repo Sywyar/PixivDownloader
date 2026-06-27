@@ -9,8 +9,8 @@ import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogHttpClient;
 public interface PluginCatalogClientProvider {
 
     /**
-     * 为给定仓库返回一个 HTTP 客户端。代理策略不受支持（未知串或当前运行时尚未接线的 {@code proxy-trusted}）时应抛出
-     * 稳定的 {@code PROXY_POLICY_UNSUPPORTED}，<b>绝不</b>静默回落到直连。
+     * 为给定仓库返回一个 HTTP 客户端。{@code direct-strict} 与 {@code proxy-trusted} 均已接线；仅当代理策略串
+     * <b>无法识别</b>（未知）时应抛出稳定的 {@code PROXY_POLICY_UNSUPPORTED}，<b>绝不</b>静默回落到直连。
      */
     PluginCatalogHttpClient clientFor(PluginRepository repository);
 }

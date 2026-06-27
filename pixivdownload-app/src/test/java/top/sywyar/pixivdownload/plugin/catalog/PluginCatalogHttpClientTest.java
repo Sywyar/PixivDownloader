@@ -272,6 +272,20 @@ class PluginCatalogHttpClientTest {
         }
 
         @Test
+        @DisplayName("自定义策略允许任意主机一跳重定向，并支持相对 Location")
+        void customPolicyFollowsSingleRelativeRedirect() {
+            server = CatalogTestSupport.startServer();
+            byte[] body = "relative-redirect".getBytes(StandardCharsets.UTF_8);
+            CatalogTestSupport.serveBytes(server, "/final", body);
+            CatalogTestSupport.serveRedirect(server, "/redir", "/final");
+            PluginCatalogHttpClient custom = new PluginCatalogHttpClient(
+                    false, true, 2000, 2000, null, true, Set.of(), true);
+
+            assertThat(custom.fetchBytes(CatalogTestSupport.loopbackUrl(server, "/redir"), 1024))
+                    .isEqualTo(body);
+        }
+
+        @Test
         @DisplayName("重定向目标主机不在白名单：拒绝跟随（DOWNLOAD_FAILED）")
         void rejectsNonAllowlistedRedirectTarget() {
             server = CatalogTestSupport.startServer();
@@ -314,6 +328,21 @@ class PluginCatalogHttpClientTest {
         }
 
         @Test
+        @DisplayName("白名单子域匹配：GitHub release 资产 CDN 子域被允许、子串 / 后缀伪造被拒")
+        void allowlistMatchesGithubAssetCdnSubdomains() {
+            // 官方仓库 proxy-trusted 的内置白名单是 githubusercontent.com；GitHub release 下载 302 的真实目标主机
+            // （release-assets / objects 子域）必须被允许、而子串 / 后缀伪造必须被拒（带点边界、非子串匹配）。
+            PluginCatalogHttpClient c = new PluginCatalogHttpClient(true, false, 2000, 2000,
+                    null, Set.of("githubusercontent.com"));
+            assertThat(c.isAllowedRedirectHost("githubusercontent.com")).isTrue();
+            assertThat(c.isAllowedRedirectHost("release-assets.githubusercontent.com")).isTrue();
+            assertThat(c.isAllowedRedirectHost("objects.githubusercontent.com")).isTrue();
+            assertThat(c.isAllowedRedirectHost("evil-githubusercontent.com")).isFalse();
+            assertThat(c.isAllowedRedirectHost("githubusercontent.com.attacker.tld")).isFalse();
+            assertThat(c.isAllowedRedirectHost("notgithubusercontent.com")).isFalse();
+        }
+
+        @Test
         @DisplayName("已代理客户端：verifyUrlAllowed 跳过本地 SSRF（私网地址不再被本地阻断，交由代理解析）")
         void proxiedSkipsLocalSsrf() {
             // proxySelector 非空即视为「已代理」；私网地址在直连档会被拒，代理档放行（仅校验、不连接）。
@@ -322,6 +351,18 @@ class PluginCatalogHttpClientTest {
 
             assertThat(proxied.verifyUrlAllowed("https://10.0.0.1/x.jar"))
                     .isEqualTo(URI.create("https://10.0.0.1/x.jar"));
+        }
+
+        @Test
+        @DisplayName("自定义代理策略未允许非公网地址时仍按本机解析结果阻断私网目标")
+        void customProxiedStillValidatesLocalAddressWhenRequested() {
+            PluginCatalogHttpClient proxied = new PluginCatalogHttpClient(true, false, 2000, 2000,
+                    ProxySelector.of(new InetSocketAddress("127.0.0.1", 7890)), false, Set.of(), true);
+
+            assertThatThrownBy(() -> proxied.verifyUrlAllowed("https://10.0.0.1/x.jar"))
+                    .isInstanceOf(PluginCatalogException.class)
+                    .extracting(e -> ((PluginCatalogException) e).code())
+                    .isEqualTo(PluginCatalogErrorCode.BLOCKED_ADDRESS);
         }
     }
 }

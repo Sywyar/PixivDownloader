@@ -8,6 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.PluginInstallService;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
 
@@ -17,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,7 +38,6 @@ class PluginCatalogAcquisitionServiceTest {
     Path home;
     private Path pluginsDir;
     private Path downloadTempDir;
-    private final PluginCatalogHttpClient relaxed = new PluginCatalogHttpClient(false, true, 2000, 2000);
     private HttpServer server;
 
     @BeforeEach
@@ -56,7 +59,7 @@ class PluginCatalogAcquisitionServiceTest {
     void disabledRejectsInstall() {
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(false);
-        PluginCatalogAcquisitionService service = acquisition(new PluginCatalogService(props, relaxed));
+        PluginCatalogAcquisitionService service = acquisition(props);
 
         PluginCatalogException ex = catchThrowableOfType(
                 () -> service.install("ext", "1.0.0"), PluginCatalogException.class);
@@ -149,6 +152,40 @@ class PluginCatalogAcquisitionServiceTest {
         assertThat(installedFiles()).isEmpty();
     }
 
+    @Test
+    @DisplayName("按 repositoryId 安装用该仓库的下载客户端、不退回默认（严格）仓库：受信仓库跟随重定向 → INSTALLED；默认严格仓库拒重定向")
+    void installFromRepositoryUsesThatRepositoryNotDefault() {
+        server = CatalogTestSupport.startServer();
+        byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
+        CatalogTestSupport.serveBytes(server, "/final.zip", body);
+        // 包经 /redir.zip（302 → /final.zip）下发：direct-strict 会拒、proxy-trusted 会跟随白名单一跳。
+        CatalogTestSupport.serveRedirect(server, "/redir.zip", CatalogTestSupport.loopbackUrl(server, "/final.zip"));
+        String pkgUrl = CatalogTestSupport.loopbackUrl(server, "/redir.zip");
+        byte[] manifestJson = manifest("ext", "1.0.0", pkgUrl, body.length, CatalogTestSupport.sha256Hex(body), null)
+                .getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/strict.json", manifestJson);
+        CatalogTestSupport.serveBytes(server, "/trusted.json", manifestJson);
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setOfficialRepositoryEnabled(false); // 官方仓库真实 URL 不在 loopback，禁用使默认 = 首个自定义（strict）
+        props.setRepositories(List.of(
+                repoConfig("strict", CatalogTestSupport.loopbackUrl(server, "/strict.json"), "direct-strict"),
+                repoConfig("trusted", CatalogTestSupport.loopbackUrl(server, "/trusted.json"), "proxy-trusted")));
+        PluginCatalogAcquisitionService service = acquisition(props);
+
+        // 经 trusted 仓库安装：proxy-trusted 跟随白名单一跳 → 成功落盘（若退回默认 strict 客户端会因拒重定向失败）。
+        PluginInstallReport report = service.install("trusted", "ext", "1.0.0");
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(installedFiles()).containsExactly("ext-1.0.0.zip");
+        assertThat(downloadLeftovers()).isEmpty();
+
+        // 对照：默认仓库 = strict（direct-strict），其包下载遇重定向被拒（证明默认确为严格、上面的成功来自 trusted 客户端）。
+        PluginCatalogException ex = catchThrowableOfType(
+                () -> service.install("ext", "1.0.0"), PluginCatalogException.class);
+        assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+        assertThat(downloadLeftovers()).isEmpty();
+    }
+
     // ---------- helpers ----------
 
     private PluginCatalogAcquisitionService setUpInstall(byte[] pkgBytes,
@@ -161,13 +198,50 @@ class PluginCatalogAcquisitionServiceTest {
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
         props.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/catalog.json"));
-        return acquisition(new PluginCatalogService(props, relaxed));
+        return acquisition(props);
     }
 
-    private PluginCatalogAcquisitionService acquisition(PluginCatalogService catalogService) {
-        PluginPackageDownloader downloader = new PluginPackageDownloader(relaxed, 100L * 1024 * 1024, downloadTempDir);
+    /**
+     * 装配编排：catalog 读取与包下载<b>共用同一个</b> {@link PluginCatalogClientProvider}（忠实镜像生产策略语义、放开
+     * 非公网以对接 loopback；direct-strict 禁重定向、proxy-trusted 白名单一跳、custom 按开关一跳、未知策略 fail-closed）——证明下载与清单读取
+     * 同源、且按仓库代理策略下载。
+     */
+    private PluginCatalogAcquisitionService acquisition(PluginCatalogProperties props) {
+        PluginCatalogClientProvider provider = policyFaithful();
+        PluginCatalogService catalogService = new PluginCatalogService(new PluginRepositoryRegistry(props), provider);
+        PluginPackageDownloader downloader = new PluginPackageDownloader(provider, downloadTempDir);
         PluginInstallService installService = new PluginInstallService(new ExternalPluginInstaller(pluginsDir));
         return new PluginCatalogAcquisitionService(catalogService, downloader, installService);
+    }
+
+    private static PluginCatalogClientProvider policyFaithful() {
+        return repository -> {
+            RepositoryProxyPolicy policy = repository.proxyPolicy();
+            if (policy == RepositoryProxyPolicy.DIRECT_STRICT) {
+                return new PluginCatalogHttpClient(false, true,
+                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs());
+            }
+            if (policy == RepositoryProxyPolicy.PROXY_TRUSTED) {
+                return new PluginCatalogHttpClient(false, true,
+                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(), null, Set.of("127.0.0.1"));
+            }
+            if (policy == RepositoryProxyPolicy.CUSTOM) {
+                return new PluginCatalogHttpClient(false, true,
+                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(), null,
+                        repository.allowRedirects(), Set.of(), true);
+            }
+            throw new PluginCatalogException(PluginCatalogErrorCode.PROXY_POLICY_UNSUPPORTED,
+                    "unsupported proxy policy for repository " + repository.repositoryId());
+        };
+    }
+
+    private static PluginCatalogProperties.RepositoryConfig repoConfig(String id, String manifestUrl, String policy) {
+        PluginCatalogProperties.RepositoryConfig rc = new PluginCatalogProperties.RepositoryConfig();
+        rc.setId(id);
+        rc.setManifestUrl(manifestUrl);
+        rc.setEnabled(true);
+        rc.setProxyPolicy(policy);
+        return rc;
     }
 
     private static String manifest(String pluginId, String version, String pkgUrl,

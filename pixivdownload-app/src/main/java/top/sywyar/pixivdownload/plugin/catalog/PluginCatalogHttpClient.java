@@ -50,6 +50,8 @@ public class PluginCatalogHttpClient {
     private final boolean httpsOnly;
     private final boolean allowNonPublicAddresses;
     private final boolean proxied;
+    private final boolean allowRedirects;
+    private final boolean validateAddressesWhenProxied;
     private final int readTimeoutMs;
     private final Set<String> redirectAllowlistDomains;
     private final HttpClient httpClient;
@@ -85,9 +87,25 @@ public class PluginCatalogHttpClient {
     public PluginCatalogHttpClient(boolean httpsOnly, boolean allowNonPublicAddresses,
                                    int connectTimeoutMs, int readTimeoutMs,
                                    ProxySelector proxySelector, Set<String> redirectAllowlistDomains) {
+        this(httpsOnly, allowNonPublicAddresses, connectTimeoutMs, readTimeoutMs, proxySelector,
+                redirectAllowlistDomains != null && !redirectAllowlistDomains.isEmpty(),
+                redirectAllowlistDomains, false);
+    }
+
+    /**
+     * 自定义网络档构造。允许重定向时最多跟随一跳；白名单为空表示允许任意目标主机，但该目标仍会重新执行 scheme / 主机 /
+     * 地址校验。{@code validateAddressesWhenProxied=true} 时，即便使用代理也先按本机 DNS 结果执行非公网地址阻断；这无法约束
+     * 代理端可能不同的 DNS 视图，但可阻断 IP 字面量与本机明确解析到非公网的目标。
+     */
+    public PluginCatalogHttpClient(boolean httpsOnly, boolean allowNonPublicAddresses,
+                                   int connectTimeoutMs, int readTimeoutMs,
+                                   ProxySelector proxySelector, boolean allowRedirects,
+                                   Set<String> redirectAllowlistDomains, boolean validateAddressesWhenProxied) {
         this.httpsOnly = httpsOnly;
         this.allowNonPublicAddresses = allowNonPublicAddresses;
         this.proxied = proxySelector != null;
+        this.allowRedirects = allowRedirects;
+        this.validateAddressesWhenProxied = validateAddressesWhenProxied;
         this.readTimeoutMs = readTimeoutMs > 0 ? readTimeoutMs : 60_000;
         this.redirectAllowlistDomains = redirectAllowlistDomains == null
                 ? Set.of() : Set.copyOf(redirectAllowlistDomains);
@@ -166,7 +184,7 @@ public class PluginCatalogHttpClient {
      */
     private HttpResponse<InputStream> sendFollowingAllowedRedirect(URI uri) {
         HttpResponse<InputStream> response = send(uri);
-        if (isRedirect(response.statusCode()) && !redirectAllowlistDomains.isEmpty()) {
+        if (isRedirect(response.statusCode()) && allowRedirects) {
             URI target = resolveAllowedRedirect(response, uri);
             closeQuietly(response);
             HttpResponse<InputStream> hop = send(target);
@@ -194,17 +212,28 @@ public class PluginCatalogHttpClient {
             throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
                     "redirect (HTTP " + response.statusCode() + ") without Location header for " + from);
         }
-        URI target = verifyUrlAllowed(location.trim());
+        URI rawTarget;
+        try {
+            rawTarget = new URI(location.trim());
+        } catch (URISyntaxException e) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
+                    "malformed redirect Location for " + from + ": " + e.getMessage());
+        }
+        URI target = verifyUrlAllowed(from.resolve(rawTarget).toString());
         String host = target.getHost();
-        if (host == null || !isAllowedRedirectHost(host)) {
+        if (host == null || (!redirectAllowlistDomains.isEmpty() && !isAllowedRedirectHost(host))) {
             throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
                     "refusing to follow redirect to non-allowlisted host '" + host + "' for " + from);
         }
         return target;
     }
 
-    /** 主机是否命中重定向白名单：与某白名单域相等，或为其子域（{@code endsWith("." + domain)}，带点边界、非子串匹配）。 */
-    private boolean isAllowedRedirectHost(String host) {
+    /**
+     * 主机是否命中重定向白名单：与某白名单域相等，或为其子域（{@code endsWith("." + domain)}，带点边界、非子串匹配）。
+     * 包内可见，供单测直接验证 GitHub release 资产 CDN 子域（{@code release-assets.} / {@code objects.githubusercontent.com}）
+     * 被允许、而 {@code evil-githubusercontent.com} / {@code …githubusercontent.com.attacker.tld} 被拒。
+     */
+    boolean isAllowedRedirectHost(String host) {
         String h = stripBrackets(host).toLowerCase(Locale.ROOT);
         for (String domain : redirectAllowlistDomains) {
             String d = domain.toLowerCase(Locale.ROOT);
@@ -290,9 +319,9 @@ public class PluginCatalogHttpClient {
         if (host == null || host.isBlank()) {
             throw new PluginCatalogException(PluginCatalogErrorCode.INSECURE_URL, "missing url host: " + url);
         }
-        // 已配置出站代理时，DNS 由代理完成：跳过本地解析与 IP 段校验（本地解析在受限网络下可能失败 / 被污染，且经代理后
-        // 本地 IP 校验本就失效）。直连档（未代理）仍执行严格 SSRF 解析与阻断。
-        if (!proxied) {
+        // 预设受信代理档跳过本地解析与 IP 段校验（DNS 由代理完成）；自定义档可要求代理请求也先按本机 DNS 结果执行阻断。
+        // 后者能挡 IP 字面量与本机明确解析到非公网的目标，但无法约束代理端可能不同的 DNS 视图。
+        if (!proxied || validateAddressesWhenProxied) {
             InetAddress[] addresses;
             try {
                 addresses = InetAddress.getAllByName(stripBrackets(host));

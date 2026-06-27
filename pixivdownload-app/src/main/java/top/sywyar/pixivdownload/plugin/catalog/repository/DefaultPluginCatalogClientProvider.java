@@ -16,10 +16,12 @@ import java.util.Set;
  * <ul>
  *   <li>{@link RepositoryProxyPolicy#DIRECT_STRICT}（默认档，任何普通 / 自定义仓库）：仅 https + 拒非公网地址（严格
  *       SSRF）+ 禁重定向 + <b>不走代理</b>，按该仓库的连接 / 读取超时构造。<b>绝不放宽</b>。</li>
- *   <li>{@link RepositoryProxyPolicy#PROXY_TRUSTED}（仅对用户显式信任的仓库，如内嵌官方仓库）：<b>经核心出站代理</b>
+ *   <li>{@link RepositoryProxyPolicy#PROXY_TRUSTED}（仅对用户显式信任的仓库，如内嵌官方仓库）：<b>经应用全局代理</b>
  *       （{@code proxy.*}）拉取，仅 https，并按内置主机白名单（GitHub release 资产 CDN {@code *.githubusercontent.com}）
  *       <b>跟随至多一跳</b>重定向。完整性仍由 {@code ExternalPluginInstaller} 的 sha256/size 逐字节兜底——本档放宽只关
  *       SSRF/滥用、<b>不</b>关完整性。代理未启用（{@code proxy.enabled=false}）时直连（仍按白名单跟随重定向）。</li>
+ *   <li>{@link RepositoryProxyPolicy#CUSTOM}：采用仓库条目声明的重定向、HTTPS、非公网地址与应用全局代理开关；重定向仍限制
+ *       为至多一跳并对目标重新校验。</li>
  * </ul>
  *
  * <p>未知 / 不可识别的策略（{@code proxyPolicy} 为 {@code null}）一律抛稳定的
@@ -51,12 +53,18 @@ public class DefaultPluginCatalogClientProvider implements PluginCatalogClientPr
                     (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs());
         }
         if (policy == RepositoryProxyPolicy.PROXY_TRUSTED) {
-            // 受信档：经核心出站代理拉取（启用时）；仅 https；按内置白名单跟随一跳重定向（GitHub release 资产 CDN）。
+            // 受信档：经应用全局代理拉取（启用时）；仅 https；按内置白名单跟随一跳重定向（GitHub release 资产 CDN）。
             return new PluginCatalogHttpClient(true, false,
                     (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(),
                     outboundProxySelector(), TRUSTED_REDIRECT_HOSTS);
         }
-        // 未知 / 未接线策略：稳定报错，绝不静默回落直连。
+        if (policy == RepositoryProxyPolicy.CUSTOM) {
+            return new PluginCatalogHttpClient(repository.strictHttps(), repository.allowNonPublicAddresses(),
+                    (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(),
+                    repository.useProxy() ? outboundProxySelector() : null,
+                    repository.allowRedirects(), Set.of(), true);
+        }
+        // 无法识别的未知策略（policy == null）：稳定报错，绝不静默回落直连。
         throw new PluginCatalogException(PluginCatalogErrorCode.PROXY_POLICY_UNSUPPORTED,
                 "unsupported proxy policy '" + repository.rawProxyPolicy() + "' for repository "
                         + repository.repositoryId());

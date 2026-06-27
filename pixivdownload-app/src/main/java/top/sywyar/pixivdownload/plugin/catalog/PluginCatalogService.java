@@ -61,10 +61,7 @@ public class PluginCatalogService {
      * 拉取（含不安全 URL / 阻断地址 / 超限 / 网络失败）或解析失败 → {@link PluginCatalogErrorCode#CATALOG_UNAVAILABLE}。
      */
     public PluginCatalogManifest load() {
-        requireFeatureEnabled();
-        PluginRepository repository = repositoryRegistry.defaultRepository().orElseThrow(() ->
-                new PluginCatalogException(PluginCatalogErrorCode.CATALOG_DISABLED, "no enabled plugin repository"));
-        return loadRepository(repository);
+        return loadResolvedDefault().manifest();
     }
 
     /**
@@ -73,6 +70,35 @@ public class PluginCatalogService {
      * 代理策略不支持 → {@link PluginCatalogErrorCode#PROXY_POLICY_UNSUPPORTED}；拉取 / 解析失败 → {@code CATALOG_UNAVAILABLE}。
      */
     public PluginCatalogManifest load(String repositoryId) {
+        return loadResolved(repositoryId).manifest();
+    }
+
+    /**
+     * 包内安装编排入口：解析默认仓库并加载其清单，一次返回确切仓库 + manifest，保证后续包下载与清单读取同源。
+     * 主开关关闭 / 无可用仓库 → {@link PluginCatalogErrorCode#CATALOG_DISABLED}。
+     */
+    ResolvedCatalog loadResolvedDefault() {
+        PluginRepository repository = resolveDefaultRepository();
+        return new ResolvedCatalog(repository, loadRepository(repository));
+    }
+
+    /**
+     * 包内安装编排入口：按 {@code repositoryId} 解析受控仓库并加载其清单，一次返回确切仓库 + manifest。
+     * 主开关关闭 → {@code CATALOG_DISABLED}；未知 id → {@link PluginCatalogErrorCode#UNKNOWN_REPOSITORY}；仓库禁用 →
+     * {@link PluginCatalogErrorCode#REPOSITORY_DISABLED}。
+     */
+    ResolvedCatalog loadResolved(String repositoryId) {
+        PluginRepository repository = resolveRepository(repositoryId);
+        return new ResolvedCatalog(repository, loadRepository(repository));
+    }
+
+    private PluginRepository resolveDefaultRepository() {
+        requireFeatureEnabled();
+        return repositoryRegistry.defaultRepository().orElseThrow(() ->
+                new PluginCatalogException(PluginCatalogErrorCode.CATALOG_DISABLED, "no enabled plugin repository"));
+    }
+
+    private PluginRepository resolveRepository(String repositoryId) {
         requireFeatureEnabled();
         PluginRepository repository = repositoryRegistry.find(repositoryId).orElseThrow(() ->
                 new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_REPOSITORY,
@@ -81,7 +107,7 @@ public class PluginCatalogService {
             throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_DISABLED,
                     "plugin repository is disabled: " + repository.repositoryId());
         }
-        return loadRepository(repository);
+        return repository;
     }
 
     private void requireFeatureEnabled() {
@@ -107,6 +133,10 @@ public class PluginCatalogService {
                     "failed to fetch catalog manifest: " + e.getMessage());
         }
         return parseManifest(bytes);
+    }
+
+    /** 包内受控编排结果；当前安装路径只消费本服务完成主开关 / id / 启用状态校验后产生的实例。 */
+    record ResolvedCatalog(PluginRepository repository, PluginCatalogManifest manifest) {
     }
 
     /** 解析清单字节（UTF-8 + Jackson）。空 → 空清单；坏 JSON → {@link PluginCatalogErrorCode#CATALOG_UNAVAILABLE}。 */

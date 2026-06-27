@@ -80,8 +80,25 @@ public class PluginCatalogProperties {
         /** 是否启用（默认启用；禁用项仍在列表中用于状态展示，但不参与解析 / 拉取）。 */
         private boolean enabled = true;
 
-        /** 代理策略（{@code direct-strict} 默认 / {@code proxy-trusted}；后者当前运行时未接线，拉取即稳定报「不支持」）。 */
+        /**
+         * 代理策略：{@code direct-strict}（默认；直连、仅 https、拒非公网地址、禁重定向）、{@code proxy-trusted}
+         * （经应用全局代理拉取、仅在内置主机白名单内跟随至多一跳重定向）或 {@code custom}（采用下列四个自定义网络
+         * 开关）。全部档位的大小 / sha256 / 签名校验保持 fail-closed。未知策略串在拉取时稳定报「不支持」
+         * （{@code PROXY_POLICY_UNSUPPORTED}）、绝不静默回落直连。
+         */
         private String proxyPolicy = "direct-strict";
+
+        /** custom：是否允许跟随至多一跳重定向（目标仍重新执行 URL / 地址校验）。 */
+        private boolean allowRedirects;
+
+        /** custom：是否只允许 HTTPS；关闭后额外允许 HTTP，其它协议仍拒绝。 */
+        private boolean strictHttps = true;
+
+        /** custom：是否允许 loopback / 私网 / link-local 等非公网地址。 */
+        private boolean allowNonPublicAddresses;
+
+        /** custom：是否使用应用全局 {@code proxy.*} 代理（全局代理关闭时回落直连）。 */
+        private boolean useProxy;
 
         /** 连接超时覆盖（毫秒，&le;0 用全局默认）。 */
         private long connectTimeoutMs;

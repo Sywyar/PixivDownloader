@@ -70,6 +70,12 @@ public final class DefaultConfigTemplate {
         appendSection(config, messages, "config.template.section.plugin-catalog");
         appendSetting(config, messages, "plugin-catalog.enabled: false", "config.template.plugin-catalog.enabled.comment");
         appendSetting(config, messages, "plugin-catalog.official-repository-enabled: true", "config.template.plugin-catalog.official-repository-enabled.comment");
+        appendSetting(config, messages, "plugin-catalog.connect-timeout-ms: 15000", "config.template.plugin-catalog.connect-timeout-ms.comment");
+        appendSetting(config, messages, "plugin-catalog.read-timeout-ms: 60000", "config.template.plugin-catalog.read-timeout-ms.comment");
+        appendSetting(config, messages, "plugin-catalog.max-manifest-bytes: 1048576", "config.template.plugin-catalog.max-manifest-bytes.comment");
+        appendSetting(config, messages, "plugin-catalog.max-package-bytes: 104857600", "config.template.plugin-catalog.max-package-bytes.comment");
+        // 自定义仓库列表：默认空（不访问任何第三方地址）。由 GUI「插件」分组的仓库列表编辑器结构化读写。
+        appendSetting(config, messages, "plugin-catalog.repositories:", "config.template.plugin-catalog.repositories.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.proxy");

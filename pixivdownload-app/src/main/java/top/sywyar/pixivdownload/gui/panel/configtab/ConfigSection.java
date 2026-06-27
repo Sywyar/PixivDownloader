@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
 import javax.swing.JComponent;
+import java.io.IOException;
 
 /**
  * 配置面板里一个「特殊分组」标签页的可插拔实现：自带自定义控件 / 异步测试 / 预设联动，
@@ -25,5 +26,16 @@ public interface ConfigSection {
 
     /** 在配置值加载完成 / 重置为默认后回调，用于按当前值反查并应用服务商预设。 */
     default void onValuesLoaded() {
+    }
+
+    /**
+     * 在宿主把标量字段写回 {@code config.yaml} 之后回调，用于持久化 section 自有的<b>非字段网格</b>状态
+     * （如列表型配置）。默认无操作。
+     *
+     * @return 是否实际写入了改动（用于宿主判定保存提示是否需提示「重启生效」）
+     * @throws IOException 持久化失败时抛出，由宿主统一弹错
+     */
+    default boolean onSave() throws IOException {
+        return false;
     }
 }
