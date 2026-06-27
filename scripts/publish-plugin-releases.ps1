@@ -6,8 +6,8 @@
 .DESCRIPTION
     Version is the immutability key. For each plugin:
       - read plugin.version from its source plugin.properties (no build needed to decide);
-      - if release `<id>-v<version>` already exists -> SKIP (never rebuild, never re-upload — immutable);
-      - else build ONLY that module (`mvn -pl <module> -am package` — its dep subtree, not the whole reactor
+      - if release `<id>-v<version>` already exists -> SKIP (never rebuild, never re-upload - immutable);
+      - else build ONLY that module (`mvn -pl <module> -am package` - its dep subtree, not the whole reactor
         nor other plugins), verify it is a thin PF4J jar, then create the release and upload the jar + .sha256.
 
     So updating one plugin compiles and publishes only that plugin. The market manifest is generated separately
@@ -67,7 +67,7 @@ foreach ($plugin in $plugins) {
 
     gh release view $tag --repo $Repo *> $null
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "= $tag already published; skip (immutable — bump plugin.version to publish changes)."
+        Write-Host "= $tag already published; skip (immutable - bump plugin.version to publish changes)."
         continue
     }
 
