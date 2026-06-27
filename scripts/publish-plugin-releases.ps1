@@ -65,10 +65,24 @@ foreach ($plugin in $plugins) {
     $version = Read-SourceVersion $plugin.Module
     $tag = "$($plugin.Id)-v$version"
 
-    gh release view $tag --repo $Repo *> $null
-    if ($LASTEXITCODE -eq 0) {
+    # `gh release view` returns a non-zero exit code and writes to stderr when the release does not exist.
+    # Temporarily relax ErrorActionPreference so "release not found" can be handled as normal control flow.
+    $oldErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $viewOutput = & gh release view $tag --repo $Repo 2>&1
+        $viewExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldErrorActionPreference
+    }
+
+    if ($viewExitCode -eq 0) {
         Write-Host "= $tag already published; skip (immutable - bump plugin.version to publish changes)."
         continue
+    }
+
+    if (($viewOutput -join "`n") -notmatch 'release not found|HTTP 404') {
+        throw "gh release view failed for ${tag}: $($viewOutput -join "`n")"
     }
 
     Write-Host "==> Building only module $($plugin.Module) for new release $tag"
