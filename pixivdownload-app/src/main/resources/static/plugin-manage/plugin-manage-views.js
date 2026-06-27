@@ -149,12 +149,13 @@
         // 底栏：左侧真实元信息（状态 / 核心 API / 依赖数）+ 右侧后端可用动词按钮。
         parts.push('<div class="pm-card-foot">');
         parts.push('<div class="pm-meta">');
-        parts.push('<span class="pm-meta-item"><span class="pm-status-dot" style="background:'
-            + toneColor(vm.statusTone) + ';"></span>' + E(vm.statusLabel) + '</span>');
-        // 运行期阶段：仅受管外置插件有精确阶段（内置 / 未安装无此概念）。
+        // 受管外置插件只展示 runtimePhase（准确反映当前服务侧状态），内置 / 未安装条目展示 status。
         if (vm.managed && vm.phaseLabel) {
             parts.push('<span class="pm-meta-item"><i class="fa-solid fa-circle-half-stroke" style="color:'
                 + toneColor(vm.phaseTone) + ';"></i>' + E(vm.phaseLabel) + '</span>');
+        } else {
+            parts.push('<span class="pm-meta-item"><span class="pm-status-dot" style="background:'
+                + toneColor(vm.statusTone) + ';"></span>' + E(vm.statusLabel) + '</span>');
         }
         if (vm.api) {
             var apiCls = vm.api.specified ? (vm.api.satisfied ? 'pm-meta-item--ok' : 'pm-meta-item--bad') : '';

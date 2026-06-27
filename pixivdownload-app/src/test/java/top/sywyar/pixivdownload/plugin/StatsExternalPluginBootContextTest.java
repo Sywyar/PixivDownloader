@@ -198,9 +198,15 @@ class StatsExternalPluginBootContextTest {
 
         StaticResourceRegistry.RegisteredStaticResource staticResource =
                 staticResourceRegistry.resources().stream()
-                        .filter(s -> s.pluginId().equals("stats")).findFirst().orElseThrow();
+                        .filter(s -> s.pluginId().equals("stats")
+                                && s.contribution().publicPathPrefix().equals("/pixiv-stats/")).findFirst().orElseThrow();
         assertThat(staticResource.contribution().publicPathPrefix()).isEqualTo("/pixiv-stats/");
         assertThat(staticResource.classLoader()).isSameAs(externalCl);
+
+        assertThat(staticResourceRegistry.resources().stream()
+                .anyMatch(s -> s.pluginId().equals("stats")
+                        && s.contribution().publicPathPrefix().equals("/pixiv-stats.html")))
+                .isTrue();
 
         WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("stats");
         assertThat(bundle).isNotNull();

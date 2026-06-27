@@ -5,6 +5,7 @@ import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 
 /**
  * 按 {@link StaticResourceRegistry} 的声明注册插件 / 核心静态资源的 ResourceHandler，
@@ -28,10 +29,16 @@ public class StaticResourceConfig implements WebMvcConfigurer {
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         for (StaticResourceRegistry.RegisteredStaticResource registered : staticResourceRegistry.resources()) {
-            String pattern = registered.contribution().publicPathPrefix() + "**";
-            // 经声明方 ClassLoader 解析 classpath 目录资源（registry 已校验前缀 / 位置均以 "/" 结尾）。
+            StaticResourceContribution contribution = registered.contribution();
+            String pattern;
+            if (contribution.exactFile()) {
+                pattern = contribution.publicPathPrefix();
+            } else {
+                pattern = contribution.publicPathPrefix() + "**";
+            }
+            // 经声明方 ClassLoader 解析 classpath 目录资源（registry 已校验路径规则）。
             Resource location = new DefaultResourceLoader(registered.classLoader())
-                    .getResource(registered.contribution().classpathLocation());
+                    .getResource(contribution.classpathLocation());
             registry.addResourceHandler(pattern).addResourceLocations(location);
         }
     }

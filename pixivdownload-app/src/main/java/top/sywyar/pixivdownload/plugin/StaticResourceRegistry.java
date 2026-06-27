@@ -114,9 +114,20 @@ public class StaticResourceRegistry {
                     + " (plugin: " + pluginId + ")");
         }
         String prefix = contribution.publicPathPrefix();
-        if (prefix == null || prefix.isBlank() || !prefix.startsWith("/") || !prefix.endsWith("/")) {
-            throw new IllegalStateException("invalid static resource public path prefix: " + prefix
+        if (prefix == null || prefix.isBlank() || !prefix.startsWith("/")) {
+            throw new IllegalStateException("invalid static resource public path: " + prefix
                     + " (plugin: " + pluginId + ")");
+        }
+        if (contribution.exactFile()) {
+            if (prefix.endsWith("/")) {
+                throw new IllegalStateException("exact file contribution publicPath must not end with '/': " + prefix
+                        + " (plugin: " + pluginId + ")");
+            }
+        } else {
+            if (!prefix.endsWith("/")) {
+                throw new IllegalStateException("directory contribution publicPathPrefix must end with '/': " + prefix
+                        + " (plugin: " + pluginId + ")");
+            }
         }
     }
 }

@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("StaticResourceRegistry 静态资源注册中心")
@@ -118,7 +119,7 @@ class StaticResourceRegistryTest {
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId / classLoader / 列表 / classpath 位置 / 前缀 / pluginId 一致性")
+    @DisplayName("非法输入拒绝：pluginId / classLoader / 列表 / classpath 位置 / 路径 / pluginId 一致性")
     void invalidInputRejected() {
         StaticResourceRegistry registry = emptyRegistry();
         // pluginId 空
@@ -142,7 +143,7 @@ class StaticResourceRegistryTest {
         assertThatThrownBy(() -> registry.register("demo", CL, List.of(
                 new StaticResourceContribution("demo", "classpath:/static/a/", "a/"))))
                 .isInstanceOf(IllegalStateException.class);
-        // publicPathPrefix 不以 / 结尾
+        // 目录贡献 publicPathPrefix 不以 / 结尾
         assertThatThrownBy(() -> registry.register("demo", CL, List.of(
                 new StaticResourceContribution("demo", "classpath:/static/a/", "/a"))))
                 .isInstanceOf(IllegalStateException.class);
@@ -150,6 +151,10 @@ class StaticResourceRegistryTest {
         assertThatThrownBy(() -> registry.register("demo", CL, List.of(res("other", "a"))))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("mismatch");
+        // 精确文件贡献 publicPathPrefix 以 / 结尾（应拒绝）
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(
+                new StaticResourceContribution("demo", "classpath:/static/a/", "/a.html/", true))))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -185,6 +190,53 @@ class StaticResourceRegistryTest {
                 .as("应使用 RegisteredPlugin.classLoader()（桥接 classloader），而非 plugin.getClass().getClassLoader()")
                 .isSameAs(bridgeClassLoader)
                 .isNotSameAs(external.getClass().getClassLoader());
+    }
+
+    @Test
+    @DisplayName("精确文件贡献可注册，publicPathPrefix 为精确路径（不以 / 结尾），且可与目录贡献共存")
+    void exactFileContributionRegistered() {
+        StaticResourceRegistry registry = emptyRegistry();
+        registry.register("demo", CL, List.of(
+                new StaticResourceContribution("demo", "classpath:/static/demo/", "/demo/"),
+                new StaticResourceContribution("demo", "classpath:/static/demo/", "/demo/index.html", true)));
+        assertThat(registry.resources())
+                .extracting(r -> r.contribution().publicPathPrefix())
+                .containsExactlyInAnyOrder("/demo/", "/demo/index.html");
+    }
+
+    @Test
+    @DisplayName("精确文件贡献的 classpathLocation 必须是 classpath 目录（以 / 结尾）")
+    void exactFileRequiresClasspathDirectory() {
+        StaticResourceRegistry registry = emptyRegistry();
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(
+                new StaticResourceContribution("demo", "classpath:/static/index.html", "/index.html", true))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("精确文件 publicPathPrefix 不可为空、不以 / 开头、或以 / 结尾")
+    void exactFilePublicPathValidation() {
+        StaticResourceRegistry registry = emptyRegistry();
+        // 不以 / 开头
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(
+                new StaticResourceContribution("demo", "classpath:/static/", "index.html", true))))
+                .isInstanceOf(IllegalStateException.class);
+        // 以 / 结尾
+        assertThatThrownBy(() -> registry.register("demo", CL, List.of(
+                new StaticResourceContribution("demo", "classpath:/static/", "/index.html/", true))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("精确文件贡献与目录贡献的 publicPathPrefix 不冲突（同一路径的不同字形各自合法）")
+    void exactFileAndDirectoryPrefixesDoNotConflict() {
+        StaticResourceRegistry registry = emptyRegistry();
+        registry.register("a", CL, List.of(
+                new StaticResourceContribution("a", "classpath:/static/a/", "/a/")));
+        // "/a"（精确文件）与 "/a/"（目录）是不同的前缀字符串，不冲突
+        assertThatCode(() -> registry.register("b", CL, List.of(
+                new StaticResourceContribution("b", "classpath:/static/b/", "/a", true))))
+                .doesNotThrowAnyException();
     }
 
     /** 最小核心插件占位（无静态资源），仅作对照。 */

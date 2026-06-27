@@ -167,11 +167,15 @@ class StatsExternalPluginIntegrationTest {
                 .anyMatch(n -> n.pluginId().equals("stats"));
 
         // static：stats 静态资源进入 StaticResourceRegistry，且其解析用 classloader 是外置插件 loader
-        StaticResourceRegistry.RegisteredStaticResource staticResource =
+        List<StaticResourceRegistry.RegisteredStaticResource> statsResources =
                 new StaticResourceRegistry(registry).resources().stream()
-                        .filter(s -> s.pluginId().equals("stats")).findFirst().orElseThrow();
-        assertThat(staticResource.contribution().publicPathPrefix()).isEqualTo("/pixiv-stats/");
-        assertThat(staticResource.classLoader()).isSameAs(externalCl);
+                        .filter(s -> s.pluginId().equals("stats")).toList();
+        assertThat(statsResources).hasSize(2);
+        assertThat(statsResources)
+                .extracting(s -> s.contribution().publicPathPrefix())
+                .containsExactlyInAnyOrder("/pixiv-stats/", "/pixiv-stats.html");
+        statsResources.forEach(s ->
+                assertThat(s.classLoader()).isSameAs(externalCl));
 
         // i18n：stats namespace 进入 WebI18nBundleRegistry，且其解析用 classloader 是外置插件 loader
         WebI18nBundleRegistry.RegisteredBundle bundle = new WebI18nBundleRegistry(registry).resolve("stats");

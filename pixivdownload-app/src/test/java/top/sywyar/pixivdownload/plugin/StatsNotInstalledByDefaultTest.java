@@ -44,7 +44,7 @@ class StatsNotInstalledByDefaultTest {
                 .noneMatch(s -> s.pluginId().equals("stats"));
         assertThat(new StaticResourceRegistry(registry).resources())
                 .extracting(s -> s.contribution().publicPathPrefix())
-                .doesNotContain("/pixiv-stats/");
+                .doesNotContain("/pixiv-stats/", "/pixiv-stats.html");
         assertThat(new WebI18nBundleRegistry(registry).resolve("stats")).isNull();
     }
 }

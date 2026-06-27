@@ -176,8 +176,14 @@
         var source = entry.source || 'built-in';
         var status = entry.status || 'STARTED';
         var meta = statusMeta(status);
-        var running = status === 'STARTED';
         var phase = entry.runtimePhase || null;
+        // 受管外置插件以 runtimePhase 为权威运行态；不受管 / 无运行阶段的条目回退到 status。
+        var running;
+        if (entry.managed && entry.runtimePhase) {
+            running = entry.runtimePhase === 'STARTED';
+        } else {
+            running = entry.status === 'STARTED';
+        }
         var name = tns(entry.displayNamespace, entry.displayNameKey, entry.id);
         var version = entry.version ? ('v' + entry.version) : null;
         var sub = [entry.id, version, t('source.' + source, source)].filter(Boolean).join(' · ');
