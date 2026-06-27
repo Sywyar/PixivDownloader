@@ -16,7 +16,7 @@
     </parent>
     <groupId>top.sywyar.lovepopup</groupId>
     <artifactId>pixivdownload-parent</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>pom</packaging>
     <name>PixivDownloader Parent</name>
     <description>PixivDownloader 多模块聚合父工程（plugin-api 契约模块 + 主程序 boot 应用）</description>
