@@ -168,6 +168,20 @@ public final class ConfigFieldRegistry {
 
                 // 内置插件开关字段在 baseFields 之后由 BuiltInPlugins 清单动态派生（见下），此处不再硬编码。
 
+                // ── 插件市场 / 受信 catalog（归入「插件」分组）──────────────────────
+                // 受信 catalog 主开关：默认关闭（开启前不联网）；高级项（超时 / 字节上限 / repositories 列表）
+                // 不入字段网格，仅可手写 config.yaml。两项均需重启（仓库注册中心在启动期构建）。
+                ConfigFieldSpec.builder("plugin-catalog.enabled", message("gui.config.field.plugin-catalog.enabled.label"), BOOL, groupPlugins)
+                        .defaultValue("false")
+                        .help(message("gui.config.field.plugin-catalog.enabled.help"))
+                        .build(),
+
+                ConfigFieldSpec.builder("plugin-catalog.official-repository-enabled", message("gui.config.field.plugin-catalog.official-repository-enabled.label"), BOOL, groupPlugins)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.plugin-catalog.official-repository-enabled.help"))
+                        .enabledWhen(snap -> snap.isTrue("plugin-catalog.enabled"))
+                        .build(),
+
                 // ── 代理 ───────────────────────────────────────────────────────────
                 ConfigFieldSpec.builder("proxy.enabled", message("gui.config.field.proxy.enabled.label"), BOOL, groupProxy)
                         .defaultValue("true")

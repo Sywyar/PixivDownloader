@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.config;
 
 import top.sywyar.pixivdownload.notification.NotificationConfig;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 import java.util.Locale;
 import java.util.function.Function;
@@ -48,14 +51,25 @@ public final class DefaultConfigTemplate {
         appendSetting(config, messages, "download.user-flat-folder: false", "config.template.download.user-flat-folder.comment");
         appendSetting(config, messages, "download.max-concurrent: 10", "config.template.download.max-concurrent.comment");
         appendSetting(config, messages, "download.novel-max-concurrent: 10", "config.template.download.novel-max-concurrent.comment");
+        appendSetting(config, messages, "download.novel-translate-max-concurrent: 10", "config.template.download.novel-translate-max-concurrent.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.plugins");
-        // download-workbench 是必选插件（无法禁用），不写开关；其余功能插件可单独关闭。
-        appendSetting(config, messages, "plugins.gallery.enabled: true", "config.template.plugins.enabled.comment");
-        appendSetting(config, messages, "plugins.novel.enabled: true", "config.template.plugins.enabled.comment");
+        // 内置可禁用功能插件的开关从 BuiltInPlugins 清单动态派生（必选插件如核心 / 下载工作台 / 计划任务宿主不写开关），
+        // 与 GUI 配置面板（ConfigFieldRegistry）同源——新增内置功能插件时模板自动跟随、不再漏配。
+        for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
+            if (plugin.kind() == PluginKind.FEATURE && !plugin.required()) {
+                appendSetting(config, messages, "plugins." + plugin.id() + ".enabled: true",
+                        "config.template.plugins.enabled.comment");
+            }
+        }
+        // stats 为外置 PF4J 插件、不在内置清单内，单独写出其开关。
         appendSetting(config, messages, "plugins.stats.enabled: true", "config.template.plugins.enabled.comment");
-        appendSetting(config, messages, "plugins.duplicate.enabled: true", "config.template.plugins.enabled.comment");
+        appendBlankLine(config);
+
+        appendSection(config, messages, "config.template.section.plugin-catalog");
+        appendSetting(config, messages, "plugin-catalog.enabled: false", "config.template.plugin-catalog.enabled.comment");
+        appendSetting(config, messages, "plugin-catalog.official-repository-enabled: true", "config.template.plugin-catalog.official-repository-enabled.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.proxy");
