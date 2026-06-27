@@ -42,6 +42,10 @@
             <p class="pm-subtitle" data-i18n="page.subtitle">扩展下载助手的能力，按需启用 / 停用各插件。</p>
         </div>
         <div class="pm-titlebar-actions">
+            <!-- 市场 / 已安装 分段控件：由 plugin-manage-init.js 据 /api/navigation 动态渲染——plugin-market 启用时才出现
+                 「市场」入口、禁用即整体撤销。本页不硬编码市场页 href（避免禁用插件后残留点开即 404 的坏入口）；市场状态
+                 不写入本页（职责分离，仅复用导航数据判断入口是否可见）。 -->
+            <div class="pm-seg" id="pm-seg-host" hidden></div>
             <button class="pm-btn pm-btn--teal" id="refreshBtn">
                 <i class="fa-solid fa-rotate"></i><span data-i18n="refresh">刷新</span>
             </button>

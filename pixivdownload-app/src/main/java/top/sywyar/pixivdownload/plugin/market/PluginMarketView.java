@@ -12,13 +12,16 @@ import java.util.List;
  * @param repositoryId   该 catalog 所属仓库 id（禁用视图为 {@code null}）
  * @param enabled        受信 catalog / 市场是否启用且该仓库可用
  * @param coreApiVersion 当前核心插件 API 版本（semver；版本包兼容标记参考）
+ * @param installedCount 本仓库 catalog 中当前已安装的插件数（{@link MarketInstallStatus#INSTALLED} 或
+ *                       {@link MarketInstallStatus#UPDATE_AVAILABLE}），供标题区「已安装 N」联动管理页入口显示
  * @param categories     分类计数（聚合 {@code all} 在首，其余为存在条目的分类）
- * @param entries        可安装条目摘要（含市场元数据 + 版本列表）
+ * @param entries        可安装条目摘要（含市场元数据 + 版本列表 + 安装状态投影）
  */
 public record PluginMarketView(
         String repositoryId,
         boolean enabled,
         String coreApiVersion,
+        int installedCount,
         List<PluginMarketCategoryCount> categories,
         List<PluginMarketEntryView> entries) {
 
@@ -29,6 +32,6 @@ public record PluginMarketView(
 
     /** 主开关关闭视图：enabled=false + 空分类 / 条目（仍带当前核心 API 版本，供页面渲染兼容提示）。 */
     public static PluginMarketView disabled() {
-        return new PluginMarketView(null, false, PluginApiVersion.VERSION, List.of(), List.of());
+        return new PluginMarketView(null, false, PluginApiVersion.VERSION, 0, List.of(), List.of());
     }
 }

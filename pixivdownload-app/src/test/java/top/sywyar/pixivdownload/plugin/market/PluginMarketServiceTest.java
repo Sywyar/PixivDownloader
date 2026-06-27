@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.market;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogEntry;
@@ -18,6 +19,7 @@ import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogMarketMeta;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
 
 import java.util.List;
 import java.util.Map;
@@ -39,9 +41,13 @@ class PluginMarketServiceTest {
 
     private final PluginCatalogService catalogService = mock(PluginCatalogService.class);
     private final PluginCatalogAcquisitionService acquisitionService = mock(PluginCatalogAcquisitionService.class);
+    private final PluginStatusService statusService = mock(PluginStatusService.class);
 
     private PluginMarketService service(PluginCatalogProperties properties) {
-        return new PluginMarketService(new PluginRepositoryRegistry(properties), catalogService, acquisitionService);
+        // 默认无已安装插件（空状态报告）→ 全部条目投影为未安装；安装状态的交叉引用细节见 PluginMarketInstallStatusTest。
+        when(statusService.report()).thenReturn(PluginStatusReport.empty());
+        return new PluginMarketService(new PluginRepositoryRegistry(properties), catalogService, acquisitionService,
+                statusService);
     }
 
     private static PluginCatalogProperties enabledWithCustom() {
@@ -138,6 +144,11 @@ class PluginMarketServiceTest {
         assertThat(market.colorToken()).isEqualTo(CatalogPresentationToken.DEFAULT_COLOR);
         assertThat(market.homepageUrl()).isNull();
         assertThat(view.entries().get(0).latestVersion()).isEqualTo("1.0.0");
+        // 无已安装插件（空状态报告）→ 有版本包的条目（a）未安装、无版本包的条目（b/c）不可安装；已安装数 0。
+        assertThat(view.installedCount()).isZero();
+        assertThat(view.entries()).extracting(PluginMarketEntryView::installStatus)
+                .containsExactly(MarketInstallStatus.NOT_INSTALLED, MarketInstallStatus.UNAVAILABLE,
+                        MarketInstallStatus.UNAVAILABLE);
     }
 
     @Test

@@ -8,12 +8,18 @@
     <script src="/js/pixiv-lang-switcher.js"></script>
     <script src="/js/pixiv-theme.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
+    <!-- 共享 Vue 挂载助手（按需懒加载核心 Vue 运行时；加载即无副作用）。 -->
+    <script src="/js/pixiv-vue.js"></script>
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="/plugin-market/plugin-market.css">
-    <!-- 页面模块按依赖顺序加载：core（命名空间 / 状态 / i18n 助手 / 后端调用）→ views（渲染）→ init（启动 + 顶层事件）。 -->
+    <!-- 页面模块按依赖顺序加载：core（命名空间 / 状态 / i18n / token 白名单 / 格式化）→ data（纯数据变换）→
+         api（后端调用）→ vue（reactive 主渲染）→ fallback（命令式回退）→ init（启动 + 顶层事件）。 -->
     <script src="/plugin-market/plugin-market-core.js"></script>
-    <script src="/plugin-market/plugin-market-views.js"></script>
+    <script src="/plugin-market/plugin-market-data.js"></script>
+    <script src="/plugin-market/plugin-market-api.js"></script>
+    <script src="/plugin-market/plugin-market-vue.js"></script>
+    <script src="/plugin-market/plugin-market-fallback.js"></script>
     <script src="/plugin-market/plugin-market-init.js"></script>
 </head>
 <body>
@@ -32,44 +38,15 @@
     <button class="app-nav-logout" id="logout-btn" onclick="pmkLogout()" data-i18n="logout">退出</button>
 </nav>
 
-<div class="pmk-page">
-
-    <!-- 标题行 -->
-    <div class="pmk-titlebar">
-        <div class="pmk-title-block">
-            <h1 class="pmk-title"><i class="fa-solid fa-store"></i><span data-i18n="page.heading">插件市场</span></h1>
-            <p class="pmk-subtitle" data-i18n="page.subtitle">从受信仓库浏览并安装插件</p>
-        </div>
-        <div class="pmk-titlebar-actions">
-            <button class="pmk-btn pmk-btn--teal" id="pmk-refresh-btn">
-                <i class="fa-solid fa-rotate"></i><span data-i18n="refresh">刷新</span>
-            </button>
-        </div>
+<!-- 市场页内容挂载点：主路径由 plugin-market-vue.js 用 Vue reactive 渲染；Vue 不可用时由 plugin-market-fallback.js
+     命令式渲染（可诊断降级）。初始为加载占位，挂载后被替换。 -->
+<div id="pmk-app-root">
+    <div class="pmk-page">
+        <div class="pmk-state"><i class="fa-solid fa-spinner fa-spin"></i><span data-i18n="loading">正在加载…</span></div>
     </div>
-
-    <!-- 主开关状态横幅（由 JS 据 /api/plugin-market/repositories 的 enabled 填充）。 -->
-    <div class="pmk-master" id="pmk-master" hidden></div>
-
-    <!-- 受信仓库列表区（由 JS 渲染；含加载 / 错误 / 空状态）。 -->
-    <section class="pmk-section">
-        <h2 class="pmk-section-title" data-i18n="section.repositories">受信仓库</h2>
-        <div class="pmk-repo-grid" id="pmk-repo-grid"></div>
-        <div id="pmk-state-host">
-            <div class="pmk-state"><i class="fa-solid fa-spinner fa-spin"></i><span data-i18n="loading">正在加载…</span></div>
-        </div>
-    </section>
-
-    <!-- 占位说明：完整的浏览 / 筛选 / 安装界面随后提供。 -->
-    <div class="pmk-note" data-i18n="note.preview">
-        完整的插件浏览、筛选与安装界面将随后提供；此页当前用于查看受信仓库状态与核心 API 版本。
-    </div>
-
-    <!-- 免责声明 -->
-    <div class="pmk-disclaimer" data-i18n="disclaimer">
-        插件运行于本地，仅供个人学习与研究使用 · 请尊重创作者版权 · 本工具与 Pixiv 无任何关联
-    </div>
-
 </div>
+
+<div class="pmk-toast" id="pmk-toast" role="status" aria-live="polite"></div>
 
 </body>
 </html>

@@ -73,21 +73,26 @@ class PluginMarketControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/plugin-market/catalog（缺省 repositoryId → 默认仓库）：200 + 分类计数 + 条目摘要")
+    @DisplayName("GET /api/plugin-market/catalog（缺省 repositoryId → 默认仓库）：200 + 分类计数 + 已安装数 + 条目摘要 + 安装状态")
     void getCatalogDefault() throws Exception {
-        when(marketService.catalog(isNull())).thenReturn(new PluginMarketView("official", true, "1.0.0",
+        when(marketService.catalog(isNull())).thenReturn(new PluginMarketView("official", true, "1.0.0", 1,
                 List.of(new PluginMarketCategoryCount("all", 1)),
                 List.of(new PluginMarketEntryView("stats", "stats:nav.label", "stats:plugin.summary", "1.2.3", null,
                         List.of(new PluginMarketPackageView("1.2.3", 4096L, "abcdef", false, "1.0",
-                                true, true, List.of(), null, List.of(), null, false))))));
+                                true, true, List.of(), null, List.of(), null, false)),
+                        MarketInstallStatus.UPDATE_AVAILABLE, "1.2.0", true, true, null))));
 
         mockMvc.perform(get("/api/plugin-market/catalog"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.repositoryId").value("official"))
                 .andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.installedCount").value(1))
                 .andExpect(jsonPath("$.categories[0].category").value("all"))
                 .andExpect(jsonPath("$.entries[0].pluginId").value("stats"))
                 .andExpect(jsonPath("$.entries[0].latestVersion").value("1.2.3"))
+                .andExpect(jsonPath("$.entries[0].installStatus").value("UPDATE_AVAILABLE"))
+                .andExpect(jsonPath("$.entries[0].installedVersion").value("1.2.0"))
+                .andExpect(jsonPath("$.entries[0].updateAvailable").value(true))
                 .andExpect(jsonPath("$.entries[0].packages[0].compatible").value(true))
                 .andExpect(jsonPath("$.entries[0].packages[0].effectiveAfterRestart").value(true));
     }
@@ -133,11 +138,14 @@ class PluginMarketControllerTest {
         when(marketService.pluginDetail("official", "stats")).thenReturn(new PluginMarketEntryView(
                 "stats", "stats:nav.label", "stats:plugin.summary", "1.2.3", null,
                 List.of(new PluginMarketPackageView("1.2.3", 4096L, "abcdef", false, "1.0",
-                        true, true, List.of(), "2026-06-01", List.of("first release"), "stable", false))));
+                        true, true, List.of(), "2026-06-01", List.of("first release"), "stable", false)),
+                MarketInstallStatus.NOT_INSTALLED, null, false, true, null));
 
         mockMvc.perform(get("/api/plugin-market/plugins/official/stats"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.pluginId").value("stats"))
+                .andExpect(jsonPath("$.installStatus").value("NOT_INSTALLED"))
+                .andExpect(jsonPath("$.compatible").value(true))
                 .andExpect(jsonPath("$.packages[0].version").value("1.2.3"))
                 .andExpect(jsonPath("$.packages[0].channel").value("stable"))
                 .andExpect(jsonPath("$.packages[0].releasedTime").value("2026-06-01"));
@@ -192,6 +200,66 @@ class PluginMarketControllerTest {
         mockMvc.perform(post("/api/plugin-market/ghost/demo/1.0.0/install"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("UNKNOWN_REPOSITORY"));
+    }
+
+    @Test
+    @DisplayName("POST install 已存在同版本：200 + 稳定 outcome（DUPLICATE，accepted）")
+    void installDuplicate() throws Exception {
+        when(marketService.install("official", "demo", "1.0.0")).thenReturn(new PluginInstallReport(
+                PluginInstallOutcome.DUPLICATE, true, true, "demo", "1.0.0", "1.0.0",
+                List.of(), List.of(), List.of("DUPLICATE demo 1.0.0")));
+
+        mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outcome").value("DUPLICATE"))
+                .andExpect(jsonPath("$.accepted").value(true));
+    }
+
+    @Test
+    @DisplayName("POST install 拒绝降级：409 + 稳定 outcome（DOWNGRADE_REJECTED，未落盘）")
+    void installDowngradeRejected() throws Exception {
+        when(marketService.install("official", "demo", "0.9.0")).thenReturn(new PluginInstallReport(
+                PluginInstallOutcome.DOWNGRADE_REJECTED, false, false, "demo", "0.9.0", "1.0.0",
+                List.of(), List.of(), List.of("a higher version is installed")));
+
+        mockMvc.perform(post("/api/plugin-market/official/demo/0.9.0/install"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.outcome").value("DOWNGRADE_REJECTED"))
+                .andExpect(jsonPath("$.accepted").value(false));
+    }
+
+    @Test
+    @DisplayName("POST install 未知版本：404 + 稳定 code（VERSION_NOT_FOUND）")
+    void installUnknownVersion() throws Exception {
+        when(marketService.install("official", "demo", "9.9.9")).thenThrow(new PluginCatalogException(
+                PluginCatalogErrorCode.VERSION_NOT_FOUND, "demo", "9.9.9", "version not found"));
+
+        mockMvc.perform(post("/api/plugin-market/official/demo/9.9.9/install"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("VERSION_NOT_FOUND"))
+                .andExpect(jsonPath("$.version").value("9.9.9"));
+    }
+
+    @Test
+    @DisplayName("POST install 包过大：413 + 稳定 code（DOWNLOAD_TOO_LARGE）")
+    void installTooLarge() throws Exception {
+        when(marketService.install("official", "demo", "1.0.0")).thenThrow(new PluginCatalogException(
+                PluginCatalogErrorCode.DOWNLOAD_TOO_LARGE, "demo", "1.0.0", "download exceeds limit"));
+
+        mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
+                .andExpect(status().isPayloadTooLarge())
+                .andExpect(jsonPath("$.code").value("DOWNLOAD_TOO_LARGE"));
+    }
+
+    @Test
+    @DisplayName("POST install 下载失败（网络）：502 + 稳定 code（DOWNLOAD_FAILED）")
+    void installDownloadFailed() throws Exception {
+        when(marketService.install("official", "demo", "1.0.0")).thenThrow(new PluginCatalogException(
+                PluginCatalogErrorCode.DOWNLOAD_FAILED, "demo", "1.0.0", "connection reset"));
+
+        mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("DOWNLOAD_FAILED"));
     }
 
     @Test

@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.PluginInstallResponseMapper;
+import top.sywyar.pixivdownload.plugin.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
@@ -32,8 +33,9 @@ public class PluginMarketPluginConfiguration {
     @ConditionalOnPluginEnabled(PluginMarketPlugin.ID)
     public PluginMarketService pluginMarketService(PluginRepositoryRegistry repositoryRegistry,
                                                    PluginCatalogService catalogService,
-                                                   PluginCatalogAcquisitionService acquisitionService) {
-        return new PluginMarketService(repositoryRegistry, catalogService, acquisitionService);
+                                                   PluginCatalogAcquisitionService acquisitionService,
+                                                   PluginStatusService pluginStatusService) {
+        return new PluginMarketService(repositoryRegistry, catalogService, acquisitionService, pluginStatusService);
     }
 
     @Bean

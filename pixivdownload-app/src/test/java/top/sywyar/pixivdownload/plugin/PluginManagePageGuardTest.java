@@ -98,6 +98,24 @@ class PluginManagePageGuardTest {
     }
 
     @Test
+    @DisplayName("市场 / 已安装 分段控件为生命周期感知：HTML 不硬编码市场页 href，由导航数据动态渲染 / 撤销")
+    void marketSegmentIsLifecycleAware() throws IOException {
+        String html = read(HTML);
+        // 分段控件挂载锚点在场，但 HTML 不硬编码市场页地址——禁用 plugin-market 后不残留点开即 404 的坏入口。
+        assertThat(html).as("分段控件挂载锚点").contains("id=\"pm-seg-host\"");
+        assertThat(html).as("HTML 不硬编码市场页 href（应由导航数据动态渲染）").doesNotContain("/plugin-market.html");
+        // 渲染由导航生命周期事件驱动：init 监听 pixivnav:rendered、据 plugin-market 导航入口在场与否同步分段控件。
+        String init = read(INIT);
+        assertThat(init).as("init 监听导航渲染生命周期事件").contains("pixivnav:rendered");
+        assertThat(init).as("据 plugin-market 导航入口判定市场入口可见性").contains("plugin-market");
+        assertThat(init).as("init 不硬编码市场页 href（市场入口 href 取自导航数据）").doesNotContain("/plugin-market.html");
+        // 渲染函数据导航数据（marketNav.href）渲染，不在前端硬编码市场页地址。
+        String views = read(VIEWS);
+        assertThat(views).as("分段控件渲染函数存在").contains("renderMarketSegment");
+        assertThat(views).as("市场入口 href 取自导航数据、不硬编码市场页地址").doesNotContain("/plugin-market.html");
+    }
+
+    @Test
     @DisplayName("页面专属样式独立成文件且支持深色模式（html[data-theme=\"dark\"] 覆盖）")
     void cssIsSeparateAndDarkModeAware() throws IOException {
         String css = read(CSS);

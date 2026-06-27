@@ -26,7 +26,8 @@
         activeTab: 'all',  // all | enabled | disabled | external
         search: '',
         busyId: null,      // 正在执行运行期动词的插件 id（期间禁用其卡片按钮，动作串行化）
-        installBusy: false // 本地包安装请求在途（期间禁用安装提交按钮，避免重复提交）
+        installBusy: false, // 本地包安装请求在途（期间禁用安装提交按钮，避免重复提交）
+        marketNav: null    // 插件市场导航入口（{href} 取自 /api/navigation；plugin-market 禁用时为 null → 分段控件隐藏）
     };
 
     // i18n 客户端容器（init 创建 / 切语言时替换；渲染层经 t / tns 读取当前客户端）。

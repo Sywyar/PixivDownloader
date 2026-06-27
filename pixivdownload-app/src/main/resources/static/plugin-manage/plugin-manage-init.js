@@ -174,7 +174,25 @@
         });
     }
 
+    // 市场 / 已安装 分段控件：消费 /api/navigation 的渲染结果（PixivNav 每次渲染后派发 pixivnav:rendered，detail.items
+    // 为按当前身份过滤的导航项）。plugin-market 启用时其导航入口在场 → 显示「市场」入口（href 取自导航数据）；禁用时入口
+    // 缺席 → 分段控件整体撤销。生命周期感知、不在本页硬编码市场页地址，也不把市场状态写入插件管理页。
+    function syncMarketSegment(items) {
+        var market = null;
+        (items || []).forEach(function (it) {
+            if (it && it.id === 'plugin-market' && it.href) {
+                market = { href: it.href };
+            }
+        });
+        PM.state.marketNav = market;
+        PM.renderMarketSegment();
+    }
+
     function wireEvents() {
+        // 早绑定（PixivNav 的导航拉取为异步网络请求，本监听器先于其首次 pixivnav:rendered 派发就位）。
+        window.addEventListener('pixivnav:rendered', function (e) {
+            syncMarketSegment(e.detail && e.detail.items);
+        });
         document.getElementById('refreshBtn').addEventListener('click', function () { load(); });
         wireInstall();
 

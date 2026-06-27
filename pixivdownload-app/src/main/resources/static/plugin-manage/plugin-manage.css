@@ -259,7 +259,48 @@ body {
 
 .pm-titlebar-actions {
     display: flex;
+    align-items: center;
     gap: 10px;
+}
+
+/* ── 市场 / 已安装 分段控件（与插件市场页互链；由导航数据驱动动态渲染，禁用 plugin-market 时整体隐藏） ── */
+.pm-seg {
+    display: inline-flex;
+    align-items: center;
+    background: var(--control-muted-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    padding: 3px;
+}
+
+.pm-seg[hidden] {
+    display: none;
+}
+
+.pm-seg-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: var(--radius-pill);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background var(--transition), color var(--transition);
+}
+
+.pm-seg-item:hover {
+    color: var(--text);
+}
+
+.pm-seg-item.active {
+    background: var(--surface);
+    color: var(--accent-pixiv);
+    box-shadow: var(--shadow-card);
+    font-weight: 700;
+    cursor: default;
 }
 
 /* ── 按钮 ── */

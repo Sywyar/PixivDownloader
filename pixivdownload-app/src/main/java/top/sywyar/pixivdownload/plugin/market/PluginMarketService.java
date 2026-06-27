@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.market;
 
 import top.sywyar.pixivdownload.plugin.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogEntry;
@@ -11,8 +12,10 @@ import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogCategory;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,19 +34,27 @@ import java.util.Optional;
  *
  * <p>市场元数据只展示 / 检索 / 排序，<b>不</b>参与安装安全决策——安装仍由包的 sha256 / 大小 / 签名（fail-closed）/ 描述符
  * 经既有受信安装链路权威裁定。
+ *
+ * <h2>安装状态投影（只读、不混入运行期管理）</h2>
+ * 市场条目的安装状态机（未安装 / 已安装 / 有更新 / 不兼容）由本服务把 catalog 与 {@link PluginStatusService} 的<b>只读</b>
+ * 状态报告交叉引用推导（已安装 id + 版本来自运行时真实状态，而非前端臆测）。本服务<b>只读</b> {@code PluginStatusService}、
+ * <b>绝不</b>暴露 load / start / stop 等运行期动词——那属于插件管理职责，与市场浏览 / 安装正交。
  */
 public class PluginMarketService {
 
     private final PluginRepositoryRegistry repositoryRegistry;
     private final PluginCatalogService catalogService;
     private final PluginCatalogAcquisitionService acquisitionService;
+    private final PluginStatusService pluginStatusService;
 
     public PluginMarketService(PluginRepositoryRegistry repositoryRegistry,
                                PluginCatalogService catalogService,
-                               PluginCatalogAcquisitionService acquisitionService) {
+                               PluginCatalogAcquisitionService acquisitionService,
+                               PluginStatusService pluginStatusService) {
         this.repositoryRegistry = repositoryRegistry;
         this.catalogService = catalogService;
         this.acquisitionService = acquisitionService;
+        this.pluginStatusService = pluginStatusService;
     }
 
     /**
@@ -71,11 +82,16 @@ public class PluginMarketService {
         }
         PluginRepository repository = resolveRepository(repositoryId);
         PluginCatalogManifest manifest = catalogService.load(repository.repositoryId());
+        Map<String, String> installed = installedVersionsById();
         List<PluginMarketEntryView> entries = manifest.entries().stream()
-                .map(PluginMarketEntryView::from)
+                .map(entry -> projectEntry(entry, installed))
                 .toList();
+        int installedCount = (int) entries.stream()
+                .filter(entry -> entry.installStatus() == MarketInstallStatus.INSTALLED
+                        || entry.installStatus() == MarketInstallStatus.UPDATE_AVAILABLE)
+                .count();
         return new PluginMarketView(repository.repositoryId(), true, PluginApiVersion.VERSION,
-                categoryCounts(manifest), entries);
+                installedCount, categoryCounts(manifest), entries);
     }
 
     /**
@@ -88,7 +104,27 @@ public class PluginMarketService {
         PluginCatalogEntry entry = manifest.findEntry(pluginId).orElseThrow(() ->
                 new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_PLUGIN, pluginId, null,
                         "plugin not found in catalog: " + pluginId));
-        return PluginMarketEntryView.from(entry);
+        return projectEntry(entry, installedVersionsById());
+    }
+
+    /** 据已安装快照把一个 catalog 条目投影为市场视图条目（含安装状态机推导）。 */
+    private PluginMarketEntryView projectEntry(PluginCatalogEntry entry, Map<String, String> installedVersions) {
+        boolean installed = installedVersions.containsKey(entry.pluginId());
+        return PluginMarketEntryView.from(entry, installed, installedVersions.get(entry.pluginId()));
+    }
+
+    /**
+     * 当前已安装插件（内置 + 外置）的 {@code id → 已安装版本} 只读快照，取自 {@link PluginStatusService} 的运行时状态报告
+     * （单次快照，避免半更新）。只计有描述符的诊断为「已安装」——必选但未安装的 pluginId 与包级加载失败均无描述符、视为未安装。
+     */
+    private Map<String, String> installedVersionsById() {
+        Map<String, String> versions = new HashMap<>();
+        for (PluginDiagnostic diagnostic : pluginStatusService.report().diagnostics()) {
+            if (diagnostic.descriptor() != null) {
+                versions.put(diagnostic.id(), diagnostic.descriptor().version());
+            }
+        }
+        return versions;
     }
 
     /**
