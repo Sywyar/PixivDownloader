@@ -37,8 +37,32 @@ function Get-Sha256Hex {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+function Import-ZipFileAssembly {
+    if (([System.Management.Automation.PSTypeName]"System.IO.Compression.ZipFile").Type) {
+        return
+    }
+
+    foreach ($assemblyName in @(
+        "System.IO.Compression.FileSystem",
+        "System.IO.Compression.ZipFile",
+        "System.IO.Compression"
+    )) {
+        try {
+            Add-Type -AssemblyName $assemblyName -ErrorAction Stop
+            if (([System.Management.Automation.PSTypeName]"System.IO.Compression.ZipFile").Type) {
+                return
+            }
+        } catch {
+            # Try the next assembly name.
+        }
+    }
+
+    throw "Unable to load System.IO.Compression.ZipFile assembly."
+}
+
 function Get-ZipEntryNames {
     param([Parameter(Mandatory = $true)][string]$Path)
+    Import-ZipFileAssembly
     $archive = [System.IO.Compression.ZipFile]::OpenRead($Path)
     try {
         return @($archive.Entries | ForEach-Object { $_.FullName })
@@ -49,6 +73,7 @@ function Get-ZipEntryNames {
 
 function Read-PluginDescriptor {
     param([Parameter(Mandatory = $true)][string]$JarPath)
+    Import-ZipFileAssembly
     $archive = [System.IO.Compression.ZipFile]::OpenRead($JarPath)
     try {
         $entry = $archive.GetEntry("plugin.properties")
@@ -80,9 +105,9 @@ function Find-ModuleJar {
         throw "Module target not built: $targetDir (run with -Build or 'mvn package' first)."
     }
     $jar = Get-ChildItem (Join-Path $targetDir "$Module-*.jar") -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
+            Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
     if (-not $jar) {
         throw "Could not find built jar under $targetDir for module $Module."
     }
