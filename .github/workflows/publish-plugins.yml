@@ -1,0 +1,79 @@
+name: Publish plugins
+
+# 构建官方外置插件 → 发布到独立分发仓库的 Release，并生成 / 提交插件市场 manifest.json。
+# 触发：push v* 标签（随主程序发版一并发布插件）/ 每日定时（刷新 download_count 等快照）/ 手动。
+# 跨仓库写入用细粒度 PAT（secrets.PLUGINS_REPO_TOKEN，目标仓库 Contents: 读写 + Metadata: 读），
+# 本仓库自带 GITHUB_TOKEN 不能跨仓库写。
+on:
+  push:
+    tags:
+      - 'v*'
+  schedule:
+    # 每日定时（与 nightly 同 cron）：发布幂等，主要用于刷新 manifest 的 download_count 快照。
+    - cron: '33 18 * * *'
+  workflow_dispatch:
+
+# 本仓库只需读（checkout）；对分发仓库的写全部经 PAT，不靠默认 GITHUB_TOKEN。
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  PLUGINS_REPO: Sywyar/PixivDownloader-plugins
+
+jobs:
+  publish:
+    # Windows runner：插件分发脚本面向 Windows PowerShell（plugin-distribution-common.ps1 用 System.IO.Compression / Get-FileHash）。
+    runs-on: windows-latest
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build + publish updated plugins (per-plugin, version-gated)
+        # 仅对「plugin.version 尚无对应 Release」的插件单独编译（mvn -pl <module> -am，不全量构建）并发布；
+        # 版本已发布的插件跳过、绝不重编译 / 重上传（不可变）。更新一个插件 = 只编译并发布这一个。
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
+        run: .\scripts\publish-plugin-releases.ps1 -Repo $env:PLUGINS_REPO
+
+      - name: Generate market manifest.json (from published releases)
+        # 始终运行：从已发布的 Release 资产推导 sha256/size/downloadCount（不依赖本次是否构建），刷新清单。
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
+        run: >
+          .\scripts\generate-market-manifest.ps1
+          -Repo $env:PLUGINS_REPO
+          -CurationFile scripts/market-curation.json
+          -OutputFile build/manifest.json
+
+      - name: Checkout plugins repo
+        uses: actions/checkout@v4
+        with:
+          repository: Sywyar/PixivDownloader-plugins
+          token: ${{ secrets.PLUGINS_REPO_TOKEN }}
+          path: plugins-repo
+
+      - name: Commit manifest.json to plugins repo
+        shell: powershell
+        run: |
+          Copy-Item build/manifest.json plugins-repo/manifest.json -Force
+          Set-Location plugins-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          $changed = git status --porcelain
+          if ($changed) {
+            git commit -m "chore: refresh plugin market manifest"
+            git push
+          } else {
+            Write-Host "manifest.json unchanged; nothing to commit"
+          }
