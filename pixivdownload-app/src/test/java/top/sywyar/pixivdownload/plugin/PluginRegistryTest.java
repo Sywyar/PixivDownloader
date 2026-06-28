@@ -87,12 +87,20 @@ class PluginRegistryTest {
     @Test
     @DisplayName("不符合小写短横线规范的插件 id 被拒绝")
     void invalidIdRejected() {
-        for (String invalid : new String[]{"Stats", "stats_page", "-stats", "stats-", "stats--page", "1stats", ""}) {
+        for (String invalid : new String[]{"Stats", "stats_page", "-stats", "stats-", "stats--page", "1stats"}) {
             assertThatThrownBy(() -> new PluginRegistry(List.of(new TestPlugin(invalid))))
                     .as("id: %s", invalid)
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("invalid plugin id");
         }
+    }
+
+    @Test
+    @DisplayName("空字符串插件 id 被拒绝")
+    void blankIdRejected() {
+        assertThatThrownBy(() -> new PluginRegistry(List.of(new TestPlugin(""))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("must not be blank");
     }
 
     @Test
@@ -309,7 +317,10 @@ class PluginRegistryTest {
         registry.register(extPlugin, PluginSource.EXTERNAL, extCl);
         assertThat(registry.plugins()).isEqualTo(initial);
         assertThat(registry.allPlugins()).isEqualTo(initialAll);
-        assertThat(registry.registeredPlugins()).isEqualTo(initialRegistered);
+        assertThat(registry.registeredPlugins())
+                .usingRecursiveComparison()
+                .ignoringFields("packageId", "generation")
+                .isEqualTo(initialRegistered);
         assertThat(registry.source("ext-stats")).contains(PluginSource.EXTERNAL);
         assertThat(registry.registeredPlugins().stream()
                 .filter(rp -> rp.id().equals("ext-stats")).findFirst().orElseThrow().classLoader())

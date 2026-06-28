@@ -27,8 +27,8 @@ import java.util.ResourceBundle;
  * 按 pluginId 从六类注册中心逐一注销（各注册中心对未注册过的 pluginId 静默返回，故幂等），随后
  * <b>清该插件 classloader 的 {@link ResourceBundle} 缓存</b>（避免注销后仍按旧 classloader 读到陈旧 i18n），
  * 并刷新 {@link ScriptRegistry}（其聚合的脚本列表 / 内容来源随 {@link UserscriptRegistry} 快照重算，使被注销插件
- * 的油猴脚本不再残留）。注销后这六类的快照都不含该插件；静态资源的访问回收不靠改 ResourceHandler——路由注销后
- * {@code AuthFilter} 对其 URL「未声明即 404」（与插件禁用语义一致）。
+ * 的油猴脚本不再残留）。注销后这六类的快照都不含该插件；查询期静态资源映射会感知快照变化并回收处理器，
+ * 路由注销后 {@code AuthFilter} 也会对其 URL「未声明即 404」（与插件禁用语义一致）。
  *
  * <p>本类<b>不</b>触碰鉴权与请求分发表 handler（前者由 {@code AuthFilter} 按 {@link RouteAccessRegistry} 独立执行，
  * 后者由 {@code PluginControllerRegistrar} 负责），也不碰 schema（受管 schema 经 {@link PluginRegistry#allPlugins()}

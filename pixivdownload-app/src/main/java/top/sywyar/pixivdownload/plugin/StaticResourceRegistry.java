@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  * 是应用 ClassLoader（解析结果与 Spring Boot 默认 {@code classpath:/static} 整体放行一致），外置插件是发现桥接
  * 捕获的该插件自身 ClassLoader。故本注册中心消费 {@link PluginRegistry#registeredPlugins()}（带来源 + ClassLoader），
  * <b>不</b>从 {@code plugin.getClass().getClassLoader()} 自行推导——后者对「插件实例由共享 / 父 ClassLoader 创建」
- * 的外置插件会误解析到错误的 ClassLoader（见 {@code StaticResourceConfig}）。
+ * 的外置插件会误解析到错误的 ClassLoader（见 {@link DynamicStaticResourceHandlerMapping}）。
  * <p>
  * 对外公开路径前缀（{@code publicPathPrefix}）全局唯一：两个声明指向同一前缀会让
  * 资源解析不确定，故前缀冲突（跨插件与同一批次内）一律在注册期拒绝，使应用启动失败而不是带病运行。

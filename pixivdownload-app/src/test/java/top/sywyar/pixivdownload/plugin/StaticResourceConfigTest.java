@@ -5,47 +5,38 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.mock.web.MockServletContext;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
-import org.springframework.web.context.support.GenericWebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
-import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
-import org.springframework.web.servlet.handler.AbstractHandlerMapping;
-import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@DisplayName("StaticResourceConfig 静态资源处理器注册与服务行为")
+@DisplayName("StaticResourceConfig 查询期静态资源映射与服务行为")
 class StaticResourceConfigTest {
 
     /**
-     * 经 {@code @EnableWebMvc} 装配真实的 Spring MVC 静态资源处理链：{@link StaticResourceConfig}
-     * 作为 {@code WebMvcConfigurer} 被收集，按 {@link StaticResourceRegistry} 声明注册的
-     * {@code ResourceHttpRequestHandler} 进入 {@code resourceHandlerMapping}，再由 MockMvc 的
-     * {@code DispatcherServlet} 真实路由——下方服务行为用例据此断言资源真的被服务，而非仅断言
-     * handler pattern 已注册。
+     * 经 {@code @EnableWebMvc} 装配真实的 Spring MVC 静态资源处理链：
+     * {@link DynamicStaticResourceHandlerMapping} 按 {@link StaticResourceRegistry} 当前快照生成
+     * {@code ResourceHttpRequestHandler}，再由 MockMvc 的 {@code DispatcherServlet} 真实路由。
      */
     @Configuration
     @EnableWebMvc
+    @Import(StaticResourceConfig.class)
     static class ServingConfig {
 
         @Bean
         StaticResourceRegistry staticResourceRegistry() {
             return new StaticResourceRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        }
-
-        @Bean
-        StaticResourceConfig staticResourceConfig(StaticResourceRegistry registry) {
-            return new StaticResourceConfig(registry);
         }
     }
 
@@ -59,59 +50,6 @@ class StaticResourceConfigTest {
         context.refresh();
         mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
     }
-
-    // --- 注册断言（pattern 级，保留作辅助证据，但不作为唯一证据）---
-
-    /** 暴露受保护的 {@code getHandlerMapping()} 以便断言注册的 URL 模式。 */
-    private static final class TestableRegistry extends ResourceHandlerRegistry {
-        TestableRegistry() {
-            super(new GenericWebApplicationContext(), new MockServletContext());
-        }
-
-        @Override
-        public AbstractHandlerMapping getHandlerMapping() {
-            return super.getHandlerMapping();
-        }
-    }
-
-    @Test
-    @DisplayName("按 StaticResourceRegistry 声明为每条 contribution 注册处理器：目录贡献为 <前缀>**，精确文件贡献为 exact 路径")
-    void registersHandlerPerContribution() {
-        StaticResourceRegistry registry =
-                new StaticResourceRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        StaticResourceConfig config = new StaticResourceConfig(registry);
-
-        TestableRegistry handlerRegistry = new TestableRegistry();
-        config.addResourceHandlers(handlerRegistry);
-
-        SimpleUrlHandlerMapping mapping = (SimpleUrlHandlerMapping) handlerRegistry.getHandlerMapping();
-        assertThat(mapping).isNotNull();
-        assertThat(mapping.getUrlMap().keySet())
-                .contains("/js/**", "/css/**", "/vendor/**",
-                        "/pixiv-gallery/**", "/pixiv-artwork/**", "/pixiv-showcase/**", "/pixiv-series/**",
-                        "/pixiv-novel-gallery/**", "/pixiv-novel/**",
-                        "/pixiv-duplicates/**");
-    }
-
-    @Test
-    @DisplayName("精确文件贡献注册为 exact URL pattern（不以 ** 结尾），非目录通配")
-    void registersExactFilePattern() {
-        StaticResourceRegistry registry = emptyRegistry();
-        registry.register("demo", StaticResourceConfigTest.class.getClassLoader(), List.of(
-                new StaticResourceContribution("demo", "classpath:/static/", "/demo.html", true),
-                new StaticResourceContribution("demo", "classpath:/static/demo/", "/demo/")));
-        StaticResourceConfig config = new StaticResourceConfig(registry);
-
-        TestableRegistry handlerRegistry = new TestableRegistry();
-        config.addResourceHandlers(handlerRegistry);
-
-        SimpleUrlHandlerMapping mapping = (SimpleUrlHandlerMapping) handlerRegistry.getHandlerMapping();
-        assertThat(mapping).isNotNull();
-        assertThat(mapping.getUrlMap().keySet())
-                .contains("/demo.html", "/demo/**");
-    }
-
-    // --- 服务行为断言（真实经 DispatcherServlet → ResourceHttpRequestHandler）---
 
     @Test
     @DisplayName("核心公共库 /js/*.js 经 contribution handler 返回 200，MIME 为 JS 类型")
@@ -170,13 +108,29 @@ class StaticResourceConfigTest {
     }
 
     @Test
-    @DisplayName("精确文件贡献经 MockMvc 返回 200（classLoader 解析到真实文件）")
-    void servesExactFileContribution() throws Exception {
+    @DisplayName("上下文刷新后注册的精确文件立即可访问，注销后不可访问，再注册后恢复")
+    void runtimeExactFileRegistrationIsImmediatelyReversible() throws Exception {
         AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext();
         context.setServletContext(new MockServletContext());
         context.register(ExactFileServingConfig.class);
         context.refresh();
         MockMvc mvc = MockMvcBuilders.webAppContextSetup(context).build();
+
+        StaticResourceRegistry registry = context.getBean(StaticResourceRegistry.class);
+        mvc.perform(get("/setup.html"))
+                .andExpect(status().isNotFound());
+
+        registry.register("demo", ExactFileServingConfig.class.getClassLoader(), List.of(
+                new StaticResourceContribution("demo", "classpath:/static/", "/setup.html", true)));
+        mvc.perform(get("/setup.html"))
+                .andExpect(status().isOk());
+
+        registry.unregister("demo");
+        mvc.perform(get("/setup.html"))
+                .andExpect(status().isNotFound());
+
+        registry.register("demo", ExactFileServingConfig.class.getClassLoader(), List.of(
+                new StaticResourceContribution("demo", "classpath:/static/", "/setup.html", true)));
         mvc.perform(get("/setup.html"))
                 .andExpect(status().isOk());
     }
@@ -187,20 +141,13 @@ class StaticResourceConfigTest {
 
     @Configuration
     @EnableWebMvc
+    @Import(StaticResourceConfig.class)
     static class ExactFileServingConfig {
 
         @Bean
+        @Primary
         StaticResourceRegistry staticResourceRegistry() {
-            StaticResourceRegistry registry = emptyRegistry();
-            // setup.html 存在于 classpath:/static/ 下，经精确文件映射可达
-            registry.register("demo", ExactFileServingConfig.class.getClassLoader(), List.of(
-                    new StaticResourceContribution("demo", "classpath:/static/", "/setup.html", true)));
-            return registry;
-        }
-
-        @Bean
-        StaticResourceConfig staticResourceConfig(StaticResourceRegistry registry) {
-            return new StaticResourceConfig(registry);
+            return emptyRegistry();
         }
     }
 }

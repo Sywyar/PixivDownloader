@@ -7,9 +7,11 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
@@ -31,6 +33,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 外置 stats 插件经<b>真实 Spring 上下文</b>的端到端接线验证：用真实 stats 插件 jar（由本模块 reactor 兄弟模块
@@ -127,7 +131,7 @@ class StatsExternalPluginBootContextTest {
     @Autowired
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
     @Autowired
-    private ApplicationContext applicationContext;
+    private WebApplicationContext applicationContext;
 
     @AfterAll
     void releasePluginsAndCleanup() {
@@ -298,11 +302,14 @@ class StatsExternalPluginBootContextTest {
 
     @Test
     @DisplayName("外置 stats 运行期热启停：quiesce 保留路由声明，stop 拆除服务足迹（controller / route / 子 context 全去），start 可逆重建")
-    void externalStatsLifecycleQuiesceStopStartIsReversible() {
+    void externalStatsLifecycleQuiesceStopStartIsReversible() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders.webAppContextSetup(applicationContext).build();
         // 前置：stats 在服务，controller / route 在场。
         assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.STARTED);
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
         assertThat(pluginControllerRegistrar.registeredPluginIds()).contains("stats");
+        mockMvc.perform(get("/pixiv-stats.html"))
+                .andExpect(status().isOk());
 
         // quiesce：状态转 QUIESCED；路由声明仍在（新请求由 PluginQuiesceGate 拦截、不靠注销路由）。
         pluginLifecycleService.quiesce("stats");
@@ -320,6 +327,8 @@ class StatsExternalPluginBootContextTest {
         assertThat(webI18nBundleRegistry.resolve("stats")).isNull();
         assertThat(externalPluginContextManager.contextFor("stats")).isEmpty();
         assertThat(beforeStop.isActive()).isFalse();
+        mockMvc.perform(get("/pixiv-stats.html"))
+                .andExpect(status().isNotFound());
 
         // start：可逆重建——子 context 重建、controller / web 贡献重新接入。
         pluginLifecycleService.start("stats");
@@ -331,6 +340,8 @@ class StatsExternalPluginBootContextTest {
         ConfigurableApplicationContext afterStart = externalPluginContextManager.contextFor("stats").orElseThrow();
         assertThat(afterStart.isActive()).isTrue();
         assertThat(statsDashboardHandlerBean()).isNotNull();
+        mockMvc.perform(get("/pixiv-stats.html"))
+                .andExpect(status().isOk());
     }
 
     @Test
