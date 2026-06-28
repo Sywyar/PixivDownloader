@@ -19,7 +19,7 @@
 
     function interpolate(template, vars) {
         if (!vars) return String(template);
-        return String(template).replace(/\{([a-zA-Z0-9_.-]+)\}/g, function (match, name) {
+        return String(template).replace(/\{([a-zA-Z0-9_.-]+)}/g, function (match, name) {
             return Object.prototype.hasOwnProperty.call(vars, name) ? String(vars[name]) : match;
         });
     }
@@ -142,9 +142,12 @@
     // 相对时间（来自受信 catalog 的 ISO-8601 串；无法解析时原样回显，已是受控文本）。
     PMK.formatDate = function (iso) {
         if (!iso) return '';
-        var t = Date.parse(iso);
-        if (isNaN(t)) return String(iso);
-        var days = Math.floor((Date.now() - t) / 86400000);
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return String(iso);
+        var now = new Date();
+        var utcNow = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+        var utcDate = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+        var days = Math.floor((utcNow - utcDate) / 86400000);
         if (days <= 0) return PMK.t('date.today', '今天');
         if (days === 1) return PMK.t('date.yesterday', '昨天');
         if (days < 30) return PMK.t('date.days-ago', '{n} 天前', { n: days });
