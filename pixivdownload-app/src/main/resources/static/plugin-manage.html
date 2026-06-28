@@ -100,7 +100,7 @@
             <button type="button" class="pm-modal-close" data-pm-install-dismiss
                     data-i18n-aria-label="install.close" aria-label="关闭"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <p class="pm-modal-desc" data-i18n="install.desc">选择本地 .jar / .zip 插件包安装到工作目录的 plugins/ 文件夹。安装只校验并落盘、不会立即加载，需重启后生效。</p>
+        <p class="pm-modal-desc" data-i18n="install.desc">选择本地 .jar / .zip 插件包。系统会先校验，再卸下旧版本、原子替换并立即激活；失败时自动恢复原版本。</p>
 
         <label class="pm-file">
             <input type="file" id="pm-install-file" accept=".jar,.zip">
@@ -112,7 +112,7 @@
             <summary><i class="fa-solid fa-sliders"></i><span data-i18n="install.advanced">高级选项</span></summary>
             <label class="pm-check pm-check--danger">
                 <input type="checkbox" id="pm-install-allow-downgrade">
-                <span data-i18n="install.allow-downgrade">允许安装更低版本（覆盖已安装的更高版本）。危险操作，需重启后生效。</span>
+                <span data-i18n="install.allow-downgrade">允许安装更低版本（覆盖已安装的更高版本）。</span>
             </label>
         </details>
 

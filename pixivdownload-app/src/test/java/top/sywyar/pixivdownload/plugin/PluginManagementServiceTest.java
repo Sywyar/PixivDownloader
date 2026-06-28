@@ -84,7 +84,8 @@ class PluginManagementServiceTest {
         assertThat(external.managed()).isTrue();
         assertThat(external.runtimePhase()).isEqualTo(PluginRuntimePhase.STARTED);
         assertThat(external.allowDisable()).isTrue();
-        assertThat(external.availableActions()).containsExactlyInAnyOrder("quiesce", "stop", "unload", "reload");
+        assertThat(external.availableActions()).containsExactlyInAnyOrder(
+                "quiesce", "stop", "unload", "remove", "restart", "reload");
         // 未声明 requires 的描述符 → specified=false / satisfied=true / required="(unspecified)"，无依赖 → 空列表。
         assertThat(external.apiRequirement().specified()).isFalse();
         assertThat(external.apiRequirement().satisfied()).isTrue();
@@ -158,7 +159,7 @@ class PluginManagementServiceTest {
     }
 
     @Test
-    @DisplayName("必选外置插件 STARTED：仅给出 reload，不给停用类（quiesce/stop/unload）也不给 start/load")
+    @DisplayName("必选外置插件 STARTED：给出 restart/reload，不给停用类（quiesce/stop/unload）也不给 start/load")
     void requiredExternalOffersOnlyRestoreActions() {
         PluginStatusService status = mock(PluginStatusService.class);
         PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
@@ -174,7 +175,7 @@ class PluginManagementServiceTest {
 
         PluginManagementService.PluginManagementEntry entry = entry(report, REQUIRED_EXTERNAL_ID);
         assertThat(entry.allowDisable()).isFalse();
-        assertThat(entry.availableActions()).containsExactly("reload");
+        assertThat(entry.availableActions()).containsExactly("restart", "reload");
     }
 
     @Test

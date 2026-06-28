@@ -39,7 +39,7 @@ public record PluginInventory(List<PluginInstallation> installations, List<Plugi
         for (PluginInstallation installation : installations) {
             if (installation.registrable()) {
                 discovered.add(new DiscoveredFeaturePlugin(
-                        installation.descriptor().sourcePluginId(),
+                        installation.descriptor().sourcePluginId(), 0L,
                         installation.plugin(),
                         installation.classLoader()));
             } else if (installation.status() == PluginStatus.INCOMPATIBLE) {

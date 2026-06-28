@@ -1,45 +1,39 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
 import org.pf4j.DefaultPluginManager;
+import org.pf4j.PluginDependency;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
- * 外置插件运行时管理封装：把 PF4J {@link PluginManager} 收口在本类内，向核心壳暴露
- * 「定位插件目录 → 扫描 → 加载 → 启动 → 诊断」一条可测试链路，避免业务代码直接散落使用 PF4J。
- *
- * <h2>设计取舍</h2>
- * <ul>
- *   <li><b>目录只读诊断、不创建。</b>插件目录缺失时报告 {@link PluginDirectoryState#ABSENT} 并输出缺失诊断，
- *       不静默创建目录（否则下次启动会变成「空目录」而非「缺失」，且会污染开发工作树）；目录创建归后续安装流程。</li>
- *   <li><b>逐包加载、隔离失败。</b>不直接用 PF4J 的批量 {@code loadPlugins()}（它会吞掉每包错误、无法报告失败明细），
- *       而是自行枚举候选包（{@code *.jar} / {@code *.zip}），逐个调用 {@link PluginManager#loadPlugin(Path)}，
- *       把每包的加载 / 启动失败捕获成 {@link PluginLoadFailure} 条目。坏包<b>绝不</b>致使核心壳启动失败。</li>
- *   <li><b>PF4J 实例惰性创建。</b>仅在目录存在且有候选包（{@link PluginDirectoryState#POPULATED}）时才 new
- *       {@link DefaultPluginManager}；缺失 / 空目录的常态路径完全不触碰 PF4J。</li>
- * </ul>
- *
- * <p>本类是 POJO（不带 Spring 注解），由核心壳侧的配置以 {@code @Bean} 装配并在启动期调用一次 {@link #start()}。
- * 当前运行时骨架不实现热安装 / 热卸载、不把外置插件桥接进核心 {@code PluginRegistry}（属后续桥接流程），
- * 只负责插件目录定位 / 扫描 / 加载 / 启动 / 诊断。
+ * PF4J 外置插件物理生命周期封装。启动扫描与运行期变更共用单包 load/start/stop/unload 原语，
+ * app 侧不会接触任何 PF4J 类型。
  */
 public class PluginRuntimeManager {
+
+    // 所有运行期包变更必须复用本类的单包原语，禁止在 app 侧直接操作 PF4J manager。
 
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
 
     private final Path pluginsRoot;
+    private final Map<String, RuntimeEntry> entries = new LinkedHashMap<>();
+    private final Map<String, Long> generations = new LinkedHashMap<>();
 
     private volatile PluginManager pluginManager;
     private volatile PluginRuntimeStatus status;
@@ -51,188 +45,342 @@ public class PluginRuntimeManager {
         this.pluginsRoot = pluginsRoot;
     }
 
-    /**
-     * 扫描插件目录并按需加载 / 启动外置插件，缓存并返回结果快照。可重复调用（每次重新扫描），
-     * 当前由核心壳在启动期调用一次。任一异常路径都被收敛为诊断状态，<b>本方法不向调用方抛出</b>，
-     * 以保证插件目录缺失 / 空 / 含坏包都不会让核心壳启动失败。
-     *
-     * <p>重新扫描一致性：每次调用先释放上一轮的 PF4J 实例（停止 / 卸载 / 置空），再按本轮目录状态决定是否
-     * 重建。这保证 {@code POPULATED → EMPTY} / {@code POPULATED → ABSENT} 等转换后 {@link #pluginManager()} /
-     * {@link #discoverFeaturePlugins()} 不会读到上一轮的陈旧实例。本方法不是热重载入口，仅修正可重复扫描的一致性。
-     */
-    public PluginRuntimeStatus start() {
+    /** 启动扫描。每个候选包分别 load/start，单包失败不会阻止其它包。 */
+    public synchronized PluginRuntimeStatus start() {
         Path directory = pluginsRoot.toAbsolutePath().normalize();
         resetPluginManager();
 
-        if (!Files.exists(pluginsRoot)) {
-            log.warn("Plugin directory not found: {} - no external plugins will be loaded; "
-                    + "running with built-in plugins only.", directory);
-            return cache(absent(directory));
-        }
         if (!Files.isDirectory(pluginsRoot)) {
-            log.warn("Plugin path exists but is not a directory: {} - no external plugins will be loaded.", directory);
-            return cache(absent(directory));
+            PluginDirectoryState state = Files.exists(pluginsRoot)
+                    ? PluginDirectoryState.ABSENT : PluginDirectoryState.ABSENT;
+            return cache(new PluginRuntimeStatus(directory, state, List.of(), List.of(), List.of()));
         }
 
         List<Path> candidates;
         try {
             candidates = findCandidatePackages(pluginsRoot);
         } catch (IOException e) {
-            log.warn("Failed to scan plugin directory {}: {} - treating as empty.", directory, e.toString());
-            return cache(new PluginRuntimeStatus(
-                    directory, PluginDirectoryState.EMPTY, List.of(), List.of(), List.of()));
+            return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
+                    List.of(), List.of(), List.of(new PluginLoadFailure(directory.toString(), describe(e)))));
         }
-
         if (candidates.isEmpty()) {
-            log.info("Plugin directory is empty: {} - no external plugins to load.", directory);
-            return cache(new PluginRuntimeStatus(
-                    directory, PluginDirectoryState.EMPTY, List.of(), List.of(), List.of()));
+            return cache(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
+                    List.of(), List.of(), List.of()));
         }
 
-        return cache(loadAndStart(directory, candidates));
+        ensureManager();
+        List<PluginLoadFailure> failures = new ArrayList<>();
+        for (Path candidate : candidates) {
+            try {
+                loadPlugin(candidate);
+            } catch (RuntimeException e) {
+                failures.add(new PluginLoadFailure(candidate.getFileName().toString(), describe(e)));
+                log.error("Failed to load plugin package {}: {}", candidate.getFileName(), describe(e));
+            }
+        }
+        for (String packageId : List.copyOf(entries.keySet())) {
+            try {
+                startPlugin(packageId);
+            } catch (RuntimeException e) {
+                failures.add(new PluginLoadFailure(packageId, describe(e)));
+                log.error("Failed to start plugin package {}: {}", packageId, describe(e));
+            }
+        }
+        return cache(buildStatus(directory, failures));
     }
 
-    /** 上一次 {@link #start()} 的结果快照（未运行过时为空）。 */
+    /** 从明确路径加载一个插件包并创建新 generation；不会启动插件入口。 */
+    public synchronized LoadedPluginPackage loadPlugin(Path artifactPath) {
+        if (artifactPath == null || !Files.isRegularFile(artifactPath)) {
+            throw new PluginRuntimeOperationException("plugin artifact not found: " + artifactPath);
+        }
+        ensureManager();
+        String packageId;
+        try {
+            packageId = pluginManager.loadPlugin(artifactPath.toAbsolutePath().normalize());
+        } catch (RuntimeException e) {
+            throw new PluginRuntimeOperationException("failed to load plugin artifact " + artifactPath, e);
+        }
+        if (packageId == null || packageId.isBlank()) {
+            throw new PluginRuntimeOperationException("PF4J returned no package id for " + artifactPath);
+        }
+        if (entries.containsKey(packageId)) {
+            // 不得在重复加载分支调用 unloadPlugin：PF4J 返回的 id 可能指向原有 wrapper，
+            // 此时卸载会错误释放仍在服务的旧 generation。
+            throw new PluginRuntimeOperationException("plugin package already loaded: " + packageId);
+        }
+        PluginWrapper wrapper = pluginManager.getPlugin(packageId);
+        if (wrapper == null) {
+            throw new PluginRuntimeOperationException("PF4J did not retain loaded package: " + packageId);
+        }
+        long generation = generations.merge(packageId, 1L, Long::sum);
+        RuntimeEntry entry = new RuntimeEntry(packageId,
+                wrapper.getPluginPath().toAbsolutePath().normalize(), wrapper.getDescriptor().getVersion(), generation,
+                PluginRuntimePackagePhase.LOADED);
+        entries.put(packageId, entry);
+        try {
+            LoadedPluginPackage loaded = snapshot(entry, true);
+            validateReleaseShape(loaded);
+            refreshStatus();
+            return loaded;
+        } catch (RuntimeException failure) {
+            entries.remove(packageId);
+            try {
+                pluginManager.unloadPlugin(packageId);
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            refreshStatus();
+            throw failure;
+        }
+    }
+
+    /** 启动 PF4J 插件入口，并重新发现这一代的功能插件和 Spring 模块。 */
+    public synchronized LoadedPluginPackage startPlugin(String packageId) {
+        RuntimeEntry entry = requireEntry(packageId);
+        if (entry.phase == PluginRuntimePackagePhase.STARTED) {
+            return snapshot(entry, true);
+        }
+        PluginState result;
+        try {
+            result = pluginManager.startPlugin(packageId);
+        } catch (RuntimeException e) {
+            throw new PluginRuntimeOperationException("failed to start plugin package " + packageId, e);
+        }
+        if (result != PluginState.STARTED) {
+            throw new PluginRuntimeOperationException("PF4J did not start plugin package " + packageId
+                    + " (state=" + result + ")");
+        }
+        entry.phase = PluginRuntimePackagePhase.STARTED;
+        refreshStatus();
+        return snapshot(entry, true);
+    }
+
+    /** 停止 PF4J 插件入口但保留 wrapper/classloader。 */
+    public synchronized LoadedPluginPackage stopPlugin(String packageId) {
+        RuntimeEntry entry = requireEntry(packageId);
+        if (entry.phase != PluginRuntimePackagePhase.STARTED) {
+            return snapshot(entry, false);
+        }
+        PluginState result;
+        try {
+            result = pluginManager.stopPlugin(packageId);
+        } catch (RuntimeException e) {
+            throw new PluginRuntimeOperationException("failed to stop plugin package " + packageId, e);
+        }
+        if (result == PluginState.STARTED) {
+            throw new PluginRuntimeOperationException("PF4J left plugin package started: " + packageId);
+        }
+        entry.phase = PluginRuntimePackagePhase.STOPPED;
+        refreshStatus();
+        return snapshot(entry, false);
+    }
+
+    /**
+     * 物理卸载并关闭 classloader。存在已加载的非可选反向依赖时拒绝，避免 PF4J 隐式级联卸载。
+     */
+    public synchronized UnloadedPluginPackage unloadPlugin(String packageId) {
+        RuntimeEntry entry = requireEntry(packageId);
+        List<String> dependents = activeDependents(packageId);
+        if (!dependents.isEmpty()) {
+            throw new PluginRuntimeOperationException("plugin package " + packageId
+                    + " is required by loaded package(s): " + String.join(", ", dependents));
+        }
+        if (entry.phase == PluginRuntimePackagePhase.STARTED) {
+            stopPlugin(packageId);
+        }
+        boolean unloaded;
+        try {
+            unloaded = pluginManager.unloadPlugin(packageId);
+        } catch (RuntimeException e) {
+            // 某些 PF4J 实现会先移除 wrapper、再在关闭 classloader 时抛异常。此时旧句柄已经
+            // 不可恢复，必须同步删除本地 entry；调用方仍会收到失败并据此报告 JAR 未确认可替换。
+            if (pluginManager.getPlugin(packageId) == null) {
+                entries.remove(packageId);
+                refreshStatus();
+            }
+            throw new PluginRuntimeOperationException("failed to unload plugin package " + packageId, e);
+        }
+        if (!unloaded || pluginManager.getPlugin(packageId) != null) {
+            throw new PluginRuntimeOperationException("PF4J did not unload plugin package " + packageId);
+        }
+        entries.remove(packageId);
+        refreshStatus();
+        return new UnloadedPluginPackage(entry.packageId, entry.artifactPath, entry.version, entry.generation);
+    }
+
+    /** 当前已加载包的纯值阶段快照。 */
+    public synchronized Map<String, PluginRuntimePackagePhase> packagePhases() {
+        Map<String, PluginRuntimePackagePhase> result = new LinkedHashMap<>();
+        entries.forEach((id, entry) -> result.put(id, entry.phase));
+        return Map.copyOf(result);
+    }
+
+    public synchronized Optional<Long> generation(String packageId) {
+        RuntimeEntry entry = entries.get(packageId);
+        return entry == null ? Optional.empty() : Optional.of(entry.generation);
+    }
+
+    public synchronized Optional<Path> artifactPath(String packageId) {
+        RuntimeEntry entry = entries.get(packageId);
+        return entry == null ? Optional.empty() : Optional.of(entry.artifactPath);
+    }
+
+    /** 当前已加载的非可选反向依赖包。 */
+    public synchronized List<String> activeDependents(String packageId) {
+        if (pluginManager == null) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (PluginWrapper wrapper : pluginManager.getPlugins()) {
+            if (wrapper.getPluginId().equals(packageId)) {
+                continue;
+            }
+            for (PluginDependency dependency : wrapper.getDescriptor().getDependencies()) {
+                if (!dependency.isOptional() && packageId.equals(dependency.getPluginId())) {
+                    result.add(wrapper.getPluginId());
+                }
+            }
+        }
+        result.sort(String::compareTo);
+        return List.copyOf(result);
+    }
+
     public Optional<PluginRuntimeStatus> status() {
         return Optional.ofNullable(status);
     }
 
-    /**
-     * 已创建的 PF4J {@link PluginManager}（仅当目录存在且有候选包时才会创建，否则为空；重新扫描转入空 / 缺失
-     * 目录后会被置空，见 {@link #start()}）。本访问器供发现桥接 {@link #discoverFeaturePlugins()} 与运行时内部使用，
-     * <b>核心壳业务侧不直接消费它</b>（避免散落 PF4J 类型）。
-     */
+    /** 仅供 runtime 内发现桥接和既有测试观测；app 不应消费 PF4J 类型。 */
     public Optional<PluginManager> pluginManager() {
         return Optional.ofNullable(pluginManager);
     }
 
-    /**
-     * 清点当前已启动外置插件的功能插件安装条目（统一描述符 + 兼容性基线状态 + classloader + 实例）与失败诊断，
-     * 供核心壳的插件状态报告与注册接入统一消费。{@link #start()} 未运行、或当前目录为空 / 缺失（无 PF4J 实例）时
-     * 返回 {@link PluginInventory#empty()}。本方法不抛出：单个外置插件的清点失败被收敛为
-     * {@link PluginInventory#failures()} 条目。PF4J 完全收口在 {@link PixivPluginDiscoveryBridge} 内，本方法及其
-     * 返回值不向核心壳泄露任何 {@code org.pf4j} 类型。
-     */
-    public PluginInventory inspectPlugins() {
-        PluginManager manager = this.pluginManager;
-        if (manager == null) {
-            return PluginInventory.empty();
-        }
-        return new PixivPluginDiscoveryBridge().inspect(manager);
+    /** 动态清点，不缓存插件对象或 classloader。 */
+    public synchronized PluginInventory inspectPlugins() {
+        return pluginManager == null ? PluginInventory.empty() : new PixivPluginDiscoveryBridge().inspect(pluginManager);
     }
 
-    /**
-     * 发现当前已启动的外置插件贡献的、可接入核心 {@code PluginRegistry} 的 {@link top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin}
-     * （投影自 {@link #inspectPlugins()}：仅核心 API 兼容且已启动者进入 {@link PluginDiscoveryResult#discovered()}，
-     * 不兼容 / 失败者并入 {@link PluginDiscoveryResult#failures()}——即<b>不兼容插件被拒绝接入</b>）。
-     */
-    public PluginDiscoveryResult discoverFeaturePlugins() {
-        return inspectPlugins().toDiscoveryResult();
+    public synchronized PluginDiscoveryResult discoverFeaturePlugins() {
+        PluginDiscoveryResult raw = inspectPlugins().toDiscoveryResult();
+        List<DiscoveredFeaturePlugin> discovered = raw.discovered().stream()
+                .map(item -> new DiscoveredFeaturePlugin(item.sourcePluginId(),
+                        generation(item.sourcePluginId()).orElse(0L), item.plugin(), item.classLoader()))
+                .toList();
+        return new PluginDiscoveryResult(discovered, raw.failures());
     }
 
-    /**
-     * 清点已启动且核心 API 兼容的外置插件包声明的 Spring 子 context 装配定义
-     * （{@link top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule}：配置类 + 插件 classloader +
-     * 来源 id），供核心壳为每个外置插件建立子 {@code ApplicationContext}。{@link #start()} 未运行、或当前目录为空 /
-     * 缺失（无 PF4J 实例）时返回空列表。委托发现桥接 {@link PixivPluginDiscoveryBridge#inspectContextModules}，
-     * PF4J 仍收口在桥接内，本方法及其返回值不向核心壳泄露任何 {@code org.pf4j} 类型。
-     */
-    public List<top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule> inspectContextModules() {
-        PluginManager manager = this.pluginManager;
-        if (manager == null) {
-            return List.of();
-        }
-        return new PixivPluginDiscoveryBridge().inspectContextModules(manager);
+    public synchronized List<PluginContextModule> inspectContextModules() {
+        return pluginManager == null ? List.of()
+                : new PixivPluginDiscoveryBridge().inspectContextModules(pluginManager);
     }
 
-    /** 配置的插件目录（未规范化为绝对路径，规范化绝对路径见 {@link PluginRuntimeStatus#directory()}）。 */
+    /** 当前所有 STARTED 包的代际快照。 */
+    public synchronized List<LoadedPluginPackage> startedPackages() {
+        return entries.values().stream()
+                .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
+                .sorted(Comparator.comparing(entry -> entry.packageId))
+                .map(entry -> snapshot(entry, true))
+                .toList();
+    }
+
     public Path pluginsRoot() {
         return pluginsRoot;
     }
 
-    private PluginRuntimeStatus loadAndStart(Path directory, List<Path> candidates) {
-        PluginManager manager = new DefaultPluginManager(pluginsRoot);
-        this.pluginManager = manager;
-
-        List<PluginLoadFailure> failures = new ArrayList<>();
-        for (Path candidate : candidates) {
-            String source = candidate.getFileName().toString();
-            try {
-                manager.loadPlugin(candidate);
-            } catch (Exception e) {
-                String reason = describe(e);
-                failures.add(new PluginLoadFailure(source, reason));
-                log.error("Failed to load plugin package {}: {}", source, reason);
-            }
+    private LoadedPluginPackage snapshot(RuntimeEntry entry, boolean includeContributions) {
+        PluginInventory inventory = PluginInventory.empty();
+        List<PluginContextModule> modules = List.of();
+        if (includeContributions && pluginManager != null) {
+            PixivPluginDiscoveryBridge bridge = new PixivPluginDiscoveryBridge();
+            inventory = bridge.inspectLoadedPackage(pluginManager, entry.packageId);
+            modules = bridge.inspectLoadedContextModules(pluginManager, entry.packageId);
         }
-
-        try {
-            manager.startPlugins();
-        } catch (Exception e) {
-            log.error("Error while starting external plugins: {}", describe(e));
-        }
-
-        List<String> loaded = new ArrayList<>();
-        List<String> started = new ArrayList<>();
-        for (PluginWrapper wrapper : manager.getPlugins()) {
-            String id = wrapper.getPluginId();
-            loaded.add(id);
-            if (wrapper.getPluginState() == PluginState.STARTED) {
-                started.add(id);
-            } else if (wrapper.getPluginState() == PluginState.FAILED) {
-                failures.add(new PluginLoadFailure(id, describe(wrapper.getFailedException())));
-            }
-        }
-
-        log.info("Plugin runtime: directory {} -> {} loaded, {} started, {} failed.",
-                directory, loaded.size(), started.size(), failures.size());
-        return new PluginRuntimeStatus(
-                directory, PluginDirectoryState.POPULATED, loaded, started, failures);
+        return new LoadedPluginPackage(entry.packageId, entry.artifactPath, entry.version, entry.generation,
+                entry.phase, inventory, modules);
     }
 
-    /**
-     * 释放上一轮扫描创建的 PF4J 实例并置空，供 {@link #start()} 在每次重新扫描前调用。已加载的外置插件
-     * best-effort 停止 + 卸载（释放其 classloader），异常不致命。这保证转入空 / 缺失目录后
-     * {@link #pluginManager()} / {@link #discoverFeaturePlugins()} 不读到陈旧实例。
-     */
-    private void resetPluginManager() {
-        PluginManager previous = this.pluginManager;
-        this.pluginManager = null;
+    /** 当前发布格式要求一个物理包只贡献一个同 id 功能插件和至多一个 Spring 模块。 */
+    private static void validateReleaseShape(LoadedPluginPackage loaded) {
+        List<PluginInstallation> registrable = loaded.inventory().installations().stream()
+                .filter(PluginInstallation::registrable)
+                .toList();
+        if (registrable.size() != 1 || !loaded.packageId().equals(registrable.get(0).id())) {
+            throw new PluginRuntimeOperationException("external package " + loaded.packageId()
+                    + " must contribute exactly one feature plugin with the same id");
+        }
+        if (loaded.contextModules().size() > 1) {
+            throw new PluginRuntimeOperationException("external package " + loaded.packageId()
+                    + " declared multiple context modules");
+        }
+        if (!loaded.contextModules().isEmpty()
+                && !loaded.packageId().equals(loaded.contextModules().get(0).sourcePluginId())) {
+            throw new PluginRuntimeOperationException("external package " + loaded.packageId()
+                    + " declared a context module for another package");
+        }
+    }
+
+    private void ensureManager() {
+        if (pluginManager == null) {
+            pluginManager = new DefaultPluginManager(pluginsRoot);
+        }
+    }
+
+    private RuntimeEntry requireEntry(String packageId) {
+        RuntimeEntry entry = entries.get(packageId);
+        if (entry == null || pluginManager == null) {
+            throw new PluginRuntimeOperationException("plugin package is not loaded: " + packageId);
+        }
+        return entry;
+    }
+
+    private PluginRuntimeStatus buildStatus(Path directory, List<PluginLoadFailure> failures) {
+        List<String> loaded = List.copyOf(entries.keySet());
+        List<String> started = entries.values().stream()
+                .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
+                .map(entry -> entry.packageId).toList();
+        return new PluginRuntimeStatus(directory, PluginDirectoryState.POPULATED, loaded, started, failures);
+    }
+
+    private void refreshStatus() {
+        if (status == null && entries.isEmpty()) {
+            return;
+        }
+        PluginDirectoryState state = Files.isDirectory(pluginsRoot)
+                ? (entries.isEmpty() ? PluginDirectoryState.EMPTY : PluginDirectoryState.POPULATED)
+                : PluginDirectoryState.ABSENT;
+        this.status = new PluginRuntimeStatus(pluginsRoot.toAbsolutePath().normalize(), state,
+                List.copyOf(entries.keySet()), entries.values().stream()
+                .filter(entry -> entry.phase == PluginRuntimePackagePhase.STARTED)
+                .map(entry -> entry.packageId).toList(), List.of());
+    }
+
+    private synchronized void resetPluginManager() {
+        PluginManager previous = pluginManager;
+        pluginManager = null;
+        entries.clear();
         if (previous == null) {
             return;
         }
         try {
             previous.stopPlugins();
-        } catch (Exception e) {
-            log.warn("Error stopping previously loaded plugins during rescan: {}", describe(e));
+        } catch (RuntimeException e) {
+            log.warn("Error stopping plugins during runtime reset: {}", describe(e));
         }
         try {
             previous.unloadPlugins();
-        } catch (Exception e) {
-            log.warn("Error unloading previously loaded plugins during rescan: {}", describe(e));
+        } catch (RuntimeException e) {
+            log.warn("Error unloading plugins during runtime reset: {}", describe(e));
         }
     }
 
-    private static PluginRuntimeStatus absent(Path directory) {
-        return new PluginRuntimeStatus(
-                directory, PluginDirectoryState.ABSENT, List.of(), List.of(), List.of());
+    private PluginRuntimeStatus cache(PluginRuntimeStatus value) {
+        this.status = value;
+        return value;
     }
 
-    private PluginRuntimeStatus cache(PluginRuntimeStatus result) {
-        this.status = result;
-        return result;
-    }
-
-    /**
-     * 候选插件包：插件目录下的常规文件，文件名（小写）以 {@code .jar} 或 {@code .zip} 结尾、不以 {@code .} 开头。
-     * 不把子目录当候选（外置插件以 jar / zip 发布；解压目录形态的开发模式不在当前骨架范围）。
-     */
     private static List<Path> findCandidatePackages(Path directory) throws IOException {
         try (Stream<Path> entries = Files.list(directory)) {
-            return entries
-                    .filter(PluginRuntimeManager::isCandidatePackage)
-                    .sorted()
-                    .toList();
+            return entries.filter(PluginRuntimeManager::isCandidatePackage).sorted().toList();
         }
     }
 
@@ -241,17 +389,31 @@ public class PluginRuntimeManager {
             return false;
         }
         String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-        if (name.startsWith(".")) {
-            return false;
-        }
-        return name.endsWith(".jar") || name.endsWith(".zip");
+        return !name.startsWith(".") && (name.endsWith(".jar") || name.endsWith(".zip"));
     }
 
-    private static String describe(Throwable t) {
-        if (t == null) {
+    private static String describe(Throwable error) {
+        if (error == null) {
             return "unknown error";
         }
-        String message = t.getMessage();
-        return (message != null && !message.isBlank()) ? message : t.getClass().getName();
+        return error.getMessage() == null || error.getMessage().isBlank()
+                ? error.getClass().getName() : error.getMessage();
+    }
+
+    private static final class RuntimeEntry {
+        private final String packageId;
+        private final Path artifactPath;
+        private final String version;
+        private final long generation;
+        private PluginRuntimePackagePhase phase;
+
+        private RuntimeEntry(String packageId, Path artifactPath, String version, long generation,
+                             PluginRuntimePackagePhase phase) {
+            this.packageId = packageId;
+            this.artifactPath = artifactPath;
+            this.version = version;
+            this.generation = generation;
+            this.phase = phase;
+        }
     }
 }

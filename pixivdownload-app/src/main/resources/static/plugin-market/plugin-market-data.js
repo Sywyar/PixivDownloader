@@ -56,7 +56,7 @@
         return m && m.updatedTime ? (Date.parse(m.updatedTime) || 0) : 0;
     }
 
-    // 按版本号取某个版本包（用于详情弹窗的版本选择）。
+    // 按版本号取某个版本制品（用于详情弹窗的版本选择）。
     D.packageOf = function (entry, version) {
         var packages = (entry && entry.packages) || [];
         if (version) {
@@ -173,11 +173,20 @@
             outcome: outcome,
             accepted: accepted,
             effectiveAfterRestart: r.effectiveAfterRestart === true,
+            activated: r.activated === true,
+            rolledBack: r.rolledBack === true,
+            rollbackVersion: r.rollbackVersion || null,
+            transactionId: r.transactionId || null,
             tone: installTone(outcome, accepted),
             message: r.message || null,
             pluginId: r.pluginId || null,
             version: r.version || null,
             previousVersion: r.previousVersion || null,
+            packageId: r.packageId || r.pluginId || null,
+            targetVersion: r.targetVersion || r.version || null,
+            operation: r.operation || null,
+            runtimePhase: r.runtimePhase || null,
+            updated: r.updated === true,
             errors: Array.isArray(r.diagnostics) ? r.diagnostics : [],
             warnings: Array.isArray(r.unsatisfiedDependencies) ? r.unsatisfiedDependencies : []
         };
@@ -189,9 +198,10 @@
         var message = code ? PMK.t('error.code.' + code, (body && body.message) || code)
             : ((body && body.message) || PMK.t('error.install.generic', '安装请求失败，请重试。'));
         return {
-            outcome: code, accepted: false, effectiveAfterRestart: false, tone: 'bad',
+            outcome: code, accepted: false, effectiveAfterRestart: false, activated: false, rolledBack: false, tone: 'bad',
             message: message, pluginId: body && body.pluginId, version: body && body.version,
-            previousVersion: null, errors: [], warnings: [], httpStatus: httpStatus || null
+            previousVersion: null, packageId: null, targetVersion: null, operation: null,
+            runtimePhase: null, updated: false, errors: [], warnings: [], httpStatus: httpStatus || null
         };
     };
 })(window);

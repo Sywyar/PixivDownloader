@@ -40,9 +40,18 @@ public class PluginInstallResponseMapper {
                 report.pluginId(),
                 report.version(),
                 report.previousVersion(),
+                report.pluginId(),
+                report.version(),
+                report.operation() != null ? report.operation().name() : null,
+                report.runtimePhase() != null ? report.runtimePhase().name() : null,
+                report.updated(),
                 report.dependencies(),
                 report.unsatisfiedDependencies(),
-                report.diagnostics());
+                report.diagnostics(),
+                report.transactionId(),
+                report.activated(),
+                report.rolledBack(),
+                report.rollbackVersion());
         return ResponseEntity.status(httpStatus).body(body);
     }
 }

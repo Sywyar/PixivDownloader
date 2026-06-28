@@ -444,7 +444,8 @@
                     var key = this.installKey(card.repositoryId, card.pluginId);
                     if (this.installing[key]) return 'INSTALLING';
                     var r = this.installResults[key];
-                    if (r && r.accepted) return 'PENDING_RESTART';
+                    if (r && r.activated) return 'ACTIVATED';
+                    if (r && r.accepted && r.effectiveAfterRestart) return 'PENDING_RESTART';
                     return card.installStatus;
                 },
                 cardMeta: function (card) { return PMK.installMeta(this.cardStatus(card)); },
@@ -479,8 +480,12 @@
                             ? PMK.data.installResult(res.body)
                             : PMK.data.catalogError(res.body, res.httpStatus);
                         self.installResults[key] = model;
-                        if (model.accepted) {
-                            PMK.toast(self.t('install.toast.accepted', '已安装，重启后生效。'), 'ok');
+                        if (model.activated) {
+                            PMK.toast(self.t('install.toast.activated', '已安装并激活。'), 'ok');
+                        } else if (model.rolledBack) {
+                            PMK.toast(self.t('install.toast.rolled-back', '激活失败，已恢复原版本。'), 'error');
+                        } else if (model.accepted) {
+                            PMK.toast(self.t('install.toast.accepted', '已安装。'), 'ok');
                         } else {
                             PMK.toast(self.t('install.toast.rejected', '未安装：{message}', { message: model.message || model.outcome || '' }), 'error');
                         }
@@ -494,14 +499,15 @@
                         delete self.installing[key];
                     });
                 },
-                // 详情弹窗当前选中版本的安装状态（按所选版本包兼容性 / 是否已是已安装版本派生）。
+                // 详情弹窗当前选中版本的安装状态（按所选版本制品兼容性 / 是否已是已安装版本派生）。
                 modalState: function () {
                     var entry = this.selectedEntry;
                     if (!entry) return 'NOT_INSTALLED';
                     var result = this.installResults[this.installKey(this.activeCatalogRepositoryId, entry.pluginId)];
-                    if (result && result.accepted) return 'PENDING_RESTART';
+                    if (result && result.activated) return 'ACTIVATED';
+                    if (result && result.accepted && result.effectiveAfterRestart) return 'PENDING_RESTART';
                     var pkg = PMK.data.packageOf(entry, this.selectedVersion);
-                    if (!pkg) return entry.installStatus;   // 无可安装版本包 → 沿用后端状态（UNAVAILABLE / 已安装）
+                    if (!pkg) return entry.installStatus;   // 无可安装版本制品 → 沿用后端状态（UNAVAILABLE / 已安装）
                     if (!pkg.compatible) return 'INCOMPATIBLE';
                     if (entry.installedVersion && entry.installedVersion === this.selectedVersion) return 'INSTALLED';
                     return entry.installStatus === 'UPDATE_AVAILABLE' ? 'UPDATE_AVAILABLE' : 'NOT_INSTALLED';
@@ -539,7 +545,12 @@
                     if (pkg && pkg.sha256) rows.push({ key: 'detail.sha256', val: shorten(pkg.sha256), mono: true, title: pkg.sha256 });
                     if (pkg) rows.push({ key: 'detail.signature', val: pkg.signaturePresent ? this.t('detail.signed', '已声明签名') : this.t('detail.unsigned', '无') });
                     if (m.homepageUrl) rows.push({ key: 'detail.homepage', val: m.homepageUrl, href: m.homepageUrl });
-                    rows.push({ key: 'detail.effect', val: this.t('detail.restart-required', '重启后生效') });
+                    rows.push({
+                        key: 'detail.effect',
+                        val: (pkg && pkg.effectiveAfterRestart)
+                            ? this.t('detail.restart-required', '重启后生效')
+                            : this.t('detail.hot-activation', '安装后即时激活')
+                    });
 
                     var deps = pkg && pkg.dependencies ? pkg.dependencies.slice() : [];
                     var versions = (entry.packages || []).map(function (p) {

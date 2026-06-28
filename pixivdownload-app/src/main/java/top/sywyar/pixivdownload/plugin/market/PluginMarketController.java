@@ -29,7 +29,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
  *       （主开关关闭 → {@code enabled=false} + 空，200）。</li>
  *   <li>{@code GET /api/plugin-market/plugins/{repositoryId}/{pluginId}} —— 指定仓库 + 插件 id 的详情 + 版本历史。</li>
  *   <li>{@code POST /api/plugin-market/{repositoryId}/{pluginId}/{version}/install} —— 按受控标识安装（请求体不含 URL）；
- *       安装只落盘、不热加载，重启后生效（响应 {@code effectiveAfterRestart}）。</li>
+ *       安装经统一事务编排器原子替换并即时激活，失败时恢复旧版本。</li>
  * </ul>
  *
  * <p>本控制器由 {@link PluginMarketPluginConfiguration} 经 {@code @PluginManagedBean} + {@code @ConditionalOnPluginEnabled}

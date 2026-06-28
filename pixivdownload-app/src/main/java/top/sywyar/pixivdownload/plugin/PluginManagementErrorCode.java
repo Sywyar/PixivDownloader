@@ -23,7 +23,13 @@ public enum PluginManagementErrorCode {
     REQUIRED_PLUGIN(HttpStatus.CONFLICT, "plugin.manage.error.required"),
 
     /** 当前运行期阶段不允许该流转（来自生命周期状态机 {@link PluginLifecycleException}）。 */
-    ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "plugin.manage.error.transition");
+    ILLEGAL_TRANSITION(HttpStatus.CONFLICT, "plugin.manage.error.transition"),
+
+    OPERATION_IN_PROGRESS(HttpStatus.CONFLICT, "plugin.manage.error.operation-in-progress"),
+
+    DEPENDENCY_BLOCKED(HttpStatus.CONFLICT, "plugin.manage.error.dependency-blocked"),
+
+    PHYSICAL_UNLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.manage.error.physical-unload-failed");
 
     private final HttpStatus status;
     private final String messageKey;

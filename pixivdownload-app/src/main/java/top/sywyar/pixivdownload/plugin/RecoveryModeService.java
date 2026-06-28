@@ -45,4 +45,9 @@ public class RecoveryModeService {
     public boolean isActive() {
         return decision().active();
     }
+
+    /** 插件运行态变化后使下一次查询重新评估必选策略。 */
+    public void refresh() {
+        cached = null;
+    }
 }

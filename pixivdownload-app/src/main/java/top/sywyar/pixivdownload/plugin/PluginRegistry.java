@@ -55,7 +55,8 @@ public class PluginRegistry implements SmartLifecycle {
     private static final Pattern PLUGIN_ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
 
     /** 一条已注册插件、其来源与解析用 classloader。 */
-    public record RegisteredPlugin(PixivFeaturePlugin plugin, PluginSource source, ClassLoader classLoader) {
+    public record RegisteredPlugin(PixivFeaturePlugin plugin, PluginSource source, ClassLoader classLoader,
+                                   String packageId, long generation) {
 
         public RegisteredPlugin {
             if (plugin == null) {
@@ -69,6 +70,14 @@ public class PluginRegistry implements SmartLifecycle {
                 throw new IllegalStateException("registered plugin classLoader must not be null (plugin: "
                         + plugin.id() + ")");
             }
+            if (packageId == null || packageId.isBlank()) {
+                throw new IllegalStateException("registered plugin packageId must not be blank (plugin: "
+                        + plugin.id() + ")");
+            }
+        }
+
+        public RegisteredPlugin(PixivFeaturePlugin plugin, PluginSource source, ClassLoader classLoader) {
+            this(plugin, source, classLoader, plugin.id(), 0L);
         }
 
         public String id() {
@@ -133,7 +142,8 @@ public class PluginRegistry implements SmartLifecycle {
                 .toList();
         for (DiscoveredFeaturePlugin discovered : externalSorted) {
             addInstalled(byId, all,
-                    new RegisteredPlugin(discovered.plugin(), PluginSource.EXTERNAL, discovered.classLoader()),
+                    new RegisteredPlugin(discovered.plugin(), PluginSource.EXTERNAL, discovered.classLoader(),
+                            discovered.sourcePluginId(), discovered.generation()),
                     "external plugin package '" + discovered.sourcePluginId() + "'");
         }
         logExternalDiscovery(external);
@@ -194,7 +204,11 @@ public class PluginRegistry implements SmartLifecycle {
      * id 与安装态或活动快照中已有插件重复，或不符合规范，立即抛出。
      */
     public void register(PixivFeaturePlugin plugin, PluginSource source, ClassLoader classLoader) {
-        RegisteredPlugin candidate = new RegisteredPlugin(plugin, source, classLoader);
+        register(new RegisteredPlugin(plugin, source, classLoader));
+    }
+
+    /** 注册一条带包身份和 generation 的完整运行时记录。 */
+    public void register(RegisteredPlugin candidate) {
         String pluginId = candidate.id();
         if (pluginId == null || !PLUGIN_ID_PATTERN.matcher(pluginId).matches()) {
             throw new IllegalStateException("invalid plugin id: " + pluginId);

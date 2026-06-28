@@ -20,7 +20,7 @@
         return res.json();
     }
 
-    // POST /api/plugins/{id}/{verb}（verb ∈ load/start/quiesce/stop/unload/reload）。
+    // POST /api/plugins/{id}/{verb}（verb ∈ load/start/quiesce/stop/unload/restart/reload）。
     // 成功 → { id, action, phase }；失败 → 抛出携 { code, message, httpStatus, pluginId, action } 的错误。
     async function performAction(id, verb) {
         var url = PM.ACTION_URL_PREFIX + encodeURIComponent(id) + '/' + encodeURIComponent(verb);

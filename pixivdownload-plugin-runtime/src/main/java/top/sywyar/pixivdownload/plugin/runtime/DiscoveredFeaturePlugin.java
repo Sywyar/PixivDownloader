@@ -17,12 +17,18 @@ import java.util.Objects;
  * @param classLoader    创建该插件实例的插件 classloader：其声明的静态资源 / i18n bundle 等资源解析都应经此
  *                       classloader 进行，禁止回退核心壳的应用 classloader
  */
-public record DiscoveredFeaturePlugin(String sourcePluginId, PixivFeaturePlugin plugin, ClassLoader classLoader) {
+public record DiscoveredFeaturePlugin(String sourcePluginId, long generation,
+                                      PixivFeaturePlugin plugin, ClassLoader classLoader) {
 
     public DiscoveredFeaturePlugin {
         Objects.requireNonNull(sourcePluginId, "sourcePluginId");
         Objects.requireNonNull(plugin, "plugin");
         Objects.requireNonNull(classLoader, "classLoader");
+    }
+
+    /** 兼容启动期/测试载体；未提供代际时使用 0。 */
+    public DiscoveredFeaturePlugin(String sourcePluginId, PixivFeaturePlugin plugin, ClassLoader classLoader) {
+        this(sourcePluginId, 0L, plugin, classLoader);
     }
 
     /** 功能插件自身的 id（{@link PixivFeaturePlugin#id()}）：核心注册中心据此去重与排序。 */

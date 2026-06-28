@@ -67,6 +67,22 @@ public final class PixivPluginDiscoveryBridge {
         return new PluginInventory(installations, failures);
     }
 
+    /** 清点一个已加载包；允许 RESOLVED/STOPPED，用于在 PF4J start 前建立新的代际句柄。 */
+    public PluginInventory inspectLoadedPackage(PluginManager manager, String packageId) {
+        if (manager == null || packageId == null) {
+            return PluginInventory.empty();
+        }
+        PluginWrapper wrapper = manager.getPlugin(packageId);
+        if (wrapper == null || wrapper.getPluginState() == PluginState.FAILED
+                || wrapper.getPluginState() == PluginState.UNLOADED) {
+            return PluginInventory.empty();
+        }
+        List<PluginInstallation> installations = new ArrayList<>();
+        List<PluginLoadFailure> failures = new ArrayList<>();
+        inspectWrapper(wrapper, installations, failures);
+        return new PluginInventory(installations, failures);
+    }
+
     /**
      * 发现可接入核心注册中心的外置功能插件（既有发现契约）。等价于 {@code inspect(manager).toDiscoveryResult()}：
      * 兼容且已启动的插件进入 {@link PluginDiscoveryResult#discovered()}，不兼容 / 失败的并入
@@ -96,6 +112,21 @@ public final class PixivPluginDiscoveryBridge {
             collectContextModule(wrapper, modules);
         }
         return modules;
+    }
+
+    /** 清点一个已加载包声明的子 context 模块；允许 RESOLVED/STOPPED。 */
+    public List<PluginContextModule> inspectLoadedContextModules(PluginManager manager, String packageId) {
+        if (manager == null || packageId == null) {
+            return List.of();
+        }
+        PluginWrapper wrapper = manager.getPlugin(packageId);
+        if (wrapper == null || wrapper.getPluginState() == PluginState.FAILED
+                || wrapper.getPluginState() == PluginState.UNLOADED) {
+            return List.of();
+        }
+        List<PluginContextModule> modules = new ArrayList<>();
+        collectContextModule(wrapper, modules);
+        return List.copyOf(modules);
     }
 
     private void collectContextModule(PluginWrapper wrapper, List<PluginContextModule> modules) {

@@ -110,12 +110,12 @@
         INSTALLED:       { labelKey: 'install.state.installed', fallback: '已安装', icon: 'circle-check',      variant: 'success-outline', disabled: true },
         UPDATE_AVAILABLE:{ labelKey: 'install.action.update',  fallback: '更新',   icon: 'arrow-up',          variant: 'amber' },
         INCOMPATIBLE:    { labelKey: 'install.state.incompatible', fallback: '不兼容', icon: 'ban',           variant: 'gray', disabled: true },
-        // 无任何可安装版本包的条目（后端 UNAVAILABLE）：稳定降级为不可点击的不可安装态，绝不渲染可点击但无响应的安装按钮。
+        // 无任何可安装版本制品的条目（后端 UNAVAILABLE）：稳定降级为不可点击的不可安装态，绝不渲染可点击但无响应的安装按钮。
         UNAVAILABLE:     { labelKey: 'install.state.unavailable', fallback: '暂无可安装版本', icon: 'ban',    variant: 'gray', disabled: true },
         // 前端本地请求态（安装 POST 在途）：不来自后端，安装结果仍以后端响应为准。
         INSTALLING:      { labelKey: 'install.state.installing', fallback: '安装中…', icon: 'spinner',         variant: 'primary', disabled: true },
-        // 安装成功后的本地态：包已落盘但要重启后才加载（绝不伪造已热加载）。
-        PENDING_RESTART: { labelKey: 'install.state.pending-restart', fallback: '待重启', icon: 'circle-check', variant: 'success-outline', disabled: true }
+        PENDING_RESTART: { labelKey: 'install.state.pending-restart', fallback: '待重启', icon: 'circle-check', variant: 'success-outline', disabled: true },
+        ACTIVATED:       { labelKey: 'install.state.activated', fallback: '已激活', icon: 'circle-check', variant: 'success-outline', disabled: true }
     };
     PMK.installMeta = function (status) {
         return PMK.INSTALL_META[status] || PMK.INSTALL_META.NOT_INSTALLED;

@@ -31,8 +31,7 @@ import top.sywyar.pixivdownload.plugin.PluginManagementService.PluginManagementR
  *       委托 {@link PluginManagementService}（含必选插件停用守卫、内置 / 未激活 / 未知 id 拒绝）。</li>
  *   <li>装：{@code POST /api/plugins/install}（{@code multipart/form-data}，{@code file} 部分）—— 上传本地
  *       {@code .jar} / {@code .zip} 插件包，委托 {@link PluginInstallService} 校验后安全落盘到 {@code plugins/}。
- *       <b>「安装」只落盘、不热加载</b>：新装 / 升级的包到下次核心重启才被发现、加载、启动，随后才进入
- *       {@code /status} 与运行期动词的可消费范围（响应 {@code effectiveAfterRestart} 即此信号）。结果分类经
+ *       安装走统一事务编排：校验后物理卸载旧代、原子替换并即时激活，失败时恢复旧版本。结果分类经
  *       {@link PluginInstallOutcomeMapping} 派生 HTTP 状态与 i18n 文案——accepted（新装 / 升级 / 降级 / 已存在）
  *       返回 200，各类拒绝 / 失败返回对应 4xx / 5xx，响应体始终携带稳定 {@code outcome} + 本地化 {@code message}。</li>
  * </ul>
@@ -95,7 +94,19 @@ public class PluginManagementController {
         return pluginManagementService.perform(id, LifecycleAction.UNLOAD);
     }
 
-    /** 重载一个外置插件（stop 后再 start，回收并重建服务足迹）。 */
+    /** 卸下并删除磁盘插件包。 */
+    @PostMapping("/{id}/remove")
+    public PluginActionResult remove(@PathVariable String id) {
+        return pluginManagementService.perform(id, LifecycleAction.REMOVE);
+    }
+
+    /** 重启服务足迹，保留原 generation 与 classloader。 */
+    @PostMapping("/{id}/restart")
+    public PluginActionResult restart(@PathVariable String id) {
+        return pluginManagementService.perform(id, LifecycleAction.RESTART);
+    }
+
+    /** 物理重载一个外置插件，创建新的 generation 与 classloader。 */
     @PostMapping("/{id}/reload")
     public PluginActionResult reload(@PathVariable String id) {
         return pluginManagementService.perform(id, LifecycleAction.RELOAD);
@@ -103,8 +114,8 @@ public class PluginManagementController {
 
     /**
      * 安装一个上传的本地插件包（{@code .jar} / {@code .zip}）：委托 {@link PluginInstallService} 校验后安全落盘到
-     * {@code plugins/}。<b>只落盘、不热加载</b>——成功安装的包到下次核心重启才被发现、加载、启动
-     * （响应 {@code effectiveAfterRestart}）。结果分类（accepted / 各类拒绝 / 失败）经 {@link PluginInstallOutcomeMapping}
+     * {@code plugins/}，并由统一生命周期编排器即时加载 / 启动；失败时报告旧版本是否已恢复。结果分类
+     * （accepted / 各类拒绝 / 失败）经 {@link PluginInstallOutcomeMapping}
      * 派生 HTTP 状态与 i18n 文案，响应体始终携带稳定机器码 {@code outcome} + 本地化 {@code message} + 依赖诊断。
      *
      * @param file           上传的插件包（multipart {@code file} 部分；空 / 缺失 → REJECTED_EMPTY → 400）

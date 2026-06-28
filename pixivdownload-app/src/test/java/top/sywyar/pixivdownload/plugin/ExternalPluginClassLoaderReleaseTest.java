@@ -62,11 +62,18 @@ class ExternalPluginClassLoaderReleaseTest {
         // 前提：外置 jar 不含共享契约（plugin-api），否则桥接 instanceof 因同名异 loader 失败。
         assertThat(statsClasses.resolve("top/sywyar/pixivdownload/plugin/api")).doesNotExist();
 
-        tempPluginsDir = Files.createTempDirectory("pixiv-plugins-leak");
-        zipDirectoryAsJar(statsClasses, tempPluginsDir.resolve("stats-plugin.jar"));
+        Files.createDirectories(Path.of("target", "test-runtime"));
+        tempPluginsDir = Files.createTempDirectory(Path.of("target", "test-runtime"), "pixiv-plugins-leak");
+        Path jar = tempPluginsDir.resolve("stats-plugin.jar");
+        zipDirectoryAsJar(statsClasses, jar);
 
         WeakReference<ClassLoader> weakCl = loadCaptureAndUnload(tempPluginsDir);
         assertThat(weakCl).as("加载时应已捕获到真实 stats classloader 的弱引用").isNotNull();
+
+        Path moved = tempPluginsDir.resolve("stats-plugin-moved.jar");
+        Files.move(jar, moved);
+        Files.delete(moved);
+        assertThat(moved).as("公共 unload 返回后 JAR 应可立即移动并删除").doesNotExist();
 
         boolean collected = ClassLoaderLeakProbes.awaitCollected(weakCl);
         if (!collected) {
@@ -88,20 +95,7 @@ class ExternalPluginClassLoaderReleaseTest {
                 .filter(installation -> installation.id().equals("stats"))
                 .findFirst().orElseThrow();
         WeakReference<ClassLoader> weakCl = new WeakReference<>(stats.classLoader());
-        // 物理卸载：停止 + 卸载，PF4J 释放 PluginWrapper 与其 PluginClassLoader（连同 jar 文件句柄）。
-        // 经 Optional.ifPresent 的类型推断调用，app 测试代码不显式 import org.pf4j（守红线）。
-        manager.pluginManager().ifPresent(pm -> {
-            try {
-                pm.stopPlugins();
-            } catch (Exception ignored) {
-                // best-effort
-            }
-            try {
-                pm.unloadPlugins();
-            } catch (Exception ignored) {
-                // best-effort
-            }
-        });
+        manager.unloadPlugin("stats");
         return weakCl; // manager / stats / inventory 在此出帧 → 强引用图可回收
     }
 

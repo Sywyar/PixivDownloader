@@ -132,11 +132,11 @@
             }).join('') + '</div>');
         }
 
-        // 更新进度（占位：vm.updating 恒为 false）。
+        // 包级写操作状态。
         if (vm.updating) {
             parts.push('<div class="pm-progress"><div class="pm-progress-head"><span>'
-                + E(PM.t('update.updating', '更新中…')) + '</span><span>' + vm.progress + '%</span></div>'
-                + '<div class="pm-progressbar"><span style="width:' + vm.progress + '%;"></span></div></div>');
+                + E(PM.t('operation.running', '正在执行：{operation}', { operation: vm.operation }))
+                + '</span></div><div class="pm-progressbar"><span style="width:100%;"></span></div></div>');
         }
 
         // 诊断信息（后端 messages）。
@@ -303,16 +303,27 @@
         }
         parts.push('</div>'); // head
 
-        // accepted 的包落盘成功、重启后生效；明确不暗示已热加载。
+        // 兼容无法热加载的特殊结局；常规成功路径由 activated 明确展示。
         if (model.effectiveAfterRestart) {
             parts.push('<div class="pm-install-restart"><i class="fa-solid fa-rotate-right"></i>'
-                + E(PM.t('install.restart-note', '已安装到本地插件目录，将在下次重启后生效。')) + '</div>');
+                + E(PM.t('install.restart-note', '插件包已落盘，但当前运行时无法即时激活；请重启后确认状态。')) + '</div>');
+        }
+        if (model.activated) {
+            parts.push('<div class="pm-install-restart"><i class="fa-solid fa-circle-check"></i>'
+                + E(PM.t('install.activated-note', '插件已安装并在当前进程中激活。')) + '</div>');
+        } else if (model.rolledBack) {
+            parts.push('<div class="pm-install-restart"><i class="fa-solid fa-rotate-left"></i>'
+                + E(PM.t('install.rollback-note', '新版本激活失败，已恢复原版本。')) + '</div>');
         }
 
         var meta = [];
         if (model.pluginId) meta.push(installMetaRow('install.field.plugin-id', '插件 ID', model.pluginId));
         if (model.version) meta.push(installMetaRow('install.field.version', '版本', model.version));
         if (model.previousVersion) meta.push(installMetaRow('install.field.previous-version', '原版本', model.previousVersion));
+        if (model.operation) meta.push(installMetaRow('install.field.operation', '事务操作', model.operation));
+        if (model.runtimePhase) meta.push(installMetaRow('install.field.runtime-phase', '运行阶段', model.runtimePhase));
+        if (model.rollbackVersion) meta.push(installMetaRow('install.field.rollback-version', '已恢复版本', model.rollbackVersion));
+        if (model.transactionId) meta.push(installMetaRow('install.field.transaction-id', '事务 ID', model.transactionId));
         if (meta.length) {
             parts.push('<div class="pm-install-meta">' + meta.join('') + '</div>');
         }

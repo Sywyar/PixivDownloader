@@ -13,12 +13,17 @@ import java.util.List;
  *
  * @param outcome                 结果分类的稳定机器码（{@code INSTALLED} / {@code UPGRADED} / {@code REJECTED_INCOMPATIBLE} / ...）
  * @param accepted                是否最终落盘存在（新装 / 升级 / 降级 / 已存在）
- * @param effectiveAfterRestart   落盘成功的包需到下次核心重启才被加载消费（= {@link #accepted}；见 {@link PluginInstallReport}）
+ * @param effectiveAfterRestart   是否存在无法即时激活、需重启确认的兼容结局
  * @param status                  HTTP 状态码（镜像）
  * @param message                 本地化的人类可读说明（按请求语言解析）
  * @param pluginId                安装包的插件 id（描述符不可读时为 {@code null}）
  * @param version                 安装包的版本（描述符不可读时为 {@code null}）
  * @param previousVersion         被取代 / 已存在的旧版本（升级 / 降级 / 重复时在场，否则 {@code null}）
+ * @param packageId               物理生命周期包 id（当前发行格式与 {@code pluginId} 相同）
+ * @param targetVersion           本次事务目标版本
+ * @param operation               包级操作类型
+ * @param runtimePhase            响应时的运行阶段
+ * @param updated                 是否已从旧版本切换到目标版本并激活
  * @param dependencies            描述符声明的插件间依赖投影（依赖诊断）
  * @param unsatisfiedDependencies 当前不可达的非可选依赖 id（建议性诊断，不阻断安装）
  * @param diagnostics             安装器英文诊断说明（排错用，非用户文案）
@@ -32,7 +37,16 @@ public record PluginInstallResponse(
         String pluginId,
         String version,
         String previousVersion,
+        String packageId,
+        String targetVersion,
+        String operation,
+        String runtimePhase,
+        boolean updated,
         List<PluginDependencyView> dependencies,
         List<String> unsatisfiedDependencies,
-        List<String> diagnostics) {
+        List<String> diagnostics,
+        String transactionId,
+        boolean activated,
+        boolean rolledBack,
+        String rollbackVersion) {
 }

@@ -320,7 +320,7 @@ class PluginLifecycleServiceTest {
 
         h.service.load("ext-demo");
 
-        verify(h.registry).register(h.plugin, PluginSource.EXTERNAL, h.registered.classLoader());
+        verify(h.registry).register(h.registered);
         assertThat(h.service.phase("ext-demo")).contains(PluginRuntimePhase.LOADED);
 
         // load 之后可再 start（重新接入 web 贡献 + 重新调插件 start()）

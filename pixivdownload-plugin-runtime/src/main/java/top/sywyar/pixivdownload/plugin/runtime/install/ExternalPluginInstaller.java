@@ -15,6 +15,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Properties;
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 
@@ -79,6 +83,8 @@ public class ExternalPluginInstaller {
     /** 把整段 {@link #install} 串行化（同一实例 / 同一安装目录的并发安装互斥）。 */
     private final ReentrantLock installLock = new ReentrantLock();
 
+    private static final String TRANSACTION_MANIFEST = "transaction.properties";
+
     public ExternalPluginInstaller(Path pluginsDir) {
         this(pluginsDir, PluginPackageLimits.defaults());
     }
@@ -123,6 +129,275 @@ public class ExternalPluginInstaller {
         try {
             return installExclusive(packagePath, allowDowngrade,
                     origin != null ? origin : PluginPackageOrigin.localUpload());
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    /**
+     * 完成全部包安全校验并产出 staged artifact，但不移动、删除或覆盖任何现有插件包。
+     * staged artifact 位于 plugins/.staging/{transactionId}/new/，供统一生命周期编排器缩短停机窗口。
+     */
+    public PreparedPluginTransaction prepareTransaction(Path packagePath, boolean allowDowngrade,
+                                                        PluginPackageOrigin origin) {
+        installLock.lock();
+        try {
+            String transactionId = UUID.randomUUID().toString();
+            Path transaction = pluginsDir.resolve(STAGING_DIR).resolve(transactionId);
+            Path validationDir = transaction.resolve("validation");
+            ExternalPluginInstaller validator = new ExternalPluginInstaller(validationDir, limits);
+            PluginInstallResult validated = validator.install(packagePath, true,
+                    origin != null ? origin : PluginPackageOrigin.localUpload());
+            if (!validated.accepted() || validated.descriptor() == null || validated.installedPath() == null) {
+                deleteRecursivelyQuietly(transaction);
+                return new PreparedPluginTransaction(transactionId, validated, null, null, null, List.of());
+            }
+
+            PluginDescriptor descriptor = validated.descriptor();
+            List<InstalledPlugin> sameId = listInstalled().stream()
+                    .filter(plugin -> descriptor.id().equals(plugin.id())).toList();
+            InstalledPlugin highest = sameId.stream()
+                    .max(Comparator.comparing(plugin -> PluginPackageVersion.parse(plugin.version())))
+                    .orElse(null);
+            PluginInstallOutcome outcome;
+            String previousVersion = highest != null ? highest.version() : null;
+            if (highest == null) {
+                outcome = PluginInstallOutcome.INSTALLED;
+            } else {
+                int compare = PluginPackageVersion.parse(descriptor.version())
+                        .compareTo(PluginPackageVersion.parse(highest.version()));
+                if (compare > 0) {
+                    outcome = PluginInstallOutcome.UPGRADED;
+                } else if (compare == 0) {
+                    deleteRecursivelyQuietly(transaction);
+                    PluginInstallResult duplicate = new PluginInstallResult(PluginInstallOutcome.DUPLICATE,
+                            descriptor, highest.path(), previousVersion,
+                            List.of(descriptor.id() + " " + descriptor.version() + " already installed"));
+                    return new PreparedPluginTransaction(transactionId, duplicate, null, null, null,
+                            sameId.stream().map(InstalledPlugin::path).toList());
+                } else if (allowDowngrade) {
+                    outcome = PluginInstallOutcome.DOWNGRADED;
+                } else {
+                    deleteRecursivelyQuietly(transaction);
+                    PluginInstallResult rejected = new PluginInstallResult(PluginInstallOutcome.DOWNGRADE_REJECTED,
+                            descriptor, null, previousVersion, List.of("refusing to downgrade " + descriptor.id()
+                            + " from " + previousVersion + " to " + descriptor.version() + " (force required)"));
+                    return new PreparedPluginTransaction(transactionId, rejected, null, null, null,
+                            sameId.stream().map(InstalledPlugin::path).toList());
+                }
+            }
+
+            Files.createDirectories(transaction.resolve("new"));
+            Path staged = transaction.resolve("new").resolve(validated.installedPath().getFileName());
+            Files.move(validated.installedPath(), staged, StandardCopyOption.REPLACE_EXISTING);
+            deleteRecursivelyQuietly(validationDir);
+            Path target = pluginsDir.resolve(staged.getFileName()).normalize();
+            PluginInstallResult result = new PluginInstallResult(outcome, descriptor, target, previousVersion,
+                    List.of(outcome + " " + descriptor.id() + " " + descriptor.version()));
+            PreparedPluginTransaction prepared = new PreparedPluginTransaction(transactionId, result, transaction,
+                    staged, target, sameId.stream().map(InstalledPlugin::path).toList());
+            writeManifest(prepared, PluginTransactionState.PREPARED, List.of());
+            return prepared;
+        } catch (IOException e) {
+            return new PreparedPluginTransaction(UUID.randomUUID().toString(),
+                    new PluginInstallResult(PluginInstallOutcome.FAILED, null, null, null,
+                            List.of("failed to stage plugin transaction: " + e.getMessage())),
+                    null, null, null, List.of());
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    /**
+     * 在调用方已确认旧 generation 物理卸载后提交文件替换。旧包保留在 backup，直至 completeTransaction。
+     */
+    public CommittedPluginTransaction commitTransaction(PreparedPluginTransaction prepared) {
+        if (prepared == null || !prepared.readyToCommit()) {
+            throw new IllegalArgumentException("plugin transaction is not ready to commit");
+        }
+        installLock.lock();
+        try {
+            List<Path> expected = verifyCurrentArtifactsExclusive(prepared);
+            Files.createDirectories(pluginsDir);
+            Path backupDir = prepared.transactionDirectory().resolve(BACKUP_SUBDIR);
+            Files.createDirectories(backupDir);
+            List<CommittedPluginTransaction.BackupArtifact> backups = new ArrayList<>();
+            try {
+                for (Path origin : expected) {
+                    Path backup = backupDir.resolve(backups.size() + "-" + origin.getFileName());
+                    backups.add(new CommittedPluginTransaction.BackupArtifact(origin, backup));
+                }
+                // 先持久化全部 origin -> backup 映射，再开始移动。进程在任一移动后崩溃时，
+                // 启动恢复都能把已经存在的备份逐一放回原位。
+                writeManifest(prepared, PluginTransactionState.PREPARED, backups);
+                for (CommittedPluginTransaction.BackupArtifact backup : backups) {
+                    moveIntoPlace(backup.origin(), backup.backup());
+                }
+                writeManifest(prepared, PluginTransactionState.OLD_ISOLATED, backups);
+                moveIntoPlace(prepared.stagedArtifact(), prepared.target());
+                writeManifest(prepared, PluginTransactionState.NEW_PLACED, backups);
+                return new CommittedPluginTransaction(prepared, backups);
+            } catch (IOException | RuntimeException failure) {
+                Files.deleteIfExists(prepared.target());
+                restoreBackups(backups);
+                throw failure;
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to commit plugin transaction " + prepared.transactionId(), e);
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    /** 在静默和物理卸载前复核暂存期间安装态未变化；commit 内仍会再次复核。 */
+    public void verifyCurrentArtifacts(PreparedPluginTransaction prepared) {
+        if (prepared == null || !prepared.readyToCommit()) {
+            throw new IllegalArgumentException("plugin transaction is not ready to verify");
+        }
+        installLock.lock();
+        try {
+            verifyCurrentArtifactsExclusive(prepared);
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    private List<Path> verifyCurrentArtifactsExclusive(PreparedPluginTransaction prepared) {
+        List<Path> current = listInstalled().stream()
+                .filter(plugin -> prepared.result().pluginId().equals(plugin.id()))
+                .map(InstalledPlugin::path).map(path -> path.toAbsolutePath().normalize()).sorted().toList();
+        List<Path> expected = prepared.expectedCurrentArtifacts().stream()
+                .map(path -> path.toAbsolutePath().normalize()).sorted().toList();
+        if (!current.equals(expected)) {
+            throw new PluginPackageException(PluginPackageException.Reason.MALFORMED,
+                    "installed plugin set changed while transaction was staged");
+        }
+        return expected;
+    }
+
+    /** 记录新 generation 已完成运行时激活。 */
+    public void markActivated(CommittedPluginTransaction transaction) {
+        installLock.lock();
+        try {
+            writeManifest(transaction.prepared(), PluginTransactionState.ACTIVATED, transaction.backups());
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to persist plugin activation", e);
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    /** 提交完成：删除旧包 backup 与事务清单。 */
+    public void completeTransaction(CommittedPluginTransaction transaction) {
+        installLock.lock();
+        try {
+            writeManifest(transaction.prepared(), PluginTransactionState.COMMITTED, transaction.backups());
+            deleteRecursivelyQuietly(transaction.prepared().transactionDirectory());
+            deleteStagingRootIfEmpty();
+        } catch (IOException e) {
+            log.warn("Failed to finalize plugin transaction {}: {}",
+                    transaction.prepared().transactionId(), e.toString());
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    /** 删除新包并把 backup 原样恢复到旧规范路径。 */
+    public boolean rollbackTransaction(CommittedPluginTransaction transaction) {
+        installLock.lock();
+        try {
+            Files.deleteIfExists(transaction.prepared().target());
+            boolean restored = restoreBackups(transaction.backups());
+            if (restored) {
+                deleteRecursivelyQuietly(transaction.prepared().transactionDirectory());
+                deleteStagingRootIfEmpty();
+            }
+            return restored;
+        } catch (IOException e) {
+            log.error("Failed to roll back plugin transaction {}: {}",
+                    transaction.prepared().transactionId(), e.toString());
+            return false;
+        } finally {
+            installLock.unlock();
+        }
+    }
+
+    /** 放弃尚未提交的 staged artifact。 */
+    public void discardPrepared(PreparedPluginTransaction prepared) {
+        if (prepared != null && prepared.transactionDirectory() != null) {
+            Path manifestPath = prepared.transactionDirectory().resolve(TRANSACTION_MANIFEST);
+            if (Files.isRegularFile(manifestPath)) {
+                try {
+                    Properties manifest = readManifest(manifestPath);
+                    int count = Integer.parseInt(manifest.getProperty("backup.count", "0"));
+                    for (int i = 0; i < count; i++) {
+                        String value = manifest.getProperty("backup." + i + ".path");
+                        if (value != null && Files.exists(Path.of(value))) {
+                            log.error("Keeping plugin transaction {} because an old artifact backup still exists: {}",
+                                    prepared.transactionId(), value);
+                            return;
+                        }
+                    }
+                } catch (IOException | RuntimeException e) {
+                    log.error("Keeping plugin transaction {} because its recovery manifest could not be verified: {}",
+                            prepared.transactionId(), e.toString());
+                    return;
+                }
+            }
+            deleteRecursivelyQuietly(prepared.transactionDirectory());
+            deleteStagingRootIfEmpty();
+        }
+    }
+
+    /**
+     * 启动扫描前恢复未完成事务：ACTIVATED 视为新包已成功运行并提交，其余状态优先恢复旧包。
+     */
+    public void recoverPendingTransactions() {
+        installLock.lock();
+        try {
+            Path stagingRoot = pluginsDir.resolve(STAGING_DIR);
+            if (!Files.isDirectory(stagingRoot)) {
+                return;
+            }
+            try (Stream<Path> entries = Files.list(stagingRoot)) {
+                for (Path transaction : entries.filter(Files::isDirectory).toList()) {
+                    Path manifestPath = transaction.resolve(TRANSACTION_MANIFEST);
+                    if (!Files.isRegularFile(manifestPath)) {
+                        deleteRecursivelyQuietly(transaction);
+                        continue;
+                    }
+                    Properties manifest = readManifest(manifestPath);
+                    PluginTransactionState state = PluginTransactionState.valueOf(manifest.getProperty("state"));
+                    if (state == PluginTransactionState.ACTIVATED || state == PluginTransactionState.COMMITTED) {
+                        deleteRecursivelyQuietly(transaction);
+                        continue;
+                    }
+                    String targetValue = manifest.getProperty("target");
+                    if (targetValue != null && !targetValue.isBlank()) {
+                        Files.deleteIfExists(Path.of(targetValue));
+                    }
+                    int count = Integer.parseInt(manifest.getProperty("backup.count", "0"));
+                    boolean restored = true;
+                    for (int i = 0; i < count; i++) {
+                        Path origin = Path.of(manifest.getProperty("backup." + i + ".origin"));
+                        Path backup = Path.of(manifest.getProperty("backup." + i + ".path"));
+                        if (Files.exists(backup)) {
+                            try {
+                                moveIntoPlace(backup, origin);
+                            } catch (IOException e) {
+                                restored = false;
+                                log.error("Failed to recover plugin backup {}: {}", backup, e.toString());
+                            }
+                        }
+                    }
+                    if (restored) {
+                        deleteRecursivelyQuietly(transaction);
+                    }
+                }
+            }
+            deleteStagingRootIfEmpty();
+        } catch (IOException | RuntimeException e) {
+            log.error("Failed to recover pending plugin transactions: {}", e.toString());
         } finally {
             installLock.unlock();
         }
@@ -263,6 +538,41 @@ public class ExternalPluginInstaller {
         return result;
     }
 
+    /** 调用方已完成物理卸载后，事务化删除指定包的全部已安装 artifact。 */
+    public boolean removeInstalled(String packageId) {
+        installLock.lock();
+        try {
+            List<InstalledPlugin> matches = listInstalled().stream()
+                    .filter(plugin -> Objects.equals(packageId, plugin.id())).toList();
+            if (matches.isEmpty()) {
+                return false;
+            }
+            Path transaction = pluginsDir.resolve(STAGING_DIR).resolve("remove-" + UUID.randomUUID());
+            Path backupDir = transaction.resolve(BACKUP_SUBDIR);
+            List<Backup> backups = new ArrayList<>();
+            try {
+                Files.createDirectories(backupDir);
+                for (InstalledPlugin plugin : matches) {
+                    Path backup = backupDir.resolve(backups.size() + "-" + plugin.path().getFileName());
+                    backups.add(new Backup(plugin.path(), backup));
+                }
+                writeRemovalManifest(transaction, packageId, PluginTransactionState.PREPARED, backups);
+                for (Backup backup : backups) {
+                    moveIntoPlace(backup.origin(), backup.backup());
+                }
+                writeRemovalManifest(transaction, packageId, PluginTransactionState.COMMITTED, backups);
+                deleteRecursivelyQuietly(transaction);
+                deleteStagingRootIfEmpty();
+                return true;
+            } catch (IOException e) {
+                restoreSuperseded(backups);
+                throw new IllegalStateException("failed to remove installed plugin " + packageId, e);
+            }
+        } finally {
+            installLock.unlock();
+        }
+    }
+
     private PluginInstallResult commit(Path packagePath, PluginPackageInspection inspection,
                                        PluginDescriptor descriptor, PluginInstallOutcome outcome,
                                        List<InstalledPlugin> sameId, Path target, String previousVersion)
@@ -351,6 +661,87 @@ public class ExternalPluginInstaller {
         }
     }
 
+    private static boolean restoreBackups(List<CommittedPluginTransaction.BackupArtifact> backups) {
+        boolean restored = true;
+        for (CommittedPluginTransaction.BackupArtifact backup : backups) {
+            if (!Files.exists(backup.backup())) {
+                continue;
+            }
+            try {
+                moveIntoPlace(backup.backup(), backup.origin());
+            } catch (IOException e) {
+                restored = false;
+                log.error("Failed to restore plugin backup {}: {}", backup.backup(), e.toString());
+            }
+        }
+        return restored;
+    }
+
+    private static void writeManifest(PreparedPluginTransaction prepared, PluginTransactionState state,
+                                      List<CommittedPluginTransaction.BackupArtifact> backups) throws IOException {
+        Properties properties = new Properties();
+        properties.setProperty("transaction.id", prepared.transactionId());
+        properties.setProperty("state", state.name());
+        properties.setProperty("package.id", Objects.toString(prepared.result().pluginId(), ""));
+        properties.setProperty("version", Objects.toString(prepared.result().version(), ""));
+        properties.setProperty("target", prepared.target() != null
+                ? prepared.target().toAbsolutePath().normalize().toString() : "");
+        properties.setProperty("backup.count", Integer.toString(backups.size()));
+        for (int i = 0; i < backups.size(); i++) {
+            properties.setProperty("backup." + i + ".origin",
+                    backups.get(i).origin().toAbsolutePath().normalize().toString());
+            properties.setProperty("backup." + i + ".path",
+                    backups.get(i).backup().toAbsolutePath().normalize().toString());
+        }
+        Files.createDirectories(prepared.transactionDirectory());
+        Path manifest = prepared.transactionDirectory().resolve(TRANSACTION_MANIFEST);
+        Path temporary = prepared.transactionDirectory().resolve(TRANSACTION_MANIFEST + ".tmp");
+        try (Writer writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+            properties.store(writer, "PixivDownloader plugin transaction");
+        }
+        moveIntoPlace(temporary, manifest);
+    }
+
+    private static void writeRemovalManifest(Path transaction, String packageId, PluginTransactionState state,
+                                             List<Backup> backups) throws IOException {
+        Properties properties = new Properties();
+        properties.setProperty("transaction.id", transaction.getFileName().toString());
+        properties.setProperty("state", state.name());
+        properties.setProperty("package.id", Objects.toString(packageId, ""));
+        properties.setProperty("version", "");
+        properties.setProperty("target", "");
+        properties.setProperty("backup.count", Integer.toString(backups.size()));
+        for (int i = 0; i < backups.size(); i++) {
+            properties.setProperty("backup." + i + ".origin",
+                    backups.get(i).origin().toAbsolutePath().normalize().toString());
+            properties.setProperty("backup." + i + ".path",
+                    backups.get(i).backup().toAbsolutePath().normalize().toString());
+        }
+        Files.createDirectories(transaction);
+        Path manifest = transaction.resolve(TRANSACTION_MANIFEST);
+        Path temporary = transaction.resolve(TRANSACTION_MANIFEST + ".tmp");
+        try (Writer writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+            properties.store(writer, "PixivDownloader plugin removal transaction");
+        }
+        moveIntoPlace(temporary, manifest);
+    }
+
+    private static Properties readManifest(Path manifest) throws IOException {
+        Properties properties = new Properties();
+        try (Reader reader = Files.newBufferedReader(manifest, StandardCharsets.UTF_8)) {
+            properties.load(reader);
+        }
+        return properties;
+    }
+
+    private void deleteStagingRootIfEmpty() {
+        try {
+            Files.deleteIfExists(pluginsDir.resolve(STAGING_DIR));
+        } catch (IOException ignored) {
+            // 非空表示还有其它事务。
+        }
+    }
+
     /** 同 id 旧包中需要被本次安装清除的那些（规范目标自身除外）。 */
     private static List<InstalledPlugin> supersededExcluding(List<InstalledPlugin> sameId, Path target) {
         Path normalizedTarget = target.toAbsolutePath().normalize();
@@ -378,6 +769,9 @@ public class ExternalPluginInstaller {
     private static boolean restoreSuperseded(List<Backup> backups) {
         boolean allRestored = true;
         for (Backup backup : backups) {
+            if (!Files.exists(backup.backup())) {
+                continue;
+            }
             try {
                 moveIntoPlace(backup.backup(), backup.origin());
             } catch (IOException e) {

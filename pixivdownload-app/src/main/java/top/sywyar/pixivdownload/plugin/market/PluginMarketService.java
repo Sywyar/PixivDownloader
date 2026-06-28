@@ -129,7 +129,7 @@ public class PluginMarketService {
 
     /**
      * 按 {@code repositoryId} + {@code pluginId} + {@code version} 从受信仓库安装。下载地址只来自该仓库清单里选出的包；
-     * 安装只下载 + 校验 + 落盘，重启后生效（不热加载）。下载 / 校验 / 安装结局由 {@link PluginInstallReport} 承载，
+     * 安装先下载并校验，再由统一事务编排器替换并即时激活。下载 / 校验 / 安装结局由 {@link PluginInstallReport} 承载，
      * catalog 层失败（未知仓库 / 禁用 / 不可用 / 未知插件 / 版本缺失 / 不安全地址等）抛 {@link PluginCatalogException}。
      */
     public PluginInstallReport install(String repositoryId, String pluginId, String version) {

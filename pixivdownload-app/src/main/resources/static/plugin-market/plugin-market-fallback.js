@@ -30,7 +30,8 @@
         var key = installKey(card.repositoryId, card.pluginId);
         if (state.installing[key]) return 'INSTALLING';
         var r = state.installResults[key];
-        if (r && r.accepted) return 'PENDING_RESTART';
+        if (r && r.activated) return 'ACTIVATED';
+        if (r && r.accepted && r.effectiveAfterRestart) return 'PENDING_RESTART';
         return card.installStatus;
     }
 
@@ -236,10 +237,12 @@
                 ? PMK.data.installResult(res.body)
                 : PMK.data.catalogError(res.body, res.httpStatus);
             state.installResults[key] = model;
-            PMK.toast(model.accepted
-                ? t('install.toast.accepted', '已安装，重启后生效。')
-                : t('install.toast.rejected', '未安装：{message}', { message: model.message || model.outcome || '' }),
-                model.accepted ? 'ok' : 'error');
+            PMK.toast(model.activated
+                ? t('install.toast.activated', '已安装并激活。')
+                : (model.rolledBack
+                    ? t('install.toast.rolled-back', '激活失败，已恢复原版本。')
+                    : t('install.toast.rejected', '未安装：{message}', { message: model.message || model.outcome || '' })),
+                model.activated ? 'ok' : 'error');
         }).catch(function () {
             state.installResults[key] = { accepted: false };
             PMK.toast(t('error.install.generic', '安装请求失败，请重试。'), 'error');

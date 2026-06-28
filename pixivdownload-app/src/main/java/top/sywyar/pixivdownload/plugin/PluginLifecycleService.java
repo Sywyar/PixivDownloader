@@ -8,6 +8,8 @@ import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.LoadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 
@@ -237,6 +239,78 @@ public class PluginLifecycleService {
         }
     }
 
+    /** 不更换 classloader 的服务重启。 */
+    public void restart(String pluginId) {
+        reload(pluginId);
+    }
+
+    /**
+     * 接入一个刚由 PF4J 物理加载的新 generation。当前发行格式显式要求一包一个同 id 功能插件；
+     * 违反约束时拒绝接入，而不是把包身份和功能身份混用后继续运行。
+     */
+    public void adoptLoadedPackage(LoadedPluginPackage loaded) {
+        synchronized (lock) {
+            String packageId = loaded.packageId();
+            if (managed.containsKey(packageId)) {
+                throw new PluginLifecycleException("plugin package is already managed: " + packageId);
+            }
+            List<PluginInstallation> registrable = loaded.inventory().installations().stream()
+                    .filter(PluginInstallation::registrable).toList();
+            if (registrable.size() != 1 || !packageId.equals(registrable.get(0).id())) {
+                throw new PluginLifecycleException("external package '" + packageId
+                        + "' must contribute exactly one feature plugin with the same id");
+            }
+            if (loaded.contextModules().size() > 1) {
+                throw new PluginLifecycleException("external package '" + packageId
+                        + "' declared multiple context modules");
+            }
+            PluginInstallation installation = registrable.get(0);
+            PluginRegistry.RegisteredPlugin registered = new PluginRegistry.RegisteredPlugin(
+                    installation.plugin(), PluginSource.EXTERNAL, installation.classLoader(),
+                    packageId, loaded.generation());
+            try {
+                pluginRegistry.register(registered);
+            } catch (RuntimeException e) {
+                throw new PluginLifecycleException("failed to register new generation for '" + packageId + "'", e);
+            }
+            PluginContextModule module = loaded.contextModules().isEmpty() ? null : loaded.contextModules().get(0);
+            managed.put(packageId, new ManagedPlugin(packageId, loaded.generation(), module, registered));
+            lifecycleState.initialize(packageId, PluginRuntimePhase.LOADED);
+        }
+    }
+
+    /** 物理卸载成功后删除本代全部强引用；仅留下 PluginLifecycleState 中的纯值 UNLOADED 状态。 */
+    public void forgetUnloadedGeneration(String packageId, long generation) {
+        synchronized (lock) {
+            ManagedPlugin record = require(packageId);
+            if (record.generation != generation) {
+                throw new PluginLifecycleException("stale generation cleanup for '" + packageId + "': expected "
+                        + record.generation + ", got " + generation);
+            }
+            if (lifecycleState.phase(packageId).orElse(null) != PluginRuntimePhase.UNLOADED) {
+                throw new PluginLifecycleException("cannot forget a generation that is not unloaded: " + packageId);
+            }
+            managed.remove(packageId);
+        }
+    }
+
+    public Optional<Long> generation(String packageId) {
+        synchronized (lock) {
+            ManagedPlugin record = managed.get(packageId);
+            return record == null ? Optional.empty() : Optional.of(record.generation);
+        }
+    }
+
+    /** 磁盘包删除后移除纯值生命周期记录。 */
+    public void forgetInstallation(String packageId) {
+        synchronized (lock) {
+            if (managed.containsKey(packageId)) {
+                throw new PluginLifecycleException("cannot forget a loaded installation: " + packageId);
+            }
+            lifecycleState.remove(packageId);
+        }
+    }
+
     // ---- 观测 ----
 
     /** 指定外置插件当前的子 context（未建立 / 已关闭时为空）。 */
@@ -370,8 +444,7 @@ public class PluginLifecycleService {
         }
         if (record.registered != null) {
             try {
-                pluginRegistry.register(record.registered.plugin(), record.registered.source(),
-                        record.registered.classLoader());
+                pluginRegistry.register(record.registered);
             } catch (RuntimeException e) {
                 throw new PluginLifecycleException("failed to re-register plugin '" + pluginId
                         + "' into core registry", e);
@@ -656,13 +729,20 @@ public class PluginLifecycleService {
     /** 一个受管外置插件的可变运行期记录：标识 + 子 context 装配定义（可空）+ 注册条目（可空）+ 当前子 context + web 接入标志。 */
     private static final class ManagedPlugin {
         final String pluginId;
+        final long generation;
         final PluginContextModule module;                 // 可空（纯贡献插件无子 context）
         final PluginRegistry.RegisteredPlugin registered; // 可空（无核心注册条目的测试夹具）
         volatile ConfigurableApplicationContext context;  // 不在服务时为空
         boolean webRegistered;
 
         ManagedPlugin(String pluginId, PluginContextModule module, PluginRegistry.RegisteredPlugin registered) {
+            this(pluginId, registered != null ? registered.generation() : 0L, module, registered);
+        }
+
+        ManagedPlugin(String pluginId, long generation, PluginContextModule module,
+                      PluginRegistry.RegisteredPlugin registered) {
             this.pluginId = pluginId;
+            this.generation = generation;
             this.module = module;
             this.registered = registered;
         }

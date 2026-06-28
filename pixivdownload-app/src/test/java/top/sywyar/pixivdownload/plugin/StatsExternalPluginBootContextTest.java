@@ -123,6 +123,8 @@ class StatsExternalPluginBootContextTest {
     @Autowired
     private PluginLifecycleService pluginLifecycleService;
     @Autowired
+    private ExternalPluginLifecycleCoordinator lifecycleCoordinator;
+    @Autowired
     private RequestMappingHandlerMapping requestMappingHandlerMapping;
     @Autowired
     private ApplicationContext applicationContext;
@@ -332,19 +334,26 @@ class StatsExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("外置 stats reload 周期 + classloader 级泄漏回归：stop 后请求分发表无任何 stats classloader 的 handler、子 context 关闭，reload/start 后恢复")
+    @DisplayName("外置 stats 重启保留 generation/classloader，物理重载更换 generation/classloader 且旧 handler 全部撤回")
     void externalStatsReloadCycleLeavesNoHandlerFromPluginClassLoader() {
         ClassLoader statsCl = externalStatsClassLoader();
+        long initialGeneration = pluginLifecycleService.generation("stats").orElseThrow();
 
-        // reload()（运行期热重载 = stop 后 start）：状态回 STARTED、handler 在场、子 context 重建为新对象但 classloader 不变。
-        ConfigurableApplicationContext beforeReload = externalPluginContextManager.contextFor("stats").orElseThrow();
-        pluginLifecycleService.reload("stats");
+        // restart：只重建服务足迹，保留代码 generation 与 classloader。
+        lifecycleCoordinator.restart("stats");
         assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.STARTED);
+        assertThat(pluginLifecycleService.generation("stats")).contains(initialGeneration);
+        assertThat(externalStatsClassLoader()).isSameAs(statsCl);
+
+        ConfigurableApplicationContext beforeReload = externalPluginContextManager.contextFor("stats").orElseThrow();
+        lifecycleCoordinator.reload("stats");
         assertThat(statsDashboardHandlerBean()).isNotNull();
         ConfigurableApplicationContext afterReload = externalPluginContextManager.contextFor("stats").orElseThrow();
-        assertThat(afterReload).isNotSameAs(beforeReload);       // 子 context 被重建
-        assertThat(beforeReload.isActive()).isFalse();           // 旧子 context 已关闭
-        assertThat(afterReload.getClassLoader()).isSameAs(statsCl); // 同一外置插件 classloader（reload 不换 loader）
+        assertThat(afterReload).isNotSameAs(beforeReload);
+        assertThat(beforeReload.isActive()).isFalse();
+        assertThat(pluginLifecycleService.generation("stats").orElseThrow()).isGreaterThan(initialGeneration);
+        assertThat(afterReload.getClassLoader()).isNotSameAs(statsCl);
+        assertThat(anyHandlerLoadedBy(statsCl)).isFalse();
 
         // stop：classloader 级泄漏回归——请求分发表中不再有任何 handler Bean 由 stats classloader 加载（强于按 URL 判定）。
         ConfigurableApplicationContext beforeStop = externalPluginContextManager.contextFor("stats").orElseThrow();
@@ -362,10 +371,10 @@ class StatsExternalPluginBootContextTest {
         assertThat(navigationRegistry.navigation()).noneMatch(n -> n.pluginId().equals("stats"));
 
         // start：恢复服务足迹（也还原本类其它用例 / AfterAll 依赖的已启动状态）。
-        pluginLifecycleService.start("stats");
+        lifecycleCoordinator.start("stats");
         assertThat(pluginLifecycleService.phase("stats")).contains(PluginRuntimePhase.STARTED);
         assertThat(statsDashboardHandlerBean()).isNotNull();
-        assertThat(anyHandlerLoadedBy(statsCl)).isTrue(); // 恢复后 handler 由（同一）stats classloader 加载
+        assertThat(anyHandlerLoadedBy(afterReload.getClassLoader())).isTrue();
         assertThat(routeAccessRegistry.isDeclared("/api/stats/dashboard", HttpMethod.GET)).isTrue();
     }
 

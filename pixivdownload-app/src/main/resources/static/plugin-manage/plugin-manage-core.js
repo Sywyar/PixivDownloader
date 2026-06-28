@@ -109,6 +109,8 @@
         quiesce: { icon: 'fa-pause', variant: 'gray' },
         stop:    { icon: 'fa-stop', variant: 'danger' },
         unload:  { icon: 'fa-eject', variant: 'danger' },
+        remove:  { icon: 'fa-trash', variant: 'danger' },
+        restart: { icon: 'fa-arrows-rotate', variant: 'teal' },
         reload:  { icon: 'fa-rotate', variant: 'teal' }
     };
 
@@ -223,16 +225,17 @@
             tags: tags,
             api: entry.apiRequirement || null,
             deps: entry.dependencies || [],
-            messages: entry.messages || [],
+            messages: (entry.messages || []).concat(entry.operationDiagnostic ? [entry.operationDiagnostic] : []),
             availableActions: entry.availableActions || [],
             managed: !!entry.managed,
             toggleable: toggleable,
             requiredByPolicy: !!entry.requiredByPolicy,
             allowDisable: entry.allowDisable !== false,
-            // —— 设计稿的更新机制（后端暂未实现）：占位，恒为关闭态，故横幅 / 进度 / 「更新」按钮均不渲染。——
+            generation: entry.generation == null ? null : entry.generation,
+            operation: entry.operation || 'IDLE',
             hasUpdate: false,
             latest: null,
-            updating: false,
+            updating: !!entry.operation && entry.operation !== 'IDLE' && entry.operation !== 'FAILED',
             progress: 0
         };
     }
@@ -322,6 +325,15 @@
             pluginId: r.pluginId || null,
             version: r.version || null,
             previousVersion: r.previousVersion || null,
+            packageId: r.packageId || r.pluginId || null,
+            targetVersion: r.targetVersion || r.version || null,
+            operation: r.operation || null,
+            runtimePhase: r.runtimePhase || null,
+            updated: r.updated === true,
+            transactionId: r.transactionId || null,
+            activated: r.activated === true,
+            rolledBack: r.rolledBack === true,
+            rollbackVersion: r.rollbackVersion || null,
             errors: Array.isArray(r.diagnostics) ? r.diagnostics : [],
             warnings: Array.isArray(r.unsatisfiedDependencies) ? r.unsatisfiedDependencies : [],
             localValidation: false
@@ -333,7 +345,9 @@
         return {
             outcome: null, accepted: false, effectiveAfterRestart: false, status: null,
             tone: tone || 'warn', message: message || null,
-            pluginId: null, version: null, previousVersion: null,
+            pluginId: null, version: null, previousVersion: null, packageId: null, targetVersion: null,
+            operation: null, runtimePhase: null, updated: false, transactionId: null,
+            activated: false, rolledBack: false, rollbackVersion: null,
             errors: [], warnings: [], localValidation: true
         };
     }

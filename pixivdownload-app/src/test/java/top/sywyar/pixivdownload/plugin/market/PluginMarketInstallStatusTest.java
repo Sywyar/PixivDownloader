@@ -38,7 +38,7 @@ class PluginMarketInstallStatusTest {
 
     /**
      * catalog：a 最新 1.0.0（兼容）、b 最新 2.0.0（兼容）、c 最新 1.0.0 但要求核心 API 2.0（不兼容）、
-     * d 最新 1.2.0（兼容，用于语义等价版本判定）、e 最新 1.0.0（兼容，用于本机版本更高判定）、f 无任何可安装版本包。
+     * d 最新 1.2.0（兼容，用于语义等价版本判定）、e 最新 1.0.0（兼容，用于本机版本更高判定）、f 无任何可安装版本制品。
      */
     private static PluginCatalogManifest catalog() {
         return new PluginCatalogManifest("1", null, List.of(
@@ -156,7 +156,7 @@ class PluginMarketInstallStatusTest {
     }
 
     @Test
-    @DisplayName("未安装且无任何可安装版本包 → UNAVAILABLE（不可安装）、latestVersion=null、不计入已安装数")
+    @DisplayName("未安装且无任何可安装版本制品 → UNAVAILABLE（不可安装）、latestVersion=null、不计入已安装数")
     void entryWithNoInstallableVersionIsUnavailable() {
         PluginMarketView view = service().catalog(PluginRepository.OFFICIAL_ID);
 
@@ -190,13 +190,13 @@ class PluginMarketInstallStatusTest {
     }
 
     @Test
-    @DisplayName("pluginDetail 也投影安装状态 + 重启标记（effectiveAfterRestart 恒 true）")
+    @DisplayName("pluginDetail 也投影安装状态 + 即时激活标记")
     void pluginDetailProjectsInstallStatusAndRestartFlag() {
         PluginMarketEntryView b = service(installed("b", "1.0.0"))
                 .pluginDetail(PluginRepository.OFFICIAL_ID, "b");
 
         assertThat(b.installStatus()).isEqualTo(MarketInstallStatus.UPDATE_AVAILABLE);
         assertThat(b.packages()).isNotEmpty();
-        assertThat(b.packages()).allSatisfy(pkg -> assertThat(pkg.effectiveAfterRestart()).isTrue());
+        assertThat(b.packages()).allSatisfy(pkg -> assertThat(pkg.effectiveAfterRestart()).isFalse());
     }
 }

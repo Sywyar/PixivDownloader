@@ -158,21 +158,30 @@ class PluginManagementControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/plugins/install 接受 → 200 + 稳定 outcome（INSTALLED）+ effectiveAfterRestart + 本地化 message")
+    @DisplayName("POST /api/plugins/install 即时激活后返回事务、包身份与运行阶段")
     void installAcceptedReturns200() throws Exception {
         when(installService.install(any(), anyBoolean())).thenReturn(new PluginInstallReport(
-                PluginInstallOutcome.INSTALLED, true, true, "ext-demo", "1.0.0", null,
-                List.of(), List.of(), List.of("INSTALLED ext-demo 1.0.0")));
+                PluginInstallOutcome.INSTALLED, true, false, "ext-demo", "1.0.0", null,
+                List.of(), List.of(), List.of("INSTALLED ext-demo 1.0.0"),
+                "tx-install", true, false, null,
+                ExternalPluginOperation.INSTALLING, PluginRuntimePhase.STARTED, false));
 
         mockMvc.perform(multipart("/api/plugins/install")
                         .file(new MockMultipartFile("file", "ext-demo.zip", "application/zip", new byte[]{1, 2, 3})))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.outcome").value("INSTALLED"))
                 .andExpect(jsonPath("$.accepted").value(true))
-                .andExpect(jsonPath("$.effectiveAfterRestart").value(true))
+                .andExpect(jsonPath("$.effectiveAfterRestart").value(false))
                 .andExpect(jsonPath("$.status").value(200))
                 .andExpect(jsonPath("$.pluginId").value("ext-demo"))
                 .andExpect(jsonPath("$.version").value("1.0.0"))
+                .andExpect(jsonPath("$.packageId").value("ext-demo"))
+                .andExpect(jsonPath("$.targetVersion").value("1.0.0"))
+                .andExpect(jsonPath("$.operation").value("INSTALLING"))
+                .andExpect(jsonPath("$.runtimePhase").value("STARTED"))
+                .andExpect(jsonPath("$.transactionId").value("tx-install"))
+                .andExpect(jsonPath("$.activated").value(true))
+                .andExpect(jsonPath("$.updated").value(false))
                 .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.installed"));
 
         verify(installService).install(any(), anyBoolean());

@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Scope;
 import org.springframework.core.env.Environment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
@@ -29,7 +30,7 @@ import java.util.List;
  *   <li>插件目录缺失 / 空 / 含坏包都<b>不</b>致核心壳启动失败（由 {@code PluginRuntimeManager} 收敛）；</li>
  *   <li>外置插件经 {@link PluginRegistry} 与内置插件统一注册（来源标记区分），但<b>不</b>改变内置插件注册 /
  *       禁用 / required 语义；外置 pluginId 与内置冲突由 {@link PluginRegistry} fail-fast。</li>
- *   <li><b>不</b>做热安装 / 热卸载，也不据诊断状态改变核心启动；必选清单与诊断状态仅经这些 Bean 暴露，是否据此处置不在本配置内决定。</li>
+ *   <li>运行期物理装卸由统一生命周期编排器驱动；本配置只负责启动扫描与 Bean 装配。</li>
  * </ul>
  */
 @Configuration
@@ -41,7 +42,9 @@ public class PluginRuntimeConfiguration {
     }
 
     @Bean
-    public PluginRuntimeStatus pluginRuntimeStatus(PluginRuntimeManager pluginRuntimeManager) {
+    public PluginRuntimeStatus pluginRuntimeStatus(PluginRuntimeManager pluginRuntimeManager,
+                                                   ExternalPluginInstaller installer) {
+        installer.recoverPendingTransactions();
         return pluginRuntimeManager.start();
     }
 
@@ -51,6 +54,7 @@ public class PluginRuntimeConfiguration {
      * 形参 {@code pluginRuntimeStatus} 仅用于排序（确保 {@code start()} 先完成、PF4J 实例已就绪）。
      */
     @Bean
+    @Scope("prototype")
     public PluginInventory pluginInventory(PluginRuntimeManager pluginRuntimeManager,
                                            PluginRuntimeStatus pluginRuntimeStatus) {
         return pluginRuntimeManager.inspectPlugins();
@@ -61,8 +65,10 @@ public class PluginRuntimeConfiguration {
      * 不兼容 / 失败者并入 {@code failures}（拒绝接入）。
      */
     @Bean
-    public PluginDiscoveryResult pluginDiscoveryResult(PluginInventory pluginInventory) {
-        return pluginInventory.toDiscoveryResult();
+    @Scope("prototype")
+    public PluginDiscoveryResult pluginDiscoveryResult(PluginRuntimeManager pluginRuntimeManager,
+                                                       PluginRuntimeStatus pluginRuntimeStatus) {
+        return pluginRuntimeManager.discoverFeaturePlugins();
     }
 
     /**

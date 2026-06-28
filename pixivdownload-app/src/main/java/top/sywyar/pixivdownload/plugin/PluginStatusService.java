@@ -1,10 +1,14 @@
 package top.sywyar.pixivdownload.plugin;
 
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginLoadFailure;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
@@ -16,6 +20,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -35,14 +40,27 @@ import java.util.stream.Collectors;
 public class PluginStatusService {
 
     private final PluginRegistry pluginRegistry;
-    private final PluginInventory pluginInventory;
+    private final Supplier<PluginInventory> pluginInventory;
+    private final Supplier<List<InstalledPlugin>> installedArtifacts;
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final PluginStatusEvaluator evaluator = new PluginStatusEvaluator();
 
     public PluginStatusService(PluginRegistry pluginRegistry, PluginInventory pluginInventory,
                                RequiredPluginPolicy requiredPluginPolicy) {
         this.pluginRegistry = pluginRegistry;
-        this.pluginInventory = pluginInventory;
+        this.pluginInventory = () -> pluginInventory;
+        this.installedArtifacts = List::of;
+        this.requiredPluginPolicy = requiredPluginPolicy;
+    }
+
+    /** Spring 运行时读取动态清点，避免 singleton 永久固定旧插件实例和 classloader。 */
+    @Autowired
+    public PluginStatusService(PluginRegistry pluginRegistry, PluginRuntimeManager runtimeManager,
+                               ExternalPluginInstaller installer,
+                               RequiredPluginPolicy requiredPluginPolicy) {
+        this.pluginRegistry = pluginRegistry;
+        this.pluginInventory = runtimeManager::inspectPlugins;
+        this.installedArtifacts = installer::listInstalled;
         this.requiredPluginPolicy = requiredPluginPolicy;
     }
 
@@ -61,16 +79,25 @@ public class PluginStatusService {
             }
         }
         // 外置插件：取清点结果的描述符与基线状态（不兼容条目原样保留，由评估器判 INCOMPATIBLE）。
-        for (PluginInstallation installation : pluginInventory.installations()) {
+        PluginInventory inventory = pluginInventory.get();
+        for (PluginInstallation installation : inventory.installations()) {
             observed.add(new ObservedPlugin(installation.descriptor(),
                     externalBaseStatus(installation, activeIds)));
+        }
+        Set<String> observedExternalPackages = inventory.installations().stream()
+                .map(installation -> installation.descriptor().sourcePluginId())
+                .collect(Collectors.toSet());
+        for (InstalledPlugin installed : installedArtifacts.get()) {
+            if (!observedExternalPackages.contains(installed.id())) {
+                observed.add(new ObservedPlugin(installed.descriptor(), PluginStatus.INSTALLED));
+            }
         }
 
         PluginStatusReport evaluated = evaluator.evaluate(observed, requiredPluginPolicy);
 
         // 包级加载 / 发现失败（无描述符）追加为 FAILED 诊断，使报告覆盖坏包。
         List<PluginDiagnostic> diagnostics = new ArrayList<>(evaluated.diagnostics());
-        for (PluginLoadFailure failure : pluginInventory.failures()) {
+        for (PluginLoadFailure failure : inventory.failures()) {
             diagnostics.add(new PluginDiagnostic(failure.source(), PluginStatus.FAILED, null,
                     requiredPluginPolicy.isRequired(failure.source()), List.of(failure.reason())));
         }

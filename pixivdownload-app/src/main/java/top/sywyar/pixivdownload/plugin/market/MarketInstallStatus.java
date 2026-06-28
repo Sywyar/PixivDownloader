@@ -8,11 +8,11 @@ package top.sywyar.pixivdownload.plugin.market;
  * <ul>
  *   <li>{@link #NOT_INSTALLED} —— 本机未安装该插件，且其最新可安装版本兼容当前核心 API（可安装）。</li>
  *   <li>{@link #INSTALLED} —— 本机已安装且为最新版本（无<b>严格更高</b>的可用更新）。</li>
- *   <li>{@link #UPDATE_AVAILABLE} —— 本机已安装、市场存在<b>严格更高且兼容</b>的版本（更新只是安装更高版本包、重启后生效，
+ *   <li>{@link #UPDATE_AVAILABLE} —— 本机已安装、市场存在<b>严格更高且兼容</b>的版本（更新走事务化替换并即时激活，
  *       <b>非</b>热升级）。版本高低按 {@link top.sywyar.pixivdownload.common.SemanticVersion} 语义比较，语义等价
  *       （如 {@code 1.2} 与 {@code 1.2.0}）不算更新，本机版本更高时保持已安装。</li>
  *   <li>{@link #INCOMPATIBLE} —— 本机未安装且最新可安装版本声明的核心 API 要求不被当前核心满足（需先升级应用）。</li>
- *   <li>{@link #UNAVAILABLE} —— 本机未安装且该条目<b>没有任何可安装版本包</b>（清单未提供可下载的版本）：稳定降级为
+ *   <li>{@link #UNAVAILABLE} —— 本机未安装且该条目<b>没有任何可安装版本制品</b>（清单未提供可下载的版本）：稳定降级为
  *       不可安装状态，前端不渲染可点击但无响应的安装按钮。</li>
  * </ul>
  *

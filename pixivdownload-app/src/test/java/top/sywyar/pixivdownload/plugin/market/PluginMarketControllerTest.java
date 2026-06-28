@@ -79,7 +79,7 @@ class PluginMarketControllerTest {
                 List.of(new PluginMarketCategoryCount("all", 1)),
                 List.of(new PluginMarketEntryView("stats", "stats:nav.label", "stats:plugin.summary", "1.2.3", null,
                         List.of(new PluginMarketPackageView("1.2.3", 4096L, "abcdef", false, "1.0",
-                                true, true, List.of(), null, List.of(), null, false)),
+                                true, false, List.of(), null, List.of(), null, false)),
                         MarketInstallStatus.UPDATE_AVAILABLE, "1.2.0", true, true, null))));
 
         mockMvc.perform(get("/api/plugin-market/catalog"))
@@ -94,7 +94,7 @@ class PluginMarketControllerTest {
                 .andExpect(jsonPath("$.entries[0].installedVersion").value("1.2.0"))
                 .andExpect(jsonPath("$.entries[0].updateAvailable").value(true))
                 .andExpect(jsonPath("$.entries[0].packages[0].compatible").value(true))
-                .andExpect(jsonPath("$.entries[0].packages[0].effectiveAfterRestart").value(true));
+                .andExpect(jsonPath("$.entries[0].packages[0].effectiveAfterRestart").value(false));
     }
 
     @Test

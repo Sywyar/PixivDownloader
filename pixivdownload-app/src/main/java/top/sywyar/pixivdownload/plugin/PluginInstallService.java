@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.multipart.MultipartFile;
 import top.sywyar.pixivdownload.plugin.PluginManagementService.PluginDependencyView;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
@@ -30,13 +31,8 @@ import java.util.Set;
  * {@link PluginInstallReport}（含依赖诊断）。它是 Web / GUI 安装入口共用的后端落点——上层不各自实现包读取 / 落盘。
  *
  * <h2>install 与运行期 load / start 的边界</h2>
- * 「安装」只做 <b>校验 + 安全落盘</b>：经 {@link ExternalPluginInstaller} 读包级描述符、校验描述符内容、核心 API
- * 兼容门、Zip Slip 防护、重复 / 升级 / 降级判定后<b>原子</b>写入 {@code plugins/}（失败不留半成品）。它<b>不</b>热加载、
- * <b>不</b>在运行期为新包新建 classloader / 子 context——新装 / 升级 / 降级的包由<b>下次核心重启</b>的常规扫描
- * （{@code PluginRuntimeManager.start()} + 生命周期 {@code startAll()}）发现、加载、启动，随后才进入
- * {@code /api/plugins/status} 与运行期生命周期动词（{@link PluginManagementService#perform}）的可消费范围。
- * {@link PluginInstallReport#effectiveAfterRestart()} 即此信号。这与运行时骨架「不热安装」、运行期 classloader 泄漏
- * 防护边界一致：运行期不为「刚落盘但未在启动期发现」的包建运行期足迹。
+ * Spring 运行时统一交给 {@link ExternalPluginLifecycleCoordinator}：安装器只负责包校验与文件事务，编排器负责静默、
+ * 物理卸载、原子替换、重新加载和启动；激活失败时恢复旧包并报告回滚结果。仅兼容测试构造器会直接调用安装器。
  *
  * <p>上传字节先写入<b>系统临时文件</b>（文件名仅取上传名的 {@code .jar} / {@code .zip} 扩展名、<b>绝不</b>用上传名做
  * 路径分量，杜绝路径穿越），交安装器后于 {@code finally} 删除临时文件；安装器从临时文件复制出规范产物到安装目录的
@@ -49,9 +45,18 @@ public class PluginInstallService {
     private static final Logger log = LoggerFactory.getLogger(PluginInstallService.class);
 
     private final ExternalPluginInstaller installer;
+    private final ExternalPluginLifecycleCoordinator coordinator;
 
     public PluginInstallService(ExternalPluginInstaller installer) {
         this.installer = installer;
+        this.coordinator = null;
+    }
+
+    @Autowired
+    public PluginInstallService(ExternalPluginInstaller installer,
+                                ExternalPluginLifecycleCoordinator coordinator) {
+        this.installer = installer;
+        this.coordinator = coordinator;
     }
 
     /**
@@ -80,7 +85,9 @@ public class PluginInstallService {
                 log.error("Failed to write uploaded plugin package to temp file: {}", e.toString());
                 return terminal(PluginInstallOutcome.FAILED, "failed to stage uploaded package: " + e.getMessage());
             }
-            return toReport(installer.install(temp, allowDowngrade));
+            return coordinator != null
+                    ? toReport(coordinator.installOrUpdate(temp, allowDowngrade, PluginPackageOrigin.localUpload()))
+                    : toReport(installer.install(temp, allowDowngrade));
         } finally {
             deleteQuietly(temp);
         }
@@ -97,7 +104,22 @@ public class PluginInstallService {
      * @param origin         包来源 + 完整性期望（受信 catalog 携带期望大小 / sha256 / 签名）
      */
     public PluginInstallReport installTrustedFile(Path packageFile, boolean allowDowngrade, PluginPackageOrigin origin) {
-        return toReport(installer.install(packageFile, allowDowngrade, origin));
+        return coordinator != null
+                ? toReport(coordinator.installOrUpdate(packageFile, allowDowngrade, origin))
+                : toReport(installer.install(packageFile, allowDowngrade, origin));
+    }
+
+    private PluginInstallReport toReport(PluginActivationResult activation) {
+        PluginInstallResult result = activation.installResult();
+        PluginDescriptor descriptor = result.descriptor();
+        return new PluginInstallReport(
+                result.outcome(), result.accepted(), false,
+                result.pluginId(), result.version(), result.previousVersion(),
+                declaredDependencies(descriptor), unsatisfiedDependencies(descriptor), result.messages(),
+                activation.transactionId(), activation.activated(), activation.rolledBack(),
+                activation.rollbackVersion(), activation.operation(), activation.runtimePhase(),
+                activation.activated() && result.previousVersion() != null
+                        && result.outcome() != PluginInstallOutcome.DUPLICATE);
     }
 
     private PluginInstallReport toReport(PluginInstallResult result) {

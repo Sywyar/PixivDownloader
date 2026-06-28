@@ -102,7 +102,7 @@
         if (global.PixivNav) PixivNav.refresh();
     }
 
-    // 本地包安装：提交当前选中的 .jar / .zip 到后端安装端点，按结构化结果渲染（仅落盘、重启后生效，不热加载）。
+    // 本地包安装：提交当前选中的 .jar / .zip，后端统一完成校验、事务替换、激活与失败回滚。
     async function submitInstall() {
         if (PM.state.installBusy) return;
         var fileInput = document.getElementById('pm-install-file');
@@ -128,9 +128,12 @@
             var response = await PM.installPackage(file, allowDowngrade);
             var model = PM.buildInstallResult(response);
             PM.showInstallResult(model);
-            if (model.accepted) {
-                // accepted=落盘存在：明确提示「重启后生效」，绝不暗示已热加载，也不把新包伪造成已受管插件。
-                PM.toast(PM.t('install.toast.accepted', '已安装到本地插件目录，重启后生效。'), 'ok');
+            if (model.activated) {
+                PM.toast(PM.t('install.toast.accepted', '插件已安装并激活。'), 'ok');
+            } else if (model.rolledBack) {
+                PM.toast(PM.t('install.rollback-note', '新版本激活失败，已恢复原版本。'), 'error');
+            } else if (model.accepted) {
+                PM.toast(PM.t('install.toast.accepted', '插件已安装。'), 'ok');
             } else {
                 PM.toast(PM.t('install.toast.rejected', '未安装：{message}',
                     { message: model.message || model.outcome || '' }), 'error');

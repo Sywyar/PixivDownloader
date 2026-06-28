@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin;
 
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
@@ -17,7 +18,7 @@ import java.util.Set;
 /**
  * 插件管理后端服务（admin-grade、不依赖任何 UI）：在只读状态报告 {@link PluginStatusService} 之上叠加外置插件
  * 运行期生命周期 {@link PluginLifecycleService} 的当前阶段，综合为「可由后端查询 + 可由管理操作驱动」的管理视图，
- * 并把 load / start / quiesce / stop / unload / reload 六个运行期动词收口为带前置守卫的统一入口
+ * 并把 load / start / quiesce / stop / unload / remove / restart / reload 八个运行期动词收口为带前置守卫的统一入口
  * （{@link #perform}）。它是 Web / GUI 管理入口共用的后端落点——上层不各自实现插件扫描或生命周期编排。
  *
  * <h2>读模型（{@link #list()}）</h2>
@@ -28,7 +29,7 @@ import java.util.Set;
  * 仅作用于<b>受管外置插件</b>（{@link PluginLifecycleService#managedPluginIds()}）。前置守卫：内置插件随主程序编译、
  * <b>不可</b>运行期热启停（拒 409）；经 {@code plugins.<id>.enabled} 配置禁用而未激活的外置插件不在受管范围（拒 409）；
  * 未知 id 拒 404；必选插件（{@link RequiredPluginPolicy} 声明 {@code allowDisable=false}）<b>不允许</b>被停用类动词
- * （quiesce / stop / unload）降级（拒 409）。守卫通过后委托 {@link PluginLifecycleService} 执行；其非法状态流转
+ * （quiesce / stop / unload / remove）降级（拒 409）。守卫通过后委托统一生命周期编排器执行；其非法状态流转
  * （{@link PluginLifecycleException}）转 409。
  *
  * <p>本服务只读 + 编排、<b>不持久化</b>启停状态：运行期动词在内存生效、不写配置；跨重启的禁用仍由
@@ -42,6 +43,7 @@ public class PluginManagementService {
     private final PluginLifecycleService pluginLifecycleService;
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final RecoveryModeService recoveryModeService;
+    private final ExternalPluginLifecycleCoordinator coordinator;
 
     public PluginManagementService(PluginStatusService pluginStatusService,
                                    PluginLifecycleService pluginLifecycleService,
@@ -51,6 +53,20 @@ public class PluginManagementService {
         this.pluginLifecycleService = pluginLifecycleService;
         this.requiredPluginPolicy = requiredPluginPolicy;
         this.recoveryModeService = recoveryModeService;
+        this.coordinator = null;
+    }
+
+    @Autowired
+    public PluginManagementService(PluginStatusService pluginStatusService,
+                                   PluginLifecycleService pluginLifecycleService,
+                                   RequiredPluginPolicy requiredPluginPolicy,
+                                   RecoveryModeService recoveryModeService,
+                                   ExternalPluginLifecycleCoordinator coordinator) {
+        this.pluginStatusService = pluginStatusService;
+        this.pluginLifecycleService = pluginLifecycleService;
+        this.requiredPluginPolicy = requiredPluginPolicy;
+        this.recoveryModeService = recoveryModeService;
+        this.coordinator = coordinator;
     }
 
     /**
@@ -69,9 +85,13 @@ public class PluginManagementService {
     private PluginManagementEntry toEntry(PluginDiagnostic diagnostic, Set<String> managedIds) {
         String id = diagnostic.id();
         PluginDescriptor descriptor = diagnostic.descriptor();
-        boolean managed = managedIds.contains(id);
         PluginRuntimePhase phase = pluginLifecycleService.phase(id).orElse(null);
+        boolean installedOnly = descriptor != null && !BuiltInPlugins.isBuiltIn(id)
+                && diagnostic.status() == PluginStatus.INSTALLED && phase == null;
+        boolean managed = managedIds.contains(id) || phase == PluginRuntimePhase.UNLOADED || installedOnly;
         boolean allowDisable = allowDisable(id);
+        ExternalPluginOperationSnapshot operation = coordinator != null
+                ? coordinator.operation(id).orElse(null) : null;
         return new PluginManagementEntry(
                 id,
                 descriptor != null ? descriptor.displayNamespace() : null,
@@ -89,8 +109,12 @@ public class PluginManagementService {
                 managed,
                 diagnostic.requiredByPolicy(),
                 allowDisable,
-                availableActions(managed, phase, allowDisable),
-                diagnostic.messages());
+                availableActions(managed, phase, allowDisable, installedOnly),
+                diagnostic.messages(),
+                pluginLifecycleService.generation(id).orElse(null),
+                operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
+                operation != null ? operation.transactionId() : null,
+                operation != null ? operation.diagnostic() : null);
     }
 
     /** 描述符的插件间依赖声明投影（未安装的必选项无描述符 → 空列表）。 */
@@ -128,11 +152,22 @@ public class PluginManagementService {
      * {@link PluginLifecycleService} 的流转校验为准）。不受管（内置 / 未激活外置 / 未安装）无运行期动词；
      * 受管外置插件按当前阶段给出启用类（恢复 / 重建足迹，必选插件也可用）与停用类（降级，必选插件不提供）动词。
      */
-    private static List<String> availableActions(boolean managed, PluginRuntimePhase phase, boolean allowDisable) {
-        if (!managed || phase == null) {
+    private static List<String> availableActions(boolean managed, PluginRuntimePhase phase, boolean allowDisable,
+                                                 boolean installedOnly) {
+        if (!managed) {
             return List.of();
         }
         List<String> actions = new ArrayList<>();
+        if (installedOnly) {
+            actions.add(LifecycleAction.LOAD.token());
+            if (allowDisable) {
+                actions.add(LifecycleAction.REMOVE.token());
+            }
+            return List.copyOf(actions);
+        }
+        if (phase == null) {
+            return List.of();
+        }
         if (phase == PluginRuntimePhase.STOPPED || phase == PluginRuntimePhase.LOADED) {
             actions.add(LifecycleAction.START.token());
         }
@@ -140,6 +175,7 @@ public class PluginManagementService {
             actions.add(LifecycleAction.LOAD.token());
         }
         if (phase != PluginRuntimePhase.UNLOADED) {
+            actions.add(LifecycleAction.RESTART.token());
             actions.add(LifecycleAction.RELOAD.token());
         }
         if (allowDisable) {
@@ -152,6 +188,7 @@ public class PluginManagementService {
             if (phase != PluginRuntimePhase.UNLOADED) {
                 actions.add(LifecycleAction.UNLOAD.token());
             }
+            actions.add(LifecycleAction.REMOVE.token());
         }
         return List.copyOf(actions);
     }
@@ -169,9 +206,15 @@ public class PluginManagementService {
                     "Required plugin cannot be disabled: " + id);
         }
         try {
-            action.apply(pluginLifecycleService, id);
+            if (coordinator != null) {
+                action.apply(coordinator, id);
+            } else {
+                action.apply(pluginLifecycleService, id);
+            }
         } catch (PluginLifecycleException e) {
-            throw new PluginManagementException(PluginManagementErrorCode.ILLEGAL_TRANSITION, id, action.token(),
+            PluginManagementErrorCode code = e instanceof ClassifiedPluginLifecycleException classified
+                    ? classified.code() : PluginManagementErrorCode.ILLEGAL_TRANSITION;
+            throw new PluginManagementException(code, id, action.token(),
                     pluginLifecycleService.phase(id).orElse(null), e.getMessage());
         }
         return new PluginActionResult(id, action.token(), pluginLifecycleService.phase(id).orElse(null));
@@ -182,11 +225,21 @@ public class PluginManagementService {
         if (pluginLifecycleService.managedPluginIds().contains(id)) {
             return;
         }
+        if (pluginLifecycleService.phase(id).orElse(null) == PluginRuntimePhase.UNLOADED) {
+            return;
+        }
         if (BuiltInPlugins.isBuiltIn(id)) {
             throw new PluginManagementException(PluginManagementErrorCode.BUILT_IN_PLUGIN, id, action.token(), null,
                     "Built-in plugin cannot be hot-managed at runtime: " + id);
         }
-        if (pluginStatusService.report().byId(id).isPresent()) {
+        var diagnostic = pluginStatusService.report().byId(id);
+        if (diagnostic.isPresent()
+                && diagnostic.get().descriptor() != null
+                && diagnostic.get().status() == PluginStatus.INSTALLED
+                && (action == LifecycleAction.LOAD || action == LifecycleAction.REMOVE)) {
+            return;
+        }
+        if (diagnostic.isPresent()) {
             throw new PluginManagementException(PluginManagementErrorCode.INACTIVE_PLUGIN, id, action.token(), null,
                     "External plugin is not currently active (disabled via config); runtime actions unavailable: " + id);
         }
@@ -207,6 +260,8 @@ public class PluginManagementService {
         QUIESCE("quiesce", true),
         STOP("stop", true),
         UNLOAD("unload", true),
+        REMOVE("remove", true),
+        RESTART("restart", false),
         RELOAD("reload", false);
 
         private final String token;
@@ -234,7 +289,22 @@ public class PluginManagementService {
                 case QUIESCE -> service.quiesce(id);
                 case STOP -> service.stop(id);
                 case UNLOAD -> service.unload(id);
+                case REMOVE -> throw new PluginLifecycleException("remove requires the external lifecycle coordinator");
+                case RESTART -> service.restart(id);
                 case RELOAD -> service.reload(id);
+            }
+        }
+
+        void apply(ExternalPluginLifecycleCoordinator coordinator, String id) {
+            switch (this) {
+                case LOAD -> coordinator.load(id);
+                case START -> coordinator.start(id);
+                case QUIESCE -> coordinator.quiesce(id);
+                case STOP -> coordinator.stop(id);
+                case UNLOAD -> coordinator.unload(id);
+                case REMOVE -> coordinator.remove(id);
+                case RESTART -> coordinator.restart(id);
+                case RELOAD -> coordinator.reload(id);
             }
         }
     }
@@ -291,7 +361,36 @@ public class PluginManagementService {
             boolean requiredByPolicy,
             boolean allowDisable,
             List<String> availableActions,
-            List<String> messages) {
+            List<String> messages,
+            Long generation,
+            ExternalPluginOperation operation,
+            String transactionId,
+            String operationDiagnostic) {
+
+        /** 兼容不关心运行操作元数据的调用方与测试夹具。 */
+        public PluginManagementEntry(
+                String id,
+                String displayNamespace,
+                String displayNameKey,
+                String descriptionKey,
+                String iconKey,
+                String colorToken,
+                String version,
+                PluginKind kind,
+                PluginApiRequirementView apiRequirement,
+                List<PluginDependencyView> dependencies,
+                String source,
+                PluginStatus status,
+                PluginRuntimePhase runtimePhase,
+                boolean managed,
+                boolean requiredByPolicy,
+                boolean allowDisable,
+                List<String> availableActions,
+                List<String> messages) {
+            this(id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken, version, kind,
+                    apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
+                    allowDisable, availableActions, messages, null, ExternalPluginOperation.IDLE, null, null);
+        }
     }
 
     /**
