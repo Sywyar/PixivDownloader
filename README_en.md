@@ -18,9 +18,11 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![GitHub Repo stars](https://img.shields.io/github/stars/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/stargazers)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](../../releases)
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/commits)
 
 ## Features
+
+> [!WARNING]
+> **Items marked with `*` are not yet available in the stable release (dev only)**
 
 - One-stop download web page: Quick Fetch, Bulk Import Single Works, User Mode, Search Mode, Series Mode
 - Quick Fetch: with the saved Cookie, one-click load your own bookmarks (illust/novel, incl. private), your own works (incl. private), following list, and collections; drill in and add to the download queue
@@ -33,27 +35,17 @@
   cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- Plugin management page (admin only): a card list showing every plugin (built-in / external / required-but-not-installed)
-  with status, source, version, runtime phase, core-API version requirement and inter-plugin dependencies, plus runtime
-  lifecycle actions (load / start / quiesce / stop / unload / reload) for external plugins (built-ins are compiled in and read-only)
-- Plugin marketplace page (admin only): browse, search, filter by category / compatibility, sort and inspect plugin
-  details (version history / dependencies / size / signature status) from trusted repositories, then install by a
-  controlled identifier (effective after restart); cross-linked with the management page via a segmented control without merging responsibilities
-- Scheduled tasks: automatically discover and download new artworks in the background on a fixed interval or
-  cron schedule, with three source types (artist new works / saved search / series — both illustrations and novels)
-- Email / push notifications: scheduled-task events needing manual attention (overuse pause, auth expired, circuit
-  breaker, per-work auto-retry exhausted) are delivered via email and any configured push channels, listing the
-  paused task names / IDs, task type, trigger and next scheduled run; each notification type can be toggled
-  individually on the notification settings page, and unchecked types are no longer sent through any medium
+- *Plugin management page: a card list showing every plugin with status, source, version, and dependencies; lifecycle actions for external plugins (Not yet launched)
+- *Plugin marketplace page: browse, search, filter and install plugins from trusted repositories (effective after restart); repository list configurable in desktop GUI (Not yet launched)
+- Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, supporting three source types
+- Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
 - Novel AI translation (requires an LLM configured): translate a novel or a whole series into a chosen language and store it locally, with a content-language switch between the original and translations
-- Novel AI multi-voice narration (beta — usable but not yet stable; requires an LLM and a narration engine configured): an LLM attributes every sentence of the chapter to a speaker, each character is synthesized line by line with a fixed voice and played back continuously with follow-along highlighting; on first analysis you can pick a locked voice for the narrator (warm female / calm male / neutral, with preview), edit each character's voice and resolve conflicts, and the analysis is cached for replay
+- Novel AI multi-voice narration (beta): an LLM attributes sentences to speakers, each character synthesized with a fixed voice and played back with follow-along highlighting; analysis is cached for replay
 
 - Animated image (Ugoira) auto-conversion to WebP
 - Custom file naming templates (11 variables)
-- Downloaded-state verification: stale DB records (file deleted on disk) are auto-pruned; if files for an artwork
-  already exist on disk under the default filename template but the DB record is missing, the record is reconstructed
-  from disk and the redownload is skipped
+- Downloaded-state verification: stale DB records auto-pruned; missing records reconstructed from disk to skip re-download
 - Quota and rate limiting for multi-user scenarios
 - Guest invite system (age-rating / tag / author whitelist)
 - Multiple languages / dark mode
