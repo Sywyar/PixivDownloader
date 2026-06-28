@@ -80,6 +80,33 @@ function Read-SourceDescriptor([string]$module) {
 
 $curation = Read-Json $CurationFile
 $plugins = @(Get-OfficialOptionalPlugins)
+
+# 拉取仓库中已发布的旧 manifest，用于跨版本累积下载量（previousDownloadCount）。
+$existingManifestUrl = "https://raw.githubusercontent.com/$Repo/master/manifest.json"
+$prevByPlugin = @{}
+try {
+    Write-Host "Fetching existing manifest from $existingManifestUrl ..."
+    $existingJson = & gh api "repos/$Repo/contents/manifest.json" --jq ".content" 2>$null
+    if ($LASTEXITCODE -eq 0 -and $existingJson) {
+        $existingBytes = [System.Convert]::FromBase64String(($existingJson -replace '\s',''))
+        $existingStr = [System.Text.Encoding]::UTF8.GetString($existingBytes)
+        $existingManifest = $existingStr | ConvertFrom-Json
+        foreach ($entry in $existingManifest.entries) {
+            $m = $entry.market
+            $prevByPlugin[$entry.pluginId] = @{
+                version = if ($m.latestVersion) { "$($entry.pluginId)-v$($m.latestVersion)" } else { "" }
+                downloadCount = if ($m.PSObject.Properties.Name -contains "downloadCount") { [long]$m.downloadCount } else { 0 }
+                previousDownloadCount = if ($m.PSObject.Properties.Name -contains "previousDownloadCount") { [long]$m.previousDownloadCount } else { 0 }
+            }
+        }
+        Write-Host "  Loaded $($prevByPlugin.Count) plugin(s) from existing manifest."
+    } else {
+        Write-Host "  No existing manifest found (first run), all previousDownloadCount start at 0."
+    }
+} catch {
+    Write-Host "  Could not fetch existing manifest: $_ — all previousDownloadCount start at 0."
+}
+
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("market-manifest-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 
@@ -108,6 +135,22 @@ try {
         $releasedTime = $rel.publishedAt
         if (-not $releasedTime) { $releasedTime = $nowUtc }
 
+        # 跨版本累积下载量：版本变化时将当前 version downloadCount 累加到 previousDownloadCount；
+        # 版本未变则保持旧值；新插件（首次编译）从 0 起计。
+        $prev = $prevByPlugin[$id]
+        if ($prev) {
+            if ($prev.version -and $prev.version -ne $tag) {
+                # 版本变化：累加上一个版本的 downloadCount + previousDownloadCount
+                $previousDownloadCount = $prev.downloadCount + $prev.previousDownloadCount
+            } else {
+                # 版本未变：保持旧 previousDownloadCount
+                $previousDownloadCount = $prev.previousDownloadCount
+            }
+        } else {
+            $previousDownloadCount = 0
+        }
+        $totalDownloadCount = $downloadCount + $previousDownloadCount
+
         # sha256 / size from the ACTUAL published bytes (download the jar, compute locally).
         & gh release download $tag --repo $Repo --pattern $jarName --dir $tmp --clobber
         if ($LASTEXITCODE -ne 0) { throw "Failed to download $jarName from release $tag." }
@@ -134,9 +177,11 @@ try {
             tags             = @($c.tags)
             homepageUrl      = $c.homepageUrl
             license          = $c.license
-            downloadCount    = $downloadCount
-            latestVersion    = $version
-            updatedTime      = $releasedTime
+            downloadCount     = $downloadCount
+            previousDownloadCount = $previousDownloadCount
+            totalDownloadCount = $totalDownloadCount
+            latestVersion     = $version
+            updatedTime       = $releasedTime
             iconToken        = $c.iconToken
             colorToken       = $c.colorToken
             recommended      = [bool]$c.recommended
@@ -163,7 +208,7 @@ try {
             market         = $market
             packages       = @($package)
         }
-        Write-Host "  + $id $version  ($sizeBytes bytes, sha256 $($sha256.Substring(0,12))..., downloads $downloadCount)"
+        Write-Host "  + $id $version  ($sizeBytes bytes, sha256 $($sha256.Substring(0,12))..., downloads $downloadCount + $previousDownloadCount = $totalDownloadCount)"
     }
 } finally {
     Remove-Item -Recurse -Force -LiteralPath $tmp -ErrorAction SilentlyContinue

@@ -26,8 +26,10 @@ import java.util.Map;
  * @param license         许可证标识（SPDX）
  * @param rating          平均评分（可空）
  * @param ratingCount     评分人数（可空）
- * @param downloadCount   下载量（可空）
- * @param latestVersion   最新可用版本号（可空）
+ * @param downloadCount      当前版本下载量（可空）
+ * @param previousDownloadCount  历史版本累积下载量（可空）
+ * @param totalDownloadCount 累积总下载量（可空）
+ * @param latestVersion      最新可用版本号（可空）
  * @param updatedTime     最近更新时间（ISO-8601，可空）
  * @param iconToken       已净化的展示图标受控 token
  * @param colorToken      已净化的展示强调色受控 token
@@ -47,6 +49,8 @@ public record PluginMarketMetaView(
         Double rating,
         Integer ratingCount,
         Long downloadCount,
+        Long previousDownloadCount,
+        Long totalDownloadCount,
         String latestVersion,
         String updatedTime,
         String iconToken,
@@ -79,6 +83,8 @@ public record PluginMarketMetaView(
                 meta.rating(),
                 meta.ratingCount(),
                 meta.downloadCount(),
+                meta.previousDownloadCount(),
+                meta.totalDownloadCount(),
                 meta.latestVersion(),
                 meta.updatedTime(),
                 CatalogPresentationToken.sanitizeIcon(meta.iconToken()),

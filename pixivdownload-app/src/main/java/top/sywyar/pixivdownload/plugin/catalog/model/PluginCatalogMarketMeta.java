@@ -28,8 +28,10 @@ import java.util.Map;
  * @param license        许可证标识（如 SPDX {@code MIT} / {@code GPL-3.0}；仅展示）
  * @param rating         平均评分（可空，仅展示）
  * @param ratingCount    评分人数（可空，仅展示）
- * @param downloadCount  下载量（可空，仅展示 / 排序；由仓库服务端产出、本机只读）
- * @param latestVersion  最新可用版本号（可空；与版本包列表配合标记「有更新」）
+ * @param downloadCount      当前版本下载量（可空，仅展示 / 排序；由仓库服务端产出、本机只读）
+ * @param previousDownloadCount  历史版本累积下载量（可空；跨版本累加，首次生成为 0；由仓库服务端产出、本机只读）
+ * @param totalDownloadCount 累积总下载量（可空；downloadCount + previousDownloadCount；由仓库服务端产出、本机只读）
+ * @param latestVersion      最新可用版本号（可空；与版本包列表配合标记「有更新」）
  * @param updatedTime    最近更新时间（ISO-8601 字符串，可空；仅展示 / 排序）
  * @param iconToken      展示图标受控 token（非法 / 空 → {@link CatalogPresentationToken#sanitizeIcon} 回退）
  * @param colorToken     展示强调色受控 token（非法 / 空 → {@link CatalogPresentationToken#sanitizeColor} 回退）
@@ -49,6 +51,8 @@ public record PluginCatalogMarketMeta(
         Double rating,
         Integer ratingCount,
         Long downloadCount,
+        Long previousDownloadCount,
+        Long totalDownloadCount,
         String latestVersion,
         String updatedTime,
         String iconToken,

@@ -45,7 +45,7 @@
     };
     function downloads(entry) {
         var m = market(entry);
-        return m && m.downloadCount != null ? Number(m.downloadCount) : 0;
+        return m && m.totalDownloadCount != null ? Number(m.totalDownloadCount) : 0;
     }
     function rating(entry) {
         var m = market(entry);
@@ -72,7 +72,7 @@
         var m = market(entry) || {};
         var author = D.entryAuthor(entry);
         var ratingVal = m.rating != null ? Number(m.rating) : null;
-        var dl = PMK.formatDownloads(m.downloadCount);
+        var dl = PMK.formatDownloads(m.totalDownloadCount);
         var category = D.entryCategory(entry);
         return {
             pluginId: entry.pluginId,

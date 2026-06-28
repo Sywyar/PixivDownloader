@@ -199,6 +199,8 @@ class PluginCatalogServiceTest {
                         "rating": 4.5,
                         "ratingCount": 12,
                         "downloadCount": 1820,
+                        "previousDownloadCount": 3500,
+                        "totalDownloadCount": 5320,
                         "latestVersion": "1.2.3",
                         "updatedTime": "2026-06-20",
                         "iconToken": "chart-line",
@@ -241,6 +243,8 @@ class PluginCatalogServiceTest {
         assertThat(market.rating()).isEqualTo(4.5);
         assertThat(market.ratingCount()).isEqualTo(12);
         assertThat(market.downloadCount()).isEqualTo(1820L);
+        assertThat(market.previousDownloadCount()).isEqualTo(3500L);
+        assertThat(market.totalDownloadCount()).isEqualTo(5320L);
         assertThat(market.latestVersion()).isEqualTo("1.2.3");
         assertThat(market.iconToken()).isEqualTo("chart-line");
         assertThat(market.recommended()).isTrue();

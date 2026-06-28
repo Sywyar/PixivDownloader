@@ -109,11 +109,11 @@ class PluginMarketServiceTest {
         PluginCatalogMarketMeta unsafe = new PluginCatalogMarketMeta(
                 Map.of("zh", "示例"), Map.of(), Map.of(), "author", "community",
                 "download", List.of("tag"), "javascript:alert(1)", "MIT",
-                4.5, 10, 1000L, "1.0.0", "2026-06-01",
+                4.5, 10, 1000L, null, null, "1.0.0", "2026-06-01",
                 "<script>", "rgb(1,2,3)", true, false);
         PluginCatalogMarketMeta translateMeta = new PluginCatalogMarketMeta(
                 Map.of(), Map.of(), Map.of(), null, null, "translate", List.of(),
-                null, null, null, null, null, null, null, null, null, false, false);
+                null, null, null, null, null, null, null, null, null, null, null, false, false);
         PluginCatalogManifest manifest = new PluginCatalogManifest("1", null, List.of(
                 new PluginCatalogEntry("a", "a:name", null, unsafe, List.of(
                         new PluginCatalogPackage("1.0.0", "https://x/a.jar", 100L, "ab", null,
