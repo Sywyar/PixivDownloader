@@ -22,7 +22,7 @@
 ## Features
 
 > [!WARNING]
-> **Items marked with `*` are not yet available in the stable release (dev only)**
+> **Items marked with `*` are not yet available in the stable release (nightly build only)**
 
 - One-stop download web page: Quick Fetch, Bulk Import Single Works, User Mode, Search Mode, Series Mode
 - Quick Fetch: with the saved Cookie, one-click load your own bookmarks (illust/novel, incl. private), your own works (incl. private), following list, and collections; drill in and add to the download queue
@@ -35,8 +35,8 @@
   cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- *Plugin management page: a card list showing every plugin with status, source, version, and dependencies; lifecycle actions for external plugins (Not yet launched)
-- *Plugin marketplace page: browse, search, filter and install plugins from trusted repositories (effective after restart); repository list configurable in desktop GUI (Not yet launched)
+- `*` Plugin management page: a card list showing every plugin with status, source, version, and dependencies; lifecycle actions for external plugins (Not yet launched)
+- `*` Plugin marketplace page: browse, search, filter and install plugins from trusted repositories (effective after restart); repository list configurable in desktop GUI (Not yet launched)
 - Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, supporting three source types
 - Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
