@@ -46,7 +46,8 @@ jobs:
 
       - name: Generate market manifest.json (from published releases)
         # 始终运行：从已发布的 Release 资产推导 sha256/size/downloadCount（不依赖本次是否构建），刷新清单。
-        shell: powershell
+        # 使用 pwsh 而非 powershell：Windows PowerShell 5.1 的 ConvertTo-Json 会产生楼梯式缩进。
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
         run: >
