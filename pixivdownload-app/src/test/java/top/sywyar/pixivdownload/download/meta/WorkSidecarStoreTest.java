@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 
@@ -83,7 +84,7 @@ class WorkSidecarStoreTest {
 
     /** 把任意原始 JSON 文本直接写到 {workId}.meta.json，用于构造非法 / 损坏 sidecar。 */
     private void writeRaw(long workId, String json) throws Exception {
-        Files.writeString(dir.resolve(WorkSidecarStore.fileName(workId)), json);
+        Files.writeString(dir.resolve(WorkSidecarFiles.fileName(workId)), json);
     }
 
     @Test
@@ -160,12 +161,12 @@ class WorkSidecarStoreTest {
     }
 
     @Test
-    @DisplayName("文件名判定与生成：*.meta.json")
-    void shouldIdentifySidecarFileNames() {
-        assertThat(WorkSidecarStore.fileName(7L)).isEqualTo("7.meta.json");
-        assertThat(WorkSidecarStore.isSidecarFileName("7.meta.json")).isTrue();
-        assertThat(WorkSidecarStore.isSidecarFileName("7.jpg")).isFalse();
-        assertThat(WorkSidecarStore.isSidecarFile(Path.of("a", "b", "7.meta.json"))).isTrue();
-        assertThat(WorkSidecarStore.isSidecarFile(Path.of("a", "7_p0.jpg"))).isFalse();
+    @DisplayName("sidecar 落盘路径兼容既有 {workId}.meta.json 命名")
+    void shouldWriteToLegacySidecarFileName() throws Exception {
+        store.write(dir, 7L, sampleDoc());
+        // 命名规则已下沉到 WorkSidecarFiles；此处仅验证 store 的读写路径与既有 {workId}.meta.json 命名兼容。
+        assertThat(WorkSidecarFiles.fileName(7L)).isEqualTo("7.meta.json");
+        assertThat(Files.exists(dir.resolve("7.meta.json"))).isTrue();
+        assertThat(store.read(dir, WorkType.ARTWORK, 7L)).isPresent();
     }
 }

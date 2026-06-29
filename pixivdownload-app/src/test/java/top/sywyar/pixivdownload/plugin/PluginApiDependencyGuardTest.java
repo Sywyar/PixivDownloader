@@ -458,4 +458,29 @@ class PluginApiDependencyGuardTest {
                 .because("common 是叶子工具包，只允许依赖 config / i18n 两个基础设施包")
                 .check(CLASSES);
     }
+
+    @Test
+    @DisplayName("quota 包不得依赖 download 包：配额打包排除 sidecar 经中性 WorkSidecarFiles 判定")
+    void quotaDoesNotDependOnDownloadPackage() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.quota..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.download..")
+                .because("quota 是配额管理包，配额打包排除 *.meta.json 经核心中性类 "
+                        + "core.metadata.sidecar.WorkSidecarFiles 判定，不得反向依赖 download 包（消除 "
+                        + "download ↔ quota 循环回潮）")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("imageclassifier 包不得依赖 download.meta 包：sidecar 命名经中性 WorkSidecarFiles 判定")
+    void imageClassifierDoesNotDependOnDownloadMetaPackage() {
+        noClasses()
+                .that().resideInAPackage("top.sywyar.pixivdownload.imageclassifier..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.download.meta..")
+                .because("ImageClassifier 是独立 Swing 应用，搬移图片时携带 sidecar 经核心中性类 "
+                        + "core.metadata.sidecar.WorkSidecarFiles 判定文件名，不得反向依赖 download.meta 实现包")
+                .check(CLASSES);
+    }
 }

@@ -10,7 +10,7 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkFileNameFormatter;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
-import top.sywyar.pixivdownload.download.meta.WorkSidecarStore;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 
 import java.io.File;
 import java.io.IOException;
@@ -212,7 +212,7 @@ public class ArtworkFileLocator {
         }
         // 作品 meta sidecar（{artworkId}.meta.json）随作品删除一并清除；按 artworkId 键的 stem，
         // 即使目录是共享分类目录也只触本作品命名空间。
-        stems.add(getBaseName(WorkSidecarStore.fileName(artwork.artworkId())));
+        stems.add(getBaseName(WorkSidecarFiles.fileName(artwork.artworkId())));
         return matchFilesByStems(directory, stems);
     }
 

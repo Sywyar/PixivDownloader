@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelRecord;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.download.meta.WorkSidecarStore;
 import top.sywyar.pixivdownload.plugin.api.work.model.LocalWorkAsset;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkAssetFile;
@@ -169,7 +170,7 @@ public class LocalWorkAssetService implements WorkAssetService {
             List<Path> paths = stream
                     .filter(Files::isRegularFile)
                     // meta sidecar 是作品自身元数据、非可下载内容文件，排除出枚举（导出 zip 不含 *.meta.json）。
-                    .filter(p -> !WorkSidecarStore.isSidecarFile(p))
+                    .filter(p -> !WorkSidecarFiles.isSidecarFile(p))
                     .sorted(Comparator.comparing(Path::toString))
                     .toList();
             List<WorkAssetFile> files = new ArrayList<>(paths.size());

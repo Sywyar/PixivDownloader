@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;
 
@@ -23,52 +24,31 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * 作品 meta sidecar 的文件层读写：路径解析（{@code {workId}.meta.json}）、原子写入、
+ * 作品 meta sidecar 的文件层读写：路径解析、原子写入、
  * 以及把落盘 JSON 解析回纯 JDK-only 的 {@link WorkSidecarMeta}（Jackson 解析只在本类发生）。
- * 生命周期排除（配额打包 / 小说导出）经 {@link #isSidecarFileName(String)} 统一判定文件名。
+ * 生命周期排除（配额打包 / 小说导出）经 {@link top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles#isSidecarFile}
+ * 统一判定文件名。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class WorkSidecarStore {
 
-    /** sidecar 文件名后缀：{@code {workId}.meta.json}（per-work 命名，避免 ImageClassifier 摊平单图作品时跨作品撞名）。 */
-    public static final String SIDECAR_SUFFIX = ".meta.json";
-
     /** {@code source} 顶层字段的合法取值（计划任务 / 前端转发 / 历史回填）。 */
     private static final Set<String> ALLOWED_SOURCES = Set.of("forward", "schedule", "backfill");
 
     private final ObjectMapper objectMapper;
 
-    /** sidecar 文件名（不含目录）。 */
-    public static String fileName(long workId) {
-        return workId + SIDECAR_SUFFIX;
-    }
-
-    /** 是否为 sidecar 文件名（供配额打包 / 小说导出枚举层排除 {@code *.meta.json}）。 */
-    public static boolean isSidecarFileName(String fileName) {
-        return fileName != null && fileName.endsWith(SIDECAR_SUFFIX);
-    }
-
-    /** 是否为 sidecar 路径。 */
-    public static boolean isSidecarFile(Path path) {
-        if (path == null) {
-            return false;
-        }
-        Path name = path.getFileName();
-        return name != null && isSidecarFileName(name.toString());
-    }
-
     /** sidecar 在作品目录下的路径。 */
     public Path sidecarPath(Path directory, long workId) {
-        return directory.resolve(fileName(workId));
+        return directory.resolve(WorkSidecarFiles.fileName(workId));
     }
 
     /** 原子写出 sidecar 文档（先写临时文件再移动），覆盖既有。 */
     public void write(Path directory, long workId, ObjectNode document) throws IOException {
         Files.createDirectories(directory);
         Path target = sidecarPath(directory, workId);
-        Path tmp = directory.resolve(fileName(workId) + ".tmp");
+        Path tmp = directory.resolve(WorkSidecarFiles.fileName(workId) + ".tmp");
         objectMapper.writeValue(tmp.toFile(), document);
         try {
             Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
