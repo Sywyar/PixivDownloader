@@ -15,12 +15,17 @@ import top.sywyar.pixivdownload.gui.theme.ThemePreference;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
+import org.yaml.snakeyaml.Yaml;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.net.BindException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -30,6 +35,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -81,6 +87,8 @@ public class GuiLauncher {
     private static final int LOG_HISTORY_COUNT = 5;
     private static final int DEFAULT_PORT = 6999;
     private static final String DEFAULT_ROOT = RuntimeFiles.DEFAULT_DOWNLOAD_ROOT;
+    /** 进程退出时同步关闭 Spring backend context 的超时上限：足够正常拆卸，又不让卡死的拆卸挂死进程退出。 */
+    private static final long BACKEND_CONTEXT_CLOSE_TIMEOUT_MS = 15_000L;
 
     /**
      * artworks / novels 表中由后端在启动时通过 {@code ALTER TABLE ... ADD COLUMN} 自动补齐的列
@@ -223,12 +231,28 @@ public class GuiLauncher {
 
         RuntimeFiles.prepareRuntimeFiles(rootFolder);
 
+        // ── 2a. 进程级插件 bootstrap 会话（PROCESS 拥有，复用于后端 restart，进程退出时关闭）────────
+        //    必须早于首个 Swing 窗口 / 主题安装：外置插件的发现要先于 FlatLaf 完成。会话 start 收敛插件目录
+        //    缺失 / 空 / 坏包 / 安装事务恢复失败为诊断，不抛、不阻断 GUI 进入系统 LookAndFeel。
+        final PluginBootstrapSession pluginSession = PluginBootstrapSession.createProcess(
+                RuntimeFiles.pluginsDirectory(), readPluginEnabledSnapshot(configPath));
+        pluginSession.start();
+        // 启动期 inventory / discovery 快照持有插件实例 / classloader 引用，仅存在于启动前的短生命周期窗口。
+        // 当前没有启动期快照消费者，进入 Spring 前显式释放，避免钉住运行期 reload / 卸载的旧 generation。
+        pluginSession.releaseStartupSnapshot();
+
         final int port = serverPort;
         final String root = rootFolder;
         final ThemePreference theme = themePreference;
         String[] backendArgs = filterArgs(args);
 
-        BackendLifecycleManager.configure(backendArgs, GuiLauncher::showBackendStartupFailure);
+        // 后端启动经显式、可清理的回调接收同一 PROCESS 会话——每次 startAsync（含 restart 的 start 阶段）都把同一会话
+        // 交接给 Spring，复用同一 manager / classloader；Spring context 关闭只关 context、不关 PROCESS 会话。configure 返回
+        // 的 Registration 句柄由进程退出协调器在退出时关闭（恢复默认 starter，释放对会话的静态引用）。
+        BackendLifecycleManager.Registration backendRegistration = BackendLifecycleManager.configure(
+                backendArgs, GuiLauncher::showBackendStartupFailure,
+                backendArgsForSession -> PixivDownloadApplication.start(backendArgsForSession, pluginSession));
+        registerProcessShutdown(pluginSession, backendRegistration);
 
         // ── 3. 初始化 Swing + FlatLaf，展示主窗口 ────────────────────────────────
         SwingUtilities.invokeLater(() -> {
@@ -728,6 +752,56 @@ public class GuiLauncher {
                 }
             }
         }, "single-instance-shutdown"));
+    }
+
+    /**
+     * 读取 config.yaml 的 {@code plugins.<featureId>.enabled} 启用快照（UTF-8）。失败安全回退为全部启用并记日志——
+     * 不阻止 GUI 使用现有 FlatLaf / 系统 LookAndFeel；解析出的非法值由快照自身记诊断、按缺项默认启用处理。
+     */
+    private static PluginEnabledSnapshot readPluginEnabledSnapshot(Path configPath) {
+        if (!Files.isRegularFile(configPath)) {
+            return PluginEnabledSnapshot.empty();
+        }
+        try {
+            Map<String, Object> loaded = new Yaml().load(Files.readString(configPath, StandardCharsets.UTF_8));
+            Object pluginsSection = loaded == null ? null : loaded.get("plugins");
+            if (!(pluginsSection instanceof Map<?, ?> plugins)) {
+                return PluginEnabledSnapshot.empty();
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> typed = (Map<String, Object>) plugins;
+            return PluginEnabledSnapshot.of(typed, "config.yaml");
+        } catch (RuntimeException | IOException e) {
+            log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));
+            return PluginEnabledSnapshot.empty();
+        }
+    }
+
+    /**
+     * 注册进程退出协调器为单一 JVM shutdown hook：进程最终退出时按固定顺序清退——禁止新 backend start/restart →
+     * 清理 starter 注册（释放对 PROCESS 会话的静态引用）→ 同步关闭 Spring context（等其拆卸完成）→ 最后关闭 PROCESS
+     * bootstrap 会话（停 / 卸载 PF4J、释放 classloader）。顺序确定、不依赖多 hook 的未定义执行顺序，保证 Spring context
+     * 清退先于 PF4J classloader 卸载。多次触发或 backend 已停 / 启动失败均安全（各步幂等、隔离）。
+     */
+    private static void registerProcessShutdown(PluginBootstrapSession session,
+                                                BackendLifecycleManager.Registration registration) {
+        // contextCloseStep 返回 CloseResult：仅当 Spring context 确认关闭后才关 PF4J session，避免超时后并发卸载
+        // 仍被 Spring 触碰的 classloader（残余资源由进程退出经 OS 释放）。
+        BackendShutdownCoordinator coordinator = new BackendShutdownCoordinator(
+                BackendLifecycleManager::forbidLifecycle,
+                registration,
+                BackendLifecycleManager::closeBackendContext,
+                BACKEND_CONTEXT_CLOSE_TIMEOUT_MS,
+                session);
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                coordinator.shutdown();
+            } catch (RuntimeException e) {
+                if (log != null) {
+                    log.debug(logMessage("gui.launcher.log.plugin-session.close-failed", e.getMessage()));
+                }
+            }
+        }, "process-shutdown"));
     }
 
     private static String message(String code, Object... args) {

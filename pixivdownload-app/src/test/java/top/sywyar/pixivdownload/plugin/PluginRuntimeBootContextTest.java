@@ -11,6 +11,8 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,6 +60,10 @@ class PluginRuntimeBootContextTest {
     private PluginDiscoveryResult pluginDiscoveryResult;
     @Autowired
     private PluginRegistry pluginRegistry;
+    @Autowired
+    private PluginBootstrapSession pluginBootstrapSession;
+    @Autowired
+    private ExternalPluginInstaller externalPluginInstaller;
 
     @Test
     @DisplayName("无 plugins/ 目录：上下文照常加载，运行时状态报告 ABSENT、零加载、零失败、未创建目录")
@@ -73,6 +79,20 @@ class PluginRuntimeBootContextTest {
         // 无外置插件：发现结果为空（既无发现也无失败）
         assertThat(pluginDiscoveryResult.discovered()).isEmpty();
         assertThat(pluginDiscoveryResult.hasFailures()).isFalse();
+    }
+
+    @Test
+    @DisplayName("headless 路径：单一 CONTEXT 会话装配——注入的 manager/status/installer 同出一会话、ownership=CONTEXT、只扫描一次")
+    void headlessContextOwnsSingleContextSession() {
+        // headless / @SpringBootTest 路径：无 GUI handoff，config 自建 CONTEXT 拥有的会话并 start
+        assertThat(pluginBootstrapSession.ownership()).isEqualTo(PluginBootstrapSession.Ownership.CONTEXT);
+        assertThat(pluginBootstrapSession.isStarted()).isTrue();
+        // 注入的 manager / status / installer 全部来自同一会话（config 未 new 第二个 manager）
+        assertThat(pluginRuntimeManager).isSameAs(pluginBootstrapSession.manager());
+        assertThat(pluginRuntimeStatus).isSameAs(pluginBootstrapSession.status());
+        assertThat(externalPluginInstaller).isSameAs(pluginBootstrapSession.installer());
+        // ABSENT 目录零加载、不构造 PF4J 实例——只扫描一次、无第二套 classloader
+        assertThat(pluginRuntimeManager.pluginManager()).isEmpty();
     }
 
     @Test

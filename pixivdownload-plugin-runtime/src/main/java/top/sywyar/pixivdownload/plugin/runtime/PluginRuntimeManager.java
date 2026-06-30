@@ -51,8 +51,7 @@ public class PluginRuntimeManager {
         resetPluginManager();
 
         if (!Files.isDirectory(pluginsRoot)) {
-            PluginDirectoryState state = Files.exists(pluginsRoot)
-                    ? PluginDirectoryState.ABSENT : PluginDirectoryState.ABSENT;
+            PluginDirectoryState state = PluginDirectoryState.ABSENT;
             return cache(new PluginRuntimeStatus(directory, state, List.of(), List.of(), List.of()));
         }
 
@@ -261,7 +260,16 @@ public class PluginRuntimeManager {
     }
 
     public synchronized PluginDiscoveryResult discoverFeaturePlugins() {
-        PluginDiscoveryResult raw = inspectPlugins().toDiscoveryResult();
+        return toDiscoveryResult(inspectPlugins());
+    }
+
+    /**
+     * 从既有 inventory 投影发现结果（不重新清点 / 不再次调用 provider），仅把当前 generation 盖到每条 discovered 上。
+     * 供 bootstrap 会话在启动期同一次清点内同时产出 inventory 与 discovery，避免对 provider 重复调用。
+     */
+    public synchronized PluginDiscoveryResult toDiscoveryResult(PluginInventory inventory) {
+        PluginInventory source = inventory == null ? PluginInventory.empty() : inventory;
+        PluginDiscoveryResult raw = source.toDiscoveryResult();
         List<DiscoveredFeaturePlugin> discovered = raw.discovered().stream()
                 .map(item -> new DiscoveredFeaturePlugin(item.sourcePluginId(),
                         generation(item.sourcePluginId()).orElse(0L), item.plugin(), item.classLoader()))
@@ -281,6 +289,39 @@ public class PluginRuntimeManager {
                 .sorted(Comparator.comparing(entry -> entry.packageId))
                 .map(entry -> snapshot(entry, true))
                 .toList();
+    }
+
+    /**
+     * 进程级关闭：停止全部已启动插件、卸载全部插件、释放 PF4J classloader / 文件句柄、清空内部 entry / status / generation
+     * 引用。多次调用安全（幂等）；批量 stop / unload 各自 best-effort——任一抛错只记日志、不影响另一批清退，不致核心退出失败。
+     * 供唯一 bootstrap session 在进程最终退出（PROCESS）或 context 销毁（CONTEXT）时统一关闭运行时；禁止 app 侧经
+     * {@link #pluginManager()} 直接操作 PF4J。不抛异常、不吞掉 JVM 致命 Error。
+     */
+    public synchronized void shutdown() {
+        PluginManager previous = pluginManager;
+        if (previous == null && entries.isEmpty()) {
+            // 已关闭（或从未扫描）：清空残余引用即返回，幂等。
+            generations.clear();
+            status = null;
+            return;
+        }
+        pluginManager = null;
+        entries.clear();
+        generations.clear();
+        status = null;
+        if (previous == null) {
+            return;
+        }
+        try {
+            previous.stopPlugins();
+        } catch (RuntimeException e) {
+            log.warn("Error stopping plugins during runtime shutdown: {}", describe(e));
+        }
+        try {
+            previous.unloadPlugins();
+        } catch (RuntimeException e) {
+            log.warn("Error unloading plugins during runtime shutdown: {}", describe(e));
+        }
     }
 
     public Path pluginsRoot() {
