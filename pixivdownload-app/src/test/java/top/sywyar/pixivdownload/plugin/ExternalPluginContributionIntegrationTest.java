@@ -4,6 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
@@ -11,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.gui.GuiThemeContributionRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 
@@ -74,6 +77,21 @@ class ExternalPluginContributionIntegrationTest {
 
         schema.unregister("ext-demo");
         assertThat(schema.contributions()).noneMatch(c -> c.ownerPluginId().equals("ext-demo"));
+    }
+
+    @Test
+    @DisplayName("外置插件 GUI 主题贡献进入 GuiThemeContributionRegistry，注销后不残留")
+    void externalGuiThemeRegistersAndUnregister() {
+        PluginRegistry registry = registryWithExternal(new ExternalDemoPlugin());
+        GuiThemeContributionRegistry themes = new GuiThemeContributionRegistry(registry);
+
+        assertThat(themes.find("ext-demo.dark")).isPresent()
+                .get()
+                .extracting(GuiThemeContributionRegistry.RegisteredTheme::pluginId)
+                .isEqualTo("ext-demo");
+
+        themes.unregister("ext-demo");
+        assertThat(themes.find("ext-demo.dark")).isEmpty();
     }
 
     @Test
@@ -159,6 +177,16 @@ class ExternalPluginContributionIntegrationTest {
         @Override
         public List<I18nContribution> i18n() {
             return List.of(new I18nContribution("ext-demo", "i18n.web.ext-demo"));
+        }
+
+        @Override
+        public List<GuiThemeContribution> guiThemes() {
+            return List.of(new GuiThemeContribution(
+                    "ext-demo.dark",
+                    locale -> "External Demo Dark",
+                    GuiThemeAppearance.DARK,
+                    () -> {
+                    }));
         }
     }
 }

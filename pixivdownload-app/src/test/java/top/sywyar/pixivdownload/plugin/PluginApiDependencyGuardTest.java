@@ -75,6 +75,18 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
+    @DisplayName("plugin.api.gui 主题契约只能依赖 JDK 与 plugin-api 自身")
+    void pluginApiGuiThemeContractIsPureJdk() {
+        classes()
+                .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api.gui..")
+                .should().onlyDependOnClassesThat()
+                .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..")
+                .because("GUI 主题 contribution 是跨边界契约：只能依赖 JDK 与 plugin-api 自身，"
+                        + "不得引入 PF4J / Spring / FlatLaf / JNA 或 app 业务类型")
+                .check(CLASSES);
+    }
+
+    @Test
     @DisplayName("核心不得反向依赖 stats 插件包（组合根 BuiltInPlugins 除外）")
     void coreDoesNotDependOnStatsPlugin() {
         noClasses()
