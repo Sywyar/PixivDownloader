@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
     Per-plugin, version-gated build + publish / repair: for each official optional plugin, create the
-    GitHub Release when missing, or supplement missing release assets for the current plugin.version.
+    GitHub Release when missing, supplement missing release assets for the current plugin.version, or
+    force rebuild and replace release assets.
 
 .DESCRIPTION
     Version is the immutability key. For each plugin:
@@ -18,11 +19,18 @@
     The market manifest is generated separately (generate-market-manifest.ps1) from the published releases.
     ASCII source; runs under Windows PowerShell / pwsh. Needs gh + GH_TOKEN and Maven (mvnw / mvn).
 
+    With -Force/-f, every official plugin is rebuilt for the source plugin.version. Existing expected release
+    assets (artifact + .sha256 + .sig) are deleted before the freshly built files are uploaded, so a manual
+    repair can replace an already-published asset set without changing the release tag.
+
 .PARAMETER Repo
     owner/repo of the plugin distribution repository. Default Sywyar/PixivDownloader-plugins.
 
 .PARAMETER ProjectRoot
     Repo root. Default = parent of this script's dir.
+
+.PARAMETER Force
+    Rebuild every official plugin and replace existing expected release assets for the current plugin.version.
 #>
 [CmdletBinding()]
 param(
@@ -30,7 +38,9 @@ param(
     [string]$ProjectRoot,
     [string]$OfficialKeyId,
     [string]$PrivateKeyFile,
-    [string]$SignatureToolJar
+    [string]$SignatureToolJar,
+    [Alias("f")]
+    [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
@@ -179,6 +189,25 @@ function Upload-ReleaseAssetFiles {
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed for $Tag." }
 }
 
+function Remove-ExistingReleaseAssets {
+    param(
+        [Parameter(Mandatory = $true)][string]$Tag,
+        [Parameter(Mandatory = $true)][string[]]$AssetNames,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$ExistingAssetNames
+    )
+
+    foreach ($assetName in $AssetNames) {
+        if ($ExistingAssetNames -notcontains $assetName) {
+            continue
+        }
+        Write-Host "==> Deleting existing asset $assetName from $Tag before force upload."
+        gh release delete-asset $Tag $assetName --repo $Repo --yes
+        if ($LASTEXITCODE -ne 0) { throw "gh release delete-asset failed for $Tag asset $assetName." }
+    }
+}
+
 $mvn = Get-MavenCommand $ProjectRoot
 $stageDir = Join-Path $ProjectRoot "build/release-plugins"
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
@@ -193,9 +222,31 @@ foreach ($plugin in $plugins) {
     $sigAssetName = "$assetName.sig"
     $expectedAssets = @($assetName, $shaAssetName, $sigAssetName)
     $release = Get-ReleaseAssetState $tag
+    $assetNames = @($release.AssetNames)
+
+    if ($Force) {
+        if ($release.Exists) {
+            Write-Host "==> Force publishing $tag; rebuilding and replacing expected assets."
+        } else {
+            Write-Host "==> Force publishing $tag; release does not exist yet."
+        }
+
+        $stagedArtifact = Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName
+        $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
+
+        if ($release.Exists) {
+            Remove-ExistingReleaseAssets -Tag $tag -AssetNames $expectedAssets -ExistingAssetNames $assetNames
+        } else {
+            gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version"
+            if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
+        }
+
+        Upload-ReleaseAssetFiles -Tag $tag -Paths @($stagedArtifact, $companions.ShaFile, $companions.SigFile)
+        $published += "$tag (forced)"
+        continue
+    }
 
     if ($release.Exists) {
-        $assetNames = @($release.AssetNames)
         $missingAssets = @($expectedAssets | Where-Object { $assetNames -notcontains $_ })
         if ($missingAssets.Count -eq 0) {
             Write-Host "= $tag already published with expected assets; skip."

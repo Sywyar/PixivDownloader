@@ -12,6 +12,12 @@ on:
     # 每日定时（与 nightly 同 cron）：发布幂等，主要用于刷新 manifest 的 download_count 快照。
     - cron: '33 18 * * *'
   workflow_dispatch:
+    inputs:
+      publish_args:
+        description: '可选发布参数；填写 -f 时强制重编译并覆盖上传所有插件资产'
+        required: false
+        type: string
+        default: ''
 
 # 本仓库只需读（checkout）；对分发仓库的写全部经 PAT，不靠默认 GITHUB_TOKEN。
 permissions:
@@ -72,17 +78,32 @@ jobs:
           }
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile`n", (New-Object System.Text.UTF8Encoding($false)))
 
-      - name: Build + publish updated plugins (per-plugin, version-gated)
+      - name: Build + publish updated plugins (per-plugin, version-gated or forced)
         # 仅对「plugin.version 尚无对应 Release」的插件单独编译（mvn -pl <module> -am，不全量构建）并发布；
         # 版本已发布的插件跳过、绝不重编译 / 重上传（不可变）。更新一个插件 = 只编译并发布这一个。
+        # 手动触发时 publish_args 填 -f 会强制每个插件都重编译，并先删除同名 Release 资产后重新上传。
         shell: powershell
         env:
           GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
-        run: >
-          .\scripts\publish-plugin-releases.ps1
-          -Repo $env:PLUGINS_REPO
-          -OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID
-          -PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
+          PUBLISH_PLUGIN_ARGS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_args || '' }}
+        run: |
+          $publishArgs = @(
+            "-Repo", $env:PLUGINS_REPO,
+            "-OfficialKeyId", $env:PLUGIN_SIGNING_KEY_ID,
+            "-PrivateKeyFile", $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
+          )
+          $inputTokens = @()
+          if (-not [string]::IsNullOrWhiteSpace($env:PUBLISH_PLUGIN_ARGS)) {
+            $inputTokens = @($env:PUBLISH_PLUGIN_ARGS -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+          }
+          $unsupportedTokens = @($inputTokens | Where-Object { $_ -notin @("-f", "-Force") })
+          if ($unsupportedTokens.Count -gt 0) {
+            throw "Unsupported publish_args value(s): $($unsupportedTokens -join ', '). Only -f is supported."
+          }
+          if (@($inputTokens | Where-Object { $_ -in @("-f", "-Force") }).Count -gt 0) {
+            $publishArgs += "-Force"
+          }
+          .\scripts\publish-plugin-releases.ps1 @publishArgs
 
       - name: Generate market manifest.json (from published releases)
         # 始终运行：从已发布的 Release 资产推导 sha256/size/downloadCount（不依赖本次是否构建），刷新清单。
