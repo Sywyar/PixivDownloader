@@ -127,6 +127,49 @@ class PluginRepositoryConfigEditorTest {
     }
 
     @Test
+    @DisplayName("仓库 trusted-keys 作为一等字段往返保留，Spring Binder 绑定等价")
+    void trustedKeysRoundTripAndBind() throws IOException {
+        Path file = writeFile("plugin-catalog.enabled: true", "plugin-catalog.repositories:");
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+        TrustedKeyConfigEntry customKey = TrustedKeyConfigEntry.create(
+                "custom-key", "Ed25519",
+                "MCowBQYDK2VwAyEA8no36HyWNxrjbl10qGcIumILxcgau/0egy3RODVNUIc=",
+                "ACTIVE", "Custom Publisher", "Custom Trust");
+
+        editor.write(List.of(new RepositoryConfigEntry(
+                "signed", "", "https://signed.example/manifest.json", true,
+                "direct-strict", false, true, false, false,
+                0, 0, 0, 0, List.of(customKey), new java.util.LinkedHashMap<>())));
+
+        RepositoryConfigEntry readBack = editor.read().get(0);
+        assertThat(readBack.trustedKeys()).hasSize(1);
+        assertThat(readBack.trustedKeys().get(0)).isEqualTo(customKey);
+
+        PluginCatalogProperties.RepositoryConfig bound = bind(file).getRepositories().get(0);
+        assertThat(bound.getTrustedKeys()).hasSize(1);
+        assertThat(bound.getTrustedKeys().get(0).getKeyId()).isEqualTo("custom-key");
+        assertThat(bound.getTrustedKeys().get(0).getAlgorithm()).isEqualTo("Ed25519");
+        assertThat(bound.getTrustedKeys().get(0).getPublicKey()).isEqualTo(customKey.publicKey());
+        assertThat(bound.getTrustedKeys().get(0).getState()).isEqualTo("ACTIVE");
+        assertThat(bound.getTrustedKeys().get(0).getPublisher()).isEqualTo("Custom Publisher");
+        assertThat(bound.getTrustedKeys().get(0).getTrustLabel()).isEqualTo("Custom Trust");
+    }
+
+    @Test
+    @DisplayName("未填写仓库 trusted key 时不写入官方 root")
+    void emptyTrustedKeysDoNotWriteOfficialRoot() throws IOException {
+        Path file = writeFile("plugin-catalog.enabled: true", "plugin-catalog.repositories:");
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+
+        editor.write(List.of(repo("plain", "https://plain.example/manifest.json", true, "direct-strict")));
+
+        String content = Files.readString(file, StandardCharsets.UTF_8);
+        assertThat(content).doesNotContain("trusted-keys:");
+        assertThat(editor.read().get(0).trustedKeys()).isEmpty();
+        assertThat(bind(file).getRepositories().get(0).getTrustedKeys()).isEmpty();
+    }
+
+    @Test
     @DisplayName("自定义网络开关缺省时采用直连严格的安全默认值")
     void customNetworkOptionsUseSafeDefaults() throws IOException {
         Path file = writeFile(

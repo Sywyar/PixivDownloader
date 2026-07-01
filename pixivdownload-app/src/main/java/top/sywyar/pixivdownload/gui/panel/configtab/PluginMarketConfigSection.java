@@ -7,9 +7,12 @@ import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
+import top.sywyar.pixivdownload.gui.config.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -18,8 +21,10 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Function;
 
 /**
@@ -38,6 +43,8 @@ public final class PluginMarketConfigSection implements ConfigSection {
 
     /** 市场页路径（核心壳的 admin-only Web 市场页；经共享 webUrlProvider 打开，不新增任何 GUI 写端点）。 */
     static final String MARKET_PAGE = "/plugin-market.html";
+    private static final Dimension REPOSITORY_DIALOG_MIN_SIZE = new Dimension(680, 760);
+    private static final Dimension TRUSTED_KEY_TABLE_PREFERRED_SIZE = new Dimension(560, 150);
     private static final List<String> GLOBAL_DEFAULT_KEYS = List.of(
             "plugin-catalog.connect-timeout-ms", "plugin-catalog.read-timeout-ms",
             "plugin-catalog.max-manifest-bytes", "plugin-catalog.max-package-bytes");
@@ -470,6 +477,38 @@ public final class PluginMarketConfigSection implements ConfigSection {
         return comboSelection == null ? RepositoryProxyPolicy.DEFAULT.configId() : comboSelection.toString();
     }
 
+    static List<TrustedKeyConfigEntry> trustedKeysForSave(List<TrustedKeyConfigEntry> editedKeys,
+                                                          boolean inheritOfficialRoot) {
+        List<TrustedKeyConfigEntry> result = new ArrayList<>();
+        if (inheritOfficialRoot) {
+            result.add(TrustedKeyConfigEntry.officialRoot());
+        }
+        if (editedKeys != null) {
+            for (TrustedKeyConfigEntry key : editedKeys) {
+                if (!key.matchesBuiltInOfficialRoot()) {
+                    result.add(key);
+                }
+            }
+        }
+        return List.copyOf(result);
+    }
+
+    static boolean hasDuplicateTrustedKeyIds(List<TrustedKeyConfigEntry> keys) {
+        List<String> seen = new ArrayList<>();
+        for (TrustedKeyConfigEntry key : keys) {
+            String keyId = key.keyId() == null ? "" : key.keyId().trim();
+            if (keyId.isEmpty()) {
+                continue;
+            }
+            String normalized = keyId.toLowerCase(Locale.ROOT);
+            if (seen.contains(normalized)) {
+                return true;
+            }
+            seen.add(normalized);
+        }
+        return false;
+    }
+
     // ── 编辑对话框 ──────────────────────────────────────────────────────────────
 
     /** 新增 / 编辑单个自定义仓库的模态对话框；OK 时前置校验，全部通过才返回条目，取消返回 null。 */
@@ -497,6 +536,13 @@ public final class PluginMarketConfigSection implements ConfigSection {
                 message("gui.config.market.repo.custom.allow-non-public"));
         private final JCheckBox useProxyBox = new JCheckBox(
                 message("gui.config.market.repo.custom.use-proxy"));
+        private final JCheckBox inheritOfficialRootBox = new JCheckBox(
+                message("gui.config.market.repo.trust.inherit-official"));
+        private final List<TrustedKeyConfigEntry> trustedKeys = new ArrayList<>();
+        private final TrustedKeyTableModel trustedKeyTableModel = new TrustedKeyTableModel();
+        private JTable trustedKeyTable;
+        private JButton editTrustedKeyButton;
+        private JButton deleteTrustedKeyButton;
         private final JPanel customOptions = new JPanel();
         private JLabel customOptionsLabel;
         private final JTextArea policyRisk = new JTextArea();
@@ -520,7 +566,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
             buildForm();
             populate(existing);
             pack();
-            setMinimumSize(new Dimension(Math.max(520, getWidth()), getHeight()));
+            applyRepositoryDialogSize();
             setLocationRelativeTo(owner);
         }
 
@@ -574,6 +620,8 @@ public final class PluginMarketConfigSection implements ConfigSection {
             gbc.gridy = rowIndex[0]++;
             form.add(policyRisk, gbc);
 
+            addTrustRows(form, gbc, rowIndex);
+
             addFormRow(form, gbc, rowIndex, "gui.config.market.repo.field.connect-timeout", connectField);
             addFormRow(form, gbc, rowIndex, "gui.config.market.repo.field.read-timeout", readField);
             addFormRow(form, gbc, rowIndex, "gui.config.market.repo.field.max-manifest", manifestBytesField);
@@ -606,6 +654,71 @@ public final class PluginMarketConfigSection implements ConfigSection {
             getRootPane().setDefaultButton(ok);
         }
 
+        private void addTrustRows(JPanel form, GridBagConstraints gbc, int[] rowIndex) {
+            JLabel heading = new JLabel(message("gui.config.market.repo.trust.heading"));
+            heading.setFont(heading.getFont().deriveFont(Font.BOLD));
+            gbc.gridx = 0;
+            gbc.gridy = rowIndex[0]++;
+            gbc.gridwidth = 2;
+            form.add(heading, gbc);
+            gbc.gridwidth = 1;
+
+            JTextArea hint = new JTextArea(message("gui.config.market.repo.trust.hint"));
+            hint.setEditable(false);
+            hint.setFocusable(false);
+            hint.setOpaque(false);
+            hint.setLineWrap(true);
+            hint.setWrapStyleWord(true);
+            hint.setForeground(Color.GRAY);
+            hint.setFont(UIManager.getFont("Label.font").deriveFont(Font.PLAIN, 11f));
+            gbc.gridx = 0;
+            gbc.gridy = rowIndex[0]++;
+            gbc.gridwidth = 2;
+            form.add(hint, gbc);
+            gbc.gridwidth = 1;
+
+            addFormRow(form, gbc, rowIndex, "gui.config.market.repo.field.inherit-official-root",
+                    inheritOfficialRootBox);
+            addFormRow(form, gbc, rowIndex, "gui.config.market.repo.field.trusted-keys",
+                    buildTrustedKeyPanel());
+        }
+
+        private JComponent buildTrustedKeyPanel() {
+            trustedKeyTable = new JTable(trustedKeyTableModel);
+            trustedKeyTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            trustedKeyTable.setRowHeight(trustedKeyTable.getRowHeight() + 4);
+            trustedKeyTable.getTableHeader().setReorderingAllowed(false);
+            trustedKeyTable.getSelectionModel().addListSelectionListener(e -> updateTrustedKeyButtons());
+            trustedKeyTable.getColumnModel().getColumn(0).setPreferredWidth(150);
+            trustedKeyTable.getColumnModel().getColumn(1).setPreferredWidth(90);
+            trustedKeyTable.getColumnModel().getColumn(2).setPreferredWidth(90);
+            trustedKeyTable.getColumnModel().getColumn(3).setPreferredWidth(140);
+            trustedKeyTable.getColumnModel().getColumn(4).setPreferredWidth(160);
+
+            JScrollPane scroll = new JScrollPane(trustedKeyTable);
+            scroll.setPreferredSize(TRUSTED_KEY_TABLE_PREFERRED_SIZE);
+
+            JButton add = new JButton(message("gui.config.market.repo.trust.action.add"));
+            add.addActionListener(e -> addTrustedKey());
+            editTrustedKeyButton = new JButton(message("gui.config.market.repo.trust.action.edit"));
+            editTrustedKeyButton.addActionListener(e -> editTrustedKey());
+            deleteTrustedKeyButton = new JButton(message("gui.config.market.repo.trust.action.delete"));
+            deleteTrustedKeyButton.addActionListener(e -> deleteTrustedKey());
+            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+            buttons.setOpaque(false);
+            buttons.add(add);
+            buttons.add(editTrustedKeyButton);
+            buttons.add(deleteTrustedKeyButton);
+
+            JPanel panel = new JPanel();
+            panel.setOpaque(false);
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.add(scroll);
+            panel.add(buttons);
+            updateTrustedKeyButtons();
+            return panel;
+        }
+
         private JLabel addFormRow(JPanel form, GridBagConstraints gbc, int[] rowIndex,
                                   String labelKey, JComponent field) {
             JLabel label = new JLabel(message(labelKey) + message("gui.punctuation.colon"));
@@ -618,6 +731,98 @@ public final class PluginMarketConfigSection implements ConfigSection {
             form.add(field, gbc);
             rowIndex[0]++;
             return label;
+        }
+
+        private void addTrustedKey() {
+            TrustedKeyConfigEntry created = TrustedKeyFormDialog.show(this, null, trustedKeys);
+            if (created != null) {
+                trustedKeys.add(created);
+                trustedKeyTableModel.fireTableDataChanged();
+                selectTrustedKey(trustedKeys.size() - 1);
+            }
+        }
+
+        private void editTrustedKey() {
+            int row = trustedKeyTable == null ? -1 : trustedKeyTable.getSelectedRow();
+            if (row < 0) {
+                return;
+            }
+            List<TrustedKeyConfigEntry> others = new ArrayList<>(trustedKeys);
+            others.remove(row);
+            TrustedKeyConfigEntry edited = TrustedKeyFormDialog.show(this, trustedKeys.get(row), others);
+            if (edited != null) {
+                trustedKeys.set(row, edited);
+                trustedKeyTableModel.fireTableDataChanged();
+                selectTrustedKey(row);
+            }
+        }
+
+        private void deleteTrustedKey() {
+            int row = trustedKeyTable == null ? -1 : trustedKeyTable.getSelectedRow();
+            if (row < 0) {
+                return;
+            }
+            trustedKeys.remove(row);
+            trustedKeyTableModel.fireTableDataChanged();
+            updateTrustedKeyButtons();
+        }
+
+        private void selectTrustedKey(int row) {
+            if (trustedKeyTable != null && row >= 0 && row < trustedKeys.size()) {
+                trustedKeyTable.setRowSelectionInterval(row, row);
+            }
+            updateTrustedKeyButtons();
+        }
+
+        private void updateTrustedKeyButtons() {
+            int row = trustedKeyTable == null ? -1 : trustedKeyTable.getSelectedRow();
+            boolean hasSelection = row >= 0;
+            if (editTrustedKeyButton != null) {
+                editTrustedKeyButton.setEnabled(hasSelection);
+                deleteTrustedKeyButton.setEnabled(hasSelection);
+            }
+        }
+
+        private final class TrustedKeyTableModel extends AbstractTableModel {
+            private final String[] columns = {
+                    message("gui.config.market.repo.trust.table.col.key-id"),
+                    message("gui.config.market.repo.trust.table.col.algorithm"),
+                    message("gui.config.market.repo.trust.table.col.state"),
+                    message("gui.config.market.repo.trust.table.col.publisher"),
+                    message("gui.config.market.repo.trust.table.col.trust-label")};
+
+            @Override
+            public int getRowCount() {
+                return trustedKeys.size();
+            }
+
+            @Override
+            public int getColumnCount() {
+                return columns.length;
+            }
+
+            @Override
+            public String getColumnName(int column) {
+                return columns[column];
+            }
+
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+
+            @Override
+            public Object getValueAt(int row, int column) {
+                TrustedKeyConfigEntry key = trustedKeys.get(row);
+                return switch (column) {
+                    case 0 -> key.keyId();
+                    case 1 -> key.algorithm();
+                    case 2 -> trustedKeyStateLabel(key.state());
+                    case 3 -> key.publisher();
+                    case 4 -> key.trustLabel();
+                    default -> "";
+                };
+            }
         }
 
         private void populate(RepositoryConfigEntry entry) {
@@ -637,6 +842,14 @@ public final class PluginMarketConfigSection implements ConfigSection {
                 readField.setText(overrideText(entry.readTimeoutMs()));
                 manifestBytesField.setText(overrideText(entry.maxManifestBytes()));
                 packageBytesField.setText(overrideText(entry.maxPackageBytes()));
+                for (TrustedKeyConfigEntry trustedKey : entry.trustedKeys()) {
+                    if (trustedKey.matchesBuiltInOfficialRoot()) {
+                        inheritOfficialRootBox.setSelected(true);
+                    } else {
+                        trustedKeys.add(trustedKey);
+                    }
+                }
+                trustedKeyTableModel.fireTableDataChanged();
             }
             refreshPolicyOptions();
         }
@@ -656,8 +869,17 @@ public final class PluginMarketConfigSection implements ConfigSection {
             repaint();
             if (isShowing()) {
                 pack();
-                setMinimumSize(new Dimension(Math.max(520, getWidth()), getHeight()));
+                applyRepositoryDialogSize();
             }
+        }
+
+        private void applyRepositoryDialogSize() {
+            Dimension packed = getSize();
+            Dimension target = new Dimension(
+                    Math.max(REPOSITORY_DIALOG_MIN_SIZE.width, packed.width),
+                    Math.max(REPOSITORY_DIALOG_MIN_SIZE.height, packed.height));
+            setMinimumSize(target);
+            setSize(target);
         }
 
         private void onOk() {
@@ -672,6 +894,12 @@ public final class PluginMarketConfigSection implements ConfigSection {
                 errorLabel.setText(message(error));
                 return;
             }
+            List<TrustedKeyConfigEntry> keysForSave =
+                    trustedKeysForSave(trustedKeys, inheritOfficialRootBox.isSelected());
+            if (hasDuplicateTrustedKeyIds(keysForSave)) {
+                errorLabel.setText(message("gui.config.market.repo.trust.error.key-id-duplicate"));
+                return;
+            }
             result = new RepositoryConfigEntry(id,
                     existing == null ? "" : existing.displayNameKey(),
                     url, enabledBox.isSelected(), policyId,
@@ -681,6 +909,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
                     RepositoryConfigValidator.parseOverride(readField.getText()),
                     RepositoryConfigValidator.parseOverride(manifestBytesField.getText()),
                     RepositoryConfigValidator.parseOverride(packageBytesField.getText()),
+                    keysForSave,
                     existing == null ? new LinkedHashMap<>() : existing.extraFields());
             dispose();
         }
@@ -732,6 +961,184 @@ public final class PluginMarketConfigSection implements ConfigSection {
         }
     }
 
+    /** 新增 / 编辑单个 trusted key 的模态对话框。 */
+    private static final class TrustedKeyFormDialog extends JDialog {
+
+        private static final String[] STATES = {
+                TrustedPluginKey.State.ACTIVE.name(),
+                TrustedPluginKey.State.RETIRED.name(),
+                TrustedPluginKey.State.REVOKED.name()};
+
+        private final List<TrustedKeyConfigEntry> others;
+        private final TrustedKeyConfigEntry existing;
+        private TrustedKeyConfigEntry result;
+
+        private final JTextField keyIdField = new JTextField(24);
+        private final JTextField algorithmField = new JTextField(SignatureMetadata.ED25519, 24);
+        private final JTextArea publicKeyArea = new JTextArea(4, 36);
+        private final JComboBox<String> stateCombo = new JComboBox<>(STATES);
+        private final JTextField publisherField = new JTextField(24);
+        private final JTextField trustLabelField = new JTextField(24);
+        private final JLabel errorLabel = new JLabel(" ");
+
+        static TrustedKeyConfigEntry show(Component parent, TrustedKeyConfigEntry existing,
+                                          List<TrustedKeyConfigEntry> others) {
+            Window owner = parent == null ? null : SwingUtilities.getWindowAncestor(parent);
+            TrustedKeyFormDialog dialog = new TrustedKeyFormDialog(owner, existing, others);
+            dialog.setVisible(true);
+            return dialog.result;
+        }
+
+        private TrustedKeyFormDialog(Window owner, TrustedKeyConfigEntry existing,
+                                     List<TrustedKeyConfigEntry> others) {
+            super(owner, message(existing == null
+                    ? "gui.config.market.repo.trust.dialog.add.title"
+                    : "gui.config.market.repo.trust.dialog.edit.title"), ModalityType.APPLICATION_MODAL);
+            this.existing = existing;
+            this.others = others == null ? List.of() : List.copyOf(others);
+            buildForm();
+            populate(existing);
+            pack();
+            setMinimumSize(new Dimension(Math.max(560, getWidth()), getHeight()));
+            setLocationRelativeTo(owner);
+        }
+
+        private void buildForm() {
+            JPanel form = new JPanel(new GridBagLayout());
+            form.setBorder(BorderFactory.createEmptyBorder(16, 16, 8, 16));
+            GridBagConstraints gbc = new GridBagConstraints();
+            gbc.insets = new Insets(4, 4, 4, 4);
+            gbc.anchor = GridBagConstraints.WEST;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            int[] rowIndex = {0};
+
+            addFormRow(form, gbc, rowIndex, "gui.config.market.repo.trust.field.key-id", keyIdField);
+            addFormRow(form, gbc, rowIndex, "gui.config.market.repo.trust.field.algorithm", algorithmField);
+
+            publicKeyArea.setLineWrap(true);
+            publicKeyArea.setWrapStyleWord(true);
+            JScrollPane publicKeyScroll = new JScrollPane(publicKeyArea);
+            publicKeyScroll.setPreferredSize(new Dimension(420, 86));
+            addFormRow(form, gbc, rowIndex, "gui.config.market.repo.trust.field.public-key", publicKeyScroll);
+
+            stateCombo.setRenderer(new DefaultListCellRenderer() {
+                @Override
+                public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                              boolean isSelected, boolean cellHasFocus) {
+                    JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                    if (value != null) {
+                        label.setText(message("gui.config.market.repo.trust.state."
+                                + value.toString().toLowerCase(Locale.ROOT)));
+                    }
+                    return label;
+                }
+            });
+            addFormRow(form, gbc, rowIndex, "gui.config.market.repo.trust.field.state", stateCombo);
+            addFormRow(form, gbc, rowIndex, "gui.config.market.repo.trust.field.publisher", publisherField);
+            addFormRow(form, gbc, rowIndex, "gui.config.market.repo.trust.field.trust-label", trustLabelField);
+
+            JLabel hint = new JLabel(message("gui.config.market.repo.trust.public-key.hint"));
+            hint.setForeground(Color.GRAY);
+            hint.setFont(hint.getFont().deriveFont(Font.PLAIN, 11f));
+            gbc.gridx = 1;
+            gbc.gridy = rowIndex[0]++;
+            form.add(hint, gbc);
+
+            errorLabel.setForeground(new Color(180, 40, 40));
+            gbc.gridx = 0;
+            gbc.gridy = rowIndex[0]++;
+            gbc.gridwidth = 2;
+            form.add(errorLabel, gbc);
+
+            JButton ok = new JButton(message("gui.config.market.repo.dialog.ok"));
+            ok.addActionListener(e -> onOk());
+            JButton cancel = new JButton(message("gui.config.market.repo.dialog.cancel"));
+            cancel.addActionListener(e -> dispose());
+            JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+            buttons.add(cancel);
+            buttons.add(ok);
+
+            getContentPane().setLayout(new BorderLayout());
+            getContentPane().add(form, BorderLayout.CENTER);
+            getContentPane().add(buttons, BorderLayout.SOUTH);
+            getRootPane().setDefaultButton(ok);
+        }
+
+        private JLabel addFormRow(JPanel form, GridBagConstraints gbc, int[] rowIndex,
+                                  String labelKey, JComponent field) {
+            JLabel label = new JLabel(message(labelKey) + message("gui.punctuation.colon"));
+            gbc.gridx = 0;
+            gbc.gridy = rowIndex[0];
+            gbc.weightx = 0;
+            gbc.gridwidth = 1;
+            form.add(label, gbc);
+            gbc.gridx = 1;
+            gbc.weightx = 1;
+            form.add(field, gbc);
+            rowIndex[0]++;
+            return label;
+        }
+
+        private void populate(TrustedKeyConfigEntry entry) {
+            if (entry == null) {
+                stateCombo.setSelectedItem(TrustedPluginKey.State.ACTIVE.name());
+                return;
+            }
+            keyIdField.setText(entry.keyId());
+            algorithmField.setText(entry.algorithm());
+            publicKeyArea.setText(entry.publicKey());
+            stateCombo.setSelectedItem(entry.state());
+            publisherField.setText(entry.publisher());
+            trustLabelField.setText(entry.trustLabel());
+        }
+
+        private void onOk() {
+            String keyId = keyIdField.getText().trim();
+            String algorithm = algorithmField.getText().trim();
+            String publicKey = publicKeyArea.getText().trim();
+            String state = String.valueOf(stateCombo.getSelectedItem());
+            String publisher = publisherField.getText().trim();
+            String trustLabel = trustLabelField.getText().trim();
+
+            String error = firstError(keyId, algorithm, publicKey, state);
+            if (error != null) {
+                errorLabel.setText(message(error));
+                return;
+            }
+            result = new TrustedKeyConfigEntry(keyId, algorithm, publicKey, state, publisher, trustLabel,
+                    existing == null ? new LinkedHashMap<>() : existing.extraFields());
+            dispose();
+        }
+
+        private String firstError(String keyId, String algorithm, String publicKey, String state) {
+            if (keyId.isBlank()) {
+                return "gui.config.market.repo.trust.error.key-id-empty";
+            }
+            for (TrustedKeyConfigEntry other : others) {
+                if (keyId.equalsIgnoreCase(other.keyId())) {
+                    return "gui.config.market.repo.trust.error.key-id-duplicate";
+                }
+            }
+            if (!SignatureMetadata.ED25519.equals(algorithm)) {
+                return "gui.config.market.repo.trust.error.algorithm-unsupported";
+            }
+            if (publicKey.isBlank()) {
+                return "gui.config.market.repo.trust.error.public-key-empty";
+            }
+            try {
+                Base64.getDecoder().decode(publicKey);
+            } catch (IllegalArgumentException e) {
+                return "gui.config.market.repo.trust.error.public-key-invalid";
+            }
+            try {
+                TrustedPluginKey.State.valueOf(state);
+            } catch (IllegalArgumentException e) {
+                return "gui.config.market.repo.trust.error.state-invalid";
+            }
+            return null;
+        }
+    }
+
     // ── 工具 ────────────────────────────────────────────────────────────────────
 
     private static String safeMessage(Throwable t) {
@@ -747,5 +1154,9 @@ public final class PluginMarketConfigSection implements ConfigSection {
 
     private static String logMessage(String code, Object... args) {
         return MessageBundles.get(code, args);
+    }
+
+    private static String trustedKeyStateLabel(String state) {
+        return message("gui.config.market.repo.trust.state." + state.toLowerCase(Locale.ROOT));
     }
 }

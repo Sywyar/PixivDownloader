@@ -3,7 +3,10 @@ package top.sywyar.pixivdownload.gui.panel.configtab;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
+import top.sywyar.pixivdownload.gui.config.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.gui.config.RepositoryConfigValidator;
+import top.sywyar.pixivdownload.gui.config.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
 
@@ -11,6 +14,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 
@@ -95,6 +99,45 @@ class PluginMarketConfigSectionTest {
                 .isEqualTo("proxy-trusted");
         assertThat(RepositoryConfigValidator.validateProxyPolicy(
                 PluginMarketConfigSection.persistedProxyPolicy(RepositoryProxyPolicy.PROXY_TRUSTED))).isNull();
+    }
+
+    @Test
+    @DisplayName("勾选继承官方密钥时保存为该仓库显式 trusted-key")
+    void inheritOfficialRootWritesExplicitRepositoryKey() {
+        TrustedKeyConfigEntry custom = TrustedKeyConfigEntry.create("custom-key", "Ed25519",
+                "MCowBQYDK2VwAyEA8no36HyWNxrjbl10qGcIumILxcgau/0egy3RODVNUIc=",
+                "ACTIVE", "Custom", "Custom root");
+
+        List<TrustedKeyConfigEntry> keys = PluginMarketConfigSection.trustedKeysForSave(List.of(custom), true);
+
+        assertThat(keys).contains(TrustedKeyConfigEntry.officialRoot(), custom);
+        assertThat(keys.get(0)).isEqualTo(TrustedKeyConfigEntry.officialRoot());
+        assertThat(PluginMarketConfigSection.hasDuplicateTrustedKeyIds(keys)).isFalse();
+    }
+
+    @Test
+    @DisplayName("继承官方密钥落盘为 custom 仓库自己的 trusted-keys 条目")
+    void inheritedOfficialRootPersistsAsRepositoryTrustedKey() throws IOException {
+        Path file = writeConfig("plugin-catalog.enabled: true", "plugin-catalog.repositories:");
+        List<TrustedKeyConfigEntry> keys = PluginMarketConfigSection.trustedKeysForSave(List.of(), true);
+
+        new PluginRepositoryConfigEditor(file).write(List.of(new RepositoryConfigEntry(
+                "custom", "", "https://custom.example/manifest.json", true,
+                "direct-strict", false, true, false, false,
+                0, 0, 0, 0, keys, new LinkedHashMap<>())));
+
+        String content = Files.readString(file, StandardCharsets.UTF_8);
+        assertThat(content).contains("plugin-catalog.repositories:");
+        assertThat(content).contains("trusted-keys:");
+        assertThat(content).contains("key-id: " + TrustedKeyConfigEntry.officialRoot().keyId());
+        assertThat(new PluginRepositoryConfigEditor(file).read().get(0).trustedKeys())
+                .containsExactly(TrustedKeyConfigEntry.officialRoot());
+    }
+
+    @Test
+    @DisplayName("未勾选继承官方密钥且未填写密钥时保持无 trusted-keys")
+    void noInheritAndNoCustomKeyKeepsTrustedKeysEmpty() {
+        assertThat(PluginMarketConfigSection.trustedKeysForSave(List.of(), false)).isEmpty();
     }
 
     @Test

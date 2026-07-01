@@ -808,23 +808,29 @@ public class GuiLauncher {
             return properties;
         }
         Object section = root.get("plugin-catalog");
-        if (!(section instanceof Map<?, ?> catalog)) {
-            return properties;
-        }
+        Map<?, ?> catalog = section instanceof Map<?, ?> nested ? nested : Map.of();
 
-        properties.setEnabled(booleanValue(catalog.get("enabled"), properties.isEnabled()));
+        properties.setEnabled(booleanValue(catalogValue(root, catalog, "enabled"), properties.isEnabled()));
         properties.setOfficialRepositoryEnabled(booleanValue(
-                catalog.get("official-repository-enabled"), properties.isOfficialRepositoryEnabled()));
-        properties.setManifestUrl(stringValue(catalog.get("manifest-url"), properties.getManifestUrl()));
-        properties.setConnectTimeoutMs((int) longValue(catalog.get("connect-timeout-ms"),
+                catalogValue(root, catalog, "official-repository-enabled"),
+                properties.isOfficialRepositoryEnabled()));
+        properties.setManifestUrl(stringValue(catalogValue(root, catalog, "manifest-url"), properties.getManifestUrl()));
+        properties.setConnectTimeoutMs((int) longValue(catalogValue(root, catalog, "connect-timeout-ms"),
                 properties.getConnectTimeoutMs()));
-        properties.setReadTimeoutMs((int) longValue(catalog.get("read-timeout-ms"), properties.getReadTimeoutMs()));
-        properties.setMaxManifestBytes(longValue(catalog.get("max-manifest-bytes"),
+        properties.setReadTimeoutMs((int) longValue(catalogValue(root, catalog, "read-timeout-ms"),
+                properties.getReadTimeoutMs()));
+        properties.setMaxManifestBytes(longValue(catalogValue(root, catalog, "max-manifest-bytes"),
                 properties.getMaxManifestBytes()));
-        properties.setMaxPackageBytes(longValue(catalog.get("max-package-bytes"), properties.getMaxPackageBytes()));
-        properties.setTrustedKeys(trustedKeys(catalog.get("trusted-keys")));
-        properties.setRepositories(repositories(catalog.get("repositories")));
+        properties.setMaxPackageBytes(longValue(catalogValue(root, catalog, "max-package-bytes"),
+                properties.getMaxPackageBytes()));
+        properties.setTrustedKeys(trustedKeys(catalogValue(root, catalog, "trusted-keys")));
+        properties.setRepositories(repositories(catalogValue(root, catalog, "repositories")));
         return properties;
+    }
+
+    private static Object catalogValue(Map<?, ?> root, Map<?, ?> catalog, String key) {
+        String flatKey = "plugin-catalog." + key;
+        return root.containsKey(flatKey) ? root.get(flatKey) : catalog.get(key);
     }
 
     private static List<PluginCatalogProperties.RepositoryConfig> repositories(Object value) {

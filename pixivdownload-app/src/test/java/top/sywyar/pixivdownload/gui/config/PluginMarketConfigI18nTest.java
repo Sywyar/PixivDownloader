@@ -39,6 +39,26 @@ class PluginMarketConfigI18nTest {
     }
 
     @Test
+    @DisplayName("中文仓库密钥文案不回退为英文配置键")
+    void chineseTrustedKeyLabelsAreLocalized() throws IOException {
+        Properties zh = load("/i18n/gui.properties");
+
+        assertThat(zh)
+                .containsEntry("gui.config.market.repo.field.trusted-keys", "受信密钥")
+                .containsEntry("gui.config.market.repo.trust.table.col.key-id", "密钥 ID")
+                .containsEntry("gui.config.market.repo.trust.table.col.algorithm", "算法")
+                .containsEntry("gui.config.market.repo.trust.table.col.state", "状态")
+                .containsEntry("gui.config.market.repo.trust.table.col.publisher", "发布者")
+                .containsEntry("gui.config.market.repo.trust.table.col.trust-label", "信任根名称")
+                .containsEntry("gui.config.market.repo.trust.field.key-id", "密钥 ID")
+                .containsEntry("gui.config.market.repo.trust.field.public-key", "公钥")
+                .containsEntry("gui.config.market.repo.trust.field.trust-label", "信任根名称")
+                .containsEntry("gui.config.market.repo.trust.error.key-id-empty", "密钥 ID 不能为空")
+                .containsEntry("gui.config.market.repo.trust.error.public-key-empty", "公钥不能为空");
+        assertThat(zh.getProperty("gui.config.market.repo.trust.hint")).doesNotContain("trusted key");
+    }
+
+    @Test
     @DisplayName("插件市场模板注释中英键集合一致、非空")
     void templateCommentKeysMatchAcrossLocales() throws IOException {
         Properties zh = load("/i18n/messages.properties");

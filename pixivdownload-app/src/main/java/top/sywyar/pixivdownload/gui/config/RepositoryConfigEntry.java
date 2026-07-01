@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,6 +28,7 @@ import java.util.Map;
  * @param readTimeoutMs    读取超时覆盖（毫秒，{@code 0} = 继承全局默认）
  * @param maxManifestBytes 清单字节上限覆盖（{@code 0} = 继承全局默认）
  * @param maxPackageBytes  单包字节上限覆盖（{@code 0} = 继承全局默认）
+ * @param trustedKeys      该仓库显式配置的发布者信任根（可为空；为空时自定义仓库不继承官方 root）
  * @param extraFields      本编辑器未暴露的仓库字段（往返保留，原样键值；不可为 null）
  */
 public record RepositoryConfigEntry(
@@ -43,6 +45,7 @@ public record RepositoryConfigEntry(
         long readTimeoutMs,
         long maxManifestBytes,
         long maxPackageBytes,
+        List<TrustedKeyConfigEntry> trustedKeys,
         Map<String, Object> extraFields) {
 
     public RepositoryConfigEntry {
@@ -50,7 +53,18 @@ public record RepositoryConfigEntry(
         displayNameKey = displayNameKey == null ? "" : displayNameKey;
         manifestUrl = manifestUrl == null ? "" : manifestUrl;
         proxyPolicy = proxyPolicy == null || proxyPolicy.isBlank() ? "direct-strict" : proxyPolicy;
+        trustedKeys = trustedKeys == null ? List.of() : List.copyOf(trustedKeys);
         extraFields = extraFields == null ? new LinkedHashMap<>() : new LinkedHashMap<>(extraFields);
+    }
+
+    public RepositoryConfigEntry(String id, String displayNameKey, String manifestUrl, boolean enabled,
+                                 String proxyPolicy, boolean allowRedirects, boolean strictHttps,
+                                 boolean allowNonPublicAddresses, boolean useProxy, long connectTimeoutMs,
+                                 long readTimeoutMs, long maxManifestBytes, long maxPackageBytes,
+                                 Map<String, Object> extraFields) {
+        this(id, displayNameKey, manifestUrl, enabled, proxyPolicy, allowRedirects, strictHttps,
+                allowNonPublicAddresses, useProxy, connectTimeoutMs, readTimeoutMs, maxManifestBytes,
+                maxPackageBytes, List.of(), extraFields);
     }
 
     /** 不带未知字段、采用默认代理策略的新建条目（启用、所有覆盖项继承全局默认）。 */
@@ -59,7 +73,7 @@ public record RepositoryConfigEntry(
                                                long maxManifestBytes, long maxPackageBytes) {
         return new RepositoryConfigEntry(id, displayNameKey, manifestUrl, enabled, proxyPolicy,
                 false, true, false, false,
-                connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes, new LinkedHashMap<>());
+                connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes, List.of(), new LinkedHashMap<>());
     }
 
     /** 不带未知字段的新建条目，可显式指定 custom 网络开关。 */
@@ -70,6 +84,6 @@ public record RepositoryConfigEntry(
                                                      long maxManifestBytes, long maxPackageBytes) {
         return new RepositoryConfigEntry(id, displayNameKey, manifestUrl, enabled,
                 "custom", allowRedirects, strictHttps, allowNonPublicAddresses, useProxy,
-                connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes, new LinkedHashMap<>());
+                connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes, List.of(), new LinkedHashMap<>());
     }
 }

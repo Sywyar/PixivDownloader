@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.bootstrapprobe.BackendRestartProbeFeaturePlugin;
 import top.sywyar.pixivdownload.bootstrapprobe.BackendRestartProbePlugin;
+import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
+import top.sywyar.pixivdownload.gui.config.RepositoryConfigEntry;
+import top.sywyar.pixivdownload.gui.config.TrustedKeyConfigEntry;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageIntegrity;
@@ -30,6 +33,8 @@ import java.security.PrivateKey;
 import java.security.Signature;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -93,21 +98,16 @@ class GuiLauncherPluginVerifierBootstrapTest {
 
     private Path writeConfig(boolean includeTrustedKey, String publicKey) throws IOException {
         Path config = tempDir.resolve(includeTrustedKey ? "with-key.yaml" : "without-key.yaml");
-        String trustedKeys = includeTrustedKey
-                ? "      trusted-keys:\n"
-                + "        - key-id: gui-custom-key\n"
-                + "          algorithm: Ed25519\n"
-                + "          public-key: " + publicKey + "\n"
-                + "          state: ACTIVE\n"
-                + "          publisher: GUI Test Publisher\n"
-                + "          trust-label: GUI Test Trust\n"
-                : "      trusted-keys: []\n";
-        String yaml = "plugin-catalog:\n"
-                + "  repositories:\n"
-                + "    - id: custom\n"
-                + "      manifest-url: https://example.invalid/manifest.json\n"
-                + trustedKeys;
-        Files.writeString(config, yaml, StandardCharsets.UTF_8);
+        Files.writeString(config, "plugin-catalog.enabled: true\nplugin-catalog.repositories:\n",
+                StandardCharsets.UTF_8);
+        List<TrustedKeyConfigEntry> trustedKeys = includeTrustedKey
+                ? List.of(TrustedKeyConfigEntry.create("gui-custom-key", "Ed25519", publicKey, "ACTIVE",
+                "GUI Test Publisher", "GUI Test Trust"))
+                : List.of();
+        new PluginRepositoryConfigEditor(config).write(List.of(new RepositoryConfigEntry(
+                "custom", "", "https://example.invalid/manifest.json", true,
+                "direct-strict", false, true, false, false,
+                0, 0, 0, 0, trustedKeys, new LinkedHashMap<>())));
         return config;
     }
 

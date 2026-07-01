@@ -48,7 +48,12 @@ public final class PluginRepositoryConfigEditor {
     private static final Set<String> KNOWN_KEYS = Set.of(
             "id", "display-name-key", "manifest-url", "enabled", "proxy-policy",
             "allow-redirects", "strict-https", "allow-non-public-addresses", "use-proxy",
-            "connect-timeout-ms", "read-timeout-ms", "max-manifest-bytes", "max-package-bytes");
+            "connect-timeout-ms", "read-timeout-ms", "max-manifest-bytes", "max-package-bytes",
+            "trusted-keys");
+
+    /** trusted key 子键（kebab 规范形）。 */
+    private static final Set<String> TRUSTED_KEY_KNOWN_KEYS = Set.of(
+            "key-id", "algorithm", "public-key", "state", "publisher", "trust-label");
 
     private final Path configPath;
 
@@ -82,10 +87,14 @@ public final class PluginRepositoryConfigEditor {
             return List.of();
         }
         List<RepositoryConfigEntry> entries = new ArrayList<>();
-        for (Object item : rawList) {
-            if (item instanceof Map<?, ?> map) {
-                entries.add(toEntry((Map<String, Object>) map));
+        try {
+            for (Object item : rawList) {
+                if (item instanceof Map<?, ?> map) {
+                    entries.add(toEntry((Map<String, Object>) map));
+                }
             }
+        } catch (RuntimeException e) {
+            throw new IOException("config.yaml 仓库列表解析失败: " + e.getMessage(), e);
         }
         return entries;
     }
@@ -104,6 +113,7 @@ public final class PluginRepositoryConfigEditor {
         long readTimeout = 0;
         long maxManifest = 0;
         long maxPackage = 0;
+        List<TrustedKeyConfigEntry> trustedKeys = List.of();
         Map<String, Object> extra = new LinkedHashMap<>();
 
         for (Map.Entry<String, Object> field : map.entrySet()) {
@@ -123,12 +133,13 @@ public final class PluginRepositoryConfigEditor {
                 case "read-timeout-ms" -> readTimeout = asLong(value);
                 case "max-manifest-bytes" -> maxManifest = asLong(value);
                 case "max-package-bytes" -> maxPackage = asLong(value);
+                case "trusted-keys" -> trustedKeys = trustedKeys(value);
                 default -> extra.put(field.getKey(), value); // 未知字段：原样键名保留
             }
         }
         return new RepositoryConfigEntry(id, displayNameKey, manifestUrl, enabled, proxyPolicy,
                 allowRedirects, strictHttps, allowNonPublicAddresses, useProxy,
-                connectTimeout, readTimeout, maxManifest, maxPackage, extra);
+                connectTimeout, readTimeout, maxManifest, maxPackage, trustedKeys, extra);
     }
 
     // ── 写 ──────────────────────────────────────────────────────────────────────
@@ -212,6 +223,9 @@ public final class PluginRepositoryConfigEditor {
         if (entry.maxPackageBytes() > 0) {
             map.put("max-package-bytes", entry.maxPackageBytes());
         }
+        if (!entry.trustedKeys().isEmpty()) {
+            map.put("trusted-keys", trustedKeysToSerializable(entry.trustedKeys()));
+        }
         // 未知字段最后回写（不与已知键冲突）。
         for (Map.Entry<String, Object> extra : entry.extraFields().entrySet()) {
             if (!KNOWN_KEYS.contains(canonicalKey(extra.getKey()))) {
@@ -219,6 +233,73 @@ public final class PluginRepositoryConfigEditor {
             }
         }
         return map;
+    }
+
+    private static List<TrustedKeyConfigEntry> trustedKeys(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (!(value instanceof List<?> list)) {
+            throw new IllegalArgumentException("trusted-keys must be a list");
+        }
+        List<TrustedKeyConfigEntry> result = new ArrayList<>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> map)) {
+                throw new IllegalArgumentException("trusted-keys entries must be maps");
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> typed = (Map<String, Object>) map;
+            result.add(trustedKey(typed));
+        }
+        return result;
+    }
+
+    private static TrustedKeyConfigEntry trustedKey(Map<String, Object> map) {
+        String keyId = "";
+        String algorithm = "";
+        String publicKey = "";
+        String state = "";
+        String publisher = "";
+        String trustLabel = "";
+        Map<String, Object> extra = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> field : map.entrySet()) {
+            String canonical = canonicalKey(field.getKey());
+            Object value = field.getValue();
+            switch (canonical) {
+                case "key-id" -> keyId = asString(value);
+                case "algorithm" -> algorithm = asString(value);
+                case "public-key" -> publicKey = asString(value);
+                case "state" -> state = asString(value);
+                case "publisher" -> publisher = asString(value);
+                case "trust-label" -> trustLabel = asString(value);
+                default -> extra.put(field.getKey(), value);
+            }
+        }
+        return new TrustedKeyConfigEntry(keyId, algorithm, publicKey, state, publisher, trustLabel, extra);
+    }
+
+    private static List<Map<String, Object>> trustedKeysToSerializable(List<TrustedKeyConfigEntry> trustedKeys) {
+        List<Map<String, Object>> serialized = new ArrayList<>();
+        for (TrustedKeyConfigEntry key : trustedKeys) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("key-id", key.keyId());
+            map.put("algorithm", key.algorithm());
+            map.put("public-key", key.publicKey());
+            map.put("state", key.state());
+            if (key.publisher() != null && !key.publisher().isBlank()) {
+                map.put("publisher", key.publisher());
+            }
+            if (key.trustLabel() != null && !key.trustLabel().isBlank()) {
+                map.put("trust-label", key.trustLabel());
+            }
+            for (Map.Entry<String, Object> extra : key.extraFields().entrySet()) {
+                if (!TRUSTED_KEY_KNOWN_KEYS.contains(canonicalKey(extra.getKey()))) {
+                    map.putIfAbsent(extra.getKey(), extra.getValue());
+                }
+            }
+            serialized.add(map);
+        }
+        return serialized;
     }
 
     // ── 行级定位 ────────────────────────────────────────────────────────────────
