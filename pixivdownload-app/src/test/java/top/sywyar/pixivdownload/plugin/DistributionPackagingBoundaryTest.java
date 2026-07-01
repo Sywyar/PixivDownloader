@@ -4,9 +4,19 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
+import javax.swing.JButton;
+import javax.swing.JPanel;
+import javax.swing.JRootPane;
+import javax.swing.LookAndFeel;
+import javax.swing.SwingUtilities;
+import javax.swing.UIDefaults;
+import javax.swing.UIManager;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.DirectoryStream;
@@ -263,9 +273,85 @@ class DistributionPackagingBoundaryTest {
                 assertThat(plugin.getClassLoader()).as("主题插件主类应由插件 classloader 加载").isSameAs(loader);
                 assertThat(flatLaf.getClassLoader()).as("FlatLaf 应由主题插件 classloader 的 lib/ 加载").isSameAs(loader);
                 assertThat(jna.getClassLoader()).as("JNA 应由主题插件 classloader 的 lib/ 加载").isSameAs(loader);
+
+                assertGuiThemeLookAndFeelCanCreateSwingDelegates(loader);
             }
         } catch (IOException | ReflectiveOperationException e) {
             throw new IllegalStateException("无法通过主题插件 ZIP classloader 加载类: " + zip, e);
+        }
+    }
+
+    private static void assertGuiThemeLookAndFeelCanCreateSwingDelegates(URLClassLoader loader)
+            throws ReflectiveOperationException {
+        LookAndFeel previousLookAndFeel = UIManager.getLookAndFeel();
+        Object previousDefaultsClassLoader = UIManager.getDefaults().get("ClassLoader");
+        Object previousLookAndFeelDefaultsClassLoader = UIManager.getLookAndFeelDefaults().get("ClassLoader");
+        try {
+            Class<?> featureClass = Class.forName("top.sywyar.pixivdownload.guitheme.GuiThemePlugin", true, loader);
+            PixivFeaturePlugin feature = (PixivFeaturePlugin) featureClass.getDeclaredConstructor().newInstance();
+            GuiThemeContribution light = feature.guiThemes().stream()
+                    .filter(theme -> "light".equals(theme.themeId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("主题插件缺少 light contribution"));
+
+            runOnEdtAndWait(() -> {
+                try {
+                    light.applyOnEventDispatchThread();
+                } catch (Exception e) {
+                    throw new IllegalStateException("无法应用 gui-theme light 主题", e);
+                }
+            });
+
+            assertThat(UIManager.getLookAndFeelDefaults().get("ClassLoader"))
+                    .as("FlatLaf UI delegate 必须通过主题插件 classloader 解析")
+                    .isSameAs(loader);
+            runOnEdtAndWait(() -> {
+                assertThat(new JPanel().getUI()).as("JPanel UI delegate 应可创建").isNotNull();
+                assertThat(new JButton("probe").getUI()).as("JButton UI delegate 应可创建").isNotNull();
+                assertThat(new JRootPane().getUI()).as("JRootPane UI delegate 应可创建").isNotNull();
+            });
+        } finally {
+            if (previousLookAndFeel != null) {
+                runOnEdtAndWait(() -> {
+                    try {
+                        UIManager.setLookAndFeel(previousLookAndFeel);
+                    } catch (Exception e) {
+                        throw new IllegalStateException("无法恢复测试前 LookAndFeel", e);
+                    }
+                });
+            }
+            restoreDefaultValue(UIManager.getDefaults(), "ClassLoader", previousDefaultsClassLoader);
+            restoreDefaultValue(UIManager.getLookAndFeelDefaults(), "ClassLoader", previousLookAndFeelDefaultsClassLoader);
+        }
+    }
+
+    private static void restoreDefaultValue(UIDefaults defaults, Object key, Object previousValue) {
+        if (previousValue == null) {
+            defaults.remove(key);
+            return;
+        }
+        defaults.put(key, previousValue);
+    }
+
+    private static void runOnEdtAndWait(Runnable task) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+            return;
+        }
+        try {
+            SwingUtilities.invokeAndWait(task);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("等待 EDT 执行被中断", e);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException("EDT 执行失败", cause);
         }
     }
 

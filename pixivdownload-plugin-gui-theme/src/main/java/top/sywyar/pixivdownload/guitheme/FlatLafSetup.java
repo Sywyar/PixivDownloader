@@ -78,12 +78,16 @@ final class FlatLafSetup {
     }
 
     private static void installLaf(boolean dark) throws IllegalStateException {
+        ClassLoader pluginClassLoader = FlatLafSetup.class.getClassLoader();
+        ClassLoader previousContextClassLoader = Thread.currentThread().getContextClassLoader();
         try {
+            Thread.currentThread().setContextClassLoader(pluginClassLoader);
             if (currentPreference.isNamedTheme()) {
                 FlatLaf.setGlobalExtraDefaults(null);
                 if (currentPreference == ThemePreference.MOONLIGHT) {
                     FlatMoonlightIJTheme.setup();
                 }
+                installPluginClassLoaderDefaults(pluginClassLoader);
                 return;
             }
             FlatLaf.setGlobalExtraDefaults(dark ? buildFrontendDarkExtras() : null);
@@ -92,10 +96,18 @@ final class FlatLafSetup {
             } else {
                 FlatLightLaf.setup();
             }
+            installPluginClassLoaderDefaults(pluginClassLoader);
         } catch (RuntimeException e) {
             log.warn("FlatLaf initialization failed; leaving fallback LAF in place: {}", e.toString());
             throw e;
+        } finally {
+            Thread.currentThread().setContextClassLoader(previousContextClassLoader);
         }
+    }
+
+    private static void installPluginClassLoaderDefaults(ClassLoader pluginClassLoader) {
+        UIManager.getDefaults().put("ClassLoader", pluginClassLoader);
+        UIManager.getLookAndFeelDefaults().put("ClassLoader", pluginClassLoader);
     }
 
     private static Map<String, String> buildFrontendDarkExtras() {
