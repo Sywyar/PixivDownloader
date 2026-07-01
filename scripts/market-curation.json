@@ -1,5 +1,23 @@
 {
   "_comment": "插件市场展示字段的策展源（运营者维护）。安装关键字段（version/packageUrl/sha256/size/requiredCoreApi）不在此处——由 generate-market-manifest.ps1 从真实产物推导。键为 pluginId。",
+  "gui-theme": {
+    "displayNameKey": "gui-theme:plugin.label",
+    "descriptionKey": "gui-theme:plugin.summary",
+    "displayName": { "zh": "GUI 主题", "en": "GUI Theme" },
+    "summary": { "zh": "桌面 GUI 的系统、浅色、深色与 Moonlight 主题", "en": "System, light, dark, and Moonlight themes for the desktop GUI" },
+    "description": { "zh": "为桌面 GUI 提供跟随系统、浅色、深色与 Moonlight 主题，并在完整重启后应用启动期主题。", "en": "Adds system, light, dark, and Moonlight themes to the desktop GUI, applied during startup after a full restart." },
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "ui",
+    "tags": ["gui", "theme", "look-and-feel"],
+    "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
+    "license": "MIT",
+    "iconToken": "palette",
+    "colorToken": "purple",
+    "recommended": true,
+    "officialRequired": false,
+    "changeNotes": ["首个外置版本"]
+  },
   "stats": {
     "displayNameKey": "stats:nav.label",
     "descriptionKey": "stats:plugin.summary",

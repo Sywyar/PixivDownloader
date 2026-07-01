@@ -6,14 +6,15 @@
 .DESCRIPTION
     Version is the immutability key. For each plugin:
       - read plugin.version from its source plugin.properties (no build needed to decide);
-      - if release `<id>-v<version>` already exists and already has jar + .sha256 + .sig -> SKIP;
-      - if release exists but misses assets -> supplement only the missing assets. When the jar already exists,
-        checksum / signature are regenerated from the published jar bytes, not from a rebuild;
+      - if release `<id>-v<version>` already exists and already has artifact + .sha256 + .sig -> SKIP;
+      - if release exists but misses assets -> supplement only the missing assets. When the artifact already exists,
+        checksum / signature are regenerated from the published artifact bytes, not from a rebuild;
       - else build ONLY that module (`mvn -pl <module> -am package` - its dep subtree, not the whole reactor
-        nor other plugins), verify it is a thin PF4J jar, then create the release and upload the jar + .sha256 + .sig.
+        nor other plugins), verify its official artifact format, then create the release and upload the artifact
+        + .sha256 + .sig.
 
     So updating one plugin compiles and publishes only that plugin. Repairing a release that already has the
-    jar does not rebuild it; missing checksum / signature files are regenerated from the published bytes.
+    artifact does not rebuild it; missing checksum / signature files are regenerated from the published bytes.
     The market manifest is generated separately (generate-market-manifest.ps1) from the published releases.
     ASCII source; runs under Windows PowerShell / pwsh. Needs gh + GH_TOKEN and Maven (mvnw / mvn).
 
@@ -36,7 +37,7 @@ $ErrorActionPreference = "Stop"
 if (-not $ProjectRoot) { $ProjectRoot = Split-Path -Parent $PSScriptRoot }
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
-# Shared official-plugin list + thin-jar / checksum helpers.
+# Shared official-plugin list + artifact-shape / checksum helpers.
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
 if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
@@ -95,7 +96,7 @@ function Get-ReleaseAssetState([string]$Tag) {
     return [pscustomobject]@{ Exists = $false; AssetNames = @() }
 }
 
-function Build-StagedPluginJar {
+function Build-StagedPluginArtifact {
     param(
         [Parameter(Mandatory = $true)]$Plugin,
         [Parameter(Mandatory = $true)][string]$Version,
@@ -105,22 +106,23 @@ function Build-StagedPluginJar {
     Write-Host "==> Building only module $($Plugin.Module) for release $($Plugin.Id)-v$Version"
     Push-Location $ProjectRoot
     try {
-        & $mvn "-pl" $Plugin.Module "-am" "package" "-DskipTests" "-Dexec.skip=true"
+        & $mvn "-pl" $Plugin.Module "-am" "package" "-DskipTests" "-Dexec.skip=true" |
+            ForEach-Object { Write-Host $_ }
         if ($LASTEXITCODE -ne 0) { throw "Maven build failed for module $($Plugin.Module)." }
     } finally {
         Pop-Location
     }
 
-    $builtJar = Find-ModuleJar $Plugin.Module $ProjectRoot
-    $descriptor = Assert-ThinPluginJar $builtJar $Plugin.Id
+    $builtArtifact = Find-ModulePluginArtifact $Plugin $ProjectRoot
+    $descriptor = Assert-OfficialPluginArtifact $builtArtifact $Plugin
     $pluginVersion = $descriptor["plugin.version"]
     if ($pluginVersion -ne $Version) {
         throw "Built plugin.version '$pluginVersion' != source '$Version' for $($Plugin.Id)."
     }
 
-    $stagedJar = Join-Path $stageDir $AssetName
-    Copy-Item $builtJar $stagedJar -Force
-    return $stagedJar
+    $stagedArtifact = Join-Path $stageDir $AssetName
+    Copy-Item $builtArtifact $stagedArtifact -Force
+    return $stagedArtifact
 }
 
 function Download-ReleaseAsset {
@@ -131,7 +133,8 @@ function Download-ReleaseAsset {
 
     $target = Join-Path $stageDir $AssetName
     Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
-    & gh release download $Tag --repo $Repo --pattern $AssetName --dir $stageDir --clobber
+    & gh release download $Tag --repo $Repo --pattern $AssetName --dir $stageDir --clobber |
+        ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) { throw "Failed to download existing asset $AssetName from release $Tag." }
     if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
         throw "Downloaded asset not found after gh release download: $target"
@@ -141,19 +144,19 @@ function Download-ReleaseAsset {
 
 function Write-StagedCompanionFiles {
     param(
-        [Parameter(Mandatory = $true)][string]$StagedJar,
+        [Parameter(Mandatory = $true)][string]$StagedArtifact,
         [Parameter(Mandatory = $true)][string]$AssetName,
         [Parameter(Mandatory = $true)]$Plugin,
         [Parameter(Mandatory = $true)][string]$Version
     )
 
-    $sha = Get-Sha256Hex $StagedJar
-    $shaFile = "$StagedJar.sha256"
+    $sha = Get-Sha256Hex $StagedArtifact
+    $shaFile = "$StagedArtifact.sha256"
     [System.IO.File]::WriteAllText($shaFile, "$sha  $AssetName`n", $Utf8NoBom)
-    $sigFile = "$StagedJar.sig"
+    $sigFile = "$StagedArtifact.sig"
     Invoke-PluginSignatureTool $SignatureToolJar @(
         "artifact",
-        "--artifact", $StagedJar,
+        "--artifact", $StagedArtifact,
         "--plugin-id", $Plugin.Id,
         "--version", $Version,
         "--key-id", $OfficialKeyId,
@@ -185,7 +188,7 @@ $published = @()
 foreach ($plugin in $plugins) {
     $version = Read-SourceVersion $plugin.Module
     $tag = "$($plugin.Id)-v$version"
-    $assetName = "$($plugin.Module)-$version.jar"
+    $assetName = Get-OfficialPluginArtifactName $plugin $version
     $shaAssetName = "$assetName.sha256"
     $sigAssetName = "$assetName.sig"
     $expectedAssets = @($assetName, $shaAssetName, $sigAssetName)
@@ -200,16 +203,16 @@ foreach ($plugin in $plugins) {
         }
 
         Write-Host "==> $tag already exists but missing asset(s): $($missingAssets -join ', '); supplementing."
-        $jarAssetExists = $assetNames -contains $assetName
-        if ($jarAssetExists) {
-            $stagedJar = Download-ReleaseAsset -Tag $tag -AssetName $assetName
+        $artifactAssetExists = $assetNames -contains $assetName
+        if ($artifactAssetExists) {
+            $stagedArtifact = Download-ReleaseAsset -Tag $tag -AssetName $assetName
         } else {
-            $stagedJar = Build-StagedPluginJar -Plugin $plugin -Version $version -AssetName $assetName
+            $stagedArtifact = Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName
         }
-        $companions = Write-StagedCompanionFiles -StagedJar $stagedJar -AssetName $assetName -Plugin $plugin -Version $version
+        $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
 
         $uploadPaths = @()
-        if (-not $jarAssetExists) { $uploadPaths += $stagedJar }
+        if (-not $artifactAssetExists) { $uploadPaths += $stagedArtifact }
         if ($missingAssets -contains $shaAssetName) { $uploadPaths += $companions.ShaFile }
         if ($missingAssets -contains $sigAssetName) { $uploadPaths += $companions.SigFile }
         Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths
@@ -217,13 +220,13 @@ foreach ($plugin in $plugins) {
         continue
     }
 
-    $stagedJar = Build-StagedPluginJar -Plugin $plugin -Version $version -AssetName $assetName
-    $companions = Write-StagedCompanionFiles -StagedJar $stagedJar -AssetName $assetName -Plugin $plugin -Version $version
+    $stagedArtifact = Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName
+    $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
 
     Write-Host "==> Publishing $tag ($assetName, sha256 $($companions.Sha))"
     gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version"
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
-    Upload-ReleaseAssetFiles -Tag $tag -Paths @($stagedJar, $companions.ShaFile, $companions.SigFile)
+    Upload-ReleaseAssetFiles -Tag $tag -Paths @($stagedArtifact, $companions.ShaFile, $companions.SigFile)
     $published += "$tag (created)"
 }
 

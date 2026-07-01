@@ -6,10 +6,10 @@
 .DESCRIPTION
     The manifest is derived from the published release assets, NOT from a local build — so it is correct
     whether or not anything was rebuilt this run (version-gated publishing keeps unchanged plugins' assets
-    untouched, and a rebuilt jar of the same version can differ byte-wise). For each official plugin:
+    untouched, and a rebuilt artifact of the same version can differ byte-wise). For each official plugin:
 
       - id / version / requires      : read from the module's source plugin.properties (literal, no build).
-      - sha256 / expectedSizeBytes   : computed from the DOWNLOADED published jar asset (the real bytes).
+      - sha256 / expectedSizeBytes   : computed from the DOWNLOADED published plugin artifact (the real bytes).
       - downloadCount / releasedTime : read from the GitHub Releases API (asset download_count / publishedAt).
       - packageUrl                   : the GitHub Release asset link (github.com/.../releases/download/...).
       - display fields               : from the curation file, keyed by pluginId.
@@ -46,7 +46,7 @@ if (-not $ProjectRoot) { $ProjectRoot = Split-Path -Parent $PSScriptRoot }
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $nowUtc = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
-# Shared official-plugin list (id / module).
+# Shared official-plugin list (id / module / artifact format).
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
 if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
@@ -130,7 +130,7 @@ try {
             throw "plugin.id '$id' in module $($plugin.Module) does not match expected '$($plugin.Id)'."
         }
         $tag = "$id-v$version"
-        $jarName = "$($plugin.Module)-$version.jar"
+        $assetName = Get-OfficialPluginArtifactName $plugin $version
 
         # Release metadata (must already exist): asset download_count + release publishedAt.
         $relRaw = & gh release view $tag --repo $Repo --json assets,publishedAt
@@ -138,9 +138,9 @@ try {
             throw "Release $tag not found in $Repo. Publish it before generating the manifest."
         }
         $rel = $relRaw | ConvertFrom-Json
-        $jarAsset = $rel.assets | Where-Object { $_.name -eq $jarName } | Select-Object -First 1
-        if (-not $jarAsset) { throw "Asset $jarName not found on release $tag." }
-        $downloadCount = [int]$jarAsset.downloadCount
+        $asset = $rel.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
+        if (-not $asset) { throw "Asset $assetName not found on release $tag." }
+        $downloadCount = [int]$asset.downloadCount
         $releasedTime = $rel.publishedAt
         if (-not $releasedTime) { $releasedTime = $nowUtc }
 
@@ -160,18 +160,19 @@ try {
         }
         $totalDownloadCount = $downloadCount + $previousDownloadCount
 
-        # sha256 / size from the ACTUAL published bytes (download the jar, compute locally).
-        & gh release download $tag --repo $Repo --pattern $jarName --dir $tmp --clobber
-        if ($LASTEXITCODE -ne 0) { throw "Failed to download $jarName from release $tag." }
-        $jarPath = Join-Path $tmp $jarName
-        $sizeBytes = (Get-Item -LiteralPath $jarPath).Length
-        $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $jarPath).Hash.ToLowerInvariant()
+        # sha256 / size from the ACTUAL published bytes (download the artifact, compute locally).
+        & gh release download $tag --repo $Repo --pattern $assetName --dir $tmp --clobber |
+            ForEach-Object { Write-Host $_ }
+        if ($LASTEXITCODE -ne 0) { throw "Failed to download $assetName from release $tag." }
+        $artifactPath = Join-Path $tmp $assetName
+        $sizeBytes = (Get-Item -LiteralPath $artifactPath).Length
+        $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $artifactPath).Hash.ToLowerInvariant()
 
-        $packageUrl = "https://github.com/$Repo/releases/download/$tag/$jarName"
-        $signaturePath = Join-Path $tmp "$jarName.sig.json"
+        $packageUrl = "https://github.com/$Repo/releases/download/$tag/$assetName"
+        $signaturePath = Join-Path $tmp "$assetName.sig.json"
         Invoke-PluginSignatureTool $SignatureToolJar @(
             "artifact",
-            "--artifact", $jarPath,
+            "--artifact", $artifactPath,
             "--plugin-id", $id,
             "--version", $version,
             "--key-id", $OfficialKeyId,

@@ -21,6 +21,7 @@ class PluginReleaseScriptsTest {
 
         assertThat(script).contains(
                 "Invoke-PluginSignatureTool $SignatureToolJar @(",
+                "$assetName = Get-OfficialPluginArtifactName $plugin $version",
                 "\"artifact\"",
                 "signature         = $signature",
                 "signatureUrl      = \"$packageUrl.sig\"",
@@ -34,6 +35,7 @@ class PluginReleaseScriptsTest {
         assertThat(script).doesNotContain("schemaVersion = \"2\"");
         assertThat(script).doesNotContain("signature         = \"");
         assertThat(script).doesNotContain("signature = \"");
+        assertThat(script).doesNotContain("$jarName = \"$($plugin.Module)-$version.jar\"");
 
         assertThat(script.indexOf("[System.IO.File]::WriteAllText($OutputFile"))
                 .as("manifest 原始 JSON 必须先写入文件")
@@ -44,22 +46,23 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("插件 release 发布脚本上传 jar、sha256 与 detached artifact 签名")
+    @DisplayName("插件 release 发布脚本按官方产物形态上传 artifact、sha256 与 detached artifact 签名")
     void publishScriptUploadsArtifactSignature() throws Exception {
         String script = script("publish-plugin-releases.ps1");
 
         assertThat(script).contains(
+                "$assetName = Get-OfficialPluginArtifactName $plugin $version",
                 "$expectedAssets = @($assetName, $shaAssetName, $sigAssetName)",
                 "$missingAssets = @($expectedAssets | Where-Object { $assetNames -notcontains $_ })",
                 "already published with expected assets; skip",
                 "Download-ReleaseAsset -Tag $tag -AssetName $assetName",
-                "Build-StagedPluginJar -Plugin $plugin -Version $version -AssetName $assetName",
+                "Build-StagedPluginArtifact -Plugin $plugin -Version $version -AssetName $assetName",
                 "if ($missingAssets -contains $shaAssetName)",
                 "if ($missingAssets -contains $sigAssetName)",
                 "Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths",
-                "$sigFile = \"$StagedJar.sig\"",
+                "$sigFile = \"$StagedArtifact.sig\"",
                 "\"artifact\"",
-                "\"--artifact\", $StagedJar",
+                "\"--artifact\", $StagedArtifact",
                 "\"--plugin-id\", $Plugin.Id",
                 "\"--version\", $Version",
                 "\"--key-id\", $OfficialKeyId",
@@ -67,6 +70,25 @@ class PluginReleaseScriptsTest {
                 "gh release upload $Tag $Paths --repo $Repo"
         );
         assertThat(script).doesNotContain("already published; skip (immutable");
+        assertThat(script).doesNotContain("$assetName = \"$($plugin.Module)-$version.jar\"");
+        assertThat(script).doesNotContain("Assert-ThinPluginJar $builtJar");
+        assertThat(script).doesNotContain("Build-StagedPluginJar");
+    }
+
+    @Test
+    @DisplayName("共享分发脚本提供官方插件 jar 和 zip 产物名解析")
+    void commonDistributionScriptResolvesOfficialArtifactNames() throws Exception {
+        String common = script("plugin-distribution-common.ps1");
+
+        assertThat(common).contains(
+                "Format = \"zip\"",
+                "Format = \"jar\"",
+                "function Get-OfficialPluginArtifactExtension",
+                "function Get-OfficialPluginArtifactName",
+                "return \"$($Plugin.Module)-$Version.$extension\"",
+                "function Find-ModulePluginArtifact",
+                "Assert-ExplodedPluginZip",
+                "Assert-ThinPluginJar");
     }
 
     @Test

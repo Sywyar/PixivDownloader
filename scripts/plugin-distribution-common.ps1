@@ -33,6 +33,23 @@ function Get-OfficialOptionalPlugins {
     return $plugins
 }
 
+function Get-OfficialPluginArtifactExtension {
+    param([Parameter(Mandatory = $true)]$Plugin)
+    $format = if ($Plugin.Format) { $Plugin.Format } else { "jar" }
+    if ($format -eq "jar") { return "jar" }
+    if ($format -eq "zip") { return "zip" }
+    throw "Unsupported official plugin artifact format '$format' for $($Plugin.Id)."
+}
+
+function Get-OfficialPluginArtifactName {
+    param(
+        [Parameter(Mandatory = $true)]$Plugin,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+    $extension = Get-OfficialPluginArtifactExtension $Plugin
+    return "$($Plugin.Module)-$Version.$extension"
+}
+
 function Get-Sha256Hex {
     param([Parameter(Mandatory = $true)][string]$Path)
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
@@ -65,7 +82,8 @@ function Invoke-PluginSignatureTool {
         [Parameter(Mandatory = $true)][string]$ToolJar,
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
-    & java "-cp" $ToolJar "top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool" @Arguments
+    & java "-cp" $ToolJar "top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool" @Arguments |
+        ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
         throw "Plugin signature tool failed."
     }
