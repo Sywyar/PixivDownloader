@@ -44,19 +44,27 @@ jobs:
       - name: Prepare plugin signing private key
         shell: powershell
         env:
+          PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}
           PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM)) {
-            throw "Missing GitHub Actions secret PLUGIN_SIGNING_PRIVATE_KEY_PEM."
+          if ([string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64) -and [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM)) {
+            throw "Missing GitHub Actions secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 or PLUGIN_SIGNING_PRIVATE_KEY_PEM."
           }
           $signingDir = Join-Path $env:RUNNER_TEMP "pixivdownload-plugin-signing"
           New-Item -ItemType Directory -Force -Path $signingDir | Out-Null
           $privateKeyFile = Join-Path $signingDir "official-ed25519-private-key.pem"
-          $pem = $env:PLUGIN_SIGNING_PRIVATE_KEY_PEM
-          if ($pem.Contains('\n') -and -not $pem.Contains("`n")) {
-            $pem = $pem.Replace('\n', "`n")
+          if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
+            $privateKeyBytes = [System.Convert]::FromBase64String(($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', ''))
+            [System.IO.File]::WriteAllBytes($privateKeyFile, $privateKeyBytes)
+          } else {
+            $pem = $env:PLUGIN_SIGNING_PRIVATE_KEY_PEM
+            $pem = $pem.Replace('\r\n', "`n").Replace('\n', "`n").Replace('\r', "`n")
+            [System.IO.File]::WriteAllText($privateKeyFile, $pem.Trim() + "`n", (New-Object System.Text.UTF8Encoding($false)))
           }
-          [System.IO.File]::WriteAllText($privateKeyFile, $pem.Trim() + "`n", (New-Object System.Text.UTF8Encoding($false)))
+          $privateKeyText = [System.IO.File]::ReadAllText($privateKeyFile, [System.Text.Encoding]::UTF8)
+          if ($privateKeyText.Contains("?")) {
+            throw "Prepared plugin signing private key contains '?' characters. Re-upload it as PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 from the original PEM bytes."
+          }
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile`n", (New-Object System.Text.UTF8Encoding($false)))
 
       - name: Build + publish updated plugins (per-plugin, version-gated)

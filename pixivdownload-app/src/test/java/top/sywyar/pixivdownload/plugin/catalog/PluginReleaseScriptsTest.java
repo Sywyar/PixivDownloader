@@ -90,7 +90,10 @@ class PluginReleaseScriptsTest {
 
         assertThat(workflow).contains(
                 "PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07",
+                "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
                 "PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}",
+                "FromBase64String",
+                "Prepared plugin signing private key contains '?' characters",
                 "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile",
                 "-OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID",
                 "-PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
