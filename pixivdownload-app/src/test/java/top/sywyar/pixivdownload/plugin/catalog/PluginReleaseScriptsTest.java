@@ -48,15 +48,24 @@ class PluginReleaseScriptsTest {
         String script = script("publish-plugin-releases.ps1");
 
         assertThat(script).contains(
-                "$sigFile = \"$stagedJar.sig\"",
+                "$expectedAssets = @($assetName, $shaAssetName, $sigAssetName)",
+                "$missingAssets = @($expectedAssets | Where-Object { $assetNames -notcontains $_ })",
+                "already published with expected assets; skip",
+                "Download-ReleaseAsset -Tag $tag -AssetName $assetName",
+                "Build-StagedPluginJar -Plugin $plugin -Version $version -AssetName $assetName",
+                "if ($missingAssets -contains $shaAssetName)",
+                "if ($missingAssets -contains $sigAssetName)",
+                "Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths",
+                "$sigFile = \"$StagedJar.sig\"",
                 "\"artifact\"",
-                "\"--artifact\", $stagedJar",
-                "\"--plugin-id\", $plugin.Id",
-                "\"--version\", $pluginVersion",
+                "\"--artifact\", $StagedJar",
+                "\"--plugin-id\", $Plugin.Id",
+                "\"--version\", $Version",
                 "\"--key-id\", $OfficialKeyId",
                 "\"--private-key\", $PrivateKeyFile",
-                "gh release upload $tag $stagedJar $shaFile $sigFile --repo $Repo"
+                "gh release upload $Tag $Paths --repo $Repo"
         );
+        assertThat(script).doesNotContain("already published; skip (immutable");
     }
 
     @Test

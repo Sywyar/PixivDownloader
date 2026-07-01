@@ -1,18 +1,21 @@
 <#
 .SYNOPSIS
-    Per-plugin, version-gated build + publish: for each official optional plugin, publish a GitHub Release to
-    the distribution repo ONLY when its plugin.version has no matching `<id>-v<version>` release yet.
+    Per-plugin, version-gated build + publish / repair: for each official optional plugin, create the
+    GitHub Release when missing, or supplement missing release assets for the current plugin.version.
 
 .DESCRIPTION
     Version is the immutability key. For each plugin:
       - read plugin.version from its source plugin.properties (no build needed to decide);
-      - if release `<id>-v<version>` already exists -> SKIP (never rebuild, never re-upload - immutable);
+      - if release `<id>-v<version>` already exists and already has jar + .sha256 + .sig -> SKIP;
+      - if release exists but misses assets -> supplement only the missing assets. When the jar already exists,
+        checksum / signature are regenerated from the published jar bytes, not from a rebuild;
       - else build ONLY that module (`mvn -pl <module> -am package` - its dep subtree, not the whole reactor
-        nor other plugins), verify it is a thin PF4J jar, then create the release and upload the jar + .sha256.
+        nor other plugins), verify it is a thin PF4J jar, then create the release and upload the jar + .sha256 + .sig.
 
-    So updating one plugin compiles and publishes only that plugin. The market manifest is generated separately
-    (generate-market-manifest.ps1) from the published releases. ASCII source; runs under Windows PowerShell /
-    pwsh. Needs gh + GH_TOKEN and Maven (mvnw / mvn).
+    So updating one plugin compiles and publishes only that plugin. Repairing a release that already has the
+    jar does not rebuild it; missing checksum / signature files are regenerated from the published bytes.
+    The market manifest is generated separately (generate-market-manifest.ps1) from the published releases.
+    ASCII source; runs under Windows PowerShell / pwsh. Needs gh + GH_TOKEN and Maven (mvnw / mvn).
 
 .PARAMETER Repo
     owner/repo of the plugin distribution repository. Default Sywyar/PixivDownloader-plugins.
@@ -64,6 +67,115 @@ function Get-MavenCommand([string]$root) {
     throw "Missing Maven command. Install Maven or use the Maven wrapper."
 }
 
+function Get-ReleaseAssetState([string]$Tag) {
+    # `gh release view` returns a non-zero exit code and writes to stderr when the release does not exist.
+    # Temporarily relax ErrorActionPreference so "release not found" can be handled as normal control flow.
+    $oldErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $viewOutput = & gh release view $Tag --repo $Repo --json assets 2>&1
+        $viewExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $oldErrorActionPreference
+    }
+
+    $viewText = ($viewOutput -join "`n")
+    if ($viewExitCode -eq 0) {
+        $view = $viewText | ConvertFrom-Json
+        $assetNames = @()
+        if ($view.assets) {
+            $assetNames = @($view.assets | ForEach-Object { $_.name })
+        }
+        return [pscustomobject]@{ Exists = $true; AssetNames = $assetNames }
+    }
+
+    if ($viewText -notmatch 'release not found|HTTP 404') {
+        throw "gh release view failed for ${Tag}: $viewText"
+    }
+    return [pscustomobject]@{ Exists = $false; AssetNames = @() }
+}
+
+function Build-StagedPluginJar {
+    param(
+        [Parameter(Mandatory = $true)]$Plugin,
+        [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][string]$AssetName
+    )
+
+    Write-Host "==> Building only module $($Plugin.Module) for release $($Plugin.Id)-v$Version"
+    Push-Location $ProjectRoot
+    try {
+        & $mvn "-pl" $Plugin.Module "-am" "package" "-DskipTests" "-Dexec.skip=true"
+        if ($LASTEXITCODE -ne 0) { throw "Maven build failed for module $($Plugin.Module)." }
+    } finally {
+        Pop-Location
+    }
+
+    $builtJar = Find-ModuleJar $Plugin.Module $ProjectRoot
+    $descriptor = Assert-ThinPluginJar $builtJar $Plugin.Id
+    $pluginVersion = $descriptor["plugin.version"]
+    if ($pluginVersion -ne $Version) {
+        throw "Built plugin.version '$pluginVersion' != source '$Version' for $($Plugin.Id)."
+    }
+
+    $stagedJar = Join-Path $stageDir $AssetName
+    Copy-Item $builtJar $stagedJar -Force
+    return $stagedJar
+}
+
+function Download-ReleaseAsset {
+    param(
+        [Parameter(Mandatory = $true)][string]$Tag,
+        [Parameter(Mandatory = $true)][string]$AssetName
+    )
+
+    $target = Join-Path $stageDir $AssetName
+    Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+    & gh release download $Tag --repo $Repo --pattern $AssetName --dir $stageDir --clobber
+    if ($LASTEXITCODE -ne 0) { throw "Failed to download existing asset $AssetName from release $Tag." }
+    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+        throw "Downloaded asset not found after gh release download: $target"
+    }
+    return $target
+}
+
+function Write-StagedCompanionFiles {
+    param(
+        [Parameter(Mandatory = $true)][string]$StagedJar,
+        [Parameter(Mandatory = $true)][string]$AssetName,
+        [Parameter(Mandatory = $true)]$Plugin,
+        [Parameter(Mandatory = $true)][string]$Version
+    )
+
+    $sha = Get-Sha256Hex $StagedJar
+    $shaFile = "$StagedJar.sha256"
+    [System.IO.File]::WriteAllText($shaFile, "$sha  $AssetName`n", $Utf8NoBom)
+    $sigFile = "$StagedJar.sig"
+    Invoke-PluginSignatureTool $SignatureToolJar @(
+        "artifact",
+        "--artifact", $StagedJar,
+        "--plugin-id", $Plugin.Id,
+        "--version", $Version,
+        "--key-id", $OfficialKeyId,
+        "--private-key", $PrivateKeyFile,
+        "--out", $sigFile
+    )
+    return [pscustomobject]@{ Sha = $sha; ShaFile = $shaFile; SigFile = $sigFile }
+}
+
+function Upload-ReleaseAssetFiles {
+    param(
+        [Parameter(Mandatory = $true)][string]$Tag,
+        [Parameter(Mandatory = $true)][string[]]$Paths
+    )
+
+    if (-not $Paths -or $Paths.Count -eq 0) {
+        return
+    }
+    gh release upload $Tag $Paths --repo $Repo
+    if ($LASTEXITCODE -ne 0) { throw "gh release upload failed for $Tag." }
+}
+
 $mvn = Get-MavenCommand $ProjectRoot
 $stageDir = Join-Path $ProjectRoot "build/release-plugins"
 New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
@@ -73,71 +185,50 @@ $published = @()
 foreach ($plugin in $plugins) {
     $version = Read-SourceVersion $plugin.Module
     $tag = "$($plugin.Id)-v$version"
+    $assetName = "$($plugin.Module)-$version.jar"
+    $shaAssetName = "$assetName.sha256"
+    $sigAssetName = "$assetName.sig"
+    $expectedAssets = @($assetName, $shaAssetName, $sigAssetName)
+    $release = Get-ReleaseAssetState $tag
 
-    # `gh release view` returns a non-zero exit code and writes to stderr when the release does not exist.
-    # Temporarily relax ErrorActionPreference so "release not found" can be handled as normal control flow.
-    $oldErrorActionPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = "Continue"
-        $viewOutput = & gh release view $tag --repo $Repo 2>&1
-        $viewExitCode = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $oldErrorActionPreference
-    }
+    if ($release.Exists) {
+        $assetNames = @($release.AssetNames)
+        $missingAssets = @($expectedAssets | Where-Object { $assetNames -notcontains $_ })
+        if ($missingAssets.Count -eq 0) {
+            Write-Host "= $tag already published with expected assets; skip."
+            continue
+        }
 
-    if ($viewExitCode -eq 0) {
-        Write-Host "= $tag already published; skip (immutable - bump plugin.version to publish changes)."
+        Write-Host "==> $tag already exists but missing asset(s): $($missingAssets -join ', '); supplementing."
+        $jarAssetExists = $assetNames -contains $assetName
+        if ($jarAssetExists) {
+            $stagedJar = Download-ReleaseAsset -Tag $tag -AssetName $assetName
+        } else {
+            $stagedJar = Build-StagedPluginJar -Plugin $plugin -Version $version -AssetName $assetName
+        }
+        $companions = Write-StagedCompanionFiles -StagedJar $stagedJar -AssetName $assetName -Plugin $plugin -Version $version
+
+        $uploadPaths = @()
+        if (-not $jarAssetExists) { $uploadPaths += $stagedJar }
+        if ($missingAssets -contains $shaAssetName) { $uploadPaths += $companions.ShaFile }
+        if ($missingAssets -contains $sigAssetName) { $uploadPaths += $companions.SigFile }
+        Upload-ReleaseAssetFiles -Tag $tag -Paths $uploadPaths
+        $published += "$tag (supplemented)"
         continue
     }
 
-    if (($viewOutput -join "`n") -notmatch 'release not found|HTTP 404') {
-        throw "gh release view failed for ${tag}: $($viewOutput -join "`n")"
-    }
+    $stagedJar = Build-StagedPluginJar -Plugin $plugin -Version $version -AssetName $assetName
+    $companions = Write-StagedCompanionFiles -StagedJar $stagedJar -AssetName $assetName -Plugin $plugin -Version $version
 
-    Write-Host "==> Building only module $($plugin.Module) for new release $tag"
-    Push-Location $ProjectRoot
-    try {
-        & $mvn "-pl" $plugin.Module "-am" "package" "-DskipTests" "-Dexec.skip=true"
-        if ($LASTEXITCODE -ne 0) { throw "Maven build failed for module $($plugin.Module)." }
-    } finally {
-        Pop-Location
-    }
-
-    $builtJar = Find-ModuleJar $plugin.Module $ProjectRoot
-    $descriptor = Assert-ThinPluginJar $builtJar $plugin.Id
-    $pluginVersion = $descriptor["plugin.version"]
-    if ($pluginVersion -ne $version) {
-        throw "Built plugin.version '$pluginVersion' != source '$version' for $($plugin.Id)."
-    }
-
-    # Stage under the canonical asset name <module>-<pluginVersion>.jar (matches tag + manifest generator).
-    $assetName = "$($plugin.Module)-$pluginVersion.jar"
-    $stagedJar = Join-Path $stageDir $assetName
-    Copy-Item $builtJar $stagedJar -Force
-    $sha = Get-Sha256Hex $stagedJar
-    $shaFile = "$stagedJar.sha256"
-    [System.IO.File]::WriteAllText($shaFile, "$sha  $assetName`n", $Utf8NoBom)
-    $sigFile = "$stagedJar.sig"
-    Invoke-PluginSignatureTool $SignatureToolJar @(
-        "artifact",
-        "--artifact", $stagedJar,
-        "--plugin-id", $plugin.Id,
-        "--version", $pluginVersion,
-        "--key-id", $OfficialKeyId,
-        "--private-key", $PrivateKeyFile,
-        "--out", $sigFile
-    )
-
-    Write-Host "==> Publishing $tag ($assetName, sha256 $sha)"
-    gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $pluginVersion"
+    Write-Host "==> Publishing $tag ($assetName, sha256 $($companions.Sha))"
+    gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $version"
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
-    gh release upload $tag $stagedJar $shaFile $sigFile --repo $Repo
-    if ($LASTEXITCODE -ne 0) { throw "gh release upload failed for $tag." }
-    $published += $tag
+    Upload-ReleaseAssetFiles -Tag $tag -Paths @($stagedJar, $companions.ShaFile, $companions.SigFile)
+    $published += "$tag (created)"
 }
 
 if ($published.Count -eq 0) {
-    Write-Host "No plugin needed building or publishing; all versions already released."
+    Write-Host "No plugin needed building, publishing, or asset supplementation; all releases have expected assets."
 } else {
-    Write-Host "Published: $($published -join ', ')"
+    Write-Host "Changed releases: $($published -join ', ')"
 }
