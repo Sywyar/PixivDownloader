@@ -43,6 +43,9 @@ public class PluginCatalogProperties {
     /** 自定义仓库列表（可新增 / 禁用；id 不得为空 / 保留字 / 重复，{@code manifest-url} 不得为空，否则启动期 fail-fast）。 */
     private List<RepositoryConfig> repositories = new ArrayList<>();
 
+    /** 兼容单一 manifest-url 仓库使用的自定义信任根。 */
+    private List<TrustedKeyConfig> trustedKeys = new ArrayList<>();
+
     /** 清单拉取的全局默认最大字节数（防超大响应；默认 1MB；可被仓库级覆盖）。 */
     private long maxManifestBytes = DEFAULT_MAX_MANIFEST_BYTES;
 
@@ -111,5 +114,27 @@ public class PluginCatalogProperties {
 
         /** 单包字节上限覆盖（&le;0 用全局默认）。 */
         private long maxPackageBytes;
+
+        /** 该仓库允许的发布者信任根。 */
+        private List<TrustedKeyConfig> trustedKeys = new ArrayList<>();
+    }
+
+    /**
+     * 自定义仓库发布者公钥配置。公钥是 Base64 编码的 X.509 SubjectPublicKeyInfo，私钥不在本配置中出现。
+     */
+    @Data
+    public static class TrustedKeyConfig {
+
+        private String keyId;
+
+        private String algorithm = "Ed25519";
+
+        private String publicKey;
+
+        private String state = "ACTIVE";
+
+        private String publisher;
+
+        private String trustLabel;
     }
 }

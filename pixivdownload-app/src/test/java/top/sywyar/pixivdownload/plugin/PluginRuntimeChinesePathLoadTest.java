@@ -71,7 +71,9 @@ class PluginRuntimeChinesePathLoadTest {
 
         deleteRecursivelyQuietly(PLUGINS_DIR);
         Files.createDirectories(PLUGINS_DIR);
-        zipDirectoryAsJar(statsClasses, PLUGINS_DIR.resolve("pixivdownload-plugin-stats.jar"));
+        Path jar = PLUGINS_DIR.resolve("pixivdownload-plugin-stats.jar");
+        zipDirectoryAsJar(statsClasses, jar);
+        PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "stats", "1.0.0");
 
         manager = new PluginRuntimeManager(PLUGINS_DIR);
         status = manager.start();

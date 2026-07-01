@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.PluginTestProvenance;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -305,6 +306,7 @@ class PluginBootstrapBackendRestartTest {
             addClassEntry(zos, BackendRestartProbePlugin.class);
             addClassEntry(zos, BackendRestartProbeFeaturePlugin.class);
         }
+        PluginTestProvenance.writeLocalUpload(pluginsDir, jar, "bootstrap-probe", "1.0.0");
         return jar;
     }
 

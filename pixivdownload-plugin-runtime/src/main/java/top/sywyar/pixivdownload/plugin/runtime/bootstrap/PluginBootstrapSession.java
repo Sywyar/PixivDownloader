@@ -9,11 +9,14 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * 进程级插件运行时 bootstrap 会话：把「恢复待处理安装事务 → 构造唯一 {@link PluginRuntimeManager} → 一次启动扫描与
@@ -59,22 +62,57 @@ public final class PluginBootstrapSession implements AutoCloseable {
     private volatile boolean started;
     private volatile boolean closed;
 
-    private PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot) {
+    private PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
+                                   PluginSupplyChainVerifier verifier) {
+        this(pluginsRoot, ownership, enabledSnapshot, fixedVerifier(verifier));
+    }
+
+    private PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
+                                   Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         this.pluginsRoot = Objects.requireNonNull(pluginsRoot, "pluginsRoot").toAbsolutePath().normalize();
         this.ownership = Objects.requireNonNull(ownership, "ownership");
         this.enabledSnapshot = Objects.requireNonNull(enabledSnapshot, "enabledSnapshot");
-        this.installer = new ExternalPluginInstaller(this.pluginsRoot);
-        this.manager = new PluginRuntimeManager(this.pluginsRoot);
+        Function<PluginPackageOrigin, PluginSupplyChainVerifier> effectiveResolver =
+                Objects.requireNonNull(verifierResolver, "verifierResolver");
+        this.installer = new ExternalPluginInstaller(this.pluginsRoot,
+                top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageLimits.defaults(), effectiveResolver);
+        this.manager = new PluginRuntimeManager(this.pluginsRoot, effectiveResolver);
     }
 
     /** GUI 进程拥有的会话（Spring 关闭不释放、进程退出时关闭）。 */
     public static PluginBootstrapSession createProcess(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot) {
-        return new PluginBootstrapSession(pluginsRoot, Ownership.PROCESS, enabledSnapshot);
+        return createProcess(pluginsRoot, enabledSnapshot, new PluginSupplyChainVerifier());
+    }
+
+    /** GUI 进程拥有的会话（Spring 关闭不释放、进程退出时关闭），使用调用方提供的验签门面。 */
+    public static PluginBootstrapSession createProcess(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot,
+                                                       PluginSupplyChainVerifier verifier) {
+        return new PluginBootstrapSession(pluginsRoot, Ownership.PROCESS, enabledSnapshot, verifier);
+    }
+
+    /** GUI 进程拥有的会话（Spring 关闭不释放、进程退出时关闭），使用调用方提供的按来源验签门面。 */
+    public static PluginBootstrapSession createProcess(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot,
+                                                       Function<PluginPackageOrigin, PluginSupplyChainVerifier>
+                                                               verifierResolver) {
+        return new PluginBootstrapSession(pluginsRoot, Ownership.PROCESS, enabledSnapshot, verifierResolver);
     }
 
     /** headless / Spring context 拥有的会话（context 关闭时释放）。 */
     public static PluginBootstrapSession createContext(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot) {
-        return new PluginBootstrapSession(pluginsRoot, Ownership.CONTEXT, enabledSnapshot);
+        return createContext(pluginsRoot, enabledSnapshot, new PluginSupplyChainVerifier());
+    }
+
+    /** headless / Spring context 拥有的会话（context 关闭时释放），使用调用方提供的验签门面。 */
+    public static PluginBootstrapSession createContext(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot,
+                                                       PluginSupplyChainVerifier verifier) {
+        return new PluginBootstrapSession(pluginsRoot, Ownership.CONTEXT, enabledSnapshot, verifier);
+    }
+
+    /** headless / Spring context 拥有的会话（context 关闭时释放），使用调用方提供的按来源验签门面。 */
+    public static PluginBootstrapSession createContext(Path pluginsRoot, PluginEnabledSnapshot enabledSnapshot,
+                                                       Function<PluginPackageOrigin, PluginSupplyChainVerifier>
+                                                               verifierResolver) {
+        return new PluginBootstrapSession(pluginsRoot, Ownership.CONTEXT, enabledSnapshot, verifierResolver);
     }
 
     /**
@@ -134,6 +172,25 @@ public final class PluginBootstrapSession implements AutoCloseable {
 
     public ExternalPluginInstaller installer() {
         return installer;
+    }
+
+    /**
+     * 宿主解析仓库配置后同步刷新后续安装与单包加载共用的验签门面。
+     * <p>已经完成的启动扫描不在这里重跑：PROCESS 会话由 GUI 在 Spring 前启动，后端 context 刷新 / restart 只应复用
+     * 已验证 generation 和 classloader，不能因为 trust store Bean 刷新而再次 PF4J load/start。需要加载新增或此前隔离的
+     * 包时，应走显式安装 / 生命周期动作或完整进程重启。
+     */
+    public synchronized void updateVerifier(PluginSupplyChainVerifier verifier) {
+        updateVerifierResolver(fixedVerifier(verifier));
+    }
+
+    /** 宿主解析仓库配置后同步刷新后续安装与单包加载共用的按来源验签门面。 */
+    public synchronized void updateVerifierResolver(
+            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
+        Function<PluginPackageOrigin, PluginSupplyChainVerifier> effectiveResolver =
+                Objects.requireNonNull(verifierResolver, "verifierResolver");
+        installer.updateVerifierResolver(effectiveResolver);
+        manager.updateVerifierResolver(effectiveResolver);
     }
 
     public PluginEnabledSnapshot enabledSnapshot() {
@@ -240,6 +297,12 @@ public final class PluginBootstrapSession implements AutoCloseable {
         }
         return error.getMessage() == null || error.getMessage().isBlank()
                 ? error.getClass().getName() : error.getMessage();
+    }
+
+    private static Function<PluginPackageOrigin, PluginSupplyChainVerifier> fixedVerifier(
+            PluginSupplyChainVerifier verifier) {
+        PluginSupplyChainVerifier fixed = Objects.requireNonNull(verifier, "verifier");
+        return origin -> fixed;
     }
 
     /** 会话所有权。 */

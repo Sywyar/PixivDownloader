@@ -12,6 +12,8 @@ import top.sywyar.pixivdownload.plugin.PluginInstallResponseMapper;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
+import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
 import java.util.List;
 import java.util.Locale;
@@ -79,7 +81,7 @@ class PluginMarketControllerTest {
                 List.of(new PluginMarketCategoryCount("all", 1)),
                 List.of(new PluginMarketEntryView("stats", "stats:nav.label", "stats:plugin.summary", "1.2.3", null,
                         List.of(new PluginMarketPackageView("1.2.3", 4096L, "abcdef", false, "1.0",
-                                true, false, List.of(), null, List.of(), null, false)),
+                                true, false, List.of(), null, List.of(), null, false, verification())),
                         MarketInstallStatus.UPDATE_AVAILABLE, "1.2.0", true, true, null))));
 
         mockMvc.perform(get("/api/plugin-market/catalog"))
@@ -138,7 +140,8 @@ class PluginMarketControllerTest {
         when(marketService.pluginDetail("official", "stats")).thenReturn(new PluginMarketEntryView(
                 "stats", "stats:nav.label", "stats:plugin.summary", "1.2.3", null,
                 List.of(new PluginMarketPackageView("1.2.3", 4096L, "abcdef", false, "1.0",
-                        true, true, List.of(), "2026-06-01", List.of("first release"), "stable", false)),
+                        true, true, List.of(), "2026-06-01", List.of("first release"), "stable", false,
+                        verification())),
                 MarketInstallStatus.NOT_INSTALLED, null, false, true, null));
 
         mockMvc.perform(get("/api/plugin-market/plugins/official/stats"))
@@ -277,5 +280,9 @@ class PluginMarketControllerTest {
 
         // 仅按路径变量解析；请求体里的 url / packageUrl / repositoryId 完全不参与。
         verify(marketService).install("official", "demo", "1.0.0");
+    }
+
+    private static PluginVerificationView verification() {
+        return PluginVerificationProjector.notInstalled();
     }
 }

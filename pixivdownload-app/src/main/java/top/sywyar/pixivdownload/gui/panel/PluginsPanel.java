@@ -229,7 +229,7 @@ public class PluginsPanel extends JPanel {
         return card;
     }
 
-    /** 卡片次行：来源 + 必选标记 + 运行期阶段（仅受管插件）+ 版本，缺省项自动省略。 */
+    /** 卡片次行：来源 + 必选标记 + 运行期阶段（仅受管插件）+ 版本 + 验签状态，缺省项自动省略。 */
     private static String buildSecondaryText(GuiPluginStatusModel.Row row) {
         StringBuilder sb = new StringBuilder();
         sb.append(GuiPluginStatusModel.sourceLabel(row.source()));
@@ -241,6 +241,9 @@ public class PluginsPanel extends JPanel {
         }
         if (row.version() != null && !row.version().isBlank()) {
             sb.append("  ·  ").append(message("gui.plugins.version", row.version()));
+        }
+        if (row.verificationStatus() != null && !row.verificationStatus().isBlank()) {
+            sb.append("  ·  ").append(GuiPluginStatusModel.verificationLabel(row.verificationStatus()));
         }
         return sb.toString();
     }

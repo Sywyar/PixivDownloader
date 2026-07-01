@@ -15,8 +15,13 @@ import top.sywyar.pixivdownload.gui.theme.ThemePreference;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 import org.yaml.snakeyaml.Yaml;
 
@@ -37,6 +42,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -235,7 +241,8 @@ public class GuiLauncher {
         //    必须早于首个 Swing 窗口 / 主题安装：外置插件的发现要先于 FlatLaf 完成。会话 start 收敛插件目录
         //    缺失 / 空 / 坏包 / 安装事务恢复失败为诊断，不抛、不阻断 GUI 进入系统 LookAndFeel。
         final PluginBootstrapSession pluginSession = PluginBootstrapSession.createProcess(
-                RuntimeFiles.pluginsDirectory(), readPluginEnabledSnapshot(configPath));
+                RuntimeFiles.pluginsDirectory(), readPluginEnabledSnapshot(configPath),
+                readPluginVerifierResolver(configPath));
         pluginSession.start();
         // 启动期 inventory / discovery 快照持有插件实例 / classloader 引用，仅存在于启动前的短生命周期窗口。
         // 当前没有启动期快照消费者，进入 Spring 前显式释放，避免钉住运行期 reload / 卸载的旧 generation。
@@ -775,6 +782,139 @@ public class GuiLauncher {
             log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));
             return PluginEnabledSnapshot.empty();
         }
+    }
+
+    /**
+     * GUI 进程在 Spring 前按 config.yaml 构造供应链 verifier resolver。解析失败时安全降级为官方 root-only：
+     * custom 来源没有显式仓库 key 时仍 fail-closed，且不会阻断 Swing / 系统 LookAndFeel 进入。
+     */
+    static Function<PluginPackageOrigin, PluginSupplyChainVerifier> readPluginVerifierResolver(Path configPath) {
+        try {
+            PluginCatalogProperties properties = readPluginCatalogProperties(configPath);
+            return PluginCatalogTrustStores.verifierResolver(new PluginRepositoryRegistry(properties));
+        } catch (RuntimeException | IOException e) {
+            log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));
+            return PluginCatalogTrustStores.verifierResolver(new PluginRepositoryRegistry(new PluginCatalogProperties()));
+        }
+    }
+
+    private static PluginCatalogProperties readPluginCatalogProperties(Path configPath) throws IOException {
+        PluginCatalogProperties properties = new PluginCatalogProperties();
+        if (!Files.isRegularFile(configPath)) {
+            return properties;
+        }
+        Object loaded = new Yaml().load(Files.readString(configPath, StandardCharsets.UTF_8));
+        if (!(loaded instanceof Map<?, ?> root)) {
+            return properties;
+        }
+        Object section = root.get("plugin-catalog");
+        if (!(section instanceof Map<?, ?> catalog)) {
+            return properties;
+        }
+
+        properties.setEnabled(booleanValue(catalog.get("enabled"), properties.isEnabled()));
+        properties.setOfficialRepositoryEnabled(booleanValue(
+                catalog.get("official-repository-enabled"), properties.isOfficialRepositoryEnabled()));
+        properties.setManifestUrl(stringValue(catalog.get("manifest-url"), properties.getManifestUrl()));
+        properties.setConnectTimeoutMs((int) longValue(catalog.get("connect-timeout-ms"),
+                properties.getConnectTimeoutMs()));
+        properties.setReadTimeoutMs((int) longValue(catalog.get("read-timeout-ms"), properties.getReadTimeoutMs()));
+        properties.setMaxManifestBytes(longValue(catalog.get("max-manifest-bytes"),
+                properties.getMaxManifestBytes()));
+        properties.setMaxPackageBytes(longValue(catalog.get("max-package-bytes"), properties.getMaxPackageBytes()));
+        properties.setTrustedKeys(trustedKeys(catalog.get("trusted-keys")));
+        properties.setRepositories(repositories(catalog.get("repositories")));
+        return properties;
+    }
+
+    private static List<PluginCatalogProperties.RepositoryConfig> repositories(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (!(value instanceof List<?> list)) {
+            throw new IllegalStateException("plugin-catalog.repositories must be a list");
+        }
+        return list.stream()
+                .map(item -> {
+                    if (!(item instanceof Map<?, ?> map)) {
+                        throw new IllegalStateException("plugin-catalog.repositories entries must be maps");
+                    }
+                    return repository(map);
+                })
+                .toList();
+    }
+
+    private static PluginCatalogProperties.RepositoryConfig repository(Map<?, ?> map) {
+        PluginCatalogProperties.RepositoryConfig repository = new PluginCatalogProperties.RepositoryConfig();
+        repository.setId(stringValue(map.get("id"), repository.getId()));
+        repository.setDisplayNameKey(stringValue(map.get("display-name-key"), repository.getDisplayNameKey()));
+        repository.setManifestUrl(stringValue(map.get("manifest-url"), repository.getManifestUrl()));
+        repository.setEnabled(booleanValue(map.get("enabled"), repository.isEnabled()));
+        repository.setProxyPolicy(stringValue(map.get("proxy-policy"), repository.getProxyPolicy()));
+        repository.setAllowRedirects(booleanValue(map.get("allow-redirects"), repository.isAllowRedirects()));
+        repository.setStrictHttps(booleanValue(map.get("strict-https"), repository.isStrictHttps()));
+        repository.setAllowNonPublicAddresses(booleanValue(
+                map.get("allow-non-public-addresses"), repository.isAllowNonPublicAddresses()));
+        repository.setUseProxy(booleanValue(map.get("use-proxy"), repository.isUseProxy()));
+        repository.setConnectTimeoutMs(longValue(map.get("connect-timeout-ms"), repository.getConnectTimeoutMs()));
+        repository.setReadTimeoutMs(longValue(map.get("read-timeout-ms"), repository.getReadTimeoutMs()));
+        repository.setMaxManifestBytes(longValue(map.get("max-manifest-bytes"), repository.getMaxManifestBytes()));
+        repository.setMaxPackageBytes(longValue(map.get("max-package-bytes"), repository.getMaxPackageBytes()));
+        repository.setTrustedKeys(trustedKeys(map.get("trusted-keys")));
+        return repository;
+    }
+
+    private static List<PluginCatalogProperties.TrustedKeyConfig> trustedKeys(Object value) {
+        if (value == null) {
+            return List.of();
+        }
+        if (!(value instanceof List<?> list)) {
+            throw new IllegalStateException("plugin-catalog trusted-keys must be a list");
+        }
+        return list.stream()
+                .map(item -> {
+                    if (!(item instanceof Map<?, ?> map)) {
+                        throw new IllegalStateException("plugin-catalog trusted-keys entries must be maps");
+                    }
+                    return trustedKey(map);
+                })
+                .toList();
+    }
+
+    private static PluginCatalogProperties.TrustedKeyConfig trustedKey(Map<?, ?> map) {
+        PluginCatalogProperties.TrustedKeyConfig key = new PluginCatalogProperties.TrustedKeyConfig();
+        key.setKeyId(stringValue(map.get("key-id"), key.getKeyId()));
+        key.setAlgorithm(stringValue(map.get("algorithm"), key.getAlgorithm()));
+        key.setPublicKey(stringValue(map.get("public-key"), key.getPublicKey()));
+        key.setState(stringValue(map.get("state"), key.getState()));
+        key.setPublisher(stringValue(map.get("publisher"), key.getPublisher()));
+        key.setTrustLabel(stringValue(map.get("trust-label"), key.getTrustLabel()));
+        return key;
+    }
+
+    private static boolean booleanValue(Object value, boolean fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return Boolean.parseBoolean(value.toString().trim());
+    }
+
+    private static long longValue(Object value, long fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        String text = value.toString().trim();
+        return text.isEmpty() ? fallback : Long.parseLong(text);
+    }
+
+    private static String stringValue(Object value, String fallback) {
+        return value == null ? fallback : value.toString();
     }
 
     /**

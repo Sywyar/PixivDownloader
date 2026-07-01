@@ -260,6 +260,7 @@ class PluginInstallServiceTest {
             return stream.filter(Files::isRegularFile)
                     .map(p -> p.getFileName().toString())
                     .filter(n -> !n.startsWith("."))
+                    .filter(n -> n.endsWith(".jar") || n.endsWith(".zip"))
                     .sorted()
                     .toList();
         } catch (IOException e) {

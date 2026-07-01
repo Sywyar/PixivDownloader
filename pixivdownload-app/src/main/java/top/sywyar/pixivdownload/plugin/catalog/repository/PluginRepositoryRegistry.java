@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin.catalog.repository;
 
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -67,7 +69,7 @@ public class PluginRepositoryRegistry {
                     true, false, false, RepositoryProxyPolicy.DIRECT_STRICT,
                     RepositoryProxyPolicy.DIRECT_STRICT.configId(),
                     false, true, false, false,
-                    connectTimeout, readTimeout, maxManifest, maxPackage));
+                    connectTimeout, readTimeout, maxManifest, maxPackage, trustedKeys(properties.getTrustedKeys())));
         }
 
         // 3) 自定义仓库列表（按配置顺序；id / manifest-url 校验，重复 / 保留字 fail-fast）。
@@ -112,7 +114,8 @@ public class PluginRepositoryRegistry {
                 positiveOr(config.getConnectTimeoutMs(), defaultConnect),
                 positiveOr(config.getReadTimeoutMs(), defaultRead),
                 positiveOr(config.getMaxManifestBytes(), defaultManifest),
-                positiveOr(config.getMaxPackageBytes(), defaultPackage));
+                positiveOr(config.getMaxPackageBytes(), defaultPackage),
+                trustedKeys(config.getTrustedKeys()));
     }
 
     private static String displayNameKey(PluginCatalogProperties.RepositoryConfig config, String id) {
@@ -123,6 +126,48 @@ public class PluginRepositoryRegistry {
     /** 每仓库覆盖值为正时采用，否则回落到全局默认。 */
     private static long positiveOr(long override, long fallback) {
         return override > 0 ? override : fallback;
+    }
+
+    private static List<TrustedPluginKey> trustedKeys(List<PluginCatalogProperties.TrustedKeyConfig> configs) {
+        if (configs == null || configs.isEmpty()) {
+            return List.of();
+        }
+        List<TrustedPluginKey> result = new ArrayList<>();
+        for (PluginCatalogProperties.TrustedKeyConfig config : configs) {
+            String keyId = text(config.getKeyId());
+            String publicKey = text(config.getPublicKey());
+            if (keyId == null || publicKey == null) {
+                throw new IllegalStateException("plugin-catalog trusted key requires key-id and public-key");
+            }
+            result.add(new TrustedPluginKey(
+                    keyId,
+                    text(config.getAlgorithm()) != null ? text(config.getAlgorithm()) : SignatureMetadata.ED25519,
+                    publicKey,
+                    parseKeyState(config.getState()),
+                    text(config.getPublisher()),
+                    text(config.getTrustLabel()),
+                    false));
+        }
+        return List.copyOf(result);
+    }
+
+    private static TrustedPluginKey.State parseKeyState(String value) {
+        if (value == null || value.isBlank()) {
+            return TrustedPluginKey.State.ACTIVE;
+        }
+        try {
+            return TrustedPluginKey.State.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("unsupported plugin-catalog trusted key state: " + value, e);
+        }
+    }
+
+    private static String text(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /** 受信 catalog / 插件市场主开关是否开启（{@code plugin-catalog.enabled}）。 */

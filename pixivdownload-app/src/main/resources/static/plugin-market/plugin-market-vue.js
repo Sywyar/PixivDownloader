@@ -508,6 +508,8 @@
                     if (result && result.accepted && result.effectiveAfterRestart) return 'PENDING_RESTART';
                     var pkg = PMK.data.packageOf(entry, this.selectedVersion);
                     if (!pkg) return entry.installStatus;   // 无可安装版本制品 → 沿用后端状态（UNAVAILABLE / 已安装）
+                    var verificationStatus = this.packageVerificationInstallStatus(pkg);
+                    if (verificationStatus) return verificationStatus;
                     if (!pkg.compatible) return 'INCOMPATIBLE';
                     if (entry.installedVersion && entry.installedVersion === this.selectedVersion) return 'INSTALLED';
                     return entry.installStatus === 'UPDATE_AVAILABLE' ? 'UPDATE_AVAILABLE' : 'NOT_INSTALLED';
@@ -543,7 +545,12 @@
                     });
                     if (m.license) rows.push({ key: 'detail.license', val: m.license, mono: true });
                     if (pkg && pkg.sha256) rows.push({ key: 'detail.sha256', val: shorten(pkg.sha256), mono: true, title: pkg.sha256 });
-                    if (pkg) rows.push({ key: 'detail.signature', val: pkg.signaturePresent ? this.t('detail.signed', '已声明签名') : this.t('detail.unsigned', '无') });
+                    if (pkg && pkg.verification) rows.push({
+                        key: 'detail.verification',
+                        val: this.verificationLabel(pkg.verification),
+                        danger: this.verificationDanger(pkg.verification),
+                        title: pkg.verification.trustLabel || pkg.verification.publisher || pkg.verification.diagnosticCode || null
+                    });
                     if (m.homepageUrl) rows.push({ key: 'detail.homepage', val: m.homepageUrl, href: m.homepageUrl });
                     rows.push({
                         key: 'detail.effect',
@@ -570,6 +577,25 @@
                         description: PMK.data.entryDescription(entry), tags: card.tags,
                         versions: versions, dependencies: deps, infoRows: rows
                     };
+                },
+                packageVerificationInstallStatus: function (pkg) {
+                    var v = pkg && pkg.verification;
+                    if (!v || !v.status) return null;
+                    if (v.status === 'VERIFIED_OFFICIAL' || v.status === 'VERIFIED_CUSTOM') return null;
+                    if (['SIGNATURE_REQUIRED', 'UNKNOWN_KEY', 'REVOKED_KEY', 'INVALID_SIGNATURE', 'HASH_MISMATCH']
+                            .indexOf(v.status) !== -1) {
+                        return v.status;
+                    }
+                    return null;
+                },
+                verificationLabel: function (verification) {
+                    if (!verification || !verification.status) return this.t('verification.unverified-local', '本地未验证');
+                    return this.t('verification.' + String(verification.status).toLowerCase().replace(/_/g, '-'), verification.status);
+                },
+                verificationDanger: function (verification) {
+                    if (!verification || !verification.status) return true;
+                    return ['SIGNATURE_REQUIRED', 'UNKNOWN_KEY', 'REVOKED_KEY', 'INVALID_SIGNATURE', 'HASH_MISMATCH']
+                        .indexOf(verification.status) !== -1;
                 }
             }
         };

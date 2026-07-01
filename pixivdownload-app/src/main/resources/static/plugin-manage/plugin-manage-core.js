@@ -123,6 +123,23 @@
         STARTED: 'ok', LOADED: 'info', QUIESCED: 'warn', STOPPED: 'idle', UNLOADED: 'idle'
     };
 
+    var VERIFICATION_META = {
+        VERIFIED_OFFICIAL: { key: 'verification.verified-official', tone: 'ok' },
+        VERIFIED_CUSTOM: { key: 'verification.verified-custom', tone: 'ok' },
+        UNVERIFIED_LOCAL: { key: 'verification.unverified-local', tone: 'warn' },
+        UNSIGNED_ALLOWED: { key: 'verification.unsigned-allowed', tone: 'warn' },
+        SIGNATURE_REQUIRED: { key: 'verification.signature-required', tone: 'bad' },
+        UNKNOWN_KEY: { key: 'verification.unknown-key', tone: 'bad' },
+        REVOKED_KEY: { key: 'verification.revoked-key', tone: 'bad' },
+        INVALID_SIGNATURE: { key: 'verification.invalid-signature', tone: 'bad' },
+        HASH_MISMATCH: { key: 'verification.hash-mismatch', tone: 'bad' },
+        NOT_INSTALLED: { key: 'verification.not-installed', tone: 'idle' }
+    };
+
+    function verificationMeta(status) {
+        return VERIFICATION_META[status] || { key: 'verification.unverified-local', tone: 'idle' };
+    }
+
     // 图标受控 token（后端 iconKey）→ FontAwesome class 的<b>本地白名单</b>：后端只给受控 token（绝非 URL / SVG /
     // HTML），前端在此固定映射；白名单外的未知 token 一律回退到默认 puzzle，原始 token 绝不被当作类名直接渲染。
     var ICON_CLASSES = {
@@ -189,6 +206,9 @@
         var name = tns(entry.displayNamespace, entry.displayNameKey, entry.id);
         var version = entry.version ? ('v' + entry.version) : null;
         var sub = [entry.id, version, t('source.' + source, source)].filter(Boolean).join(' · ');
+        var verification = entry.verification || {};
+        var verificationStatus = verification.status || null;
+        var verificationInfo = verificationMeta(verificationStatus);
 
         // 标签：用真实数据派生（类别 / 必须 / 是否可热管理）。
         var tags = [];
@@ -217,6 +237,10 @@
             runtimePhase: phase,
             phaseLabel: phase ? t('phase.' + String(phase).toLowerCase(), phase) : null,
             phaseTone: phase ? (PHASE_TONE[phase] || 'idle') : null,
+            verificationStatus: verificationStatus,
+            verificationLabel: verificationStatus ? t(verificationInfo.key, verificationStatus) : null,
+            verificationTone: verificationInfo.tone,
+            verificationTrustLabel: verification.trustLabel || verification.publisher || null,
             icon: iconClass(entry.iconKey),
             colorToken: colorTokenOf(entry.colorToken),
             badgeKey: 'source.' + source,
@@ -366,6 +390,7 @@
         collectNamespaces: collectNamespaces,
         statusMeta: statusMeta,
         verbMeta: verbMeta,
+        verificationMeta: verificationMeta,
         allViewModels: allViewModels,
         tabsModel: tabsModel,
         filterModels: filterModels,

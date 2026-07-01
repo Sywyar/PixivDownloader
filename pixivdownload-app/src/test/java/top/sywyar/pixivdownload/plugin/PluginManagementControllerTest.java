@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.plugin.PluginManagementService.LifecycleAction;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
+import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
 import java.util.List;
 import java.util.Locale;
@@ -95,7 +96,11 @@ class PluginManagementControllerTest {
                 .andExpect(jsonPath("$.plugins[0].apiRequirement.required").value("1.0"))
                 .andExpect(jsonPath("$.plugins[0].dependencies[0].pluginId").value("download-workbench"))
                 .andExpect(jsonPath("$.plugins[0].dependencies[0].versionSupport").value("1.0"))
-                .andExpect(jsonPath("$.plugins[0].dependencies[0].optional").value(false));
+                .andExpect(jsonPath("$.plugins[0].dependencies[0].optional").value(false))
+                .andExpect(jsonPath("$.plugins[0].verification.status")
+                        .value(PluginVerificationProjector.UNVERIFIED_LOCAL))
+                .andExpect(jsonPath("$.plugins[0].verification.diagnosticCode")
+                        .value("PROVENANCE_MISSING"));
     }
 
     /** 六个运行期动词 URL → 对应 {@link LifecycleAction}（含期望回显阶段）。 */

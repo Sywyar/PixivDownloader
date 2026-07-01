@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.runtime.install;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -33,7 +34,7 @@ class PluginPackageIntegrityTest {
     @DisplayName("本地上传来源携带完整性期望：构造期即拒绝（无可信清单背书）")
     void localUploadRejectsExpectations() {
         assertThatThrownBy(() -> new PluginPackageOrigin(
-                PluginPackageSource.LOCAL_UPLOAD, 10L, null, null))
+                PluginPackageSource.LOCAL_UPLOAD, null, false, 10L, null, null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -43,7 +44,7 @@ class PluginPackageIntegrityTest {
         Path file = writeFile("p.zip", "abc");
         String sha = PluginPackageIntegrity.sha256Hex(file);
         long size = Files.size(file);
-        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(size, sha, null);
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog("test-repository", false, size, sha, null);
 
         assertThat(origin.source()).isEqualTo(PluginPackageSource.MARKET_CATALOG);
         assertThat(origin.hasIntegrityExpectations()).isTrue();
@@ -54,7 +55,7 @@ class PluginPackageIntegrityTest {
     @DisplayName("受信目录来源 + 错误大小：verify 失败")
     void trustedCatalogWrongSizeFails() throws IOException {
         Path file = writeFile("p.zip", "abc");
-        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(9999L, null, null);
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog("test-repository", false, 9999L, null, null);
 
         PluginPackageIntegrity.Result result = PluginPackageIntegrity.verify(origin, file);
         assertThat(result.ok()).isFalse();
@@ -66,6 +67,7 @@ class PluginPackageIntegrityTest {
     void trustedCatalogWrongShaFails() throws IOException {
         Path file = writeFile("p.zip", "abc");
         PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "test-repository", false,
                 null, "0000000000000000000000000000000000000000000000000000000000000000", null);
 
         assertThat(PluginPackageIntegrity.verify(origin, file).ok()).isFalse();
@@ -75,7 +77,10 @@ class PluginPackageIntegrityTest {
     @DisplayName("受信目录来源声明了签名但无校验器：fail-closed 拒绝（绝不放行未校验的已签名包）")
     void signatureExpectationFailsClosed() throws IOException {
         Path file = writeFile("p.zip", "abc");
-        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(null, null, "some-signature");
+        SignatureMetadata metadata = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "test-key", "c2ln");
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "test-repository", false, null, null, metadata);
 
         PluginPackageIntegrity.Result result = PluginPackageIntegrity.verify(origin, file);
         assertThat(result.ok()).isFalse();

@@ -12,7 +12,9 @@ import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientPro
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -72,7 +74,9 @@ class PluginCatalogAcquisitionServiceTest {
     void unknownPlugin() {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         PluginCatalogAcquisitionService service = setUpInstall(body,
-                url -> manifest("ext", "1.0.0", url, body.length, CatalogTestSupport.sha256Hex(body), null));
+                (url, signing) -> manifest("ext", "1.0.0", url, body.length,
+                        CatalogTestSupport.sha256Hex(body), signing.artifactSignature("ext", "1.0.0", body),
+                        signing));
 
         PluginCatalogException ex = catchThrowableOfType(
                 () -> service.install("ghost", "1.0.0"), PluginCatalogException.class);
@@ -85,7 +89,9 @@ class PluginCatalogAcquisitionServiceTest {
     void versionNotFound() {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         PluginCatalogAcquisitionService service = setUpInstall(body,
-                url -> manifest("ext", "1.0.0", url, body.length, CatalogTestSupport.sha256Hex(body), null));
+                (url, signing) -> manifest("ext", "1.0.0", url, body.length,
+                        CatalogTestSupport.sha256Hex(body), signing.artifactSignature("ext", "1.0.0", body),
+                        signing));
 
         PluginCatalogException ex = catchThrowableOfType(
                 () -> service.install("ext", "9.9.9"), PluginCatalogException.class);
@@ -98,7 +104,9 @@ class PluginCatalogAcquisitionServiceTest {
     void happyInstall() {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         PluginCatalogAcquisitionService service = setUpInstall(body,
-                url -> manifest("ext", "1.0.0", url, body.length, CatalogTestSupport.sha256Hex(body), null));
+                (url, signing) -> manifest("ext", "1.0.0", url, body.length,
+                        CatalogTestSupport.sha256Hex(body), signing.artifactSignature("ext", "1.0.0", body),
+                        signing));
 
         PluginInstallReport report = service.install("ext", "1.0.0");
 
@@ -115,7 +123,8 @@ class PluginCatalogAcquisitionServiceTest {
     void sha256Mismatch() {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         PluginCatalogAcquisitionService service = setUpInstall(body,
-                url -> manifest("ext", "1.0.0", url, body.length, "deadbeefdeadbeef", null));
+                (url, signing) -> manifest("ext", "1.0.0", url, body.length, "deadbeefdeadbeef",
+                        signing.artifactSignature("ext", "1.0.0", body), signing));
 
         PluginInstallReport report = service.install("ext", "1.0.0");
 
@@ -131,7 +140,9 @@ class PluginCatalogAcquisitionServiceTest {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         // 声明体积比实际大：下载完整完成（未触发流式上限），落盘前安装器的大小校验失败 → REJECTED_INTEGRITY。
         PluginCatalogAcquisitionService service = setUpInstall(body,
-                url -> manifest("ext", "1.0.0", url, body.length + 100L, CatalogTestSupport.sha256Hex(body), null));
+                (url, signing) -> manifest("ext", "1.0.0", url, body.length + 100L,
+                        CatalogTestSupport.sha256Hex(body), signing.artifactSignature("ext", "1.0.0", body),
+                        signing));
 
         PluginInstallReport report = service.install("ext", "1.0.0");
 
@@ -140,11 +151,12 @@ class PluginCatalogAcquisitionServiceTest {
     }
 
     @Test
-    @DisplayName("声明了签名但无校验器：fail-closed → REJECTED_INTEGRITY（大小 / 哈希正确也拒绝）")
+    @DisplayName("受信目录包缺少结构化签名：fail-closed → REJECTED_INTEGRITY（大小 / 哈希正确也拒绝）")
     void signatureFailsClosed() {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         PluginCatalogAcquisitionService service = setUpInstall(body,
-                url -> manifest("ext", "1.0.0", url, body.length, CatalogTestSupport.sha256Hex(body), "SIG=="));
+                (url, signing) -> manifest("ext", "1.0.0", url, body.length,
+                        CatalogTestSupport.sha256Hex(body), null, signing));
 
         PluginInstallReport report = service.install("ext", "1.0.0");
 
@@ -161,16 +173,22 @@ class PluginCatalogAcquisitionServiceTest {
         // 包经 /redir.zip（302 → /final.zip）下发：direct-strict 会拒、proxy-trusted 会跟随白名单一跳。
         CatalogTestSupport.serveRedirect(server, "/redir.zip", CatalogTestSupport.loopbackUrl(server, "/final.zip"));
         String pkgUrl = CatalogTestSupport.loopbackUrl(server, "/redir.zip");
-        byte[] manifestJson = manifest("ext", "1.0.0", pkgUrl, body.length, CatalogTestSupport.sha256Hex(body), null)
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] manifestJson = manifest("ext", "1.0.0", pkgUrl, body.length, CatalogTestSupport.sha256Hex(body),
+                signing.artifactSignature("ext", "1.0.0", body), signing)
                 .getBytes(StandardCharsets.UTF_8);
         CatalogTestSupport.serveBytes(server, "/strict.json", manifestJson);
+        CatalogTestSupport.serveBytes(server, "/strict.json.sig",
+                signing.manifestSignatureBytes("strict", manifestJson));
         CatalogTestSupport.serveBytes(server, "/trusted.json", manifestJson);
+        CatalogTestSupport.serveBytes(server, "/trusted.json.sig",
+                signing.manifestSignatureBytes("trusted", manifestJson));
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
         props.setOfficialRepositoryEnabled(false); // 官方仓库真实 URL 不在 loopback，禁用使默认 = 首个自定义（strict）
         props.setRepositories(List.of(
-                repoConfig("strict", CatalogTestSupport.loopbackUrl(server, "/strict.json"), "direct-strict"),
-                repoConfig("trusted", CatalogTestSupport.loopbackUrl(server, "/trusted.json"), "proxy-trusted")));
+                repoConfig("strict", CatalogTestSupport.loopbackUrl(server, "/strict.json"), "direct-strict", signing),
+                repoConfig("trusted", CatalogTestSupport.loopbackUrl(server, "/trusted.json"), "proxy-trusted", signing)));
         PluginCatalogAcquisitionService service = acquisition(props);
 
         // 经 trusted 仓库安装：proxy-trusted 跟随白名单一跳 → 成功落盘（若退回默认 strict 客户端会因拒重定向失败）。
@@ -186,18 +204,52 @@ class PluginCatalogAcquisitionServiceTest {
         assertThat(downloadLeftovers()).isEmpty();
     }
 
+    @Test
+    @DisplayName("package artifact 安装按当前仓库 key 验签：仓库 A 的 key 不能验证仓库 B 的包")
+    void packageInstallCannotUseAnotherRepositoryKey() {
+        server = CatalogTestSupport.startServer();
+        byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
+        CatalogTestSupport.serveBytes(server, "/pkg.zip", body);
+        CatalogTestSupport.SigningFixture repoA = CatalogTestSupport.signingFixture("repo-a-key");
+        CatalogTestSupport.SigningFixture repoB = CatalogTestSupport.signingFixture("repo-b-key");
+        String pkgUrl = CatalogTestSupport.loopbackUrl(server, "/pkg.zip");
+        byte[] manifestJson = manifest("ext", "1.0.0", pkgUrl, body.length,
+                CatalogTestSupport.sha256Hex(body), repoA.artifactSignature("ext", "1.0.0", body), repoA)
+                .getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/b.json", manifestJson);
+        CatalogTestSupport.serveBytes(server, "/b.json.sig",
+                repoB.manifestSignatureBytes("repo-b", manifestJson));
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setOfficialRepositoryEnabled(false);
+        props.setRepositories(List.of(
+                repoConfig("repo-a", CatalogTestSupport.loopbackUrl(server, "/a.json"), "direct-strict", repoA),
+                repoConfig("repo-b", CatalogTestSupport.loopbackUrl(server, "/b.json"), "direct-strict", repoB)));
+        PluginCatalogAcquisitionService service = acquisition(props);
+
+        PluginInstallReport report = service.install("repo-b", "ext", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(report.accepted()).isFalse();
+        assertThat(installedFiles()).isEmpty();
+        assertThat(downloadLeftovers()).isEmpty();
+    }
+
     // ---------- helpers ----------
 
-    private PluginCatalogAcquisitionService setUpInstall(byte[] pkgBytes,
-                                                         java.util.function.Function<String, String> manifestForUrl) {
+    private PluginCatalogAcquisitionService setUpInstall(byte[] pkgBytes, ManifestFactory manifestForUrl) {
         server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
         String pkgUrl = CatalogTestSupport.loopbackUrl(server, "/pkg.zip");
         CatalogTestSupport.serveBytes(server, "/pkg.zip", pkgBytes);
-        CatalogTestSupport.serveBytes(server, "/catalog.json",
-                manifestForUrl.apply(pkgUrl).getBytes(StandardCharsets.UTF_8));
+        byte[] manifestBytes = manifestForUrl.create(pkgUrl, signing).getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/catalog.json", manifestBytes);
+        CatalogTestSupport.serveBytes(server, "/catalog.json.sig",
+                signing.manifestSignatureBytes("configured", manifestBytes));
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
         props.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/catalog.json"));
+        props.setTrustedKeys(List.of(signing.trustedKeyConfig()));
         return acquisition(props);
     }
 
@@ -208,9 +260,11 @@ class PluginCatalogAcquisitionServiceTest {
      */
     private PluginCatalogAcquisitionService acquisition(PluginCatalogProperties props) {
         PluginCatalogClientProvider provider = policyFaithful();
-        PluginCatalogService catalogService = new PluginCatalogService(new PluginRepositoryRegistry(props), provider);
+        PluginRepositoryRegistry registry = new PluginRepositoryRegistry(props);
+        PluginCatalogService catalogService = new PluginCatalogService(registry, provider);
         PluginPackageDownloader downloader = new PluginPackageDownloader(provider, downloadTempDir);
-        PluginInstallService installService = new PluginInstallService(new ExternalPluginInstaller(pluginsDir));
+        PluginInstallService installService = new PluginInstallService(new ExternalPluginInstaller(
+                pluginsDir, PluginPackageLimits.defaults(), PluginCatalogTrustStores.verifierResolver(registry)));
         return new PluginCatalogAcquisitionService(catalogService, downloader, installService);
     }
 
@@ -235,24 +289,32 @@ class PluginCatalogAcquisitionServiceTest {
         };
     }
 
-    private static PluginCatalogProperties.RepositoryConfig repoConfig(String id, String manifestUrl, String policy) {
+    private static PluginCatalogProperties.RepositoryConfig repoConfig(String id, String manifestUrl, String policy,
+                                                                       CatalogTestSupport.SigningFixture signing) {
         PluginCatalogProperties.RepositoryConfig rc = new PluginCatalogProperties.RepositoryConfig();
         rc.setId(id);
         rc.setManifestUrl(manifestUrl);
         rc.setEnabled(true);
         rc.setProxyPolicy(policy);
+        rc.setTrustedKeys(List.of(signing.trustedKeyConfig()));
         return rc;
     }
 
     private static String manifest(String pluginId, String version, String pkgUrl,
-                                   long size, String sha256, String signature) {
-        String sig = signature == null ? "" : ",\"signature\":\"" + signature + "\"";
+                                   long size, String sha256, SignatureMetadata signature,
+                                   CatalogTestSupport.SigningFixture signing) {
+        String sig = signature == null ? "" : ",\"signature\":" + signing.signatureJson(signature);
         return "{\"entries\":[{\"pluginId\":\"" + pluginId + "\",\"packages\":[{"
                 + "\"version\":\"" + version + "\","
                 + "\"packageUrl\":\"" + pkgUrl + "\","
                 + "\"expectedSizeBytes\":" + size + ","
                 + "\"sha256\":\"" + sha256 + "\"" + sig
                 + "}]}]}";
+    }
+
+    @FunctionalInterface
+    private interface ManifestFactory {
+        String create(String packageUrl, CatalogTestSupport.SigningFixture signing);
     }
 
     private List<String> installedFiles() {
@@ -263,6 +325,7 @@ class PluginCatalogAcquisitionServiceTest {
             return stream.filter(Files::isRegularFile)
                     .map(p -> p.getFileName().toString())
                     .filter(n -> !n.startsWith("."))
+                    .filter(n -> n.endsWith(".jar") || n.endsWith(".zip"))
                     .sorted()
                     .toList();
         } catch (IOException e) {

@@ -7,6 +7,8 @@ import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogHttpClient;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
@@ -24,7 +26,7 @@ class DefaultPluginCatalogClientProviderTest {
     private static PluginRepository repo(RepositoryProxyPolicy policy, String rawPolicy) {
         return new PluginRepository("r", "k", "https://x.example/m.json",
                 true, false, false, policy, rawPolicy, false, true, false, false,
-                3_000, 4_000, 1024, 2048);
+                3_000, 4_000, 1024, 2048, List.of());
     }
 
     @Test
@@ -55,7 +57,7 @@ class DefaultPluginCatalogClientProviderTest {
     void customBuildsClient() {
         PluginRepository custom = new PluginRepository("custom", "k", "http://127.0.0.1/m.json",
                 true, false, false, RepositoryProxyPolicy.CUSTOM, "custom",
-                true, false, true, true, 3_000, 4_000, 1024, 2048);
+                true, false, true, true, 3_000, 4_000, 1024, 2048, List.of());
         assertThat(provider.clientFor(custom)).isNotNull();
     }
 

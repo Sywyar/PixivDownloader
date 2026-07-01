@@ -94,17 +94,39 @@
             versionLabel: entry.latestVersion ? ('v' + entry.latestVersion) : null,
             sizeLabel: PMK.formatSize(latestSize(entry)),
             dateLabel: m.updatedTime ? PMK.formatDate(m.updatedTime) : '',
-            installStatus: entry.installStatus,
+            installStatus: installStatusWithVerification(entry),
             installedVersion: entry.installedVersion,
             updateAvailable: entry.updateAvailable,
             compatible: entry.compatible,
-            compatibilityReason: entry.compatibilityReason
+            compatibilityReason: entry.compatibilityReason,
+            verification: packageVerification(entry)
         };
     };
 
     function latestSize(entry) {
         var pkg = D.packageOf(entry, entry.latestVersion);
         return pkg ? pkg.expectedSizeBytes : 0;
+    }
+
+    function packageVerification(entry) {
+        var pkg = D.packageOf(entry, entry.latestVersion);
+        return pkg && pkg.verification ? pkg.verification : null;
+    }
+
+    function installStatusWithVerification(entry) {
+        var verification = packageVerification(entry);
+        if (!verification || !verification.status) return entry.installStatus;
+        if (verification.status === 'VERIFIED_OFFICIAL' || verification.status === 'VERIFIED_CUSTOM') {
+            return entry.installStatus;
+        }
+        if (verification.status === 'SIGNATURE_REQUIRED'
+                || verification.status === 'UNKNOWN_KEY'
+                || verification.status === 'REVOKED_KEY'
+                || verification.status === 'INVALID_SIGNATURE'
+                || verification.status === 'HASH_MISMATCH') {
+            return verification.status;
+        }
+        return entry.installStatus;
     }
 
     // —— 筛选 + 搜索 + 排序 ——

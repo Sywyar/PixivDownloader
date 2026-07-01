@@ -15,6 +15,7 @@ import top.sywyar.pixivdownload.plugin.PluginManagementService.PluginManagementR
 import top.sywyar.pixivdownload.plugin.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
+import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
 import java.util.List;
 import java.util.Locale;
@@ -87,13 +88,17 @@ class GuiPluginControllerTest {
                 .andExpect(jsonPath("$.plugins[0].managed").value(false))
                 .andExpect(jsonPath("$.plugins[0].required").value(false))
                 .andExpect(jsonPath("$.plugins[0].version").value("0.0.1"))
+                .andExpect(jsonPath("$.plugins[0].verification.status")
+                        .value(PluginVerificationProjector.UNVERIFIED_LOCAL))
                 .andExpect(jsonPath("$.plugins[1].id").value("stats"))
                 .andExpect(jsonPath("$.plugins[1].name").value("Statistics"))
                 .andExpect(jsonPath("$.plugins[1].source").value("external"))
                 .andExpect(jsonPath("$.plugins[1].status").value("STARTED"))
                 .andExpect(jsonPath("$.plugins[1].runtimePhase").value("STARTED"))
                 .andExpect(jsonPath("$.plugins[1].managed").value(true))
-                .andExpect(jsonPath("$.plugins[1].version").value("1.0.0"));
+                .andExpect(jsonPath("$.plugins[1].version").value("1.0.0"))
+                .andExpect(jsonPath("$.plugins[1].verification.status")
+                        .value(PluginVerificationProjector.UNVERIFIED_LOCAL));
     }
 
     @Test

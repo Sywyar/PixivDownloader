@@ -1,5 +1,10 @@
 package top.sywyar.pixivdownload.plugin.catalog.repository;
 
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+
+import java.util.List;
+
 /**
  * 一个已配置的插件仓库（市场来源）的<b>不可变领域模型</b>。仓库列表由 {@link PluginRepositoryRegistry} 从服务端配置
  * （{@code plugin-catalog.*}）+ 内嵌官方默认仓库合成；安装 / 拉取只能引用仓库列表里按 {@code repositoryId} 解析出的
@@ -23,6 +28,7 @@ package top.sywyar.pixivdownload.plugin.catalog.repository;
  * @param readTimeoutMs    读取超时（毫秒）
  * @param maxManifestBytes 清单拉取字节上限
  * @param maxPackageBytes  单包下载绝对字节上限
+ * @param trustedKeys      仓库发布者信任根（不可变）
  */
 public record PluginRepository(
         String repositoryId,
@@ -40,7 +46,12 @@ public record PluginRepository(
         long connectTimeoutMs,
         long readTimeoutMs,
         long maxManifestBytes,
-        long maxPackageBytes) {
+        long maxPackageBytes,
+        List<TrustedPluginKey> trustedKeys) {
+
+    public PluginRepository {
+        trustedKeys = trustedKeys != null ? List.copyOf(trustedKeys) : List.of();
+    }
 
     /** 内嵌官方默认仓库的稳定 id。 */
     public static final String OFFICIAL_ID = "official";
@@ -70,7 +81,8 @@ public record PluginRepository(
         return new PluginRepository(OFFICIAL_ID, OFFICIAL_DISPLAY_NAME_KEY, OFFICIAL_MANIFEST_URL,
                 enabled, true, true, RepositoryProxyPolicy.PROXY_TRUSTED, RepositoryProxyPolicy.PROXY_TRUSTED.configId(),
                 false, true, false, false,
-                connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes);
+                connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes,
+                List.of(PluginTrustStores.builtInOfficialRoot()));
     }
 
     /**

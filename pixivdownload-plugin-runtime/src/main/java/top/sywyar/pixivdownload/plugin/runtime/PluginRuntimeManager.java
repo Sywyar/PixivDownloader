@@ -8,6 +8,13 @@ import org.pf4j.PluginWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageReader;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -19,6 +26,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 /**
@@ -32,6 +41,9 @@ public class PluginRuntimeManager {
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
 
     private final Path pluginsRoot;
+    private PluginArtifactVerificationService verificationService;
+    private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
+    private final PluginProvenanceStore provenanceStore;
     private final Map<String, RuntimeEntry> entries = new LinkedHashMap<>();
     private final Map<String, Long> generations = new LinkedHashMap<>();
 
@@ -39,10 +51,34 @@ public class PluginRuntimeManager {
     private volatile PluginRuntimeStatus status;
 
     public PluginRuntimeManager(Path pluginsRoot) {
+        this(pluginsRoot, new PluginSupplyChainVerifier());
+    }
+
+    public PluginRuntimeManager(Path pluginsRoot, PluginSupplyChainVerifier verifier) {
+        this(pluginsRoot, fixedVerifier(verifier));
+    }
+
+    public PluginRuntimeManager(Path pluginsRoot,
+                                Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         if (pluginsRoot == null) {
             throw new IllegalArgumentException("pluginsRoot must not be null");
         }
         this.pluginsRoot = pluginsRoot;
+        this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
+        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+        this.provenanceStore = new PluginProvenanceStore(pluginsRoot);
+    }
+
+    /** 由宿主在配置解析后刷新统一验签门面；必须发生在后续 load 原语进入 PF4J 前。 */
+    public synchronized void updateVerifier(PluginSupplyChainVerifier verifier) {
+        updateVerifierResolver(fixedVerifier(verifier));
+    }
+
+    /** 由宿主在配置解析后刷新按来源解析的验签门面；必须发生在后续 load 原语进入 PF4J 前。 */
+    public synchronized void updateVerifierResolver(
+            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
+        this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
+        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
     }
 
     /** 启动扫描。每个候选包分别 load/start，单包失败不会阻止其它包。 */
@@ -93,6 +129,7 @@ public class PluginRuntimeManager {
         if (artifactPath == null || !Files.isRegularFile(artifactPath)) {
             throw new PluginRuntimeOperationException("plugin artifact not found: " + artifactPath);
         }
+        verifyBeforeLoad(artifactPath);
         ensureManager();
         String packageId;
         try {
@@ -366,6 +403,24 @@ public class PluginRuntimeManager {
         }
     }
 
+    private void verifyBeforeLoad(Path artifactPath) {
+        var inspection = PluginPackageReader.inspect(artifactPath);
+        PluginProvenanceRecord provenance = provenanceStore.read(artifactPath).orElse(null);
+        VerificationResult result = verificationService.verifyInstalled(artifactPath, inspection.descriptor(),
+                provenance);
+        try {
+            if (provenance != null) {
+                provenanceStore.write(artifactPath, provenance.withOfflineResult(result));
+            }
+        } catch (IOException e) {
+            log.warn("Failed to persist plugin verification provenance for {}: {}",
+                    artifactPath.getFileName(), e.toString());
+        }
+        if (!result.accepted()) {
+            throw new PluginRuntimeOperationException("plugin verification failed before load: " + result.status());
+        }
+    }
+
     private RuntimeEntry requireEntry(String packageId) {
         RuntimeEntry entry = entries.get(packageId);
         if (entry == null || pluginManager == null) {
@@ -439,6 +494,12 @@ public class PluginRuntimeManager {
         }
         return error.getMessage() == null || error.getMessage().isBlank()
                 ? error.getClass().getName() : error.getMessage();
+    }
+
+    private static Function<PluginPackageOrigin, PluginSupplyChainVerifier> fixedVerifier(
+            PluginSupplyChainVerifier verifier) {
+        PluginSupplyChainVerifier fixed = Objects.requireNonNull(verifier, "verifier");
+        return origin -> fixed;
     }
 
     private static final class RuntimeEntry {

@@ -8,6 +8,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.PluginRuntimeConfiguration;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
@@ -60,7 +62,7 @@ class PluginBootstrapHandoffTest {
         try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext()) {
             // 等价于 PixivDownloadApplication.start(args, session) 经 ApplicationContextInitializer 注册交接载体
             new PixivDownloadApplication.PluginBootstrapHandoffInitializer(session).initialize(ctx);
-            ctx.register(PluginRuntimeConfiguration.class, PluginToggleProperties.class);
+            registerRuntimeConfig(ctx);
             ctx.refresh();
 
             // 注入的 session 与其派生 Bean 全部来自同一 PROCESS 会话（config 未 new 第二个 manager）
@@ -83,7 +85,7 @@ class PluginBootstrapHandoffTest {
     void headlessCreatesContextSessionAndReleasesOnContextClose() {
         PluginBootstrapSession session;
         try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext()) {
-            ctx.register(PluginRuntimeConfiguration.class, PluginToggleProperties.class);
+            registerRuntimeConfig(ctx);
             ctx.refresh();
 
             session = ctx.getBean(PluginBootstrapSession.class);
@@ -109,7 +111,7 @@ class PluginBootstrapHandoffTest {
 
         try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext()) {
             new PixivDownloadApplication.PluginBootstrapHandoffInitializer(session).initialize(ctx);
-            ctx.register(PluginRuntimeConfiguration.class, PluginToggleProperties.class);
+            registerRuntimeConfig(ctx);
             ctx.refresh();
             // Spring 注入的 manager 就是 bootstrap manager 本身（同一引用，未 new 第二个）
             assertThat(ctx.getBean(PluginRuntimeManager.class)).isSameAs(originalManager);
@@ -164,5 +166,11 @@ class PluginBootstrapHandoffTest {
             throw new AssertionError(
                     "SpringApplication shutdown-hook property not accessible (Spring 升级改名？): " + e.getMessage(), e);
         }
+    }
+
+    /** 注册聚焦 handoff 测试所需的最小运行时配置 Bean。 */
+    private static void registerRuntimeConfig(AnnotationConfigApplicationContext ctx) {
+        ctx.register(PluginRuntimeConfiguration.class, PluginToggleProperties.class,
+                PluginCatalogProperties.class, PluginRepositoryRegistry.class);
     }
 }

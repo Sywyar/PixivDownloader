@@ -78,6 +78,14 @@ class PluginManagePageGuardTest {
         assertThat(core).as("状态查询端点").contains("'/api/plugins/status'");
         assertThat(core).as("运行期动词端点前缀").contains("'/api/plugins/'");
         assertThat(core).as("据响应 displayNamespace 动态收集 i18n namespace（不硬编码）").contains("collectNamespaces");
+        assertThat(core).as("验签展示只消费后端 verification 投影").contains("entry.verification");
+        assertThat(core).as("验签状态映射覆盖关键稳定状态")
+                .contains("VERIFIED_OFFICIAL", "VERIFIED_CUSTOM", "UNVERIFIED_LOCAL",
+                        "INVALID_SIGNATURE", "UNKNOWN_KEY");
+        assertThat(core).as("插件管理页不得按 sha256/keyId/repositoryId 自行推断可信状态")
+                .doesNotContain("sha256")
+                .doesNotContain("keyId")
+                .doesNotContain("repositoryId === 'official'");
         String api = read(API);
         assertThat(api).as("拉取状态走 STATUS_URL").contains("PM.STATUS_URL");
         assertThat(api).as("动词为 POST").contains("method: 'POST'");

@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.market;
 
 import top.sywyar.pixivdownload.common.SemanticVersion;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogEntry;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 
 import java.util.List;
 
@@ -52,9 +53,10 @@ public record PluginMarketEntryView(
      * @param installed        本机当前是否已安装该插件 id（运行时真实状态）
      * @param installedVersion 已安装版本（未安装 / 版本不可知为 {@code null}）
      */
-    static PluginMarketEntryView from(PluginCatalogEntry entry, boolean installed, String installedVersion) {
+    static PluginMarketEntryView from(PluginRepository repository, PluginCatalogEntry entry,
+                                      boolean installed, String installedVersion) {
         List<PluginMarketPackageView> packages = entry.packages().stream()
-                .map(PluginMarketPackageView::from)
+                .map(pkg -> PluginMarketPackageView.from(repository, pkg))
                 .toList();
         PluginMarketMetaView market = PluginMarketMetaView.from(entry.market());
         String latestVersion = resolveLatestVersion(market, packages);

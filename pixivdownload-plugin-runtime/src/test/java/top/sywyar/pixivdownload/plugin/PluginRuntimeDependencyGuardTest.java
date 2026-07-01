@@ -27,8 +27,8 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
  *
  * <p>本守卫在 {@code pixivdownload-plugin-runtime} 模块内自包含运行：{@link ClassFileImporter} 扫描本模块 main
  * classpath 上的 {@code top.sywyar.pixivdownload..} 类。本模块编译期依赖 plugin-api 后，plugin-api 的契约类也会落到
- * classpath、被一并导入；故各规则的<b>主语集合显式排除 {@code plugin.api..}</b>（只约束本模块自身的
- * {@code plugin} / {@code plugin.runtime} 类，不把 plugin-api 自己的依赖面误算进本模块）。app 的
+ * classpath、被一并导入；签名模块也会随统一验签依赖进入 classpath。故各规则的<b>主语集合显式限定</b>为本模块自身的
+ * {@code plugin} / {@code plugin.runtime} 类，不把 plugin-api / 签名模块自己的依赖面误算进本模块。app 的
  * {@code PluginApiDependencyGuardTest}、core-api 的 {@code CoreApiDependencyGuardTest} 各自从自己模块的 classpath
  * 断言，与本守卫正交。
  */
@@ -39,23 +39,37 @@ class PluginRuntimeDependencyGuardTest {
             .importPackages("top.sywyar.pixivdownload");
 
     @Test
-    @DisplayName("plugin-runtime 必须自包含：只依赖 JDK、Spring、PF4J、slf4j、plugin-api 与自身 plugin / plugin.runtime 包")
+    @DisplayName("plugin-runtime 必须自包含：只依赖 JDK、Spring、PF4J、slf4j、plugin-api、签名公开接口与自身包")
     void pluginRuntimeIsSelfContained() {
         classes()
-                .that().resideInAPackage("top.sywyar.pixivdownload..")
-                .and().resideOutsideOfPackage("top.sywyar.pixivdownload.plugin.api..")
+                .that().resideInAnyPackage("top.sywyar.pixivdownload.plugin",
+                        "top.sywyar.pixivdownload.plugin.runtime..")
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage(
                         "top.sywyar.pixivdownload.plugin",
                         "top.sywyar.pixivdownload.plugin.runtime..",
                         "top.sywyar.pixivdownload.plugin.api..",
+                        "top.sywyar.pixivdownload.plugin.signature",
                         "java..", "org.springframework..", "org.pf4j..", "org.slf4j..")
                 .because("plugin-runtime 是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接 / "
                         + "描述符 / 兼容性 / 状态模型：只能依赖 JDK、Spring（条件 / 绑定）、PF4J（PluginManager 等）、slf4j、"
                         + "plugin-api（跨插件契约，发现桥接产出 PixivFeaturePlugin、兼容判定委托 PluginApiVersion）与自身包 "
                         + "top.sywyar.pixivdownload.plugin（三件套）/ top.sywyar.pixivdownload.plugin.runtime..（PF4J 封装 + "
                         + "发现桥接 + descriptor / status 子包），不得依赖任何 app 业务包或具体插件实现包（本规则主语已排除 "
-                        + "plugin.api 自身，只约束本模块的 plugin / plugin.runtime 类）")
+                        + "plugin.api / plugin.signature 自身，只约束本模块的 plugin / plugin.runtime 类）")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("plugin-runtime 只能依赖签名模块公开接口，不得依赖 internal 实现包")
+    void pluginRuntimeDoesNotDependOnSignatureInternals() {
+        noClasses()
+                .that().resideInAnyPackage("top.sywyar.pixivdownload.plugin",
+                        "top.sywyar.pixivdownload.plugin.runtime..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("top.sywyar.pixivdownload.plugin.signature.internal..")
+                .because("统一验签由宿主提供公开门面，runtime 只消费请求 / 结果模型和 verifier，不能触碰 Ed25519、"
+                        + "envelope、trust store 等内部实现")
                 .check(CLASSES);
     }
 
@@ -63,8 +77,8 @@ class PluginRuntimeDependencyGuardTest {
     @DisplayName("plugin-runtime 不得回指 app 组合根 / 注册中心：BuiltInPlugins / PluginRegistry / CorePlugin")
     void pluginRuntimeDoesNotReverseReferenceAppCompositionRoot() {
         noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload..")
-                .and().resideOutsideOfPackage("top.sywyar.pixivdownload.plugin.api..")
+                .that().resideInAnyPackage("top.sywyar.pixivdownload.plugin",
+                        "top.sywyar.pixivdownload.plugin.runtime..")
                 .should().dependOnClassesThat()
                 .haveFullyQualifiedName("top.sywyar.pixivdownload.plugin.BuiltInPlugins")
                 .orShould().dependOnClassesThat()
@@ -83,8 +97,8 @@ class PluginRuntimeDependencyGuardTest {
     @DisplayName("plugin-runtime 不得依赖任何 app 业务 / 具体插件包（plugin-api 跨插件契约允许）")
     void pluginRuntimeDoesNotDependOnBusinessPackages() {
         noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload..")
-                .and().resideOutsideOfPackage("top.sywyar.pixivdownload.plugin.api..")
+                .that().resideInAnyPackage("top.sywyar.pixivdownload.plugin",
+                        "top.sywyar.pixivdownload.plugin.runtime..")
                 .should().dependOnClassesThat()
                 .resideInAnyPackage(
                         "top.sywyar.pixivdownload.download..",

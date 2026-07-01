@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -234,7 +235,7 @@ class PluginPackageDownloaderTest {
         PluginRepository repo = new PluginRepository("trusted-repo", "k", "https://x.example/m.json",
                 true, false, false, RepositoryProxyPolicy.PROXY_TRUSTED, "proxy-trusted",
                 false, true, false, false,
-                1234, 5678, 4096, 52_428_800L);
+                1234, 5678, 4096, 52_428_800L, List.of());
         PluginPackageDownloader downloader = downloader(provider);
 
         Path temp = downloader.downloadToTemp(repo, pkg(
@@ -307,11 +308,11 @@ class PluginPackageDownloaderTest {
     private static PluginRepository repo(RepositoryProxyPolicy policy, long maxPackageBytes) {
         return new PluginRepository("r", "k", "https://x.example/m.json", true, false, false,
                 policy, policy == null ? "socks5" : policy.configId(), false, true, false, false,
-                2000, 2000, 4096, maxPackageBytes);
+                2000, 2000, 4096, maxPackageBytes, List.of());
     }
 
-    private static PluginCatalogPackage pkg(String url, Long size, String sha256, String signature) {
-        return new PluginCatalogPackage("1.0.0", url, size, sha256, signature, null, List.of(), null, List.of(), null, false);
+    private static PluginCatalogPackage pkg(String url, Long size, String sha256, SignatureMetadata signature) {
+        return new PluginCatalogPackage("1.0.0", url, size, sha256, signature, null, null, List.of(), null, List.of(), null, false);
     }
 
     private static void assertCode(PluginPackageDownloader downloader, PluginRepository repository,

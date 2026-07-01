@@ -84,7 +84,7 @@ public class PluginMarketService {
         PluginCatalogManifest manifest = catalogService.load(repository.repositoryId());
         Map<String, String> installed = installedVersionsById();
         List<PluginMarketEntryView> entries = manifest.entries().stream()
-                .map(entry -> projectEntry(entry, installed))
+                .map(entry -> projectEntry(repository, entry, installed))
                 .toList();
         int installedCount = (int) entries.stream()
                 .filter(entry -> entry.installStatus() == MarketInstallStatus.INSTALLED
@@ -104,13 +104,14 @@ public class PluginMarketService {
         PluginCatalogEntry entry = manifest.findEntry(pluginId).orElseThrow(() ->
                 new PluginCatalogException(PluginCatalogErrorCode.UNKNOWN_PLUGIN, pluginId, null,
                         "plugin not found in catalog: " + pluginId));
-        return projectEntry(entry, installedVersionsById());
+        return projectEntry(repository, entry, installedVersionsById());
     }
 
     /** 据已安装快照把一个 catalog 条目投影为市场视图条目（含安装状态机推导）。 */
-    private PluginMarketEntryView projectEntry(PluginCatalogEntry entry, Map<String, String> installedVersions) {
+    private PluginMarketEntryView projectEntry(PluginRepository repository, PluginCatalogEntry entry,
+                                               Map<String, String> installedVersions) {
         boolean installed = installedVersions.containsKey(entry.pluginId());
-        return PluginMarketEntryView.from(entry, installed, installedVersions.get(entry.pluginId()));
+        return PluginMarketEntryView.from(repository, entry, installed, installedVersions.get(entry.pluginId()));
     }
 
     /**

@@ -15,7 +15,7 @@
       - display fields               : from the curation file, keyed by pluginId.
 
     The matching release MUST already exist (publish it first); a missing release is a hard error. Output is
-    STRICT JSON (no comments), UTF-8 (no BOM), camelCase, asserted <= 1MB; `signature` and `rating`/`ratingCount`
+    STRICT JSON (no comments), UTF-8 (no BOM), camelCase, asserted <= 1MB; `rating`/`ratingCount`
     are omitted. Cross-shell (Windows PowerShell 5.1 + pwsh): ASCII source, no ternary / -AsHashtable. Needs gh + GH_TOKEN.
 
 .PARAMETER Repo
@@ -35,7 +35,10 @@ param(
     [string]$Repo = "Sywyar/PixivDownloader-plugins",
     [string]$CurationFile = "scripts/market-curation.json",
     [string]$OutputFile = "build/manifest.json",
-    [string]$ProjectRoot
+    [string]$ProjectRoot,
+    [string]$OfficialKeyId,
+    [string]$PrivateKeyFile,
+    [string]$SignatureToolJar
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,6 +48,12 @@ $nowUtc = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
 
 # Shared official-plugin list (id / module).
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
+
+if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
+if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
+    throw "PrivateKeyFile is required and must point to an Ed25519 PKCS#8 PEM file."
+}
+$SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
 
 function Read-Json([string]$path) {
     if (-not (Test-Path -LiteralPath $path)) { throw "Missing file: $path" }
@@ -159,6 +168,17 @@ try {
         $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $jarPath).Hash.ToLowerInvariant()
 
         $packageUrl = "https://github.com/$Repo/releases/download/$tag/$jarName"
+        $signaturePath = Join-Path $tmp "$jarName.sig.json"
+        Invoke-PluginSignatureTool $SignatureToolJar @(
+            "artifact",
+            "--artifact", $jarPath,
+            "--plugin-id", $id,
+            "--version", $version,
+            "--key-id", $OfficialKeyId,
+            "--private-key", $PrivateKeyFile,
+            "--out", $signaturePath
+        )
+        $signature = Read-Json $signaturePath
 
         if (-not (Has-Property $curation $id)) {
             throw "No curation entry for plugin '$id' in $CurationFile (display fields are required)."
@@ -193,6 +213,8 @@ try {
             packageUrl        = $packageUrl
             expectedSizeBytes = $sizeBytes
             sha256            = $sha256
+            signature         = $signature
+            signatureUrl      = "$packageUrl.sig"
             requiredCoreApi   = (Get-RequiredCoreApi $requires)
             dependencies      = @()
             releasedTime      = $releasedTime
@@ -229,4 +251,13 @@ if ($bytes.Length -gt 1MB) {
 $outDir = Split-Path -Parent $OutputFile
 if ($outDir -and -not (Test-Path -LiteralPath $outDir)) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
 [System.IO.File]::WriteAllText($OutputFile, $json, $Utf8NoBom)
-Write-Host "Wrote $OutputFile ($($bytes.Length) bytes, $($entries.Count) plugin(s)) from published releases of $Repo."
+$manifestSignatureFile = "$OutputFile.sig"
+Invoke-PluginSignatureTool $SignatureToolJar @(
+    "manifest",
+    "--manifest", $OutputFile,
+    "--repository-id", "official",
+    "--key-id", $OfficialKeyId,
+    "--private-key", $PrivateKeyFile,
+    "--out", $manifestSignatureFile
+)
+Write-Host "Wrote $OutputFile and $manifestSignatureFile ($($bytes.Length) bytes, $($entries.Count) plugin(s)) from published releases of $Repo."

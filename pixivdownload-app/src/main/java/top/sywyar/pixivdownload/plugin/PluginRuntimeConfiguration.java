@@ -18,6 +18,8 @@ import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextF
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
+import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,13 +58,16 @@ public class PluginRuntimeConfiguration {
     @Bean(destroyMethod = "closeForContext")
     public PluginBootstrapSession pluginBootstrapSession(
             ObjectProvider<PluginBootstrapSessionHandoff> handoff,
-            PluginToggleProperties toggles) {
+            PluginToggleProperties toggles,
+            PluginRepositoryRegistry repositoryRegistry) {
         PluginBootstrapSessionHandoff existing = handoff.getIfAvailable();
+        var verifierResolver = PluginCatalogTrustStores.verifierResolver(repositoryRegistry);
         if (existing != null) {
+            existing.session().updateVerifierResolver(verifierResolver);
             return existing.session();
         }
         PluginBootstrapSession session = PluginBootstrapSession.createContext(
-                RuntimeFiles.pluginsDirectory(), headlessEnabledSnapshot(toggles));
+                RuntimeFiles.pluginsDirectory(), headlessEnabledSnapshot(toggles), verifierResolver);
         session.start();
         // 启动期快照持有插件实例 / classloader 引用，仅启动前短生命周期消费。headless 无主题消费者，接线完成后释放。
         session.releaseStartupSnapshot();

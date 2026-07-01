@@ -11,7 +11,10 @@ param(
     [string[]]$MsiCultures,
     [string[]]$MsiVariants,
     [Alias("SkipMsi")]
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    [string]$OfficialKeyId,
+    [string]$PrivateKeyFile,
+    [string]$SignatureToolJar
 )
 
 $ErrorActionPreference = "Stop"
@@ -190,7 +193,10 @@ function Stage-OfficialPlugins {
     param(
         [Parameter(Mandatory = $true)][string]$AppDir,
         [string]$PrebuiltPluginsDir,
-        [Parameter(Mandatory = $true)][string]$ProjectRoot
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$OfficialKeyId,
+        [Parameter(Mandatory = $true)][string]$PrivateKeyFile,
+        [Parameter(Mandatory = $true)][string]$SignatureToolJar
     )
     $pluginsDir = Join-Path $AppDir "plugins"
     Ensure-Directory $pluginsDir
@@ -216,12 +222,18 @@ function Stage-OfficialPlugins {
         Copy-Item $sourceJar $targetJar -Force
         $sha = Get-Sha256Hex $targetJar
         [System.IO.File]::WriteAllText("$targetJar.sha256", "$sha  $stableName`n", $utf8NoBom)
+        $signature = New-PluginArtifactSignature $SignatureToolJar $targetJar $plugin.Id $descriptor["plugin.version"] `
+            $OfficialKeyId $PrivateKeyFile "$targetJar.sig"
+        $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        [void](Write-PluginProvenanceSidecar $targetJar (Get-Item -LiteralPath $targetJar).Length `
+            $sha $signature $verifiedAt)
         $manifest += [ordered]@{
             id       = $plugin.Id
             version  = $descriptor["plugin.version"]
             requires = $descriptor["plugin.requires"]
             file     = $stableName
             sha256   = $sha
+            signature = $signature
         }
         $sumLines += "$sha  $stableName"
         Write-Host ("    OK: staged {0} (id {1}, sha256 {2})." -f $stableName, $plugin.Id, $sha) -ForegroundColor Green
@@ -292,6 +304,11 @@ try {
     $resolvedPrebuiltPluginsDir = ""
     if (-not $SkipPlugins) {
         $resolvedPrebuiltPluginsDir = Resolve-PrebuiltPluginsDir $PrebuiltPluginsDir
+        if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required when staging plugins." }
+        if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
+            throw "PrivateKeyFile is required when staging plugins and must point to an Ed25519 PKCS#8 PEM file."
+        }
+        $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
     }
     $mavenCmd = $null
     if (-not $PrebuiltJar) {
@@ -371,7 +388,9 @@ try {
     # the base download workflow works even with -SkipPlugins (no bundled optional plugins).
     if (-not $SkipPlugins) {
         Write-Step "Staging official optional external plugins into app-image plugins/"
-        $stagedCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir -ProjectRoot $ProjectRoot
+        $stagedCount = Stage-OfficialPlugins -AppDir $OnlineAppDir -PrebuiltPluginsDir $resolvedPrebuiltPluginsDir `
+            -ProjectRoot $ProjectRoot -OfficialKeyId $OfficialKeyId -PrivateKeyFile $PrivateKeyFile `
+            -SignatureToolJar $SignatureToolJar
         Write-Host ("    {0} official optional plugin(s) staged under plugins/ (full-offline current form)." -f $stagedCount) -ForegroundColor Green
     } else {
         Write-Step "Skipping optional plugin staging (-SkipPlugins): default downloader without bundled plugins"
@@ -414,6 +433,9 @@ try {
     }
 
     Write-Step "Done"
+    Assert-NoPrivateKeyMaterial $OutDir
+    Assert-NoPrivateKeyMaterial $OnlineAppDir
+    if (Test-Path -LiteralPath $OfflineAppDir) { Assert-NoPrivateKeyMaterial $OfflineAppDir }
     if (-not $SkipPortable) {
         Write-Host "Online portable: $OnlineZipPath"
     }

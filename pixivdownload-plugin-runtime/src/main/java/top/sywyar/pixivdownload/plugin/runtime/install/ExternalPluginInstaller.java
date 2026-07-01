@@ -3,6 +3,10 @@ package top.sywyar.pixivdownload.plugin.runtime.install;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -20,6 +24,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 /**
@@ -80,6 +85,9 @@ public class ExternalPluginInstaller {
 
     private final Path pluginsDir;
     private final PluginPackageLimits limits;
+    private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
+    private PluginArtifactVerificationService verificationService;
+    private final PluginProvenanceStore provenanceStore;
     /** 把整段 {@link #install} 串行化（同一实例 / 同一安装目录的并发安装互斥）。 */
     private final ReentrantLock installLock = new ReentrantLock();
 
@@ -90,16 +98,41 @@ public class ExternalPluginInstaller {
     }
 
     public ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits) {
+        this(pluginsDir, limits, new PluginSupplyChainVerifier());
+    }
+
+    public ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits,
+                                   PluginSupplyChainVerifier verifier) {
+        this(pluginsDir, limits, fixedVerifier(verifier));
+    }
+
+    public ExternalPluginInstaller(Path pluginsDir, PluginPackageLimits limits,
+                                   Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
         if (pluginsDir == null) {
             throw new IllegalArgumentException("pluginsDir must not be null");
         }
         this.pluginsDir = pluginsDir;
         this.limits = Objects.requireNonNull(limits, "limits");
+        this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
+        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
+        this.provenanceStore = new PluginProvenanceStore(this.pluginsDir);
     }
 
     /** 配置的安装目录（未规范化）。 */
     public Path pluginsDirectory() {
         return pluginsDir;
+    }
+
+    /** 由宿主在配置解析后刷新统一验签门面；插件代码没有调用入口。 */
+    public synchronized void updateVerifier(PluginSupplyChainVerifier verifier) {
+        updateVerifierResolver(fixedVerifier(verifier));
+    }
+
+    /** 由宿主在配置解析后刷新按来源解析的验签门面；插件代码没有调用入口。 */
+    public synchronized void updateVerifierResolver(
+            Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
+        this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
+        this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
     }
 
     /** 安装一个本地上传的插件包，默认<b>拒绝降级</b>（已存在更高版本则 {@code DOWNGRADE_REJECTED}）。 */
@@ -145,7 +178,7 @@ public class ExternalPluginInstaller {
             String transactionId = UUID.randomUUID().toString();
             Path transaction = pluginsDir.resolve(STAGING_DIR).resolve(transactionId);
             Path validationDir = transaction.resolve("validation");
-            ExternalPluginInstaller validator = new ExternalPluginInstaller(validationDir, limits);
+            ExternalPluginInstaller validator = new ExternalPluginInstaller(validationDir, limits, verifierResolver);
             PluginInstallResult validated = validator.install(packagePath, true,
                     origin != null ? origin : PluginPackageOrigin.localUpload());
             if (!validated.accepted() || validated.descriptor() == null || validated.installedPath() == null) {
@@ -189,7 +222,8 @@ public class ExternalPluginInstaller {
 
             Files.createDirectories(transaction.resolve("new"));
             Path staged = transaction.resolve("new").resolve(validated.installedPath().getFileName());
-            Files.move(validated.installedPath(), staged, StandardCopyOption.REPLACE_EXISTING);
+            validator.provenanceStore.moveWithArtifact(validated.installedPath(), staged,
+                    ExternalPluginInstaller::moveIntoPlace);
             deleteRecursivelyQuietly(validationDir);
             Path target = pluginsDir.resolve(staged.getFileName()).normalize();
             PluginInstallResult result = new PluginInstallResult(outcome, descriptor, target, previousVersion,
@@ -231,14 +265,14 @@ public class ExternalPluginInstaller {
                 // 启动恢复都能把已经存在的备份逐一放回原位。
                 writeManifest(prepared, PluginTransactionState.PREPARED, backups);
                 for (CommittedPluginTransaction.BackupArtifact backup : backups) {
-                    moveIntoPlace(backup.origin(), backup.backup());
+                    moveArtifactWithSidecar(backup.origin(), backup.backup());
                 }
                 writeManifest(prepared, PluginTransactionState.OLD_ISOLATED, backups);
-                moveIntoPlace(prepared.stagedArtifact(), prepared.target());
+                moveArtifactWithSidecar(prepared.stagedArtifact(), prepared.target());
                 writeManifest(prepared, PluginTransactionState.NEW_PLACED, backups);
                 return new CommittedPluginTransaction(prepared, backups);
             } catch (IOException | RuntimeException failure) {
-                Files.deleteIfExists(prepared.target());
+                deleteArtifactAndSidecar(prepared.target());
                 restoreBackups(backups);
                 throw failure;
             }
@@ -306,7 +340,7 @@ public class ExternalPluginInstaller {
     public boolean rollbackTransaction(CommittedPluginTransaction transaction) {
         installLock.lock();
         try {
-            Files.deleteIfExists(transaction.prepared().target());
+            deleteArtifactAndSidecar(transaction.prepared().target());
             boolean restored = restoreBackups(transaction.backups());
             if (restored) {
                 deleteRecursivelyQuietly(transaction.prepared().transactionDirectory());
@@ -374,7 +408,7 @@ public class ExternalPluginInstaller {
                     }
                     String targetValue = manifest.getProperty("target");
                     if (targetValue != null && !targetValue.isBlank()) {
-                        Files.deleteIfExists(Path.of(targetValue));
+                        deleteArtifactAndSidecar(Path.of(targetValue));
                     }
                     int count = Integer.parseInt(manifest.getProperty("backup.count", "0"));
                     boolean restored = true;
@@ -383,7 +417,7 @@ public class ExternalPluginInstaller {
                         Path backup = Path.of(manifest.getProperty("backup." + i + ".path"));
                         if (Files.exists(backup)) {
                             try {
-                                moveIntoPlace(backup, origin);
+                                moveArtifactWithSidecar(backup, origin);
                             } catch (IOException e) {
                                 restored = false;
                                 log.error("Failed to recover plugin backup {}: {}", backup, e.toString());
@@ -422,12 +456,6 @@ public class ExternalPluginInstaller {
             return rejected(mapReason(e.reason()), e.getMessage());
         }
 
-        // 0b. 完整性校验：本地上传无期望、直接通过；受信目录来源不符 → REJECTED_INTEGRITY。
-        PluginPackageIntegrity.Result integrity = PluginPackageIntegrity.verify(origin, packagePath);
-        if (!integrity.ok()) {
-            return rejected(PluginInstallOutcome.REJECTED_INTEGRITY, integrity.detail());
-        }
-
         // 1. 检视：读布局 + 包级描述符（描述符读取字节受 limits 约束）
         PluginPackageInspection inspection;
         try {
@@ -436,6 +464,17 @@ public class ExternalPluginInstaller {
             return rejected(mapReason(e.reason()), e.getMessage());
         }
         PluginDescriptor descriptor = inspection.descriptor();
+
+        if (origin.source() == PluginPackageSource.MARKET_CATALOG && origin.signature() != null
+                && inspection.innerJarEntry() != null) {
+            return rejected(PluginInstallOutcome.REJECTED_INTEGRITY,
+                    "signed catalog package must be the artifact loaded by the runtime");
+        }
+        VerificationResult verification = verificationService.verifyForInstall(packagePath, descriptor, origin);
+        if (!verification.accepted()) {
+            return rejected(PluginInstallOutcome.REJECTED_INTEGRITY,
+                    "plugin package verification failed: " + verification.status());
+        }
 
         // 2. 校验描述符内容
         List<String> validationErrors = descriptor.externalValidationErrors();
@@ -500,13 +539,25 @@ public class ExternalPluginInstaller {
         // 幂等快路径：同版本且唯一现存包就是规范文件 → 原样保留，不重写
         if (outcome == PluginInstallOutcome.DUPLICATE && sameId.size() == 1
                 && sameId.get(0).path().toAbsolutePath().normalize().equals(target.toAbsolutePath().normalize())) {
+            VerificationResult duplicateVerification = verificationService.verifyForInstall(target, descriptor, origin);
+            if (!duplicateVerification.accepted()) {
+                return rejected(PluginInstallOutcome.REJECTED_INTEGRITY,
+                        "installed plugin verification failed: " + duplicateVerification.status());
+            }
+            try {
+                provenanceStore.write(target, origin, duplicateVerification);
+            } catch (IOException e) {
+                return new PluginInstallResult(PluginInstallOutcome.FAILED, descriptor, null,
+                        previousVersion, List.of("failed to persist plugin provenance: " + e.getMessage()));
+            }
             return new PluginInstallResult(PluginInstallOutcome.DUPLICATE, descriptor, sameId.get(0).path(),
                     previousVersion, List.of(descriptor.id() + " " + descriptor.version() + " already installed"));
         }
 
         // 6. 提交（原子、失败清暂存）
         try {
-            return commit(packagePath, inspection, descriptor, outcome, sameId, target, previousVersion);
+            return commit(packagePath, inspection, descriptor, outcome, sameId, target, previousVersion,
+                    origin, verification);
         } catch (IOException e) {
             log.error("Failed to install plugin package {}: {}", packagePath.getFileName(), e.toString());
             return new PluginInstallResult(PluginInstallOutcome.FAILED, descriptor, null, previousVersion,
@@ -558,7 +609,7 @@ public class ExternalPluginInstaller {
                 }
                 writeRemovalManifest(transaction, packageId, PluginTransactionState.PREPARED, backups);
                 for (Backup backup : backups) {
-                    moveIntoPlace(backup.origin(), backup.backup());
+                    moveArtifactWithSidecar(backup.origin(), backup.backup());
                 }
                 writeRemovalManifest(transaction, packageId, PluginTransactionState.COMMITTED, backups);
                 deleteRecursivelyQuietly(transaction);
@@ -575,7 +626,8 @@ public class ExternalPluginInstaller {
 
     private PluginInstallResult commit(Path packagePath, PluginPackageInspection inspection,
                                        PluginDescriptor descriptor, PluginInstallOutcome outcome,
-                                       List<InstalledPlugin> sameId, Path target, String previousVersion)
+                                       List<InstalledPlugin> sameId, Path target, String previousVersion,
+                                       PluginPackageOrigin origin, VerificationResult verification)
             throws IOException {
         Files.createDirectories(pluginsDir); // 目录创建归安装流程
         Path stagingRoot = pluginsDir.resolve(STAGING_DIR);
@@ -591,31 +643,32 @@ public class ExternalPluginInstaller {
         try {
             Path stagedArtifact = staging.resolve(target.getFileName().toString());
             produceArtifact(packagePath, inspection, stagedArtifact);
+            provenanceStore.write(stagedArtifact, origin, verification);
 
             // 1. 把被取代旧包原子移入隔离备份；任一失败 → 回滚已隔离者、返回 FAILED，绝不放置新包
             if (!superseded.isEmpty()) {
                 Files.createDirectories(backupDir);
             }
             for (InstalledPlugin old : superseded) {
-                Path origin = old.path();
-                Path backup = backupDir.resolve(backups.size() + "-" + origin.getFileName());
+                Path oldArtifact = old.path();
+                Path backup = backupDir.resolve(backups.size() + "-" + oldArtifact.getFileName());
                 try {
-                    isolateSuperseded(origin, backup);
+                    isolateSuperseded(oldArtifact, backup);
                 } catch (IOException e) {
                     backupsResolved = restoreSuperseded(backups);
                     log.error("Aborting install of {} {}: cannot isolate superseded {}: {}",
-                            descriptor.id(), descriptor.version(), origin.getFileName(), e.toString());
+                            descriptor.id(), descriptor.version(), oldArtifact.getFileName(), e.toString());
                     return new PluginInstallResult(PluginInstallOutcome.FAILED, descriptor, null, previousVersion,
                             List.of("install aborted: cannot remove superseded package "
-                                    + origin.getFileName() + " (" + e.getMessage() + ")"));
+                                    + oldArtifact.getFileName() + " (" + e.getMessage() + ")"));
                 }
-                backups.add(new Backup(origin, backup));
-                removedNames.add(origin.getFileName().toString());
+                backups.add(new Backup(oldArtifact, backup));
+                removedNames.add(oldArtifact.getFileName().toString());
             }
 
             // 2. 放置新包到最终目标；失败 → 还原被取代旧包、返回 FAILED（尽量保持原安装状态）
             try {
-                moveIntoPlace(stagedArtifact, target);
+                moveArtifactWithSidecar(stagedArtifact, target);
             } catch (IOException e) {
                 backupsResolved = restoreSuperseded(backups);
                 log.error("Failed to place plugin {} into {}: {}", descriptor.id(), target.getFileName(), e.toString());
@@ -661,20 +714,29 @@ public class ExternalPluginInstaller {
         }
     }
 
-    private static boolean restoreBackups(List<CommittedPluginTransaction.BackupArtifact> backups) {
+    private boolean restoreBackups(List<CommittedPluginTransaction.BackupArtifact> backups) {
         boolean restored = true;
         for (CommittedPluginTransaction.BackupArtifact backup : backups) {
             if (!Files.exists(backup.backup())) {
                 continue;
             }
             try {
-                moveIntoPlace(backup.backup(), backup.origin());
+                moveArtifactWithSidecar(backup.backup(), backup.origin());
             } catch (IOException e) {
                 restored = false;
                 log.error("Failed to restore plugin backup {}: {}", backup.backup(), e.toString());
             }
         }
         return restored;
+    }
+
+    private void moveArtifactWithSidecar(Path source, Path target) throws IOException {
+        provenanceStore.moveWithArtifact(source, target, ExternalPluginInstaller::moveIntoPlace);
+    }
+
+    private void deleteArtifactAndSidecar(Path artifact) throws IOException {
+        Files.deleteIfExists(artifact);
+        provenanceStore.delete(artifact);
     }
 
     private static void writeManifest(PreparedPluginTransaction prepared, PluginTransactionState state,
@@ -759,21 +821,21 @@ public class ExternalPluginInstaller {
      * 「旧包无法移除 / 隔离」的 IO 失败（跨平台难稳定复现的文件锁），生产实现就是一次同卷移动、不放大对外 API。
      */
     void isolateSuperseded(Path origin, Path backup) throws IOException {
-        moveIntoPlace(origin, backup);
+        moveArtifactWithSidecar(origin, backup);
     }
 
     /**
      * 回滚：把已隔离的旧包从备份移回原位。全部成功返回 {@code true}；任一失败记录并返回 {@code false}
      * （此时备份仍是该旧包的唯一副本，不可在清理时删除）。
      */
-    private static boolean restoreSuperseded(List<Backup> backups) {
+    private boolean restoreSuperseded(List<Backup> backups) {
         boolean allRestored = true;
         for (Backup backup : backups) {
             if (!Files.exists(backup.backup())) {
                 continue;
             }
             try {
-                moveIntoPlace(backup.backup(), backup.origin());
+                moveArtifactWithSidecar(backup.backup(), backup.origin());
             } catch (IOException e) {
                 allRestored = false;
                 log.error("Failed to restore superseded plugin {} from backup {}: {}",
@@ -852,5 +914,11 @@ public class ExternalPluginInstaller {
 
     private static PluginInstallResult rejected(PluginInstallOutcome outcome, String message) {
         return new PluginInstallResult(outcome, null, null, null, List.of(Objects.toString(message, "")));
+    }
+
+    private static Function<PluginPackageOrigin, PluginSupplyChainVerifier> fixedVerifier(
+            PluginSupplyChainVerifier verifier) {
+        PluginSupplyChainVerifier fixed = Objects.requireNonNull(verifier, "verifier");
+        return origin -> fixed;
     }
 }

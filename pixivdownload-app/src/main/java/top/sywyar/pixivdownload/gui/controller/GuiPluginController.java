@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.i18n.WebI18nService;
 import top.sywyar.pixivdownload.plugin.PluginManagementService;
 import top.sywyar.pixivdownload.plugin.PluginManagementService.PluginManagementEntry;
 import top.sywyar.pixivdownload.plugin.PluginManagementService.PluginManagementReport;
+import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
 import java.util.HashMap;
 import java.util.List;
@@ -79,7 +80,8 @@ public class GuiPluginController {
                 entry.runtimePhase() != null ? entry.runtimePhase().name() : null,
                 entry.managed(),
                 entry.requiredByPolicy(),
-                entry.version());
+                entry.version(),
+                entry.verification());
     }
 
     /**
@@ -137,6 +139,7 @@ public class GuiPluginController {
      * @param managed      是否受运行期生命周期管理
      * @param required     是否被必选策略声明为必选
      * @param version      插件版本（未安装的必选项为 {@code null}）
+     * @param verification 验签状态投影
      */
     public record GuiPluginEntry(
             String id,
@@ -146,6 +149,7 @@ public class GuiPluginController {
             String runtimePhase,
             boolean managed,
             boolean required,
-            String version) {
+            String version,
+            PluginVerificationView verification) {
     }
 }

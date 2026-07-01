@@ -33,6 +33,11 @@
             <artifactId>pixivdownload-plugin-api</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-signature</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- @Conditional / Condition / ConditionContext / @Component（spring-context 传递 spring-core / spring-beans） -->
         <dependency>
             <groupId>org.springframework</groupId>

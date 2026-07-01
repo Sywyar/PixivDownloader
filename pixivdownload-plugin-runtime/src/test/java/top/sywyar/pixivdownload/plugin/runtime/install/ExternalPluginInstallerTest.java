@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -317,10 +318,12 @@ class ExternalPluginInstallerTest {
     @DisplayName("受信目录来源 + 正确 SHA-256/大小：正常安装为 INSTALLED")
     void trustedCatalogMatchingShaInstalls() throws IOException {
         Path src = exploded("ext", "1.0.0");
-        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
-                Files.size(src), PluginPackageIntegrity.sha256Hex(src), null);
+        PluginSigningTestSupport signing = PluginSigningTestSupport.create();
+        ExternalPluginInstaller signedInstaller = new ExternalPluginInstaller(
+                pluginsDir, PluginPackageLimits.defaults(), signing.verifier());
+        PluginPackageOrigin origin = signing.originFor("test-repository", src, "ext", "1.0.0");
 
-        PluginInstallResult result = installer.install(src, false, origin);
+        PluginInstallResult result = signedInstaller.install(src, false, origin);
 
         assertThat(result.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
         assertThat(pluginFiles()).containsExactly("ext-1.0.0.zip");
@@ -330,6 +333,7 @@ class ExternalPluginInstallerTest {
     @DisplayName("受信目录来源 + 错误 SHA-256：REJECTED_INTEGRITY，零落盘")
     void trustedCatalogWrongShaRejected() {
         PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "test-repository", false,
                 null, "0000000000000000000000000000000000000000000000000000000000000000", null);
 
         PluginInstallResult result = installer.install(exploded("ext", "1.0.0"), false, origin);
@@ -340,9 +344,12 @@ class ExternalPluginInstallerTest {
     }
 
     @Test
-    @DisplayName("受信目录来源声明签名但无校验器：fail-closed → REJECTED_INTEGRITY，零落盘")
+    @DisplayName("受信目录来源声明未知签名 key：fail-closed → REJECTED_INTEGRITY，零落盘")
     void trustedCatalogSignatureFailsClosed() {
-        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(null, null, "sig");
+        SignatureMetadata metadata = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "missing-key", "c2ln");
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "test-repository", false, null, null, metadata);
 
         PluginInstallResult result = installer.install(exploded("ext", "1.0.0"), false, origin);
 

@@ -429,7 +429,9 @@ class StatsExternalPluginBootContextTest {
             }
             deleteRecursivelyQuietly(PLUGINS_DIR);
             Files.createDirectories(PLUGINS_DIR);
-            zipDirectoryAsJar(statsClasses, PLUGINS_DIR.resolve("stats-plugin.jar"));
+            Path jar = PLUGINS_DIR.resolve("stats-plugin.jar");
+            zipDirectoryAsJar(statsClasses, jar);
+            PluginTestProvenance.writeLocalUpload(PLUGINS_DIR, jar, "stats", "1.0.0");
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

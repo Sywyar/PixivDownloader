@@ -110,6 +110,11 @@
         INSTALLED:       { labelKey: 'install.state.installed', fallback: '已安装', icon: 'circle-check',      variant: 'success-outline', disabled: true },
         UPDATE_AVAILABLE:{ labelKey: 'install.action.update',  fallback: '更新',   icon: 'arrow-up',          variant: 'amber' },
         INCOMPATIBLE:    { labelKey: 'install.state.incompatible', fallback: '不兼容', icon: 'ban',           variant: 'gray', disabled: true },
+        SIGNATURE_REQUIRED: { labelKey: 'install.state.signature-required', fallback: '缺少签名', icon: 'shield-halved', variant: 'gray', disabled: true },
+        UNKNOWN_KEY:     { labelKey: 'install.state.unknown-key', fallback: '未知发布者', icon: 'shield-halved', variant: 'gray', disabled: true },
+        REVOKED_KEY:     { labelKey: 'install.state.revoked-key', fallback: '发布者已吊销', icon: 'shield-halved', variant: 'gray', disabled: true },
+        INVALID_SIGNATURE:{ labelKey: 'install.state.invalid-signature', fallback: '签名无效', icon: 'shield-halved', variant: 'gray', disabled: true },
+        HASH_MISMATCH:   { labelKey: 'install.state.hash-mismatch', fallback: '摘要不符', icon: 'shield-halved', variant: 'gray', disabled: true },
         // 无任何可安装版本制品的条目（后端 UNAVAILABLE）：稳定降级为不可点击的不可安装态，绝不渲染可点击但无响应的安装按钮。
         UNAVAILABLE:     { labelKey: 'install.state.unavailable', fallback: '暂无可安装版本', icon: 'ban',    variant: 'gray', disabled: true },
         // 前端本地请求态（安装 POST 在途）：不来自后端，安装结果仍以后端响应为准。

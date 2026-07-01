@@ -51,7 +51,10 @@ param(
     [string]$Version = "0.0.1-local",
     [string]$OutputDir,
     [switch]$Build,
-    [switch]$IncludeSentinel
+    [switch]$IncludeSentinel,
+    [string]$OfficialKeyId,
+    [string]$PrivateKeyFile,
+    [string]$SignatureToolJar
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,6 +70,11 @@ if (-not $OutputDir) {
 }
 $PluginsOutDir = Join-Path $OutputDir "plugins"
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
+if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
+    throw "PrivateKeyFile is required and must point to an Ed25519 PKCS#8 PEM file."
+}
+$SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
 
 # Official optional external plugins (id / Maven module). recovery-sentinel only when -IncludeSentinel.
 # Wrap in @() so a single-element result keeps array shape (the function return unwraps it otherwise),
@@ -186,6 +194,11 @@ try {
 
         $sha = Get-Sha256Hex $targetJar
         [System.IO.File]::WriteAllText("$targetJar.sha256", "$sha  $targetName`n", $Utf8NoBom)
+        $signature = New-PluginArtifactSignature $SignatureToolJar $targetJar $plugin.Id $pluginVersion `
+            $OfficialKeyId $PrivateKeyFile "$targetJar.sig"
+        $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+        [void](Write-PluginProvenanceSidecar $targetJar (Get-Item -LiteralPath $targetJar).Length `
+            $sha $signature $verifiedAt)
 
         $manifest += [ordered]@{
             id       = $plugin.Id
@@ -193,6 +206,7 @@ try {
             requires = $requires
             file     = "plugins/$targetName"
             sha256   = $sha
+            signature = $signature
         }
         $sumLines += "$sha  plugins/$targetName"
         Write-Host "    OK: thin plugin jar staged ($targetName, sha256 $sha)." -ForegroundColor Green
@@ -209,10 +223,11 @@ try {
     [System.IO.File]::WriteAllText((Join-Path $OutputDir "plugins-manifest.json"), $manifestJson + "`n", $Utf8NoBom)
 
     Write-Step "Done"
+    Assert-NoPrivateKeyMaterial $OutputDir
     Write-Host "Distribution : $OutputDir"
     Write-Host "Core jar     : $coreJarName  (default downloader - built-in download workbench)"
     Write-Host "Plugins      : $($OptionalPlugins.Count) optional plugin(s) staged under plugins/"
-    Write-Host "Checksums    : SHA256SUMS + per-plugin .sha256 + plugins-manifest.json"
+    Write-Host "Checksums    : SHA256SUMS + per-plugin .sha256 + .sig + provenance sidecar + plugins-manifest.json"
     Write-Host ""
     Write-Host "Full offline run: cd `"$OutputDir`" && java -jar $coreJarName"
 } finally {

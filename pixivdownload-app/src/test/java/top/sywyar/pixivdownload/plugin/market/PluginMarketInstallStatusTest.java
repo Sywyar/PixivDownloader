@@ -55,7 +55,7 @@ class PluginMarketInstallStatusTest {
     }
 
     private static PluginCatalogPackage pkg(String version, String requiredCoreApi) {
-        return new PluginCatalogPackage(version, "https://x/" + version + ".jar", 100L, "ab", null,
+        return new PluginCatalogPackage(version, "https://x/" + version + ".jar", 100L, "ab", null, null,
                 requiredCoreApi, List.of(), null, List.of(), "stable", false);
     }
 

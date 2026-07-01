@@ -5,8 +5,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogMarketMeta;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
@@ -55,7 +60,7 @@ class PluginCatalogServiceTest {
     }
 
     @Test
-    @DisplayName("解析合法清单：取出条目与版本包，且忽略未知字段（author/tags/downloadCount 等）")
+    @DisplayName("解析合法清单：取出条目与版本制品，且忽略未知字段（author/tags/downloadCount 等）")
     void parsesValidManifestIgnoringUnknownFields() {
         PluginCatalogService service = service(false, "");
         String json = """
@@ -75,6 +80,13 @@ class PluginCatalogServiceTest {
                           "packageUrl": "https://example.com/stats-1.2.3.jar",
                           "expectedSizeBytes": 4096,
                           "sha256": "abcdef",
+                          "signature": {
+                            "formatVersion": 1,
+                            "algorithm": "Ed25519",
+                            "keyId": "catalog-test-key",
+                            "value": "c2ln"
+                          },
+                          "signatureUrl": "https://example.com/stats-1.2.3.jar.sig",
                           "requiredCoreApi": "1.0",
                           "rating": 4.5
                         }
@@ -97,7 +109,41 @@ class PluginCatalogServiceTest {
         assertThat(pkg.packageUrl()).isEqualTo("https://example.com/stats-1.2.3.jar");
         assertThat(pkg.expectedSizeBytes()).isEqualTo(4096L);
         assertThat(pkg.sha256()).isEqualTo("abcdef");
+        assertThat(pkg.signature()).isNotNull();
+        assertThat(pkg.signature().algorithm()).isEqualTo("Ed25519");
+        assertThat(pkg.signatureUrl()).isEqualTo("https://example.com/stats-1.2.3.jar.sig");
         assertThat(pkg.requiredCoreApi()).isEqualTo("1.0");
+    }
+
+    @Test
+    @DisplayName("旧字符串 signature 协议：解析时拒绝，不静默当作已签名包")
+    void rejectsLegacyStringSignature() {
+        PluginCatalogService service = service(false, "");
+        String json = """
+                {
+                  "entries": [
+                    {
+                      "pluginId": "stats",
+                      "packages": [
+                        {
+                          "version": "1.2.3",
+                          "packageUrl": "https://example.com/stats-1.2.3.jar",
+                          "expectedSizeBytes": 4096,
+                          "sha256": "abcdef",
+                          "signature": "SIG=="
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """;
+
+        PluginCatalogException ex = catchThrowableOfType(
+                () -> service.parseManifest(json.getBytes(StandardCharsets.UTF_8)),
+                PluginCatalogException.class);
+
+        assertThat(ex).isNotNull();
+        assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
     }
 
     @Test
@@ -123,9 +169,10 @@ class PluginCatalogServiceTest {
     @DisplayName("启用 + 桩返回合法清单：load() 成功解析")
     void loadFetchesAndParses() {
         server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
         String json = "{\"entries\":[{\"pluginId\":\"demo\",\"packages\":[]}]}";
-        CatalogTestSupport.serveBytes(server, "/catalog.json", json.getBytes(StandardCharsets.UTF_8));
-        PluginCatalogService service = service(true, CatalogTestSupport.loopbackUrl(server, "/catalog.json"));
+        serveSignedManifest("/catalog.json", "configured", json, signing);
+        PluginCatalogService service = service(true, CatalogTestSupport.loopbackUrl(server, "/catalog.json"), signing);
 
         PluginCatalogManifest manifest = service.load();
 
@@ -137,8 +184,9 @@ class PluginCatalogServiceTest {
     @DisplayName("启用 + 桩返回坏 JSON：load() 抛 CATALOG_UNAVAILABLE")
     void loadMalformedIsUnavailable() {
         server = CatalogTestSupport.startServer();
-        CatalogTestSupport.serveBytes(server, "/bad.json", "<<<".getBytes(StandardCharsets.UTF_8));
-        PluginCatalogService service = service(true, CatalogTestSupport.loopbackUrl(server, "/bad.json"));
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        serveSignedManifest("/bad.json", "configured", "<<<", signing);
+        PluginCatalogService service = service(true, CatalogTestSupport.loopbackUrl(server, "/bad.json"), signing);
 
         assertCode(service, PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
     }
@@ -155,10 +203,11 @@ class PluginCatalogServiceTest {
     @DisplayName("manifest-url 首尾空白：trim 后正常拉取解析（绝不因 URI.create 抛异常而 500）")
     void loadTrimsSurroundingWhitespaceManifestUrl() {
         server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
         String json = "{\"entries\":[{\"pluginId\":\"demo\",\"packages\":[]}]}";
-        CatalogTestSupport.serveBytes(server, "/catalog.json", json.getBytes(StandardCharsets.UTF_8));
+        serveSignedManifest("/catalog.json", "configured", json, signing);
         PluginCatalogService service = service(true,
-                "  " + CatalogTestSupport.loopbackUrl(server, "/catalog.json") + "  ");
+                "  " + CatalogTestSupport.loopbackUrl(server, "/catalog.json") + "  ", signing);
 
         PluginCatalogManifest manifest = service.load();
 
@@ -176,7 +225,7 @@ class PluginCatalogServiceTest {
     }
 
     @Test
-    @DisplayName("解析市场元数据：market 块（本地化名称 / 简介 / 作者 / 来源 / 分类 / 标签 / 主页 / 许可证 / 评分 / 下载量 / token）+ 版本包发布时间 / 通道 / 下架 / 更新日志 + 清单生成时间")
+    @DisplayName("解析市场元数据：market 块（本地化名称 / 简介 / 作者 / 来源 / 分类 / 标签 / 主页 / 许可证 / 评分 / 下载量 / token）+ 版本制品发布时间 / 通道 / 下架 / 更新日志 + 清单生成时间")
     void parsesMarketMetadata() {
         PluginCatalogService service = service(false, "");
         String json = """
@@ -295,13 +344,15 @@ class PluginCatalogServiceTest {
     @DisplayName("按 repositoryId 加载自定义仓库（loopback 桩）：解析成功")
     void loadByRepositoryId() {
         server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
         String json = "{\"entries\":[{\"pluginId\":\"demo\",\"packages\":[]}]}";
-        CatalogTestSupport.serveBytes(server, "/c.json", json.getBytes(StandardCharsets.UTF_8));
+        serveSignedManifest("/c.json", "custom", json, signing);
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(true);
         PluginCatalogProperties.RepositoryConfig repo = new PluginCatalogProperties.RepositoryConfig();
         repo.setId("custom");
         repo.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/c.json"));
+        repo.setTrustedKeys(java.util.List.of(signing.trustedKeyConfig()));
         props.getRepositories().add(repo);
         PluginCatalogService service = new PluginCatalogService(props, relaxed);
 
@@ -310,11 +361,132 @@ class PluginCatalogServiceTest {
         assertThat(manifest.findEntry("demo")).isPresent();
     }
 
+    @Test
+    @DisplayName("自定义仓库信任域隔离：仓库 A 的 key 不能验证仓库 B 的 manifest")
+    void customRepositoryKeysAreIsolated() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture repoA = CatalogTestSupport.signingFixture("repo-a-key");
+        CatalogTestSupport.SigningFixture repoB = CatalogTestSupport.signingFixture("repo-b-key");
+        String aJson = "{\"entries\":[{\"pluginId\":\"demo-a\",\"packages\":[]}]}";
+        String bJson = "{\"entries\":[{\"pluginId\":\"demo-b\",\"packages\":[]}]}";
+        byte[] aBytes = aJson.getBytes(StandardCharsets.UTF_8);
+        byte[] bBytes = bJson.getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/a.json", aBytes);
+        CatalogTestSupport.serveBytes(server, "/a.json.sig", repoA.manifestSignatureBytes("repo-a", aBytes));
+        CatalogTestSupport.serveBytes(server, "/b.json", bBytes);
+        CatalogTestSupport.serveBytes(server, "/b.json.sig", repoA.manifestSignatureBytes("repo-b", bBytes));
+
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setOfficialRepositoryEnabled(false);
+        props.getRepositories().add(repo("repo-a", "/a.json", repoA));
+        props.getRepositories().add(repo("repo-b", "/b.json", repoB));
+        PluginCatalogService service = new PluginCatalogService(props, relaxed);
+
+        assertThat(service.load("repo-a").findEntry("demo-a")).isPresent();
+        PluginCatalogException ex = catchThrowableOfType(() -> service.load("repo-b"),
+                PluginCatalogException.class);
+        assertThat(ex).isNotNull();
+        assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
+    }
+
+    @Test
+    @DisplayName("自定义仓库无 trustedKeys：manifest 签名 fail-closed，UI 投影同为 UNKNOWN_KEY")
+    void customRepositoryWithoutTrustedKeysFailsClosedAndProjectionMatches() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture("repo-a-key");
+        byte[] artifact = CatalogTestSupport.explodedPluginZip("demo", "1.0.0", "1.0");
+        var packageSignature = signing.artifactSignature("demo", "1.0.0", artifact);
+        String json = """
+                {"entries":[{"pluginId":"demo","packages":[{
+                  "version":"1.0.0",
+                  "packageUrl":"http://127.0.0.1/pkg.zip",
+                  "expectedSizeBytes":%d,
+                  "sha256":"%s",
+                  "signature":%s
+                }]}]}
+                """.formatted(artifact.length, CatalogTestSupport.sha256Hex(artifact),
+                signing.signatureJson(packageSignature));
+        byte[] manifestBytes = json.getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/custom.json", manifestBytes);
+        CatalogTestSupport.serveBytes(server, "/custom.json.sig",
+                signing.manifestSignatureBytes("custom", manifestBytes));
+
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setOfficialRepositoryEnabled(false);
+        PluginCatalogProperties.RepositoryConfig custom = new PluginCatalogProperties.RepositoryConfig();
+        custom.setId("custom");
+        custom.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/custom.json"));
+        props.getRepositories().add(custom);
+        PluginRepositoryRegistry registry = new PluginRepositoryRegistry(props);
+        PluginCatalogService service = new PluginCatalogService(registry, repository -> relaxed);
+
+        PluginCatalogException ex = catchThrowableOfType(() -> service.load("custom"),
+                PluginCatalogException.class);
+        assertThat(ex).isNotNull();
+        assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.CATALOG_UNAVAILABLE);
+
+        PluginRepository repository = registry.find("custom").orElseThrow();
+        PluginCatalogPackage pkg = new PluginCatalogPackage("1.0.0", "http://127.0.0.1/pkg.zip",
+                (long) artifact.length, CatalogTestSupport.sha256Hex(artifact), packageSignature,
+                null, "1.0", List.of(), null, List.of(), null, false);
+        assertThat(PluginVerificationProjector.forCatalogPackage(repository, pkg).status())
+                .isEqualTo(PluginVerificationProjector.UNKNOWN_KEY);
+    }
+
+    @Test
+    @DisplayName("自定义仓库显式配置与官方 root 同 keyId 的 key：不继承内置 root，但按该仓库配置可验证")
+    void customRepositoryMayExplicitlyTrustOfficialKeyId() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing =
+                CatalogTestSupport.signingFixture(PluginTrustStores.builtInOfficialRoot().keyId());
+        String json = "{\"entries\":[{\"pluginId\":\"demo\",\"packages\":[]}]}";
+        serveSignedManifest("/custom.json", "custom", json, signing);
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setOfficialRepositoryEnabled(false);
+        PluginCatalogProperties.RepositoryConfig custom = new PluginCatalogProperties.RepositoryConfig();
+        custom.setId("custom");
+        custom.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/custom.json"));
+        custom.setTrustedKeys(List.of(signing.trustedKeyConfig()));
+        props.getRepositories().add(custom);
+        PluginCatalogService service = new PluginCatalogService(props, relaxed);
+
+        PluginCatalogManifest manifest = service.load("custom");
+
+        assertThat(manifest.findEntry("demo")).isPresent();
+    }
+
     private PluginCatalogService service(boolean enabled, String manifestUrl) {
+        return service(enabled, manifestUrl, null);
+    }
+
+    private PluginCatalogService service(boolean enabled, String manifestUrl,
+                                         CatalogTestSupport.SigningFixture signing) {
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setEnabled(enabled);
         props.setManifestUrl(manifestUrl);
+        if (signing != null) {
+            props.setTrustedKeys(java.util.List.of(signing.trustedKeyConfig()));
+        }
         return new PluginCatalogService(props, relaxed);
+    }
+
+    private void serveSignedManifest(String path, String repositoryId, String json,
+                                     CatalogTestSupport.SigningFixture signing) {
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, path, bytes);
+        CatalogTestSupport.serveBytes(server, path + ".sig", signing.manifestSignatureBytes(repositoryId, bytes));
+    }
+
+    private PluginCatalogProperties.RepositoryConfig repo(String id, String path,
+                                                          CatalogTestSupport.SigningFixture signing) {
+        PluginCatalogProperties.RepositoryConfig repo = new PluginCatalogProperties.RepositoryConfig();
+        repo.setId(id);
+        repo.setManifestUrl(CatalogTestSupport.loopbackUrl(server, path));
+        repo.setTrustedKeys(List.of(signing.trustedKeyConfig()));
+        return repo;
     }
 
     private static void assertCode(PluginCatalogService service, PluginCatalogErrorCode expected) {

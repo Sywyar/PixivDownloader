@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,6 +45,7 @@ class ExternalPluginTransactionTest {
         ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins);
         installer.install(packageFile("v1.zip", "1.0.0"));
         Path old = plugins.resolve("demo-1.0.0.zip");
+        assertThat(sidecar(plugins, old)).exists();
 
         PreparedPluginTransaction prepared = installer.prepareTransaction(
                 packageFile("v2.zip", "2.0.0"), false, PluginPackageOrigin.localUpload());
@@ -52,16 +54,22 @@ class ExternalPluginTransactionTest {
         assertThat(old).exists();
         assertThat(prepared.target()).doesNotExist();
         assertThat(prepared.stagedArtifact()).exists();
+        assertThat(sidecar(plugins, prepared.stagedArtifact())).exists();
 
         CommittedPluginTransaction committed = installer.commitTransaction(prepared);
         assertThat(old).doesNotExist();
+        assertThat(sidecar(plugins, old)).doesNotExist();
         assertThat(prepared.target()).exists();
+        assertThat(sidecar(plugins, prepared.target())).exists();
         assertThat(committed.backups()).hasSize(1);
         assertThat(committed.backups().get(0).backup()).exists();
+        assertThat(sidecar(plugins, committed.backups().get(0).backup())).exists();
 
         assertThat(installer.rollbackTransaction(committed)).isTrue();
         assertThat(old).exists();
+        assertThat(sidecar(plugins, old)).exists();
         assertThat(prepared.target()).doesNotExist();
+        assertThat(sidecar(plugins, prepared.target())).doesNotExist();
     }
 
     @Test
@@ -77,7 +85,9 @@ class ExternalPluginTransactionTest {
         new ExternalPluginInstaller(plugins).recoverPendingTransactions();
 
         assertThat(plugins.resolve("demo-1.0.0.zip")).exists();
+        assertThat(sidecar(plugins, plugins.resolve("demo-1.0.0.zip"))).exists();
         assertThat(plugins.resolve("demo-2.0.0.zip")).doesNotExist();
+        assertThat(sidecar(plugins, plugins.resolve("demo-2.0.0.zip"))).doesNotExist();
         assertThat(installer.listInstalled()).extracting(InstalledPlugin::version).containsExactly("1.0.0");
     }
 
@@ -95,7 +105,9 @@ class ExternalPluginTransactionTest {
         new ExternalPluginInstaller(plugins).recoverPendingTransactions();
 
         assertThat(plugins.resolve("demo-1.0.0.zip")).doesNotExist();
+        assertThat(sidecar(plugins, plugins.resolve("demo-1.0.0.zip"))).doesNotExist();
         assertThat(plugins.resolve("demo-2.0.0.zip")).exists();
+        assertThat(sidecar(plugins, plugins.resolve("demo-2.0.0.zip"))).exists();
         assertThat(installer.listInstalled()).extracting(InstalledPlugin::version).containsExactly("2.0.0");
         assertThat(plugins.resolve(".staging")).doesNotExist();
     }
@@ -125,10 +137,15 @@ class ExternalPluginTransactionTest {
 
         assertThat(installer.removeInstalled("demo")).isTrue();
         assertThat(installer.listInstalled()).isEmpty();
+        assertThat(sidecar(plugins, plugins.resolve("demo-1.0.0.zip"))).doesNotExist();
         assertThat(plugins.resolve(".staging")).doesNotExist();
     }
 
     private Path packageFile(String name, String version) {
         return PluginPackageFixtures.explodedZip(temp.resolve(name), "demo", version, "1.0", "demo.Plugin");
+    }
+
+    private static Path sidecar(Path plugins, Path artifact) {
+        return new PluginProvenanceStore(plugins).sidecarPath(artifact);
     }
 }

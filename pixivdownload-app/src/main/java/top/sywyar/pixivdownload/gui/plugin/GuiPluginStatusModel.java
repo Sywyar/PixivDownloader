@@ -47,9 +47,11 @@ public final class GuiPluginStatusModel {
      * @param managed   是否受运行期生命周期管理
      * @param required  是否必选
      * @param version   版本（可空）
+     * @param verificationStatus 验签状态码（可空）
      */
     public record Row(String id, String name, Source source, String statusCode,
-                      String phaseCode, boolean managed, boolean required, String version) {
+                      String phaseCode, boolean managed, boolean required, String version,
+                      String verificationStatus) {
     }
 
     private final Outcome outcome;
@@ -114,7 +116,8 @@ public final class GuiPluginStatusModel {
                 textOrNull(node, "runtimePhase"),
                 node.path("managed").asBoolean(false),
                 node.path("required").asBoolean(false),
-                textOrNull(node, "version"));
+                textOrNull(node, "version"),
+                textOrNull(node.path("verification"), "status"));
     }
 
     private static String textOrNull(JsonNode node, String field) {
@@ -171,6 +174,11 @@ public final class GuiPluginStatusModel {
     /** 运行期阶段标签；未知阶段码回退到原始码；{@code null} / 空返回空串（不展示阶段）。 */
     public static String phaseLabel(String phaseCode) {
         return localizedOr("gui.plugins.phase.", phaseCode);
+    }
+
+    /** 验签状态标签；未知状态码回退到原始码。 */
+    public static String verificationLabel(String statusCode) {
+        return localizedOr("gui.plugins.verification.", statusCode);
     }
 
     /**

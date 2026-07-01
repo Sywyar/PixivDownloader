@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.plugin.catalog;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
+import top.sywyar.pixivdownload.plugin.signature.internal.envelope.Hashing;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -9,8 +12,14 @@ import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -127,6 +136,90 @@ final class CatalogTestSupport {
             return HexFormat.of().formatHex(digest.digest(data));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
+        }
+    }
+
+    static SigningFixture signingFixture() {
+        return SigningFixture.create("catalog-test-key");
+    }
+
+    static SigningFixture signingFixture(String keyId) {
+        return SigningFixture.create(keyId);
+    }
+
+    static final class SigningFixture {
+
+        private final String keyId;
+        private final PrivateKey privateKey;
+        private final String publicKeyBase64;
+
+        private SigningFixture(String keyId, PrivateKey privateKey, String publicKeyBase64) {
+            this.keyId = keyId;
+            this.privateKey = privateKey;
+            this.publicKeyBase64 = publicKeyBase64;
+        }
+
+        private static SigningFixture create(String keyId) {
+            try {
+                KeyPairGenerator generator = KeyPairGenerator.getInstance(SignatureMetadata.ED25519);
+                KeyPair keyPair = generator.generateKeyPair();
+                return new SigningFixture(
+                        keyId,
+                        keyPair.getPrivate(),
+                        Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()));
+            } catch (GeneralSecurityException e) {
+                throw new IllegalStateException("无法生成 catalog 测试签名密钥", e);
+            }
+        }
+
+        PluginCatalogProperties.TrustedKeyConfig trustedKeyConfig() {
+            PluginCatalogProperties.TrustedKeyConfig config = new PluginCatalogProperties.TrustedKeyConfig();
+            config.setKeyId(keyId);
+            config.setAlgorithm(SignatureMetadata.ED25519);
+            config.setPublicKey(publicKeyBase64);
+            config.setState("ACTIVE");
+            config.setPublisher("Catalog Test Publisher");
+            config.setTrustLabel("Catalog Test Trust");
+            return config;
+        }
+
+        SignatureMetadata artifactSignature(String pluginId, String version, byte[] artifactBytes) {
+            byte[] sha256 = Hashing.sha256(artifactBytes);
+            byte[] message = EnvelopeV1Codec.artifactMessage(SignatureMetadata.ED25519, keyId,
+                    pluginId, version, artifactBytes.length, sha256);
+            return metadata(sign(message));
+        }
+
+        byte[] manifestSignatureBytes(String repositoryId, byte[] manifestBytes) {
+            byte[] sha256 = Hashing.sha256(manifestBytes);
+            byte[] message = EnvelopeV1Codec.manifestMessage(repositoryId, manifestBytes.length, sha256);
+            return signatureJson(metadata(sign(message))).getBytes(StandardCharsets.UTF_8);
+        }
+
+        String signatureJson(SignatureMetadata metadata) {
+            return "{\"formatVersion\":" + metadata.formatVersion()
+                    + ",\"algorithm\":\"" + metadata.algorithm() + "\""
+                    + ",\"keyId\":\"" + metadata.keyId() + "\""
+                    + ",\"value\":\"" + metadata.value() + "\"}";
+        }
+
+        private SignatureMetadata metadata(byte[] signature) {
+            return new SignatureMetadata(
+                    SignatureMetadata.FORMAT_VERSION,
+                    SignatureMetadata.ED25519,
+                    keyId,
+                    Base64.getEncoder().encodeToString(signature));
+        }
+
+        private byte[] sign(byte[] message) {
+            try {
+                Signature signature = Signature.getInstance(SignatureMetadata.ED25519);
+                signature.initSign(privateKey);
+                signature.update(message);
+                return signature.sign();
+            } catch (GeneralSecurityException e) {
+                throw new IllegalStateException("无法生成 catalog 测试签名", e);
+            }
         }
     }
 }

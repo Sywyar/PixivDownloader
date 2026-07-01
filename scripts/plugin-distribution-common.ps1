@@ -37,6 +37,102 @@ function Get-Sha256Hex {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+function Resolve-SignatureToolJar {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [string]$SignatureToolJar
+    )
+    if ($SignatureToolJar) {
+        if (-not (Test-Path -LiteralPath $SignatureToolJar -PathType Leaf)) {
+            throw "Signature tool jar not found: $SignatureToolJar"
+        }
+        return (Resolve-Path -LiteralPath $SignatureToolJar).Path
+    }
+    $targetDir = Join-Path $ProjectRoot "pixivdownload-plugin-signature/target"
+    $jar = Get-ChildItem (Join-Path $targetDir "pixivdownload-plugin-signature-*.jar") -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if (-not $jar) {
+        throw "Could not find signature tool jar under $targetDir. Build pixivdownload-plugin-signature first or pass -SignatureToolJar."
+    }
+    return $jar.FullName
+}
+
+function Invoke-PluginSignatureTool {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolJar,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    & java "-cp" $ToolJar "top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool" @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Plugin signature tool failed."
+    }
+}
+
+function New-PluginArtifactSignature {
+    param(
+        [Parameter(Mandatory = $true)][string]$ToolJar,
+        [Parameter(Mandatory = $true)][string]$ArtifactPath,
+        [Parameter(Mandatory = $true)][string]$PluginId,
+        [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][string]$KeyId,
+        [Parameter(Mandatory = $true)][string]$PrivateKeyFile,
+        [Parameter(Mandatory = $true)][string]$OutputPath
+    )
+    Invoke-PluginSignatureTool $ToolJar @(
+        "artifact",
+        "--artifact", $ArtifactPath,
+        "--plugin-id", $PluginId,
+        "--version", $Version,
+        "--key-id", $KeyId,
+        "--private-key", $PrivateKeyFile,
+        "--out", $OutputPath
+    )
+    return (Get-Content -LiteralPath $OutputPath -Raw -Encoding UTF8 | ConvertFrom-Json)
+}
+
+function Write-PluginProvenanceSidecar {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArtifactPath,
+        [Parameter(Mandatory = $true)][long]$ExpectedSizeBytes,
+        [Parameter(Mandatory = $true)][string]$Sha256,
+        [Parameter(Mandatory = $true)]$Signature,
+        [Parameter(Mandatory = $true)][string]$VerifiedAt
+    )
+    $sidecar = "$ArtifactPath.pixiv-plugin-provenance"
+    $lines = @(
+        "formatVersion=1",
+        "source=MARKET_CATALOG",
+        "repositoryId=official",
+        "officialRepository=true",
+        "expectedSizeBytes=$ExpectedSizeBytes",
+        "expectedSha256=$Sha256",
+        "signature.formatVersion=$($Signature.formatVersion)",
+        "signature.algorithm=$($Signature.algorithm)",
+        "signature.keyId=$($Signature.keyId)",
+        "signature.value=$($Signature.value)",
+        "status=VERIFIED",
+        "keyId=$($Signature.keyId)",
+        "publisher=PixivDownloader",
+        "trustLabel=PixivDownloader official plugin root",
+        "verifiedAt=$VerifiedAt",
+        "diagnosticCode=VERIFIED"
+    )
+    [System.IO.File]::WriteAllText($sidecar, (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+    return $sidecar
+}
+
+function Assert-NoPrivateKeyMaterial {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    $hits = Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue |
+        Select-String -SimpleMatch "BEGIN PRIVATE KEY" -List -ErrorAction SilentlyContinue
+    if ($hits) {
+        throw "Private key material found under output directory: $($hits[0].Path)"
+    }
+}
+
 function Import-ZipFileAssembly {
     if (([System.Management.Automation.PSTypeName]"System.IO.Compression.ZipFile").Type) {
         return

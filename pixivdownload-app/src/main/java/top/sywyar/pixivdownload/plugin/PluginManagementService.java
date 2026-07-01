@@ -7,12 +7,19 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDependencyRef;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
+import top.sywyar.pixivdownload.plugin.runtime.install.InstalledPlugin;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
+import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
+import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -44,6 +51,8 @@ public class PluginManagementService {
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final RecoveryModeService recoveryModeService;
     private final ExternalPluginLifecycleCoordinator coordinator;
+    private final ExternalPluginInstaller installer;
+    private final PluginProvenanceStore provenanceStore;
 
     public PluginManagementService(PluginStatusService pluginStatusService,
                                    PluginLifecycleService pluginLifecycleService,
@@ -54,6 +63,8 @@ public class PluginManagementService {
         this.requiredPluginPolicy = requiredPluginPolicy;
         this.recoveryModeService = recoveryModeService;
         this.coordinator = null;
+        this.installer = null;
+        this.provenanceStore = null;
     }
 
     @Autowired
@@ -61,12 +72,15 @@ public class PluginManagementService {
                                    PluginLifecycleService pluginLifecycleService,
                                    RequiredPluginPolicy requiredPluginPolicy,
                                    RecoveryModeService recoveryModeService,
-                                   ExternalPluginLifecycleCoordinator coordinator) {
+                                   ExternalPluginLifecycleCoordinator coordinator,
+                                   ExternalPluginInstaller installer) {
         this.pluginStatusService = pluginStatusService;
         this.pluginLifecycleService = pluginLifecycleService;
         this.requiredPluginPolicy = requiredPluginPolicy;
         this.recoveryModeService = recoveryModeService;
         this.coordinator = coordinator;
+        this.installer = installer;
+        this.provenanceStore = new PluginProvenanceStore(installer.pluginsDirectory());
     }
 
     /**
@@ -111,6 +125,7 @@ public class PluginManagementService {
                 allowDisable,
                 availableActions(managed, phase, allowDisable, installedOnly),
                 diagnostic.messages(),
+                verificationOf(id, descriptor),
                 pluginLifecycleService.generation(id).orElse(null),
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
                 operation != null ? operation.transactionId() : null,
@@ -130,6 +145,31 @@ public class PluginManagementService {
             return "not-installed"; // 必选策略要求但未安装的 id：只有要求、没有描述符
         }
         return BuiltInPlugins.isBuiltIn(id) ? "built-in" : "external";
+    }
+
+    private PluginVerificationView verificationOf(String id, PluginDescriptor descriptor) {
+        if (descriptor == null) {
+            return PluginVerificationProjector.notInstalled();
+        }
+        if (BuiltInPlugins.isBuiltIn(id)) {
+            return PluginVerificationProjector.builtInOfficial();
+        }
+        if (provenanceStore == null) {
+            return PluginVerificationProjector.unverifiedLocal();
+        }
+        Optional<Path> artifact = pluginLifecycleService.artifactPath(id).or(() -> installedArtifact(id));
+        return artifact.flatMap(path -> provenanceStore.read(path).map(PluginVerificationProjector::fromProvenance))
+                .orElseGet(PluginVerificationProjector::unverifiedLocal);
+    }
+
+    private Optional<Path> installedArtifact(String id) {
+        if (installer == null) {
+            return Optional.empty();
+        }
+        return installer.listInstalled().stream()
+                .filter(plugin -> id.equals(plugin.id()))
+                .map(InstalledPlugin::path)
+                .findFirst();
     }
 
     /**
@@ -342,6 +382,7 @@ public class PluginManagementService {
      * @param allowDisable     是否允许被停用（必选且不可停用时为 {@code false}）
      * @param availableActions 当前建议可用的运行期动词（建议性）
      * @param messages         诊断说明
+     * @param verification     验签状态投影（前端只消费本字段，不自行推断可信来源）
      */
     public record PluginManagementEntry(
             String id,
@@ -362,6 +403,7 @@ public class PluginManagementService {
             boolean allowDisable,
             List<String> availableActions,
             List<String> messages,
+            PluginVerificationView verification,
             Long generation,
             ExternalPluginOperation operation,
             String transactionId,
@@ -389,7 +431,8 @@ public class PluginManagementService {
                 List<String> messages) {
             this(id, displayNamespace, displayNameKey, descriptionKey, iconKey, colorToken, version, kind,
                     apiRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
-                    allowDisable, availableActions, messages, null, ExternalPluginOperation.IDLE, null, null);
+                    allowDisable, availableActions, messages, PluginVerificationProjector.unverifiedLocal(),
+                    null, ExternalPluginOperation.IDLE, null, null);
         }
     }
 

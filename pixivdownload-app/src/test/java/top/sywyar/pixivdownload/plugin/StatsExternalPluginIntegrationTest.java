@@ -72,6 +72,7 @@ class StatsExternalPluginIntegrationTest {
         tempPluginsDir = Files.createTempDirectory("pixiv-plugins-it");
         Path jar = tempPluginsDir.resolve("stats-plugin-0.0.1.jar");
         zipDirectoryAsJar(statsClasses, jar);
+        PluginTestProvenance.writeLocalUpload(tempPluginsDir, jar, "stats", "1.0.0");
 
         manager = new PluginRuntimeManager(tempPluginsDir);
         status = manager.start();

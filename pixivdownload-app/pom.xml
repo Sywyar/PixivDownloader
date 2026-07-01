@@ -28,6 +28,12 @@
             <version>${project.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-signature</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- 插件框架启用运行时：ConditionalOnPluginEnabled / OnPluginEnabledCondition / PluginToggleProperties
              （Spring 耦合，零 plugin-api、零 app/插件反向依赖） -->
         <dependency>

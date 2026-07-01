@@ -20,6 +20,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.nio.file.Path;
 import java.util.Set;
 
 /**
@@ -299,6 +300,11 @@ public class PluginLifecycleService {
             ManagedPlugin record = managed.get(packageId);
             return record == null ? Optional.empty() : Optional.of(record.generation);
         }
+    }
+
+    /** 当前运行时已加载外置插件的 artifact 路径快照。 */
+    public Optional<Path> artifactPath(String packageId) {
+        return pluginRuntimeManager.artifactPath(packageId);
     }
 
     /** 磁盘包删除后移除纯值生命周期记录。 */

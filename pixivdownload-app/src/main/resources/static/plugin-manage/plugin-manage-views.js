@@ -172,6 +172,11 @@
             parts.push('<span class="pm-meta-item" title="' + E(depTitle) + '"><i class="fa-solid fa-diagram-project"></i>'
                 + E(PM.t('deps.count', '{n} 个依赖', { n: vm.deps.length })) + '</span>');
         }
+        if (vm.verificationLabel) {
+            var verificationTitle = vm.verificationTrustLabel || vm.verificationStatus || '';
+            parts.push('<span class="pm-meta-item" title="' + E(verificationTitle) + '"><i class="fa-solid fa-shield-halved" style="color:'
+                + toneColor(vm.verificationTone) + ';"></i>' + E(vm.verificationLabel) + '</span>');
+        }
         parts.push('</div>'); // meta
 
         parts.push('<div class="pm-card-actions">');

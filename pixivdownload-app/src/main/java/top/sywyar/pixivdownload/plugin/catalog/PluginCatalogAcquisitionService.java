@@ -84,7 +84,8 @@ public class PluginCatalogAcquisitionService {
         Path temp = downloader.downloadToTemp(repository, pkg);
         try {
             PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
-                    pkg.expectedSizeBytes(), pkg.sha256(), pkg.signature());
+                    repository.repositoryId(), repository.official(), pkg.expectedSizeBytes(), pkg.sha256(),
+                    pkg.signature());
             return installService.installTrustedFile(temp, false, origin);
         } finally {
             deleteQuietly(temp);

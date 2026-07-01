@@ -116,7 +116,7 @@ class PluginMarketServiceTest {
                 null, null, null, null, null, null, null, null, null, null, null, false, false);
         PluginCatalogManifest manifest = new PluginCatalogManifest("1", null, List.of(
                 new PluginCatalogEntry("a", "a:name", null, unsafe, List.of(
-                        new PluginCatalogPackage("1.0.0", "https://x/a.jar", 100L, "ab", null,
+                        new PluginCatalogPackage("1.0.0", "https://x/a.jar", 100L, "ab", null, null,
                                 "1.0", List.of(), null, List.of(), "stable", false))),
                 new PluginCatalogEntry("b", "b:name", null, translateMeta, List.of()),
                 new PluginCatalogEntry("c", "c:name", null, null, List.of()))); // null market → utility 回退
@@ -144,7 +144,7 @@ class PluginMarketServiceTest {
         assertThat(market.colorToken()).isEqualTo(CatalogPresentationToken.DEFAULT_COLOR);
         assertThat(market.homepageUrl()).isNull();
         assertThat(view.entries().get(0).latestVersion()).isEqualTo("1.0.0");
-        // 无已安装插件（空状态报告）→ 有版本包的条目（a）未安装、无版本包的条目（b/c）不可安装；已安装数 0。
+        // 无已安装插件（空状态报告）→ 有版本制品的条目（a）未安装、无版本制品的条目（b/c）不可安装；已安装数 0。
         assertThat(view.installedCount()).isZero();
         assertThat(view.entries()).extracting(PluginMarketEntryView::installStatus)
                 .containsExactly(MarketInstallStatus.NOT_INSTALLED, MarketInstallStatus.UNAVAILABLE,

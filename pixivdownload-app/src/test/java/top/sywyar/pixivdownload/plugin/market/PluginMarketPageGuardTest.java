@@ -181,7 +181,7 @@ class PluginMarketPageGuardTest {
                 "install.state.incompatible", "install.state.unavailable",
                 "install.state.installing", "install.state.pending-restart",
                 "install.restart-hint", "install.goto-manage", "compat.needs", "fallback.notice",
-                "detail.changelog", "detail.requires", "detail.sha256", "detail.signature",
+                "detail.changelog", "detail.requires", "detail.sha256", "detail.verification",
                 "master.disabled.title", "error.catalog", "empty.title", "disclaimer");
         for (String key : critical) {
             assertThat(zh.getProperty(key)).as("zh 缺关键键 %s", key).isNotBlank();
@@ -223,6 +223,27 @@ class PluginMarketPageGuardTest {
         String core = read(CORE);
         assertThat(core).as("UNAVAILABLE 安装控件元数据存在").contains("UNAVAILABLE");
         assertThat(core).as("UNAVAILABLE 走 i18n 不可安装文案键").contains("install.state.unavailable");
+    }
+
+    @Test
+    @DisplayName("验签状态只消费后端投影：市场卡片 / 详情 / 安装态不按 sha256、HTTPS、仓库名或 keyId 推断可信")
+    void verificationRenderingUsesBackendProjectionOnly() throws IOException {
+        String data = read(DATA);
+        String vue = read(VUE);
+        String core = read(CORE);
+
+        assertThat(data).as("卡片模型从 package.verification 取验签投影")
+                .contains("pkg.verification", "verification.status");
+        assertThat(data).as("安装态按后端验签状态禁用坏签名 / 未知 key")
+                .contains("VERIFIED_OFFICIAL", "VERIFIED_CUSTOM", "INVALID_SIGNATURE", "UNKNOWN_KEY");
+        assertThat(vue).as("详情页展示后端 verification label，而非 sha256 认证发布者")
+                .contains("verificationLabel(pkg.verification)", "detail.verification");
+        assertThat(core).as("安装按钮状态覆盖验签失败状态")
+                .contains("SIGNATURE_REQUIRED", "UNKNOWN_KEY", "INVALID_SIGNATURE", "HASH_MISMATCH");
+        assertThat(data + core).as("可信状态不得由摘要 / key 名称 / 仓库名硬推断")
+                .doesNotContain("sha256")
+                .doesNotContain("keyId")
+                .doesNotContain("repositoryId === 'official'");
     }
 
     @Test

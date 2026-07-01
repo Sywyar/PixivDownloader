@@ -10,8 +10,15 @@ import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.signature.ManifestVerificationRequest;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * 受信 catalog 读取服务：从<b>服务端配置的仓库列表</b>（{@link PluginRepositoryRegistry}，内嵌官方默认仓库 + 自定义仓库，
@@ -30,12 +37,26 @@ public class PluginCatalogService {
     private final PluginRepositoryRegistry repositoryRegistry;
     private final PluginCatalogClientProvider clientProvider;
     private final ObjectMapper objectMapper;
+    private final Function<PluginRepository, PluginSupplyChainVerifier> verifierResolver;
 
     @Autowired
     public PluginCatalogService(PluginRepositoryRegistry repositoryRegistry,
                                 PluginCatalogClientProvider clientProvider) {
+        this(repositoryRegistry, clientProvider, PluginCatalogTrustStores::verifierForRepository);
+    }
+
+    public PluginCatalogService(PluginRepositoryRegistry repositoryRegistry,
+                                PluginCatalogClientProvider clientProvider,
+                                PluginSupplyChainVerifier verifier) {
+        this(repositoryRegistry, clientProvider, repository -> verifier);
+    }
+
+    public PluginCatalogService(PluginRepositoryRegistry repositoryRegistry,
+                                PluginCatalogClientProvider clientProvider,
+                                Function<PluginRepository, PluginSupplyChainVerifier> verifierResolver) {
         this.repositoryRegistry = repositoryRegistry;
         this.clientProvider = clientProvider;
+        this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         // 自建 ObjectMapper：显式注册 ParameterNamesModule（record 按构造参数名绑定）+ 忽略未知字段（前向兼容），
         // 不依赖全局 Boot ObjectMapper 的配置，使解析行为在生产与单测中确定一致。
         this.objectMapper = new ObjectMapper()
@@ -124,15 +145,31 @@ public class PluginCatalogService {
     private PluginCatalogManifest loadRepository(PluginRepository repository) {
         PluginCatalogHttpClient httpClient = clientProvider.clientFor(repository);
         byte[] bytes;
+        byte[] signatureBytes;
         try {
             bytes = httpClient.fetchBytes(repository.manifestUrl(), repository.maxManifestBytes());
+            signatureBytes = httpClient.fetchBytes(detachedManifestSignatureUrl(repository.manifestUrl()),
+                    Math.min(16 * 1024, repository.maxManifestBytes()));
         } catch (PluginCatalogException e) {
             log.warn("Failed to fetch plugin catalog manifest from repository {}: {}",
                     repository.repositoryId(), e.getMessage());
             throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                     "failed to fetch catalog manifest: " + e.getMessage());
         }
-        return parseManifest(bytes);
+        SignatureMetadata signature = parseSignatureMetadata(signatureBytes);
+        VerificationResult result = verifierFor(repository).verifyManifest(new ManifestVerificationRequest(bytes,
+                repository.repositoryId(), signature, policy(repository)));
+        if (!result.accepted()) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                    "catalog manifest signature verification failed: " + result.status());
+        }
+        PluginCatalogManifest manifest = parseManifest(bytes);
+        validatePackageSignatures(repository, manifest);
+        return manifest;
+    }
+
+    private PluginSupplyChainVerifier verifierFor(PluginRepository repository) {
+        return Objects.requireNonNull(verifierResolver.apply(repository), "verifierResolver returned null");
     }
 
     /** 包内受控编排结果；当前安装路径只消费本服务完成主开关 / id / 启用状态校验后产生的实例。 */
@@ -156,4 +193,41 @@ public class PluginCatalogService {
                     "malformed catalog manifest: " + e.getMessage());
         }
     }
+
+    private SignatureMetadata parseSignatureMetadata(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                    "missing catalog manifest signature");
+        }
+        try {
+            return objectMapper.readValue(new String(bytes, StandardCharsets.UTF_8), SignatureMetadata.class);
+        } catch (Exception e) {
+            throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                    "malformed catalog manifest signature: " + e.getMessage());
+        }
+    }
+
+    private static VerificationPolicy policy(PluginRepository repository) {
+        return repository.official() ? VerificationPolicy.officialRepository() : VerificationPolicy.customRepository();
+    }
+
+    private static void validatePackageSignatures(PluginRepository repository, PluginCatalogManifest manifest) {
+        if (!repository.official()) {
+            return;
+        }
+        for (PluginCatalogEntry entry : manifest.entries()) {
+            for (PluginCatalogPackage pkg : entry.packages()) {
+                if (!pkg.hasSignature()) {
+                    throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
+                            "official catalog package is missing signature: "
+                                    + entry.pluginId() + " " + pkg.version());
+                }
+            }
+        }
+    }
+
+    private static String detachedManifestSignatureUrl(String manifestUrl) {
+        return manifestUrl.trim() + ".sig";
+    }
+
 }

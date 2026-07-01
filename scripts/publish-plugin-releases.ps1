@@ -23,7 +23,10 @@
 [CmdletBinding()]
 param(
     [string]$Repo = "Sywyar/PixivDownloader-plugins",
-    [string]$ProjectRoot
+    [string]$ProjectRoot,
+    [string]$OfficialKeyId,
+    [string]$PrivateKeyFile,
+    [string]$SignatureToolJar
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +35,12 @@ $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 # Shared official-plugin list + thin-jar / checksum helpers.
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
+
+if ([string]::IsNullOrWhiteSpace($OfficialKeyId)) { throw "OfficialKeyId is required." }
+if ([string]::IsNullOrWhiteSpace($PrivateKeyFile) -or -not (Test-Path -LiteralPath $PrivateKeyFile -PathType Leaf)) {
+    throw "PrivateKeyFile is required and must point to an Ed25519 PKCS#8 PEM file."
+}
+$SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
 
 function Read-SourceVersion([string]$module) {
     $path = Join-Path $ProjectRoot "$module/src/main/resources/plugin.properties"
@@ -108,11 +117,21 @@ foreach ($plugin in $plugins) {
     $sha = Get-Sha256Hex $stagedJar
     $shaFile = "$stagedJar.sha256"
     [System.IO.File]::WriteAllText($shaFile, "$sha  $assetName`n", $Utf8NoBom)
+    $sigFile = "$stagedJar.sig"
+    Invoke-PluginSignatureTool $SignatureToolJar @(
+        "artifact",
+        "--artifact", $stagedJar,
+        "--plugin-id", $plugin.Id,
+        "--version", $pluginVersion,
+        "--key-id", $OfficialKeyId,
+        "--private-key", $PrivateKeyFile,
+        "--out", $sigFile
+    )
 
     Write-Host "==> Publishing $tag ($assetName, sha256 $sha)"
     gh release create $tag --repo $Repo --title $tag --notes "Plugin $($plugin.Id) $pluginVersion"
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag." }
-    gh release upload $tag $stagedJar $shaFile --repo $Repo
+    gh release upload $tag $stagedJar $shaFile $sigFile --repo $Repo
     if ($LASTEXITCODE -ne 0) { throw "gh release upload failed for $tag." }
     $published += $tag
 }

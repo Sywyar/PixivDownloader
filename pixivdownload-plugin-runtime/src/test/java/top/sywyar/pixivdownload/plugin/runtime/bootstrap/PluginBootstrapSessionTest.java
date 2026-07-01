@@ -9,6 +9,18 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
+import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
+import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
+import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
+import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
+import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
+import top.sywyar.pixivdownload.plugin.signature.internal.envelope.Hashing;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -17,7 +29,14 @@ import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
 import java.util.zip.ZipEntry;
@@ -161,6 +180,78 @@ class PluginBootstrapSessionTest {
         assertThat(bad.diagnostics()).isEmpty(); // 坏包记入 status.failures（非 session 诊断）
         bad.close();
     }
+
+    @Test
+    @DisplayName("合法签名 sidecar：启动期离线复验成功，探针正常 load/start 并持久化 offlineStatus")
+    void signedProbeLoadsAndPersistsOfflineReverify() throws Exception {
+        Path pluginsDir = tempDir.resolve("signed-plugins");
+        Path jar = stageProbeJar(pluginsDir);
+        Path marker = tempDir.resolve("signed-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        SigningFixture signing = SigningFixture.create();
+        PluginPackageOrigin origin = signing.originFor(jar, "bootstrap-probe", "1.0.0");
+        new PluginProvenanceStore(pluginsDir).write(jar, origin, signing.verifiedResult(jar));
+
+        PluginBootstrapSession session = PluginBootstrapSession.createContext(
+                pluginsDir, PluginEnabledSnapshot.empty(), signing.verifier());
+        session.start();
+
+        assertThat(session.status().startedPluginIds()).contains("bootstrap-probe");
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).contains("load").contains("start");
+        PluginProvenanceRecord provenance = new PluginProvenanceStore(pluginsDir).read(jar).orElseThrow();
+        assertThat(provenance.offlineStatus()).isEqualTo(VerificationStatus.VERIFIED);
+        session.close();
+    }
+
+    @Test
+    @DisplayName("坏签名 sidecar：PF4J 前拒绝，探针构造器与 start 均不执行")
+    void invalidSignaturePreventsAnyProbeCodeExecution() throws Exception {
+        Path pluginsDir = tempDir.resolve("bad-signature-plugins");
+        Path jar = stageProbeJar(pluginsDir);
+        Path marker = tempDir.resolve("bad-signature-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+        SignatureMetadata signature = new SignatureMetadata(
+                SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, "missing-key", "c2ln");
+        PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog(
+                "test-repository", false, Files.size(jar), PluginPackageIntegrity.sha256Hex(jar), signature);
+        VerificationResult result = new VerificationResult(VerificationStatus.UNKNOWN_KEY,
+                "bootstrap-probe", "1.0.0", "missing-key", SignatureMetadata.ED25519,
+                null, null, Instant.now(), Files.size(jar), PluginPackageIntegrity.sha256Hex(jar), "UNKNOWN_KEY");
+        new PluginProvenanceStore(pluginsDir).write(jar, origin, result);
+
+        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        session.start();
+
+        assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
+        assertThat(session.status().hasFailures()).isTrue();
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8))
+                .as("验签失败必须发生在 PF4J 创建 classloader / 构造插件实例前")
+                .isEmpty();
+        session.close();
+    }
+
+    @Test
+    @DisplayName("缺 provenance sidecar：启动扫描 fail-closed，PF4J classloader 不创建")
+    void missingProvenancePreventsAnyProbeCodeExecution() throws Exception {
+        Path pluginsDir = tempDir.resolve("missing-sidecar-plugins");
+        stageProbeJarWithoutProvenance(pluginsDir);
+        Path marker = tempDir.resolve("missing-sidecar-events.log");
+        Files.createFile(marker);
+        System.setProperty("bootstrap.probe.marker", marker.toString());
+
+        PluginBootstrapSession session = PluginBootstrapSession.createContext(pluginsDir, PluginEnabledSnapshot.empty());
+        session.start();
+
+        assertThat(session.status().startedPluginIds()).doesNotContain("bootstrap-probe");
+        assertThat(session.status().hasFailures()).isTrue();
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8))
+                .as("缺 sidecar 必须发生在 PF4J 创建 classloader / 构造插件实例前")
+                .isEmpty();
+        session.close();
+    }
+
 
     @Test
     @DisplayName("PROCESS：closeForContext 不关闭（manager 仍就绪），close 才真正关闭")
@@ -484,6 +575,12 @@ class PluginBootstrapSessionTest {
 
     /** 把 {@link BootstrapProbePlugin} + {@link BootstrapProbeFeaturePlugin} 编译产物组装成 PF4J 可加载的 thin 插件 jar。 */
     private static Path stageProbeJar(Path pluginsDir) throws IOException {
+        Path jar = stageProbeJarWithoutProvenance(pluginsDir);
+        writeLocalProvenance(pluginsDir, jar);
+        return jar;
+    }
+
+    private static Path stageProbeJarWithoutProvenance(Path pluginsDir) throws IOException {
         Files.createDirectories(pluginsDir);
         Path jar = pluginsDir.resolve("bootstrap-probe-1.0.0.jar");
         String props = "plugin.id=bootstrap-probe\nplugin.version=1.0.0\nplugin.requires=1.0\n"
@@ -497,6 +594,13 @@ class PluginBootstrapSessionTest {
             addClassEntry(zos, BootstrapProbeFeaturePlugin.class);
         }
         return jar;
+    }
+
+    private static void writeLocalProvenance(Path pluginsDir, Path jar) throws IOException {
+        VerificationResult result = new VerificationResult(VerificationStatus.UNSIGNED_ALLOWED,
+                "bootstrap-probe", "1.0.0", null, null, null, null, Instant.now(), Files.size(jar),
+                PluginPackageIntegrity.sha256Hex(jar), "UNSIGNED_ALLOWED");
+        new PluginProvenanceStore(pluginsDir).write(jar, PluginPackageOrigin.localUpload(), result);
     }
 
     private static void addClassEntry(ZipOutputStream zos, Class<?> type) throws IOException {
@@ -519,5 +623,72 @@ class PluginBootstrapSessionTest {
             idx += token.length();
         }
         return count;
+    }
+
+    private static final class SigningFixture {
+
+        private final String keyId;
+        private final PrivateKey privateKey;
+        private final TrustedPluginKey trustedKey;
+
+        private SigningFixture(String keyId, PrivateKey privateKey, TrustedPluginKey trustedKey) {
+            this.keyId = keyId;
+            this.privateKey = privateKey;
+            this.trustedKey = trustedKey;
+        }
+
+        static SigningFixture create() {
+            try {
+                KeyPairGenerator generator = KeyPairGenerator.getInstance(SignatureMetadata.ED25519);
+                KeyPair keyPair = generator.generateKeyPair();
+                String keyId = "bootstrap-test-key";
+                TrustedPluginKey trustedKey = new TrustedPluginKey(
+                        keyId,
+                        SignatureMetadata.ED25519,
+                        Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded()),
+                        TrustedPluginKey.State.ACTIVE,
+                        "Bootstrap Test Publisher",
+                        "Bootstrap Test Trust",
+                        false);
+                return new SigningFixture(keyId, keyPair.getPrivate(), trustedKey);
+            } catch (GeneralSecurityException e) {
+                throw new IllegalStateException("无法生成启动探针签名密钥", e);
+            }
+        }
+
+        PluginSupplyChainVerifier verifier() {
+            return new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(trustedKey)));
+        }
+
+        PluginPackageOrigin originFor(Path artifact, String pluginId, String version) throws IOException {
+            return PluginPackageOrigin.forTrustedCatalog("test-repository", false, Files.size(artifact),
+                    PluginPackageIntegrity.sha256Hex(artifact), artifactSignature(artifact, pluginId, version));
+        }
+
+        VerificationResult verifiedResult(Path artifact) throws IOException {
+            return new VerificationResult(VerificationStatus.VERIFIED, "bootstrap-probe", "1.0.0",
+                    keyId, SignatureMetadata.ED25519, trustedKey.publisher(), trustedKey.trustLabel(),
+                    Instant.now(), Files.size(artifact), PluginPackageIntegrity.sha256Hex(artifact), "VERIFIED");
+        }
+
+        private SignatureMetadata artifactSignature(Path artifact, String pluginId, String version)
+                throws IOException {
+            byte[] sha256 = Hashing.sha256(artifact);
+            byte[] message = EnvelopeV1Codec.artifactMessage(SignatureMetadata.ED25519, keyId,
+                    pluginId, version, Files.size(artifact), sha256);
+            return new SignatureMetadata(SignatureMetadata.FORMAT_VERSION, SignatureMetadata.ED25519, keyId,
+                    Base64.getEncoder().encodeToString(sign(message)));
+        }
+
+        private byte[] sign(byte[] message) {
+            try {
+                Signature signature = Signature.getInstance(SignatureMetadata.ED25519);
+                signature.initSign(privateKey);
+                signature.update(message);
+                return signature.sign();
+            } catch (GeneralSecurityException e) {
+                throw new IllegalStateException("无法生成启动探针签名", e);
+            }
+        }
     }
 }
