@@ -8,9 +8,11 @@ import top.sywyar.pixivdownload.gui.DebugUnlockState;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.config.*;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.panel.configtab.AiConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSectionContext;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigTestClient;
+import top.sywyar.pixivdownload.gui.panel.configtab.NotificationConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.PluginMarketConfigSection;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -149,6 +151,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
         // 特殊分组（自带控件 / 异步测试 / 预设联动 / 列表编辑器）的可插拔实现；普通分组仍走 buildGroupPanel 声明式渲染。
         sections = List.of(
+                new AiConfigSection(this),
+                new NotificationConfigSection(this),
                 new PluginMarketConfigSection(this, configPath, webUrlProvider));
         sectionsByGroup = new LinkedHashMap<>();
         for (ConfigSection section : sections) {

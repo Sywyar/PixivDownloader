@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.notification.NotificationConfig;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -51,5 +52,94 @@ class ConfigFieldRegistryTest {
         assertThat(spec.group()).isEqualTo(pluginsGroup);
         assertThat(spec.defaultValue()).isEqualTo("false");
         assertThat(spec.label()).isNotBlank().doesNotStartWith("gui.config.field.");
+    }
+
+    @Test
+    @DisplayName("没有 AI / TTS 插件字段贡献时不显示 AI 与朗读分组")
+    void aiGroupHiddenWithoutAiOrTtsPluginFields() {
+        String aiGroup = GuiMessages.get("gui.config.group.ai");
+        String narrationTtsGroup = GuiMessages.get("gui.config.group.narration-tts");
+
+        assertThat(ConfigFieldRegistry.groups())
+                .doesNotContain(aiGroup)
+                .doesNotContain(narrationTtsGroup);
+    }
+
+    @Test
+    @DisplayName("仅 AI 插件字段贡献时显示 AI 分组")
+    void aiGroupVisibleWithAiPluginFields() {
+        String aiGroup = GuiMessages.get("gui.config.group.ai");
+        String narrationTtsGroup = GuiMessages.get("gui.config.group.narration-tts");
+        ConfigFieldSpec aiField = ConfigFieldSpec.builder(
+                        "ai.enabled", "AI", FieldType.BOOL, aiGroup)
+                .defaultValue("false")
+                .hotReloadable()
+                .build();
+
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(aiField), List.of()));
+
+        assertThat(snapshot.groups()).contains(aiGroup);
+        assertThat(snapshot.groups()).doesNotContain(narrationTtsGroup);
+    }
+
+    @Test
+    @DisplayName("没有通知插件字段贡献时不显示通知分组")
+    void notificationGroupHiddenWithoutPluginFields() {
+        String notificationGroup = GuiMessages.get("gui.config.group.notification");
+
+        assertThat(ConfigFieldRegistry.groups()).doesNotContain(notificationGroup);
+        assertThat(ConfigFieldRegistry.allFields())
+                .as("通知类型开关仍是核心配置字段，但不应单独撑出通知标签页")
+                .anyMatch(spec -> spec.key().startsWith(NotificationConfig.KEY_SCENARIO_PREFIX));
+    }
+
+    @Test
+    @DisplayName("仅邮件插件字段贡献时显示通知分组")
+    void notificationGroupVisibleWithMailPluginFields() {
+        String notificationGroup = GuiMessages.get("gui.config.group.notification");
+
+        ConfigFieldSnapshot snapshot = snapshotWithNotificationPluginField("mail.enabled");
+
+        assertThat(snapshot.groups()).contains(notificationGroup);
+    }
+
+    @Test
+    @DisplayName("仅推送插件字段贡献时显示通知分组")
+    void notificationGroupVisibleWithPushPluginFields() {
+        String notificationGroup = GuiMessages.get("gui.config.group.notification");
+
+        ConfigFieldSnapshot snapshot = snapshotWithNotificationPluginField("push.enabled");
+
+        assertThat(snapshot.groups()).contains(notificationGroup);
+    }
+
+    @Test
+    @DisplayName("仅 TTS 插件字段贡献时并入 AI 分组，不单独显示朗读分组")
+    void aiGroupVisibleWithTtsPluginFields() {
+        String aiGroup = GuiMessages.get("gui.config.group.ai");
+        String narrationTtsGroup = GuiMessages.get("gui.config.group.narration-tts");
+        ConfigFieldSpec ttsField = ConfigFieldSpec.builder(
+                        "narration-tts.engine", "Engine", FieldType.ENUM, narrationTtsGroup)
+                .defaultValue("voxcpm")
+                .enumValues("voxcpm")
+                .hotReloadable()
+                .build();
+
+        ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(ttsField), List.of()));
+
+        assertThat(snapshot.groups()).contains(aiGroup);
+        assertThat(snapshot.groups()).doesNotContain(narrationTtsGroup);
+    }
+
+    private static ConfigFieldSnapshot snapshotWithNotificationPluginField(String key) {
+        ConfigFieldSpec pluginField = ConfigFieldSpec.builder(
+                        key, "Fixture", FieldType.BOOL, GuiMessages.get("gui.config.group.notification"))
+                .defaultValue("false")
+                .hotReloadable()
+                .build();
+        return ConfigFieldRegistry.snapshot(
+                new GuiConfigContributionSnapshot(List.of(), List.of(pluginField), List.of()));
     }
 }

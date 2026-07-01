@@ -45,7 +45,7 @@ public final class ConfigFieldRegistry {
             new CoreGroupDefinition(GuiConfigGroups.UPDATE, "gui.config.group.update", 1000, true),
             new CoreGroupDefinition(GuiConfigGroups.SCHEDULE, "gui.config.group.schedule", 1100, true),
             new CoreGroupDefinition(GuiConfigGroups.AI, "gui.config.group.ai", 1200, true),
-            new CoreGroupDefinition(GuiConfigGroups.NARRATION_TTS, "gui.config.group.narration-tts", 1250, true),
+            new CoreGroupDefinition(GuiConfigGroups.NARRATION_TTS, "gui.config.group.narration-tts", 1250, false),
             new CoreGroupDefinition(GuiConfigGroups.NOTIFICATION, "gui.config.group.notification", 1300, true)
     );
 
@@ -125,13 +125,28 @@ public final class ConfigFieldRegistry {
         Set<String> groupsWithFields = fields.stream()
                 .map(ConfigFieldSpec::group)
                 .collect(java.util.stream.Collectors.toSet());
+        Set<String> contributedGroupsWithFields = contributions.fields().stream()
+                .map(ConfigFieldSpec::group)
+                .collect(java.util.stream.Collectors.toSet());
         List<String> groupLabels = mergedGroups.stream()
                 .filter(ConfigGroupSpec::visibleInTabs)
-                .filter(group -> groupsWithFields.contains(group.label()))
+                .filter(group -> shouldShowGroup(group, groupsWithFields, contributedGroupsWithFields))
                 .sorted(Comparator.comparingInt(ConfigGroupSpec::order))
                 .map(ConfigGroupSpec::label)
                 .toList();
         return new ConfigFieldSnapshot(groupLabels, fields, contributions.diagnostics());
+    }
+
+    private static boolean shouldShowGroup(ConfigGroupSpec group, Set<String> groupsWithFields,
+                                           Set<String> contributedGroupsWithFields) {
+        if (GuiConfigGroups.AI.equals(group.id())) {
+            return contributedGroupsWithFields.contains(group.label())
+                    || contributedGroupsWithFields.contains(message("gui.config.group.narration-tts"));
+        }
+        if (GuiConfigGroups.NOTIFICATION.equals(group.id())) {
+            return contributedGroupsWithFields.contains(group.label());
+        }
+        return groupsWithFields.contains(group.label());
     }
 
     static boolean hasGroupId(String groupId) {
