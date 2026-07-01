@@ -56,7 +56,7 @@ public final class DefaultConfigTemplate {
 
         appendSection(config, messages, "config.template.section.plugins");
         // 内置可禁用功能插件的开关从 BuiltInPlugins 清单动态派生（必选插件如核心 / 下载工作台 / 计划任务宿主不写开关），
-        // 与 GUI 配置面板（ConfigFieldRegistry）同源——新增内置功能插件时模板自动跟随、不再漏配。
+        // 供启动期与 Web 插件前端消费；桌面 GUI 配置页不呈现这些插件启停项。
         for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
             if (plugin.kind() == PluginKind.FEATURE && !plugin.required()) {
                 appendSetting(config, messages, "plugins." + plugin.id() + ".enabled: true",

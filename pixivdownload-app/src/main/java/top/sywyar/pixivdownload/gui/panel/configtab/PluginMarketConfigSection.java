@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui.panel.configtab;
 
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
@@ -28,12 +29,12 @@ import java.util.Locale;
 import java.util.function.Function;
 
 /**
- * 「插件」分组标签页：在内置插件开关 + 受信 catalog 标量字段之外，提供<b>自定义仓库列表编辑器</b>（增 / 改 / 删 /
- * 上移 / 下移）与「打开 Web 插件市场」入口。Swing 只做<b>配置与打开入口</b>，<b>不</b>在桌面端复刻完整市场浏览 / 安装页。
+ * 「插件」分组标签页：在受信 catalog 标量字段之外，提供<b>自定义仓库列表编辑器</b>（增 / 改 / 删 / 上移 / 下移）
+ * 与「打开 Web 插件市场」入口。Swing 只做<b>配置与打开入口</b>，<b>不</b>在桌面端复刻完整市场浏览 / 安装页。
  *
  * <p>仓库列表是列表型配置、无法靠 {@code ConfigFieldSpec} 字段网格渲染，故本 section 用 {@link PluginRepositoryConfigEditor}
- * 结构化读写 {@code plugin-catalog.repositories}（{@link #onValuesLoaded()} 读、{@link #onSave()} 写）。标量字段（插件开关、
- * catalog 主开关 / 官方仓库开关 / 全局超时 / 大小默认）仍由宿主 {@code ConfigPanel} 的字段网格统一加载 / 保存。
+ * 结构化读写 {@code plugin-catalog.repositories}（{@link #onValuesLoaded()} 读、{@link #onSave()} 写）。标量字段（catalog
+ * 主开关 / 官方仓库开关 / 全局超时 / 大小默认）仍由宿主 {@code ConfigPanel} 的字段网格统一加载 / 保存。
  *
  * <p>校验、URL / 协议、保留 id、重复 id、超时 / 大小、代理策略均为<b>前置提示</b>；后端
  * {@code PluginRepositoryRegistry} 与安装器的 HTTPS / SSRF / 重定向 / 大小 / sha256 / 签名校验仍为权威，本页不放宽。
@@ -51,6 +52,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
 
     private final ConfigSectionContext ctx;
     private final Function<String, String> webUrlProvider;
+    private final ConfigFileEditor scalarEditor;
     private final PluginRepositoryConfigEditor repoEditor;
     private final String group = ConfigFieldRegistry.groupPlugins();
 
@@ -67,10 +69,12 @@ public final class PluginMarketConfigSection implements ConfigSection {
     private JButton upButton;
     private JButton downButton;
     private JButton openMarketButton;
+    private boolean marketToggleReadFailureLogged;
 
     public PluginMarketConfigSection(ConfigSectionContext ctx, Path configPath, Function<String, String> webUrlProvider) {
         this.ctx = ctx;
         this.webUrlProvider = webUrlProvider;
+        this.scalarEditor = new ConfigFileEditor(configPath);
         this.repoEditor = new PluginRepositoryConfigEditor(configPath);
     }
 
@@ -89,17 +93,12 @@ public final class PluginMarketConfigSection implements ConfigSection {
         List<ConfigFieldSpec> groupFields = ctx.allFields().stream()
                 .filter(f -> group.equals(f.group()))
                 .toList();
-        List<ConfigFieldSpec> toggleFields = groupFields.stream()
-                .filter(f -> f.key().startsWith("plugins."))
-                .toList();
         List<ConfigFieldSpec> catalogToggles = groupFields.stream()
                 .filter(f -> f.key().startsWith("plugin-catalog.") && !GLOBAL_DEFAULT_KEYS.contains(f.key()))
                 .toList();
         List<ConfigFieldSpec> catalogGlobals = groupFields.stream()
                 .filter(f -> GLOBAL_DEFAULT_KEYS.contains(f.key()))
                 .toList();
-
-        ctx.addFields(content, toggleFields);
 
         addHeading(content, "gui.config.market.section.heading");
         ctx.addFields(content, catalogToggles);
@@ -292,8 +291,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
             return;
         }
         // 仅当 plugin-market 插件启用时市场页才存在；catalog 主开关关闭仍可打开页看「未开启」诊断，故不据它禁用。
-        boolean marketPluginEnabled = isMarketEntryEnabled(
-                ctx.currentFieldValue("plugins.plugin-market.enabled"));
+        boolean marketPluginEnabled = isMarketEntryEnabled(readPluginMarketToggle());
         openMarketButton.setEnabled(marketPluginEnabled);
         openMarketButton.setToolTipText(marketPluginEnabled
                 ? message("gui.config.market.action.open-web.help")
@@ -437,6 +435,20 @@ public final class PluginMarketConfigSection implements ConfigSection {
      */
     static boolean isMarketEntryEnabled(String pluginToggleValue) {
         return !"false".equalsIgnoreCase(pluginToggleValue == null ? "" : pluginToggleValue.trim());
+    }
+
+    private String readPluginMarketToggle() {
+        try {
+            String value = scalarEditor.read("plugins.plugin-market.enabled");
+            marketToggleReadFailureLogged = false;
+            return value;
+        } catch (IOException e) {
+            if (!marketToggleReadFailureLogged) {
+                log.warn(logMessage("gui.config.log.read-failed", safeMessage(e)));
+                marketToggleReadFailureLogged = true;
+            }
+            return null;
+        }
     }
 
     static String proxyPolicyLabel(String configId) {

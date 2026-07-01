@@ -4,10 +4,8 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.notification.NotificationConfig;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
@@ -255,20 +253,8 @@ public final class ConfigFieldRegistry {
                         })
                         .build(),
 
-                // 内置插件开关字段在 baseFields 之后由 BuiltInPlugins 清单动态派生（见下），此处不再硬编码。
-
-                // 官方外置插件开关：缺项默认启用，修改后需完整重启。gui-theme 为 startup-only，禁用后首窗前不会消费其主题贡献。
-                ConfigFieldSpec.builder("plugins.stats.enabled", message("gui.config.field.plugins.stats.enabled.label"), BOOL, groupPlugins)
-                        .defaultValue("true")
-                        .help(message("gui.config.field.plugins.stats.enabled.help"))
-                        .build(),
-
-                ConfigFieldSpec.builder("plugins.gui-theme.enabled", message("gui.config.field.plugins.gui-theme.enabled.label"), BOOL, groupPlugins)
-                        .defaultValue("true")
-                        .help(message("gui.config.field.plugins.gui-theme.enabled.help"))
-                        .build(),
-
                 // ── 插件市场 / 受信 catalog（归入「插件」分组）──────────────────────
+                // 插件启停由 Web 插件前端控制；桌面配置页只保留插件市场 / 仓库相关配置。
                 // 受信 catalog 主开关：默认关闭（开启前不联网）；高级项（超时 / 字节上限 / repositories 列表）
                 // 不入字段网格，仅可手写 config.yaml。两项均需重启（仓库注册中心在启动期构建）。
                 ConfigFieldSpec.builder("plugin-catalog.enabled", message("gui.config.field.plugin-catalog.enabled.label"), BOOL, groupPlugins)
@@ -803,24 +789,6 @@ public final class ConfigFieldRegistry {
         );
 
         List<ConfigFieldSpec> fields = new ArrayList<>(baseFields);
-
-        // 内置功能插件开关：每个<b>可禁用</b>的功能插件一项（默认启用、需重启）。名称 / 简介经插件声明的
-        // i18n key（displayName() / description()）在<b>插件自有 namespace</b>（i18n() 贡献的 bundle）中解析，
-        // 文案归插件所有、不落在核心 GUI bundle——与导航 nav.label 同一套「插件自有 i18n」机制。
-        // 必选插件（核心插件与下载工作台，required()=true）不可禁用、不在此呈现开关。从插件清单派生，避免与
-        // 插件单一事实源漂移。分组顺序见 groups()（位于「下载」与「代理」之间）。
-        for (PixivFeaturePlugin plugin : BuiltInPlugins.createAll()) {
-            if (plugin.kind() != PluginKind.FEATURE || plugin.required()) {
-                continue;
-            }
-            fields.add(ConfigFieldSpec.builder(
-                            "plugins." + plugin.id() + ".enabled",
-                            pluginText(plugin, plugin.displayNamespace(), plugin.displayName()),
-                            BOOL, groupPlugins)
-                    .defaultValue("true")
-                    .help(pluginText(plugin, plugin.displayNamespace(), plugin.description()))
-                    .build());
-        }
 
         // 通知类型开关：每个 NotificationScenario 一项（默认开启），关闭后该类型的邮件与推送都不再发送
         // （由 NotificationService.notify 统一裁剪）。从枚举派生，避免与场景单一事实源漂移。

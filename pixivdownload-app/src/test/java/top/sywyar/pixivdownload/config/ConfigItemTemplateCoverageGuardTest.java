@@ -9,6 +9,8 @@ import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
+import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -51,6 +53,12 @@ class ConfigItemTemplateCoverageGuardTest {
             "app.language", "app.theme", "plugin-catalog.repositories");
 
     /**
+     * 插件启停键仍写入模板并由启动 / Web 插件前端消费，但桌面 GUI 配置页不呈现这些开关。
+     */
+    private static final Set<String> OFFICIAL_EXTERNAL_PLUGIN_TOGGLE_KEYS = Set.of(
+            "plugins.stats.enabled", "plugins.gui-theme.enabled");
+
+    /**
      * App 侧仅保留调用门面 / 运行期选择状态，模板与 GUI 字段由外置官方插件贡献的前缀。
      * 这些前缀不能重新塞回核心默认模板，否则插件缺失 / 禁用时 GUI 字段无法自然消失。
      */
@@ -90,7 +98,7 @@ class ConfigItemTemplateCoverageGuardTest {
     void everyTemplateKeyHasGuiFieldOrIsExempt() {
         Set<String> templateMissingFromGui = new TreeSet<>(templateKeys());
         templateMissingFromGui.removeAll(guiFieldKeys());
-        templateMissingFromGui.removeAll(TEMPLATE_KEYS_WITHOUT_GUI_FIELD);
+        templateMissingFromGui.removeAll(templateKeysWithoutGuiField());
         assertThat(templateMissingFromGui)
                 .as("以下模板配置键既无 GUI 字段、也不在显式豁免清单（新增配置项必须做 GUI 配套或登记豁免）")
                 .isEmpty();
@@ -111,6 +119,21 @@ class ConfigItemTemplateCoverageGuardTest {
                 keys.add(trimmed.substring(0, idx).trim());
             }
         }
+        return keys;
+    }
+
+    private static Set<String> templateKeysWithoutGuiField() {
+        Set<String> keys = new TreeSet<>(TEMPLATE_KEYS_WITHOUT_GUI_FIELD);
+        keys.addAll(pluginToggleKeysWithoutGuiField());
+        return keys;
+    }
+
+    private static Set<String> pluginToggleKeysWithoutGuiField() {
+        Set<String> keys = BuiltInPlugins.createAll().stream()
+                .filter(plugin -> plugin.kind() == PluginKind.FEATURE && !plugin.required())
+                .map(plugin -> "plugins." + plugin.id() + ".enabled")
+                .collect(Collectors.toCollection(TreeSet::new));
+        keys.addAll(OFFICIAL_EXTERNAL_PLUGIN_TOGGLE_KEYS);
         return keys;
     }
 
