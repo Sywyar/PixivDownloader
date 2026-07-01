@@ -84,6 +84,23 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
+    @DisplayName("GitHub Actions 发布流从 Secrets 注入私钥并提交 manifest detached 签名")
+    void publishWorkflowInjectsSigningSecretAndPublishesManifestSignature() throws Exception {
+        String workflow = workflow("publish-plugins.yml");
+
+        assertThat(workflow).contains(
+                "PLUGIN_SIGNING_KEY_ID: pixivdownloader-official-root-2026-07",
+                "PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}",
+                "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile",
+                "-OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID",
+                "-PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
+                "Copy-Item build/manifest.json.sig plugins-repo/manifest.json.sig -Force",
+                "git add manifest.json manifest.json.sig",
+                "Cleanup plugin signing private key");
+        assertThat(workflow).doesNotContain("-----BEGIN PRIVATE KEY-----");
+    }
+
+    @Test
     @DisplayName("发布脚本不携带私钥材料，也不把私钥写入产物")
     void scriptsDoNotEmbedOrWritePrivateKeyMaterial() throws Exception {
         for (String name : List.of(
@@ -102,6 +119,11 @@ class PluginReleaseScriptsTest {
 
     private static String script(String name) throws IOException {
         return Files.readString(repoRoot().resolve("scripts").resolve(name), StandardCharsets.UTF_8);
+    }
+
+    private static String workflow(String name) throws IOException {
+        return Files.readString(repoRoot().resolve(".github").resolve("workflows").resolve(name),
+                StandardCharsets.UTF_8);
     }
 
     private static Path repoRoot() {

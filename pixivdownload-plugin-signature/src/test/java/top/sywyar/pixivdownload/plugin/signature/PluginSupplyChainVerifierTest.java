@@ -203,6 +203,21 @@ class PluginSupplyChainVerifierTest {
     }
 
     @Test
+    @DisplayName("trust：官方公钥集中由 OfficialPluginTrustRoots 提供并被默认 trust store 继承")
+    void officialTrustRootIsCentralized() {
+        TrustedPluginKey root = OfficialPluginTrustRoots.activeRoot();
+
+        assertThat(root).isSameAs(PluginTrustStores.builtInOfficialRoot());
+        assertThat(OfficialPluginTrustRoots.all()).containsExactly(root);
+        assertThat(root.keyId()).isEqualTo(OfficialPluginTrustRoots.OFFICIAL_KEY_ID);
+        assertThat(root.algorithm()).isEqualTo(SignatureMetadata.ED25519);
+        assertThat(root.publicKeySpkiBase64()).isEqualTo(OfficialPluginTrustRoots.OFFICIAL_PUBLIC_KEY_SPKI_BASE64);
+        assertThat(root.state()).isEqualTo(TrustedPluginKey.State.ACTIVE);
+        assertThat(root.official()).isTrue();
+        assertThat(PluginTrustStores.builtInOfficial().findByKeyId(root.keyId())).contains(root);
+    }
+
+    @Test
     @DisplayName("manifest：验证原始 manifest 字节及 detached signature，raw bytes 任一位变化即拒绝")
     void verifiesManifestRawBytes() throws Exception {
         Fixture fixture = Fixture.create(TrustedPluginKey.State.ACTIVE);

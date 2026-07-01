@@ -11,24 +11,15 @@ import java.util.List;
  */
 public final class PluginTrustStores {
 
-    private static final TrustedPluginKey OFFICIAL_ROOT = new TrustedPluginKey(
-            "pixivdownloader-official-root-2026-07",
-            SignatureMetadata.ED25519,
-            "MCowBQYDK2VwAyEA8no36HyWNxrjbl10qGcIumILxcgau/0egy3RODVNUIc=",
-            TrustedPluginKey.State.ACTIVE,
-            "PixivDownloader",
-            "PixivDownloader official plugin root",
-            true);
-
     private PluginTrustStores() {
     }
 
     public static TrustedPluginKey builtInOfficialRoot() {
-        return OFFICIAL_ROOT;
+        return OfficialPluginTrustRoots.activeRoot();
     }
 
     public static PluginTrustStore builtInOfficial() {
-        return new StaticPluginTrustStore(List.of(OFFICIAL_ROOT));
+        return new StaticPluginTrustStore(OfficialPluginTrustRoots.all());
     }
 
     public static PluginTrustStore of(Collection<TrustedPluginKey> keys) {
@@ -37,7 +28,7 @@ public final class PluginTrustStores {
 
     public static PluginTrustStore withBuiltInOfficial(Collection<TrustedPluginKey> additionalKeys) {
         List<TrustedPluginKey> keys = new ArrayList<>();
-        keys.add(OFFICIAL_ROOT);
+        keys.addAll(OfficialPluginTrustRoots.all());
         if (additionalKeys != null) {
             keys.addAll(additionalKeys);
         }

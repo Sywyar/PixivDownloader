@@ -155,6 +155,10 @@
             body += '<div class="pmk-repos"><span class="pmk-repos-label">' + esc(t('section.repositories', '受信仓库')) + '</span>' +
                 state.repositories.map(repoChip).join('') + '</div>';
         }
+        body += '<div class="pmk-banner pmk-banner--warn pmk-security-notice">' +
+            '<i class="fa-solid fa-shield-halved"></i><div class="pmk-banner-body">' +
+            esc(t('security.notice', '安全提示：无法验证、未签名或由用户放行的插件会在本机进程内运行代码。安装前请自行确认来源与安全性；我们无法保证未验证插件的安全。')) +
+            '</div></div>';
         if (state.masterEnabled && state.catalogError) {
             body += '<div class="pmk-banner pmk-banner--error"><i class="fa-solid fa-triangle-exclamation"></i><div class="pmk-banner-body">' +
                 '<div class="pmk-banner-title">' + esc(t('error.catalog.title', '无法加载插件清单')) + '</div><div>' + esc(state.catalogError) + '</div></div></div>';
@@ -167,7 +171,7 @@
                 '<input type="text" id="pmk-fb-search" value="' + esc(state.search) + '" placeholder="' + esc(t('search.placeholder', '搜索插件、作者或标签…')) + '" autocomplete="off"></div></div>' +
                 '<div id="pmk-fb-grid">' + gridHtml() + '</div>';
         }
-        return head + degraded + body + '<div class="pmk-disclaimer">' + esc(t('disclaimer', '插件运行于本地，仅供个人学习与研究使用 · 请尊重创作者版权 · 本工具与 Pixiv 无任何关联')) + '</div>';
+        return head + degraded + body + '<div class="pmk-disclaimer">' + esc(t('disclaimer', '插件运行于本地，仅供个人学习与研究使用；无法验证、未签名或用户放行的插件请自行确认来源与安全性，我们无法保证未验证插件的安全；请尊重创作者版权 · 本工具与 Pixiv 无任何关联')) + '</div>';
     }
 
     function paint() {

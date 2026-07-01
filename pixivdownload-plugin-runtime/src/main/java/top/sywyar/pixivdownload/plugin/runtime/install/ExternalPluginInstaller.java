@@ -38,8 +38,9 @@ import java.util.stream.Stream;
  *       直接返回对应拒绝结果，<b>零落盘</b>。</li>
  *   <li><b>资源规模安全扫描</b>：在任何解压 / 落盘前对 {@code .zip} / {@code .jar} 做 {@link PluginPackageVerifier#verify}
  *       （归档体积 / entry 数 / 单 entry 与总解压字节 / 压缩比上限，防 Zip Bomb），超限 → {@code REJECTED_TOO_LARGE}。</li>
- *   <li><b>完整性校验</b>：{@link PluginPackageIntegrity#verify} 比对来源 {@link PluginPackageOrigin} 声明的期望
- *       （大小 / SHA-256 / 签名）。本地上传无期望、直接通过；受信目录来源不符 → {@code REJECTED_INTEGRITY}。</li>
+ *   <li><b>供应链验签</b>：{@link PluginArtifactVerificationService} 比对来源 {@link PluginPackageOrigin} 声明的期望
+ *       （大小 / SHA-256 / 结构化签名）。本地上传按显式 unsigned 策略处理；受信目录来源不符 →
+ *       {@code REJECTED_INTEGRITY}。</li>
  *   <li><b>校验描述符</b>：{@link PluginDescriptor#externalValidationErrors()} 不通过 → {@code REJECTED_INVALID}。</li>
  *   <li><b>核心 API 兼容门</b>：{@code requires} 不被当前核心满足 → {@code REJECTED_INCOMPATIBLE}（不装为可加载状态）。</li>
  *   <li><b>Zip Slip 校验</b>：对 {@code .zip} 包做 {@link ZipSafety#assertNoTraversal}，含越界 entry → {@code REJECTED_UNSAFE}。</li>

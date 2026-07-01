@@ -182,11 +182,27 @@ class PluginMarketPageGuardTest {
                 "install.state.installing", "install.state.pending-restart",
                 "install.restart-hint", "install.goto-manage", "compat.needs", "fallback.notice",
                 "detail.changelog", "detail.requires", "detail.sha256", "detail.verification",
-                "master.disabled.title", "error.catalog", "empty.title", "disclaimer");
+                "master.disabled.title", "error.catalog", "empty.title", "security.notice", "disclaimer");
         for (String key : critical) {
             assertThat(zh.getProperty(key)).as("zh 缺关键键 %s", key).isNotBlank();
             assertThat(en.getProperty(key)).as("en 缺关键键 %s", key).isNotBlank();
         }
+    }
+
+    @Test
+    @DisplayName("插件市场展示未验证 / 未签名插件安全提示，Vue 与基础回退视图共用 i18n 文案")
+    void rendersSecurityNoticeInVueAndFallback() throws IOException {
+        String vue = read(VUE);
+        String fallback = read(FALLBACK);
+        Properties zh = loadProps("i18n/web/plugin-market.properties");
+        Properties en = loadProps("i18n/web/plugin-market_en.properties");
+
+        assertThat(vue).contains("pmk-security-notice", "security.notice");
+        assertThat(fallback).contains("pmk-security-notice", "security.notice");
+        assertThat(zh.getProperty("security.notice"))
+                .contains("无法验证", "未签名", "无法保证未验证插件的安全");
+        assertThat(en.getProperty("security.notice"))
+                .contains("unverifiable", "unsigned", "cannot guarantee the safety of unverified plugins");
     }
 
     @Test
