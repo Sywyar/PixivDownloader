@@ -244,7 +244,7 @@ class PluginCatalogServiceTest {
                         "category": "utility",
                         "tags": ["stats", "dashboard"],
                         "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
-                        "license": "MIT",
+                        "license": "AGPL-3.0-only",
                         "rating": 4.5,
                         "ratingCount": 12,
                         "downloadCount": 1820,
@@ -288,7 +288,7 @@ class PluginCatalogServiceTest {
         assertThat(market.category()).isEqualTo("utility");
         assertThat(market.tags()).containsExactly("stats", "dashboard");
         assertThat(market.homepageUrl()).isEqualTo("https://github.com/Sywyar/PixivDownloader");
-        assertThat(market.license()).isEqualTo("MIT");
+        assertThat(market.license()).isEqualTo("AGPL-3.0-only");
         assertThat(market.rating()).isEqualTo(4.5);
         assertThat(market.ratingCount()).isEqualTo(12);
         assertThat(market.downloadCount()).isEqualTo(1820L);
