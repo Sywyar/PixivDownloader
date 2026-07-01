@@ -8,6 +8,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import top.sywyar.pixivdownload.ai.AiChatClientRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
@@ -16,6 +17,7 @@ import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.notification.NotificationSinkRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
@@ -46,6 +48,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
@@ -63,6 +66,8 @@ import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.push.PushChannelRegistry;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationEngineRegistry;
 
 /**
  * 外置插件运行期热启停 / quiesce 生命周期服务测试：
@@ -228,7 +233,7 @@ class PluginLifecycleServiceTest {
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
                     new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
-                    registry, state, queueRegistry, streamRegistry);
+                    capabilityRegistrar(), registry, state, queueRegistry, streamRegistry);
             service.startAll(); // 纯贡献插件登记为 STARTED
             // 注册一条该插件拥有的 SSE 推流（验证 quiesce / 卸载时被关闭）。
             streamRegistry.register("ext-demo", "conn-1", stream);
@@ -458,7 +463,7 @@ class PluginLifecycleServiceTest {
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(mock(ApplicationContext.class), runtime,
                     new PluginApplicationContextFactory(), controllerRegistrar, webRegistrar, scheduleRegistrar,
-                    registry, state, queueRegistry, streamRegistry);
+                    capabilityRegistrar(), registry, state, queueRegistry, streamRegistry);
             service.startAll(); // 纯贡献插件登记为 STARTED
         }
 
@@ -529,7 +534,7 @@ class PluginLifecycleServiceTest {
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                    controllerRegistrar, webRegistrar, emptyScheduleRegistrar(), registry, state,
+                    controllerRegistrar, webRegistrar, emptyScheduleRegistrar(), capabilityRegistrar(), registry, state,
                     new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
         }
 
@@ -770,13 +775,20 @@ class PluginLifecycleServiceTest {
 
     private static PluginLifecycleService realService(ApplicationContext parent, List<PluginContextModule> modules) {
         return new PluginLifecycleService(parent, runtimeReturning(modules), new PluginApplicationContextFactory(),
-                emptyControllerRegistrar(), emptyWebRegistrar(), emptyScheduleRegistrar(), new PluginRegistry(List.of()),
-                new PluginLifecycleState(), new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
+                emptyControllerRegistrar(), emptyWebRegistrar(), emptyScheduleRegistrar(), capabilityRegistrar(),
+                new PluginRegistry(List.of()), new PluginLifecycleState(), new QueueOperationRegistry(List.of()),
+                new PluginStreamRegistry());
     }
 
     private static PluginScheduleContributionRegistrar emptyScheduleRegistrar() {
         return new PluginScheduleContributionRegistrar(
                 new ScheduledSourceRegistry(new PluginRegistry(List.of())), new ScheduledWorkRunnerRegistry(List.of()));
+    }
+
+    private static PluginCapabilityContributionRegistrar capabilityRegistrar() {
+        return new PluginCapabilityContributionRegistrar(new NotificationSinkRegistry(List.of()),
+                new PushChannelRegistry(List.of()), new AiChatClientRegistry(List.of()),
+                new NarrationEngineRegistry(List.of()));
     }
 
     private static PluginRuntimeManager runtimeReturning(List<PluginContextModule> modules) {
@@ -978,7 +990,7 @@ class PluginLifecycleServiceTest {
             when(runtime.inspectContextModules()).thenReturn(List.of(module));
             when(registry.registeredPlugins()).thenReturn(List.of(registered));
             service = new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                    controllerRegistrar, webRegistrar, scheduleRegistrar, registry, state,
+                    controllerRegistrar, webRegistrar, scheduleRegistrar, capabilityRegistrar(), registry, state,
                     new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
         }
 

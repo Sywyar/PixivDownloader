@@ -165,10 +165,18 @@ public class NarrationController {
             return ResponseEntity.ok(toScriptResponse(cached));
         }
 
+        boolean willAnalyze = force || scriptService.peekScript(novelId, lang) == null;
+
+        // 真正会触发「新分析」的路径（force，或本作 / 该语言尚无持久化脚本）需要 AI 文本模型可用：调试模式不能绕过
+        // AI 缺失 / 禁用 / 未配置，因为分析本身依赖 LLM。
+        if (willAnalyze && !aiService.isConfigured()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(new ErrorResponse(messages.get("narration.error.ai-unavailable")));
+        }
+
         // 真正会触发「新分析」的路径（force，或本作 / 该语言尚无持久化脚本）需要朗读引擎可用：引擎不可用且非调试模式时
         // 直接拒绝，避免「服务不可用仍跑 LLM 分析」产生无法播放的脚本与额外 AI 成本。缓存命中 / 上面的探测仍照常返回。
-        if (!narrationAudioService.isEngineAvailable() && !debugConfig.isEnabled()
-                && (force || scriptService.peekScript(novelId, lang) == null)) {
+        if (willAnalyze && !narrationAudioService.isEngineAvailable() && !debugConfig.isEnabled()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(new ErrorResponse(messages.get("narration.error.engine-unavailable")));
         }

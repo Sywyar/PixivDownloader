@@ -96,6 +96,7 @@ public class PluginLifecycleService {
     private final PluginControllerRegistrar controllerRegistrar;
     private final PluginWebContributionRegistrar webContributionRegistrar;
     private final PluginScheduleContributionRegistrar scheduleContributionRegistrar;
+    private final PluginCapabilityContributionRegistrar capabilityContributionRegistrar;
     private final PluginRegistry pluginRegistry;
     private final PluginLifecycleState lifecycleState;
     private final QueueOperationRegistry queueOperationRegistry;
@@ -112,6 +113,7 @@ public class PluginLifecycleService {
                                   PluginControllerRegistrar controllerRegistrar,
                                   PluginWebContributionRegistrar webContributionRegistrar,
                                   PluginScheduleContributionRegistrar scheduleContributionRegistrar,
+                                  PluginCapabilityContributionRegistrar capabilityContributionRegistrar,
                                   PluginRegistry pluginRegistry,
                                   PluginLifecycleState lifecycleState,
                                   QueueOperationRegistry queueOperationRegistry,
@@ -122,6 +124,7 @@ public class PluginLifecycleService {
         this.controllerRegistrar = controllerRegistrar;
         this.webContributionRegistrar = webContributionRegistrar;
         this.scheduleContributionRegistrar = scheduleContributionRegistrar;
+        this.capabilityContributionRegistrar = capabilityContributionRegistrar;
         this.pluginRegistry = pluginRegistry;
         this.lifecycleState = lifecycleState;
         this.queueOperationRegistry = queueOperationRegistry;
@@ -534,7 +537,19 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        // d) controller 动态注册进父 context 请求分发表（仅有子 context 的插件包）。
+        // d) runtime capability beans from the child context.
+        if (record.context != null) {
+            try {
+                capabilityContributionRegistrar.register(pluginId, record.context);
+            } catch (RuntimeException e) {
+                log.error("Failed to register runtime capability contributions for plugin '{}': {} - rolling back service footprint.",
+                        pluginId, e.toString(), e);
+                rollBackBringUp(record);
+                lifecycleState.set(pluginId, PluginRuntimePhase.STOPPED);
+                return;
+            }
+        }
+        // e) controller 动态注册进父 context 请求分发表（仅有子 context 的插件包）。
         if (record.context != null) {
             try {
                 controllerRegistrar.registerControllers(pluginId, record.context);
@@ -546,7 +561,7 @@ public class PluginLifecycleService {
                 return;
             }
         }
-        // e) 插件自身 start()：仅运行期重启路径调用（启动期由 PluginRegistry 统一调用、不在此重复）。失败即回滚本次足迹。
+        // f) 插件自身 start()：仅运行期重启路径调用（启动期由 PluginRegistry 统一调用、不在此重复）。失败即回滚本次足迹。
         if (invokePluginStart) {
             try {
                 record.plugin().ifPresent(PixivFeaturePlugin::start);
@@ -648,6 +663,11 @@ public class PluginLifecycleService {
             log.warn("Error unregistering controllers for plugin '{}': {}", pluginId, e.toString());
         }
         try {
+            capabilityContributionRegistrar.unregister(pluginId);
+        } catch (RuntimeException e) {
+            log.warn("Error unregistering runtime capability contributions for plugin '{}': {}", pluginId, e.toString());
+        }
+        try {
             scheduleContributionRegistrar.unregister(pluginId);
         } catch (RuntimeException e) {
             log.warn("Error unregistering schedule contributions for plugin '{}': {}", pluginId, e.toString());
@@ -679,6 +699,12 @@ public class PluginLifecycleService {
             controllerRegistrar.unregisterControllers(record.pluginId);
         } catch (RuntimeException e) {
             log.warn("Error rolling back controllers for plugin '{}': {}", record.pluginId, e.toString());
+        }
+        try {
+            capabilityContributionRegistrar.unregister(record.pluginId);
+        } catch (RuntimeException e) {
+            log.warn("Error rolling back runtime capability contributions for plugin '{}': {}",
+                    record.pluginId, e.toString());
         }
         try {
             scheduleContributionRegistrar.unregister(record.pluginId);

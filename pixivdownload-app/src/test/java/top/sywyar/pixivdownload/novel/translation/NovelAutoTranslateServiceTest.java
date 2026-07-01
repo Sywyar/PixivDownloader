@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.novel.translation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.TaskExecutor;
-import top.sywyar.pixivdownload.ai.AiConfig;
+import top.sywyar.pixivdownload.ai.AiService;
 
 import java.time.Duration;
 
@@ -32,13 +32,13 @@ class NovelAutoTranslateServiceTest {
     private final NovelTranslationService translationService = mock(NovelTranslationService.class);
     private final NovelGlossaryService glossaryService = mock(NovelGlossaryService.class);
     private final NovelMergeService mergeService = mock(NovelMergeService.class);
-    private final AiConfig aiConfig = mock(AiConfig.class);
+    private final AiService aiService = mock(AiService.class);
     // 同步执行器：让 submit 内联完成，测试可对终态做确定性断言（无需等待异步线程）。
     private final TaskExecutor directExecutor = Runnable::run;
 
     private NovelAutoTranslateService service() {
         return new NovelAutoTranslateService(
-                translationService, glossaryService, mergeService, aiConfig, directExecutor);
+                translationService, glossaryService, mergeService, aiService, directExecutor);
     }
 
     private NovelTranslationService.Result ok(String lang) {
@@ -48,7 +48,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("AI 未启用时标记为 FAILED 且不调用翻译")
     void aiDisabledMarksFailed() {
-        when(aiConfig.isEnabled()).thenReturn(false);
+        when(aiService.isConfigured()).thenReturn(false);
         NovelAutoTranslateService s = service();
 
         s.submit(100L, null, "english", 0, false, "epub");
@@ -65,7 +65,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("单本成功翻译后状态为 DONE 且不触发系列合订")
     void standaloneSuccessNoMerge() throws Exception {
-        when(aiConfig.isEnabled()).thenReturn(true);
+        when(aiService.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode("english")).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(100L)).thenReturn(7L);
         when(translationService.translateChapter(eq(100L), eq("english"), eq(0), eq(false),
@@ -86,7 +86,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("系列成功翻译后翻译系列名并按设置重生译文合订")
     void seriesSuccessTriggersMerge() throws Exception {
-        when(aiConfig.isEnabled()).thenReturn(true);
+        when(aiService.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode("english")).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(7L);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -105,7 +105,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("同系列两章都完成翻译（串行链不丢任务）")
     void seriesSerialCompletesAll() throws Exception {
-        when(aiConfig.isEnabled()).thenReturn(true);
+        when(aiService.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(7L);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -126,7 +126,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("同一目标语言只探测一次语言代码")
     void langCodeProbedOnce() throws Exception {
-        when(aiConfig.isEnabled()).thenReturn(true);
+        when(aiService.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode("english")).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(null);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -143,7 +143,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("终态状态超过保留期后被惰性清理（返回 null 并移除条目）")
     void terminalStatusExpires() throws Exception {
-        when(aiConfig.isEnabled()).thenReturn(true);
+        when(aiService.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(null);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -164,7 +164,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("源语言与目标一致时标记为 SAME_LANGUAGE 终态并按设置合订，但不翻译系列名")
     void sameLanguageRefreshesMerge() throws Exception {
-        when(aiConfig.isEnabled()).thenReturn(true);
+        when(aiService.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(7L);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
@@ -187,7 +187,7 @@ class NovelAutoTranslateServiceTest {
     @Test
     @DisplayName("翻译返回错误状态时标记为 FAILED 且不合订")
     void translateErrorMarksFailed() throws Exception {
-        when(aiConfig.isEnabled()).thenReturn(true);
+        when(aiService.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(null);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),

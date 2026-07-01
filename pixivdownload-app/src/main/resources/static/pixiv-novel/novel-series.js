@@ -61,7 +61,11 @@ function renderSeriesNavSet(nav, ids) {
     index.textContent = pageI18n.t('series.index') + (nav.seriesTitle ? ` · ${nav.seriesTitle}` : '');
 }
 
+function getCachedSeriesNav() {
+    return cachedSeriesNav;
+}
+
 
 // ---- PixivNovel facade ----
 window.PixivNovel.series = window.PixivNovel.series || {};
-window.PixivNovel.series = Object.assign(window.PixivNovel.series, { loadSeriesNav, renderSeriesNavSet });
+window.PixivNovel.series = Object.assign(window.PixivNovel.series, { loadSeriesNav, renderSeriesNavSet, getCachedSeriesNav });

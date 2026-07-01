@@ -28,7 +28,6 @@ import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.push.MarkdownEscape;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskPending;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -1439,7 +1438,7 @@ public class ScheduleExecutor {
             // tasks_list_md 仅供推送（Markdown）消费，mail 用 tasks_list_html：md 分支对任务名做 Markdown
             // 字面转义，避免名字里的 * / _ 等被推送通道渲染器吞掉（与标量占位符在 PushMessageFactory 处一致）。
             String item = messages.get(locale, "mail.template.overuse-paused.task-item",
-                    html ? escapeHtml(name) : MarkdownEscape.escape(name), t.id());
+                    html ? escapeHtml(name) : escapeMarkdownLiteral(name), t.id());
             lines.add(html ? item : "- " + item);
         }
         if (tasks.size() > limit) {
@@ -1496,6 +1495,22 @@ public class ScheduleExecutor {
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;");
+    }
+
+    private static String escapeMarkdownLiteral(String literal) {
+        if (literal == null || literal.isEmpty()) {
+            return literal == null ? "" : literal;
+        }
+        String special = "\\`*_[]";
+        StringBuilder sb = new StringBuilder(literal.length() + 8);
+        for (int i = 0; i < literal.length(); i++) {
+            char c = literal.charAt(i);
+            if (special.indexOf(c) >= 0) {
+                sb.append('\\');
+            }
+            sb.append(c);
+        }
+        return sb.toString();
     }
 
     /**

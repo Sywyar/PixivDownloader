@@ -1,19 +1,4 @@
 'use strict';
-// ---------- 听书（TTS） ----------
-function setupTts() {
-    if (!window.PixivNovelTts) return;
-    const contentEl = document.getElementById('content-card');
-    const hasReadable = contentEl && contentEl.querySelector('p, h2.novel-chapter');
-    if (!hasReadable) return; // 正文加载失败 / 无可朗读内容时不显示听书入口
-    document.getElementById('ttsToggle').style.display = '';
-    const data = rerenderPayload ? rerenderPayload.data : null;
-    // 听书语言：显示译文时用所选内容语言，否则用作品原始语言
-    const language = activeContentLang || (data ? (data.language || data.xLanguage || '') : '');
-    // 「富感情朗读（多角色）」作为听书引擎之一并入同一控制条；narrationLang 用所选内容语言（空=原文），
-    // 与脚本 / 渲染同源。引擎可用性 + 管理员可见由 TTS 控制器自行探测，未配置时该引擎选项禁用。
-    PixivNovelTts.attach({ i18n: pageI18n, contentEl, toast, language, novelId, narrationLang: activeContentLang });
-}
-
 document.getElementById('heartBtn').addEventListener('click', openAddToCollectionModal);
 document.getElementById('addToCollectionClose').addEventListener('click', closeAddToCollectionModal);
 document.getElementById('addToCollectionDone').addEventListener('click', closeAddToCollectionModal);
@@ -63,4 +48,3 @@ loadAll();
 
 // ---- PixivNovel facade ----
 window.PixivNovel.init = window.PixivNovel.init || {};
-window.PixivNovel.init = Object.assign(window.PixivNovel.init, { setupTts });

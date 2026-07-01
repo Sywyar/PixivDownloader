@@ -13,7 +13,6 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
-import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
@@ -132,7 +131,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 // 插件管理后端 API（PluginManagementController）：状态查询 + 外置插件运行期生命周期动词 + 本地包安装，仅管理员。
                 // 与恢复模式访问放行 /api/plugins/ 同前缀，使核心进入恢复模式时管理员仍可查询状态并驱动修复。
                 WebRouteContribution.admin("/api/plugins/**"),
-                WebRouteContribution.admin("/api/tts/**"),
                 WebRouteContribution.admin("/api/narration/**"),
                 WebRouteContribution.admin("/monitor/**"),
                 WebRouteContribution.admin("/pixiv-invite-manage/**"),
@@ -154,13 +152,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.invitedGuest("/api/authors**"),
                 WebRouteContribution.invitedGuest("/api/series**"),
                 WebRouteContribution.invitedGuest("/api/collections**"),
-                // 小说听书 TTS（edge）端点：与小说详情页同属受邀访客可读面（页面是 INVITED_GUEST、匿名访客读不到
-                // 小说也就不应触达其 TTS），故声明为 INVITED_GUEST——既受 monitor 保护（匿名 multi 访客被挡、
-                // 与历史「宽 /api/tts/** 前缀把它收进 monitor」逐字等价），又对受邀访客只读放行（synthesize 显式
-                // POST 进访客 POST 白名单、voices 为 GET）。窄 INVITED_GUEST 声明经 RouteAccessRegistry.resolve
-                // 覆盖宽 /api/tts/** = ADMIN：宽前缀不再吞掉这两个窄端点，AccessPolicy 即其真实可达面。
-                WebRouteContribution.invitedGuest("/api/tts/edge/voices"),
-                new WebRouteContribution("/api/tts/edge/synthesize", AccessPolicy.INVITED_GUEST, Set.of(HttpMethod.POST), false),
                 // ── 访客可达、不入 monitor：只读代理 / 下载状态轮询前缀（multi 普通访客 GET 亦可达）──────
                 WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/**"),
@@ -170,7 +161,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitorAndInvitedGuest("/css/admin-visibility.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/css/lang-theme-switcher.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-side-modules.css"),
-                WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-translate.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/invite-modals.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-i18n.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-lang-switcher.js"),
@@ -184,7 +174,8 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-novel-render.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-side-modules.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-theme.js"),
-                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-translate.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-vue.js"),
+                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-ui-slots.js"),
                 // 核心导航装配端点（NavigationController 读 NavigationRegistry 跨插件聚合、按身份可见性过滤）：
                 // 改为 VISITOR_AND_INVITED_GUEST，使受邀访客也能为其画廊 / 小说页拉取动态导航（历史 VISITOR 会被
                 // AuthFilter 挡成 403）；仍不入 monitor，multi 匿名访客与受邀访客各自只读得到对应身份可见导航。
@@ -195,6 +186,8 @@ public class CorePlugin implements PixivFeaturePlugin {
                 // 核心下钻装配端点（DrilldownController 读 DrilldownRegistry 跨插件聚合、按身份可见性过滤）：
                 // 同 /api/navigation 口径 VISITOR_AND_INVITED_GUEST，供宿主页面按语义 placement 解析活动插件贡献的下钻链接。
                 WebRouteContribution.visitorAndInvitedGuest("/api/drilldowns"),
+                // 通用 UI 槽位清单：宿主页面按 target 前缀加载活动插件声明的同源渲染模块。
+                WebRouteContribution.visitorAndInvitedGuest("/api/web/ui-slots"),
                 // ── 公开（两种模式均公开）：基础页面、公开 API、公开静态前缀 ──────────────────────
                 WebRouteContribution.publicRoute("/"),
                 WebRouteContribution.publicRoute("/index"),
@@ -273,8 +266,7 @@ public class CorePlugin implements PixivFeaturePlugin {
     public List<I18nContribution> i18n() {
         // 管理 / 安全 / 引导页与跨插件共享文案留核心：common（全站公共）、setup/login/intro
         // （首次安装与登录引导）、monitor（运行监控）、invite（访客邀请）、tour（新手引导）、
-        // maintenance（维护窗口）；translate（AI 翻译文案）被小说详情页与系列页跨插件消费、
-        // 同 tour 模式留核心，终局归宿是后续的 AI 翻译插件、届时随功能整体迁出。
+        // maintenance（维护窗口）。AI 翻译文案由 AI 插件贡献 translate namespace。
         // 第三参为 /api/i18n/meta 的展示顺序：核心与功能插件交错排列，故各 namespace 自带
         // 全局序号，使合并结果不随插件注册先后漂移（保持历史 namespace 顺序）。
         return List.of(
@@ -282,7 +274,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 new I18nContribution("setup", "i18n.web.setup", 2),
                 new I18nContribution("login", "i18n.web.login", 3),
                 new I18nContribution("intro", "i18n.web.intro", 4),
-                new I18nContribution("translate", "i18n.web.translate", 13),
                 new I18nContribution("monitor", "i18n.web.monitor", 15),
                 new I18nContribution("invite", "i18n.web.invite", 17),
                 new I18nContribution("tour", "i18n.web.tour", 18),

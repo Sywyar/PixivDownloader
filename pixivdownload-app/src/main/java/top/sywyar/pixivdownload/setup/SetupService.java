@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Slf4j
-public class SetupService implements ServerStateProvider {
+public class SetupService implements ServerStateProvider, UserDisplayNameProvider {
 
     private final Path configFile;
     private final ObjectMapper objectMapper;

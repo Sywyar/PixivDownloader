@@ -7,10 +7,12 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import top.sywyar.pixivdownload.ai.AiChatClientRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
+import top.sywyar.pixivdownload.notification.NotificationSinkRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
@@ -22,6 +24,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
@@ -35,6 +38,8 @@ import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
+import top.sywyar.pixivdownload.push.PushChannelRegistry;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationEngineRegistry;
 
 /**
  * 外置插件子 context 生命周期的 {@code SmartLifecycle} 驱动测试：验证 {@link ExternalPluginContextManager} 把核心壳
@@ -111,9 +116,12 @@ class ExternalPluginContextManagerTest {
                 new WebUiSlotRegistry(empty), userscripts, scripts);
         PluginScheduleContributionRegistrar scheduleRegistrar = new PluginScheduleContributionRegistrar(
                 new ScheduledSourceRegistry(empty), new ScheduledWorkRunnerRegistry(List.of()));
+        PluginCapabilityContributionRegistrar capabilityRegistrar = new PluginCapabilityContributionRegistrar(
+                new NotificationSinkRegistry(List.of()), new PushChannelRegistry(List.of()),
+                new AiChatClientRegistry(List.of()), new NarrationEngineRegistry(List.of()));
         return new PluginLifecycleService(parent, runtime, new PluginApplicationContextFactory(),
-                controllerRegistrar, webRegistrar, scheduleRegistrar, empty, new PluginLifecycleState(),
-                new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
+                controllerRegistrar, webRegistrar, scheduleRegistrar, capabilityRegistrar, empty,
+                new PluginLifecycleState(), new QueueOperationRegistry(List.of()), new PluginStreamRegistry());
     }
 
     interface CoreApiService {

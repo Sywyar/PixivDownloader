@@ -2,7 +2,6 @@
 
     document.getElementById('mobileMenuBtn').addEventListener('click', openMobileSidebar);
     document.getElementById('mobileOverlay').addEventListener('click', closeMobileSidebar);
-    document.getElementById('translateSeriesBtn').addEventListener('click', translateSeries);
     document.getElementById('downloadMergedBtn').addEventListener('click', openDownloadMergedDialog);
     document.getElementById('searchInput').addEventListener('input', e => {
         clearTimeout(searchTimer);
@@ -13,6 +12,11 @@
         }, 220);
     });
 
+    async function bootstrapSeriesUiSlots() {
+        if (!window.PixivUiSlots || typeof window.PixivUiSlots.bootstrap !== 'function') return;
+        await window.PixivUiSlots.bootstrap({ targetPrefix: 'series-detail-' });
+    }
+
     (async function init() {
         readParams();
         restoreSidebarState();
@@ -20,4 +24,5 @@
         await initPageI18n();
         loadCollections();
         await loadSeries();
+        await bootstrapSeriesUiSlots();
     })();

@@ -245,6 +245,10 @@
     // 「新下载小说自动翻译」：整组仅管理员可见（翻译 admin-only + 需 AI）；目标语言 / 分段字数 / 提示
     // 仅在管理员勾选后展开。
     function updateNovelTranslateVisibility() {
+        const aiCard = document.getElementById('novel-ai-settings-card');
+        const novelCard = document.getElementById('novel-settings-card');
+        const novelVisible = !!(novelCard && novelCard.style.display !== 'none');
+        if (aiCard) aiCard.style.display = (isAdmin && novelVisible) ? '' : 'none';
         const row = document.getElementById('s-novel-auto-translate-row');
         if (row) row.style.display = isAdmin ? '' : 'none';
         const on = isAdmin && !!(document.getElementById('s-novel-auto-translate') || {}).checked;

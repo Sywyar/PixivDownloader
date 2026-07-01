@@ -4,7 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.ai.AiConfig;
+import top.sywyar.pixivdownload.ai.AiService;
 
 import java.time.Duration;
 import java.util.Locale;
@@ -52,18 +52,18 @@ public class NovelAutoTranslateService {
     private final NovelTranslationService translationService;
     private final NovelGlossaryService glossaryService;
     private final NovelMergeService mergeService;
-    private final AiConfig aiConfig;
+    private final AiService aiService;
     private final TaskExecutor executor;
 
     public NovelAutoTranslateService(NovelTranslationService translationService,
                                      NovelGlossaryService glossaryService,
                                      NovelMergeService mergeService,
-                                     AiConfig aiConfig,
+                                     AiService aiService,
                                      @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor) {
         this.translationService = translationService;
         this.glossaryService = glossaryService;
         this.mergeService = mergeService;
-        this.aiConfig = aiConfig;
+        this.aiService = aiService;
         this.executor = executor;
     }
 
@@ -140,8 +140,8 @@ public class NovelAutoTranslateService {
     private void runJob(long novelId, JobStatus status, String targetLanguage, int segmentSize,
                         boolean mergeAfter, String mergeFormat) {
         try {
-            if (!aiConfig.isEnabled()) {
-                fail(status, "ai-disabled");
+            if (!aiService.isConfigured()) {
+                fail(status, "ai-unavailable");
                 return;
             }
             status.enter(Phase.RESOLVING);

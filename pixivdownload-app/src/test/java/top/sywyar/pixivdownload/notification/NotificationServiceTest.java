@@ -37,7 +37,8 @@ class NotificationServiceTest {
     @DisplayName("默认全部启用：场景会扇出到所有介质")
     void enabledByDefaultDeliversToAllSinks() {
         RecordingSink sink = new RecordingSink();
-        NotificationService service = new NotificationService(List.of(sink), new NotificationConfig());
+        NotificationService service = new NotificationService(new NotificationSinkRegistry(List.of(sink)),
+                new NotificationConfig());
 
         service.notify(NotificationScenario.RUN_SUMMARY, Locale.SIMPLIFIED_CHINESE, Map.of());
 
@@ -50,7 +51,7 @@ class NotificationServiceTest {
         RecordingSink sink = new RecordingSink();
         NotificationConfig config = new NotificationConfig();
         config.setScenarioEnabled(NotificationScenario.RUN_SUMMARY.id(), false);
-        NotificationService service = new NotificationService(List.of(sink), config);
+        NotificationService service = new NotificationService(new NotificationSinkRegistry(List.of(sink)), config);
 
         service.notify(NotificationScenario.RUN_SUMMARY, Locale.SIMPLIFIED_CHINESE, Map.of());
         service.notify(NotificationScenario.RUN_FAILED, Locale.SIMPLIFIED_CHINESE, Map.of());

@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.tts.narration.engine;
 
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -17,22 +18,56 @@ import java.util.Optional;
 @Component
 public class NarrationEngineRegistry {
 
-    private final Map<String, NarrationVoiceEngine> byId;
-    private final List<NarrationVoiceEngine> all;
+    private final Object lock = new Object();
+    private final Map<String, List<NarrationVoiceEngine>> byPlugin = new LinkedHashMap<>();
+    private volatile Map<String, NarrationVoiceEngine> byId = Map.of();
+    private volatile List<NarrationVoiceEngine> all = List.of();
 
     public NarrationEngineRegistry(List<NarrationVoiceEngine> engines) {
-        Map<String, NarrationVoiceEngine> map = new LinkedHashMap<>();
-        for (NarrationVoiceEngine engine : engines) {
-            String rawId = engine.id();
-            if (rawId == null || rawId.isBlank()) {
-                throw new IllegalStateException(
-                        "narration engine has blank id: " + engine.getClass().getName());
+        if (engines != null && !engines.isEmpty()) {
+            byPlugin.put("core", List.copyOf(engines));
+            rebuild();
+        }
+    }
+
+    public void register(String pluginId, List<NarrationVoiceEngine> engines) {
+        synchronized (lock) {
+            if (engines == null || engines.isEmpty()) {
+                byPlugin.remove(pluginId);
+            } else {
+                byPlugin.put(pluginId, List.copyOf(engines));
             }
-            String id = rawId.trim().toLowerCase(Locale.ROOT);
-            NarrationVoiceEngine prev = map.putIfAbsent(id, engine);
-            if (prev != null) {
-                throw new IllegalStateException("duplicate narration engine id '" + id + "': "
-                        + prev.getClass().getName() + " vs " + engine.getClass().getName());
+            rebuild();
+        }
+    }
+
+    public void unregister(String pluginId) {
+        synchronized (lock) {
+            byPlugin.remove(pluginId);
+            rebuild();
+        }
+    }
+
+    private void rebuild() {
+        Map<String, NarrationVoiceEngine> map = new LinkedHashMap<>();
+        List<NarrationVoiceEngine> engines = new ArrayList<>();
+        for (List<NarrationVoiceEngine> list : byPlugin.values()) {
+            for (NarrationVoiceEngine engine : list) {
+                if (engine == null) {
+                    continue;
+                }
+                String rawId = engine.id();
+                if (rawId == null || rawId.isBlank()) {
+                    throw new IllegalStateException(
+                            "narration engine has blank id: " + engine.getClass().getName());
+                }
+                String id = rawId.trim().toLowerCase(Locale.ROOT);
+                NarrationVoiceEngine prev = map.putIfAbsent(id, engine);
+                if (prev != null) {
+                    throw new IllegalStateException("duplicate narration engine id '" + id + "': "
+                            + prev.getClass().getName() + " vs " + engine.getClass().getName());
+                }
+                engines.add(engine);
             }
         }
         this.byId = Map.copyOf(map);

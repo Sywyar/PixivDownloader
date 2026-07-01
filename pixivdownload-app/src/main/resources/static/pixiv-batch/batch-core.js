@@ -28,7 +28,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
     // 「新下载小说自动翻译」目标语言的默认值：跟随当前页面语言（中文页默认「简体中文」、英文页默认「english」）。
     // 用户未自定义（模型为空）时由此派生，避免把某种语言的默认译名烤进设置导致切换界面语言后不更新。
     function defaultNovelTranslateLang() {
-        return bt('novel:batch.translate-lang-default', 'english');
+        return bt('ai:batch.translate-lang-default', 'english');
     }
 
     let appInfo = null;
@@ -97,7 +97,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
     }
 
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: ['batch', 'common', 'novel', 'tour']});
+        pageI18n = await PixivI18n.create({namespaces: ['batch', 'common', 'novel', 'ai', 'tour']});
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,

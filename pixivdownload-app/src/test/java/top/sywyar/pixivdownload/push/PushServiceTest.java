@@ -37,27 +37,27 @@ class PushServiceTest {
     private static final PushFormatConverter CONVERTER = new PushFormatConverter();
 
     @Test
-    @DisplayName("总开关关闭时不派发任何通道、返回空列表")
-    void masterSwitchOffSkipsEverything() {
-        PushConfig config = new PushConfig();
-        config.setEnabled(false);
-        FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = new PushService(config, List.of(bark), CONVERTER, MESSAGES);
+    @DisplayName("无活动 push 插件通道时广播为空、定向与测试路径明确 SKIPPED")
+    void unavailableWhenNoPluginChannelsRegistered() {
+        PushService service = service();
 
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
         assertThat(results).isEmpty();
-        assertThat(bark.received).isEmpty();
+        assertThat(service.push(PushChannelType.BARK, PushMessage.of("t", "c")).status())
+                .isEqualTo(PushResult.Status.SKIPPED);
+        assertThat(service.test(List.of(new FakeSettings(PushChannelType.BARK, true)), PushMessage.of("t", "c")))
+                .singleElement()
+                .extracting(PushResult::status)
+                .isEqualTo(PushResult.Status.SKIPPED);
     }
 
     @Test
     @DisplayName("仅向已配置的通道广播，未配置的通道被跳过")
     void broadcastsOnlyToConfiguredChannels() {
-        PushConfig config = new PushConfig();
-        config.setEnabled(true);
         FakeChannel configured = new FakeChannel(PushChannelType.BARK, true);
         FakeChannel notConfigured = new FakeChannel(PushChannelType.TELEGRAM, false);
-        PushService service = new PushService(config, List.of(configured, notConfigured), CONVERTER, MESSAGES);
+        PushService service = service(configured, notConfigured);
 
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
@@ -73,12 +73,10 @@ class PushServiceTest {
     @Test
     @DisplayName("单个通道抛异常被隔离，不影响其它通道")
     void oneChannelThrowingDoesNotBreakOthers() {
-        PushConfig config = new PushConfig();
-        config.setEnabled(true);
         FakeChannel exploding = new FakeChannel(PushChannelType.DINGTALK, true);
         exploding.toThrow = new RuntimeException("boom");
         FakeChannel healthy = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = new PushService(config, List.of(exploding, healthy), CONVERTER, MESSAGES);
+        PushService service = service(exploding, healthy);
 
         List<PushResult> results = service.push(PushMessage.of("标题", "正文"));
 
@@ -92,10 +90,8 @@ class PushServiceTest {
     @Test
     @DisplayName("定向发送：通道不存在 / 未配置时返回 SKIPPED")
     void targetedSendSkipsWhenAbsentOrUnconfigured() {
-        PushConfig config = new PushConfig();
-        config.setEnabled(true);
         FakeChannel unconfigured = new FakeChannel(PushChannelType.BARK, false);
-        PushService service = new PushService(config, List.of(unconfigured), CONVERTER, MESSAGES);
+        PushService service = service(unconfigured);
 
         assertThat(service.push(PushChannelType.BARK, PushMessage.of("t", "c")).status())
                 .isEqualTo(PushResult.Status.SKIPPED);
@@ -104,13 +100,11 @@ class PushServiceTest {
     }
 
     @Test
-    @DisplayName("测试路径忽略总开关，仅向传入设置对应的通道发送")
-    void testPathIgnoresMasterSwitchAndRoutesBySettingsType() {
-        PushConfig config = new PushConfig();
-        config.setEnabled(false); // 测试路径不应受总开关影响
+    @DisplayName("测试路径仅向传入设置对应的通道发送")
+    void testPathRoutesBySettingsType() {
         FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
         FakeChannel telegram = new FakeChannel(PushChannelType.TELEGRAM, true);
-        PushService service = new PushService(config, List.of(bark, telegram), CONVERTER, MESSAGES);
+        PushService service = service(bark, telegram);
 
         List<PushResult> results = service.test(
                 List.of(new FakeSettings(PushChannelType.BARK, true)),
@@ -126,10 +120,8 @@ class PushServiceTest {
     @Test
     @DisplayName("测试路径：设置不完整时返回 SKIPPED，不调用通道")
     void testPathSkipsIncompleteSettings() {
-        PushConfig config = new PushConfig();
-        config.setEnabled(true);
         FakeChannel bark = new FakeChannel(PushChannelType.BARK, true);
-        PushService service = new PushService(config, List.of(bark), CONVERTER, MESSAGES);
+        PushService service = service(bark);
 
         List<PushResult> results = service.test(
                 List.of(new FakeSettings(PushChannelType.BARK, false)),
@@ -138,6 +130,10 @@ class PushServiceTest {
         assertThat(results).hasSize(1);
         assertThat(results.get(0).status()).isEqualTo(PushResult.Status.SKIPPED);
         assertThat(bark.testReceived).isEmpty();
+    }
+
+    private static PushService service(PushChannel... channels) {
+        return new PushService(new PushChannelRegistry(List.of(channels)), CONVERTER, MESSAGES);
     }
 
     /** 测试用设置快照：可配置 type 与是否完整。 */

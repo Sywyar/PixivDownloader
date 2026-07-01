@@ -26,7 +26,7 @@ class WebI18nBundleRegistryTest {
     private static final ClassLoader LOADER = WebI18nBundleRegistryTest.class.getClassLoader();
 
     /**
-     * namespace → baseName 基线：内置共 20 条（stats 已外置、不计）。合并后的 registry 必须逐条且按序等价，
+     * namespace → baseName 基线：内置共 19 条（stats/translate 已外置、不计）。合并后的 registry 必须逐条且按序等价，
      * 保证「所有页面 i18n 行为不变」。新增 namespace 时同步本基线。
      */
     private static final Map<String, String> LEGACY_NAMESPACE_BASENAMES = legacyBaseNames();
@@ -44,7 +44,6 @@ class WebI18nBundleRegistryTest {
         map.put("showcase", "i18n.web.showcase");
         map.put("series", "i18n.web.series");
         map.put("novel", "i18n.web.novel");
-        map.put("translate", "i18n.web.translate");
         map.put("narration", "i18n.web.narration");
         map.put("monitor", "i18n.web.monitor");
         map.put("userscript", "i18n.web.userscript");
@@ -69,7 +68,7 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（20 条；stats 已外置）")
+    @DisplayName("构造时从 PluginRegistry 合并全部内置插件 namespace，逐条且按序等价基线 map（19 条；stats/translate 已外置）")
     void mergedNamespacesMirrorLegacyStaticMap() {
         WebI18nBundleRegistry registry = builtInRegistry();
 
@@ -90,7 +89,6 @@ class WebI18nBundleRegistryTest {
     void namespacesOwnedByDeclaringPlugin() {
         WebI18nBundleRegistry registry = builtInRegistry();
         assertThat(ownerOf(registry, "common")).isEqualTo("core");
-        assertThat(ownerOf(registry, "translate")).isEqualTo("core");
         assertThat(ownerOf(registry, "maintenance")).isEqualTo("core");
         assertThat(ownerOf(registry, "batch")).isEqualTo("download-workbench");
         assertThat(ownerOf(registry, "userscript")).isEqualTo("download-workbench");
@@ -213,6 +211,19 @@ class WebI18nBundleRegistryTest {
         assertThat(registry.supportedNamespaces())
                 .containsAll(LEGACY_NAMESPACE_BASENAMES.keySet())
                 .contains("future");
+    }
+
+    @Test
+    @DisplayName("translate namespace 可由外置 AI 插件注册，不属于内置快照")
+    void translateNamespaceCanBeProvidedByExternalAiPlugin() {
+        WebI18nBundleRegistry registry = builtInRegistry();
+        assertThat(registry.resolve("translate")).isNull();
+
+        registry.register("ai", LOADER,
+                List.of(new I18nContribution("translate", "i18n.web.translate", 13)));
+
+        assertThat(ownerOf(registry, "translate")).isEqualTo("ai");
+        assertThat(registry.resolve("translate").contribution().baseName()).isEqualTo("i18n.web.translate");
     }
 
     @Test

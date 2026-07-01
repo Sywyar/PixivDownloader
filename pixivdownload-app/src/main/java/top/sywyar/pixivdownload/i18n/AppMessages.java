@@ -10,7 +10,7 @@ import java.util.Locale;
 
 @Component
 @RequiredArgsConstructor
-public class AppMessages {
+public class AppMessages implements MessageResolver {
 
     private final MessageSource messageSource;
 

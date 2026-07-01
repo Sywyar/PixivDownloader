@@ -26,7 +26,7 @@ class RouteAccessRegistryTest {
     }
 
     @Test
-    @DisplayName("构造时从 PluginRegistry 收集全部内置插件路由；已外置的 stats 路由不在内置快照")
+    @DisplayName("构造时从 PluginRegistry 收集全部内置插件路由；已外置能力路由不在内置快照")
     void collectsRoutesFromBuiltInPlugins() {
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
         // 取仍内置的 duplicate 验证内置路由被收集到位（其 /api/duplicates/** 等）
@@ -34,9 +34,10 @@ class RouteAccessRegistryTest {
                 .filteredOn(registered -> registered.pluginId().equals("duplicate"))
                 .extracting(registered -> registered.route().pathPattern())
                 .contains("/api/duplicates/**");
-        // stats 已改为外置 PF4J 插件：其路由经外置插件 contribution 注册，绝不出现在内置快照里
+        // 可选能力已改为外置 PF4J 插件：其路由经外置插件 contribution 注册，绝不出现在内置快照里。
         assertThat(registry.routes())
-                .noneMatch(registered -> registered.pluginId().equals("stats"));
+                .noneMatch(registered -> Set.of("stats", "push", "mail", "tts", "ai")
+                        .contains(registered.pluginId()));
     }
 
     @Test
@@ -203,24 +204,25 @@ class RouteAccessRegistryTest {
     }
 
     @Test
-    @DisplayName("resolve：内置 POST /api/tts/edge/synthesize 解析到 INVITED_GUEST（窄声明覆盖宽 /api/tts/** = ADMIN）")
-    void resolveBuiltInTtsSynthesizeNarrowOverridesBroadAdminPrefix() {
+    @DisplayName("resolve：TTS 外置插件注册后 /api/tts/** 才进入路由快照")
+    void resolveTtsRoutesOnlyAfterExternalPluginRegistration() {
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        // POST：窄 INVITED_GUEST（精确 + 显式 POST）覆盖宽 /api/tts/** = ADMIN
+        assertThat(registry.resolve("/api/tts/edge/synthesize", HttpMethod.POST)).isEmpty();
+
+        registry.register("tts", List.of(WebRouteContribution.visitorAndInvitedGuest("/api/tts/**")));
+
         assertThat(registry.resolve("/api/tts/edge/synthesize", HttpMethod.POST))
                 .get()
                 .satisfies(r -> {
-                    assertThat(r.pluginId()).isEqualTo("core");
-                    assertThat(r.route().accessPolicy()).isEqualTo(AccessPolicy.INVITED_GUEST);
+                    assertThat(r.pluginId()).isEqualTo("tts");
+                    assertThat(r.route().accessPolicy()).isEqualTo(AccessPolicy.VISITOR_AND_INVITED_GUEST);
                 });
-        // voices（GET，全方法窄精确）同样覆盖宽前缀
         assertThat(registry.resolve("/api/tts/edge/voices", HttpMethod.GET))
                 .get().extracting(r -> r.route().accessPolicy())
-                .isEqualTo(AccessPolicy.INVITED_GUEST);
-        // /api/tts/** 下其它未被窄声明覆盖的路径仍解析为 ADMIN
+                .isEqualTo(AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertThat(registry.resolve("/api/tts/some-admin-op", HttpMethod.GET))
                 .get().extracting(r -> r.route().accessPolicy())
-                .isEqualTo(AccessPolicy.ADMIN);
+                .isEqualTo(AccessPolicy.VISITOR_AND_INVITED_GUEST);
     }
 
     @Test

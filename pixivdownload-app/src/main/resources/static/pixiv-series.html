@@ -10,11 +10,11 @@
     <script src="/js/pixiv-theme.js"></script>
     <!-- Vue 槽位挂载共享 helper（加性、加载即无副作用；导航由其挂 Vue 主渲染，缺失 / 加载失败即命令式回退）。 -->
     <script src="/js/pixiv-vue.js"></script>
+    <script src="/js/pixiv-ui-slots.js"></script>
     <script src="/js/pixiv-navigation.js"></script>
     <link rel="stylesheet" href="/css/admin-visibility.css">
     <link rel="stylesheet" href="/vendor/fonts/fonts.css">
     <link rel="stylesheet" href="/css/lang-theme-switcher.css">
-    <link rel="stylesheet" href="/css/pixiv-translate.css">
     <link rel="stylesheet" href="/css/pixiv-side-modules.css">
     <link rel="stylesheet" href="/pixiv-series/pixiv-series.css">
 </head>
@@ -151,8 +151,7 @@
                     <span id="contentLangAnchor"></span>
                     <button class="btn" id="downloadMergedBtn" type="button" style="display:none"
                             data-i18n="series:button.download-merged">下载合订本</button>
-                    <button class="btn" id="translateSeriesBtn" type="button" style="display:none"
-                            data-i18n="translate:button.translate-series">翻译整个系列</button>
+                    <span class="topbar-slot"><template data-qt-slot="series-detail-ai-translate"></template></span>
                     <a class="btn" id="backToArtworkBtn" href="#" style="display:none">
                         <svg viewBox="0 0 24 24">
                             <polyline points="15 18 9 12 15 6"/>
@@ -181,7 +180,6 @@
     </main>
 </div>
 
-<script src="/js/pixiv-translate.js"></script>
 <script src="/pixiv-series/series-core.js"></script>
 <script src="/pixiv-series/series-actions.js"></script>
 <script src="/pixiv-series/series-collections.js"></script>

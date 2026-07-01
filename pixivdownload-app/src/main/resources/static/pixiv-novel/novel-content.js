@@ -1,6 +1,6 @@
 'use strict';
 async function loadAll() {
-    pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common', 'translate', 'narration'] });
+    pageI18n = await PixivI18n.create({ namespaces: ['novel', 'common', 'translate', 'narration', 'tts'] });
     pageI18n.apply();
     await PixivLangSwitcher.mount({
         mountPoint: document.getElementById('langSwitcherAnchor'),
@@ -37,8 +37,13 @@ async function loadAll() {
 function revealNovel() {
     document.getElementById('loading').style.display = 'none';
     document.getElementById('root').style.display = 'block';
-    setupTts();
+    bootstrapNovelUiSlots();
     loadCollectionState();
+}
+
+function bootstrapNovelUiSlots() {
+    if (!window.PixivUiSlots || typeof window.PixivUiSlots.bootstrap !== 'function') return;
+    window.PixivUiSlots.bootstrap({ targetPrefix: 'novel-detail-' }).catch(() => {});
 }
 
 async function loadNovel() {
@@ -308,4 +313,4 @@ function buildImageResolver(opts) {
 
 // ---- PixivNovel facade ----
 window.PixivNovel.content = window.PixivNovel.content || {};
-window.PixivNovel.content = Object.assign(window.PixivNovel.content, { loadAll, revealNovel, loadNovel, showNotDownloaded, showCover, rerenderDynamic, renderLocal, resolveInitialContentLang, mountContentLangSwitcher, switchContentLang, loadContent, applyTitleForLang, applyDescriptionForLang, renderBadges, formatReadingDuration, formatReadingTime, renderMetaRow, renderDescription, renderTags, buildNovelGalleryTagFilterHref, renderContent, buildImageResolver });
+window.PixivNovel.content = Object.assign(window.PixivNovel.content, { loadAll, revealNovel, bootstrapNovelUiSlots, loadNovel, showNotDownloaded, showCover, rerenderDynamic, renderLocal, resolveInitialContentLang, mountContentLangSwitcher, switchContentLang, loadContent, applyTitleForLang, applyDescriptionForLang, renderBadges, formatReadingDuration, formatReadingTime, renderMetaRow, renderDescription, renderTags, buildNovelGalleryTagFilterHref, renderContent, buildImageResolver });

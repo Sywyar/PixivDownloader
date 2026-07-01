@@ -50,6 +50,12 @@ class ConfigItemTemplateCoverageGuardTest {
     private static final Set<String> TEMPLATE_KEYS_WITHOUT_GUI_FIELD = Set.of(
             "app.language", "app.theme", "plugin-catalog.repositories");
 
+    /**
+     * App 侧仅保留调用门面 / 运行期选择状态，模板与 GUI 字段由外置官方插件贡献的前缀。
+     * 这些前缀不能重新塞回核心默认模板，否则插件缺失 / 禁用时 GUI 字段无法自然消失。
+     */
+    private static final Set<String> EXTERNAL_PLUGIN_OWNED_PREFIXES = Set.of("narration-tts");
+
     @Test
     @DisplayName("每个 @ConfigurationProperties 前缀在 config.yaml 模板中至少有一个键")
     void everyConfigurationPropertiesPrefixHasTemplateKey() {
@@ -58,6 +64,7 @@ class ConfigItemTemplateCoverageGuardTest {
 
         assertThat(prefixes).as("应扫描到 @ConfigurationProperties 前缀").isNotEmpty();
         Set<String> uncovered = prefixes.stream()
+                .filter(prefix -> !EXTERNAL_PLUGIN_OWNED_PREFIXES.contains(prefix))
                 .filter(prefix -> templateKeys.stream()
                         .noneMatch(k -> k.equals(prefix) || k.startsWith(prefix + ".")))
                 .collect(Collectors.toCollection(TreeSet::new));

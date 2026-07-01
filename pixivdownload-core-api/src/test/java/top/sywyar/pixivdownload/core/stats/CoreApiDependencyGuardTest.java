@@ -25,14 +25,24 @@ class CoreApiDependencyGuardTest {
             .importPackages("top.sywyar.pixivdownload");
 
     @Test
-    @DisplayName("core-api 必须自包含：只依赖 JDK 与自身 core.stats 包")
+    @DisplayName("core-api 必须自包含：只依赖 JDK 与本模块纯契约包")
     void coreApiIsSelfContained() {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload..")
                 .should().onlyDependOnClassesThat()
-                .resideInAnyPackage("top.sywyar.pixivdownload.core.stats..", "java..")
-                .because("core-api 是 Spring-free 纯 JDK 的核心 owned 语义端口模块（镜像 plugin.api 的框架洁净）："
-                        + "只能依赖 JDK 与自身 core.stats 包，不得依赖 Spring / SLF4J / JDBC / MyBatis、"
+                .resideInAnyPackage(
+                        "top.sywyar.pixivdownload.ai..",
+                        "top.sywyar.pixivdownload.config..",
+                        "top.sywyar.pixivdownload.core.stats..",
+                        "top.sywyar.pixivdownload.i18n..",
+                        "top.sywyar.pixivdownload.notification..",
+                        "top.sywyar.pixivdownload.push..",
+                        "top.sywyar.pixivdownload.setup..",
+                        "top.sywyar.pixivdownload.tts.narration.engine..",
+                        "top.sywyar.pixivdownload.web..",
+                        "java..")
+                .because("core-api 是 Spring-free 纯 JDK 的核心 owned 语义端口与可选能力契约模块："
+                        + "只能依赖 JDK 与本模块纯契约包，不得依赖 Spring / SLF4J / JDBC / MyBatis、"
                         + "core.stats.db 实现层或任何 app 业务实现包；将来若某端口确需共享类型，"
                         + "只能 +plugin-api 且须先在 PLAN 记录、不在功能任务中主动引入")
                 .check(CLASSES);
@@ -42,7 +52,7 @@ class CoreApiDependencyGuardTest {
     @DisplayName("core-api 不得依赖 Spring / SLF4J / JDBC / MyBatis 或 core.stats.db 实现层")
     void coreApiHasNoFrameworkOrImplDependency() {
         noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload.core.stats..")
+                .that().resideInAPackage("top.sywyar.pixivdownload..")
                 .should().dependOnClassesThat()
                 .resideInAnyPackage(
                         "org.springframework..",

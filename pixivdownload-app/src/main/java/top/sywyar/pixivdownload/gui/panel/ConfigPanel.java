@@ -8,11 +8,9 @@ import top.sywyar.pixivdownload.gui.DebugUnlockState;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.config.*;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.gui.panel.configtab.AiConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.ConfigSectionContext;
 import top.sywyar.pixivdownload.gui.panel.configtab.GuiConfigTestClient;
-import top.sywyar.pixivdownload.gui.panel.configtab.NotificationConfigSection;
 import top.sywyar.pixivdownload.gui.panel.configtab.PluginMarketConfigSection;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -36,7 +34,7 @@ import java.util.function.Function;
  * 保留注释和格式。
  * <p>
  * 普通分组「字段平铺」由 {@code ConfigFieldRegistry} 的 {@link ConfigFieldSpec} 声明式渲染；带自定义控件 /
- * 异步测试 / 预设联动的特殊分组（通知、AI）拆成 {@code gui.panel.configtab} 下的 {@link ConfigSection} 实现，
+ * 异步测试的特殊分组拆成 {@code gui.panel.configtab} 下的 {@link ConfigSection} 实现，
  * 本类作为 {@link ConfigSectionContext} 向它们提供共享的字段注册表、取值 / 赋值、提示与测试客户端，
  * 而加载 / 保存 / 校验 / 可见性重算仍集中在这里。
  */
@@ -151,8 +149,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
         // 特殊分组（自带控件 / 异步测试 / 预设联动 / 列表编辑器）的可插拔实现；普通分组仍走 buildGroupPanel 声明式渲染。
         sections = List.of(
-                new NotificationConfigSection(this),
-                new AiConfigSection(this),
                 new PluginMarketConfigSection(this, configPath, webUrlProvider));
         sectionsByGroup = new LinkedHashMap<>();
         for (ConfigSection section : sections) {

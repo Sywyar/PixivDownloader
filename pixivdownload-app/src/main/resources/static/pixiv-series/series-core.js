@@ -21,7 +21,6 @@
     let pageI18n = null;
     let searchTimer = null;
     let isAdmin = false;
-    let aiConfigured = false;
     let activeContentLang = '';
     let seriesTranslatedLangs = [];
     let contentLangCtl = null;
@@ -90,11 +89,6 @@
             return pageI18n.t(key, fallback, vars);
         }
         return interpolate(fallback != null ? fallback : key, vars);
-    }
-
-    // translate: 命名空间快捷取词（AI 翻译共享文案）
-    function tx(key, fallback, vars) {
-        return pageText('translate:' + key, fallback, vars);
     }
 
     function applyStaticPageTranslations() {
@@ -233,4 +227,4 @@
             "'": '&#39;'
         }[m]));
     }
-
+

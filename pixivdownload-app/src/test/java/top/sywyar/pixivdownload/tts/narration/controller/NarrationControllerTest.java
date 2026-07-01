@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.ai.AiService;
 import top.sywyar.pixivdownload.ai.narration.NarrationCharacter;
 import top.sywyar.pixivdownload.ai.narration.NarratorVoicePreset;
+import top.sywyar.pixivdownload.common.ErrorResponse;
 import top.sywyar.pixivdownload.config.DebugConfig;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.narration.NarrationConflictReport;
@@ -56,6 +57,7 @@ class NarrationControllerTest {
     void setUp() {
         // 默认朗读引擎可用（多数 /script 用例的 happy path）；不可用 / 调试模式的用例各自覆盖。
         when(audioService.isEngineAvailable()).thenReturn(true);
+        when(aiService.isConfigured()).thenReturn(true);
     }
 
     private NovelRecord novel(long id) {
@@ -154,6 +156,53 @@ class NarrationControllerTest {
     }
 
     @Test
+    @DisplayName("/script：AI 未配置时 force 重分析被拒（503），绝不调用分析")
+    void scriptRejectsForceWhenAiUnavailable() {
+        when(aiService.isConfigured()).thenReturn(false);
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, true, null, null, null));
+
+        assertEquals(503, resp.getStatusCode().value());
+        assertTrue(resp.getBody() instanceof ErrorResponse);
+        assertEquals("AI 文本模型当前不可用，无法生成新的朗读脚本；请稍后再试或检查 AI 插件配置",
+                ((ErrorResponse) resp.getBody()).getError());
+        verify(scriptService, org.mockito.Mockito.never())
+                .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
+    }
+
+    @Test
+    @DisplayName("/script：AI 未配置且无缓存脚本时新分析被拒（503），绝不调用分析")
+    void scriptRejectsNewAnalysisWhenAiUnavailableNoCache() {
+        when(aiService.isConfigured()).thenReturn(false);
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+        when(scriptService.peekScript(7L, "")).thenReturn(null);
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, null, null, null, null));
+
+        assertEquals(503, resp.getStatusCode().value());
+        verify(scriptService, org.mockito.Mockito.never())
+                .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
+    }
+
+    @Test
+    @DisplayName("/script：调试模式不能绕过 AI 未配置的新分析门禁")
+    void scriptRejectsAiUnavailableEvenInDebugMode() {
+        when(aiService.isConfigured()).thenReturn(false);
+        debugConfig.setEnabled(true);
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, true, null, null, null));
+
+        assertEquals(503, resp.getStatusCode().value());
+        verify(scriptService, org.mockito.Mockito.never())
+                .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
+    }
+
+    @Test
     @DisplayName("/script：引擎不可用且非调试模式、无缓存脚本时新分析被拒（503），绝不调用分析")
     void scriptRejectsNewAnalysisWhenUnavailableNoCache() {
         when(audioService.isEngineAvailable()).thenReturn(false);
@@ -173,6 +222,25 @@ class NarrationControllerTest {
     @DisplayName("/script：引擎不可用但命中缓存脚本时仍正常返回（不触发新分析）")
     void scriptAllowsCacheHitWhenUnavailable() {
         when(audioService.isEngineAvailable()).thenReturn(false);
+        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
+        List<NovelNarrationScriptService.ScriptLine> lines = List.of(
+                new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
+        NovelNarrationScriptService.ChapterScript cached =
+                new NovelNarrationScriptService.ChapterScript(lines, 5L, 1L, 0, 2L, List.of());
+        when(scriptService.peekScript(7L, "")).thenReturn(cached);
+        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class)))
+                .thenReturn(cached);
+
+        ResponseEntity<?> resp = controller.script(
+                new NarrationController.ScriptRequest(7L, null, null, null, null, null, null));
+
+        assertEquals(200, resp.getStatusCode().value());
+    }
+
+    @Test
+    @DisplayName("/script：AI 未配置但命中缓存脚本时仍正常返回（不触发新分析）")
+    void scriptAllowsCacheHitWhenAiUnavailable() {
+        when(aiService.isConfigured()).thenReturn(false);
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
         List<NovelNarrationScriptService.ScriptLine> lines = List.of(
                 new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));

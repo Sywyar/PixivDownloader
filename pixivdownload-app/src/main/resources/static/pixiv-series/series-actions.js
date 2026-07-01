@@ -6,21 +6,9 @@
             if (res.ok) {
                 document.body.classList.add('admin-mode');
                 isAdmin = true;
-                // 文本模型已配置才展示「翻译整个系列」入口：异步探测，拿到结果后再刷新按钮可见性。
-                if (window.PixivTranslate && PixivTranslate.isAiConfigured) {
-                    aiConfigured = await PixivTranslate.isAiConfigured();
-                }
-                refreshTranslateSeriesBtn();
             }
         } catch (_) {
         }
-    }
-
-    // 「翻译整个系列」仅小说系列 + 管理员 + 已配置文本模型时可见
-    function refreshTranslateSeriesBtn() {
-        const btn = document.getElementById('translateSeriesBtn');
-        if (!btn) return;
-        btn.style.display = (isAdmin && aiConfigured && isNovelMode()) ? '' : 'none';
     }
 
     // 「下载合订本」仅小说系列可见（任何能访问该系列的用户都可下载）
@@ -51,9 +39,10 @@
 
     // 装配小说系列专属控件：内容语言切换器 + 「翻译整个系列」按钮可见性。
     function setupNovelContentControls(langs) {
-        seriesTranslatedLangs = Array.isArray(langs) ? langs : [];
+        if (Array.isArray(langs)) {
+            seriesTranslatedLangs = langs;
+        }
         activeContentLang = resolveInitialContentLang(seriesTranslatedLangs);
-        refreshTranslateSeriesBtn();
         refreshDownloadMergedBtn();
         const anchor = document.getElementById('contentLangAnchor');
         if (!anchor || !window.PixivContentLang) return;
@@ -140,78 +129,6 @@
     function setSeriesMessage(text) {
         const el = document.getElementById('seriesStatus');
         if (el) el.textContent = text;
-    }
-
-    // 翻译整个系列：进度弹窗内串行调用单作品翻译接口（保证术语前后一致），完成后重生该语言变体合订本。
-    async function translateSeries() {
-        if (!window.PixivTranslate || !state.seriesId || !isNovelMode()) return;
-        // 已有进行中的翻译：直接重新弹出当前进度，不再发新请求
-        if (PixivTranslate.hasActiveJob()) {
-            PixivTranslate.showActiveJob();
-            return;
-        }
-        const choice = await PixivTranslate.openDialog({
-            i18n: pageI18n, series: true, seriesId: state.seriesId,
-            onToast: (msg) => setSeriesMessage(msg)
-        });
-        if (!choice) return;
-        const result = await PixivTranslate.runSeries({
-            i18n: pageI18n, seriesId: state.seriesId, choice: choice
-        });
-        if (!result) return;
-        if (result.error) {
-            setSeriesMessage(tx('toast.failed', '翻译失败：{message}',
-                {message: String(result.error.message || result.error)}));
-            return;
-        }
-        if (result.empty) {
-            setSeriesMessage(tx('toast.no-chapters', '该系列暂无可翻译章节'));
-            return;
-        }
-        if (result.invalid) {
-            setSeriesMessage(tx('toast.invalid-language', 'AI 判定该语言不存在或无法识别'));
-            return;
-        }
-        if (result.mergeFailed) {
-            setSeriesMessage(tx('toast.merge-failed', '合订本生成失败：{message}',
-                {message: String(result.mergeFailed.message || result.mergeFailed)}));
-        }
-        // 把新语言并入切换器并默认切到该语言
-        let refreshFailed = false;
-        if (result.langCode) {
-            if (seriesTranslatedLangs.indexOf(result.langCode) === -1) {
-                seriesTranslatedLangs = seriesTranslatedLangs.concat([result.langCode]);
-            }
-            activeContentLang = result.langCode;
-            if (window.PixivContentLang) PixivContentLang.setStored(result.langCode);
-            if (contentLangCtl) contentLangCtl.setLanguages(seriesTranslatedLangs, result.langCode);
-            else setupNovelContentControls(seriesTranslatedLangs);
-            // 翻译完成后必须先拉取该语言的译后系列名 / 章节标题再重渲染，否则界面只切了语言、文字仍是原文。
-            // 同时清掉已有缓存条目，避免对同一语言重译时被 fetchSeriesTitleForLang 的早返回拦下、读到旧值。
-            delete seriesTitleByLang[activeContentLang];
-            delete seriesDescriptionByLang[activeContentLang];
-            delete chapterTitlesByLang[activeContentLang];
-            try {
-                await Promise.all([
-                    fetchSeriesTitleForLang(activeContentLang),
-                    fetchChapterTitlesForLang(activeContentLang, state.items),
-                ]);
-            } catch (err) {
-                // 译文已落库；只是刷新失败 —— 上报给用户，让他们知道需要重新切换语言重试。
-                refreshFailed = true;
-                console.warn(t('log.post-translate-refresh-failed', '译文刷新失败'), err);
-            }
-            renderSeriesHeader();
-            renderGrid(state.items);
-        }
-        if (refreshFailed) {
-            setSeriesMessage(tx('toast.series-done-refresh-failed',
-                '系列翻译完成：成功 {ok}，跳过 {skipped}，失败 {failed}；但译后系列名 / 章节标题刷新失败，请重新切换语言重试',
-                {ok: result.ok, skipped: result.skipped, failed: result.failed}));
-        } else {
-            setSeriesMessage(tx('toast.series-done', '系列翻译完成：成功 {ok}，跳过 {skipped}，失败 {failed}',
-                {ok: result.ok, skipped: result.skipped, failed: result.failed}));
-        }
     }
 
     // 解析 Content-Disposition 中的 filename / filename*（后者优先，因为它带 UTF-8 编码）
@@ -359,4 +276,4 @@
         document.addEventListener('keydown', onKey);
         root.classList.add('open');
     }
-
+

@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 下载页各预览界面（User / Search / 系列 / 快捷获取）的「加入队列」按钮左侧新增「收起 / 展开」按钮，可随时折叠预览结果列表以减少干扰，重新加载或翻页时自动展开。
 
 ### Changed
+- push、mail、TTS 和 AI 能力改为官方外置插件分发：核心启动包不再内置这些可选能力的实现与私有依赖；安装并启用对应插件后可继续使用推送、邮件通知、小说听书 / 多角色朗读与 AI 翻译，插件缺失或禁用时相关 GUI 配置字段与 Web 槽位会消失，后端调用按能力不可用明确降级而不是返回 500。
 - 桌面 GUI 主题实现改为官方外置 `gui-theme` 插件提供：核心包只保留 Swing 系统 / JDK fallback 与 `app.theme` 字符串持久化；官方主题插件统一以 `.jar` artifact 分发，FlatLaf、IntelliJ Themes、JNA/JNA Platform 随该 JAR 内 `lib/*.jar` 私有携带，运行时在原始 artifact 复验通过后物化到 `plugins/runtime/` 加载，provenance 记录统一放入 `plugins/provenance/`。主题插件缺失、禁用、损坏或不兼容时 GUI 会临时使用系统 / JDK LookAndFeel，并保留原 `app.theme` 配置，重新安装插件并完整重启后自动恢复原主题。
 - 插件市场增加未验证 / 未签名插件安全提示，提醒安装前自行确认来源与风险。
 - 插件市场卡片和详情弹窗新增显眼的来源验证状态徽标，可直接区分官方签名 / 自定义仓库签名、未验证 / 用户放行以及验签失败插件。

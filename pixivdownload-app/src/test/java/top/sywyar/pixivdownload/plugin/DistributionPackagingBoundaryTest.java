@@ -58,6 +58,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DistributionPackagingBoundaryTest {
 
     private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
+    private static final String PUSH_CLASSES_PROPERTY = "push.plugin.classes";
+    private static final String MAIL_CLASSES_PROPERTY = "mail.plugin.classes";
+    private static final String TTS_CLASSES_PROPERTY = "tts.plugin.classes";
+    private static final String AI_CLASSES_PROPERTY = "ai.plugin.classes";
     private static final String SENTINEL_CLASSES_PROPERTY = "recovery-sentinel.plugin.classes";
     private static final String GUI_THEME_CLASSES_PROPERTY = "gui-theme.plugin.classes";
     private static final String GUI_THEME_JAR_PROPERTY = "gui-theme.plugin.jar";
@@ -84,10 +88,22 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 recovery-sentinel 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.guitheme.GuiThemePf4jPlugin"))
                 .as("外置 gui-theme 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.push.PushPf4jPlugin"))
+                .as("外置 push 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.mail.MailPf4jPlugin"))
+                .as("外置 mail 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.tts.TtsPf4jPlugin"))
+                .as("外置 tts 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.ai.AiPf4jPlugin"))
+                .as("外置 ai 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "com.formdev.flatlaf.FlatLaf"))
                 .as("FlatLaf 不应在 app boot jar 运行期类路径内").isFalse();
         assertThat(canLoad(host, "com.sun.jna.Native"))
                 .as("JNA 不应在 app boot jar 运行期类路径内").isFalse();
+        assertThat(canLoad(host, "jakarta.mail.Session"))
+                .as("Jakarta Mail 不应在 app boot jar 运行期类路径内").isFalse();
+        assertThat(canLoad(host, "org.springframework.mail.javamail.JavaMailSenderImpl"))
+                .as("spring-context-support 邮件实现不应在 app boot jar 运行期类路径内").isFalse();
 
         // 外置插件的静态资源 / i18n 只随其自身 thin jar 携带，核心壳 classloader 解析不到。
         assertThat(host.getResource("static/pixiv-stats/pixiv-stats.css"))
@@ -96,6 +112,22 @@ class DistributionPackagingBoundaryTest {
                 .as("stats i18n 资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/gui-theme.properties"))
                 .as("gui-theme i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-tts/pixiv-tts.css"))
+                .as("tts 静态资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("static/pixiv-ai/pixiv-translate.js"))
+                .as("ai 静态资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/tts.properties"))
+                .as("tts i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/ai.properties"))
+                .as("ai i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/translate.properties"))
+                .as("translate i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/mail/messages.properties"))
+                .as("mail i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/push/messages.properties"))
+                .as("push i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("mail/templates/run-summary.html"))
+                .as("mail 模板资源不应在 boot jar 内").isNull();
     }
 
     @Test
@@ -103,6 +135,38 @@ class DistributionPackagingBoundaryTest {
     void statsPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(STATS_CLASSES_PROPERTY, "pixivdownload-plugin-stats",
                 "top/sywyar/pixivdownload/stats/StatsPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("push 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
+    void pushPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(PUSH_CLASSES_PROPERTY, "pixivdownload-plugin-push",
+                "top/sywyar/pixivdownload/push/PushPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("mail 以 JAR-with-lib 形态打包：根 descriptor + 插件类 + mail 私有依赖")
+    void mailPackagesAsJarWithPrivateLibraries() {
+        assertJarWithPrivateLibraries(MAIL_CLASSES_PROPERTY, "pixivdownload-plugin-mail",
+                "top/sywyar/pixivdownload/mail/MailPf4jPlugin.class",
+                List.of("spring-context-support-[0-9].*\\.jar",
+                        "jakarta\\.mail-[0-9].*\\.jar",
+                        "jakarta\\.activation-api-[0-9].*\\.jar",
+                        "angus-activation-[0-9].*\\.jar"));
+    }
+
+    @Test
+    @DisplayName("tts 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
+    void ttsPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(TTS_CLASSES_PROPERTY, "pixivdownload-plugin-tts",
+                "top/sywyar/pixivdownload/tts/TtsPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("ai 以 thin 外置插件形态打包：根部 plugin.properties + 外置主类，无契约 / 宿主 / 框架类泄漏")
+    void aiPackagesAsThinExternalPlugin() {
+        assertThinExternalPlugin(AI_CLASSES_PROPERTY, "pixivdownload-plugin-ai",
+                "top/sywyar/pixivdownload/ai/AiPf4jPlugin.class");
     }
 
     @Test
@@ -185,6 +249,38 @@ class DistributionPackagingBoundaryTest {
                 .noneMatch(name -> name.startsWith("top/sywyar/pixivdownload/plugin/api/"));
         assertThat(entries).as("thin 插件 jar 不得携带私有 lib/*.jar")
                 .noneMatch(name -> name.matches("lib/[^/]+\\.jar"));
+    }
+
+    private void assertJarWithPrivateLibraries(String classesProperty, String artifactId, String mainClassEntry,
+                                               List<String> requiredLibPatterns) {
+        Path classesDir = locateConfiguredDir(classesProperty);
+        Assumptions.assumeTrue(classesDir != null && Files.isDirectory(classesDir),
+                () -> "插件构建产物未就绪（需 reactor 先构建 " + artifactId + "），跳过 JAR-with-lib 形态验证");
+
+        assertThat(classesDir.resolve("plugin.properties"))
+                .as("插件构建产物根部应含 plugin.properties").exists();
+        assertThat(classesDir.resolve(mainClassEntry))
+                .as("插件构建产物应含外置主类").exists();
+        assertThat(classesDir.resolve("top/sywyar/pixivdownload/plugin/api"))
+                .as("外置插件不得打入共享契约 plugin-api").doesNotExist();
+        assertThat(classesDir.resolve("lib"))
+                .as("JAR-with-lib 插件构建产物应携带 lib/ 私有依赖").isDirectory();
+
+        Path jar = locateModuleJar(classesDir, artifactId);
+        if (jar == null) {
+            return;
+        }
+        List<String> entries = jarEntryNames(jar);
+        assertThat(entries).contains("plugin.properties");
+        assertThat(entries).contains(mainClassEntry);
+        assertThat(entries).noneMatch(name -> name.startsWith("BOOT-INF/"));
+        assertThat(entries).noneMatch(name -> name.startsWith("top/sywyar/pixivdownload/plugin/api/"));
+        assertThat(entries).noneMatch(name -> name.startsWith("org/pf4j/"));
+        assertThat(entries).noneMatch(name -> name.startsWith("org/springframework/"));
+        for (String required : requiredLibPatterns) {
+            assertThat(entries).as("插件 JAR 应在 lib/ 中携带私有依赖 " + required)
+                    .anyMatch(name -> name.matches("lib/" + required));
+        }
     }
 
     // --- helpers ---

@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 @Data
 @Component
 @ConfigurationProperties(prefix = "proxy")
-public class ProxyConfig {
+public class ProxyConfig implements OutboundProxySettings {
 
     /** config.yaml 中代理相关键名，供首次安装（setup / CLI）写入时复用。 */
     public static final String KEY_ENABLED = "proxy.enabled";

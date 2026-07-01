@@ -188,6 +188,9 @@ window.PixivBatch.queueTypes = (function () {
         await Promise.all(queueTypes
             .filter(t => t.moduleUrl)
             .map(t => loadModule(t.moduleUrl)));
+        await Promise.all(uiSlotsManifest
+            .filter(slot => slot && slot.moduleUrl)
+            .map(slot => loadModule(slot.moduleUrl)));
         // await：renderSlots 主路径走 Vue（异步挂载），需在此 await 完成后下载页 init 才读取 kind 单选 /
         // 设置卡 / 专属筛选等控件（init `await bootstrap()`）——保证控件就位、无「尚未注入」竞态。
         await renderSlots();

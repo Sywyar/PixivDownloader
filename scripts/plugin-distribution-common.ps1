@@ -24,8 +24,30 @@ function Get-OfficialOptionalPlugins {
     [CmdletBinding()]
     param([switch]$IncludeSentinel)
     $plugins = @(
-        [pscustomobject]@{ Id = "gui-theme"; Module = "pixivdownload-plugin-gui-theme"; Format = "jar"; PrivateLibs = $true },
-        [pscustomobject]@{ Id = "stats"; Module = "pixivdownload-plugin-stats"; Format = "jar"; PrivateLibs = $false }
+        [pscustomobject]@{
+            Id = "gui-theme"; Module = "pixivdownload-plugin-gui-theme"; Format = "jar"; PrivateLibs = $true;
+            ClassPrefix = "top/sywyar/pixivdownload/guitheme/";
+            RequiredLibPatterns = @(
+                "^flatlaf-[0-9].*\.jar$",
+                "^flatlaf-intellij-themes-[0-9].*\.jar$",
+                "^jna-[0-9].*\.jar$",
+                "^jna-platform-[0-9].*\.jar$"
+            )
+        },
+        [pscustomobject]@{ Id = "stats"; Module = "pixivdownload-plugin-stats"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{ Id = "push"; Module = "pixivdownload-plugin-push"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{
+            Id = "mail"; Module = "pixivdownload-plugin-mail"; Format = "jar"; PrivateLibs = $true;
+            ClassPrefix = "top/sywyar/pixivdownload/mail/";
+            RequiredLibPatterns = @(
+                "^spring-context-support-[0-9].*\.jar$",
+                "^jakarta\.mail-[0-9].*\.jar$",
+                "^jakarta\.activation-api-[0-9].*\.jar$",
+                "^angus-activation-[0-9].*\.jar$"
+            )
+        },
+        [pscustomobject]@{ Id = "tts"; Module = "pixivdownload-plugin-tts"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{ Id = "ai"; Module = "pixivdownload-plugin-ai"; Format = "jar"; PrivateLibs = $false }
     )
     if ($IncludeSentinel) {
         $plugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel"; Format = "jar"; PrivateLibs = $false }
@@ -291,28 +313,25 @@ function Assert-ThinPluginJar {
 
 function Assert-JarWithPrivatePluginLibs {
     # Verify a PF4J plugin jar with private dependencies: root plugin.properties, plugin classes/resources at
-    # normal jar paths, and runtime-only GUI theme dependencies present under lib/.
+    # normal jar paths, and declared private runtime dependencies present under lib/.
     param(
         [Parameter(Mandatory = $true)][string]$JarPath,
-        [Parameter(Mandatory = $true)][string]$ExpectedId
+        [Parameter(Mandatory = $true)]$Plugin
     )
+    $ExpectedId = $Plugin.Id
     $entries = Get-ZipEntryNames $JarPath
     if ($entries -notcontains "plugin.properties") {
         throw "Plugin jar is not a PF4J package (missing root plugin.properties): $JarPath"
     }
-    if (-not ($entries | Where-Object { $_.StartsWith("top/sywyar/pixivdownload/guitheme/") })) {
-        throw "Plugin jar missing GUI theme classes: $JarPath"
+    $classPrefix = if ($Plugin.ClassPrefix) { $Plugin.ClassPrefix } else { "top/sywyar/pixivdownload/" }
+    if (-not ($entries | Where-Object { $_.StartsWith($classPrefix) })) {
+        throw "Plugin jar missing expected plugin classes '$classPrefix': $JarPath"
     }
     $libJars = @($entries | Where-Object { $_ -match "^lib/[^/]+\.jar$" })
     if (-not $libJars) {
         throw "Plugin jar missing lib/*.jar payload: $JarPath"
     }
-    $requiredLibPatterns = @(
-        "^flatlaf-[0-9].*\.jar$",
-        "^flatlaf-intellij-themes-[0-9].*\.jar$",
-        "^jna-[0-9].*\.jar$",
-        "^jna-platform-[0-9].*\.jar$"
-    )
+    $requiredLibPatterns = @($Plugin.RequiredLibPatterns)
     foreach ($required in $requiredLibPatterns) {
         $match = $libJars | Where-Object { (Split-Path $_ -Leaf) -match $required }
         if (-not $match) {
@@ -343,7 +362,7 @@ function Assert-OfficialPluginArtifact {
     $format = if ($Plugin.Format) { $Plugin.Format } else { "jar" }
     if ($format -eq "jar") {
         if ($Plugin.PrivateLibs) {
-            return Assert-JarWithPrivatePluginLibs $ArtifactPath $Plugin.Id
+            return Assert-JarWithPrivatePluginLibs $ArtifactPath $Plugin
         }
         return Assert-ThinPluginJar $ArtifactPath $Plugin.Id
     }

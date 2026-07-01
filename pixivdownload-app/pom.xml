@@ -98,11 +98,6 @@
         </dependency>
 
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-mail</artifactId>
-        </dependency>
-
-        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <version>1.18.40</version>
@@ -164,16 +159,19 @@
                     <mainClass>top.sywyar.pixivdownload.gui.GuiLauncher</mainClass>
                 </configuration>
             </plugin>
-            <!-- 把外置插件的构建产物目录传给集成测试（据此组装临时插件 jar 做真实 PF4J 加载验证）：
-                 stats.plugin.classes 供 StatsExternalPluginIntegrationTest，recovery-sentinel.plugin.classes 供
-                 RecoverySentinelExternalPluginIntegrationTest。reactor 中这两个插件模块均先于 app 构建，故其 target/classes
-                 在 app 测试期已就绪；缺失时对应集成测试 assumeTrue 跳过（如 IDE 未触发 reactor 构建），不影响其它测试。 -->
+            <!-- 把外置插件的构建产物目录传给集成测试（据此组装临时插件 jar 做真实 PF4J 加载验证）。
+                 root reactor 测试时这些插件模块先于 app 构建；缺失时对应测试 assumeTrue 跳过（如 IDE 未触发 reactor
+                 构建），不影响其它测试。 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <systemPropertyVariables>
                         <stats.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-stats/target/classes</stats.plugin.classes>
+                        <push.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-push/target/classes</push.plugin.classes>
+                        <mail.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-mail/target/classes</mail.plugin.classes>
+                        <tts.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-tts/target/classes</tts.plugin.classes>
+                        <ai.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-ai/target/classes</ai.plugin.classes>
                         <recovery-sentinel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-recovery-sentinel/target/classes</recovery-sentinel.plugin.classes>
                         <gui-theme.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/classes</gui-theme.plugin.classes>
                         <gui-theme.plugin.jar>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/pixivdownload-plugin-gui-theme-${project.version}.jar</gui-theme.plugin.jar>

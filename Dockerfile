@@ -30,6 +30,10 @@ COPY pixivdownload-plugin-signature/pom.xml pixivdownload-plugin-signature/
 COPY pixivdownload-plugin-runtime/pom.xml pixivdownload-plugin-runtime/
 COPY pixivdownload-plugin-gui-theme/pom.xml pixivdownload-plugin-gui-theme/
 COPY pixivdownload-plugin-stats/pom.xml pixivdownload-plugin-stats/
+COPY pixivdownload-plugin-push/pom.xml pixivdownload-plugin-push/
+COPY pixivdownload-plugin-mail/pom.xml pixivdownload-plugin-mail/
+COPY pixivdownload-plugin-tts/pom.xml pixivdownload-plugin-tts/
+COPY pixivdownload-plugin-ai/pom.xml pixivdownload-plugin-ai/
 COPY pixivdownload-plugin-recovery-sentinel/pom.xml pixivdownload-plugin-recovery-sentinel/
 COPY pixivdownload-app/pom.xml pixivdownload-app/
 RUN mvn -B -q dependency:go-offline

@@ -810,7 +810,7 @@ class AuthFilterTest {
         }
 
         @Test
-        @DisplayName("未登录普通游客不应直接调用在线 TTS 合成 API")
+        @DisplayName("TTS 插件未安装时，普通游客访问在线 TTS 合成 API 返回 404")
         void shouldRejectAnonymousTtsSynthesizeApi() throws Exception {
             request.setMethod("POST");
             request.setRequestURI("/api/tts/edge/synthesize");
@@ -818,20 +818,19 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getStatus()).isEqualTo(404);
             verify(rateLimitService, never()).isAllowed(any());
             verify(filterChain, never()).doFilter(request, response);
         }
 
         @Test
-        @DisplayName("邀请访客仍可调用在线 TTS 合成 API")
+        @DisplayName("TTS 插件未安装时，邀请访客访问在线 TTS 合成 API 不放行")
         void shouldAllowGuestInviteTtsSynthesizeApi() throws Exception {
             when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.of(new GuestInviteSession(
                     1L, "invite-code", true, false, false,
                     true, Set.of(), true, Set.of(),
                     true, Set.of(), true, Set.of()
             )));
-            when(rateLimitService.isAllowedForInvite("invite:invite-code")).thenReturn(true);
 
             request.setMethod("POST");
             request.setRequestURI("/api/tts/edge/synthesize");
@@ -840,15 +839,14 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            verify(filterChain).doFilter(request, response);
-            verify(guestInviteService).recordHit(1L);
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(filterChain, never()).doFilter(request, response);
+            verify(guestInviteService, never()).recordHit(1L);
         }
 
         @Test
-        @DisplayName("已登录管理员可调用在线 TTS 合成 API（窄 INVITED_GUEST 声明经 resolve 覆盖宽 /api/tts/** = ADMIN，仍受 monitor 保护、管理员放行）")
+        @DisplayName("TTS 插件未安装时，管理员访问在线 TTS 合成 API 返回 404")
         void shouldAllowAdminTtsSynthesizeApi() throws Exception {
-            when(setupService.isValidSession("valid-token")).thenReturn(true);
-
             request.setMethod("POST");
             request.setRequestURI("/api/tts/edge/synthesize");
             request.setRemoteAddr("192.168.1.100");
@@ -856,11 +854,12 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            verify(filterChain).doFilter(request, response);
+            assertThat(response.getStatus()).isEqualTo(404);
+            verify(filterChain, never()).doFilter(request, response);
         }
 
         @Test
-        @DisplayName("未登录普通游客对 /api/tts/** 下未被窄声明覆盖的路径仍按 ADMIN 受保护（401）")
+        @DisplayName("TTS 插件未安装时，/api/tts/** 其它路径同样返回 404")
         void shouldRejectAnonymousOnOtherTtsAdminPath() throws Exception {
             request.setMethod("GET");
             request.setRequestURI("/api/tts/voice-list");
@@ -868,7 +867,7 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(401);
+            assertThat(response.getStatus()).isEqualTo(404);
             verify(filterChain, never()).doFilter(request, response);
         }
 

@@ -383,8 +383,8 @@ const NOVEL_SLOTS = {
         '<label for="search-words-max" data-i18n="novel:batch.search.words-max">最多字数</label>' +
         '<input type="number" id="search-words-max" min="0" step="100" data-i18n-placeholder="search.unlimited" placeholder="不限"' +
         ' onchange="handleSearchFilterChange()"></div>',
-    // 小说设置卡（格式 / 合订 / 下载即自动翻译）；id / class 与宿主 loadSettings/syncSettings/
-    // applyNovelSettingsVisibility/updateNovelTranslateVisibility 既有契约一致
+    // 小说设置卡（格式 / 合订）；下载即自动翻译由 AI 插件经 settings-card-ai 槽位贡献。
+    // id / class 与宿主 loadSettings/syncSettings/applyNovelSettingsVisibility 既有契约一致
     'settings-card':
         '<div class="card" id="novel-settings-card">' +
         '<div class="card-title" data-i18n="card.novel-settings">小说设置</div>' +
@@ -410,22 +410,6 @@ const NOVEL_SLOTS = {
         '<div class="setting-item" id="s-novel-merge-format-hint"' +
         ' style="grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5;"' +
         ' data-i18n="novel:batch.merge-format-hint">推荐 EPUB：内嵌封面与插图、按「小说 → 章节」生成可跳转的多级目录、带书名/作者/简介等信息可在阅读器书架显示；TXT/HTML 为无插图的纯文本 / 单页备选。</div>' +
-        '<div class="setting-item" id="s-novel-auto-translate-row" style="display:none;">' +
-        '<input type="checkbox" id="s-novel-auto-translate">' +
-        '<label for="s-novel-auto-translate" style="cursor:pointer;" data-i18n="novel:batch.auto-translate-label">新下载小说自动翻译</label>' +
-        '</div>' +
-        '<div class="setting-item" id="s-novel-translate-lang-row" style="display:none;">' +
-        '<label for="s-novel-translate-lang" data-i18n="novel:batch.translate-lang-label">目标语言:</label>' +
-        '<input type="text" id="s-novel-translate-lang" spellcheck="false"' +
-        ' style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;max-width:160px;">' +
-        '</div>' +
-        '<div class="setting-item" id="s-novel-translate-seg-row" style="display:none;">' +
-        '<label for="s-novel-translate-seg" data-i18n="novel:batch.translate-seg-label">分段字数:</label>' +
-        '<input type="number" id="s-novel-translate-seg" min="0" step="500" value="0"' +
-        ' style="padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:13px;max-width:120px;">' +
-        '</div>' +
-        '<div class="setting-item" id="s-novel-translate-hint" style="display:none;grid-column:1/-1;font-size:12px;color:var(--muted);line-height:1.5;"' +
-        ' data-i18n="novel:batch.translate-glossary-hint">自动翻译固定使用该小说 / 系列的默认名词映射表，不支持在此指定其它映射表。</div>' +
         '</div></div>'
 };
 
@@ -971,7 +955,7 @@ const NOVEL_DESCRIPTOR = {
         },
         bookmarkCountFetch: getNovelBookmarkCountForSearch
     },
-    // 小说设置卡（格式 / 合订 / 自动翻译）；宿主按模式 + kind 显隐。
+    // 小说设置卡（格式 / 合订）；宿主按模式 + kind 显隐。
     settings: {cardId: 'novel-settings-card'},
     acquisition: {
         user: {
