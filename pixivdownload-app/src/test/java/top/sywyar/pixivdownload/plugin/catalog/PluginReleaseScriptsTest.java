@@ -93,6 +93,8 @@ class PluginReleaseScriptsTest {
                 "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 }}",
                 "PLUGIN_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.PLUGIN_SIGNING_PRIVATE_KEY_PEM }}",
                 "FromBase64String",
+                "PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 is not valid Base64",
+                "gh secret set PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 --repo Sywyar/PixivDownloader --body",
                 "Prepared plugin signing private key contains '?' characters",
                 "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile",
                 "-OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID",

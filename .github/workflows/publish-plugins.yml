@@ -54,7 +54,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $signingDir | Out-Null
           $privateKeyFile = Join-Path $signingDir "official-ed25519-private-key.pem"
           if (-not [string]::IsNullOrWhiteSpace($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64)) {
-            $privateKeyBytes = [System.Convert]::FromBase64String(($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', ''))
+            $privateKeyPemBase64 = ($env:PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 -replace '\s', '')
+            try {
+              $privateKeyBytes = [System.Convert]::FromBase64String($privateKeyPemBase64)
+            } catch {
+              throw "GitHub Actions secret PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 is not valid Base64. Regenerate it from the original PEM bytes and upload it with: `$privateKeyPemBase64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes('.\official-ed25519-private.pem')); gh secret set PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 --repo Sywyar/PixivDownloader --body `$privateKeyPemBase64"
+            }
             [System.IO.File]::WriteAllBytes($privateKeyFile, $privateKeyBytes)
           } else {
             $pem = $env:PLUGIN_SIGNING_PRIVATE_KEY_PEM
