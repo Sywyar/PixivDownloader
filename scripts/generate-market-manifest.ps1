@@ -242,7 +242,7 @@ $manifest = [ordered]@{
     entries       = @($entries)
 }
 
-$json = $manifest | ConvertTo-Json -Depth 12
+$json = ($manifest | ConvertTo-Json -Depth 12) -replace "`r`n", "`n" -replace "`r", "`n"
 $bytes = $Utf8NoBom.GetBytes($json)
 if ($bytes.Length -gt 1MB) {
     throw "Generated manifest is $($bytes.Length) bytes (> 1MB limit). Trim display fields."

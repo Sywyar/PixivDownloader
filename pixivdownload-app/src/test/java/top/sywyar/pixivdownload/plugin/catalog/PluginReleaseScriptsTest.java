@@ -26,6 +26,7 @@ class PluginReleaseScriptsTest {
                 "signatureUrl      = \"$packageUrl.sig\"",
                 "schemaVersion = \"1\"",
                 "$manifestSignatureFile = \"$OutputFile.sig\"",
+                "ConvertTo-Json -Depth 12) -replace \"`r`n\", \"`n\" -replace \"`r\", \"`n\"",
                 "\"manifest\"",
                 "\"--manifest\", $OutputFile",
                 "\"--repository-id\", \"official\""

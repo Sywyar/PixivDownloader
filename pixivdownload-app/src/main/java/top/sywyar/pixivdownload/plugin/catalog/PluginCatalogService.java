@@ -160,6 +160,8 @@ public class PluginCatalogService {
         VerificationResult result = verifierFor(repository).verifyManifest(new ManifestVerificationRequest(bytes,
                 repository.repositoryId(), signature, policy(repository)));
         if (!result.accepted()) {
+            log.warn("Plugin catalog manifest signature verification failed for repository {}: {} ({})",
+                    repository.repositoryId(), result.status(), result.diagnosticCode());
             throw new PluginCatalogException(PluginCatalogErrorCode.CATALOG_UNAVAILABLE,
                     "catalog manifest signature verification failed: " + result.status());
         }
