@@ -4,13 +4,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
-import top.sywyar.pixivdownload.plugin.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
-import top.sywyar.pixivdownload.plugin.runtime.DiscoveredFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

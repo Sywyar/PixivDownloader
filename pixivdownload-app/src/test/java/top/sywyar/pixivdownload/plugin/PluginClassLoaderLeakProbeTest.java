@@ -28,6 +28,15 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 
 /**
  * 外置插件 classloader 泄漏探针（always-run，受控子 classloader、不依赖真实 PF4J jar）：钉死「外置插件的 web /

@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 @DisplayName("DatabaseSchemaInspector 集成测试")
 class DatabaseSchemaInspectorTest {
@@ -50,7 +51,7 @@ class DatabaseSchemaInspectorTest {
 
     /** 受管 schema 的期望形态：内置插件 contribution 经 DatabaseSchemaRegistry 合并的结果。 */
     private static final ManagedDatabaseSchema.DatabaseSchema MERGED_SPEC =
-            top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema();
+            top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema();
 
     private ManagedDatabaseSchema.DatabaseSchema specSubset(Set<String> tableNames) {
         java.util.LinkedHashMap<String, ManagedDatabaseSchema.TableSpec> subset = new java.util.LinkedHashMap<>();
@@ -384,8 +385,8 @@ class DatabaseSchemaInspectorTest {
     class ProductionSchemaTests {
 
         private DatabaseInitializer newInitializer(javax.sql.DataSource ds) {
-            top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry registry =
-                    top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry.forBuiltInPlugins();
+            top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry registry =
+                    top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry.forBuiltInPlugins();
             return new DatabaseInitializer(
                     new org.springframework.jdbc.core.JdbcTemplate(ds),
                     registry.contributions(), registry.mergedSchema(),

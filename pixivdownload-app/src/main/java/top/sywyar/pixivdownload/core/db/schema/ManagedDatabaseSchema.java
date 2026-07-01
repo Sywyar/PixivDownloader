@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.core.db.schema;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 /**
  * 受管 SQLite schema 的归一化 record 模型。

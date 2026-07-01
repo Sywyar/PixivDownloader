@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 @DisplayName("PixivDatabase 集成测试")
 class PixivDatabaseTest {
@@ -40,8 +41,8 @@ class PixivDatabaseTest {
         PathPrefixMapper pathPrefixMapper = sqlSession.getMapper(PathPrefixMapper.class);
 
         // 建表 / 补列 / 索引统一由 DatabaseInitializer 执行（含 deleteArtwork 清理的 artwork_collections）
-        top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry registry =
-                top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry.forBuiltInPlugins();
+        top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry registry =
+                top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry.forBuiltInPlugins();
         DatabaseInitializer initializer = new DatabaseInitializer(
                 new org.springframework.jdbc.core.JdbcTemplate(dataSource),
                 registry.contributions(), registry.mergedSchema(),

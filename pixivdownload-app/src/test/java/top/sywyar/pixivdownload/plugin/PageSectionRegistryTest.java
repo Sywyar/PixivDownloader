@@ -10,6 +10,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
  * {@code PageSectionRegistry} 的注册期不变量与「namespace + 纯 key」必填语义：区块 id 全局唯一、可逆注册、

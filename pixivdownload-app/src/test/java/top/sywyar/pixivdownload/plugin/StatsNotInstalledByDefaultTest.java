@@ -6,6 +6,10 @@ import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 
 /**
  * 未安装 stats 外置插件时的核心默认语义（requirement：未安装 stats 时其导航 / route / static / i18n contribution

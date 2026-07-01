@@ -2,14 +2,14 @@ package top.sywyar.pixivdownload.plugin.runtime.bootstrap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.sywyar.pixivdownload.plugin.runtime.PluginDirectoryState;
-import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
-import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
-import top.sywyar.pixivdownload.plugin.runtime.PluginLoadFailure;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 
 import java.nio.file.Path;
@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 
 /**
  * 进程级插件运行时 bootstrap 会话：把「恢复待处理安装事务 → 构造唯一 {@link PluginRuntimeManager} → 一次启动扫描与
@@ -75,7 +76,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
         Function<PluginPackageOrigin, PluginSupplyChainVerifier> effectiveResolver =
                 Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.installer = new ExternalPluginInstaller(this.pluginsRoot,
-                top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageLimits.defaults(), effectiveResolver);
+                top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits.defaults(), effectiveResolver);
         this.manager = new PluginRuntimeManager(this.pluginsRoot, effectiveResolver);
     }
 

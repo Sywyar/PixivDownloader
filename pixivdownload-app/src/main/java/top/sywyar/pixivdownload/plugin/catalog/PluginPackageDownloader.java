@@ -10,6 +10,8 @@ import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 
 /**
  * 受信 catalog 插件包下载器：把一个 catalog 声明的版本包 {@link PluginCatalogPackage} 经 SSRF 安全的

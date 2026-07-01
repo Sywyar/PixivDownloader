@@ -7,8 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.PluginDirectoryState;
-import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
@@ -18,6 +18,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 
 /**
  * 真实 Spring 上下文：核心壳在没有 {@code plugins/} 目录时照常启动（输出缺失诊断、不报错），

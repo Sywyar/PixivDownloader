@@ -24,6 +24,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageFormat;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 
 @DisplayName("外置插件安装器：安全安装、Zip Slip 防护与重复 / 升级 / 降级")
 class ExternalPluginInstallerTest {
@@ -421,7 +430,7 @@ class ExternalPluginInstallerTest {
     /** 一个本来合法的解压目录包，但额外塞进一个越界 entry。 */
     private Path zipWithEvilEntry(String evilEntryName) {
         Map<String, byte[]> entries = new LinkedHashMap<>();
-        entries.put(PluginPackageReader.PLUGIN_PROPERTIES,
+        entries.put(PluginPackageFixtures.PLUGIN_PROPERTIES,
                 PluginPackageFixtures.bytes(PluginPackageFixtures.pluginProperties("ext", "1.0.0", null, "com.example.P")));
         entries.put("classes/Marker.class", PluginPackageFixtures.bytes("y"));
         entries.put(evilEntryName, PluginPackageFixtures.bytes("evil-payload"));

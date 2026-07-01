@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import top.sywyar.pixivdownload.plugin.runtime.PluginInstallation;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 
 import java.io.IOException;

@@ -8,6 +8,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 @DisplayName("DownloadTabRegistry 获取方式标签页注册中心")
 class DownloadTabRegistryTest {

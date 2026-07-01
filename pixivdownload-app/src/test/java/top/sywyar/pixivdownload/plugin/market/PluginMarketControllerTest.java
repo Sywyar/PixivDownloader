@@ -7,11 +7,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.PluginInstallReport;
-import top.sywyar.pixivdownload.plugin.PluginInstallResponseMapper;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogException;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 

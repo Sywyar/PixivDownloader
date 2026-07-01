@@ -14,6 +14,13 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 
 @DisplayName("外置插件文件事务：预校验、提交、回滚与启动恢复")
 class ExternalPluginTransactionTest {

@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin.runtime.context;
 
 import java.util.List;
 import java.util.Objects;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PixivPluginDiscoveryBridge;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 
 /**
  * 一个外置插件包的「Spring 子 context 装配定义」：要在子 {@code ApplicationContext} 中实例化的配置类、

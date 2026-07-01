@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.market;
 
-import top.sywyar.pixivdownload.plugin.PluginInstallReport;
-import top.sywyar.pixivdownload.plugin.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogEntry;

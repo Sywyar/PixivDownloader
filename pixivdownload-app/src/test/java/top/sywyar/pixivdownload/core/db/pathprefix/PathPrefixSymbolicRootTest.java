@@ -18,7 +18,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.download.db.PathPrefixStartupMigration;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

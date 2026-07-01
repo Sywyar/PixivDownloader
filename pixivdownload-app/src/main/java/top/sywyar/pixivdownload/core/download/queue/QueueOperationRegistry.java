@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
 
 /**
  * 跨类型下载队列宿主操作注册中心（核心 owned）。收集各方贡献的 {@link QueueOperations} Bean

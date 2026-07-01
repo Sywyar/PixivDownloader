@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
 import org.springframework.http.HttpStatus;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallResponse;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 
 /**
  * 受信 catalog 操作失败的稳定机器码：每个常量绑定固定 HTTP 状态与一条 i18n 文案 key。{@link #name()} 即对外返回的稳定

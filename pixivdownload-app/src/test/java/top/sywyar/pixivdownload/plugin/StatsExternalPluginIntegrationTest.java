@@ -8,11 +8,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.DiscoveredFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.PluginDirectoryState;
-import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
-import top.sywyar.pixivdownload.plugin.runtime.PluginInstallation;
-import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
@@ -28,6 +28,11 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 
 /**
  * stats 外置插件启动期加载的端到端集成测试：用<b>真实</b> stats 插件 jar（由本模块编译产物 + 根部

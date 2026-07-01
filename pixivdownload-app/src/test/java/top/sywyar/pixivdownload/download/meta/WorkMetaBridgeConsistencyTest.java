@@ -32,7 +32,7 @@ import top.sywyar.pixivdownload.download.StagedFileDeletion;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
-import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkSidecarMeta;
 import top.sywyar.pixivdownload.plugin.api.work.model.WorkType;

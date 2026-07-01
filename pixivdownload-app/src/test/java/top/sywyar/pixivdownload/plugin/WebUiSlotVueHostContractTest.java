@@ -10,6 +10,11 @@ import java.nio.file.NoSuchFileException;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
+import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 
 /**
  * 下载页 Web UiSlot 槽位「主路径 Vue 渲染 + 命令式回退」契约的静态守卫：保证页面初始化后每个已开出的

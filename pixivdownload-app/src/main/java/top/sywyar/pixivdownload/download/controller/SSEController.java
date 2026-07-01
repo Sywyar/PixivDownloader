@@ -22,7 +22,7 @@ import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import javax.crypto.Cipher;

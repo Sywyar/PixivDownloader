@@ -8,6 +8,13 @@ import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DrilldownRegistry;
+import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 
 /**
  * 插件禁用语义：禁用功能插件 → 其导航 / 路由等贡献不再注册（经活动快照排除），但受管 schema 不变

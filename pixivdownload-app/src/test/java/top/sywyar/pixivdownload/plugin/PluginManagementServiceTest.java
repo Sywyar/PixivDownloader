@@ -23,6 +23,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementException;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
  * {@link PluginManagementService} 单测：读模型合并（来源 / 受管 / 阶段 / 必选 / 可用动词）与运行期动词前置守卫

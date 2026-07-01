@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 
 import java.util.ArrayList;
 import java.util.List;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 
 /**
  * GUI 插件管理面板的<b>纯展示模型</b>：把 {@code /api/gui/plugins/status} 的响应（可达性 + HTTP 状态码 + JSON 正文）

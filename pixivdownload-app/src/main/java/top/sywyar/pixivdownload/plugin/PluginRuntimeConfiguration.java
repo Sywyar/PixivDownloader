@@ -7,8 +7,8 @@ import org.springframework.context.annotation.Scope;
 import org.springframework.core.env.Environment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
-import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
-import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
@@ -24,6 +24,11 @@ import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegist
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeGate;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
  * 核心壳侧装配 PF4J 外置插件运行时。本配置不再自行 {@code new PluginRuntimeManager} / 调用

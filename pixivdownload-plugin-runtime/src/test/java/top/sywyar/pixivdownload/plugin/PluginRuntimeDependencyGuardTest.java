@@ -10,10 +10,12 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import top.sywyar.pixivdownload.plugin.runtime.DiscoveredFeaturePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.PixivPluginDiscoveryBridge;
-import top.sywyar.pixivdownload.plugin.runtime.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PixivPluginDiscoveryBridge;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 
 /**
  * plugin-runtime 边界守卫：证明本模块是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接——
@@ -82,7 +84,7 @@ class PluginRuntimeDependencyGuardTest {
                 .should().dependOnClassesThat()
                 .haveFullyQualifiedName("top.sywyar.pixivdownload.plugin.BuiltInPlugins")
                 .orShould().dependOnClassesThat()
-                .haveFullyQualifiedName("top.sywyar.pixivdownload.plugin.PluginRegistry")
+                .haveFullyQualifiedName("top.sywyar.pixivdownload.plugin.registry.PluginRegistry")
                 .orShould().dependOnClassesThat()
                 .haveFullyQualifiedName("top.sywyar.pixivdownload.plugin.CorePlugin")
                 .because("关键解环手：plugin-runtime 在所有插件模块之下，绝不能回指 app 的组合根 BuiltInPlugins / "
@@ -141,7 +143,7 @@ class PluginRuntimeDependencyGuardTest {
         assertThat(CLASSES.contain(
                 top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus.class.getName())).isTrue();
         assertThat(CLASSES.contain(
-                top.sywyar.pixivdownload.plugin.runtime.PluginDirectoryState.class.getName())).isTrue();
+                top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState.class.getName())).isTrue();
         assertThat(CLASSES.contain(PixivPluginDiscoveryBridge.class.getName())).isTrue();
         assertThat(CLASSES.contain(DiscoveredFeaturePlugin.class.getName())).isTrue();
         assertThat(CLASSES.contain(PluginDiscoveryResult.class.getName())).isTrue();
@@ -163,7 +165,7 @@ class PluginRuntimeDependencyGuardTest {
         assertThat(CLASSES.contain(
                 top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.class.getName())).isTrue();
         assertThat(CLASSES.contain(
-                top.sywyar.pixivdownload.plugin.runtime.PluginInventory.class.getName())).isTrue();
+                top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory.class.getName())).isTrue();
     }
 
     @Test

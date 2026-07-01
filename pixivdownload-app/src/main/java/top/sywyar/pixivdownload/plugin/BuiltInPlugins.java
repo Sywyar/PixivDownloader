@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.schedule.ScheduleHostPlugin;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
  * 内置插件组合根清单。供 Spring 上下文之外的入口（如 GUI 启动期的 schema 检查）

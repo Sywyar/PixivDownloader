@@ -7,6 +7,10 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 
 /**
  * recovery-sentinel 不进主程序 boot jar 的守卫：它是外置 PF4J 插件（{@code provided} 依赖、不被 app 依赖），其类与资源

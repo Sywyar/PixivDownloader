@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.http.HttpStatus;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallOutcomeMapping;
 
 /**
  * {@link PluginInstallOutcomeMapping} 单测：每个安装结果分类都映射到一个 HTTP 状态与一条<b>两种语言都存在</b>的 i18n

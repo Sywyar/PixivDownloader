@@ -17,6 +17,8 @@ import top.sywyar.pixivdownload.schedule.ScheduleService;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 
 /**
  * 必选插件语义（真实 Spring 上下文）：计划任务宿主是必选插件，即便配置 {@code plugins.schedule.enabled=false}

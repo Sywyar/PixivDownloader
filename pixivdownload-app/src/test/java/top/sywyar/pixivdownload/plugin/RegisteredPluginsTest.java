@@ -18,6 +18,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 
 class RegisteredPluginsTest {
 
@@ -92,8 +97,8 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore.class))
             .withBean(top.sywyar.pixivdownload.download.PixivFetchService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.PixivFetchService.class))
-            .withBean(top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.class))
+            .withBean(top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry.class))
             .withBean(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class))
             .withBean(top.sywyar.pixivdownload.download.ArtworkDownloader.class,
@@ -132,11 +137,11 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService.class))
             .withBean(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class))
-            .withBean(top.sywyar.pixivdownload.plugin.PluginInstallResponseMapper.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.PluginInstallResponseMapper.class))
+            .withBean(top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper.class))
             // 插件市场服务现额外只读 PluginStatusService（投影安装状态），本切片 mock 兜底。
-            .withBean(top.sywyar.pixivdownload.plugin.PluginStatusService.class,
-                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.PluginStatusService.class))
+            .withBean(top.sywyar.pixivdownload.plugin.management.PluginStatusService.class,
+                    () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.management.PluginStatusService.class))
             .withBean(top.sywyar.pixivdownload.i18n.AppLocaleResolver.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.i18n.AppLocaleResolver.class))
             // 插件启用开关：空实例代表全部启用（本切片不验证禁用语义，只需 PluginRegistry 的 @Autowired 构造可解析）。

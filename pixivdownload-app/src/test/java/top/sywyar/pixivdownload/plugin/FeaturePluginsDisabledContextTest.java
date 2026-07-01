@@ -21,6 +21,7 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.schedule.ScheduleRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
  * 禁用语义（真实 Spring 上下文）：同时禁用 gallery / duplicate 两个可禁用功能插件，并尝试禁用核心插件

@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.i18n;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
-import top.sywyar.pixivdownload.plugin.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 import java.util.Locale;
 

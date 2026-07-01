@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginStream;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 
 /**
  * 插件推流宿主注册中心测试：按 pluginId 注册 / 注销可关闭推流、{@code closeForPlugin} 关闭并清退（不残留引用、

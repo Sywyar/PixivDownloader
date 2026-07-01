@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.plugin.runtime;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 
 /**
  * 一次插件运行时扫描 / 加载的结果快照（不可变）。核心壳与后续流程据此判断：

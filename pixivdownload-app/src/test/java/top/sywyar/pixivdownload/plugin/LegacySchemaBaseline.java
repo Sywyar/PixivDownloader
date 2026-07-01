@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema.TableSpec;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 /**
  * 对照基线：v1.13.0 周期 {@code ManagedDatabaseSchema.createSpec()} 的原文拷贝。

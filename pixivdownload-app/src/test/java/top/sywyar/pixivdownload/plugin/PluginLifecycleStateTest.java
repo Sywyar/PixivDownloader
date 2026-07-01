@@ -5,6 +5,9 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 
 /**
  * 外置插件运行期生命周期状态机测试：合法流转、非法流转的清晰诊断、quiesce 观测、强制收尾与移除。

@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixColumns;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 @Configuration
 public class CorePluginConfiguration {

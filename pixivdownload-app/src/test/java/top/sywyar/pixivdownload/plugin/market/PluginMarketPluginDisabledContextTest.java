@@ -8,14 +8,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
-import top.sywyar.pixivdownload.plugin.NavigationRegistry;
-import top.sywyar.pixivdownload.plugin.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementController;
 
 /**
  * 禁用语义（真实 Spring 上下文）：{@code plugins.plugin-market.enabled=false} 时，插件市场托管业务 Bean
@@ -102,6 +103,6 @@ class PluginMarketPluginDisabledContextTest {
                 top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService.class)).hasSize(1);
         // 插件管理后端（/api/plugins/**）归核心、与市场正交，不受影响。
         assertThat(context.getBeanNamesForType(
-                top.sywyar.pixivdownload.plugin.PluginManagementController.class)).hasSize(1);
+                top.sywyar.pixivdownload.plugin.management.PluginManagementController.class)).hasSize(1);
     }
 }

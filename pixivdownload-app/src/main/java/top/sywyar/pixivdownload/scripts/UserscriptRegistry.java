@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.scripts;
 
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.plugin.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 

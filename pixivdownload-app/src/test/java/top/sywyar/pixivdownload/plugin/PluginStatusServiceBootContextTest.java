@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 
 /**
  * 真实 Spring 上下文：无 {@code plugins/} 目录时，插件状态服务把七个内置插件都报告为 {@link PluginStatus#STARTED}、

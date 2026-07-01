@@ -19,6 +19,11 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
+import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrationException;
 
 /**
  * 外置插件 controller 动态注册器测试：用真实（已初始化）的 {@link PluginAwareRequestMappingHandlerMapping} +

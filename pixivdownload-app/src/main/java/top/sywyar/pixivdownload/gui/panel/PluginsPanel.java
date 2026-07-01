@@ -12,6 +12,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.net.URI;
 import java.util.function.Function;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 
 /**
  * “插件”页：在桌面端只读展示已发现插件的安装 / 运行状态（外置统计插件等），并把启用 / 停用 / 安装 / 卸载等写操作清楚地

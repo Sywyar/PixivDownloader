@@ -15,17 +15,18 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 插件包结构防增长守卫：把「宽根包直接类型只降不升」与「bootstrap 子包 Spring-free」固化为实际执行的守卫。
+ * 插件包结构防增长守卫：把「宽根包直接类型只降不升」、根包入口 allowlist 与 bootstrap 子包 Spring-free 固化为实际执行的守卫。
  * <ul>
- *   <li>app 的 {@code plugin} 根包直接类型 ≤ 56；plugin-runtime 的 {@code plugin.runtime} 根包 ≤ 13、
- *       {@code plugin.runtime.install} 根包 ≤ 18（当前基线，只降不升）。</li>
- *   <li>GUI bootstrap 新类全部落在 {@code plugin.runtime.bootstrap} 子包，不堆进宽根包。</li>
+ *   <li>app 的 {@code plugin} 根包直接类型 ≤ 4；plugin-runtime 的 {@code plugin.runtime} 根包 ≤ 2、
+ *       {@code plugin.runtime.install} 根包 ≤ 1（当前基线，只降不升）。</li>
+ *   <li>根包只允许少数入口 / 装配类；注册、管理、生命周期、安装响应、Web 动态注册等职责必须落入子包。</li>
+ *   <li>GUI bootstrap 类全部落在 {@code plugin.runtime.bootstrap} 子包，不堆进宽根包。</li>
  *   <li>{@code plugin.runtime.bootstrap} 子包<b>零</b> Spring / Swing / FlatLaf / JNA / app 包依赖——
  *       它是 Spring-free 中性载体（较宽的 {@code plugin.runtime} 树本身允许 Spring，故此约束是该子包的专项守卫）。</li>
  * </ul>
  * 直接类型 = 非嵌套的顶级类型，与各根包 {@code .java} 文件数一致（这些包无 package-info、每文件一个顶级类型）。
  */
-@DisplayName("插件包结构防增长守卫：宽根包只降不升（56/13/18）+ bootstrap 子包 Spring-free")
+@DisplayName("插件包结构防增长守卫：宽根包只降不升（4/2/1）+ bootstrap 子包 Spring-free")
 class PluginPackageStructureGuardTest {
 
     private static final JavaClasses CLASSES = new ClassFileImporter()
@@ -34,14 +35,30 @@ class PluginPackageStructureGuardTest {
 
     private static final String PLUGIN_ROOT = "top.sywyar.pixivdownload.plugin";
     private static final String RUNTIME_ROOT = "top.sywyar.pixivdownload.plugin.runtime";
+    private static final String RUNTIME_DISCOVERY_ROOT = "top.sywyar.pixivdownload.plugin.runtime.discovery";
     private static final String INSTALL_ROOT = "top.sywyar.pixivdownload.plugin.runtime.install";
+    private static final String INSTALL_MODEL_ROOT = "top.sywyar.pixivdownload.plugin.runtime.install.model";
+    private static final String INSTALL_VERIFY_ROOT = "top.sywyar.pixivdownload.plugin.runtime.install.verify";
+    private static final String INSTALL_TRANSACTION_ROOT = "top.sywyar.pixivdownload.plugin.runtime.install.transaction";
+    private static final String INSTALL_PROVENANCE_ROOT = "top.sywyar.pixivdownload.plugin.runtime.install.provenance";
     private static final String BOOTSTRAP_ROOT = "top.sywyar.pixivdownload.plugin.runtime.bootstrap";
 
+    private static final int APP_PLUGIN_ROOT_BASELINE = 4;
+    private static final int RUNTIME_ROOT_BASELINE = 2;
+    private static final int INSTALL_ROOT_BASELINE = 1;
+
+    private static final java.util.Set<String> APP_PLUGIN_ROOT_ALLOWLIST = java.util.Set.of(
+            "BuiltInPlugins", "CorePlugin", "CorePluginConfiguration", "PluginRuntimeConfiguration");
+    private static final java.util.Set<String> RUNTIME_ROOT_ALLOWLIST = java.util.Set.of(
+            "PluginRuntimeManager", "PluginRuntimeStatus");
+    private static final java.util.Set<String> INSTALL_ROOT_ALLOWLIST = java.util.Set.of(
+            "ExternalPluginInstaller");
+
     /**
-     * {@code top.sywyar.pixivdownload.plugin} 是<b>拆分包</b>：app 的 56 个 plugin 根包类型 +
+     * {@code top.sywyar.pixivdownload.plugin} 是<b>拆分包</b>：app 的 4 个 plugin 根包入口类型 +
      * plugin-runtime 的启用三件套（{@code ConditionalOnPluginEnabled} / {@code OnPluginEnabledCondition} /
      * {@code PluginToggleProperties}，包名相同但属 plugin-runtime 模块）。ArchUnit 在合并 classpath 上无法区分模块来源，
-     * 故按简单名排除这 3 个 plugin-runtime 拆分类型，得到 app 自有的 56。
+     * 故按简单名排除这 3 个 plugin-runtime 拆分类型，得到 app 自有的 4。
      */
     private static final java.util.Set<String> PLUGIN_RUNTIME_SPLIT_TYPES = java.util.Set.of(
             "ConditionalOnPluginEnabled", "OnPluginEnabledCondition", "PluginToggleProperties");
@@ -74,7 +91,7 @@ class PluginPackageStructureGuardTest {
     }
 
     @Test
-    @DisplayName("app 的 plugin 根包直接类型 ≤ 56（只降不升基线，排除 plugin-runtime 拆分包三件套）")
+    @DisplayName("app 的 plugin 根包直接类型 ≤ 4（只降不升基线，排除 plugin-runtime 拆分包三件套）")
     void appPluginRootPackageDoesNotGrow() {
         long appOwned = CLASSES.stream()
                 .filter(c -> c.getPackageName().equals(PLUGIN_ROOT))
@@ -82,24 +99,81 @@ class PluginPackageStructureGuardTest {
                 .filter(c -> !PLUGIN_RUNTIME_SPLIT_TYPES.contains(c.getSimpleName()))
                 .count();
         assertThat(appOwned)
-                .as("app plugin 根包直接类型数（基线 56，只降不升；已排除 plugin-runtime 拆分包三件套）")
-                .isLessThanOrEqualTo(56);
+                .as("app plugin 根包直接类型数（基线 4，只降不升；已排除 plugin-runtime 拆分包三件套）")
+                .isLessThanOrEqualTo(APP_PLUGIN_ROOT_BASELINE);
     }
 
     @Test
-    @DisplayName("plugin-runtime 的 plugin.runtime 根包直接类型 ≤ 13（只降不升基线）")
+    @DisplayName("plugin-runtime 的 plugin.runtime 根包直接类型 ≤ 2（只降不升基线）")
     void runtimeRootPackageDoesNotGrow() {
         assertThat(directTypes(RUNTIME_ROOT))
-                .as("plugin.runtime 根包直接类型数（基线 13，只降不升）")
-                .isLessThanOrEqualTo(13);
+                .as("plugin.runtime 根包直接类型数（基线 2，只降不升）")
+                .isLessThanOrEqualTo(RUNTIME_ROOT_BASELINE);
     }
 
     @Test
-    @DisplayName("plugin-runtime 的 plugin.runtime.install 根包直接类型 ≤ 18（只降不升基线）")
+    @DisplayName("plugin-runtime 的 plugin.runtime.install 根包直接类型 ≤ 1（只降不升基线）")
     void installRootPackageDoesNotGrow() {
         assertThat(directTypes(INSTALL_ROOT))
-                .as("plugin.runtime.install 根包直接类型数（基线 18，只降不升）")
-                .isLessThanOrEqualTo(18);
+                .as("plugin.runtime.install 根包直接类型数（基线 1，只降不升）")
+                .isLessThanOrEqualTo(INSTALL_ROOT_BASELINE);
+    }
+
+    @Test
+    @DisplayName("三个宽根包只允许少数入口类，职责类必须落入子包")
+    void wideRootPackagesContainOnlyEntrypoints() {
+        assertThat(directTypeNames(PLUGIN_ROOT).stream()
+                .filter(name -> !PLUGIN_RUNTIME_SPLIT_TYPES.contains(name)).toList())
+                .as("app plugin 根包只允许组合根 / core descriptor / runtime 配置入口")
+                .containsExactlyInAnyOrderElementsOf(APP_PLUGIN_ROOT_ALLOWLIST);
+        assertThat(directTypeNames(RUNTIME_ROOT))
+                .as("plugin.runtime 根包只允许运行时 manager / status 入口")
+                .containsExactlyInAnyOrderElementsOf(RUNTIME_ROOT_ALLOWLIST);
+        assertThat(directTypeNames(INSTALL_ROOT))
+                .as("plugin.runtime.install 根包只允许安装 facade")
+                .containsExactlyInAnyOrderElementsOf(INSTALL_ROOT_ALLOWLIST);
+    }
+
+    @Test
+    @DisplayName("plugin.runtime.discovery 不依赖 app 侧插件注册 / 管理 / 市场 / catalog / verification 包")
+    void runtimeDiscoveryDoesNotDependOnAppPluginPackages() {
+        noClasses().that().resideInAPackage(RUNTIME_DISCOVERY_ROOT + "..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        "top.sywyar.pixivdownload.gui..",
+                        "top.sywyar.pixivdownload.config..",
+                        "top.sywyar.pixivdownload.plugin.registry..",
+                        "top.sywyar.pixivdownload.plugin.management..",
+                        "top.sywyar.pixivdownload.plugin.market..",
+                        "top.sywyar.pixivdownload.plugin.catalog..",
+                        "top.sywyar.pixivdownload.plugin.verification..")
+                .because("runtime discovery 是 plugin-runtime 自包含发现模型，不得反向依赖 app 侧注册中心、管理、市场或 catalog")
+                .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("plugin.runtime.install 子包分层不反向依赖安装 facade 或上层事务职责")
+    void runtimeInstallSubpackagesDoNotDependBackwards() {
+        noClasses().that().resideInAPackage(INSTALL_MODEL_ROOT + "..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        INSTALL_ROOT,
+                        INSTALL_VERIFY_ROOT + "..",
+                        INSTALL_TRANSACTION_ROOT + "..",
+                        INSTALL_PROVENANCE_ROOT + "..")
+                .because("install.model 只承载安装结果 / 来源 / 包检视模型，不能反向依赖校验、事务、provenance 或安装 facade")
+                .check(CLASSES);
+        noClasses().that().resideInAPackage(INSTALL_VERIFY_ROOT + "..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        INSTALL_ROOT,
+                        INSTALL_TRANSACTION_ROOT + "..")
+                .because("install.verify 可依赖 model，但不能反向依赖安装 facade 或事务职责")
+                .check(CLASSES);
+        noClasses().that().resideInAPackage(INSTALL_TRANSACTION_ROOT + "..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        INSTALL_ROOT,
+                        INSTALL_VERIFY_ROOT + "..",
+                        INSTALL_PROVENANCE_ROOT + "..")
+                .because("install.transaction 只描述 prepare / commit 事务记录，不能反向依赖校验、provenance 或安装 facade")
+                .check(CLASSES);
     }
 
     @Test
@@ -140,5 +214,14 @@ class PluginPackageStructureGuardTest {
                 .filter(c -> c.getPackageName().equals(packageName))
                 .filter(c -> !c.isNestedClass())
                 .count();
+    }
+
+    /** 指定包的直接（非嵌套顶级）类型简单名。 */
+    private static java.util.List<String> directTypeNames(String packageName) {
+        return CLASSES.stream()
+                .filter(c -> c.getPackageName().equals(packageName))
+                .filter(c -> !c.isNestedClass())
+                .map(JavaClass::getSimpleName)
+                .toList();
     }
 }

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.schedule;
 
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
+
 /**
  * 计划任务行的内存视图。对应 {@code scheduled_tasks} 表的一行。
  *

@@ -6,8 +6,8 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbeFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbePlugin;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageIntegrity;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -24,6 +24,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
 
 /**
  * PF4J 运行时管理封装的诊断边界测试：覆盖「插件目录不存在 / 空目录 / 含坏包」三类，

@@ -16,6 +16,10 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 
 /**
  * 外置插件 schedule 贡献注册器测试：来源（来自插件元数据 {@code scheduledSources()}）+ 执行器（从子 context 发现的

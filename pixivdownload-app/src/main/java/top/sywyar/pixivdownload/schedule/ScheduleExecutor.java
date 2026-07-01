@@ -26,7 +26,7 @@ import top.sywyar.pixivdownload.core.schedule.work.ScheduledNovelWork;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunner;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
-import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.push.MarkdownEscape;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;

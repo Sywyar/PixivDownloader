@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.schedule;
 
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
+
 /**
  * 来源不可用信号：任务的 {@code type} 在
- * {@link top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry} 解析不到对应来源 provider
+ * {@link top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry} 解析不到对应来源 provider
  * （来源插件被禁 / 卸载，或该类型已被移除）时，由 {@code ScheduleExecutor.runTask} 顶部的来源解析门上抛，
  * 让 {@code runTaskAndRecord} 标 {@link top.sywyar.pixivdownload.core.schedule.ScheduledTask#STATUS_SOURCE_UNAVAILABLE}、清 {@code run_started_time}，
  * <b>绝不发现 / 派发</b>，并经 {@code findDue} 状态门挡住自动重跑。

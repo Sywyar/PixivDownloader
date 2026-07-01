@@ -19,6 +19,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.web.PageSectionController;
 
 /**
  * {@code /api/page-sections} 的可见性过滤与禁用语义：画廊向统计页（stats.sidebar.sections）贡献「视图 / 收藏夹」

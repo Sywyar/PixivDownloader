@@ -21,6 +21,20 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
+import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 
 /**
  * 外置插件子 context 生命周期的 {@code SmartLifecycle} 驱动测试：验证 {@link ExternalPluginContextManager} 把核心壳

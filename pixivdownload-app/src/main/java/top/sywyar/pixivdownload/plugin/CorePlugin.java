@@ -25,6 +25,14 @@ import top.sywyar.pixivdownload.setup.guest.GuestInviteSchemaContribution;
 
 import java.util.List;
 import java.util.Set;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementController;
+import top.sywyar.pixivdownload.plugin.registry.DrilldownRegistry;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PageSectionRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.web.DrilldownController;
+import top.sywyar.pixivdownload.plugin.web.NavigationController;
+import top.sywyar.pixivdownload.plugin.web.PageSectionController;
 
 /**
  * 核心插件：承载核心层（schema、公共静态资源、基础路由等）的 contribution 声明。

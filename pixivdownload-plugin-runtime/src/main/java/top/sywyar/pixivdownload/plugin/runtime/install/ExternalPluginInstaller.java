@@ -26,6 +26,22 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageFormat;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionState;
+import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVersion;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.ZipSafety;
 
 /**
  * 外置插件安装器：把一个 {@code .zip} / {@code .jar} 安装包安全地装入运行时插件目录

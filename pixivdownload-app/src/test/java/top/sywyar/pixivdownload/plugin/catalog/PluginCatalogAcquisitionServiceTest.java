@@ -6,14 +6,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.plugin.PluginInstallReport;
-import top.sywyar.pixivdownload.plugin.PluginInstallService;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageLimits;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 
 import java.io.IOException;
@@ -27,6 +27,7 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 
 /**
  * {@link PluginCatalogAcquisitionService} 单测（真实安装器 + loopback 桩，端到端）：按 id+version 选包 → 下载 → 经

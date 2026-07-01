@@ -13,6 +13,9 @@ import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
 
 /**
  * 必选插件语义（真实 Spring 上下文）：下载工作台是必选插件，即便配置

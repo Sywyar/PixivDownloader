@@ -1,8 +1,10 @@
 package top.sywyar.pixivdownload.plugin.market;
 
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+
 /**
  * 市场条目的安装状态（稳定机器码，与界面语言无关；前端按机器语义分支、文案另走 i18n）。由后端把受信 catalog 条目与
- * <b>真实运行时安装状态</b>（{@link top.sywyar.pixivdownload.plugin.PluginStatusService} 只读投影）交叉引用推导，<b>不</b>用
+ * <b>真实运行时安装状态</b>（{@link top.sywyar.pixivdownload.plugin.management.PluginStatusService} 只读投影）交叉引用推导，<b>不</b>用
  * 前端假状态掩盖后端事实。
  *
  * <ul>

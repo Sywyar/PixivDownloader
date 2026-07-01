@@ -11,9 +11,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.plugin.PluginManagementService.LifecycleAction;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService.LifecycleAction;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 
@@ -35,6 +35,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
+import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementController;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementException;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 
 /**
  * {@link PluginManagementController} 单测（MockMvc standalone）：路由 / 路径变量绑定 / JSON 投影、六个运行期动词逐个

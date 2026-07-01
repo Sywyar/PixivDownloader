@@ -15,7 +15,7 @@ import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.notification.NotificationService;
-import top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 import top.sywyar.pixivdownload.schedule.controller.ScheduleController;
 import top.sywyar.pixivdownload.setup.SetupService;
 

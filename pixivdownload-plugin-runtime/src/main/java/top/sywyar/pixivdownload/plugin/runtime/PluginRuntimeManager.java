@@ -10,9 +10,9 @@ import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactMaterializer;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageInspection;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageReader;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
@@ -32,6 +32,17 @@ import java.util.Optional;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PixivPluginDiscoveryBridge;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.LoadedPluginPackage;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimePackagePhase;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.UnloadedPluginPackage;
 
 /**
  * PF4J 外置插件物理生命周期封装。启动扫描与运行期变更共用单包 load/start/stop/unload 原语，

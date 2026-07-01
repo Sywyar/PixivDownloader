@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
-import top.sywyar.pixivdownload.plugin.LandingRegistry;
+import top.sywyar.pixivdownload.plugin.registry.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.setup.AuthFilter;
 import top.sywyar.pixivdownload.setup.LoginRateLimitService;

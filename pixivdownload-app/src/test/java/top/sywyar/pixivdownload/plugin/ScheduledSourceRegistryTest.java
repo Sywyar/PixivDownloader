@@ -12,6 +12,8 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 
 /**
  * 计划任务来源注册中心与枚举包装测试。覆盖：内置 7 个来源对枚举值的全覆盖与规范 type 映射、

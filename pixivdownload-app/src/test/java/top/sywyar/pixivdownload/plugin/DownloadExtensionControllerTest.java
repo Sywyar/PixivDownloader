@@ -12,6 +12,11 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.DownloadTabRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.QueueTypeRegistry;
+import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.web.DownloadExtensionController;
 
 /**
  * {@link DownloadExtensionController} 单测：下载页扩展点端点把 queueType / tab / ui-slot 三类合并后的不可变快照

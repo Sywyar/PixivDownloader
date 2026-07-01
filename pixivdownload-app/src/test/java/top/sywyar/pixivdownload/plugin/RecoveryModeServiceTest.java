@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeDecision;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
@@ -14,6 +14,9 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.Requi
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 @DisplayName("恢复模式服务：据插件状态报告与必选策略判定是否进入恢复模式")
 class RecoveryModeServiceTest {

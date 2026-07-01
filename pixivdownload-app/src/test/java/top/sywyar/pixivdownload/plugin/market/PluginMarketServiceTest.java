@@ -2,8 +2,8 @@ package top.sywyar.pixivdownload.plugin.market;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.PluginInstallReport;
-import top.sywyar.pixivdownload.plugin.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogEntry;
@@ -18,7 +18,7 @@ import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogCategory;
 import top.sywyar.pixivdownload.plugin.catalog.model.PluginCatalogMarketMeta;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport;
 
 import java.util.List;

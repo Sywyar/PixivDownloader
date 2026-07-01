@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
  * 真实 Spring 上下文：下载工作台作为内置必选插件恒在场，恢复模式判定为正常运行（不进入恢复模式、不改变路由行为）；

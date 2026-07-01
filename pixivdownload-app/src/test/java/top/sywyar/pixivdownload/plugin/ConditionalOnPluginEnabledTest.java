@@ -7,6 +7,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
  * {@link ConditionalOnPluginEnabled} 装配语义：未配置默认装配、{@code enabled=false} 缺席、显式

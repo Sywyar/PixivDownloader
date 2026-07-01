@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 
 /**
  * 计划任务「作品类型执行器」注册中心（核心 owned）。收集各方贡献的 {@link ScheduledWorkRunner} Bean
@@ -19,7 +20,7 @@ import java.util.Optional;
  * 无任何执行器 Bean 时为空列表，不阻断启动）。
  *
  * <p>{@link #register} / {@link #unregister} 提供可逆注册语义（镜像
- * {@link top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry} 风格），为后续插件热插拔预留；当前生产路径
+ * {@link top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry} 风格），为后续插件热插拔预留；当前生产路径
  * 经构造器注入的执行器 Bean 列表一次性建表。
  */
 @Component

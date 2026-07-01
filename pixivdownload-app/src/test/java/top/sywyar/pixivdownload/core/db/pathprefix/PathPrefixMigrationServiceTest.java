@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMigrationService.PathPrefixMigrationResult;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMigrationService.PathPrefixUpdate;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 import java.io.IOException;
 import java.nio.file.Files;

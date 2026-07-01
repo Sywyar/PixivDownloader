@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
  * 真实 Spring 上下文：打开显式开关 {@code pixivdownload.recovery-sentinel.required=true}，并把插件目录指向一个不存在的

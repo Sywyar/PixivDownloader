@@ -46,6 +46,23 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginScheduleContributionRegistrar;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginStream;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.registry.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginSource;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
+import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
+import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
+import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 
 /**
  * 外置插件运行期热启停 / quiesce 生命周期服务测试：

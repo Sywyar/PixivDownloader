@@ -19,7 +19,7 @@ import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.response.DownloadResponse;
 import top.sywyar.pixivdownload.download.response.SseStatusData;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-import top.sywyar.pixivdownload.plugin.PluginStreamRegistry;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginStreamRegistry;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;

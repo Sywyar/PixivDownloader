@@ -9,6 +9,8 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 
 @DisplayName("WebUiSlotRegistry UI 槽位注册中心")
 class WebUiSlotRegistryTest {

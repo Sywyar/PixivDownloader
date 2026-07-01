@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.maintenance;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.plugin.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;

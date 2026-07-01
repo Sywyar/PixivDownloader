@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
 
 @DisplayName("小说正文全文检索（FTS5 trigram）")
 class NovelFtsSearchTest {
@@ -40,8 +41,8 @@ class NovelFtsSearchTest {
         sqlSession = factory.openSession(true);
         mapper = sqlSession.getMapper(NovelMapper.class);
         // novels 等受管表建表已统一由 DatabaseInitializer 执行；FTS 虚拟表仍由 NovelMapper 维护
-        top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry registry =
-                top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry.forBuiltInPlugins();
+        top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry registry =
+                top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry.forBuiltInPlugins();
         new top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer(
                 new org.springframework.jdbc.core.JdbcTemplate(dataSource),
                 registry.contributions(), registry.mergedSchema(),

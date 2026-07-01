@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
 
 /**
  * 启动时按 {@link UserscriptRegistry} 声明的来源扫描油猴脚本，解析脚本头部元数据，

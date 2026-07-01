@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.plugin.verification;
 
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogPackage;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageSource;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;

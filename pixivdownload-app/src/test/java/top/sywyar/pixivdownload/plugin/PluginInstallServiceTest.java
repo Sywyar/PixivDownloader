@@ -7,8 +7,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -22,6 +22,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
 
 /**
  * {@link PluginInstallService} 单测：上传本地包 → 临时落盘 → 委托真实 {@link ExternalPluginInstaller} 安装 →

@@ -2,11 +2,11 @@ package top.sywyar.pixivdownload.plugin.runtime.artifact;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeOperationException;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageFormat;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageInspection;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageIntegrity;
-import top.sywyar.pixivdownload.plugin.runtime.install.ZipSafety;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageFormat;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.ZipSafety;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;

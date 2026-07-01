@@ -17,6 +17,7 @@ import java.security.PrivateKey;
 import java.security.Signature;
 import java.util.Base64;
 import java.util.List;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 
 final class PluginSigningTestSupport {
 

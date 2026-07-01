@@ -9,15 +9,17 @@ import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.NetworkUtils;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.WebI18nService;
-import top.sywyar.pixivdownload.plugin.PluginManagementService;
-import top.sywyar.pixivdownload.plugin.PluginManagementService.PluginManagementEntry;
-import top.sywyar.pixivdownload.plugin.PluginManagementService.PluginManagementReport;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementEntry;
+import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginManagementReport;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
+import top.sywyar.pixivdownload.plugin.registry.RouteAccessRegistry;
 
 /**
  * GUI 专用插件状态只读接口。GUI（Swing，与后端同进程）经此读取插件管理视图，在桌面端展示已发现插件的安装 / 运行状态，

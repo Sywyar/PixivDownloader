@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.provenance;
 
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.signature.ArtifactVerificationRequest;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
 import top.sywyar.pixivdownload.plugin.signature.VerificationPolicy;

@@ -5,11 +5,12 @@ import org.springframework.context.annotation.Configuration;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
-import top.sywyar.pixivdownload.plugin.PluginInstallResponseMapper;
-import top.sywyar.pixivdownload.plugin.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogAcquisitionService;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
  * 插件市场插件的 Bean 装配收敛点：descriptor 始终注册（{@code PluginRegistry.allPlugins()} / schema 合并 / disabledPlugins

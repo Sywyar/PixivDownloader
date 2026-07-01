@@ -8,9 +8,9 @@ import top.sywyar.pixivdownload.bootstrapprobe.BackendRestartProbeFeaturePlugin;
 import top.sywyar.pixivdownload.bootstrapprobe.BackendRestartProbePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageIntegrity;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageLimits;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceRecord;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
@@ -44,6 +44,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 @DisplayName("required 外置插件验签失败：PF4J 前阻断并进入恢复模式")
 class PluginRequiredVerificationRecoveryTest {

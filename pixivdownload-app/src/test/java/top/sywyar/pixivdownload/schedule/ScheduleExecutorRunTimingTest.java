@@ -38,6 +38,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ScheduleExecutor 运行计时")
@@ -85,7 +86,7 @@ class ScheduleExecutorRunTimingTest {
         ScheduledWorkRunnerRegistry workRunnerRegistry = new ScheduledWorkRunnerRegistry(
                 List.of(new ScheduledIllustWorkRunner(artworkDownloader)));
         return new ScheduleExecutor(store,
-                top.sywyar.pixivdownload.plugin.ScheduledSourceRegistry.forBuiltInPlugins(),
+                top.sywyar.pixivdownload.plugin.registry.ScheduledSourceRegistry.forBuiltInPlugins(),
                 pixivFetchService, pixivDatabase,
                 org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.meta.WorkMetaCaptureService.class),
                 artworkDownloader, workRunnerRegistry, novelMetadataRepository,

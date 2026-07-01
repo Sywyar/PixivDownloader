@@ -3,10 +3,10 @@ package top.sywyar.pixivdownload.plugin.catalog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import top.sywyar.pixivdownload.plugin.PluginInstallReport;
-import top.sywyar.pixivdownload.plugin.PluginInstallService;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
+import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepository;
-import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 
 import java.io.IOException;
 import java.nio.file.Files;

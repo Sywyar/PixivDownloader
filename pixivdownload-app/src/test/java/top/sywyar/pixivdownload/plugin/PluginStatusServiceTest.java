@@ -5,9 +5,9 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.PluginApiVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
-import top.sywyar.pixivdownload.plugin.runtime.PluginInstallation;
-import top.sywyar.pixivdownload.plugin.runtime.PluginInventory;
-import top.sywyar.pixivdownload.plugin.runtime.PluginLoadFailure;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
+import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginApiRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
@@ -19,6 +19,8 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.Requi
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 @DisplayName("插件状态服务：综合内置注册中心 + 外置清点 + 必选策略产出报告")
 class PluginStatusServiceTest {
