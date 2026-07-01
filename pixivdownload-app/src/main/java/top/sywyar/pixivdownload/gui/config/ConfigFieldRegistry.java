@@ -5,21 +5,26 @@ import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.notification.NotificationConfig;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.MissingResourceException;
+import java.util.Optional;
 import java.util.ResourceBundle;
+import java.util.Set;
 
 import static top.sywyar.pixivdownload.gui.config.FieldType.*;
 
 /**
- * 所有配置字段的单一事实源。
+ * 核心配置字段的单一事实源。
  * <p>
  * {@link #allFields()} 与 {@link #groups()} 在每次调用时按当前 locale 重新构建，
  * 这样 GUI 切换语言后再次构造 {@code ConfigPanel} 即可拿到本地化后的标签与分组名。
@@ -28,6 +33,23 @@ import static top.sywyar.pixivdownload.gui.config.FieldType.*;
 public final class ConfigFieldRegistry {
 
     private ConfigFieldRegistry() {}
+
+    private static final List<CoreGroupDefinition> CORE_GROUPS = List.of(
+            new CoreGroupDefinition(GuiConfigGroups.SERVER, "gui.config.group.server", 100, true),
+            new CoreGroupDefinition(GuiConfigGroups.DOWNLOAD, "gui.config.group.download", 200, true),
+            new CoreGroupDefinition(GuiConfigGroups.PLUGINS, "gui.config.group.plugins", 300, true),
+            new CoreGroupDefinition(GuiConfigGroups.PROXY, "gui.config.group.proxy", 400, true),
+            new CoreGroupDefinition(GuiConfigGroups.MULTI_MODE, "gui.config.group.multi-mode", 500, true),
+            new CoreGroupDefinition(GuiConfigGroups.GUEST_INVITE, "gui.config.group.guest-invite", 600, true),
+            new CoreGroupDefinition(GuiConfigGroups.SECURITY, "gui.config.group.security", 700, true),
+            new CoreGroupDefinition(GuiConfigGroups.MAINTENANCE, "gui.config.group.maintenance", 800, true),
+            new CoreGroupDefinition(GuiConfigGroups.HTTPS, "gui.config.group.https", 900, true),
+            new CoreGroupDefinition(GuiConfigGroups.UPDATE, "gui.config.group.update", 1000, true),
+            new CoreGroupDefinition(GuiConfigGroups.SCHEDULE, "gui.config.group.schedule", 1100, true),
+            new CoreGroupDefinition(GuiConfigGroups.AI, "gui.config.group.ai", 1200, true),
+            new CoreGroupDefinition(GuiConfigGroups.NARRATION_TTS, "gui.config.group.narration-tts", 1250, false),
+            new CoreGroupDefinition(GuiConfigGroups.NOTIFICATION, "gui.config.group.notification", 1300, true)
+    );
 
     /**
      * 多人模式分组名（按当前 locale）。
@@ -63,25 +85,85 @@ public final class ConfigFieldRegistry {
 
     /** 全部分组名（按当前 locale，保持顺序）。 */
     public static List<String> groups() {
-        return List.of(
-                message("gui.config.group.server"),
-                message("gui.config.group.download"),
-                message("gui.config.group.plugins"),
-                message("gui.config.group.proxy"),
-                message("gui.config.group.multi-mode"),
-                message("gui.config.group.guest-invite"),
-                message("gui.config.group.security"),
-                message("gui.config.group.maintenance"),
-                message("gui.config.group.https"),
-                message("gui.config.group.update"),
-                message("gui.config.group.schedule"),
-                message("gui.config.group.ai"),
-                message("gui.config.group.notification")
-        );
+        return snapshot().groups();
     }
 
-    /** 全部配置字段（按当前 locale 重建标签/帮助文本）。 */
+    /** 合并插件 GUI 配置 contribution 后的分组名（按当前 locale，保持顺序）。 */
+    public static List<String> groups(GuiConfigContributionSnapshot pluginContributions) {
+        return snapshot(pluginContributions).groups();
+    }
+
+    /** 核心配置字段（按当前 locale 重建标签/帮助文本）。 */
     public static List<ConfigFieldSpec> allFields() {
+        return coreFields();
+    }
+
+    /** 合并插件 GUI 配置 contribution 后的配置字段。 */
+    public static List<ConfigFieldSpec> allFields(GuiConfigContributionSnapshot pluginContributions) {
+        return snapshot(pluginContributions).fields();
+    }
+
+    /** 核心字段快照。 */
+    public static ConfigFieldSnapshot snapshot() {
+        return snapshot(GuiConfigContributionSnapshot.empty());
+    }
+
+    /** 核心字段 + 已启用插件贡献字段的合并快照。 */
+    public static ConfigFieldSnapshot snapshot(GuiConfigContributionSnapshot pluginContributions) {
+        GuiConfigContributionSnapshot contributions = pluginContributions == null
+                ? GuiConfigContributionSnapshot.empty()
+                : pluginContributions;
+        List<ConfigGroupSpec> mergedGroups = new ArrayList<>(coreGroupSpecs());
+        Set<String> groupIds = mergedGroups.stream()
+                .map(ConfigGroupSpec::id)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        for (ConfigGroupSpec group : contributions.groups()) {
+            if (group != null && groupIds.add(group.id())) {
+                mergedGroups.add(group);
+            }
+        }
+        List<String> groupLabels = mergedGroups.stream()
+                .filter(ConfigGroupSpec::visibleInTabs)
+                .sorted(Comparator.comparingInt(ConfigGroupSpec::order))
+                .map(ConfigGroupSpec::label)
+                .toList();
+        List<ConfigFieldSpec> fields = new ArrayList<>(coreFields());
+        fields.addAll(contributions.fields());
+        return new ConfigFieldSnapshot(groupLabels, fields, contributions.diagnostics());
+    }
+
+    static boolean hasGroupId(String groupId) {
+        return CORE_GROUPS.stream().anyMatch(group -> group.id().equals(groupId));
+    }
+
+    static Optional<String> groupLabel(String groupId) {
+        return coreGroupSpecs().stream()
+                .filter(group -> group.id().equals(groupId))
+                .map(ConfigGroupSpec::label)
+                .findFirst();
+    }
+
+    static Optional<Integer> groupOrder(String groupId) {
+        return CORE_GROUPS.stream()
+                .filter(group -> group.id().equals(groupId))
+                .map(CoreGroupDefinition::order)
+                .findFirst();
+    }
+
+    static Set<String> coreFieldKeys() {
+        return coreFields().stream()
+                .map(ConfigFieldSpec::key)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static List<ConfigGroupSpec> coreGroupSpecs() {
+        return CORE_GROUPS.stream()
+                .map(group -> new ConfigGroupSpec(group.id(), message(group.messageKey()),
+                        group.order(), group.visibleInTabs()))
+                .toList();
+    }
+
+    private static List<ConfigFieldSpec> coreFields() {
         String groupServer = message("gui.config.group.server");
         String groupDownload = message("gui.config.group.download");
         String groupPlugins = message("gui.config.group.plugins");
@@ -1499,19 +1581,38 @@ public final class ConfigFieldRegistry {
      * key；命中即返回；{@code namespace} 为 {@code null}（插件无展示 namespace）或缺失对应文案则返回 key 本身（守卫
      * 测试会暴露）。
      */
-    private static String pluginText(PixivFeaturePlugin plugin, String namespace, String key) {
+    static String pluginText(PixivFeaturePlugin plugin, String namespace, String key) {
+        return pluginText(plugin, plugin.getClass().getClassLoader(), namespace, key);
+    }
+
+    static String pluginText(PixivFeaturePlugin plugin, ClassLoader classLoader, String namespace, String key) {
+        List<I18nContribution> i18nContributions = plugin.i18n();
+        ClassLoader effectiveClassLoader = classLoader == null ? plugin.getClass().getClassLoader() : classLoader;
+        return pluginText(i18nContributions, effectiveClassLoader, namespace, key);
+    }
+
+    static String pluginText(List<I18nContribution> i18nContributions, ClassLoader classLoader,
+                             String namespace, String key) {
         if (namespace == null) {
             return key;
         }
         Locale locale = GuiMessages.currentLocale();
-        ClassLoader classLoader = plugin.getClass().getClassLoader();
-        for (I18nContribution ns : plugin.i18n()) {
+        ClassLoader effectiveClassLoader = classLoader == null
+                ? ConfigFieldRegistry.class.getClassLoader()
+                : classLoader;
+        List<I18nContribution> safeContributions = i18nContributions == null
+                ? List.of()
+                : i18nContributions;
+        for (I18nContribution ns : safeContributions) {
+            if (ns == null) {
+                continue;
+            }
             if (!namespace.equals(ns.namespace())) {
                 continue;
             }
             try {
                 ResourceBundle bundle = ResourceBundle.getBundle(
-                        ns.baseName(), locale, classLoader, PLUGIN_BUNDLE_CONTROL);
+                        ns.baseName(), locale, effectiveClassLoader, PLUGIN_BUNDLE_CONTROL);
                 if (bundle.containsKey(key)) {
                     return bundle.getString(key);
                 }
@@ -1534,5 +1635,8 @@ public final class ConfigFieldRegistry {
         } catch (NumberFormatException e) {
             return message("gui.config.validation.valid-int");
         }
+    }
+
+    private record CoreGroupDefinition(String id, String messageKey, int order, boolean visibleInTabs) {
     }
 }

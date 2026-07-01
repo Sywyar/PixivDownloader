@@ -84,20 +84,36 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private boolean updatingAutoStartCheckBox;
 
     public ConfigPanel(Path configPath, int serverPort, Function<String, String> webUrlProvider) {
+        this(configPath, serverPort, webUrlProvider, ConfigFieldRegistry.snapshot());
+    }
+
+    public ConfigPanel(Path configPath, int serverPort, Function<String, String> webUrlProvider,
+                       ConfigFieldSnapshot fieldSnapshot) {
         this.configPath = configPath;
         this.serverPort = serverPort;
         this.webUrlProvider = webUrlProvider;
         this.editor = new ConfigFileEditor(configPath);
         this.currentMode = resolveCurrentMode();
-        this.allFields = ConfigFieldRegistry.allFields();
-        this.groups = ConfigFieldRegistry.groups();
+        ConfigFieldSnapshot snapshot = fieldSnapshot == null ? ConfigFieldRegistry.snapshot() : fieldSnapshot;
+        this.allFields = snapshot.fields();
+        this.groups = snapshot.groups();
         this.serverGroup = groups.isEmpty() ? "" : groups.get(0);
         this.multiModeGroup = ConfigFieldRegistry.groupMultiMode();
         this.maintenanceGroup = ConfigFieldRegistry.groupMaintenance();
         this.testClient = new GuiConfigTestClient(serverPort);
+        logContributionDiagnostics(snapshot.diagnostics());
         buildUi();
         loadCurrentValues();
         checkFieldDrift();
+    }
+
+    private void logContributionDiagnostics(List<GuiConfigContributionDiagnostic> diagnostics) {
+        for (GuiConfigContributionDiagnostic diagnostic : diagnostics) {
+            log.warn(logMessage("gui.config.log.plugin-field-diagnostic",
+                    diagnostic.pluginId(),
+                    diagnostic.key() == null ? "-" : diagnostic.key(),
+                    diagnostic.message()));
+        }
     }
 
     @Override
@@ -737,7 +753,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     // ── 字段漂移检查 ──────────────────────────────────────────────────────────────
 
     /**
-     * 对比 ALL_FIELDS 与 config.yaml 中实际存在的 key，漂移时打日志警告。
+     * 对比字段快照与 config.yaml 中实际存在的 key，漂移时打日志警告。
      */
     private void checkFieldDrift() {
         if (!configPath.toFile().exists()) return;

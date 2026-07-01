@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.gui;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
+import top.sywyar.pixivdownload.gui.config.GuiConfigContributionSnapshot;
 import top.sywyar.pixivdownload.gui.panel.AboutPanel;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
 import top.sywyar.pixivdownload.gui.panel.PluginsPanel;
@@ -29,6 +31,7 @@ public class MainFrame extends JFrame {
     private final int serverPort;
     private final String rootFolder;
     private final Path configPath;
+    private final GuiConfigContributionSnapshot guiConfigContributions;
 
     private static final int STATUS_TAB_INDEX = 1;
 
@@ -40,10 +43,18 @@ public class MainFrame extends JFrame {
     private PluginsPanel pluginsPanel;
 
     public MainFrame(int serverPort, String rootFolder, Path configPath) {
+        this(serverPort, rootFolder, configPath, GuiConfigContributionSnapshot.empty());
+    }
+
+    public MainFrame(int serverPort, String rootFolder, Path configPath,
+                     GuiConfigContributionSnapshot guiConfigContributions) {
         super(GuiMessages.get("app.name"));
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
         this.configPath = configPath;
+        this.guiConfigContributions = guiConfigContributions == null
+                ? GuiConfigContributionSnapshot.empty()
+                : guiConfigContributions;
         setSize(DEFAULT_SIZE);
         setMinimumSize(MINIMUM_SIZE);
         setLocationRelativeTo(null);
@@ -109,7 +120,8 @@ public class MainFrame extends JFrame {
 
         toolsPanel = new ToolsPanel(configPath);
         // Web URL 构造复用状态页（scheme 按 SSL、主机名按域名推导，不写死协议 / 主机），用于「打开 Web 插件市场 / 管理页」。
-        configPanel = new ConfigPanel(configPath, serverPort, statusPanel::getWebUrl);
+        configPanel = new ConfigPanel(configPath, serverPort, statusPanel::getWebUrl,
+                ConfigFieldRegistry.snapshot(guiConfigContributions));
         pluginsPanel = new PluginsPanel(serverPort, statusPanel::getWebUrl);
         tabs.addTab(GuiMessages.get("gui.tab.status"), scrollableStatusPanel(statusPanel));
         tabs.addTab(GuiMessages.get("gui.tab.config"), configPanel);

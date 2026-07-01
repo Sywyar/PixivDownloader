@@ -13,11 +13,16 @@ import com.tngtech.archunit.lang.SimpleConditionEvent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 /**
@@ -76,15 +81,32 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("plugin.api.gui 主题契约只能依赖 JDK 与 plugin-api 自身")
+    @DisplayName("plugin.api.gui 契约只能依赖 JDK 与 plugin-api 自身")
     void pluginApiGuiThemeContractIsPureJdk() {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload.plugin.api.gui..")
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..")
-                .because("GUI 主题 contribution 是跨边界契约：只能依赖 JDK 与 plugin-api 自身，"
+                .because("GUI contribution 是跨边界契约：只能依赖 JDK 与 plugin-api 自身，"
                         + "不得引入 PF4J / Spring / FlatLaf / JNA 或 app 业务类型")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("app 生产代码不得 import PF4J 类型")
+    void appProductionCodeDoesNotImportPf4j() throws IOException {
+        Path sourceRoot = Path.of("pixivdownload-app/src/main/java");
+        if (!Files.exists(sourceRoot)) {
+            sourceRoot = Path.of("src/main/java");
+        }
+        try (var paths = Files.walk(sourceRoot)) {
+            assertThat(paths
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> contains(path, "import org.pf4j"))
+                    .map(Path::toString)
+                    .toList())
+                    .isEmpty();
+        }
     }
 
     @Test
@@ -495,5 +517,13 @@ class PluginApiDependencyGuardTest {
                 .because("ImageClassifier 是独立 Swing 应用，搬移图片时携带 sidecar 经核心中性类 "
                         + "core.metadata.sidecar.WorkSidecarFiles 判定文件名，不得反向依赖 download.meta 实现包")
                 .check(CLASSES);
+    }
+
+    private static boolean contains(Path path, String needle) {
+        try {
+            return Files.readString(path, StandardCharsets.UTF_8).contains(needle);
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to read " + path, e);
+        }
     }
 }

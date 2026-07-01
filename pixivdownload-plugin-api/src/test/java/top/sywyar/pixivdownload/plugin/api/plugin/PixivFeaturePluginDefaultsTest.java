@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("PixivFeaturePlugin 展示元数据默认方法契约")
 class PixivFeaturePluginDefaultsTest {
 
-    /** 只实现抽象方法的最小插件：展示 token、displayNamespace、guiThemes 全部走 default。 */
+    /** 只实现抽象方法的最小插件：展示 token、displayNamespace、GUI contribution 全部走 default。 */
     private static class MinimalPlugin implements PixivFeaturePlugin {
         @Override
         public String id() {
@@ -59,6 +59,7 @@ class PixivFeaturePluginDefaultsTest {
         assertThat(plugin.displayNamespace()).isNull();
         assertThat(plugin.required()).isFalse();
         assertThat(plugin.guiThemes()).isEmpty();
+        assertThat(plugin.guiConfigContributions()).isEmpty();
     }
 
     @Test

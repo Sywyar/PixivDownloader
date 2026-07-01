@@ -9,11 +9,16 @@ import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
+import top.sywyar.pixivdownload.gui.config.GuiConfigContributionAggregator;
+import top.sywyar.pixivdownload.gui.config.GuiConfigContributionSnapshot;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.plugin.registry.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
@@ -249,6 +254,7 @@ public class GuiLauncher {
                 .map(discovered -> discovered.plugin())
                 .filter(plugin -> plugin.required() || pluginSession.enabledSnapshot().isEnabled(plugin.id()))
                 .toList();
+        final GuiConfigContributionSnapshot guiConfigContributions = buildGuiConfigContributionSnapshot(pluginSession);
         pluginSession.releaseStartupSnapshot();
 
         final int port = serverPort;
@@ -268,7 +274,7 @@ public class GuiLauncher {
         SwingUtilities.invokeLater(() -> {
             try {
                 GuiThemeManager.applyBeforeFirstWindow(configPath, theme, startupThemePlugins);
-                MainFrame frame = new MainFrame(port, root, configPath);
+                MainFrame frame = new MainFrame(port, root, configPath, guiConfigContributions);
                 singleInstanceManager.setActivationHandler(() -> SwingUtilities.invokeLater(frame::showWindow));
                 boolean trayInstalled = SystemTrayManager.install(frame, root);
                 if (!startupLaunch || !trayInstalled) {
@@ -785,6 +791,32 @@ public class GuiLauncher {
             log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));
             return PluginEnabledSnapshot.empty();
         }
+    }
+
+    private static GuiConfigContributionSnapshot buildGuiConfigContributionSnapshot(PluginBootstrapSession pluginSession) {
+        try {
+            PluginRegistry registry = new PluginRegistry(
+                    BuiltInPlugins.createAll(),
+                    togglesFromSnapshot(pluginSession.enabledSnapshot()),
+                    pluginSession.startupDiscovery());
+            return GuiConfigContributionAggregator.from(registry);
+        } catch (RuntimeException e) {
+            log.warn(logMessage("gui.launcher.log.gui-config-contribution.failed", safeMessage(e)), e);
+            return GuiConfigContributionSnapshot.empty();
+        }
+    }
+
+    private static PluginToggleProperties togglesFromSnapshot(PluginEnabledSnapshot snapshot) {
+        PluginToggleProperties toggles = new PluginToggleProperties();
+        if (snapshot == null) {
+            return toggles;
+        }
+        for (String pluginId : snapshot.disabledFeatureIds()) {
+            PluginToggleProperties.PluginToggle toggle = new PluginToggleProperties.PluginToggle();
+            toggle.setEnabled(false);
+            toggles.put(pluginId, toggle);
+        }
+        return toggles;
     }
 
     /**

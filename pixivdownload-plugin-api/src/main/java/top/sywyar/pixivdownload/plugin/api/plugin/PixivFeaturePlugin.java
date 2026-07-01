@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin.api.plugin;
 
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
@@ -180,6 +181,11 @@ public interface PixivFeaturePlugin {
 
     /** 插件声明的 GUI 主题贡献。主题应用由宿主在 AWT 事件分发线程上调度。 */
     default List<GuiThemeContribution> guiThemes() {
+        return List.of();
+    }
+
+    /** 插件声明的宿主 GUI 配置字段贡献。贡献只包含纯数据，由宿主聚合后渲染。 */
+    default List<GuiConfigContribution> guiConfigContributions() {
         return List.of();
     }
 

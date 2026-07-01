@@ -9,7 +9,7 @@ package top.sywyar.pixivdownload.plugin.api.gui;
 public interface GuiThemeApplier {
 
     /**
-     * Applies the theme to the current Swing UI state.
+     * Applies the theme to the current desktop UI state.
      *
      * @throws Exception when the theme cannot be applied
      */
