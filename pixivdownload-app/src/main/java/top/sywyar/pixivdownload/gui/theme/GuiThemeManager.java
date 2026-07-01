@@ -370,6 +370,10 @@ public final class GuiThemeManager {
         for (Window window : Window.getWindows()) {
             try {
                 SwingUtilities.updateComponentTreeUI(window);
+                GuiInputStyleNormalizer.apply(window);
+                window.invalidate();
+                window.validate();
+                window.repaint();
             } catch (RuntimeException e) {
                 log.warn("Failed to refresh Swing window after theme change: {}", e.toString(), e);
             }

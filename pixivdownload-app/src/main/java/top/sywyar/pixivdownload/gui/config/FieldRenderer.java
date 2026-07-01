@@ -1,17 +1,15 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.theme.GuiInputStyleNormalizer;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
-import javax.swing.text.InternationalFormatter;
 import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.HierarchyEvent;
 import java.io.File;
-import java.text.NumberFormat;
-import java.text.Format;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -52,8 +50,7 @@ public final class FieldRenderer {
     public static RenderedField render(ConfigFieldSpec spec) {
         return switch (spec.type()) {
             case BOOL -> renderBool(spec);
-            case PORT -> renderSpinner(spec, 1, 65535);
-            case INT -> renderSpinner(spec, 0, Integer.MAX_VALUE);
+            case PORT, INT -> renderNumberText(spec);
             case PATH_DIR -> renderPath(spec, true);
             case PATH_FILE -> renderPath(spec, false);
             case ENUM -> renderEnum(spec);
@@ -75,26 +72,15 @@ public final class FieldRenderer {
                 p.validationError());
     }
 
-    private static RenderedField renderSpinner(ConfigFieldSpec spec, int min, int max) {
-        int def = parseIntSafe(spec.defaultValue(), min);
-        JSpinner sp = new JSpinner(new SpinnerNumberModel(def, min, max, 1));
-        sp.setPreferredSize(new Dimension(120, sp.getPreferredSize().height));
-        if (sp.getEditor() instanceof JSpinner.DefaultEditor de) {
-            de.getTextField().setHorizontalAlignment(JTextField.LEFT);
-            JFormattedTextField.AbstractFormatter formatter = de.getTextField().getFormatter();
-            if (formatter instanceof InternationalFormatter intlFmt) {
-                Format fmt = intlFmt.getFormat();
-                if (fmt instanceof NumberFormat nf) {
-                    nf.setGroupingUsed(false);
-                    de.getTextField().setValue(sp.getValue());
-                }
-            }
-        }
-        RenderedPanel p = renderFieldPanel(spec, sp);
+    private static RenderedField renderNumberText(ConfigFieldSpec spec) {
+        JTextField tf = new JTextField(defaultIfBlank(spec.defaultValue(), ""), 12);
+        tf.setHorizontalAlignment(JTextField.LEFT);
+        tf.setPreferredSize(new Dimension(120, tf.getPreferredSize().height));
+        RenderedPanel p = renderFieldPanel(spec, tf);
         return new RenderedField(p.panel(),
-                () -> String.valueOf(((Number) sp.getValue()).intValue()),
-                v -> sp.setValue(parseIntSafe(v, def)),
-                sp,
+                tf::getText,
+                v -> tf.setText(defaultIfBlank(v, spec.defaultValue())),
+                tf,
                 p.validationError());
     }
 
@@ -193,6 +179,7 @@ public final class FieldRenderer {
 
     private static JPanel buildFieldPanel(String labelText, JComponent control, JComponent effect,
                                           String helpText, JTextArea validationError) {
+        GuiInputStyleNormalizer.apply(control);
         JLabel label = new JLabel(labelText);
         label.setToolTipText(labelText);
 
@@ -250,12 +237,8 @@ public final class FieldRenderer {
         return panel;
     }
 
-    private static int parseIntSafe(String s, int fallback) {
-        try {
-            return Integer.parseInt(s == null ? "" : s.trim());
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
+    private static String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private static String message(String code, Object... args) {

@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.ToolHtmlLogSession;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.theme.GuiInputStyleNormalizer;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.imageclassifier.ImageClassifier;
 import top.sywyar.pixivdownload.migration.JsonToSqliteMigration;
@@ -17,13 +18,10 @@ import top.sywyar.pixivdownload.tools.FolderChecker;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
-import javax.swing.text.InternationalFormatter;
 import java.awt.*;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.text.Format;
-import java.text.NumberFormat;
 
 /**
  * Tool shortcuts exposed from the main Swing GUI.
@@ -72,7 +70,7 @@ public class ToolsPanel extends JPanel {
     public ToolsPanel(Path configPath) {
         this.configPath = configPath;
         buildUi();
-        configureBackfillNumberInputs();
+        GuiInputStyleNormalizer.apply(this);
         loadDefaults();
         BackendLifecycleManager.addListener(backendListener);
         refreshActionStates();
@@ -931,26 +929,6 @@ public class ToolsPanel extends JPanel {
         JLabel label = new JLabel(text);
         label.setForeground(Color.GRAY);
         return label;
-    }
-
-    private void configureBackfillNumberInputs() {
-        leftAlignSpinnerText(proxyPortSpinner);
-        leftAlignSpinnerText(delaySpinner);
-        leftAlignSpinnerText(limitSpinner);
-    }
-
-    private static void leftAlignSpinnerText(JSpinner spinner) {
-        if (spinner.getEditor() instanceof JSpinner.DefaultEditor editor) {
-            editor.getTextField().setHorizontalAlignment(JTextField.LEFT);
-            JFormattedTextField.AbstractFormatter formatter = editor.getTextField().getFormatter();
-            if (formatter instanceof InternationalFormatter intlFmt) {
-                Format fmt = intlFmt.getFormat();
-                if (fmt instanceof NumberFormat nf) {
-                    nf.setGroupingUsed(false);
-                    editor.getTextField().setValue(spinner.getValue());
-                }
-            }
-        }
     }
 
     private static String defaultIfBlank(String value, String fallback) {

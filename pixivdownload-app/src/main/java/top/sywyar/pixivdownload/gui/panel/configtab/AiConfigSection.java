@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.theme.GuiThemeRefresh;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.swing.*;
@@ -24,7 +25,7 @@ import java.util.concurrent.ExecutionException;
  * <p>
  * 与通知页一致是「单页整体滚动」：模态下拉、TTS 引擎下拉、各卡片字段全部放进同一个 {@code GroupContentPanel} /
  * {@code JScrollPane}，没有任何控件固定在顶部（不用 {@code BorderLayout.NORTH}）；模态与引擎都用「手动换卡」
- * （{@code removeAll()} + 重新 {@code add} 所选卡片）而非 {@code CardLayout}，让滚动高度始终贴合当前卡片、避免预留最高卡片高度。
+ * （{@code GuiThemeRefresh.showCard(...)}）而非 {@code CardLayout}，让滚动高度始终贴合当前卡片、避免预留最高卡片高度。
  * 所有模态 / 引擎卡片在构建时一次性创建并注册字段，因此同一时刻只展示一张也不影响全部配置的加载 / 保存。
  * <p>
  * {@code narration-tts.*} 字段仍挂在 {@code ConfigFieldRegistry.groupNarrationTts()} 分组下，但该分组不进
@@ -122,10 +123,10 @@ public final class AiConfigSection implements ConfigSection {
         JPanel cardHost = manualSwapHost();
         modalityCombo.addActionListener(e -> {
             if (modalityCombo.getSelectedItem() instanceof AiModality m) {
-                showCard(cardHost, cards.get(m.id()));
+                GuiThemeRefresh.showCard(cardHost, cards.get(m.id()));
             }
         });
-        showCard(cardHost, cards.get(aiModalities().get(0).id()));
+        GuiThemeRefresh.showCard(cardHost, cards.get(aiModalities().get(0).id()));
         content.add(cardHost);
         content.add(Box.createVerticalGlue());
 
@@ -176,11 +177,11 @@ public final class AiConfigSection implements ConfigSection {
         JPanel engineCardHost = manualSwapHost();
         narrationEngineCombo.addActionListener(e -> {
             if (narrationEngineCombo.getSelectedItem() instanceof String engine) {
-                showCard(engineCardHost, cards.get(engine));
+                GuiThemeRefresh.showCard(engineCardHost, cards.get(engine));
             }
         });
         String initial = narrationEngineCombo.getSelectedItem() instanceof String s ? s : engineSpec.defaultValue();
-        showCard(engineCardHost, cards.get(initial));
+        GuiThemeRefresh.showCard(engineCardHost, cards.get(initial));
         content.add(engineCardHost);
         return content;
     }
@@ -238,14 +239,6 @@ public final class AiConfigSection implements ConfigSection {
         host.setOpaque(false);
         host.setAlignmentX(Component.LEFT_ALIGNMENT);
         return host;
-    }
-
-    /** 逐张替换当前卡片（而非 CardLayout），让统一滚动页的滚动高度始终贴合当前卡片。 */
-    private static void showCard(JPanel host, JComponent card) {
-        host.removeAll();
-        host.add(card, BorderLayout.CENTER);
-        host.revalidate();
-        host.repaint();
     }
 
     /** 取某朗读引擎的全部参数字段（{@code narration-tts.<engine>.*}，不含 {@code narration-tts.engine} 自身）。 */

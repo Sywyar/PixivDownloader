@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.theme.GuiThemeRefresh;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.mail.preset.MailPreset;
 import top.sywyar.pixivdownload.mail.preset.MailPresetRegistry;
@@ -163,13 +164,10 @@ public final class NotificationConfigSection implements ConfigSection {
         cardHost.setAlignmentX(Component.LEFT_ALIGNMENT);
         serviceCombo.addActionListener(e -> {
             if (serviceCombo.getSelectedItem() instanceof NotificationService s) {
-                cardHost.removeAll();
-                cardHost.add(cards.get(s.id()), BorderLayout.CENTER);
-                cardHost.revalidate();
-                cardHost.repaint();
+                GuiThemeRefresh.showCard(cardHost, cards.get(s.id()));
             }
         });
-        cardHost.add(cards.get(notificationServices().get(0).id()), BorderLayout.CENTER);
+        GuiThemeRefresh.showCard(cardHost, cards.get(notificationServices().get(0).id()));
         content.add(cardHost);
         content.add(Box.createVerticalGlue());
 
