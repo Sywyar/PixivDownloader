@@ -128,6 +128,7 @@
 '                    <span v-if="card.official" class="pmk-badge pmk-badge--official">{{ t(\'badge.official\', \'官方\') }}</span>',
 '                    <span v-else class="pmk-badge pmk-badge--community">{{ t(\'badge.community\', \'社区\') }}</span>',
 '                    <span v-if="card.recommended" class="pmk-badge pmk-badge--recommended">{{ t(\'badge.recommended\', \'推荐\') }}</span>',
+'                    <span v-if="showCardVerification(card)" class="pmk-verification-badge" :class="\'pmk-verification-badge--\' + card.verificationBadge.tone" :title="card.verificationBadge.title || null"><i class="fa-solid" :class="card.verificationBadge.icon"></i><span>{{ t(card.verificationBadge.labelKey, card.verificationBadge.status) }}</span></span>',
 '                  </div>',
 '                  <div class="pmk-card-sub">{{ card.sub }}</div>',
 '                </div>',
@@ -252,6 +253,13 @@
 '          </div>',
 '        </div>',
 '        <div class="pmk-modal-col">',
+'          <div v-if="showDetailVerification" class="pmk-detail-verification" :class="\'pmk-detail-verification--\' + detail.verificationBadge.tone" :title="detail.verificationBadge.title || null">',
+'            <i class="fa-solid" :class="detail.verificationBadge.icon"></i>',
+'            <div>',
+'              <div class="pmk-detail-verification-title">{{ t(\'detail.verification\', \'来源验证\') }}</div>',
+'              <div class="pmk-detail-verification-text">{{ t(detail.verificationBadge.labelKey, detail.verificationBadge.status) }}</div>',
+'            </div>',
+'          </div>',
 '          <div class="pmk-info-panel">',
 '            <div v-for="row in detail.infoRows" :key="row.key" class="pmk-info-row">',
 '              <span class="pmk-info-key">{{ t(row.key, row.key) }}</span>',
@@ -355,6 +363,7 @@
                 showCatalogError: function () { return this.masterEnabled && !!this.catalogError; },
                 showBody: function () { return this.masterEnabled && !!this.catalog; },
                 showVersionSelect: function () { return !!this.detail && this.detail.versions.length > 1; },
+                showDetailVerification: function () { return !!this.detail && !!this.detail.verificationBadge; },
                 showRestartHint: function () { var r = this.installResultFor; return !!r && r.accepted && r.effectiveAfterRestart; }
             },
             mounted: function () {
@@ -458,6 +467,7 @@
                 showCardRating: function (card) { return !!(card.ratingStars || card.downloadsLabel); },
                 showCardMeta: function (card) { return !!(card.versionLabel || card.sizeLabel || card.dateLabel); },
                 showCardCompat: function (card) { return !card.compatible && !!card.compatibilityReason; },
+                showCardVerification: function (card) { return !!(card && card.verificationBadge); },
                 cardLabel: function (card) {
                     var status = this.cardStatus(card);
                     if (status === 'UPDATE_AVAILABLE') return this.t('install.action.update-to', '更新到 v{v}', { v: card.latestVersion });
@@ -526,12 +536,13 @@
                 },
                 installLabelText: function (status) {
                     var meta = PMK.installMeta(status);
-                    return this.t(meta.labelKey, meta.fallback);
+                    return this.t(meta.labelKey, meta.status);
                 },
                 buildDetail: function (entry) {
                     var m = entry.market || {};
                     var card = PMK.data.cardModel(entry);
                     var pkg = PMK.data.packageOf(entry, this.selectedVersion);
+                    var verificationBadge = PMK.data.verificationBadge(pkg && pkg.verification);
                     var rows = [];
                     if (m.author) rows.push({ key: 'detail.author', val: m.author });
                     rows.push({ key: 'detail.category', val: card.categoryLabel });
@@ -580,7 +591,7 @@
                         categoryLabel: card.categoryLabel, categoryIcon: card.categoryIcon, official: card.official,
                         ratingStars: card.ratingStars, ratingNum: card.ratingNum, downloadsLabel: card.downloadsLabel,
                         description: PMK.data.entryDescription(entry), tags: card.tags,
-                        versions: versions, dependencies: deps, infoRows: rows
+                        versions: versions, dependencies: deps, infoRows: rows, verificationBadge: verificationBadge
                     };
                 },
                 packageVerificationInstallStatus: function (pkg) {

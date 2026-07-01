@@ -45,7 +45,7 @@
         var meta = PMK.installMeta(status);
         var label = status === 'UPDATE_AVAILABLE'
             ? t('install.action.update-to', '更新到 v{v}', { v: card.latestVersion })
-            : t(meta.labelKey, meta.fallback);
+            : t(meta.labelKey, meta.status);
         var attrs = meta.disabled ? ' disabled'
             : ' data-pmk-repo="' + esc(card.repositoryId || '') + '" data-pmk-install="' + esc(card.pluginId) +
               '" data-pmk-version="' + esc(card.latestVersion || '') + '"';
@@ -53,11 +53,20 @@
             '<i class="fa-solid fa-' + esc(meta.icon) + '"></i><span>' + esc(label) + '</span></button>';
     }
 
+    function verificationBadgeHtml(badge) {
+        if (!badge) return '';
+        var title = badge.title ? ' title="' + esc(badge.title) + '"' : '';
+        return '<span class="pmk-verification-badge pmk-verification-badge--' + esc(badge.tone) + '"' + title + '>' +
+            '<i class="fa-solid ' + esc(badge.icon) + '"></i><span>' +
+            esc(t(badge.labelKey, badge.status || badge.labelKey)) + '</span></span>';
+    }
+
     function cardHtml(card) {
         var badges = card.official
             ? '<span class="pmk-badge pmk-badge--official">' + esc(t('badge.official', '官方')) + '</span>'
             : '<span class="pmk-badge pmk-badge--community">' + esc(t('badge.community', '社区')) + '</span>';
         if (card.recommended) badges += '<span class="pmk-badge pmk-badge--recommended">' + esc(t('badge.recommended', '推荐')) + '</span>';
+        badges += verificationBadgeHtml(card.verificationBadge);
         var rating = '';
         if (card.ratingNum || card.downloadsLabel) {
             rating = '<div class="pmk-rating">' +

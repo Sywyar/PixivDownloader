@@ -140,7 +140,7 @@ async function doLogin() {
     }
     window.location.href = getRedirect();
   } catch (e) {
-    showLoginErrorKey('error.network', '网络错误：{message}', {message: e.message});
+    showLoginErrorKey('error.network', 'error.network', {message: e.message});
     btn.disabled = false;
   }
 }
@@ -179,7 +179,7 @@ async function doInviteRedeem() {
     // 仅当响应异常缺失 redirect 时才用公开首页兜底，绝不再硬跳可能已禁用的 /pixiv-gallery.html。
     window.location.href = data.redirect || '/';
   } catch (e) {
-    showInviteErrorKey('error.network', '网络错误：{message}', {message: e.message});
+    showInviteErrorKey('error.network', 'error.network', {message: e.message});
     btn.disabled = false;
   }
 }

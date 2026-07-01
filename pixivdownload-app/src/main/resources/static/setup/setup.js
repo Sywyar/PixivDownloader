@@ -132,7 +132,7 @@ async function submitSetup() {
       window.location.href = mode === 'solo' ? '/login.html' : '/pixiv-batch.html';
     }, 800);
   } catch (e) {
-    setStatusKey('status.network-error', '网络错误：{message}', {message: e.message}, 'error');
+    setStatusKey('status.network-error', 'status.network-error', {message: e.message}, 'error');
     btn.disabled = false;
   }
 }

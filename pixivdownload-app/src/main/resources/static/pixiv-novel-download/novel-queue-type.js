@@ -1067,7 +1067,6 @@ const NOVEL_DESCRIPTOR = {
             cardsEndpoint: 'novel-cards',
             userIdsEndpoint: 'novels',
             myWorksTitleKey: 'quick.title.my-novels',
-            myWorksTitleFallback: '我自己的作品（小说，含 hide）',
             queueId: novelQueueId,
             gridCardId(idPrefix, idx) { return `${idPrefix}-novel-card-${idx}`; },
             skipThumbnail: true,

@@ -106,24 +106,32 @@
 
     // —— 安装状态机机器码 → 控件渲染元数据（与后端 MarketInstallStatus 对齐；installing 是前端本地态）——
     PMK.INSTALL_META = {
-        NOT_INSTALLED:   { labelKey: 'install.action.install', fallback: '安装',   icon: 'cloud-arrow-down', variant: 'primary' },
-        INSTALLED:       { labelKey: 'install.state.installed', fallback: '已安装', icon: 'circle-check',      variant: 'success-outline', disabled: true },
-        UPDATE_AVAILABLE:{ labelKey: 'install.action.update',  fallback: '更新',   icon: 'arrow-up',          variant: 'amber' },
-        INCOMPATIBLE:    { labelKey: 'install.state.incompatible', fallback: '不兼容', icon: 'ban',           variant: 'gray', disabled: true },
-        SIGNATURE_REQUIRED: { labelKey: 'install.state.signature-required', fallback: '缺少签名', icon: 'shield-halved', variant: 'gray', disabled: true },
-        UNKNOWN_KEY:     { labelKey: 'install.state.unknown-key', fallback: '未知发布者', icon: 'shield-halved', variant: 'gray', disabled: true },
-        REVOKED_KEY:     { labelKey: 'install.state.revoked-key', fallback: '发布者已吊销', icon: 'shield-halved', variant: 'gray', disabled: true },
-        INVALID_SIGNATURE:{ labelKey: 'install.state.invalid-signature', fallback: '签名无效', icon: 'shield-halved', variant: 'gray', disabled: true },
-        HASH_MISMATCH:   { labelKey: 'install.state.hash-mismatch', fallback: '摘要不符', icon: 'shield-halved', variant: 'gray', disabled: true },
+        NOT_INSTALLED:   { labelKey: 'install.action.install', icon: 'cloud-arrow-down', variant: 'primary' },
+        INSTALLED:       { labelKey: 'install.state.installed', icon: 'circle-check',      variant: 'success-outline', disabled: true },
+        UPDATE_AVAILABLE:{ labelKey: 'install.action.update',  icon: 'arrow-up',          variant: 'amber' },
+        INCOMPATIBLE:    { labelKey: 'install.state.incompatible', icon: 'ban',           variant: 'gray', disabled: true },
+        SIGNATURE_REQUIRED: { labelKey: 'install.state.signature-required', icon: 'shield-halved', variant: 'gray', disabled: true },
+        UNKNOWN_KEY:     { labelKey: 'install.state.unknown-key', icon: 'shield-halved', variant: 'gray', disabled: true },
+        REVOKED_KEY:     { labelKey: 'install.state.revoked-key', icon: 'shield-halved', variant: 'gray', disabled: true },
+        INVALID_SIGNATURE:{ labelKey: 'install.state.invalid-signature', icon: 'shield-halved', variant: 'gray', disabled: true },
+        HASH_MISMATCH:   { labelKey: 'install.state.hash-mismatch', icon: 'shield-halved', variant: 'gray', disabled: true },
         // 无任何可安装版本制品的条目（后端 UNAVAILABLE）：稳定降级为不可点击的不可安装态，绝不渲染可点击但无响应的安装按钮。
-        UNAVAILABLE:     { labelKey: 'install.state.unavailable', fallback: '暂无可安装版本', icon: 'ban',    variant: 'gray', disabled: true },
+        UNAVAILABLE:     { labelKey: 'install.state.unavailable', icon: 'ban',    variant: 'gray', disabled: true },
         // 前端本地请求态（安装 POST 在途）：不来自后端，安装结果仍以后端响应为准。
-        INSTALLING:      { labelKey: 'install.state.installing', fallback: '安装中…', icon: 'spinner',         variant: 'primary', disabled: true },
-        PENDING_RESTART: { labelKey: 'install.state.pending-restart', fallback: '待重启', icon: 'circle-check', variant: 'success-outline', disabled: true },
-        ACTIVATED:       { labelKey: 'install.state.activated', fallback: '已激活', icon: 'circle-check', variant: 'success-outline', disabled: true }
+        INSTALLING:      { labelKey: 'install.state.installing', icon: 'spinner',         variant: 'primary', disabled: true },
+        PENDING_RESTART: { labelKey: 'install.state.pending-restart', icon: 'circle-check', variant: 'success-outline', disabled: true },
+        ACTIVATED:       { labelKey: 'install.state.activated', icon: 'circle-check', variant: 'success-outline', disabled: true }
     };
     PMK.installMeta = function (status) {
-        return PMK.INSTALL_META[status] || PMK.INSTALL_META.NOT_INSTALLED;
+        var normalized = PMK.INSTALL_META[status] ? status : 'NOT_INSTALLED';
+        var meta = PMK.INSTALL_META[normalized];
+        return {
+            status: normalized,
+            labelKey: meta.labelKey,
+            icon: meta.icon,
+            variant: meta.variant,
+            disabled: meta.disabled
+        };
     };
 
     // —— 展示格式化 ——

@@ -332,15 +332,12 @@
                     interactiveSelector: '#userscripts-list [data-install-id="' + SCRIPT_ID_TOOLBOX + '"]',
                     titleKey: 'tour:batch.cookie-import.install.title',
                     bodyKey: 'tour:batch.cookie-import.install.body',
-                    fallbackTitle: '① 安装体验增强工具箱',
-                    fallbackBody: '一键导入需要 pixiv.net 上的「体验增强工具箱」配合。请点击下方高亮的「体验增强工具箱」安装按钮（引导期间页面其它内容不可点击，安装后才能进入下一步）。',
                     onShow: ctrl => {
                         ensureUserscriptsExpanded();
                         setTimeout(() => ctrl.refresh(), 400);
                     },
                     gate: () => isToolboxInstalled(),
                     actionKey: 'tour:batch.cookie-import.install.have-aio',
-                    actionFallback: '我已安装 All-in-One',
                     onAction: ctrl => {
                         // 用户声明已装 All-in-One（含工具箱）：记录并直接结束引导、开始获取
                         markScriptInstalled(SCRIPT_ID_ALL_IN_ONE);
@@ -350,9 +347,7 @@
                 {
                     target: '#cookie-import',
                     titleKey: 'tour:batch.cookie-import.ready.title',
-                    bodyKey: 'tour:batch.cookie-import.ready.body',
-                    fallbackTitle: '② 开始导入',
-                    fallbackBody: '请确保已在本浏览器登录 Pixiv。点击「完成」后会打开 Pixiv 页面自动获取 Cookie 并返回，整个过程几秒内完成。'
+                    bodyKey: 'tour:batch.cookie-import.ready.body'
                 }
             ]
         });

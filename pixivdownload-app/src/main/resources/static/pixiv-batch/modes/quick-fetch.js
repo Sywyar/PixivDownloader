@@ -473,7 +473,7 @@
         quickState.page = safePage;
         quickState.pageSize = pageSize;
         const titleKey = (acq && acq.myWorksTitleKey) || 'quick.title.my-illusts';
-        const titleFallback = (acq && acq.myWorksTitleFallback) || '我自己的作品（插画/漫画，含 hide）';
+        const titleFallback = titleKey;
         quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: total.toLocaleString()})}`);
         quickShowToolbar({showBack: false, showAdd: items.length > 0, showSearch: false, showKindSwitcher: false});
         await quickRenderOuterWorks();

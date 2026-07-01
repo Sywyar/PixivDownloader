@@ -95,9 +95,9 @@
     const SERIES_FILTER_OPTIONS_SIZE = 200;
     const AUTHOR_FILTER_OPTIONS_SIZE = 200;
     const FILTER_MODE_META = {
-        must: {label: '必须有', className: 'mode-must'},
-        not: {label: '不能有', className: 'mode-not'},
-        or: {label: '或者有', className: 'mode-or'},
+        must: {className: 'mode-must'},
+        not: {className: 'mode-not'},
+        or: {className: 'mode-or'},
     };
     const GALLERY_VIEW_VALUES = ['all', 'authors', 'series'];
     const GALLERY_FILTER_QUERY_KEYS = [

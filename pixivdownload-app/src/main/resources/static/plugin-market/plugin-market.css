@@ -455,6 +455,29 @@ body {
 .pmk-badge--official { background: var(--status-green); color: #fff; }
 .pmk-badge--community { background: transparent; color: var(--muted); border-color: var(--border); }
 .pmk-badge--recommended { background: transparent; color: var(--accent-amber); border-color: color-mix(in srgb, var(--accent-amber) 45%, transparent); }
+.pmk-verification-badge {
+    display: inline-flex; align-items: center; gap: 5px; min-height: 20px; padding: 2px 8px;
+    border-radius: var(--radius-pill); font-size: 11px; font-weight: 800; line-height: 1.2;
+    border: 1px solid transparent;
+}
+.pmk-verification-badge i { font-size: 11px; }
+.pmk-verification-badge--ok {
+    color: var(--status-green);
+    background: color-mix(in srgb, var(--status-green) 12%, transparent);
+    border-color: color-mix(in srgb, var(--status-green) 42%, transparent);
+}
+.pmk-verification-badge--warn {
+    color: var(--warning-text); background: var(--warning-bg);
+    border-color: color-mix(in srgb, var(--warning-text) 40%, transparent);
+}
+.pmk-verification-badge--danger {
+    color: var(--status-red);
+    background: color-mix(in srgb, var(--status-red) 10%, transparent);
+    border-color: color-mix(in srgb, var(--status-red) 42%, transparent);
+}
+.pmk-verification-badge--neutral {
+    color: var(--muted); background: var(--control-muted-bg); border-color: var(--border);
+}
 
 .pmk-card-actions { margin-top: auto; display: flex; gap: 8px; align-items: center; }
 
@@ -548,6 +571,32 @@ body {
 
 .pmk-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
 .pmk-section-text { font-size: 13.5px; line-height: 1.7; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
+
+.pmk-detail-verification {
+    display: flex; align-items: flex-start; gap: 11px; padding: 13px 14px;
+    border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius-md);
+    background: var(--surface-muted);
+}
+.pmk-detail-verification > i { margin-top: 1px; font-size: 18px; flex-shrink: 0; }
+.pmk-detail-verification-title { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; opacity: .75; }
+.pmk-detail-verification-text { margin-top: 3px; font-size: 14px; font-weight: 800; line-height: 1.35; }
+.pmk-detail-verification--ok {
+    color: var(--status-green);
+    background: color-mix(in srgb, var(--status-green) 10%, var(--surface));
+    border-color: color-mix(in srgb, var(--status-green) 45%, var(--border));
+}
+.pmk-detail-verification--warn {
+    color: var(--warning-text); background: var(--warning-bg);
+    border-color: color-mix(in srgb, var(--warning-text) 42%, var(--border));
+}
+.pmk-detail-verification--danger {
+    color: var(--status-red);
+    background: color-mix(in srgb, var(--status-red) 9%, var(--surface));
+    border-color: color-mix(in srgb, var(--status-red) 45%, var(--border));
+}
+.pmk-detail-verification--neutral {
+    color: var(--muted); background: var(--control-muted-bg); border-color: var(--border);
+}
 
 .pmk-info-panel { background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
 .pmk-info-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12.5px; }

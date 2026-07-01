@@ -67,6 +67,39 @@
         return packages.length ? packages[0] : null;
     };
 
+    var VERIFICATION_BADGE_META = {
+        VERIFIED_OFFICIAL: { labelKey: 'verification.verified-official', tone: 'ok', icon: 'fa-circle-check' },
+        VERIFIED_CUSTOM: { labelKey: 'verification.verified-custom', tone: 'ok', icon: 'fa-circle-check' },
+        UNVERIFIED_LOCAL: { labelKey: 'verification.unverified-local', tone: 'warn', icon: 'fa-triangle-exclamation' },
+        UNSIGNED_ALLOWED: { labelKey: 'verification.unsigned-allowed', tone: 'warn', icon: 'fa-triangle-exclamation' },
+        SIGNATURE_REQUIRED: { labelKey: 'verification.signature-required', tone: 'danger', icon: 'fa-circle-exclamation' },
+        UNKNOWN_KEY: { labelKey: 'verification.unknown-key', tone: 'danger', icon: 'fa-circle-exclamation' },
+        REVOKED_KEY: { labelKey: 'verification.revoked-key', tone: 'danger', icon: 'fa-circle-exclamation' },
+        INVALID_SIGNATURE: { labelKey: 'verification.invalid-signature', tone: 'danger', icon: 'fa-circle-exclamation' },
+        HASH_MISMATCH: { labelKey: 'verification.hash-mismatch', tone: 'danger', icon: 'fa-circle-exclamation' },
+        NOT_INSTALLED: { labelKey: 'verification.not-installed', tone: 'neutral', icon: 'fa-circle-minus' }
+    };
+
+    function verificationKey(status) {
+        return 'verification.' + String(status).toLowerCase().replace(/_/g, '-');
+    }
+
+    D.verificationBadge = function (verification) {
+        var status = verification && verification.status ? verification.status : 'UNVERIFIED_LOCAL';
+        var meta = VERIFICATION_BADGE_META[status] || {
+            labelKey: verificationKey(status),
+            tone: 'warn',
+            icon: 'fa-circle-question'
+        };
+        return {
+            status: status,
+            labelKey: meta.labelKey,
+            tone: meta.tone,
+            icon: meta.icon,
+            title: verification ? (verification.trustLabel || verification.publisher || verification.diagnosticCode || null) : null
+        };
+    };
+
     // —— 卡片视图模型 ——
     D.cardModel = function (entry) {
         var m = market(entry) || {};
@@ -99,7 +132,8 @@
             updateAvailable: entry.updateAvailable,
             compatible: entry.compatible,
             compatibilityReason: entry.compatibilityReason,
-            verification: packageVerification(entry)
+            verification: packageVerification(entry),
+            verificationBadge: D.verificationBadge(packageVerification(entry))
         };
     };
 

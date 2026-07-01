@@ -206,6 +206,20 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
+    @DisplayName("展示元数据只保存 i18n key 和受控展示 token，不内联中文 fallback")
+    void displayMetadataUsesI18nKeysOnly() throws IOException {
+        String data = read(DATA);
+        String core = read(CORE);
+
+        assertThat(data).as("验签徽标元数据应只携带 i18n key / tone / icon")
+                .contains("VERIFICATION_BADGE_META", "labelKey")
+                .doesNotContain("fallback:");
+        assertThat(core).as("安装状态元数据应只携带 i18n key / icon / variant")
+                .contains("PMK.INSTALL_META", "labelKey")
+                .doesNotContain("fallback:");
+    }
+
+    @Test
     @DisplayName("仓库切换异步竞态护栏：Vue / 回退按 token 丢弃旧仓库 catalog 响应，安装绑定展示条目同源仓库（不读全局 activeRepositoryId）")
     void repositorySwitchRaceGuards() throws IOException {
         String vue = read(VUE);
@@ -246,14 +260,22 @@ class PluginMarketPageGuardTest {
     void verificationRenderingUsesBackendProjectionOnly() throws IOException {
         String data = read(DATA);
         String vue = read(VUE);
+        String fallback = read(FALLBACK);
         String core = read(CORE);
+        String css = read("static/plugin-market/plugin-market.css");
 
         assertThat(data).as("卡片模型从 package.verification 取验签投影")
-                .contains("pkg.verification", "verification.status");
+                .contains("pkg.verification", "verification.status", "verificationBadge: D.verificationBadge");
         assertThat(data).as("安装态按后端验签状态禁用坏签名 / 未知 key")
                 .contains("VERIFIED_OFFICIAL", "VERIFIED_CUSTOM", "INVALID_SIGNATURE", "UNKNOWN_KEY");
-        assertThat(vue).as("详情页展示后端 verification label，而非 sha256 认证发布者")
-                .contains("verificationLabel(pkg.verification)", "detail.verification");
+        assertThat(vue).as("卡片与详情页突出展示后端 verification label，而非 sha256 认证发布者")
+                .contains("verificationLabel(pkg.verification)", "detail.verification",
+                        "pmk-verification-badge", "pmk-detail-verification", "showCardVerification");
+        assertThat(fallback).as("基础回退视图也展示验签徽标")
+                .contains("verificationBadgeHtml", "pmk-verification-badge");
+        assertThat(css).as("验签徽标包含已验证 / 未验证 / 危险状态样式")
+                .contains(".pmk-verification-badge--ok", ".pmk-verification-badge--warn",
+                        ".pmk-verification-badge--danger", ".pmk-detail-verification--danger");
         assertThat(core).as("安装按钮状态覆盖验签失败状态")
                 .contains("SIGNATURE_REQUIRED", "UNKNOWN_KEY", "INVALID_SIGNATURE", "HASH_MISMATCH");
         assertThat(data + core).as("可信状态不得由摘要 / key 名称 / 仓库名硬推断")
