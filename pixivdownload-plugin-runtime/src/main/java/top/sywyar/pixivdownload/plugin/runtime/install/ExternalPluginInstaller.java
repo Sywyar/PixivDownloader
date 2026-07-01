@@ -491,7 +491,7 @@ public class ExternalPluginInstaller {
                             + ", but core provides " + PluginPackageReader.coreApiVersion()));
         }
 
-        // 4. Zip Slip 校验（仅 .zip：PF4J 后续会解压它）
+        // 4. Zip Slip 校验（仅 .zip：runtime 物化为 PF4J 目录前必须先拒绝越界 entry）
         if (isZip) {
             try {
                 ZipSafety.assertNoTraversal(packagePath);

@@ -10,7 +10,7 @@
     </parent>
     <artifactId>pixivdownload-plugin-gui-theme</artifactId>
     <name>PixivDownloader GUI Theme Plugin</name>
-    <description>Official startup-only GUI theme plugin. The distributable is a PF4J exploded-directory zip with root plugin.properties, classes/, and lib/*.jar.</description>
+    <description>Official startup-only GUI theme plugin. The distributable is a PF4J plugin jar with root plugin.properties and private runtime dependencies under lib/*.jar.</description>
 
     <dependencies>
         <dependency>
@@ -77,21 +77,25 @@
     <build>
         <plugins>
             <plugin>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.7.1</version>
-                <configuration>
-                    <descriptors>
-                        <descriptor>src/assembly/plugin.xml</descriptor>
-                    </descriptors>
-                    <appendAssemblyId>false</appendAssemblyId>
-                </configuration>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
                 <executions>
                     <execution>
-                        <id>package-plugin-zip</id>
-                        <phase>package</phase>
+                        <id>copy-private-runtime-libs</id>
+                        <phase>process-resources</phase>
                         <goals>
-                            <goal>single</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
+                        <configuration>
+                            <includeScope>runtime</includeScope>
+                            <excludeScope>provided</excludeScope>
+                            <excludeTransitive>false</excludeTransitive>
+                            <excludeArtifactIds>pixivdownload-plugin-api,pf4j,slf4j-api</excludeArtifactIds>
+                            <outputDirectory>${project.build.outputDirectory}/lib</outputDirectory>
+                            <overWriteReleases>true</overWriteReleases>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>

@@ -7,7 +7,10 @@ import org.pf4j.PluginState;
 import org.pf4j.PluginWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactMaterializer;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
@@ -41,6 +44,8 @@ public class PluginRuntimeManager {
     private static final Logger log = LoggerFactory.getLogger(PluginRuntimeManager.class);
 
     private final Path pluginsRoot;
+    private final PluginRuntimeLayout layout;
+    private final PluginArtifactMaterializer materializer;
     private PluginArtifactVerificationService verificationService;
     private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private final PluginProvenanceStore provenanceStore;
@@ -64,9 +69,11 @@ public class PluginRuntimeManager {
             throw new IllegalArgumentException("pluginsRoot must not be null");
         }
         this.pluginsRoot = pluginsRoot;
+        this.layout = new PluginRuntimeLayout(pluginsRoot);
+        this.materializer = new PluginArtifactMaterializer(layout);
         this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.verificationService = new PluginArtifactVerificationService(this.verifierResolver);
-        this.provenanceStore = new PluginProvenanceStore(pluginsRoot);
+        this.provenanceStore = new PluginProvenanceStore(layout);
     }
 
     /** 由宿主在配置解析后刷新统一验签门面；必须发生在后续 load 原语进入 PF4J 前。 */
@@ -129,11 +136,13 @@ public class PluginRuntimeManager {
         if (artifactPath == null || !Files.isRegularFile(artifactPath)) {
             throw new PluginRuntimeOperationException("plugin artifact not found: " + artifactPath);
         }
-        verifyBeforeLoad(artifactPath);
+        PluginPackageInspection inspection = verifyBeforeLoad(artifactPath);
+        PluginArtifactMaterializer.MaterializedPluginArtifact materialized =
+                materializer.materialize(artifactPath, inspection);
         ensureManager();
         String packageId;
         try {
-            packageId = pluginManager.loadPlugin(artifactPath.toAbsolutePath().normalize());
+            packageId = pluginManager.loadPlugin(materialized.pf4jLoadPath());
         } catch (RuntimeException e) {
             throw new PluginRuntimeOperationException("failed to load plugin artifact " + artifactPath, e);
         }
@@ -151,8 +160,8 @@ public class PluginRuntimeManager {
         }
         long generation = generations.merge(packageId, 1L, Long::sum);
         RuntimeEntry entry = new RuntimeEntry(packageId,
-                wrapper.getPluginPath().toAbsolutePath().normalize(), wrapper.getDescriptor().getVersion(), generation,
-                PluginRuntimePackagePhase.LOADED);
+                materialized.originalArtifactPath(), materialized.pf4jLoadPath(),
+                wrapper.getDescriptor().getVersion(), generation, PluginRuntimePackagePhase.LOADED);
         entries.put(packageId, entry);
         try {
             LoadedPluginPackage loaded = snapshot(entry, true);
@@ -403,7 +412,7 @@ public class PluginRuntimeManager {
         }
     }
 
-    private void verifyBeforeLoad(Path artifactPath) {
+    private PluginPackageInspection verifyBeforeLoad(Path artifactPath) {
         var inspection = PluginPackageReader.inspect(artifactPath);
         PluginProvenanceRecord provenance = provenanceStore.read(artifactPath).orElse(null);
         VerificationResult result = verificationService.verifyInstalled(artifactPath, inspection.descriptor(),
@@ -419,6 +428,7 @@ public class PluginRuntimeManager {
         if (!result.accepted()) {
             throw new PluginRuntimeOperationException("plugin verification failed before load: " + result.status());
         }
+        return inspection;
     }
 
     private RuntimeEntry requireEntry(String packageId) {
@@ -505,14 +515,16 @@ public class PluginRuntimeManager {
     private static final class RuntimeEntry {
         private final String packageId;
         private final Path artifactPath;
+        private final Path pf4jLoadPath;
         private final String version;
         private final long generation;
         private PluginRuntimePackagePhase phase;
 
-        private RuntimeEntry(String packageId, Path artifactPath, String version, long generation,
-                             PluginRuntimePackagePhase phase) {
+        private RuntimeEntry(String packageId, Path artifactPath, Path pf4jLoadPath, String version,
+                             long generation, PluginRuntimePackagePhase phase) {
             this.packageId = packageId;
             this.artifactPath = artifactPath;
+            this.pf4jLoadPath = pf4jLoadPath;
             this.version = version;
             this.generation = generation;
             this.phase = phase;

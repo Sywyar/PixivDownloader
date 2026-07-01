@@ -90,12 +90,13 @@ public final class PluginPackageReader {
         long maxDescriptorBytes = limits.maxDescriptorBytes();
         String name = packagePath.getFileName().toString().toLowerCase(Locale.ROOT);
         if (name.endsWith(".jar")) {
-            Properties properties = readPluginPropertiesFromArchive(packagePath, maxDescriptorBytes);
-            if (properties == null) {
+            ArchiveInspection archive = inspectArchive(packagePath, maxDescriptorBytes, "jar");
+            if (archive.properties() == null) {
                 throw new PluginPackageException(PluginPackageException.Reason.NO_DESCRIPTOR,
                         "jar contains no " + PLUGIN_PROPERTIES + ": " + packagePath.getFileName());
             }
-            return new PluginPackageInspection(PluginPackageFormat.SINGLE_JAR, toDescriptor(properties), null);
+            return new PluginPackageInspection(PluginPackageFormat.SINGLE_JAR,
+                    toDescriptor(archive.properties()), null, archive.containsPrivateLibraries());
         }
         return inspectZip(packagePath, maxDescriptorBytes);
     }
@@ -124,8 +125,10 @@ public final class PluginPackageReader {
                 throw new PluginPackageException(PluginPackageException.Reason.EMPTY, "package is empty (no entries)");
             }
             if (rootProperties && rootJars.isEmpty()) {
+                boolean containsPrivateLibraries = containsPrivateLibraries(zipFile);
                 return new PluginPackageInspection(PluginPackageFormat.EXPLODED_DIRECTORY,
-                        toDescriptor(loadProperties(zipFile, PLUGIN_PROPERTIES, maxDescriptorBytes)), null);
+                        toDescriptor(loadProperties(zipFile, PLUGIN_PROPERTIES, maxDescriptorBytes)), null,
+                        containsPrivateLibraries);
             }
             if (rootProperties) {
                 throw new PluginPackageException(PluginPackageException.Reason.AMBIGUOUS,
@@ -133,12 +136,13 @@ public final class PluginPackageReader {
             }
             if (rootJars.size() == 1) {
                 String jarEntry = rootJars.get(0);
-                Properties properties = loadInnerJarProperties(zipFile, jarEntry, maxDescriptorBytes);
-                if (properties == null) {
+                ArchiveInspection innerJar = inspectInnerJar(zipFile, jarEntry, maxDescriptorBytes);
+                if (innerJar.properties() == null) {
                     throw new PluginPackageException(PluginPackageException.Reason.NO_DESCRIPTOR,
                             "root jar " + jarEntry + " contains no " + PLUGIN_PROPERTIES);
                 }
-                return new PluginPackageInspection(PluginPackageFormat.SINGLE_JAR, toDescriptor(properties), jarEntry);
+                return new PluginPackageInspection(PluginPackageFormat.SINGLE_JAR,
+                        toDescriptor(innerJar.properties()), jarEntry, innerJar.containsPrivateLibraries());
             }
             if (rootJars.size() > 1) {
                 throw new PluginPackageException(PluginPackageException.Reason.AMBIGUOUS,
@@ -160,16 +164,31 @@ public final class PluginPackageReader {
         return entryName.indexOf('/') < 0 && entryName.toLowerCase(Locale.ROOT).endsWith(".jar");
     }
 
-    /** 从一个 zip / jar 归档的根读取 {@value #PLUGIN_PROPERTIES}（不存在返回 {@code null}），读取字节受上限约束。 */
-    private static Properties readPluginPropertiesFromArchive(Path archive, long maxDescriptorBytes) {
+    /** 从一个 zip / jar 归档根扫描描述符与 {@code lib/*.jar}。 */
+    private static ArchiveInspection inspectArchive(Path archive, long maxDescriptorBytes, String label) {
+        Properties properties = null;
+        boolean containsPrivateLibraries = false;
         try (ZipFile zipFile = new ZipFile(archive.toFile())) {
-            return loadProperties(zipFile, PLUGIN_PROPERTIES, maxDescriptorBytes);
+            Enumeration<? extends ZipEntry> entries = zipFile.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                if (entry.isDirectory()) {
+                    continue;
+                }
+                String entryName = entry.getName().replace('\\', '/');
+                if (entryName.equals(PLUGIN_PROPERTIES)) {
+                    properties = loadProperties(zipFile, PLUGIN_PROPERTIES, maxDescriptorBytes);
+                } else if (isLibJar(entryName)) {
+                    containsPrivateLibraries = true;
+                }
+            }
+            return new ArchiveInspection(properties, containsPrivateLibraries);
         } catch (ZipException e) {
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED,
-                    "not a valid jar package: " + e.getMessage(), e);
+                    "not a valid " + label + " package: " + e.getMessage(), e);
         } catch (IOException e) {
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED,
-                    "failed to read jar package: " + e.getMessage(), e);
+                    "failed to read " + label + " package: " + e.getMessage(), e);
         }
     }
 
@@ -184,13 +203,15 @@ public final class PluginPackageReader {
         }
     }
 
-    /** 从 zip 内某个 jar entry 的内部读取根 {@value #PLUGIN_PROPERTIES}（不存在返回 {@code null}），读取字节受上限约束。 */
-    private static Properties loadInnerJarProperties(ZipFile zipFile, String jarEntryName, long maxDescriptorBytes)
+    /** 从 zip 内某个 jar entry 的内部扫描根 {@value #PLUGIN_PROPERTIES} 与 {@code lib/*.jar}。 */
+    private static ArchiveInspection inspectInnerJar(ZipFile zipFile, String jarEntryName, long maxDescriptorBytes)
             throws IOException {
         ZipEntry jarEntry = zipFile.getEntry(jarEntryName);
         if (jarEntry == null) {
-            return null;
+            return new ArchiveInspection(null, false);
         }
+        Properties properties = null;
+        boolean containsPrivateLibraries = false;
         try (ZipInputStream jarStream = new ZipInputStream(
                 new BufferedInputStream(zipFile.getInputStream(jarEntry)))) {
             ZipEntry inner;
@@ -198,12 +219,37 @@ public final class PluginPackageReader {
                 if (inner.isDirectory()) {
                     continue;
                 }
-                if (inner.getName().replace('\\', '/').equals(PLUGIN_PROPERTIES)) {
-                    return parseDescriptor(jarStream, jarEntryName + "!" + PLUGIN_PROPERTIES, maxDescriptorBytes);
+                String entryName = inner.getName().replace('\\', '/');
+                if (entryName.equals(PLUGIN_PROPERTIES)) {
+                    properties = parseDescriptor(jarStream, jarEntryName + "!" + PLUGIN_PROPERTIES,
+                            maxDescriptorBytes);
+                } else if (isLibJar(entryName)) {
+                    containsPrivateLibraries = true;
                 }
             }
         }
-        return null;
+        return new ArchiveInspection(properties, containsPrivateLibraries);
+    }
+
+    private static boolean containsPrivateLibraries(ZipFile zipFile) {
+        Enumeration<? extends ZipEntry> entries = zipFile.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            if (!entry.isDirectory() && isLibJar(entry.getName().replace('\\', '/'))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isLibJar(String entryName) {
+        if (!entryName.toLowerCase(Locale.ROOT).endsWith(".jar")) {
+            return false;
+        }
+        if (!entryName.startsWith("lib/")) {
+            return false;
+        }
+        return entryName.indexOf('/', "lib/".length()) < 0;
     }
 
     /**
@@ -302,5 +348,8 @@ public final class PluginPackageReader {
     /** 当前核心 API 契约版本（供安装器在拒绝不兼容包时拼装诊断信息复用）。 */
     static String coreApiVersion() {
         return PluginApiVersion.VERSION;
+    }
+
+    private record ArchiveInspection(Properties properties, boolean containsPrivateLibraries) {
     }
 }

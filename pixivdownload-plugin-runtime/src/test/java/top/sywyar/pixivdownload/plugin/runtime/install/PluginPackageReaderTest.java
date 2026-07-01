@@ -32,6 +32,7 @@ class PluginPackageReaderTest {
 
         assertThat(inspection.format()).isEqualTo(PluginPackageFormat.EXPLODED_DIRECTORY);
         assertThat(inspection.innerJarEntry()).isNull();
+        assertThat(inspection.containsPrivateLibraries()).isFalse();
         PluginDescriptor descriptor = inspection.descriptor();
         assertThat(descriptor.id()).isEqualTo("ext-stats");
         assertThat(descriptor.sourcePluginId()).isEqualTo("ext-stats");
@@ -52,6 +53,7 @@ class PluginPackageReaderTest {
 
         assertThat(inspection.format()).isEqualTo(PluginPackageFormat.SINGLE_JAR);
         assertThat(inspection.innerJarEntry()).isEqualTo("ext-plugin.jar");
+        assertThat(inspection.containsPrivateLibraries()).isFalse();
         assertThat(inspection.descriptor().id()).isEqualTo("ext-dup");
         assertThat(inspection.descriptor().version()).isEqualTo("2.0.0");
         assertThat(inspection.descriptor().externalValidationErrors()).isEmpty();
@@ -67,7 +69,26 @@ class PluginPackageReaderTest {
 
         assertThat(inspection.format()).isEqualTo(PluginPackageFormat.SINGLE_JAR);
         assertThat(inspection.innerJarEntry()).isNull();
+        assertThat(inspection.containsPrivateLibraries()).isFalse();
         assertThat(inspection.descriptor().id()).isEqualTo("ext-x");
+    }
+
+    @Test
+    @DisplayName("上传物本身是带私有依赖的插件 jar：识别 SINGLE_JAR 并标记 containsPrivateLibraries")
+    void readsBareJarWithPrivateLibraries() throws IOException {
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put("lib/flatlaf-3.5.4.jar", PluginPackageFixtures.bytes("fake-flatlaf"));
+        entries.put("lib/nested/ignored.jar", PluginPackageFixtures.bytes("not-a-direct-lib"));
+        Path jar = tempDir.resolve("with-private-libs.jar");
+        Files.write(jar, PluginPackageFixtures.pluginJarBytes(
+                "gui-theme", "1.0.0", null, "com.example.ThemePlugin", entries));
+
+        PluginPackageInspection inspection = PluginPackageReader.inspect(jar);
+
+        assertThat(inspection.format()).isEqualTo(PluginPackageFormat.SINGLE_JAR);
+        assertThat(inspection.innerJarEntry()).isNull();
+        assertThat(inspection.containsPrivateLibraries()).isTrue();
+        assertThat(inspection.descriptor().id()).isEqualTo("gui-theme");
     }
 
     @Test
@@ -107,6 +128,7 @@ class PluginPackageReaderTest {
         PluginPackageInspection inspection = PluginPackageReader.inspect(zip);
 
         assertThat(inspection.format()).isEqualTo(PluginPackageFormat.EXPLODED_DIRECTORY);
+        assertThat(inspection.containsPrivateLibraries()).isTrue();
         assertThat(inspection.descriptor().id()).isEqualTo("ext");
     }
 

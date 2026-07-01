@@ -15,13 +15,16 @@ import java.util.Objects;
  *
  * @param format        布局形态
  * @param descriptor    包级统一描述符（身份 / 版本 / requires / 依赖 / 主类）
- * @param innerJarEntry {@link PluginPackageFormat#SINGLE_JAR} 且来源为 zip 时，包内那个插件 jar 的 entry 名
- *                      （安装阶段据此从 zip 内取出该 jar）；解压目录形态或上传物本身即 jar 时为 {@code null}
+ * @param innerJarEntry            {@link PluginPackageFormat#SINGLE_JAR} 且来源为 zip 时，包内那个插件 jar 的 entry 名
+ *                                 （安装阶段据此从 zip 内取出该 jar）；解压目录形态或上传物本身即 jar 时为 {@code null}
+ * @param containsPrivateLibraries 包内是否存在 {@code lib/*.jar} 私有依赖。thin JAR 为 {@code false} 时可直接交给 PF4J；
+ *                                 含私有依赖的 JAR 或 ZIP 需要先物化为 PF4J directory layout。
  */
 public record PluginPackageInspection(
         PluginPackageFormat format,
         PluginDescriptor descriptor,
-        String innerJarEntry) {
+        String innerJarEntry,
+        boolean containsPrivateLibraries) {
 
     public PluginPackageInspection {
         Objects.requireNonNull(format, "format");

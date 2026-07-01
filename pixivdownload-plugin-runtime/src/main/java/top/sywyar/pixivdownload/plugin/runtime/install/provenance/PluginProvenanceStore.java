@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.provenance;
 
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageSource;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
@@ -24,18 +25,40 @@ public final class PluginProvenanceStore {
 
     private static final String SIDECAR_SUFFIX = ".pixiv-plugin-provenance";
 
-    private final Path pluginsDir;
+    private final PluginRuntimeLayout layout;
 
     public PluginProvenanceStore(Path pluginsDir) {
-        this.pluginsDir = Objects.requireNonNull(pluginsDir, "pluginsDir");
+        this(new PluginRuntimeLayout(pluginsDir));
+    }
+
+    public PluginProvenanceStore(PluginRuntimeLayout layout) {
+        this.layout = Objects.requireNonNull(layout, "layout");
     }
 
     public Path sidecarPath(Path artifact) {
+        if (layout.isInstalledRootArtifact(artifact)) {
+            return layout.provenanceDirectory().resolve(artifact.getFileName().toString() + SIDECAR_SUFFIX);
+        }
         return artifact.resolveSibling(artifact.getFileName().toString() + SIDECAR_SUFFIX);
     }
 
     public Optional<PluginProvenanceRecord> read(Path artifact) {
         Path sidecar = sidecarPath(artifact);
+        Optional<PluginProvenanceRecord> current = readRecord(sidecar);
+        if (current.isPresent()) {
+            deleteLegacyIfSuperseded(artifact, sidecar);
+            return current;
+        }
+        Path legacy = legacySidecarPath(artifact);
+        if (!legacy.equals(sidecar)) {
+            Optional<PluginProvenanceRecord> migrated = readRecord(legacy);
+            migrated.ifPresent(record -> migrateLegacy(artifact, record, legacy));
+            return migrated;
+        }
+        return Optional.empty();
+    }
+
+    private Optional<PluginProvenanceRecord> readRecord(Path sidecar) {
         if (!Files.isRegularFile(sidecar)) {
             return Optional.empty();
         }
@@ -77,24 +100,32 @@ public final class PluginProvenanceStore {
                 ? record.offlineVerifiedAt().toString() : null);
         put(props, "diagnosticCode", record.diagnosticCode());
 
-        Files.createDirectories(artifact.toAbsolutePath().normalize().getParent());
         Path sidecar = sidecarPath(artifact);
+        Files.createDirectories(sidecar.toAbsolutePath().normalize().getParent());
         Path tmp = sidecar.resolveSibling(sidecar.getFileName() + ".tmp");
         try (Writer writer = Files.newBufferedWriter(tmp, StandardCharsets.UTF_8)) {
             props.store(writer, "PixivDownloader plugin provenance");
         }
         move(tmp, sidecar);
+        Path legacy = legacySidecarPath(artifact);
+        if (!legacy.equals(sidecar)) {
+            Files.deleteIfExists(legacy);
+        }
     }
 
     public void delete(Path artifact) throws IOException {
         Files.deleteIfExists(sidecarPath(artifact));
+        Path legacy = legacySidecarPath(artifact);
+        if (!legacy.equals(sidecarPath(artifact))) {
+            Files.deleteIfExists(legacy);
+        }
     }
 
     public void moveWithArtifact(Path sourceArtifact, Path targetArtifact, ArtifactMover mover) throws IOException {
-        Path sourceSidecar = sidecarPath(sourceArtifact);
+        Path sourceSidecar = existingSidecarPath(sourceArtifact);
         Path targetSidecar = sidecarPath(targetArtifact);
         boolean sidecarMoved = false;
-        if (Files.exists(sourceSidecar)) {
+        if (sourceSidecar != null && Files.exists(sourceSidecar)) {
             Files.createDirectories(targetSidecar.toAbsolutePath().normalize().getParent());
             move(sourceSidecar, targetSidecar);
             sidecarMoved = true;
@@ -110,7 +141,48 @@ public final class PluginProvenanceStore {
     }
 
     public Path pluginsDir() {
-        return pluginsDir;
+        return layout.pluginsRoot();
+    }
+
+    public Path provenanceDir() {
+        return layout.provenanceDirectory();
+    }
+
+    private Path legacySidecarPath(Path artifact) {
+        return artifact.resolveSibling(artifact.getFileName().toString() + SIDECAR_SUFFIX);
+    }
+
+    private Path existingSidecarPath(Path artifact) {
+        Path current = sidecarPath(artifact);
+        if (Files.exists(current)) {
+            return current;
+        }
+        Path legacy = legacySidecarPath(artifact);
+        if (!legacy.equals(current) && Files.exists(legacy)) {
+            return legacy;
+        }
+        return current;
+    }
+
+    private void migrateLegacy(Path artifact, PluginProvenanceRecord record, Path legacy) {
+        try {
+            write(artifact, record);
+            Files.deleteIfExists(legacy);
+        } catch (IOException ignored) {
+            // Compatibility read succeeds even if best-effort migration cannot persist yet.
+        }
+    }
+
+    private void deleteLegacyIfSuperseded(Path artifact, Path current) {
+        Path legacy = legacySidecarPath(artifact);
+        if (legacy.equals(current)) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(legacy);
+        } catch (IOException ignored) {
+            // Best-effort cleanup; the central provenance record remains authoritative.
+        }
     }
 
     private static PluginProvenanceRecord toRecord(Properties props) {

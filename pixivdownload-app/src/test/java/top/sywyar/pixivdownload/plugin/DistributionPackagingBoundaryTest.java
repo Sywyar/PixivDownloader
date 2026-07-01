@@ -22,6 +22,7 @@ import java.net.URLClassLoader;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.jar.JarEntry;
@@ -41,15 +42,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       且不泄漏共享契约 / 宿主类；若 Maven 已产出真实插件 jar，再断言 jar 内无 {@code BOOT-INF/}、无打入的
  *       {@code org/pf4j/}、{@code org/springframework/} 框架类（依赖均 provided）。</li>
  *   <li><b>{@code recovery-sentinel} 同样以 thin 外置插件形态打包</b>。</li>
- *   <li><b>{@code gui-theme} 以 PF4J 解压目录 ZIP 打包</b>——根 {@code plugin.properties}、
- *       {@code classes/} 与 {@code lib/*.jar} 在位，FlatLaf / IntelliJ Themes / JNA 仅在 ZIP 的 {@code lib/} 中，
- *       并通过独立 classloader 真实加载。</li>
+ *   <li><b>{@code gui-theme} 以 PF4J JAR-with-lib 打包</b>——根 {@code plugin.properties}、
+ *       标准 JAR 类路径与 {@code lib/*.jar} 在位，FlatLaf / IntelliJ Themes / JNA 仅在 JAR 的 {@code lib/} 中，
+ *       并通过模拟 runtime materialization 后的独立 classloader 真实加载。</li>
  * </ol>
  *
- * <p>插件构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} / {@code recovery-sentinel.plugin.classes}
- * 传入（指向各插件模块 {@code target/classes}，reactor 中先于 app 构建）；未就绪时（如 IDE 未触发 reactor 构建）
- * 对应用例 {@link Assumptions assume} 跳过。真实插件 jar（{@code target/<artifactId>-*.jar}）仅在 {@code package}
- * 阶段后存在——存在即追加更强的 thin 不变量断言，缺失时不跳过、仅不追加，故 {@code test} 阶段照常运行。
+ * <p>插件构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} /
+ * {@code recovery-sentinel.plugin.classes} / {@code gui-theme.plugin.classes} 传入（指向各插件模块
+ * {@code target/classes}，reactor 中先于 app 构建）；未就绪时（如 IDE 未触发 reactor 构建）对应用例
+ * {@link Assumptions assume} 跳过。真实插件 jar（{@code target/<artifactId>-*.jar}，gui-theme 可由
+ * {@code gui-theme.plugin.jar} 指定）仅在 {@code package} 阶段后存在——存在即追加更强的 artifact 不变量断言，
+ * 缺失时不跳过、仅不追加，故 {@code test} 阶段照常运行。
  */
 @DisplayName("插件分发打包边界：boot jar 不含外置插件类、外置插件独立产物形态")
 class DistributionPackagingBoundaryTest {
@@ -57,7 +60,7 @@ class DistributionPackagingBoundaryTest {
     private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
     private static final String SENTINEL_CLASSES_PROPERTY = "recovery-sentinel.plugin.classes";
     private static final String GUI_THEME_CLASSES_PROPERTY = "gui-theme.plugin.classes";
-    private static final String GUI_THEME_ZIP_PROPERTY = "gui-theme.plugin.zip";
+    private static final String GUI_THEME_JAR_PROPERTY = "gui-theme.plugin.jar";
 
     @Test
     @DisplayName("boot jar 运行期类路径含内置下载工作台与宿主 PF4J，但不含外置插件 stats / recovery-sentinel 的类与资源")
@@ -110,11 +113,11 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
-    @DisplayName("gui-theme 以 PF4J 解压目录 zip 形态打包：根 descriptor + classes/ + lib/*.jar")
-    void guiThemePackagesAsExplodedDirectoryZip(@TempDir Path tempDir) {
+    @DisplayName("gui-theme 以 JAR-with-lib 形态打包：根 descriptor + 插件类 + lib/*.jar")
+    void guiThemePackagesAsJarWithPrivateLibraries(@TempDir Path tempDir) {
         Path classesDir = locateConfiguredDir(GUI_THEME_CLASSES_PROPERTY);
         Assumptions.assumeTrue(classesDir != null && Files.isDirectory(classesDir),
-                "插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-gui-theme），跳过 zip 形态验证");
+                "插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-gui-theme），跳过 JAR-with-lib 形态验证");
 
         assertThat(classesDir.resolve("plugin.properties"))
                 .as("主题插件构建产物根部应含 plugin.properties").exists();
@@ -125,26 +128,26 @@ class DistributionPackagingBoundaryTest {
         assertThat(classesDir.resolve("top/sywyar/pixivdownload/gui/theme/GuiThemeManager.class"))
                 .as("主题插件不得打入 app 核心主题管理类").doesNotExist();
 
-        Path zip = locateConfiguredZip(classesDir);
-        if (zip == null) {
+        Path jar = locateConfiguredGuiThemeJar(classesDir);
+        if (jar == null) {
             return;
         }
-        List<String> entries = jarEntryNames(zip);
+        List<String> entries = jarEntryNames(jar);
         assertThat(entries).contains("plugin.properties");
-        assertThat(entries).contains("classes/top/sywyar/pixivdownload/guitheme/GuiThemePf4jPlugin.class");
-        assertThat(entries).as("解压目录 zip 不得包含根插件 jar").noneMatch(name -> name.matches("[^/]+\\.jar"));
-        assertThat(entries).as("FlatLaf 必须只在 theme zip 的 lib/ 中")
-                .anyMatch(name -> name.matches("lib/flatlaf-[^/]+\\.jar"));
-        assertThat(entries).as("IntelliJ Themes 必须只在 theme zip 的 lib/ 中")
-                .anyMatch(name -> name.matches("lib/flatlaf-intellij-themes-[^/]+\\.jar"));
-        assertThat(entries).as("JNA 必须只在 theme zip 的 lib/ 中")
-                .anyMatch(name -> name.matches("lib/jna-[^/]+\\.jar"));
-        assertThat(entries).as("JNA Platform 必须只在 theme zip 的 lib/ 中")
-                .anyMatch(name -> name.matches("lib/jna-platform-[^/]+\\.jar"));
+        assertThat(entries).contains("top/sywyar/pixivdownload/guitheme/GuiThemePf4jPlugin.class");
+        assertThat(entries).as("主题插件 JAR 内不得嵌套根插件 jar").noneMatch(name -> name.matches("[^/]+\\.jar"));
+        assertThat(entries).as("FlatLaf 必须只在 theme JAR 的 lib/ 中")
+                .anyMatch(name -> name.matches("lib/flatlaf-[0-9][^/]*\\.jar"));
+        assertThat(entries).as("IntelliJ Themes 必须只在 theme JAR 的 lib/ 中")
+                .anyMatch(name -> name.matches("lib/flatlaf-intellij-themes-[0-9][^/]*\\.jar"));
+        assertThat(entries).as("JNA 必须只在 theme JAR 的 lib/ 中")
+                .anyMatch(name -> name.matches("lib/jna-[0-9][^/]*\\.jar"));
+        assertThat(entries).as("JNA Platform 必须只在 theme JAR 的 lib/ 中")
+                .anyMatch(name -> name.matches("lib/jna-platform-[0-9][^/]*\\.jar"));
         assertThat(entries).noneMatch(name -> name.startsWith("BOOT-INF/"));
-        assertThat(entries).noneMatch(name -> name.startsWith("classes/top/sywyar/pixivdownload/plugin/api/"));
+        assertThat(entries).noneMatch(name -> name.startsWith("top/sywyar/pixivdownload/plugin/api/"));
 
-        assertGuiThemeZipLoadsWithPluginClassLoader(zip, tempDir);
+        assertGuiThemeJarLoadsWithPluginClassLoader(jar, tempDir);
     }
 
     // --- 验证 thin 外置插件形态：先据构建 classes 目录，jar 存在时再据真实 jar 追加更强断言 ---
@@ -180,6 +183,8 @@ class DistributionPackagingBoundaryTest {
                 .noneMatch(name -> name.startsWith("org/springframework/"));
         assertThat(entries).as("thin 插件 jar 不得打入共享契约 plugin-api")
                 .noneMatch(name -> name.startsWith("top/sywyar/pixivdownload/plugin/api/"));
+        assertThat(entries).as("thin 插件 jar 不得携带私有 lib/*.jar")
+                .noneMatch(name -> name.matches("lib/[^/]+\\.jar"));
     }
 
     // --- helpers ---
@@ -198,22 +203,31 @@ class DistributionPackagingBoundaryTest {
         return (configured == null || configured.isBlank()) ? null : Path.of(configured);
     }
 
-    private static Path locateConfiguredZip(Path classesDir) {
-        String configured = System.getProperty(GUI_THEME_ZIP_PROPERTY);
-        if (configured != null && !configured.isBlank() && Files.isRegularFile(Path.of(configured))) {
-            return Path.of(configured);
+    private static Path locateConfiguredGuiThemeJar(Path classesDir) {
+        String configured = System.getProperty(GUI_THEME_JAR_PROPERTY);
+        if (configured != null && !configured.isBlank()) {
+            Path configuredPath = Path.of(configured);
+            if (Files.isRegularFile(configuredPath) && isFreshArtifact(configuredPath, classesDir)) {
+                return configuredPath;
+            }
         }
         Path targetDir = classesDir.getParent();
         if (targetDir == null || !Files.isDirectory(targetDir)) {
             return null;
         }
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(
-                targetDir, "pixivdownload-plugin-gui-theme-*.zip")) {
+                targetDir, "pixivdownload-plugin-gui-theme-*.jar")) {
             for (Path candidate : stream) {
-                return candidate;
+                String name = candidate.getFileName().toString();
+                if (name.endsWith("-sources.jar") || name.endsWith("-javadoc.jar")) {
+                    continue;
+                }
+                if (isFreshArtifact(candidate, classesDir)) {
+                    return candidate;
+                }
             }
         } catch (IOException ignored) {
-            // package 阶段之前 zip 不存在，test 阶段只跳过更强断言。
+            // package 阶段之前 jar 不存在，test 阶段只跳过更强断言。
         }
         return null;
     }
@@ -230,12 +244,22 @@ class DistributionPackagingBoundaryTest {
                 if (name.endsWith("-sources.jar") || name.endsWith("-javadoc.jar")) {
                     continue;
                 }
-                return candidate;
+                if (isFreshArtifact(candidate, classesDir)) {
+                    return candidate;
+                }
             }
         } catch (IOException ignored) {
             // best-effort：定位失败按缺失处理（仅放弃更强的 jar 级断言，不致测试失败）
         }
         return null;
+    }
+
+    private static boolean isFreshArtifact(Path artifact, Path classesDir) {
+        try {
+            return Files.getLastModifiedTime(artifact).compareTo(Files.getLastModifiedTime(classesDir)) >= 0;
+        } catch (IOException ignored) {
+            return true;
+        }
     }
 
     private static List<String> jarEntryNames(Path jar) {
@@ -251,14 +275,14 @@ class DistributionPackagingBoundaryTest {
         return names;
     }
 
-    private static void assertGuiThemeZipLoadsWithPluginClassLoader(Path zip, Path tempDir) {
-        Path exploded = tempDir.resolve("gui-theme");
-        extractZip(zip, exploded);
+    private static void assertGuiThemeJarLoadsWithPluginClassLoader(Path jar, Path tempDir) {
+        Path materialized = tempDir.resolve("gui-theme-materialized");
+        materializeJarWithPrivateLibs(jar, materialized);
 
         List<URL> urls = new ArrayList<>();
         try {
-            urls.add(exploded.resolve("classes").toUri().toURL());
-            try (DirectoryStream<Path> libs = Files.newDirectoryStream(exploded.resolve("lib"), "*.jar")) {
+            urls.add(materialized.resolve("classes").toUri().toURL());
+            try (DirectoryStream<Path> libs = Files.newDirectoryStream(materialized.resolve("lib"), "*.jar")) {
                 for (Path lib : libs) {
                     urls.add(lib.toUri().toURL());
                 }
@@ -277,7 +301,7 @@ class DistributionPackagingBoundaryTest {
                 assertGuiThemeLookAndFeelCanCreateSwingDelegates(loader);
             }
         } catch (IOException | ReflectiveOperationException e) {
-            throw new IllegalStateException("无法通过主题插件 ZIP classloader 加载类: " + zip, e);
+            throw new IllegalStateException("无法通过主题插件 JAR-with-lib classloader 加载类: " + jar, e);
         }
     }
 
@@ -355,26 +379,33 @@ class DistributionPackagingBoundaryTest {
         }
     }
 
-    private static void extractZip(Path zip, Path targetDir) {
-        try (JarFile jarFile = new JarFile(zip.toFile())) {
+    private static void materializeJarWithPrivateLibs(Path jar, Path targetDir) {
+        Path classesDir = targetDir.resolve("classes");
+        Path libDir = targetDir.resolve("lib");
+        try (JarFile jarFile = new JarFile(jar.toFile())) {
             var entries = jarFile.entries();
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
-                Path output = targetDir.resolve(entry.getName()).normalize();
-                if (!output.startsWith(targetDir)) {
-                    throw new IllegalStateException("插件 ZIP 含非法路径: " + entry.getName());
-                }
                 if (entry.isDirectory()) {
-                    Files.createDirectories(output);
                     continue;
+                }
+                String name = entry.getName();
+                if ("plugin.properties".equals(name)) {
+                    continue;
+                }
+                Path output = name.matches("lib/[^/]+\\.jar")
+                        ? libDir.resolve(Path.of(name).getFileName().toString()).normalize()
+                        : classesDir.resolve(name).normalize();
+                if (!output.startsWith(targetDir.normalize())) {
+                    throw new IllegalStateException("插件 JAR 含非法路径: " + name);
                 }
                 Files.createDirectories(output.getParent());
                 try (InputStream in = jarFile.getInputStream(entry)) {
-                    Files.copy(in, output);
+                    Files.copy(in, output, StandardCopyOption.REPLACE_EXISTING);
                 }
             }
         } catch (IOException e) {
-            throw new IllegalStateException("无法解压主题插件 ZIP: " + zip, e);
+            throw new IllegalStateException("无法物化主题插件 JAR: " + jar, e);
         }
     }
 }

@@ -21,7 +21,7 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 
-# Shared official-plugin list + thin-jar / checksum primitives (one source of distribution truth,
+# Shared official-plugin list + plugin-jar / checksum primitives (one source of distribution truth,
 # also used by scripts/assemble-plugin-distribution.ps1).
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
@@ -204,7 +204,7 @@ function Stage-OfficialPlugins {
     $manifest = @()
     $sumLines = @()
     foreach ($plugin in (Get-OfficialOptionalPlugins)) {
-        $extension = if ($plugin.Format -eq "zip") { "zip" } else { "jar" }
+        $extension = Get-OfficialPluginArtifactExtension $plugin
         if ($PrebuiltPluginsDir) {
             $candidate = Get-ChildItem (Join-Path $PrebuiltPluginsDir "$($plugin.Module)-*.$extension") -File -ErrorAction SilentlyContinue |
                 Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |

@@ -141,11 +141,38 @@ class ExternalPluginTransactionTest {
         assertThat(plugins.resolve(".staging")).doesNotExist();
     }
 
+    @Test
+    @DisplayName("provenance 最终写入 plugins/provenance，旧根目录 sidecar 读取后迁移")
+    void provenanceLivesUnderProvenanceDirectoryAndMigratesLegacySidecar() throws IOException {
+        Path plugins = temp.resolve("plugins-provenance");
+        ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins);
+        installer.install(packageFile("provenance.zip", "1.0.0"));
+        Path artifact = plugins.resolve("demo-1.0.0.zip");
+        PluginProvenanceStore store = new PluginProvenanceStore(plugins);
+        Path central = store.sidecarPath(artifact);
+        Path legacy = legacySidecar(artifact);
+
+        assertThat(central).isEqualTo(plugins.resolve("provenance")
+                .resolve("demo-1.0.0.zip.pixiv-plugin-provenance"));
+        assertThat(central).exists();
+        assertThat(legacy).doesNotExist();
+
+        Files.move(central, legacy);
+        assertThat(store.read(artifact)).isPresent();
+
+        assertThat(central).exists();
+        assertThat(legacy).doesNotExist();
+    }
+
     private Path packageFile(String name, String version) {
         return PluginPackageFixtures.explodedZip(temp.resolve(name), "demo", version, "1.0", "demo.Plugin");
     }
 
     private static Path sidecar(Path plugins, Path artifact) {
         return new PluginProvenanceStore(plugins).sidecarPath(artifact);
+    }
+
+    private static Path legacySidecar(Path artifact) {
+        return artifact.resolveSibling(artifact.getFileName() + ".pixiv-plugin-provenance");
     }
 }

@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Assemble the plugin distribution: core/default-downloader jar + official optional external plugin
-    thin jars (+ per-package sha256 + aggregate manifest), producing a ready-to-run "full offline" layout.
+    jars (+ per-package sha256 + aggregate manifest), producing a ready-to-run "full offline" layout.
 
 .DESCRIPTION
     One command that consolidates the plugin distribution boundary:
@@ -10,8 +10,10 @@
         PixivDownload-<Version>.jar              # core shell + built-in plugins (incl. required download
                                                  #   workbench) = default downloader jar
         plugins/
-          <plugin>-<version>.(jar|zip)           # official optional external plugin
-          <plugin>-<version>.(jar|zip).sha256    # per-package sha256 checksum file
+          <plugin>-<version>.jar                 # official optional external plugin
+          <plugin>-<version>.jar.sha256          # per-package sha256 checksum file
+          provenance/
+            <plugin>-<version>.jar.pixiv-plugin-provenance
         SHA256SUMS                               # aggregate checksum file (sha256sum -c compatible)
         plugins-manifest.json                    # per external plugin: id / version / requires / file / sha256
 
@@ -20,7 +22,7 @@
     "full offline" bundle: run `java -jar PixivDownload-<Version>.jar` from that directory and the runtime
     loads these external plugins from the working-directory plugins/ folder.
 
-    The script self-checks official plugins for their declared form (thin jar or exploded-directory zip)
+    The script self-checks official plugins for their declared form (thin jar or jar with private lib/*.jar)
     and the boot jar for the distribution boundary (no external plugin classes / static / i18n; PF4J only
     nested under BOOT-INF/lib). Any broken invariant aborts with an error.
 
@@ -59,7 +61,7 @@ $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null
 
-# Shared official-plugin list + thin-jar / checksum primitives (one source of distribution truth).
+# Shared official-plugin list + plugin-jar / checksum primitives (one source of distribution truth).
 . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -191,7 +193,7 @@ try {
         $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
         $pluginVersion = $descriptor["plugin.version"]
         $requires = $descriptor["plugin.requires"]
-        $extension = if ($plugin.Format -eq "zip") { "zip" } else { "jar" }
+        $extension = Get-OfficialPluginArtifactExtension $plugin
 
         $targetName = "$($plugin.Module)-$pluginVersion.$extension"
         $targetArtifact = Join-Path $PluginsOutDir $targetName

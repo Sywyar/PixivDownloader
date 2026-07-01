@@ -76,19 +76,25 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("共享分发脚本提供官方插件 jar 和 zip 产物名解析")
+    @DisplayName("共享分发脚本提供官方插件 jar 产物名解析和私有 lib 形态断言")
     void commonDistributionScriptResolvesOfficialArtifactNames() throws Exception {
         String common = script("plugin-distribution-common.ps1");
 
         assertThat(common).contains(
-                "Format = \"zip\"",
                 "Format = \"jar\"",
+                "PrivateLibs = $true",
+                "PrivateLibs = $false",
                 "function Get-OfficialPluginArtifactExtension",
                 "function Get-OfficialPluginArtifactName",
                 "return \"$($Plugin.Module)-$Version.$extension\"",
                 "function Find-ModulePluginArtifact",
-                "Assert-ExplodedPluginZip",
-                "Assert-ThinPluginJar");
+                "Assert-JarWithPrivatePluginLibs",
+                "Assert-ThinPluginJar",
+                "^flatlaf-[0-9].*\\.jar$",
+                "^jna-[0-9].*\\.jar$",
+                "Plugin jar is not thin - found private lib/*.jar entries");
+        assertThat(common).doesNotContain("Format = \"zip\"");
+        assertThat(common).doesNotContain("Assert-ExplodedPluginZip");
     }
 
     @Test
@@ -101,6 +107,7 @@ class PluginReleaseScriptsTest {
         assertThat(common).contains(
                 "function New-PluginArtifactSignature",
                 "function Write-PluginProvenanceSidecar",
+                "Join-Path $artifact.Directory.FullName \"provenance\"",
                 ".pixiv-plugin-provenance",
                 "signature.formatVersion=$($Signature.formatVersion)",
                 "status=VERIFIED"

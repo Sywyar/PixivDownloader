@@ -83,9 +83,16 @@ final class PluginPackageFixtures {
 
     /** 一个含 {@code plugin.properties} 的插件 jar 的字节。 */
     static byte[] pluginJarBytes(String id, String version, String requires, String pluginClass) {
+        return pluginJarBytes(id, version, requires, pluginClass, Map.of());
+    }
+
+    /** 一个含 {@code plugin.properties} 的插件 jar 的字节，可额外携带私有 {@code lib/*.jar}。 */
+    static byte[] pluginJarBytes(String id, String version, String requires, String pluginClass,
+                                 Map<String, byte[]> extraEntries) {
         Map<String, byte[]> entries = new LinkedHashMap<>();
         entries.put(PluginPackageReader.PLUGIN_PROPERTIES, bytes(pluginProperties(id, version, requires, pluginClass)));
         entries.put("com/example/Marker.class", bytes("fake-class-bytes"));
+        entries.putAll(extraEntries);
         return zipBytes(entries);
     }
 

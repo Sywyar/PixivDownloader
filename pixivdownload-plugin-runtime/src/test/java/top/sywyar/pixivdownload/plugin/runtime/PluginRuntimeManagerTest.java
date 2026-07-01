@@ -3,11 +3,25 @@ package top.sywyar.pixivdownload.plugin.runtime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeLayout;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbeFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.BootstrapProbePlugin;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageIntegrity;
+import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
+import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
+import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Properties;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,6 +31,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @DisplayName("PluginRuntimeManager 插件目录诊断与坏包隔离")
 class PluginRuntimeManagerTest {
+
+    private static final String PROBE_ID = "bootstrap-probe";
+    private static final String PROBE_VERSION = "1.0.0";
 
     @TempDir
     Path tempDir;
@@ -174,9 +191,173 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("JAR-with-lib：先验签原始 jar，再物化到 plugins/runtime，并保持 artifactPath 指向原始 jar")
+    void jarWithPrivateLibrariesIsMaterializedButExposesOriginalArtifact() throws IOException {
+        Path plugins = tempDir.resolve("plugins-with-lib");
+        Files.createDirectories(plugins);
+        Path jar = plugins.resolve("bootstrap-probe-1.0.0.jar");
+        writeProbeJar(jar, true);
+        writeLocalProvenance(plugins, jar);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        LoadedPluginPackage loaded = manager.loadPlugin(jar);
+        manager.startPlugin(PROBE_ID);
+
+        Path pf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                .getPluginPath().toAbsolutePath().normalize();
+        assertThat(loaded.artifactPath()).isEqualTo(jar.toAbsolutePath().normalize());
+        assertThat(manager.artifactPath(PROBE_ID)).contains(jar.toAbsolutePath().normalize());
+        assertThat(pf4jPath).startsWith(plugins.resolve(PluginRuntimeLayout.RUNTIME_DIR).toAbsolutePath().normalize());
+        assertThat(pf4jPath).isNotEqualTo(jar.toAbsolutePath().normalize());
+        assertThat(pf4jPath.resolve("plugin.properties")).exists();
+        assertThat(pf4jPath.resolve("classes/top/sywyar/pixivdownload/plugin/runtime/bootstrap/BootstrapProbePlugin.class"))
+                .exists();
+        assertThat(pf4jPath.resolve("lib/private-lib.jar")).exists();
+        assertThat(plugins.resolve(PROBE_ID + "-" + PROBE_VERSION)).doesNotExist();
+        manager.shutdown();
+    }
+
+    @Test
+    @DisplayName("JAR-with-lib：同一 sha 的不同 artifact 路径复用同一个 runtime cache")
+    void jarWithPrivateLibrariesReusesRuntimeCacheAcrossArtifactPathsWithSameSha() throws IOException {
+        Path plugins = tempDir.resolve("plugins-reusable-cache");
+        Path fullOffline = plugins.resolve("full-offline");
+        Path portable = plugins.resolve("portable");
+        Files.createDirectories(fullOffline);
+        Files.createDirectories(portable);
+        Path firstJar = fullOffline.resolve("pixivdownload-plugin-gui-theme-1.0.0.jar");
+        Path secondJar = portable.resolve("pixivdownload-plugin-gui-theme.jar");
+        writeProbeJar(firstJar, true);
+        Files.write(secondJar, Files.readAllBytes(firstJar));
+        writeLocalProvenance(plugins, firstJar);
+        writeLocalProvenance(plugins, secondJar);
+        String sha256 = PluginPackageIntegrity.sha256Hex(firstJar);
+        assertThat(PluginPackageIntegrity.sha256Hex(secondJar)).isEqualTo(sha256);
+        Path expectedCache = plugins.resolve(PluginRuntimeLayout.RUNTIME_DIR)
+                .resolve(PROBE_ID + "-" + PROBE_VERSION + "-" + sha256)
+                .toAbsolutePath().normalize();
+
+        PluginRuntimeManager firstManager = new PluginRuntimeManager(plugins);
+        LoadedPluginPackage firstLoaded = firstManager.loadPlugin(firstJar);
+        firstManager.startPlugin(PROBE_ID);
+        Path firstPf4jPath = firstManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                .getPluginPath().toAbsolutePath().normalize();
+        assertThat(firstLoaded.artifactPath()).isEqualTo(firstJar.toAbsolutePath().normalize());
+        assertThat(firstPf4jPath).isEqualTo(expectedCache);
+        firstManager.shutdown();
+
+        PluginRuntimeManager secondManager = new PluginRuntimeManager(plugins);
+        LoadedPluginPackage secondLoaded = secondManager.loadPlugin(secondJar);
+        secondManager.startPlugin(PROBE_ID);
+        Path secondPf4jPath = secondManager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                .getPluginPath().toAbsolutePath().normalize();
+
+        assertThat(secondLoaded.artifactPath()).isEqualTo(secondJar.toAbsolutePath().normalize());
+        assertThat(secondManager.artifactPath(PROBE_ID)).contains(secondJar.toAbsolutePath().normalize());
+        assertThat(secondPf4jPath).isEqualTo(firstPf4jPath);
+        assertThat(readCacheMarker(secondPf4jPath).getProperty("artifact.path"))
+                .isEqualTo(secondJar.toAbsolutePath().normalize().toString());
+        secondManager.shutdown();
+    }
+
+    @Test
+    @DisplayName("ZIP 兼容：不让 PF4J 直接加载根 zip，而是物化到 plugins/runtime 目录后加载一次")
+    void zipPackageIsMaterializedBeforePf4jLoad() throws IOException {
+        Path plugins = tempDir.resolve("plugins-zip");
+        Files.createDirectories(plugins);
+        Path zip = plugins.resolve("bootstrap-probe-1.0.0.zip");
+        writeProbeExplodedZip(zip);
+        writeLocalProvenance(plugins, zip);
+        PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
+
+        LoadedPluginPackage loaded = manager.loadPlugin(zip);
+
+        Path pf4jPath = manager.pluginManager().orElseThrow().getPlugin(PROBE_ID)
+                .getPluginPath().toAbsolutePath().normalize();
+        assertThat(loaded.artifactPath()).isEqualTo(zip.toAbsolutePath().normalize());
+        assertThat(pf4jPath).startsWith(plugins.resolve(PluginRuntimeLayout.RUNTIME_DIR).toAbsolutePath().normalize());
+        assertThat(pf4jPath).isDirectory();
+        assertThat(pf4jPath).isNotEqualTo(zip.toAbsolutePath().normalize());
+        assertThat(plugins.resolve(PROBE_ID + "-" + PROBE_VERSION)).doesNotExist();
+        manager.shutdown();
+    }
+
+    @Test
     @DisplayName("构造参数为 null 时立即抛出")
     void nullRootRejected() {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new PluginRuntimeManager(null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static void writeProbeJar(Path jar, boolean privateLib) throws IOException {
+        Files.createDirectories(jar.getParent());
+        try (OutputStream out = Files.newOutputStream(jar);
+             ZipOutputStream zos = new ZipOutputStream(out)) {
+            addDescriptor(zos);
+            addClassEntry(zos, BootstrapProbePlugin.class, "");
+            addClassEntry(zos, BootstrapProbeFeaturePlugin.class, "");
+            if (privateLib) {
+                zos.putNextEntry(new ZipEntry("lib/private-lib.jar"));
+                zos.write(nestedJarBytes());
+                zos.closeEntry();
+            }
+        }
+    }
+
+    private static void writeProbeExplodedZip(Path zip) throws IOException {
+        Files.createDirectories(zip.getParent());
+        try (OutputStream out = Files.newOutputStream(zip);
+             ZipOutputStream zos = new ZipOutputStream(out)) {
+            addDescriptor(zos);
+            addClassEntry(zos, BootstrapProbePlugin.class, "classes/");
+            addClassEntry(zos, BootstrapProbeFeaturePlugin.class, "classes/");
+        }
+    }
+
+    private static void addDescriptor(ZipOutputStream zos) throws IOException {
+        String props = "plugin.id=" + PROBE_ID + "\nplugin.version=" + PROBE_VERSION + "\nplugin.requires=1.0\n"
+                + "plugin.class=" + BootstrapProbePlugin.class.getName() + "\n"
+                + "plugin.provider=test\nplugin.description=bootstrap probe\n";
+        zos.putNextEntry(new ZipEntry("plugin.properties"));
+        zos.write(props.getBytes(StandardCharsets.UTF_8));
+        zos.closeEntry();
+    }
+
+    private static void addClassEntry(ZipOutputStream zos, Class<?> type, String prefix) throws IOException {
+        String entry = prefix + type.getName().replace('.', '/') + ".class";
+        byte[] bytes;
+        try (InputStream in = type.getResourceAsStream("/" + type.getName().replace('.', '/') + ".class")) {
+            assertThat(in).as("class resource must be compiled: " + type.getName()).isNotNull();
+            bytes = in.readAllBytes();
+        }
+        zos.putNextEntry(new ZipEntry(entry));
+        zos.write(bytes);
+        zos.closeEntry();
+    }
+
+    private static byte[] nestedJarBytes() throws IOException {
+        try (var out = new java.io.ByteArrayOutputStream();
+             var zos = new ZipOutputStream(out)) {
+            zos.putNextEntry(new ZipEntry("private/Marker.txt"));
+            zos.write("private-lib".getBytes(StandardCharsets.UTF_8));
+            zos.closeEntry();
+            zos.finish();
+            return out.toByteArray();
+        }
+    }
+
+    private static void writeLocalProvenance(Path pluginsDir, Path artifact) throws IOException {
+        VerificationResult result = new VerificationResult(VerificationStatus.UNSIGNED_ALLOWED,
+                PROBE_ID, PROBE_VERSION, null, null, null, null, Instant.now(), Files.size(artifact),
+                PluginPackageIntegrity.sha256Hex(artifact), "UNSIGNED_ALLOWED");
+        new PluginProvenanceStore(pluginsDir).write(artifact, PluginPackageOrigin.localUpload(), result);
+    }
+
+    private static Properties readCacheMarker(Path runtimeCache) throws IOException {
+        Properties properties = new Properties();
+        try (InputStream in = Files.newInputStream(runtimeCache.resolve(".pixiv-plugin-runtime-cache"))) {
+            properties.load(in);
+        }
+        return properties;
     }
 }

@@ -2,14 +2,14 @@
 .SYNOPSIS
     Shared plugin-distribution primitives reused by the distribution assembler and the Windows
     portable / installer packager, so both consume one source of "official optional plugin" truth
-    and one set of thin-jar / checksum helpers (no duplicated release semantics).
+    and one set of plugin-jar / checksum helpers (no duplicated release semantics).
 
 .DESCRIPTION
     Dot-source this file from a packaging script:
 
         . (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
 
-    It defines the canonical official optional external plugin list plus the thin-jar inspection and
+    It defines the canonical official optional external plugin list plus the plugin-jar inspection and
     checksum helpers. It performs no work on its own and writes nothing to disk.
 
     ASCII-only (no BOM, English comments): these scripts run under Windows powershell(5.1); non-ASCII
@@ -24,11 +24,11 @@ function Get-OfficialOptionalPlugins {
     [CmdletBinding()]
     param([switch]$IncludeSentinel)
     $plugins = @(
-        [pscustomobject]@{ Id = "gui-theme"; Module = "pixivdownload-plugin-gui-theme"; Format = "zip" },
-        [pscustomobject]@{ Id = "stats"; Module = "pixivdownload-plugin-stats"; Format = "jar" }
+        [pscustomobject]@{ Id = "gui-theme"; Module = "pixivdownload-plugin-gui-theme"; Format = "jar"; PrivateLibs = $true },
+        [pscustomobject]@{ Id = "stats"; Module = "pixivdownload-plugin-stats"; Format = "jar"; PrivateLibs = $false }
     )
     if ($IncludeSentinel) {
-        $plugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel"; Format = "jar" }
+        $plugins += [pscustomobject]@{ Id = "recovery-sentinel"; Module = "pixivdownload-plugin-recovery-sentinel"; Format = "jar"; PrivateLibs = $false }
     }
     return $plugins
 }
@@ -119,7 +119,10 @@ function Write-PluginProvenanceSidecar {
         [Parameter(Mandatory = $true)]$Signature,
         [Parameter(Mandatory = $true)][string]$VerifiedAt
     )
-    $sidecar = "$ArtifactPath.pixiv-plugin-provenance"
+    $artifact = Get-Item -LiteralPath $ArtifactPath
+    $provenanceDir = Join-Path $artifact.Directory.FullName "provenance"
+    New-Item -ItemType Directory -Force -Path $provenanceDir | Out-Null
+    $sidecar = Join-Path $provenanceDir "$($artifact.Name).pixiv-plugin-provenance"
     $lines = @(
         "formatVersion=1",
         "source=MARKET_CATALOG",
@@ -272,6 +275,10 @@ function Assert-ThinPluginJar {
             throw "Plugin jar is not thin - leaked '$prefix' entries (deps must be provided): $JarPath"
         }
     }
+    $privateLibs = $entries | Where-Object { $_ -match "^lib/[^/]+\.jar$" }
+    if ($privateLibs) {
+        throw "Plugin jar is not thin - found private lib/*.jar entries: $JarPath"
+    }
     $descriptor = Read-PluginDescriptor $JarPath
     if (-not $descriptor -or -not $descriptor["plugin.id"]) {
         throw "Plugin jar plugin.properties missing plugin.id: $JarPath"
@@ -282,46 +289,48 @@ function Assert-ThinPluginJar {
     return $descriptor
 }
 
-function Assert-ExplodedPluginZip {
-    # Verify a PF4J exploded-directory zip: root plugin.properties, classes/, lib/*.jar, no root
-    # plugin jar, and runtime-only GUI theme dependencies present under lib/.
+function Assert-JarWithPrivatePluginLibs {
+    # Verify a PF4J plugin jar with private dependencies: root plugin.properties, plugin classes/resources at
+    # normal jar paths, and runtime-only GUI theme dependencies present under lib/.
     param(
-        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string]$JarPath,
         [Parameter(Mandatory = $true)][string]$ExpectedId
     )
-    $entries = Get-ZipEntryNames $ZipPath
+    $entries = Get-ZipEntryNames $JarPath
     if ($entries -notcontains "plugin.properties") {
-        throw "Plugin zip is not a PF4J exploded-directory package (missing root plugin.properties): $ZipPath"
+        throw "Plugin jar is not a PF4J package (missing root plugin.properties): $JarPath"
     }
-    $rootJars = $entries | Where-Object { $_ -match "^[^/]+\.jar$" }
-    if ($rootJars) {
-        throw "Plugin zip must not contain root plugin jars in exploded-directory layout: $ZipPath"
-    }
-    if (-not ($entries | Where-Object { $_.StartsWith("classes/") })) {
-        throw "Plugin zip missing classes/ payload: $ZipPath"
+    if (-not ($entries | Where-Object { $_.StartsWith("top/sywyar/pixivdownload/guitheme/") })) {
+        throw "Plugin jar missing GUI theme classes: $JarPath"
     }
     $libJars = @($entries | Where-Object { $_ -match "^lib/[^/]+\.jar$" })
     if (-not $libJars) {
-        throw "Plugin zip missing lib/*.jar payload: $ZipPath"
+        throw "Plugin jar missing lib/*.jar payload: $JarPath"
     }
-    foreach ($required in @("flatlaf-", "flatlaf-intellij-themes-", "jna-", "jna-platform-")) {
-        $match = $libJars | Where-Object { (Split-Path $_ -Leaf).StartsWith($required) }
+    $requiredLibPatterns = @(
+        "^flatlaf-[0-9].*\.jar$",
+        "^flatlaf-intellij-themes-[0-9].*\.jar$",
+        "^jna-[0-9].*\.jar$",
+        "^jna-platform-[0-9].*\.jar$"
+    )
+    foreach ($required in $requiredLibPatterns) {
+        $match = $libJars | Where-Object { (Split-Path $_ -Leaf) -match $required }
         if (-not $match) {
-            throw "Plugin zip missing required dependency in lib/: $required ($ZipPath)"
+            throw "Plugin jar missing required dependency in lib/: $required ($JarPath)"
         }
     }
-    foreach ($prefix in @("BOOT-INF/", "classes/top/sywyar/pixivdownload/plugin/api/")) {
+    foreach ($prefix in @("BOOT-INF/", "top/sywyar/pixivdownload/plugin/api/", "org/pf4j/")) {
         $leaked = $entries | Where-Object { $_.StartsWith($prefix) }
         if ($leaked) {
-            throw "Plugin zip leaked forbidden '$prefix' entries: $ZipPath"
+            throw "Plugin jar leaked forbidden '$prefix' entries: $JarPath"
         }
     }
-    $descriptor = Read-PluginDescriptor $ZipPath
+    $descriptor = Read-PluginDescriptor $JarPath
     if (-not $descriptor -or -not $descriptor["plugin.id"]) {
-        throw "Plugin zip plugin.properties missing plugin.id: $ZipPath"
+        throw "Plugin jar plugin.properties missing plugin.id: $JarPath"
     }
     if ($descriptor["plugin.id"] -ne $ExpectedId) {
-        throw "Plugin zip declares id '$($descriptor['plugin.id'])' but expected '$ExpectedId': $ZipPath"
+        throw "Plugin jar declares id '$($descriptor['plugin.id'])' but expected '$ExpectedId': $JarPath"
     }
     return $descriptor
 }
@@ -333,10 +342,13 @@ function Assert-OfficialPluginArtifact {
     )
     $format = if ($Plugin.Format) { $Plugin.Format } else { "jar" }
     if ($format -eq "jar") {
+        if ($Plugin.PrivateLibs) {
+            return Assert-JarWithPrivatePluginLibs $ArtifactPath $Plugin.Id
+        }
         return Assert-ThinPluginJar $ArtifactPath $Plugin.Id
     }
     if ($format -eq "zip") {
-        return Assert-ExplodedPluginZip $ArtifactPath $Plugin.Id
+        throw "Official plugin '$($Plugin.Id)' is configured as zip; official plugin artifacts must be jar."
     }
     throw "Unsupported official plugin artifact format '$format' for $($Plugin.Id)."
 }
