@@ -28,7 +28,9 @@ COPY pixivdownload-plugin-api/pom.xml pixivdownload-plugin-api/
 COPY pixivdownload-core-api/pom.xml pixivdownload-core-api/
 COPY pixivdownload-plugin-signature/pom.xml pixivdownload-plugin-signature/
 COPY pixivdownload-plugin-runtime/pom.xml pixivdownload-plugin-runtime/
+COPY pixivdownload-plugin-gui-theme/pom.xml pixivdownload-plugin-gui-theme/
 COPY pixivdownload-plugin-stats/pom.xml pixivdownload-plugin-stats/
+COPY pixivdownload-plugin-recovery-sentinel/pom.xml pixivdownload-plugin-recovery-sentinel/
 COPY pixivdownload-app/pom.xml pixivdownload-app/
 RUN mvn -B -q dependency:go-offline
 

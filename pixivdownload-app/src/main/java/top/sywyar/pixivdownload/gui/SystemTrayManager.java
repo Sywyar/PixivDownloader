@@ -46,7 +46,7 @@ public final class SystemTrayManager {
         trayIcon.addActionListener(e -> showFrame(frame));
 
         // 右键 = 弹出 Swing 菜单（使用绝对屏幕坐标，避免 TrayIcon 事件坐标不可靠）。
-        // 每次右键都重建菜单：JPopupMenu 不挂在任何窗口树上，FlatLaf.updateUI() 的全局重涂
+        // 每次右键都重建菜单：JPopupMenu 不挂在任何窗口树上，主题切换后的全局重涂
         // 够不到它，复用同一实例会让菜单停留在创建时的主题（例如启动深色后切到浅色仍是白字）。
         // 即时重建可同时跟随当前主题与语言，并避免 showAt 每次累积 PopupMenuListener。
         trayIcon.addMouseListener(new MouseAdapter() {

@@ -12,13 +12,13 @@ import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.gui.theme.FlatLafSetup;
-import top.sywyar.pixivdownload.gui.theme.ThemePreference;
+import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.i18n.AppLocale;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.maintenance.MaintenanceStatusHolder;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
 import top.sywyar.pixivdownload.update.UpdateConfig;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -82,9 +82,10 @@ public class StatusPanel extends JPanel {
     private final JProgressBar ffmpegProgress = new JProgressBar();
 
     private final JComboBox<LocaleOption> languageCombo = new JComboBox<>();
-    private final JComboBox<ThemeOption> themeCombo = new JComboBox<>();
+    private final JComboBox<StatusPanelThemeOption> themeCombo = new JComboBox<>();
     private final java.awt.event.ActionListener themeActionListener = e -> applyThemeSelection();
     private final Runnable themeChangeListener = this::onThemeChanged;
+    private GuiThemeListenerSession themeListenerSession = GuiThemeListenerSession.none();
 
     private final int serverPort;
     private final String rootFolder;
@@ -392,7 +393,7 @@ public class StatusPanel extends JPanel {
      * 边框保留各自的金 / 紫强调色以区分正式版与每夜版。
      */
     private void applyUpdateBannerColors() {
-        boolean dark = FlatLafSetup.isCurrentDark();
+        boolean dark = GuiThemeManager.isCurrentDark();
         // 前端 dark 主题：--surface = #171a21（卡片底）、--text = #f4f7fb（主文本）
         Color darkSurface = new Color(0x17, 0x1a, 0x21);
         Color darkText = new Color(0xf4, 0xf7, 0xfb);
@@ -448,56 +449,50 @@ public class StatusPanel extends JPanel {
         JLabel label = new JLabel(message("gui.status.theme.label"));
         label.setForeground(Color.GRAY);
 
-        ThemeOption[] options = {
-                new ThemeOption(ThemePreference.SYSTEM, message("gui.status.theme.option.system")),
-                new ThemeOption(ThemePreference.LIGHT, message("gui.status.theme.option.light")),
-                new ThemeOption(ThemePreference.DARK, message("gui.status.theme.option.dark")),
-                new ThemeOption(ThemePreference.MOONLIGHT, message("gui.status.theme.option.moonlight")),
-        };
-        for (ThemeOption option : options) {
-            themeCombo.addItem(option);
-        }
+        refreshThemeOptions();
         syncThemeComboSelection();
         themeCombo.setToolTipText(message("gui.status.theme.tooltip"));
         themeCombo.addActionListener(themeActionListener);
-        FlatLafSetup.addChangeListener(themeChangeListener);
+        themeListenerSession = GuiThemeManager.addChangeListener(themeChangeListener);
 
         row.add(label);
         row.add(themeCombo);
         return row;
     }
 
+    private void refreshThemeOptions() {
+        String selectedId = StatusPanelThemeModel.selectedThemeId(themeCombo, GuiThemeManager.configuredThemeId());
+        themeCombo.removeActionListener(themeActionListener);
+        StatusPanelThemeModel.refreshOptions(themeCombo,
+                GuiMessages.currentLocale(),
+                message("gui.status.theme.option.unavailable"),
+                message("gui.status.theme.option.system-fallback"),
+                selectedId);
+        themeCombo.addActionListener(themeActionListener);
+    }
+
     private void syncThemeComboSelection() {
-        ThemePreference pref = FlatLafSetup.currentPreference();
-        for (int i = 0; i < themeCombo.getItemCount(); i++) {
-            ThemeOption option = themeCombo.getItemAt(i);
-            if (option.preference() == pref) {
-                if (themeCombo.getSelectedItem() != option) {
-                    themeCombo.removeActionListener(themeActionListener);
-                    themeCombo.setSelectedItem(option);
-                    themeCombo.addActionListener(themeActionListener);
-                }
-                return;
-            }
-        }
+        themeCombo.removeActionListener(themeActionListener);
+        StatusPanelThemeModel.syncSelection(themeCombo);
+        themeCombo.addActionListener(themeActionListener);
     }
 
     private void applyThemeSelection() {
-        ThemeOption option = (ThemeOption) themeCombo.getSelectedItem();
-        if (option == null) {
+        StatusPanelThemeOption option = (StatusPanelThemeOption) themeCombo.getSelectedItem();
+        if (option == null || option.unavailable()) {
             return;
         }
-        ThemePreference next = option.preference();
-        if (next == FlatLafSetup.currentPreference()) {
+        String next = option.id();
+        if (next.equals(GuiThemeManager.configuredThemeId())) {
             return;
         }
 
-        boolean persisted = persistThemePreference(next);
-        // LAF 重建（FlatLaf.updateUI）会重装包括本下拉框在内的所有组件 UI；若在组合框自身的
+        boolean persisted = persistThemeId(next);
+        // LAF 重建会重装包括本下拉框在内的所有组件 UI；若在组合框自身的
         // 选中回调里同步触发，会拆掉正在栈上执行回调的旧 UI delegate（其 comboBox 被置 null），
         // 方向键导航的 selectNextPossibleValue() 末尾再 repaint 就会 NPE。推迟到当前键盘事件
         // 派发结束后再切换，等价于 applyLanguageSelection() 对 onLocaleChanged 的处理。
-        SwingUtilities.invokeLater(() -> FlatLafSetup.setPreference(next));
+        SwingUtilities.invokeLater(() -> GuiThemeManager.applyThemeId(next));
 
         if (!persisted && configPath != null) {
             log.warn(logMessage("gui.status.log.theme.persist-failed-warn", configPath));
@@ -507,24 +502,12 @@ public class StatusPanel extends JPanel {
         }
     }
 
-    private record ThemeOption(ThemePreference preference, String label) {
-        @Override
-        public String toString() {
-            return label;
+    private boolean persistThemeId(String themeId) {
+        boolean persisted = GuiThemeManager.persistThemeId(configPath, themeId);
+        if (!persisted) {
+            log.warn(logMessage("gui.status.log.theme.persist-failed", themeId));
         }
-    }
-
-    private boolean persistThemePreference(ThemePreference preference) {
-        if (configPath == null || !Files.exists(configPath)) {
-            return false;
-        }
-        try {
-            new ConfigFileEditor(configPath).write("app.theme", preference.toConfigValue());
-            return true;
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.theme.persist-failed", e.getMessage()));
-            return false;
-        }
+        return persisted;
     }
 
     private JComponent buildLanguageSelector() {
@@ -1634,7 +1617,7 @@ public class StatusPanel extends JPanel {
 
     /** 对话框顶部的醒目提示条：随浅 / 深主题切换配色，复用更新横幅的琥珀色风格。 */
     private JComponent buildMigrateNotice() {
-        boolean dark = FlatLafSetup.isCurrentDark();
+        boolean dark = GuiThemeManager.isCurrentDark();
         Color bg = dark ? new Color(0x17, 0x1a, 0x21) : new Color(255, 247, 220);
         Color borderColor = dark ? new Color(200, 165, 70) : new Color(220, 190, 120);
         Color fg = dark ? new Color(0xf4, 0xf7, 0xfb) : UIManager.getColor("Label.foreground");
@@ -1661,7 +1644,7 @@ public class StatusPanel extends JPanel {
     private JComponent buildPrefixCard(String path, boolean isRoot, boolean symbolic, JTextField input) {
         Color borderColor = UIManager.getColor("Component.borderColor");
         if (borderColor == null) {
-            borderColor = FlatLafSetup.isCurrentDark() ? new Color(0x2a, 0x30, 0x3b) : new Color(0xd0, 0xd5, 0xdd);
+            borderColor = GuiThemeManager.isCurrentDark() ? new Color(0x2a, 0x30, 0x3b) : new Color(0xd0, 0xd5, 0xdd);
         }
         Color muted = UIManager.getColor("Label.disabledForeground");
         if (muted == null) {
@@ -1725,7 +1708,7 @@ public class StatusPanel extends JPanel {
 
     /** 「当前下载根目录」彩色标签（chip）；符号根虚拟行使用「跟随软件目录」文案。 */
     private JComponent buildRootChip(boolean symbolic) {
-        boolean dark = FlatLafSetup.isCurrentDark();
+        boolean dark = GuiThemeManager.isCurrentDark();
         Color chipBg = dark ? new Color(0x1f, 0x3a, 0x52) : new Color(0xe1, 0xf0, 0xff);
         Color chipFg = dark ? new Color(0x9c, 0xd4, 0xff) : new Color(0x1f, 0x6f, 0xeb);
         JLabel chip = new JLabel(message(symbolic ? "gui.migrate-dir.symbolic-chip" : "gui.migrate-dir.root-chip"));
@@ -1802,7 +1785,14 @@ public class StatusPanel extends JPanel {
         stopDownloadProgressTimer();
         stopLiveStatusTimer();
         BackendLifecycleManager.removeListener(backendListener);
-        FlatLafSetup.removeChangeListener(themeChangeListener);
+        themeListenerSession = closeThemeListenerSession(themeListenerSession);
+    }
+
+    static GuiThemeListenerSession closeThemeListenerSession(GuiThemeListenerSession session) {
+        if (session != null) {
+            session.close();
+        }
+        return GuiThemeListenerSession.none();
     }
 
     // ── 启动检查：孤儿符号根记录 ─────────────────────────────────────────────────

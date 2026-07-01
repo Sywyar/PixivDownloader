@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.policy.StartupOnlyPlugins;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -112,8 +113,9 @@ public class PluginInstallService {
     private PluginInstallReport toReport(PluginActivationResult activation) {
         PluginInstallResult result = activation.installResult();
         PluginDescriptor descriptor = result.descriptor();
+        boolean startupOnly = result.accepted() && StartupOnlyPlugins.isStartupOnly(result.pluginId());
         return new PluginInstallReport(
-                result.outcome(), result.accepted(), false,
+                result.outcome(), result.accepted(), startupOnly,
                 result.pluginId(), result.version(), result.previousVersion(),
                 declaredDependencies(descriptor), unsatisfiedDependencies(descriptor), result.messages(),
                 activation.transactionId(), activation.activated(), activation.rolledBack(),

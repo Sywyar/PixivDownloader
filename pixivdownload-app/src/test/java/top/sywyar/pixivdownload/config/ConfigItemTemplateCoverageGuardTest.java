@@ -43,14 +43,12 @@ class ConfigItemTemplateCoverageGuardTest {
      * 模板有意<b>不</b>提供 GUI 字段网格项的配置键（显式豁免；新增豁免须在此登记并说明理由）：
      * <ul>
      *   <li>{@code app.language} / {@code app.theme} —— 由 GUI 自带的语言 / 主题切换器管理，不进配置字段网格；</li>
-     *   <li>{@code plugins.stats.enabled} —— stats 为外置 PF4J 插件，GUI 插件开关只动态派生<b>内置</b>可禁用插件，
-     *       外置插件的 GUI 开槽是后续工作。</li>
      *   <li>{@code plugin-catalog.repositories} —— 自定义仓库<b>列表</b>型配置，由「插件」分组的仓库列表编辑器
      *       （{@code PluginMarketConfigSection}，经 {@code PluginRepositoryConfigEditor} 结构化读写）管理，不入字段网格。</li>
      * </ul>
      */
     private static final Set<String> TEMPLATE_KEYS_WITHOUT_GUI_FIELD = Set.of(
-            "app.language", "app.theme", "plugins.stats.enabled", "plugin-catalog.repositories");
+            "app.language", "app.theme", "plugin-catalog.repositories");
 
     @Test
     @DisplayName("每个 @ConfigurationProperties 前缀在 config.yaml 模板中至少有一个键")

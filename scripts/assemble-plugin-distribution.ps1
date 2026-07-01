@@ -10,9 +10,8 @@
         PixivDownload-<Version>.jar              # core shell + built-in plugins (incl. required download
                                                  #   workbench) = default downloader jar
         plugins/
-          <plugin>-<version>.jar                 # official optional external plugin (thin jar, root
-                                                 #   plugin.properties)
-          <plugin>-<version>.jar.sha256          # per-package sha256 checksum file
+          <plugin>-<version>.(jar|zip)           # official optional external plugin
+          <plugin>-<version>.(jar|zip).sha256    # per-package sha256 checksum file
         SHA256SUMS                               # aggregate checksum file (sha256sum -c compatible)
         plugins-manifest.json                    # per external plugin: id / version / requires / file / sha256
 
@@ -21,10 +20,9 @@
     "full offline" bundle: run `java -jar PixivDownload-<Version>.jar` from that directory and the runtime
     loads these external plugins from the working-directory plugins/ folder.
 
-    The script self-checks each plugin jar for the thin form (root plugin.properties; no BOOT-INF/; no
-    bundled PF4J / Spring / shared-contract classes) and the boot jar for the distribution boundary (no
-    external plugin classes / static / i18n; PF4J only nested under BOOT-INF/lib). Any broken invariant
-    aborts with an error.
+    The script self-checks official plugins for their declared form (thin jar or exploded-directory zip)
+    and the boot jar for the distribution boundary (no external plugin classes / static / i18n; PF4J only
+    nested under BOOT-INF/lib). Any broken invariant aborts with an error.
 
     Note: the download workbench is still a built-in required plugin compiled into the boot jar (not yet
     physically externalized into its own plugin jar), so a "core shell only, missing download workbench
@@ -127,10 +125,16 @@ function Assert-BootJarBoundary {
     $entries = Get-ZipEntryNames $JarPath
     $forbidden = @(
         "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
+        "BOOT-INF/classes/top/sywyar/pixivdownload/guitheme/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/recoverysentinel/",
         "BOOT-INF/classes/static/pixiv-stats",
         "BOOT-INF/classes/i18n/web/stats",
-        "BOOT-INF/classes/org/pf4j/"
+        "BOOT-INF/classes/i18n/web/gui-theme",
+        "BOOT-INF/classes/org/pf4j/",
+        "BOOT-INF/lib/flatlaf-",
+        "BOOT-INF/lib/flatlaf-intellij-themes-",
+        "BOOT-INF/lib/jna-",
+        "BOOT-INF/lib/jna-platform-"
     )
     foreach ($prefix in $forbidden) {
         $leaked = $entries | Where-Object { $_.StartsWith($prefix) }
@@ -183,21 +187,22 @@ try {
     $sumLines = @()
     foreach ($plugin in $OptionalPlugins) {
         Write-Step "Staging plugin '$($plugin.Id)'"
-        $sourceJar = Find-ModuleJar $plugin.Module $ProjectRoot
-        $descriptor = Assert-ThinPluginJar $sourceJar $plugin.Id
+        $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
+        $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
         $pluginVersion = $descriptor["plugin.version"]
         $requires = $descriptor["plugin.requires"]
+        $extension = if ($plugin.Format -eq "zip") { "zip" } else { "jar" }
 
-        $targetName = "$($plugin.Module)-$pluginVersion.jar"
-        $targetJar = Join-Path $PluginsOutDir $targetName
-        Copy-Item $sourceJar $targetJar -Force
+        $targetName = "$($plugin.Module)-$pluginVersion.$extension"
+        $targetArtifact = Join-Path $PluginsOutDir $targetName
+        Copy-Item $sourceArtifact $targetArtifact -Force
 
-        $sha = Get-Sha256Hex $targetJar
-        [System.IO.File]::WriteAllText("$targetJar.sha256", "$sha  $targetName`n", $Utf8NoBom)
-        $signature = New-PluginArtifactSignature $SignatureToolJar $targetJar $plugin.Id $pluginVersion `
-            $OfficialKeyId $PrivateKeyFile "$targetJar.sig"
+        $sha = Get-Sha256Hex $targetArtifact
+        [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $targetName`n", $Utf8NoBom)
+        $signature = New-PluginArtifactSignature $SignatureToolJar $targetArtifact $plugin.Id $pluginVersion `
+            $OfficialKeyId $PrivateKeyFile "$targetArtifact.sig"
         $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
-        [void](Write-PluginProvenanceSidecar $targetJar (Get-Item -LiteralPath $targetJar).Length `
+        [void](Write-PluginProvenanceSidecar $targetArtifact (Get-Item -LiteralPath $targetArtifact).Length `
             $sha $signature $verifiedAt)
 
         $manifest += [ordered]@{
@@ -209,7 +214,7 @@ try {
             signature = $signature
         }
         $sumLines += "$sha  plugins/$targetName"
-        Write-Host "    OK: thin plugin jar staged ($targetName, sha256 $sha)." -ForegroundColor Green
+        Write-Host "    OK: official plugin artifact staged ($targetName, sha256 $sha)." -ForegroundColor Green
     }
 
     # Include the core jar in the aggregate checksum file too.

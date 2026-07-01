@@ -10,11 +10,11 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
-import top.sywyar.pixivdownload.gui.theme.FlatLafSetup;
-import top.sywyar.pixivdownload.gui.theme.ThemePreference;
+import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
 import top.sywyar.pixivdownload.plugin.DatabaseSchemaRegistry;
+import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
@@ -214,7 +214,7 @@ public class GuiLauncher {
         // ── 2. 启动前读取配置（Spring 尚未就绪，直接读文件）────────────────────────
         int serverPort = DEFAULT_PORT;
         String rootFolder = DEFAULT_ROOT;
-        ThemePreference themePreference = ThemePreference.SYSTEM;
+        String themePreference = GuiThemeManager.DEFAULT_THEME_ID;
         Path configPath = RuntimeFiles.resolveConfigYamlPath();
 
         if (configPath.toFile().exists()) {
@@ -222,14 +222,13 @@ public class GuiLauncher {
                 ConfigFileEditor editor = new ConfigFileEditor(configPath);
                 String portStr = editor.read("server.port");
                 String rootStr = editor.read("download.root-folder");
-                String themeStr = editor.read("app.theme");
                 if (portStr != null && !portStr.isBlank()) {
                     serverPort = Integer.parseInt(portStr.trim());
                 }
                 if (rootStr != null && !rootStr.isBlank()) {
                     rootFolder = rootStr.trim();
                 }
-                themePreference = ThemePreference.fromConfigValue(themeStr);
+                themePreference = GuiThemeManager.readPersistedThemeId(configPath);
             } catch (Exception e) {
                 log.warn(logMessage("gui.launcher.log.config.read-failed", e.getMessage()));
             }
@@ -238,19 +237,23 @@ public class GuiLauncher {
         RuntimeFiles.prepareRuntimeFiles(rootFolder);
 
         // ── 2a. 进程级插件 bootstrap 会话（PROCESS 拥有，复用于后端 restart，进程退出时关闭）────────
-        //    必须早于首个 Swing 窗口 / 主题安装：外置插件的发现要先于 FlatLaf 完成。会话 start 收敛插件目录
+        //    必须早于首个 Swing 窗口 / 主题安装：外置主题插件的发现要先于主题管理完成。会话 start 收敛插件目录
         //    缺失 / 空 / 坏包 / 安装事务恢复失败为诊断，不抛、不阻断 GUI 进入系统 LookAndFeel。
         final PluginBootstrapSession pluginSession = PluginBootstrapSession.createProcess(
                 RuntimeFiles.pluginsDirectory(), readPluginEnabledSnapshot(configPath),
                 readPluginVerifierResolver(configPath));
         pluginSession.start();
         // 启动期 inventory / discovery 快照持有插件实例 / classloader 引用，仅存在于启动前的短生命周期窗口。
-        // 当前没有启动期快照消费者，进入 Spring 前显式释放，避免钉住运行期 reload / 卸载的旧 generation。
+        // GUI theme 是首窗前 startup-only 消费者：先取出已启用功能插件，再释放快照，避免重复钉住旧 generation。
+        final List<PixivFeaturePlugin> startupThemePlugins = pluginSession.startupDiscovery().discovered().stream()
+                .map(discovered -> discovered.plugin())
+                .filter(plugin -> plugin.required() || pluginSession.enabledSnapshot().isEnabled(plugin.id()))
+                .toList();
         pluginSession.releaseStartupSnapshot();
 
         final int port = serverPort;
         final String root = rootFolder;
-        final ThemePreference theme = themePreference;
+        final String theme = themePreference;
         String[] backendArgs = filterArgs(args);
 
         // 后端启动经显式、可清理的回调接收同一 PROCESS 会话——每次 startAsync（含 restart 的 start 阶段）都把同一会话
@@ -261,10 +264,10 @@ public class GuiLauncher {
                 backendArgsForSession -> PixivDownloadApplication.start(backendArgsForSession, pluginSession));
         registerProcessShutdown(pluginSession, backendRegistration);
 
-        // ── 3. 初始化 Swing + FlatLaf，展示主窗口 ────────────────────────────────
+        // ── 3. 初始化 Swing 主题，展示主窗口 ───────────────────────────────────
         SwingUtilities.invokeLater(() -> {
             try {
-                FlatLafSetup.apply(theme);
+                GuiThemeManager.applyBeforeFirstWindow(configPath, theme, startupThemePlugins);
                 MainFrame frame = new MainFrame(port, root, configPath);
                 singleInstanceManager.setActivationHandler(() -> SwingUtilities.invokeLater(frame::showWindow));
                 boolean trayInstalled = SystemTrayManager.install(frame, root);
@@ -303,7 +306,7 @@ public class GuiLauncher {
     }
 
     /**
-     * GUI 引导期（FlatLaf / 主窗口 / 托盘）致命失败时的统一处理：
+     * GUI 引导期（主题管理 / 主窗口 / 托盘）致命失败时的统一处理：
      * 先保证异常落盘，再尽力弹窗告知用户，最后以非零码显式退出，
      * 使行为可预测、可诊断，而不是静默消失。
      */
@@ -763,7 +766,7 @@ public class GuiLauncher {
 
     /**
      * 读取 config.yaml 的 {@code plugins.<featureId>.enabled} 启用快照（UTF-8）。失败安全回退为全部启用并记日志——
-     * 不阻止 GUI 使用现有 FlatLaf / 系统 LookAndFeel；解析出的非法值由快照自身记诊断、按缺项默认启用处理。
+     * 不阻止 GUI 使用主题插件或系统 LookAndFeel；解析出的非法值由快照自身记诊断、按缺项默认启用处理。
      */
     private static PluginEnabledSnapshot readPluginEnabledSnapshot(Path configPath) {
         if (!Files.isRegularFile(configPath)) {

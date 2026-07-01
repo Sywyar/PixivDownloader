@@ -63,8 +63,9 @@ public final class DefaultConfigTemplate {
                         "config.template.plugins.enabled.comment");
             }
         }
-        // stats 为外置 PF4J 插件、不在内置清单内，单独写出其开关。
+        // 官方外置 PF4J 插件不在内置清单内，单独写出其开关（缺项默认启用）。
         appendSetting(config, messages, "plugins.stats.enabled: true", "config.template.plugins.enabled.comment");
+        appendSetting(config, messages, "plugins.gui-theme.enabled: true", "config.template.plugins.enabled.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.plugin-catalog");

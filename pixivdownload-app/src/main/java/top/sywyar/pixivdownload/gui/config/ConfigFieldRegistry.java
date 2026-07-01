@@ -173,6 +173,17 @@ public final class ConfigFieldRegistry {
 
                 // 内置插件开关字段在 baseFields 之后由 BuiltInPlugins 清单动态派生（见下），此处不再硬编码。
 
+                // 官方外置插件开关：缺项默认启用，修改后需完整重启。gui-theme 为 startup-only，禁用后首窗前不会消费其主题贡献。
+                ConfigFieldSpec.builder("plugins.stats.enabled", message("gui.config.field.plugins.stats.enabled.label"), BOOL, groupPlugins)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.plugins.stats.enabled.help"))
+                        .build(),
+
+                ConfigFieldSpec.builder("plugins.gui-theme.enabled", message("gui.config.field.plugins.gui-theme.enabled.label"), BOOL, groupPlugins)
+                        .defaultValue("true")
+                        .help(message("gui.config.field.plugins.gui-theme.enabled.help"))
+                        .build(),
+
                 // ── 插件市场 / 受信 catalog（归入「插件」分组）──────────────────────
                 // 受信 catalog 主开关：默认关闭（开启前不联网）；高级项（超时 / 字节上限 / repositories 列表）
                 // 不入字段网格，仅可手写 config.yaml。两项均需重启（仓库注册中心在启动期构建）。

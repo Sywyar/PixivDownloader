@@ -137,29 +137,6 @@
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>com.formdev</groupId>
-            <artifactId>flatlaf</artifactId>
-            <version>3.5.4</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.formdev</groupId>
-            <artifactId>flatlaf-intellij-themes</artifactId>
-            <version>3.5.4</version>
-        </dependency>
-
-        <dependency>
-            <groupId>net.java.dev.jna</groupId>
-            <artifactId>jna</artifactId>
-            <version>${jna.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>net.java.dev.jna</groupId>
-            <artifactId>jna-platform</artifactId>
-            <version>${jna.version}</version>
-        </dependency>
     </dependencies>
 
     <build>
@@ -198,6 +175,8 @@
                     <systemPropertyVariables>
                         <stats.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-stats/target/classes</stats.plugin.classes>
                         <recovery-sentinel.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-recovery-sentinel/target/classes</recovery-sentinel.plugin.classes>
+                        <gui-theme.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/classes</gui-theme.plugin.classes>
+                        <gui-theme.plugin.zip>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gui-theme/target/pixivdownload-plugin-gui-theme-${project.version}.zip</gui-theme.plugin.zip>
                     </systemPropertyVariables>
                 </configuration>
             </plugin>

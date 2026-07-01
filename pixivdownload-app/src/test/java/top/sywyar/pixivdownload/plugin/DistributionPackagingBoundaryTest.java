@@ -3,19 +3,24 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 插件分发打包边界守卫：把「主程序 boot jar 只含核心 + 内置插件、外置插件以 thin jar 单独分发」这一发布形态不变量
+ * 插件分发打包边界守卫：把「主程序 boot jar 只含核心 + 内置插件、外置插件单独分发」这一发布形态不变量
  * 固化为可重复的自动化检查，供分发 / 打包流程依赖。三条互补验证：
  * <ol>
  *   <li><b>boot jar 不含外置插件类与资源</b>——经「运行期类路径不可加载」实证：app 模块测试运行期的类路径即 boot jar
@@ -26,6 +31,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       且不泄漏共享契约 / 宿主类；若 Maven 已产出真实插件 jar，再断言 jar 内无 {@code BOOT-INF/}、无打入的
  *       {@code org/pf4j/}、{@code org/springframework/} 框架类（依赖均 provided）。</li>
  *   <li><b>{@code recovery-sentinel} 同样以 thin 外置插件形态打包</b>。</li>
+ *   <li><b>{@code gui-theme} 以 PF4J 解压目录 ZIP 打包</b>——根 {@code plugin.properties}、
+ *       {@code classes/} 与 {@code lib/*.jar} 在位，FlatLaf / IntelliJ Themes / JNA 仅在 ZIP 的 {@code lib/} 中，
+ *       并通过独立 classloader 真实加载。</li>
  * </ol>
  *
  * <p>插件构建产物目录经 surefire 系统属性 {@code stats.plugin.classes} / {@code recovery-sentinel.plugin.classes}
@@ -33,11 +41,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 对应用例 {@link Assumptions assume} 跳过。真实插件 jar（{@code target/<artifactId>-*.jar}）仅在 {@code package}
  * 阶段后存在——存在即追加更强的 thin 不变量断言，缺失时不跳过、仅不追加，故 {@code test} 阶段照常运行。
  */
-@DisplayName("插件分发打包边界：boot jar 不含外置插件类、外置插件 thin jar 形态")
+@DisplayName("插件分发打包边界：boot jar 不含外置插件类、外置插件独立产物形态")
 class DistributionPackagingBoundaryTest {
 
     private static final String STATS_CLASSES_PROPERTY = "stats.plugin.classes";
     private static final String SENTINEL_CLASSES_PROPERTY = "recovery-sentinel.plugin.classes";
+    private static final String GUI_THEME_CLASSES_PROPERTY = "gui-theme.plugin.classes";
+    private static final String GUI_THEME_ZIP_PROPERTY = "gui-theme.plugin.zip";
 
     @Test
     @DisplayName("boot jar 运行期类路径含内置下载工作台与宿主 PF4J，但不含外置插件 stats / recovery-sentinel 的类与资源")
@@ -59,12 +69,20 @@ class DistributionPackagingBoundaryTest {
                 .as("外置 stats 插件类不应在 boot jar 内").isFalse();
         assertThat(canLoad(host, "top.sywyar.pixivdownload.recoverysentinel.RecoverySentinelPf4jPlugin"))
                 .as("外置 recovery-sentinel 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "top.sywyar.pixivdownload.guitheme.GuiThemePf4jPlugin"))
+                .as("外置 gui-theme 插件类不应在 boot jar 内").isFalse();
+        assertThat(canLoad(host, "com.formdev.flatlaf.FlatLaf"))
+                .as("FlatLaf 不应在 app boot jar 运行期类路径内").isFalse();
+        assertThat(canLoad(host, "com.sun.jna.Native"))
+                .as("JNA 不应在 app boot jar 运行期类路径内").isFalse();
 
         // 外置插件的静态资源 / i18n 只随其自身 thin jar 携带，核心壳 classloader 解析不到。
         assertThat(host.getResource("static/pixiv-stats/pixiv-stats.css"))
                 .as("stats 静态资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("i18n/web/stats.properties"))
                 .as("stats i18n 资源不应在 boot jar 内").isNull();
+        assertThat(host.getResource("i18n/web/gui-theme.properties"))
+                .as("gui-theme i18n 资源不应在 boot jar 内").isNull();
     }
 
     @Test
@@ -79,6 +97,44 @@ class DistributionPackagingBoundaryTest {
     void recoverySentinelPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(SENTINEL_CLASSES_PROPERTY, "pixivdownload-plugin-recovery-sentinel",
                 "top/sywyar/pixivdownload/recoverysentinel/RecoverySentinelPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("gui-theme 以 PF4J 解压目录 zip 形态打包：根 descriptor + classes/ + lib/*.jar")
+    void guiThemePackagesAsExplodedDirectoryZip(@TempDir Path tempDir) {
+        Path classesDir = locateConfiguredDir(GUI_THEME_CLASSES_PROPERTY);
+        Assumptions.assumeTrue(classesDir != null && Files.isDirectory(classesDir),
+                "插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-gui-theme），跳过 zip 形态验证");
+
+        assertThat(classesDir.resolve("plugin.properties"))
+                .as("主题插件构建产物根部应含 plugin.properties").exists();
+        assertThat(classesDir.resolve("top/sywyar/pixivdownload/guitheme/GuiThemePf4jPlugin.class"))
+                .as("主题插件构建产物应含外置主类").exists();
+        assertThat(classesDir.resolve("top/sywyar/pixivdownload/plugin/api"))
+                .as("主题插件不得打入共享契约 plugin-api").doesNotExist();
+        assertThat(classesDir.resolve("top/sywyar/pixivdownload/gui/theme/GuiThemeManager.class"))
+                .as("主题插件不得打入 app 核心主题管理类").doesNotExist();
+
+        Path zip = locateConfiguredZip(classesDir);
+        if (zip == null) {
+            return;
+        }
+        List<String> entries = jarEntryNames(zip);
+        assertThat(entries).contains("plugin.properties");
+        assertThat(entries).contains("classes/top/sywyar/pixivdownload/guitheme/GuiThemePf4jPlugin.class");
+        assertThat(entries).as("解压目录 zip 不得包含根插件 jar").noneMatch(name -> name.matches("[^/]+\\.jar"));
+        assertThat(entries).as("FlatLaf 必须只在 theme zip 的 lib/ 中")
+                .anyMatch(name -> name.matches("lib/flatlaf-[^/]+\\.jar"));
+        assertThat(entries).as("IntelliJ Themes 必须只在 theme zip 的 lib/ 中")
+                .anyMatch(name -> name.matches("lib/flatlaf-intellij-themes-[^/]+\\.jar"));
+        assertThat(entries).as("JNA 必须只在 theme zip 的 lib/ 中")
+                .anyMatch(name -> name.matches("lib/jna-[^/]+\\.jar"));
+        assertThat(entries).as("JNA Platform 必须只在 theme zip 的 lib/ 中")
+                .anyMatch(name -> name.matches("lib/jna-platform-[^/]+\\.jar"));
+        assertThat(entries).noneMatch(name -> name.startsWith("BOOT-INF/"));
+        assertThat(entries).noneMatch(name -> name.startsWith("classes/top/sywyar/pixivdownload/plugin/api/"));
+
+        assertGuiThemeZipLoadsWithPluginClassLoader(zip, tempDir);
     }
 
     // --- 验证 thin 外置插件形态：先据构建 classes 目录，jar 存在时再据真实 jar 追加更强断言 ---
@@ -132,6 +188,26 @@ class DistributionPackagingBoundaryTest {
         return (configured == null || configured.isBlank()) ? null : Path.of(configured);
     }
 
+    private static Path locateConfiguredZip(Path classesDir) {
+        String configured = System.getProperty(GUI_THEME_ZIP_PROPERTY);
+        if (configured != null && !configured.isBlank() && Files.isRegularFile(Path.of(configured))) {
+            return Path.of(configured);
+        }
+        Path targetDir = classesDir.getParent();
+        if (targetDir == null || !Files.isDirectory(targetDir)) {
+            return null;
+        }
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(
+                targetDir, "pixivdownload-plugin-gui-theme-*.zip")) {
+            for (Path candidate : stream) {
+                return candidate;
+            }
+        } catch (IOException ignored) {
+            // package 阶段之前 zip 不存在，test 阶段只跳过更强断言。
+        }
+        return null;
+    }
+
     /** 在插件模块 {@code target/} 下定位真实插件 jar（{@code <artifactId>-*.jar}，排除 sources / javadoc）；缺失返回 null。 */
     private static Path locateModuleJar(Path classesDir, String artifactId) {
         Path targetDir = classesDir.getParent();
@@ -163,5 +239,56 @@ class DistributionPackagingBoundaryTest {
             throw new IllegalStateException("无法读取插件 jar: " + jar, e);
         }
         return names;
+    }
+
+    private static void assertGuiThemeZipLoadsWithPluginClassLoader(Path zip, Path tempDir) {
+        Path exploded = tempDir.resolve("gui-theme");
+        extractZip(zip, exploded);
+
+        List<URL> urls = new ArrayList<>();
+        try {
+            urls.add(exploded.resolve("classes").toUri().toURL());
+            try (DirectoryStream<Path> libs = Files.newDirectoryStream(exploded.resolve("lib"), "*.jar")) {
+                for (Path lib : libs) {
+                    urls.add(lib.toUri().toURL());
+                }
+            }
+            try (URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new),
+                    DistributionPackagingBoundaryTest.class.getClassLoader())) {
+                Class<?> plugin = Class.forName(
+                        "top.sywyar.pixivdownload.guitheme.GuiThemePf4jPlugin", false, loader);
+                Class<?> flatLaf = Class.forName("com.formdev.flatlaf.FlatLaf", false, loader);
+                Class<?> jna = Class.forName("com.sun.jna.Native", false, loader);
+
+                assertThat(plugin.getClassLoader()).as("主题插件主类应由插件 classloader 加载").isSameAs(loader);
+                assertThat(flatLaf.getClassLoader()).as("FlatLaf 应由主题插件 classloader 的 lib/ 加载").isSameAs(loader);
+                assertThat(jna.getClassLoader()).as("JNA 应由主题插件 classloader 的 lib/ 加载").isSameAs(loader);
+            }
+        } catch (IOException | ReflectiveOperationException e) {
+            throw new IllegalStateException("无法通过主题插件 ZIP classloader 加载类: " + zip, e);
+        }
+    }
+
+    private static void extractZip(Path zip, Path targetDir) {
+        try (JarFile jarFile = new JarFile(zip.toFile())) {
+            var entries = jarFile.entries();
+            while (entries.hasMoreElements()) {
+                JarEntry entry = entries.nextElement();
+                Path output = targetDir.resolve(entry.getName()).normalize();
+                if (!output.startsWith(targetDir)) {
+                    throw new IllegalStateException("插件 ZIP 含非法路径: " + entry.getName());
+                }
+                if (entry.isDirectory()) {
+                    Files.createDirectories(output);
+                    continue;
+                }
+                Files.createDirectories(output.getParent());
+                try (InputStream in = jarFile.getInputStream(entry)) {
+                    Files.copy(in, output);
+                }
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("无法解压主题插件 ZIP: " + zip, e);
+        }
     }
 }

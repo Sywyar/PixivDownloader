@@ -1,37 +1,32 @@
-package top.sywyar.pixivdownload.gui.theme;
+package top.sywyar.pixivdownload.guitheme;
 
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.intellijthemes.materialthemeuilite.FlatMoonlightIJTheme;
-import lombok.extern.slf4j.Slf4j;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeChangeListener;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
 
-import javax.swing.*;
-import java.awt.*;
+import javax.swing.SwingUtilities;
+import javax.swing.Timer;
+import javax.swing.UIManager;
+import java.awt.Font;
+import java.awt.GraphicsEnvironment;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * FlatLaf 主题初始化、运行时切换与跨平台中文字体回退链。
- * <p>持有当前 {@link ThemePreference}；在 {@link ThemePreference#SYSTEM} 模式下监听操作系统桌面属性变化，
- * 并保留一个 30s 间隔的兜底计时器跟踪浅/深变化并自动重涂。其它模式下监听与计时器均停止。
- */
-@Slf4j
-public final class FlatLafSetup {
+final class FlatLafSetup {
 
-    /**
-     * 优先级（依次尝试，取首个可用）：
-     * 1. Microsoft YaHei UI  (Windows 默认中文字体)
-     * 2. PingFang SC         (macOS)
-     * 3. Noto Sans CJK SC    (Linux 常见)
-     * 4. Source Han Sans SC  (思源黑体备选)
-     * 5. SimSun              (Windows 老版本兜底)
-     * 6. Dialog              (Java 逻辑字体，最后兜底)
-     */
+    private static final Logger log = LoggerFactory.getLogger(FlatLafSetup.class);
+
     private static final String[] FONT_PRIORITY = {
             "Microsoft YaHei UI",
             "PingFang SC",
@@ -40,83 +35,38 @@ public final class FlatLafSetup {
             "SimSun",
             "Dialog"
     };
-
-    // 监听器未覆盖或平台未上报桌面属性事件时的兜底；探测可能 fork reg.exe / defaults，
-    // 间隔取 30s 在响应性与开销之间折中，避免长时间驻留托盘时持续 fork 外部进程。
     private static final int SYSTEM_POLL_INTERVAL_MS = 30_000;
 
     private static volatile ThemePreference currentPreference = ThemePreference.SYSTEM;
     private static volatile boolean currentDark;
     private static Timer systemFallbackWatcher;
     private static SystemThemeChangeMonitor systemThemeChangeMonitor;
-    /** 系统主题探测是否仍在进行，避免慢速 reg.exe / defaults 下后台线程逐 tick 堆积。 */
     private static final AtomicBoolean systemProbeInFlight = new AtomicBoolean(false);
-    private static final List<Runnable> changeListeners = new ArrayList<>();
+    private static final List<GuiThemeChangeListener> changeListeners = new ArrayList<>();
 
-    private FlatLafSetup() {}
-
-    /**
-     * 必须在 EDT 上调用（创建 JFrame 之前）。按给定偏好选择并安装 Light/Dark LAF，
-     * 然后应用中文字体回退。{@link ThemePreference#SYSTEM} 模式下会启动后台轮询，
-     * 跟随操作系统切换。
-     */
-    public static void apply(ThemePreference preference) {
-        currentPreference = preference == null ? ThemePreference.SYSTEM : preference;
-        boolean dark = resolveDarkFor(currentPreference);
-        installLaf(dark);
-        currentDark = dark;
-        applyChineseFont();
-        updateSystemWatcher();
+    private FlatLafSetup() {
     }
 
-    /** 兼容入口：默认按"跟随系统"应用。 */
-    public static void apply() {
-        apply(ThemePreference.SYSTEM);
-    }
-
-    /**
-     * 运行时切换主题偏好：立即重新安装 LAF 并刷新所有已打开窗口；
-     * 必须在 EDT 上调用。与 {@link #applyDarkInternal} 不同，此方法始终强制完整重装，
-     * 以支持在暗色主题之间切换（如 DARK → MOONLIGHT）。
-     */
-    public static void setPreference(ThemePreference preference) {
+    static void apply(ThemePreference preference) {
         ThemePreference next = preference == null ? ThemePreference.SYSTEM : preference;
-        if (next == currentPreference) return;
         currentPreference = next;
         boolean dark = resolveDarkFor(next);
         installLaf(dark);
-        applyChineseFont();
         currentDark = dark;
-        try {
-            FlatLaf.updateUI();
-        } catch (Exception e) {
-            log.warn(logMessage("gui.theme.log.update-ui.failed", e.getMessage()));
-        }
-        notifyChange();
+        applyChineseFont();
         updateSystemWatcher();
+        notifyChange(appearanceFor(dark));
     }
 
-    public static ThemePreference currentPreference() {
-        return currentPreference;
-    }
-
-    public static boolean isCurrentDark() {
-        return currentDark;
-    }
-
-    /** 注册主题变更回调（任意线程调用，回调本身在 EDT 上触发）。 */
-    public static void addChangeListener(Runnable listener) {
-        if (listener == null) return;
+    static GuiThemeListenerSession openListener(ThemePreference preference, GuiThemeChangeListener listener) {
+        if (listener == null) {
+            return GuiThemeListenerSession.none();
+        }
         synchronized (changeListeners) {
             changeListeners.add(listener);
         }
-    }
-
-    public static void removeChangeListener(Runnable listener) {
-        if (listener == null) return;
-        synchronized (changeListeners) {
-            changeListeners.remove(listener);
-        }
+        listener.appearanceChanged(appearanceFor(currentDark));
+        return new ListenerSession(listener);
     }
 
     private static boolean resolveDarkFor(ThemePreference preference) {
@@ -127,14 +77,12 @@ public final class FlatLafSetup {
         };
     }
 
-    private static void installLaf(boolean dark) {
+    private static void installLaf(boolean dark) throws IllegalStateException {
         try {
             if (currentPreference.isNamedTheme()) {
                 FlatLaf.setGlobalExtraDefaults(null);
-                switch (currentPreference) {
-                    case MOONLIGHT -> FlatMoonlightIJTheme.setup();
-                    default -> {
-                    }
+                if (currentPreference == ThemePreference.MOONLIGHT) {
+                    FlatMoonlightIJTheme.setup();
                 }
                 return;
             }
@@ -144,31 +92,12 @@ public final class FlatLafSetup {
             } else {
                 FlatLightLaf.setup();
             }
-        } catch (Exception e) {
-            log.warn(logMessage("gui.theme.log.flatlaf.init-failed", e.getMessage()));
+        } catch (RuntimeException e) {
+            log.warn("FlatLaf initialization failed; leaving fallback LAF in place: {}", e.toString());
+            throw e;
         }
     }
 
-    /**
-     * 前端 dark 主题（{@code pixiv-gallery.css} 等）的 CSS 变量色号，
-     * 作为 FlatLaf 全局 extra defaults 注入。
-     * <p>注意：FlatLaf 的 globalExtraDefaults 只会按 key 直接 putAll，
-     * 不会重新解析 base 属性中已经 resolve 过的 {@code $@background} 等级联引用。
-     * 因此必须显式列出每个具体的 UIManager key（而不是仅写 {@code @background}），
-     * 否则惰性创建的右键弹出菜单、组合框下拉等组件依旧拿到 FlatDarkLaf 的原始默认色，
-     * 在深 ↔ 浅切换时观感不一致。
-     * <p>对应的前端 dark 主题色号：
-     * <ul>
-     *   <li>{@code --bg #101216} → 主面板 / 标签页 / 视口背景</li>
-     *   <li>{@code --surface #171a21} → 浮层背景（菜单 / 弹出菜单 / 下拉 / 工具提示）</li>
-     *   <li>{@code --text #f4f7fb} → 主文本前景</li>
-     *   <li>{@code --muted #8d98aa} → 次级 / 禁用文本</li>
-     *   <li>{@code --brand #4bb3ff} → 高亮选择背景</li>
-     *   <li>{@code --line #2a303b} → 分隔线 / 边框</li>
-     * </ul>
-     * 浅色模式调用 {@link FlatLaf#setGlobalExtraDefaults} 传 {@code null} 即可彻底清除，
-     * FlatLightLaf 自身的默认色随之恢复。
-     */
     private static Map<String, String> buildFrontendDarkExtras() {
         final String bg = "#101216";
         final String surface = "#171a21";
@@ -178,7 +107,6 @@ public final class FlatLafSetup {
         final String line = "#2a303b";
 
         Map<String, String> extras = new LinkedHashMap<>();
-        // 面板 / 视口 / 标签页 / 根面板 —— 主体背景
         extras.put("Panel.background", bg);
         extras.put("Panel.foreground", text);
         extras.put("TabbedPane.background", bg);
@@ -189,7 +117,6 @@ public final class FlatLafSetup {
         extras.put("SplitPane.background", bg);
         extras.put("RootPane.background", bg);
 
-        // 文本通用前景
         extras.put("Label.foreground", text);
         extras.put("Label.disabledForeground", muted);
         extras.put("TitledBorder.titleColor", text);
@@ -198,7 +125,6 @@ public final class FlatLafSetup {
         extras.put("Separator.foreground", line);
         extras.put("Component.borderColor", line);
 
-        // 右键 / 下拉菜单及其内部所有菜单项类型
         extras.put("MenuBar.background", surface);
         extras.put("MenuBar.foreground", text);
         extras.put("PopupMenu.background", surface);
@@ -225,7 +151,6 @@ public final class FlatLafSetup {
         extras.put("RadioButtonMenuItem.selectionBackground", brand);
         extras.put("RadioButtonMenuItem.selectionForeground", "#ffffff");
 
-        // JComboBox 下拉与 JList
         extras.put("ComboBox.background", surface);
         extras.put("ComboBox.foreground", text);
         extras.put("ComboBox.buttonBackground", surface);
@@ -235,49 +160,45 @@ public final class FlatLafSetup {
         extras.put("List.foreground", text);
         extras.put("List.selectionBackground", brand);
         extras.put("List.selectionForeground", "#ffffff");
-
         return extras;
     }
 
     private static void applyDarkInternal(boolean dark) {
         if (dark == currentDark) {
-            // 无变化但仍允许偏好级别的切换持久化 / 监听器联动
-            notifyChange();
+            notifyChange(appearanceFor(dark));
             return;
         }
         installLaf(dark);
         applyChineseFont();
         currentDark = dark;
         try {
-            // FlatLaf 的内置全局刷新：对当前所有 Window 调用 updateComponentTreeUI。
             FlatLaf.updateUI();
-        } catch (Exception e) {
-            log.warn(logMessage("gui.theme.log.update-ui.failed", e.getMessage()));
+        } catch (RuntimeException e) {
+            log.warn("Failed to refresh UI after theme change: {}", e.toString());
         }
-        notifyChange();
+        notifyChange(appearanceFor(dark));
     }
 
-    private static void notifyChange() {
-        List<Runnable> snapshot;
+    private static void notifyChange(GuiThemeAppearance appearance) {
+        List<GuiThemeChangeListener> snapshot;
         synchronized (changeListeners) {
             snapshot = new ArrayList<>(changeListeners);
         }
-        for (Runnable r : snapshot) {
+        for (GuiThemeChangeListener listener : snapshot) {
             try {
                 if (SwingUtilities.isEventDispatchThread()) {
-                    r.run();
+                    listener.appearanceChanged(appearance);
                 } else {
-                    SwingUtilities.invokeLater(r);
+                    SwingUtilities.invokeLater(() -> listener.appearanceChanged(appearance));
                 }
-            } catch (Exception e) {
-                log.debug(logMessage("gui.theme.log.listener-failed", e.getMessage()));
+            } catch (RuntimeException e) {
+                log.debug("GUI theme listener failed: {}", e.toString());
             }
         }
     }
 
     private static void updateSystemWatcher() {
-        boolean shouldWatch = currentPreference == ThemePreference.SYSTEM;
-        if (shouldWatch) {
+        if (currentPreference == ThemePreference.SYSTEM) {
             startSystemWatcher();
         } else {
             stopSystemWatcher();
@@ -312,20 +233,14 @@ public final class FlatLafSetup {
         if (currentPreference != ThemePreference.SYSTEM) {
             return;
         }
-        // 上一次探测尚未返回时跳过本轮，避免后台线程堆积。
         if (!systemProbeInFlight.compareAndSet(false, true)) {
             return;
         }
-        // 系统主题探测会 fork reg.exe / defaults，可能阻塞数百毫秒；
-        // 在后台线程上完成，再把结果回投到 EDT 上比对 / 应用。
         Thread worker = new Thread(() -> {
             try {
                 boolean dark = SystemThemeDetector.isSystemDark();
                 SwingUtilities.invokeLater(() -> {
-                    if (currentPreference != ThemePreference.SYSTEM) {
-                        return;
-                    }
-                    if (dark != currentDark) {
+                    if (currentPreference == ThemePreference.SYSTEM && dark != currentDark) {
                         applyDarkInternal(dark);
                     }
                 });
@@ -341,20 +256,28 @@ public final class FlatLafSetup {
         String[] available = GraphicsEnvironment
                 .getLocalGraphicsEnvironment()
                 .getAvailableFontFamilyNames();
-        java.util.Set<String> availableSet = new java.util.HashSet<>(java.util.Arrays.asList(available));
+        var availableSet = new HashSet<>(Arrays.asList(available));
 
         for (String name : FONT_PRIORITY) {
             if (availableSet.contains(name)) {
-                Font font = new Font(name, Font.PLAIN, 13);
-                UIManager.put("defaultFont", font);
-                log.debug(logMessage("gui.theme.log.font.applied", name));
+                UIManager.put("defaultFont", new Font(name, Font.PLAIN, 13));
+                log.debug("GUI font set to: {}", name);
                 return;
             }
         }
-        log.warn(logMessage("gui.theme.log.font.fallback"));
+        log.warn("No preset CJK font was found; using the system default font");
     }
 
-    private static String logMessage(String code, Object... args) {
-        return MessageBundles.get(code, args);
+    private static GuiThemeAppearance appearanceFor(boolean dark) {
+        return dark ? GuiThemeAppearance.DARK : GuiThemeAppearance.LIGHT;
+    }
+
+    private record ListenerSession(GuiThemeChangeListener listener) implements GuiThemeListenerSession {
+        @Override
+        public void close() {
+            synchronized (changeListeners) {
+                changeListeners.remove(listener);
+            }
+        }
     }
 }

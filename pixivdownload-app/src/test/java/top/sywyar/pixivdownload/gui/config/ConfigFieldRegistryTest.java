@@ -14,9 +14,10 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 配置面板字段注册守卫：内置插件开关（{@code plugins.<id>.enabled}）作为「插件」分组的 BOOL 字段呈现，
+ * 配置面板字段注册守卫：可禁用插件开关（{@code plugins.<id>.enabled}）作为「插件」分组的 BOOL 字段呈现，
  * 名称 / 简介经插件声明的 i18n key（{@code displayName()} / {@code description()}）在<b>插件自有 namespace</b>
- * 中解析（文案归插件所有、不在核心 GUI bundle）、需重启；必选插件（下载工作台）不可禁用、不呈现开关。
+ * 中解析（文案归插件所有、不在核心 GUI bundle）、需重启；官方外置插件使用核心 GUI 文案兜底；
+ * 必选插件（下载工作台）不可禁用、不呈现开关。
  */
 @DisplayName("配置面板字段注册：内置插件开关")
 class ConfigFieldRegistryTest {
@@ -39,7 +40,6 @@ class ConfigFieldRegistryTest {
     @DisplayName("可禁用功能插件各有一个 BOOL 开关：默认启用、需重启，名称/简介解析自插件自有 namespace")
     void pluginToggleFieldsRegistered() {
         // 名称 / 简介为纯 key（如 nav.label / plugin.label），在插件 displayNamespace 指定的 namespace 中解析（中文 locale 下的预期值）。
-        // 统计 stats 已外置、不在内置清单：GUI 插件开关只列内置可禁用插件（外置插件的 GUI 开槽属后续工作）。
         Map<String, String> expectedNames = Map.of(
                 "gallery", "画廊",
                 "novel", "小说",
@@ -75,6 +75,17 @@ class ConfigFieldRegistryTest {
                         .as("简介解析自插件自有 namespace 的 %s", plugin.description())
                         .isNotBlank()
                         .isNotEqualTo(plugin.description());
+            }
+            for (String id : List.of("stats", "gui-theme")) {
+                String key = "plugins." + id + ".enabled";
+                ConfigFieldSpec spec = byKey.get(key);
+                assertThat(spec).as("官方外置插件字段 %s 应已注册", key).isNotNull();
+                assertThat(spec.type()).isEqualTo(FieldType.BOOL);
+                assertThat(spec.group()).isEqualTo(pluginsGroup);
+                assertThat(spec.defaultValue()).isEqualTo("true");
+                assertThat(spec.requiresRestart()).as("外置插件开关需完整重启").isTrue();
+                assertThat(spec.label()).isNotBlank().doesNotStartWith("gui.config.field.");
+                assertThat(spec.helpText()).isNotBlank().doesNotStartWith("gui.config.field.");
             }
         } finally {
             GuiMessages.clearLocaleOverride();

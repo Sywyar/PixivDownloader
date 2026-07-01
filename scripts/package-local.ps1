@@ -183,11 +183,11 @@ function Resolve-PrebuiltPluginsDir {
 }
 
 function Stage-OfficialPlugins {
-    # Stage the official optional external thin plugin jars into <AppDir>\plugins so the portable zip
+    # Stage the official optional external plugin artifacts into <AppDir>\plugins so the portable zip
     # and the installer (which copy the whole app-image) carry the "full offline" plugins/ layout.
-    # Each jar is thin-checked and copied under a STABLE, version-less name (<module>.jar): an in-place
+    # Each artifact is shape-checked and copied under a STABLE, version-less name (<module>.<ext>): an in-place
     # installer upgrade then overwrites only that exact path (the existing [Files] ignoreversion flag)
-    # and never leaves a stale duplicate, while third-party plugin jars under plugins/ - any other name -
+    # and never leaves a stale duplicate, while third-party plugin artifacts under plugins/ - any other name -
     # are not in the installer file list and are therefore preserved across upgrade. The plugin's own
     # plugin.version (read from plugin.properties) is recorded in plugins-manifest.json.
     param(
@@ -204,28 +204,29 @@ function Stage-OfficialPlugins {
     $manifest = @()
     $sumLines = @()
     foreach ($plugin in (Get-OfficialOptionalPlugins)) {
+        $extension = if ($plugin.Format -eq "zip") { "zip" } else { "jar" }
         if ($PrebuiltPluginsDir) {
-            $candidate = Get-ChildItem (Join-Path $PrebuiltPluginsDir "$($plugin.Module)-*.jar") -File -ErrorAction SilentlyContinue |
+            $candidate = Get-ChildItem (Join-Path $PrebuiltPluginsDir "$($plugin.Module)-*.$extension") -File -ErrorAction SilentlyContinue |
                 Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
                 Sort-Object LastWriteTime -Descending |
                 Select-Object -First 1
             if (-not $candidate) {
-                throw "Prebuilt plugin jar for module $($plugin.Module) not found under $PrebuiltPluginsDir."
+                throw "Prebuilt plugin artifact for module $($plugin.Module) not found under $PrebuiltPluginsDir."
             }
-            $sourceJar = $candidate.FullName
+            $sourceArtifact = $candidate.FullName
         } else {
-            $sourceJar = Find-ModuleJar $plugin.Module $ProjectRoot
+            $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
         }
-        $descriptor = Assert-ThinPluginJar $sourceJar $plugin.Id
-        $stableName = "$($plugin.Module).jar"
-        $targetJar = Join-Path $pluginsDir $stableName
-        Copy-Item $sourceJar $targetJar -Force
-        $sha = Get-Sha256Hex $targetJar
-        [System.IO.File]::WriteAllText("$targetJar.sha256", "$sha  $stableName`n", $utf8NoBom)
-        $signature = New-PluginArtifactSignature $SignatureToolJar $targetJar $plugin.Id $descriptor["plugin.version"] `
-            $OfficialKeyId $PrivateKeyFile "$targetJar.sig"
+        $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
+        $stableName = "$($plugin.Module).$extension"
+        $targetArtifact = Join-Path $pluginsDir $stableName
+        Copy-Item $sourceArtifact $targetArtifact -Force
+        $sha = Get-Sha256Hex $targetArtifact
+        [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $stableName`n", $utf8NoBom)
+        $signature = New-PluginArtifactSignature $SignatureToolJar $targetArtifact $plugin.Id $descriptor["plugin.version"] `
+            $OfficialKeyId $PrivateKeyFile "$targetArtifact.sig"
         $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
-        [void](Write-PluginProvenanceSidecar $targetJar (Get-Item -LiteralPath $targetJar).Length `
+        [void](Write-PluginProvenanceSidecar $targetArtifact (Get-Item -LiteralPath $targetArtifact).Length `
             $sha $signature $verifiedAt)
         $manifest += [ordered]@{
             id       = $plugin.Id

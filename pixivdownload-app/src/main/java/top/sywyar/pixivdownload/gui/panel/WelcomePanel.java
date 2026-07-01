@@ -2,8 +2,6 @@ package top.sywyar.pixivdownload.gui.panel;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.formdev.flatlaf.util.Animator;
-import com.formdev.flatlaf.util.CubicBezierEasing;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -961,7 +959,7 @@ public class WelcomePanel extends JPanel {
     // ── 滑动容器：在两个 Panel 间做横向滑动切换 ───────────────────────────────
     private final class SlideContainer extends JPanel {
         private JComponent current;
-        private Animator animator;
+        private SlideAnimator animator;
 
         SlideContainer() {
             setOpaque(false);
@@ -998,8 +996,7 @@ public class WelcomePanel extends JPanel {
         void show(JComponent next, int dir, boolean animated) {
             int w = getWidth();
             int h = getHeight();
-            if (current == null || !animated || dir == 0
-                    || w == 0 || !Animator.useAnimation()) {
+            if (current == null || !animated || dir == 0 || w == 0) {
                 stopAnimation();
                 removeAll();
                 current = next;
@@ -1014,8 +1011,8 @@ public class WelcomePanel extends JPanel {
             add(next);
             out.setBounds(0, 0, w, h);
             next.setBounds(dir > 0 ? w : -w, 0, w, h);
-            animator = new Animator(320, fraction -> {
-                float e = CubicBezierEasing.EASE.interpolate(fraction);
+            animator = new SlideAnimator(320, 16, fraction -> {
+                float e = ease(fraction);
                 int off = Math.round(w * e);
                 if (dir > 0) {
                     out.setBounds(-off, 0, w, h);
@@ -1031,7 +1028,6 @@ public class WelcomePanel extends JPanel {
                 revalidate();
                 repaint();
             });
-            animator.setResolution(16);
             animator.start();
         }
 
@@ -1040,6 +1036,95 @@ public class WelcomePanel extends JPanel {
                 animator.stop();
                 animator = null;
             }
+        }
+    }
+
+    static float ease(float fraction) {
+        float x = Math.max(0f, Math.min(1f, fraction));
+        if (x == 0f || x == 1f) {
+            return x;
+        }
+        float low = 0f;
+        float high = 1f;
+        float t = x;
+        for (int i = 0; i < 8; i++) {
+            t = (low + high) * 0.5f;
+            float curveX = cubic(t, 0.25f, 0.25f);
+            if (curveX < x) {
+                low = t;
+            } else {
+                high = t;
+            }
+        }
+        return cubic(t, 0.1f, 1f);
+    }
+
+    private static float cubic(float t, float p1, float p2) {
+        float oneMinus = 1f - t;
+        return 3f * oneMinus * oneMinus * t * p1
+                + 3f * oneMinus * t * t * p2
+                + t * t * t;
+    }
+
+    static final class SlideAnimator {
+        private final int durationMs;
+        private final Timer timer;
+        private final java.util.function.Consumer<Float> onTick;
+        private final Runnable onEnd;
+        private long startedAtNanos;
+        private boolean running;
+
+        SlideAnimator(int durationMs, int resolutionMs,
+                      java.util.function.Consumer<Float> onTick, Runnable onEnd) {
+            this.durationMs = durationMs;
+            this.onTick = onTick;
+            this.onEnd = onEnd;
+            this.timer = new Timer(resolutionMs, e -> tick(System.nanoTime()));
+            this.timer.setInitialDelay(0);
+        }
+
+        void start() {
+            if (running) {
+                return;
+            }
+            running = true;
+            startedAtNanos = System.nanoTime();
+            timer.start();
+        }
+
+        void startAtForTest(long nowNanos) {
+            running = true;
+            startedAtNanos = nowNanos;
+        }
+
+        void stop() {
+            running = false;
+            timer.stop();
+        }
+
+        boolean isRunning() {
+            return running;
+        }
+
+        void tick(long nowNanos) {
+            if (!running) {
+                return;
+            }
+            float fraction = fraction(startedAtNanos, nowNanos, durationMs);
+            onTick.accept(fraction);
+            if (fraction >= 1f) {
+                stop();
+                onEnd.run();
+            }
+        }
+
+        static float fraction(long startedAtNanos, long nowNanos, int durationMs) {
+            if (durationMs <= 0) {
+                return 1f;
+            }
+            long elapsedNanos = Math.max(0L, nowNanos - startedAtNanos);
+            float fraction = elapsedNanos / (durationMs * 1_000_000f);
+            return Math.max(0f, Math.min(1f, fraction));
         }
     }
 

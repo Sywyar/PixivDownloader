@@ -13,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenan
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginDiagnostic;
 import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
+import top.sywyar.pixivdownload.plugin.policy.StartupOnlyPlugins;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector;
 import top.sywyar.pixivdownload.plugin.verification.PluginVerificationView;
 
@@ -102,10 +103,16 @@ public class PluginManagementService {
         PluginRuntimePhase phase = pluginLifecycleService.phase(id).orElse(null);
         boolean installedOnly = descriptor != null && !BuiltInPlugins.isBuiltIn(id)
                 && diagnostic.status() == PluginStatus.INSTALLED && phase == null;
-        boolean managed = managedIds.contains(id) || phase == PluginRuntimePhase.UNLOADED || installedOnly;
+        boolean startupOnly = StartupOnlyPlugins.isStartupOnly(id);
+        boolean managed = !startupOnly && (managedIds.contains(id) || phase == PluginRuntimePhase.UNLOADED
+                || installedOnly);
         boolean allowDisable = allowDisable(id);
         ExternalPluginOperationSnapshot operation = coordinator != null
                 ? coordinator.operation(id).orElse(null) : null;
+        List<String> messages = new ArrayList<>(diagnostic.messages());
+        if (startupOnly) {
+            messages.add("startup-only plugin: changes take effect after a full process restart");
+        }
         return new PluginManagementEntry(
                 id,
                 descriptor != null ? descriptor.displayNamespace() : null,
@@ -124,7 +131,7 @@ public class PluginManagementService {
                 diagnostic.requiredByPolicy(),
                 allowDisable,
                 availableActions(managed, phase, allowDisable, installedOnly),
-                diagnostic.messages(),
+                List.copyOf(messages),
                 verificationOf(id, descriptor),
                 pluginLifecycleService.generation(id).orElse(null),
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
@@ -262,6 +269,10 @@ public class PluginManagementService {
 
     /** 校验 id 是受管外置插件；否则按「内置 / 未激活外置 / 未知」分别给出明确拒绝（附尝试的动词 token 供诊断）。 */
     private void requireManaged(String id, LifecycleAction action) {
+        if (StartupOnlyPlugins.isStartupOnly(id)) {
+            throw new PluginManagementException(PluginManagementErrorCode.STARTUP_ONLY_PLUGIN, id, action.token(), null,
+                    "Startup-only plugin cannot be hot-managed; a full process restart is required: " + id);
+        }
         if (pluginLifecycleService.managedPluginIds().contains(id)) {
             return;
         }

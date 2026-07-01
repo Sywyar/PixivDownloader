@@ -19,6 +19,9 @@ public enum PluginManagementErrorCode {
     /** 外置插件当前未激活（已被 {@code plugins.<id>.enabled} 配置禁用），运行期动词不可用。 */
     INACTIVE_PLUGIN(HttpStatus.CONFLICT, "plugin.manage.error.inactive"),
 
+    /** startup-only 外置插件只在完整进程启动前生效，不支持普通热启停 / 卸载 / 重载。 */
+    STARTUP_ONLY_PLUGIN(HttpStatus.CONFLICT, "plugin.manage.error.startup-only"),
+
     /** 必选插件不允许被停用类动词（quiesce / stop / unload）降级。 */
     REQUIRED_PLUGIN(HttpStatus.CONFLICT, "plugin.manage.error.required"),
 

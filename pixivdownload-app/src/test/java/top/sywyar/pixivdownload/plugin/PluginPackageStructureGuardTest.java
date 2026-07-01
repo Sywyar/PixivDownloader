@@ -7,6 +7,10 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -41,6 +45,33 @@ class PluginPackageStructureGuardTest {
      */
     private static final java.util.Set<String> PLUGIN_RUNTIME_SPLIT_TYPES = java.util.Set.of(
             "ConditionalOnPluginEnabled", "OnPluginEnabledCondition", "PluginToggleProperties");
+
+    @Test
+    @DisplayName("app 主源码与 app POM 不得直接引用 FlatLaf / JNA")
+    void appMainSourcesDoNotReferenceThemeEngineDependencies() throws IOException {
+        Path appRoot = Path.of("..", "pixivdownload-app").normalize();
+        if (!Files.isDirectory(appRoot)) {
+            appRoot = Path.of("pixivdownload-app");
+        }
+        Path mainJava = appRoot.resolve("src/main/java");
+        Path pom = appRoot.resolve("pom.xml");
+        java.util.regex.Pattern forbidden = java.util.regex.Pattern.compile(
+                "com\\.formdev|com\\.sun\\.jna|net\\.java\\.dev\\.jna");
+        java.util.List<Path> offenders = new java.util.ArrayList<>();
+        try (var stream = Files.walk(mainJava)) {
+            for (Path file : stream.filter(path -> path.toString().endsWith(".java")).toList()) {
+                if (forbidden.matcher(Files.readString(file)).find()) {
+                    offenders.add(file);
+                }
+            }
+        }
+        if (Files.exists(pom) && forbidden.matcher(Files.readString(pom)).find()) {
+            offenders.add(pom);
+        }
+        assertThat(offenders)
+                .as("FlatLaf / JNA 只能在 pixivdownload-plugin-gui-theme 内，app boot jar 不得重新引入")
+                .isEmpty();
+    }
 
     @Test
     @DisplayName("app 的 plugin 根包直接类型 ≤ 56（只降不升基线，排除 plugin-runtime 拆分包三件套）")

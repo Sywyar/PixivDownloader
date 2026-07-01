@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.CommittedPluginTransactio
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallOutcome;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginInstallResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.PluginPackageOrigin;
+import top.sywyar.pixivdownload.plugin.policy.StartupOnlyPlugins;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -162,8 +163,39 @@ public class ExternalPluginLifecycleCoordinator {
         String packageId = stagedResult.pluginId();
         ExternalPluginOperation operation = stagedResult.previousVersion() == null
                 ? ExternalPluginOperation.INSTALLING : ExternalPluginOperation.UPDATING;
+        if (StartupOnlyPlugins.isStartupOnly(packageId)) {
+            return withLock(packageId, operation, prepared.transactionId(), () ->
+                    commitStartupOnly(prepared));
+        }
         return withLock(packageId, operation, prepared.transactionId(), () ->
                 activatePrepared(prepared));
+    }
+
+    private PluginActivationResult commitStartupOnly(PreparedPluginTransaction prepared) {
+        String packageId = prepared.result().pluginId();
+        CommittedPluginTransaction committed = null;
+        try {
+            installer.verifyCurrentArtifacts(prepared);
+            committed = installer.commitTransaction(prepared);
+            installer.markActivated(committed);
+            installer.completeTransaction(committed);
+            recoveryModeService.refresh();
+            return new PluginActivationResult(prepared.transactionId(), prepared.result(), false, false, null,
+                    operationFor(prepared.result()), currentPhase(packageId));
+        } catch (RuntimeException failure) {
+            boolean rolledBack = committed != null && installer.rollbackTransaction(committed);
+            if (committed == null) {
+                installer.discardPrepared(prepared);
+            }
+            PluginInstallResult failed = new PluginInstallResult(PluginInstallOutcome.FAILED,
+                    prepared.result().descriptor(), null, prepared.result().previousVersion(),
+                    List.of("startup-only commit failed: " + failure.getMessage(),
+                            rolledBack ? "previous version restored" : "previous version recovery failed"));
+            recoveryModeService.refresh();
+            return new PluginActivationResult(prepared.transactionId(), failed, false, rolledBack,
+                    rolledBack ? prepared.result().previousVersion() : null,
+                    operationFor(prepared.result()), currentPhase(packageId));
+        }
     }
 
     private PluginActivationResult activatePrepared(PreparedPluginTransaction prepared) {
