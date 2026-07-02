@@ -8,7 +8,6 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import top.sywyar.pixivdownload.ai.AiChatClientRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperationRegistry;
 import top.sywyar.pixivdownload.core.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWork;
@@ -17,7 +16,6 @@ import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkSettings;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
-import top.sywyar.pixivdownload.notification.NotificationSinkRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.schedule.ScheduledSourceProvider;
@@ -66,8 +64,6 @@ import top.sywyar.pixivdownload.plugin.registry.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.web.PluginAwareRequestMappingHandlerMapping;
 import top.sywyar.pixivdownload.plugin.web.PluginControllerRegistrar;
 import top.sywyar.pixivdownload.plugin.web.PluginWebContributionRegistrar;
-import top.sywyar.pixivdownload.push.PushChannelRegistry;
-import top.sywyar.pixivdownload.tts.narration.engine.NarrationEngineRegistry;
 
 /**
  * 外置插件运行期热启停 / quiesce 生命周期服务测试：
@@ -786,9 +782,7 @@ class PluginLifecycleServiceTest {
     }
 
     private static PluginCapabilityContributionRegistrar capabilityRegistrar() {
-        return new PluginCapabilityContributionRegistrar(new NotificationSinkRegistry(List.of()),
-                new PushChannelRegistry(List.of()), new AiChatClientRegistry(List.of()),
-                new NarrationEngineRegistry(List.of()));
+        return new PluginCapabilityContributionRegistrar(List.of());
     }
 
     private static PluginRuntimeManager runtimeReturning(List<PluginContextModule> modules) {

@@ -2,16 +2,12 @@ package top.sywyar.pixivdownload.plugin.lifecycle;
 
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.ai.AiChatClient;
-import top.sywyar.pixivdownload.ai.AiChatClientRegistry;
-import top.sywyar.pixivdownload.notification.NotificationSink;
-import top.sywyar.pixivdownload.notification.NotificationSinkRegistry;
-import top.sywyar.pixivdownload.push.PushChannel;
-import top.sywyar.pixivdownload.push.PushChannelRegistry;
-import top.sywyar.pixivdownload.tts.narration.engine.NarrationEngineRegistry;
-import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceEngine;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.PluginCapabilityContributionAdapter;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.ListIterator;
 
 /**
  * Registers runtime capability beans contributed by an external plugin child context.
@@ -19,19 +15,12 @@ import java.util.List;
 @Component
 public class PluginCapabilityContributionRegistrar {
 
-    private final NotificationSinkRegistry notificationSinkRegistry;
-    private final PushChannelRegistry pushChannelRegistry;
-    private final AiChatClientRegistry aiChatClientRegistry;
-    private final NarrationEngineRegistry narrationEngineRegistry;
+    private final List<PluginCapabilityContributionAdapter<?>> adapters;
 
-    public PluginCapabilityContributionRegistrar(NotificationSinkRegistry notificationSinkRegistry,
-                                                 PushChannelRegistry pushChannelRegistry,
-                                                 AiChatClientRegistry aiChatClientRegistry,
-                                                 NarrationEngineRegistry narrationEngineRegistry) {
-        this.notificationSinkRegistry = notificationSinkRegistry;
-        this.pushChannelRegistry = pushChannelRegistry;
-        this.aiChatClientRegistry = aiChatClientRegistry;
-        this.narrationEngineRegistry = narrationEngineRegistry;
+    public PluginCapabilityContributionRegistrar(List<PluginCapabilityContributionAdapter<?>> adapters) {
+        this.adapters = adapters == null ? List.of() : adapters.stream()
+                .sorted(Comparator.comparing(PluginCapabilityContributionAdapter::capabilityName))
+                .toList();
     }
 
     public void register(String pluginId, ConfigurableApplicationContext context) {
@@ -39,20 +28,43 @@ public class PluginCapabilityContributionRegistrar {
             unregister(pluginId);
             return;
         }
-        notificationSinkRegistry.register(pluginId, beans(context, NotificationSink.class));
-        pushChannelRegistry.register(pluginId, beans(context, PushChannel.class));
-        aiChatClientRegistry.register(pluginId, beans(context, AiChatClient.class));
-        narrationEngineRegistry.register(pluginId, beans(context, NarrationVoiceEngine.class));
+        List<PluginCapabilityContributionAdapter<?>> registered = new ArrayList<>();
+        try {
+            for (PluginCapabilityContributionAdapter<?> adapter : adapters) {
+                registered.add(adapter);
+                registerOne(pluginId, context, adapter);
+            }
+        } catch (RuntimeException e) {
+            rollback(pluginId, registered);
+            throw e;
+        }
     }
 
     public void unregister(String pluginId) {
-        notificationSinkRegistry.unregister(pluginId);
-        pushChannelRegistry.unregister(pluginId);
-        aiChatClientRegistry.unregister(pluginId);
-        narrationEngineRegistry.unregister(pluginId);
+        for (PluginCapabilityContributionAdapter<?> adapter : adapters) {
+            adapter.unregister(pluginId);
+        }
+    }
+
+    public List<String> capabilityNames() {
+        return adapters.stream()
+                .map(PluginCapabilityContributionAdapter::capabilityName)
+                .toList();
     }
 
     private static <T> List<T> beans(ConfigurableApplicationContext context, Class<T> type) {
         return List.copyOf(context.getBeansOfType(type).values());
+    }
+
+    private static <T> void registerOne(String pluginId, ConfigurableApplicationContext context,
+                                        PluginCapabilityContributionAdapter<T> adapter) {
+        adapter.register(pluginId, beans(context, adapter.beanType()));
+    }
+
+    private static void rollback(String pluginId, List<PluginCapabilityContributionAdapter<?>> registered) {
+        ListIterator<PluginCapabilityContributionAdapter<?>> iterator = registered.listIterator(registered.size());
+        while (iterator.hasPrevious()) {
+            iterator.previous().unregister(pluginId);
+        }
     }
 }
