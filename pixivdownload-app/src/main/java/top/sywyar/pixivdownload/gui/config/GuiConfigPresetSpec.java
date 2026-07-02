@@ -11,6 +11,7 @@ public record GuiConfigPresetSpec(
         String presetId,
         String label,
         String help,
+        String cardId,
         int order,
         String matchFieldKey,
         String matchValue,

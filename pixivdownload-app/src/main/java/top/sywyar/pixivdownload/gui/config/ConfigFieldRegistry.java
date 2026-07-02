@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
-import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -122,20 +121,23 @@ public final class ConfigFieldRegistry {
         List<ConfigFieldSpec> fields = new ArrayList<>(coreFields());
         fields.addAll(contributions.fields());
         Set<String> groupsWithFields = fields.stream()
+                .filter(ConfigFieldSpec::contributesGroupVisibility)
                 .map(ConfigFieldSpec::group)
                 .collect(java.util.stream.Collectors.toSet());
         List<ConfigFieldSpec> contributedFields = contributions.fields();
         Set<String> contributedGroupsWithFields = contributedFields.stream()
+                .filter(ConfigFieldSpec::contributesGroupVisibility)
                 .map(ConfigFieldSpec::group)
                 .collect(java.util.stream.Collectors.toSet());
         List<GuiConfigSectionSpec> sections = contributions.sections();
         Set<String> contributedGroupsWithSections = sections.stream()
+                .filter(GuiConfigSectionSpec::contributesGroupVisibility)
                 .map(GuiConfigSectionSpec::group)
                 .collect(java.util.stream.Collectors.toSet());
         List<String> groupLabels = mergedGroups.stream()
                 .filter(ConfigGroupSpec::visibleInTabs)
                 .filter(group -> shouldShowGroup(group, groupsWithFields, contributedGroupsWithFields,
-                        contributedGroupsWithSections, contributedFields))
+                        contributedGroupsWithSections))
                 .sorted(Comparator.comparingInt(ConfigGroupSpec::order))
                 .map(ConfigGroupSpec::label)
                 .toList();
@@ -144,24 +146,13 @@ public final class ConfigFieldRegistry {
 
     private static boolean shouldShowGroup(ConfigGroupSpec group, Set<String> groupsWithFields,
                                            Set<String> contributedGroupsWithFields,
-                                           Set<String> contributedGroupsWithSections,
-                                           List<ConfigFieldSpec> contributedFields) {
+                                           Set<String> contributedGroupsWithSections) {
         if (GuiConfigGroups.AI.equals(group.id())) {
             return contributedGroupsWithFields.contains(group.label())
                     || contributedGroupsWithFields.contains(message("gui.config.group.narration-tts"))
                     || contributedGroupsWithSections.contains(group.label());
         }
-        if (GuiConfigGroups.NOTIFICATION.equals(group.id())) {
-            return hasNonScenarioNotificationField(group.label(), contributedFields)
-                    || contributedGroupsWithSections.contains(group.label());
-        }
         return groupsWithFields.contains(group.label()) || contributedGroupsWithSections.contains(group.label());
-    }
-
-    private static boolean hasNonScenarioNotificationField(String groupLabel, List<ConfigFieldSpec> fields) {
-        return fields.stream()
-                .anyMatch(field -> groupLabel.equals(field.group())
-                        && !field.key().startsWith(NotificationConfigKeys.SCENARIO_PREFIX));
     }
 
     static boolean hasGroupId(String groupId) {

@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
@@ -18,6 +19,8 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -165,6 +168,94 @@ class GuiConfigContributionAggregatorTest {
     }
 
     @Test
+    @DisplayName("section notice 会聚合到宿主 section spec")
+    void sectionNoticeContributionsAreCarried() {
+        GuiConfigSectionContribution section = new GuiConfigSectionContribution(
+                "fixture.notice",
+                GuiConfigGroups.NOTIFICATION,
+                "",
+                "",
+                null,
+                "",
+                "",
+                "",
+                "",
+                List.of(new GuiConfigSectionNoticeContribution(
+                        "fixture.notice.top",
+                        "fixture.notice.text",
+                        null,
+                        GuiConfigSectionNoticeStyle.HINT,
+                        5)),
+                GuiConfigSectionLayout.FIELD_LIST,
+                10,
+                List.of(),
+                List.of(),
+                List.of(),
+                false,
+                true);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(),
+                List.of(section))));
+
+        GuiConfigContributionSnapshot contributions =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+
+        assertThat(contributions.sections()).singleElement().satisfies(spec -> {
+            GuiConfigSectionSpec resolved = (GuiConfigSectionSpec) spec;
+            assertThat(resolved.notices()).singleElement().satisfies(notice -> {
+                GuiConfigSectionNoticeSpec resolvedNotice = (GuiConfigSectionNoticeSpec) notice;
+                assertThat(resolvedNotice.noticeId()).isEqualTo("fixture.notice.top");
+                assertThat(resolvedNotice.text()).isEqualTo("fixture.notice.text");
+                assertThat(resolvedNotice.style()).isEqualTo(GuiConfigSectionNoticeStyle.HINT);
+                assertThat(resolvedNotice.order()).isEqualTo(5);
+            });
+        });
+        assertThat(contributions.diagnostics()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("可合并 section id 会合并多个插件的布局和动作贡献")
+    void mergeableSectionsWithSameIdAreCombined() {
+        GuiConfigSectionContribution firstSection = mergeableCardSection(
+                "fixture.shared",
+                new GuiConfigFieldLayoutContribution("first.enabled", "first", "first.card", "first", 10),
+                new GuiConfigActionContribution("first.test", "first.test.label", "first-test", 10, List.of()));
+        GuiConfigSectionContribution secondSection = mergeableCardSection(
+                "fixture.shared",
+                new GuiConfigFieldLayoutContribution("second.enabled", "second", "second.card", "second", 20),
+                new GuiConfigActionContribution("second.test", "second.test.label", "second-test", 20, List.of()));
+        PixivFeaturePlugin first = plugin("first", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("first.enabled", GuiConfigGroups.NOTIFICATION,
+                        "first.enabled.label", GuiConfigFieldType.BOOL)),
+                List.of(firstSection))));
+        PixivFeaturePlugin second = plugin("second", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("second.enabled", GuiConfigGroups.NOTIFICATION,
+                        "second.enabled.label", GuiConfigFieldType.BOOL)),
+                List.of(secondSection))));
+
+        GuiConfigContributionSnapshot contributions =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(first, second)));
+
+        assertThat(contributions.sections()).singleElement().satisfies(section -> {
+            assertThat(section.sectionId()).isEqualTo("fixture.shared");
+            assertThat(section.mergeable()).isTrue();
+            assertThat(section.fieldLayouts()).extracting(GuiConfigFieldLayoutSpec::fieldKey)
+                    .containsExactly("first.enabled", "second.enabled");
+            assertThat(section.actions()).extracting(GuiConfigActionSpec::actionId)
+                    .containsExactly("first.test", "second.test");
+            assertThat(section.notices()).singleElement().satisfies(notice -> {
+                GuiConfigSectionNoticeSpec resolvedNotice = (GuiConfigSectionNoticeSpec) notice;
+                assertThat(resolvedNotice.noticeId()).isEqualTo("fixture.notice");
+                assertThat(resolvedNotice.text()).isEqualTo("fixture.notice.text");
+            });
+        });
+        assertThat(contributions.diagnostics()).isEmpty();
+    }
+
+    @Test
     @DisplayName("section 引用未知分组时只跳过该 section 并保留其它贡献")
     void sectionWithUnknownGroupIsDiagnosedWithoutDroppingFields() {
         PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
@@ -223,6 +314,52 @@ class GuiConfigContributionAggregatorTest {
             assertThat(diagnostic.pluginId()).isEqualTo("fixture");
             assertThat(diagnostic.key()).isEqualTo("fixture.section");
             assertThat(diagnostic.message()).contains("relative /api/gui/ path");
+        });
+    }
+
+    @Test
+    @DisplayName("section action 结果规则缺 notice key 时只跳过该规则")
+    void invalidActionResultRulesAreDiagnosedWithoutDroppingAction() {
+        GuiConfigActionContribution action = new GuiConfigActionContribution(
+                "probe",
+                "probe.label",
+                "",
+                null,
+                null,
+                "probe",
+                30_000,
+                10,
+                List.of(),
+                "",
+                List.of(new GuiConfigActionResultRule(" ", 10, List.of(), List.of())),
+                null);
+        PixivFeaturePlugin plugin = plugin("fixture", () -> List.of(new GuiConfigContribution(
+                List.of(),
+                List.of(field("fixture.enabled", GuiConfigGroups.PLUGINS,
+                        "fixture.enabled.label", GuiConfigFieldType.BOOL)),
+                List.of(new GuiConfigSectionContribution(
+                        "fixture.section",
+                        GuiConfigGroups.PLUGINS,
+                        "",
+                        "",
+                        null,
+                        GuiConfigSectionLayout.FIELD_LIST,
+                        10,
+                        List.of(),
+                        List.of(action),
+                        List.of())))));
+
+        GuiConfigContributionSnapshot contributions =
+                GuiConfigContributionAggregator.from(new PluginRegistry(List.of(plugin)));
+
+        assertThat(contributions.sections()).singleElement()
+                .satisfies(section -> assertThat(((GuiConfigSectionSpec) section).actions()).singleElement()
+                        .satisfies(resolvedAction -> assertThat(
+                                ((GuiConfigActionSpec) resolvedAction).resultRules()).isEmpty()));
+        assertThat(contributions.diagnostics()).anySatisfy(diagnostic -> {
+            assertThat(diagnostic.pluginId()).isEqualTo("fixture");
+            assertThat(diagnostic.key()).isEqualTo("fixture.section");
+            assertThat(diagnostic.message()).contains("notice key is blank");
         });
     }
 
@@ -498,6 +635,34 @@ class GuiConfigContributionAggregatorTest {
     private static GuiConfigFieldContribution field(String key, String groupId,
                                                     String labelKey, GuiConfigFieldType type) {
         return new GuiConfigFieldContribution(key, groupId, labelKey, type, "", 10);
+    }
+
+    private static GuiConfigSectionContribution mergeableCardSection(String sectionId,
+                                                                     GuiConfigFieldLayoutContribution layout,
+                                                                     GuiConfigActionContribution action) {
+        return new GuiConfigSectionContribution(
+                sectionId,
+                GuiConfigGroups.NOTIFICATION,
+                "",
+                "",
+                null,
+                "layout.label",
+                "layout.help",
+                "",
+                "",
+                List.of(new GuiConfigSectionNoticeContribution(
+                        "fixture.notice",
+                        "fixture.notice.text",
+                        null,
+                        GuiConfigSectionNoticeStyle.HINT,
+                        0)),
+                GuiConfigSectionLayout.CARD_SWITCHER,
+                200,
+                List.of(layout),
+                List.of(action),
+                List.of(),
+                true,
+                true);
     }
 
     private static ConfigFieldSpec field(ConfigFieldSnapshot snapshot, String key) {

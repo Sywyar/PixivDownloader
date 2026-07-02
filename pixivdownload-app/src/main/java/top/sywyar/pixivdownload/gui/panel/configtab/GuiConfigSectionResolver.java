@@ -22,7 +22,6 @@ public final class GuiConfigSectionResolver {
 
     static final String TRANSITION_OWNER = "app-transition";
     static final String AI_TRANSITION_SECTION = "transition.ai-config";
-    static final String NOTIFICATION_TRANSITION_SECTION = "transition.notification-config";
     static final String PLUGIN_MARKET_SECTION = "core.plugin-market-config";
 
     private GuiConfigSectionResolver() {
@@ -34,7 +33,12 @@ public final class GuiConfigSectionResolver {
                                                      Path configPath,
                                                      Function<String, String> webUrlProvider) {
         List<GuiConfigSectionSpec> safePluginSections = pluginSections == null ? List.of() : pluginSections;
-        List<GuiConfigSectionSpec> transitionSpecs = transitionAdapterSpecs(visibleGroups);
+        Set<String> declaredGroups = safePluginSections.stream()
+                .filter(spec -> spec != null)
+                .filter(spec -> visibleGroups == null || visibleGroups.contains(spec.group()))
+                .map(GuiConfigSectionSpec::group)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        List<GuiConfigSectionSpec> transitionSpecs = transitionAdapterSpecs(visibleGroups, declaredGroups);
         Map<String, List<ConfigSectionBlock>> blocksByGroup = new LinkedHashMap<>();
         Set<String> exclusiveGroups = new LinkedHashSet<>();
 
@@ -48,13 +52,18 @@ public final class GuiConfigSectionResolver {
             }
         }
 
+        Map<String, List<GuiConfigSectionSpec>> declaredSpecsByGroup = new LinkedHashMap<>();
         safePluginSections.stream()
                 .filter(spec -> spec != null)
                 .filter(spec -> visibleGroups == null || visibleGroups.contains(spec.group()))
                 .filter(spec -> !exclusiveGroups.contains(spec.group()))
-                .forEach(spec -> blocksByGroup
+                .forEach(spec -> declaredSpecsByGroup
                         .computeIfAbsent(spec.group(), ignored -> new ArrayList<>())
-                        .add(declaredBlock(spec)));
+                        .add(spec));
+
+        declaredSpecsByGroup.forEach((group, specs) -> blocksByGroup
+                .computeIfAbsent(group, ignored -> new ArrayList<>())
+                .add(declaredBlock(group, specs)));
 
         List<ConfigSection> sections = new ArrayList<>();
         for (Map.Entry<String, List<ConfigSectionBlock>> entry : blocksByGroup.entrySet()) {
@@ -68,17 +77,13 @@ public final class GuiConfigSectionResolver {
         return List.copyOf(sections);
     }
 
-    private static List<GuiConfigSectionSpec> transitionAdapterSpecs(List<String> visibleGroups) {
+    private static List<GuiConfigSectionSpec> transitionAdapterSpecs(List<String> visibleGroups,
+                                                                     Set<String> declaredGroups) {
         List<GuiConfigSectionSpec> specs = new ArrayList<>();
         String pluginsGroup = ConfigFieldRegistry.groupPlugins();
         String aiGroup = ConfigFieldRegistry.groupAi();
-        String notificationGroup = ConfigFieldRegistry.groupNotification();
-        if (contains(visibleGroups, aiGroup)) {
+        if (contains(visibleGroups, aiGroup) && !declaredGroups.contains(aiGroup)) {
             specs.add(transitionSpec(AI_TRANSITION_SECTION, GuiConfigGroups.AI, aiGroup, 1200));
-        }
-        if (contains(visibleGroups, notificationGroup)) {
-            specs.add(transitionSpec(NOTIFICATION_TRANSITION_SECTION,
-                    GuiConfigGroups.NOTIFICATION, notificationGroup, 1300));
         }
         if (contains(visibleGroups, pluginsGroup)) {
             specs.add(transitionSpec(PLUGIN_MARKET_SECTION, GuiConfigGroups.PLUGINS, pluginsGroup, 300));
@@ -89,7 +94,8 @@ public final class GuiConfigSectionResolver {
     private static GuiConfigSectionSpec transitionSpec(String sectionId, String groupId,
                                                        String group, int groupOrder) {
         return new GuiConfigSectionSpec(TRANSITION_OWNER, sectionId, groupId, group, groupOrder,
-                "", "", GuiConfigSectionLayout.FIELD_LIST, 0, List.of(), List.of(), List.of());
+                "", "", "", "", "", "", List.of(), GuiConfigSectionLayout.FIELD_LIST, 0,
+                List.of(), List.of(), List.of(), false, true);
     }
 
     private static ConfigSectionBlock transitionBlock(GuiConfigSectionSpec spec,
@@ -97,7 +103,6 @@ public final class GuiConfigSectionResolver {
                                                       Function<String, String> webUrlProvider) {
         Function<ConfigSectionContext, ConfigSection> factory = switch (spec.sectionId()) {
             case AI_TRANSITION_SECTION -> AiConfigSection::new;
-            case NOTIFICATION_TRANSITION_SECTION -> NotificationConfigSection::new;
             case PLUGIN_MARKET_SECTION -> sectionContext ->
                     new PluginMarketConfigSection(sectionContext, configPath, webUrlProvider);
             default -> null;
@@ -108,9 +113,15 @@ public final class GuiConfigSectionResolver {
         return new FactoryConfigSectionBlock(spec.pluginId(), spec.sectionId(), spec.group(), spec.order(), factory);
     }
 
-    private static ConfigSectionBlock declaredBlock(GuiConfigSectionSpec spec) {
-        return new FactoryConfigSectionBlock(spec.pluginId(), spec.sectionId(), spec.group(), spec.order(),
-                sectionContext -> new DeclaredGuiConfigSection(sectionContext, spec.group(), List.of(spec)));
+    private static ConfigSectionBlock declaredBlock(String group, List<GuiConfigSectionSpec> specs) {
+        List<GuiConfigSectionSpec> sorted = sortSpecs(specs);
+        GuiConfigSectionSpec first = sorted.get(0);
+        int order = sorted.stream()
+                .mapToInt(GuiConfigSectionSpec::order)
+                .min()
+                .orElse(first.order());
+        return new FactoryConfigSectionBlock(first.pluginId(), first.sectionId(), group, order,
+                sectionContext -> new DeclaredGuiConfigSection(sectionContext, group, sorted));
     }
 
     private static List<ConfigSectionBlock> sortBlocks(List<ConfigSectionBlock> blocks) {
@@ -119,6 +130,15 @@ public final class GuiConfigSectionResolver {
                         .comparingInt(ConfigSectionBlock::order)
                         .thenComparing(ConfigSectionBlock::pluginId, Comparator.nullsLast(String::compareTo))
                         .thenComparing(ConfigSectionBlock::sectionId, Comparator.nullsLast(String::compareTo)))
+                .toList();
+    }
+
+    private static List<GuiConfigSectionSpec> sortSpecs(List<GuiConfigSectionSpec> specs) {
+        return specs.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigSectionSpec::order)
+                        .thenComparing(GuiConfigSectionSpec::pluginId, Comparator.nullsLast(String::compareTo))
+                        .thenComparing(GuiConfigSectionSpec::sectionId, Comparator.nullsLast(String::compareTo)))
                 .toList();
     }
 

@@ -17,7 +17,8 @@ public record ConfigFieldSpec(
         List<String> enumValues,
         Predicate<ConfigSnapshot> enabledWhen,
         Predicate<ConfigSnapshot> visibleWhen,
-        boolean requiresRestart
+        boolean requiresRestart,
+        boolean contributesGroupVisibility
 ) {
 
     @FunctionalInterface
@@ -43,6 +44,7 @@ public record ConfigFieldSpec(
         private Predicate<ConfigSnapshot> enabledWhen = snap -> true;
         private Predicate<ConfigSnapshot> visibleWhen = snap -> true;
         private boolean requiresRestart = true;
+        private boolean contributesGroupVisibility = true;
 
         private Builder(String key, String label, FieldType type, String group) {
             this.key = key;
@@ -86,9 +88,15 @@ public record ConfigFieldSpec(
             return this;
         }
 
+        public Builder contributesGroupVisibility(boolean contributesGroupVisibility) {
+            this.contributesGroupVisibility = contributesGroupVisibility;
+            return this;
+        }
+
         public ConfigFieldSpec build() {
             return new ConfigFieldSpec(key, label, type, group, helpText, defaultValue,
-                    validator, enumValues, enabledWhen, visibleWhen, requiresRestart);
+                    validator, enumValues, enabledWhen, visibleWhen, requiresRestart,
+                    contributesGroupVisibility);
         }
     }
 }

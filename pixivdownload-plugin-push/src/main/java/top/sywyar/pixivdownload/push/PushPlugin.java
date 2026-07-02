@@ -1,10 +1,22 @@
 package top.sywyar.pixivdownload.push;
 
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
@@ -15,6 +27,41 @@ import java.util.List;
 public class PushPlugin implements PixivFeaturePlugin {
 
     public static final String ID = "push";
+    private static final String NOTIFICATION_NOTICE_SECTION = "notification.service.notice";
+    private static final String NOTIFICATION_SERVICE_NOTICE = "notification.service.concurrent";
+    private static final String NOTIFICATION_SERVICES_SECTION = "notification.services";
+    private static final List<PushChannelLayout> CHANNELS = List.of(
+            new PushChannelLayout("bark", 110, List.of(
+                    mapping("push.bark.server", "server"),
+                    mapping("push.bark.device-key", "deviceKey"),
+                    mapping("push.bark.sound", "sound"),
+                    mapping("push.bark.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
+            new PushChannelLayout("dingtalk", 120, List.of(
+                    mapping("push.dingtalk.access-token", "accessToken"),
+                    mapping("push.dingtalk.secret", "secret"),
+                    mapping("push.dingtalk.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
+            new PushChannelLayout("telegram", 130, List.of(
+                    mapping("push.telegram.bot-token", "botToken"),
+                    mapping("push.telegram.chat-id", "chatId"),
+                    mapping("push.telegram.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
+            new PushChannelLayout("feishu", 140, List.of(
+                    mapping("push.feishu.webhook-key", "webhookKey"),
+                    mapping("push.feishu.secret", "secret"),
+                    mapping("push.feishu.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
+            new PushChannelLayout("wecom", 150, List.of(
+                    mapping("push.wecom.key", "key"),
+                    mapping("push.wecom.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
+            new PushChannelLayout("pushplus", 160, List.of(
+                    mapping("push.pushplus.token", "token"),
+                    mapping("push.pushplus.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
+            new PushChannelLayout("serverchan", 170, List.of(
+                    mapping("push.serverchan.send-key", "sendKey"),
+                    mapping("push.serverchan.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))),
+            new PushChannelLayout("webhook", 180, List.of(
+                    mapping("push.webhook.url", "url"),
+                    mapping("push.webhook.content-type", "contentType"),
+                    mapping("push.webhook.body-template", "bodyTemplate"),
+                    mapping("push.webhook.use-proxy", "useProxy", GuiConfigActionPayloadType.BOOLEAN))));
 
     @Override
     public String id() {
@@ -61,7 +108,7 @@ public class PushPlugin implements PixivFeaturePlugin {
     @Override
     public List<GuiConfigContribution> guiConfigContributions() {
         GuiConfigCondition enabled = GuiConfigCondition.isTrue("push.enabled");
-        return List.of(new GuiConfigContribution(List.of(
+        List<GuiConfigFieldContribution> fields = List.of(
                 bool("push.enabled", "false", 100),
 
                 bool("push.bark.enabled", "false", 110, enabled),
@@ -102,7 +149,194 @@ public class PushPlugin implements PixivFeaturePlugin {
                 string("push.webhook.content-type", "application/json", 182, enabled, on("push.webhook.enabled")),
                 string("push.webhook.body-template", "", 183, enabled, on("push.webhook.enabled")),
                 useProxy("push.webhook.use-proxy", "false", 184, enabled, on("push.webhook.enabled"))
-        )));
+        );
+        GuiConfigSectionContribution master = new GuiConfigSectionContribution(
+                "push.master",
+                GuiConfigGroups.NOTIFICATION,
+                GuiConfigSectionLayout.FIELD_LIST,
+                80,
+                List.of(new GuiConfigFieldLayoutContribution("push.enabled", 80)));
+        GuiConfigSectionContribution services = new GuiConfigSectionContribution(
+                NOTIFICATION_SERVICES_SECTION,
+                GuiConfigGroups.NOTIFICATION,
+                "",
+                "",
+                ID,
+                "gui.config.notification.service.label",
+                "gui.config.notification.service.help",
+                "",
+                "",
+                List.of(),
+                GuiConfigSectionLayout.CARD_SWITCHER,
+                200,
+                channelFieldLayouts(),
+                channelActions(),
+                List.of(),
+                true,
+                true);
+        return List.of(new GuiConfigContribution(
+                List.of(), fields, List.of(notificationNoticeSection(), master, services)));
+    }
+
+    private static GuiConfigSectionContribution notificationNoticeSection() {
+        return new GuiConfigSectionContribution(
+                NOTIFICATION_NOTICE_SECTION,
+                GuiConfigGroups.NOTIFICATION,
+                "",
+                "",
+                ID,
+                "",
+                "",
+                "",
+                "",
+                List.of(new GuiConfigSectionNoticeContribution(
+                        NOTIFICATION_SERVICE_NOTICE,
+                        "gui.config.notification.hint",
+                        ID,
+                        GuiConfigSectionNoticeStyle.HINT,
+                        0)),
+                GuiConfigSectionLayout.FIELD_LIST,
+                70,
+                List.of(),
+                List.of(),
+                List.of(),
+                true,
+                false);
+    }
+
+    private static List<GuiConfigFieldLayoutContribution> channelFieldLayouts() {
+        return CHANNELS.stream()
+                .flatMap(channel -> channel.configKeys().stream()
+                        .map(key -> new GuiConfigFieldLayoutContribution(
+                                key,
+                                channel.id(),
+                                "gui.config.notification.service." + channel.id(),
+                                ID,
+                                channel.orderOf(key))))
+                .toList();
+    }
+
+    private static List<GuiConfigActionContribution> channelActions() {
+        return CHANNELS.stream()
+                .flatMap(channel -> List.of(pushTestAction(channel), pushTestAllAction(channel)).stream())
+                .toList();
+    }
+
+    private static GuiConfigActionContribution pushTestAction(PushChannelLayout channel) {
+        return new GuiConfigActionContribution(
+                "push." + channel.id() + ".test",
+                "gui.config.push.test-current-button.label",
+                "gui.config.push.test-current-button.help",
+                ID,
+                channel.id(),
+                "push-test",
+                30_000,
+                channel.order() + 1000,
+                pushPayload(channel),
+                "gui.config.push.test.notice.sending",
+                List.of(
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test.notice.unreachable",
+                                10,
+                                List.of(GuiConfigActionResultCondition.reachable(false)),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test.notice.none",
+                                20,
+                                List.of(GuiConfigActionResultCondition.jsonEquals("total", "0")),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test.notice.current-success",
+                                30,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonTrue("success")),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test.notice.current-skipped",
+                                40,
+                                List.of(GuiConfigActionResultCondition.summaryContains("SKIPPED")),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test.notice.current-failed",
+                                50,
+                                List.of(GuiConfigActionResultCondition.reachable(true)),
+                                List.of(GuiConfigActionResultArgument.summary()))),
+                pushSummary());
+    }
+
+    private static GuiConfigActionContribution pushTestAllAction(PushChannelLayout channel) {
+        return new GuiConfigActionContribution(
+                "push." + channel.id() + ".test-all",
+                "gui.config.push.test-all.button.label",
+                "gui.config.push.test-all.button.help",
+                ID,
+                channel.id(),
+                "push-test-all",
+                10 * 60 * 1000,
+                channel.order() + 1010,
+                pushPayload(channel),
+                "gui.config.push.test-all.notice.sending",
+                List.of(
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test.notice.unreachable",
+                                10,
+                                List.of(GuiConfigActionResultCondition.reachable(false)),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test-all.notice.skipped",
+                                20,
+                                List.of(GuiConfigActionResultCondition.jsonEquals("total", "0")),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test-all.notice.skipped",
+                                30,
+                                List.of(
+                                        GuiConfigActionResultCondition.jsonEquals("succeeded", "0"),
+                                        GuiConfigActionResultCondition.summaryContains("SKIPPED")),
+                                List.of()),
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test-all.notice.success",
+                                40,
+                                List.of(
+                                        GuiConfigActionResultCondition.reachable(true),
+                                        GuiConfigActionResultCondition.http2xx(true),
+                                        GuiConfigActionResultCondition.jsonTrue("success")),
+                                List.of(GuiConfigActionResultArgument.json("total"))),
+                        new GuiConfigActionResultRule(
+                                "gui.config.push.test-all.notice.partial",
+                                50,
+                                List.of(GuiConfigActionResultCondition.reachable(true)),
+                                List.of(
+                                        GuiConfigActionResultArgument.json("succeeded"),
+                                        GuiConfigActionResultArgument.json("total"),
+                                        GuiConfigActionResultArgument.summary()))),
+                pushSummary());
+    }
+
+    private static List<GuiConfigActionPayloadField> pushPayload(PushChannelLayout channel) {
+        List<GuiConfigActionPayloadField> fields = new java.util.ArrayList<>();
+        fields.add(GuiConfigActionPayloadField.literal(
+                channel.id() + ".enabled", "true", GuiConfigActionPayloadType.BOOLEAN));
+        channel.mappings().stream()
+                .map(mapping -> new GuiConfigActionPayloadField(
+                        channel.id() + "." + mapping.payloadName(), mapping.configKey(), mapping.type()))
+                .forEach(fields::add);
+        return List.copyOf(fields);
+    }
+
+    private static GuiConfigActionResultSummary pushSummary() {
+        return GuiConfigActionResultSummary.nonSuccessItems("results", "channel", "status", "OK", "detail");
+    }
+
+    private static PayloadMapping mapping(String configKey, String payloadName) {
+        return mapping(configKey, payloadName, GuiConfigActionPayloadType.STRING);
+    }
+
+    private static PayloadMapping mapping(String configKey, String payloadName,
+                                          GuiConfigActionPayloadType type) {
+        return new PayloadMapping(configKey, payloadName, type);
     }
 
     private static GuiConfigCondition on(String key) {
@@ -140,5 +374,29 @@ public class PushPlugin implements PixivFeaturePlugin {
 
     private static String keyPrefix(String key) {
         return "gui.config.field." + key;
+    }
+
+    private record PushChannelLayout(String id, int order, List<PayloadMapping> mappings) {
+        private List<String> configKeys() {
+            List<String> keys = new java.util.ArrayList<>();
+            keys.add("push." + id + ".enabled");
+            mappings.stream().map(PayloadMapping::configKey).forEach(keys::add);
+            return List.copyOf(keys);
+        }
+
+        private int orderOf(String key) {
+            if (key.equals("push." + id + ".enabled")) {
+                return order;
+            }
+            for (int i = 0; i < mappings.size(); i++) {
+                if (mappings.get(i).configKey().equals(key)) {
+                    return order + i + 1;
+                }
+            }
+            return order + 99;
+        }
+    }
+
+    private record PayloadMapping(String configKey, String payloadName, GuiConfigActionPayloadType type) {
     }
 }

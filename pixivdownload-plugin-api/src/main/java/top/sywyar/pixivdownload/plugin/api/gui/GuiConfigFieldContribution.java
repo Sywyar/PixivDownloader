@@ -20,6 +20,7 @@ import java.util.List;
  * @param visibleWhen    all conditions that must match for the field to be visible
  * @param minValue       optional numeric minimum for INT-like values
  * @param maxValue       optional numeric maximum for INT-like values
+ * @param contributesGroupVisibility whether this field alone should make its group visible in tabs
  */
 public record GuiConfigFieldContribution(
         String key,
@@ -36,7 +37,8 @@ public record GuiConfigFieldContribution(
         List<GuiConfigCondition> enabledWhen,
         List<GuiConfigCondition> visibleWhen,
         Integer minValue,
-        Integer maxValue
+        Integer maxValue,
+        boolean contributesGroupVisibility
 ) {
 
     public GuiConfigFieldContribution {
@@ -51,14 +53,35 @@ public record GuiConfigFieldContribution(
     public GuiConfigFieldContribution(String key, String groupId, String labelKey,
                                       GuiConfigFieldType type, String defaultValue, int order) {
         this(key, groupId, labelKey, "", null, type, defaultValue, order,
-                false, true, List.of(), List.of(), List.of(), null, null);
+                false, true, List.of(), List.of(), List.of(), null, null, true);
     }
 
     public GuiConfigFieldContribution(String key, String groupId, String labelKey, String helpKey,
                                       GuiConfigFieldType type, String defaultValue, int order,
                                       boolean sensitive, boolean requiresRestart) {
         this(key, groupId, labelKey, helpKey, null, type, defaultValue, order,
-                sensitive, requiresRestart, List.of(), List.of(), List.of(), null, null);
+                sensitive, requiresRestart, List.of(), List.of(), List.of(), null, null, true);
+    }
+
+    public GuiConfigFieldContribution(
+            String key,
+            String groupId,
+            String labelKey,
+            String helpKey,
+            String i18nNamespace,
+            GuiConfigFieldType type,
+            String defaultValue,
+            int order,
+            boolean sensitive,
+            boolean requiresRestart,
+            List<String> enumValues,
+            List<GuiConfigCondition> enabledWhen,
+            List<GuiConfigCondition> visibleWhen,
+            Integer minValue,
+            Integer maxValue
+    ) {
+        this(key, groupId, labelKey, helpKey, i18nNamespace, type, defaultValue, order,
+                sensitive, requiresRestart, enumValues, enabledWhen, visibleWhen, minValue, maxValue, true);
     }
 
     private static String blankToNull(String value) {

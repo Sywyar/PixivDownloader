@@ -6,8 +6,11 @@ import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSink;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 
 import java.util.List;
@@ -41,6 +44,39 @@ class NotificationPluginTest {
             assertThat(field.type()).isEqualTo(GuiConfigFieldType.BOOL);
             assertThat(field.defaultValue()).isEqualTo("true");
             assertThat(field.requiresRestart()).isFalse();
+            assertThat(field.contributesGroupVisibility()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("贡献中性的通知场景紧凑网格 section")
+    void contributesNeutralScenarioSection() {
+        List<GuiConfigSectionContribution> sections = plugin.guiConfigContributions().stream()
+                .flatMap(contribution -> contribution.sections().stream())
+                .toList();
+        Set<String> expectedKeys = java.util.Arrays.stream(NotificationScenario.values())
+                .map(NotificationScenario::id)
+                .map(NotificationConfigKeys::scenarioEnabledKey)
+                .collect(Collectors.toSet());
+
+        assertThat(sections).singleElement().satisfies(section -> {
+            assertThat(section.sectionId()).isEqualTo("notification.scenarios");
+            assertThat(section.groupId()).isEqualTo(GuiConfigGroups.NOTIFICATION);
+            assertThat(section.i18nNamespace()).isEqualTo(NotificationPlugin.ID);
+            assertThat(section.layoutLabelKey()).isEqualTo("gui.config.notification.scenario.section.label");
+            assertThat(section.layoutHelpKey()).isEqualTo("gui.config.notification.scenario.section.help");
+            assertThat(section.layout()).isEqualTo(GuiConfigSectionLayout.COMPACT_GRID);
+            assertThat(section.mergeable()).isFalse();
+            assertThat(section.contributesGroupVisibility()).isFalse();
+            assertThat(section.notices()).isEmpty();
+            assertThat(section.actions()).isEmpty();
+            assertThat(section.presets()).isEmpty();
+            assertThat(section.fieldLayouts()).extracting(GuiConfigFieldLayoutContribution::fieldKey)
+                    .containsExactlyInAnyOrderElementsOf(expectedKeys);
+            assertThat(section.fieldLayouts()).allSatisfy(layout -> {
+                assertThat(layout.cardId()).isNull();
+                assertThat(layout.i18nNamespace()).isNull();
+            });
         });
     }
 

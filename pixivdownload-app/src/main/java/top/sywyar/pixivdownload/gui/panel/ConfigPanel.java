@@ -217,7 +217,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     /**
      * 让滚动面板在首次真正显示时把视口重置回顶部，随后摘除监听器不再干预用户滚动。
      * <p>
-     * AI / 邮件等分组在 init 阶段锁定字段（如 ai.base-url / mail.host）会触发
+     * 预设或组合分组在 init 阶段锁定字段会触发
      * {@code scrollRectToVisible}，使视口偏离 (0,0)；若不修正，首次切到该标签页 / 卡片时
      * 字段区域会直接停在底部而非从头显示。
      */

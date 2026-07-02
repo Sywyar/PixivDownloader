@@ -1,20 +1,27 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.config.FieldType;
 import top.sywyar.pixivdownload.gui.config.GuiConfigActionSpec;
+import top.sywyar.pixivdownload.gui.config.GuiConfigActionResultRuleSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigFieldLayoutSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigPresetSpec;
+import top.sywyar.pixivdownload.gui.config.GuiConfigSectionNoticeSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeRefresh;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadType;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSource;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultSummary;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 
 import javax.swing.BorderFactory;
@@ -30,14 +37,18 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.SwingWorker;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.Font;
+import java.text.MessageFormat;
 import java.awt.GridLayout;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
@@ -48,10 +59,14 @@ import java.util.concurrent.ExecutionException;
 final class DeclaredGuiConfigSection implements ConfigSection {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    static final String NOTICE_ID_PROPERTY = "pixivdownload.guiConfig.sectionNoticeId";
+    static final String NOTICE_STYLE_PROPERTY = "pixivdownload.guiConfig.sectionNoticeStyle";
+    private static final Color HINT_COLOR = new Color(0, 128, 96);
 
     private final ConfigSectionContext ctx;
     private final String group;
     private final List<GuiConfigSectionSpec> sections;
+    private final List<PresetState> presetStates = new ArrayList<>();
 
     DeclaredGuiConfigSection(ConfigSectionContext ctx, String group, List<GuiConfigSectionSpec> sections) {
         this.ctx = ctx;
@@ -66,13 +81,15 @@ final class DeclaredGuiConfigSection implements ConfigSection {
 
     @Override
     public JComponent build() {
+        presetStates.clear();
         JPanel content = ctx.newContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         Set<String> rendered = new LinkedHashSet<>();
 
         for (GuiConfigSectionSpec section : sections) {
+            addSectionNotices(content, section);
             addSectionHeader(content, section);
-            addPresetCombo(content, section);
+            addPresetCombo(content, section, null);
             if (section.layout() == GuiConfigSectionLayout.CARD_SWITCHER && hasCards(section)) {
                 addCardSwitcher(content, section, rendered);
             } else if (section.layout() == GuiConfigSectionLayout.COMPACT_GRID) {
@@ -80,7 +97,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             } else {
                 addFields(content, fieldsFor(section, rendered));
             }
-            addActions(content, section);
+            addActions(content, section, null);
         }
         content.add(Box.createVerticalGlue());
 
@@ -89,6 +106,70 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         sp.getVerticalScrollBar().setUnitIncrement(16);
         ctx.resetScrollToTopOnFirstShow(sp);
         return sp;
+    }
+
+    @Override
+    public void onValuesLoaded() {
+        for (PresetState state : presetStates) {
+            GuiConfigPresetSpec selected = resolvePreset(state.presets());
+            if (selected == null) {
+                continue;
+            }
+            state.setUpdating(true);
+            try {
+                state.combo().setSelectedItem(selected);
+            } finally {
+                state.setUpdating(false);
+            }
+        }
+    }
+
+    @Override
+    public void afterEnabledStates() {
+        for (PresetState state : presetStates) {
+            Object selected = state.combo().getSelectedItem();
+            if (selected instanceof GuiConfigPresetSpec preset && !preset.values().isEmpty()) {
+                preset.values().keySet().forEach(ctx::lockField);
+            }
+        }
+    }
+
+    private GuiConfigPresetSpec resolvePreset(List<GuiConfigPresetSpec> presets) {
+        GuiConfigPresetSpec fallback = null;
+        for (GuiConfigPresetSpec preset : presets) {
+            if (preset.values().isEmpty() && fallback == null) {
+                fallback = preset;
+            }
+            if (preset.matchFieldKey() == null) {
+                continue;
+            }
+            if (ctx.currentFieldValue(preset.matchFieldKey()).equalsIgnoreCase(preset.matchValue())) {
+                return preset;
+            }
+        }
+        return fallback;
+    }
+
+    private void addSectionNotices(JPanel content, GuiConfigSectionSpec section) {
+        for (GuiConfigSectionNoticeSpec notice : section.notices()) {
+            if (notice.text().isBlank()) {
+                continue;
+            }
+            JLabel label = new JLabel(notice.text());
+            label.setFont(label.getFont().deriveFont(Font.PLAIN, 11f));
+            label.setForeground(noticeColor(notice));
+            label.setAlignmentX(Component.LEFT_ALIGNMENT);
+            label.putClientProperty(NOTICE_ID_PROPERTY, notice.noticeId());
+            label.putClientProperty(NOTICE_STYLE_PROPERTY, notice.style());
+            content.add(label);
+            content.add(Box.createVerticalStrut(4));
+        }
+    }
+
+    private static Color noticeColor(GuiConfigSectionNoticeSpec notice) {
+        return switch (notice.style()) {
+            case HINT -> HINT_COLOR;
+        };
     }
 
     private void addSectionHeader(JPanel content, GuiConfigSectionSpec section) {
@@ -106,12 +187,17 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         content.add(Box.createVerticalStrut(4));
     }
 
-    private void addPresetCombo(JPanel content, GuiConfigSectionSpec section) {
-        if (section.presets().isEmpty()) {
+    private void addPresetCombo(JPanel content, GuiConfigSectionSpec section, String cardId) {
+        List<GuiConfigPresetSpec> presets = section.presets().stream()
+                .filter(preset -> Objects.equals(cardId, preset.cardId()))
+                .toList();
+        if (presets.isEmpty()) {
             return;
         }
         JComboBox<GuiConfigPresetSpec> combo =
-                new JComboBox<>(section.presets().toArray(new GuiConfigPresetSpec[0]));
+                new JComboBox<>(presets.toArray(new GuiConfigPresetSpec[0]));
+        PresetState state = new PresetState(combo, presets);
+        presetStates.add(state);
         combo.setRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value, int index,
@@ -125,16 +211,20 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             }
         });
         combo.addActionListener(e -> {
+            if (state.updating()) {
+                return;
+            }
             if (combo.getSelectedItem() instanceof GuiConfigPresetSpec preset) {
                 preset.values().forEach(ctx::setFieldValue);
                 ctx.updateEnabledStates();
             }
         });
         JPanel panel = FieldRenderer.fieldPanel(
-                message("gui.config.section.preset.label") + message("gui.punctuation.colon"),
+                textOrDefault(section.presetLabel(), "gui.config.section.preset.label")
+                        + message("gui.punctuation.colon"),
                 combo,
                 null,
-                message("gui.config.section.preset.help"));
+                textOrDefault(section.presetHelp(), "gui.config.section.preset.help"));
         addPanel(content, panel);
     }
 
@@ -161,14 +251,16 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             }
         });
         JPanel comboRow = FieldRenderer.fieldPanel(
-                message("gui.config.section.card.label") + message("gui.punctuation.colon"),
-                cardCombo, null, message("gui.config.section.card.help"));
+                textOrDefault(section.layoutLabel(), "gui.config.section.card.label") + message("gui.punctuation.colon"),
+                cardCombo, null, textOrDefault(section.layoutHelp(), "gui.config.section.card.help"));
         addPanel(content, comboRow);
 
         Map<String, JComponent> cards = new LinkedHashMap<>();
         for (String cardId : cardIds) {
             JPanel card = ctx.newContentPanel();
+            addPresetCombo(card, section, cardId);
             addFields(card, fieldsByLayout(byCard.get(cardId), rendered));
+            addActions(card, section, cardId);
             cards.put(cardId, card);
         }
         JPanel cardHost = manualSwapHost();
@@ -205,10 +297,11 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             }
             boolean requiresRestart = compactFields.stream().anyMatch(ConfigFieldSpec::requiresRestart);
             JPanel panel = FieldRenderer.fieldPanel(
-                    message("gui.config.section.compact.label") + message("gui.punctuation.colon"),
+                    textOrDefault(section.layoutLabel(), "gui.config.section.compact.label")
+                            + message("gui.punctuation.colon"),
                     grid,
                     ctx.effectLabel(requiresRestart),
-                    message("gui.config.section.compact.help"));
+                    textOrDefault(section.layoutHelp(), "gui.config.section.compact.help"));
             addPanel(content, panel);
             for (Map.Entry<ConfigFieldSpec, JCheckBox> entry : checkBoxes.entrySet()) {
                 JCheckBox checkBox = entry.getValue();
@@ -266,8 +359,10 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         }
     }
 
-    private void addActions(JPanel content, GuiConfigSectionSpec section) {
-        for (GuiConfigActionSpec action : section.actions()) {
+    private void addActions(JPanel content, GuiConfigSectionSpec section, String cardId) {
+        for (GuiConfigActionSpec action : section.actions().stream()
+                .filter(action -> Objects.equals(cardId, action.cardId()))
+                .toList()) {
             JButton button = new JButton(action.label());
             button.addActionListener(e -> runAction(action, button));
             JPanel panel = FieldRenderer.fieldPanel(
@@ -281,7 +376,9 @@ final class DeclaredGuiConfigSection implements ConfigSection {
 
     private void runAction(GuiConfigActionSpec action, JButton button) {
         button.setEnabled(false);
-        ctx.showNotice(message("gui.config.action.notice.sending", action.label()));
+        ctx.showNotice(action.sendingNotice().isBlank()
+                ? message("gui.config.action.notice.sending", action.label())
+                : action.sendingNotice());
         byte[] body;
         try {
             ObjectNode payload = buildPayload(action.payloadFields());
@@ -303,14 +400,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             protected void done() {
                 try {
                     GuiConfigTestClient.Response response = get();
-                    if (!response.reachable()) {
-                        ctx.showNotice(message("gui.config.action.notice.unreachable", action.label()));
-                    } else if (response.is2xx()) {
-                        ctx.showNotice(message("gui.config.action.notice.success", action.label()));
-                    } else {
-                        ctx.showNotice(message("gui.config.action.notice.failed",
-                                action.label(), "HTTP " + response.status()));
-                    }
+                    ctx.showNotice(actionNotice(action, response));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     ctx.showNotice(message("gui.config.action.notice.unreachable", action.label()));
@@ -328,10 +418,51 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         worker.execute();
     }
 
+    private String actionNotice(GuiConfigActionSpec action, GuiConfigTestClient.Response response) {
+        ActionResult result = ActionResult.from(response, action.resultSummary());
+        for (GuiConfigActionResultRuleSpec rule : action.resultRules()) {
+            if (rule.conditions().stream().allMatch(condition -> matches(result, condition))) {
+                Object[] args = rule.arguments().stream()
+                        .map(argument -> argumentValue(result, argument))
+                        .toArray();
+                return args.length == 0 ? rule.notice() : MessageFormat.format(rule.notice(), args);
+            }
+        }
+        if (!response.reachable()) {
+            return message("gui.config.action.notice.unreachable", action.label());
+        }
+        if (response.is2xx()) {
+            return message("gui.config.action.notice.success", action.label());
+        }
+        return message("gui.config.action.notice.failed", action.label(), "HTTP " + response.status());
+    }
+
+    private boolean matches(ActionResult result, GuiConfigActionResultCondition condition) {
+        String actual = result.value(condition.source(), condition.path());
+        return switch (condition.operator()) {
+            case TRUE -> Boolean.parseBoolean(actual);
+            case FALSE -> !Boolean.parseBoolean(actual);
+            case EQUALS -> actual.equals(condition.value());
+            case NOT_EQUALS -> !actual.equals(condition.value());
+            case GREATER_THAN -> parseIntOrZero(actual) > parseIntOrZero(condition.value());
+            case CONTAINS -> actual.contains(condition.value());
+            case BLANK -> actual.isBlank();
+            case NOT_BLANK -> !actual.isBlank();
+        };
+    }
+
+    private String argumentValue(ActionResult result, GuiConfigActionResultArgument argument) {
+        String value = result.value(argument.source(), argument.path());
+        return value.isBlank() ? argument.defaultValue() : value;
+    }
+
     private ObjectNode buildPayload(List<GuiConfigActionPayloadField> fields) {
         ObjectNode root = MAPPER.createObjectNode();
         for (GuiConfigActionPayloadField field : fields) {
-            putPayload(root, field.payloadPath(), ctx.currentFieldValue(field.fieldKey()), field.valueType());
+            String value = field.fieldKey() == null
+                    ? field.literalValue()
+                    : ctx.currentFieldValue(field.fieldKey());
+            putPayload(root, field.payloadPath(), value, field.valueType());
         }
         return root;
     }
@@ -360,6 +491,10 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         content.add(Box.createVerticalStrut(2));
     }
 
+    private static String textOrDefault(String text, String defaultKey) {
+        return text == null || text.isBlank() ? message(defaultKey) : text;
+    }
+
     private static JPanel manualSwapHost() {
         JPanel host = new JPanel(new BorderLayout()) {
             @Override
@@ -380,6 +515,126 @@ final class DeclaredGuiConfigSection implements ConfigSection {
             return Integer.parseInt(value.trim());
         } catch (NumberFormatException e) {
             return 0;
+        }
+    }
+
+    private record PresetState(JComboBox<GuiConfigPresetSpec> combo, List<GuiConfigPresetSpec> presets) {
+        private static final String UPDATING_KEY = "pixivdownloader.updatingPreset";
+
+        private boolean updating() {
+            return Boolean.TRUE.equals(combo.getClientProperty(UPDATING_KEY));
+        }
+
+        private void setUpdating(boolean updating) {
+            combo.putClientProperty(UPDATING_KEY, updating);
+        }
+    }
+
+    private record ActionResult(
+            boolean reachable,
+            boolean http2xx,
+            int status,
+            JsonNode body,
+            String summary
+    ) {
+        private static ActionResult from(GuiConfigTestClient.Response response,
+                                         GuiConfigActionResultSummary summarySpec) {
+            JsonNode parsed = null;
+            String body = response.body();
+            if (body != null && !body.isBlank()) {
+                try {
+                    parsed = MAPPER.readTree(body);
+                } catch (Exception ignored) {
+                    parsed = null;
+                }
+            }
+            return new ActionResult(response.reachable(), response.is2xx(), response.status(), parsed,
+                    buildSummary(parsed, summarySpec));
+        }
+
+        private String value(GuiConfigActionResultSource source, String path) {
+            return switch (source) {
+                case REACHABLE -> Boolean.toString(reachable);
+                case HTTP_2XX -> Boolean.toString(http2xx);
+                case HTTP_STATUS -> Integer.toString(status);
+                case JSON -> jsonText(path);
+                case SUMMARY -> summary == null ? "" : summary;
+            };
+        }
+
+        private String jsonText(String path) {
+            JsonNode node = nodeAt(body, path);
+            if (node == null || node.isMissingNode() || node.isNull()) {
+                return "";
+            }
+            if (node.isBoolean()) {
+                return Boolean.toString(node.asBoolean());
+            }
+            if (node.isNumber()) {
+                return node.asText();
+            }
+            return node.asText("");
+        }
+
+        private static String buildSummary(JsonNode body, GuiConfigActionResultSummary spec) {
+            if (body == null || spec == null || spec.arrayPath().isBlank()) {
+                return "";
+            }
+            JsonNode array = nodeAt(body, spec.arrayPath());
+            if (array == null || !array.isArray() || array.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode item : array) {
+                String status = textAt(item, spec.statusPath());
+                if (!spec.statusPath().isBlank() && status.equals(spec.successStatus())) {
+                    continue;
+                }
+                String label = textAt(item, spec.labelPath());
+                String detail = textAt(item, spec.detailPath());
+                if (label.isBlank() && status.isBlank() && detail.isBlank()) {
+                    continue;
+                }
+                if (sb.length() > 0) {
+                    sb.append("; ");
+                }
+                sb.append(label.isBlank() ? "-" : label);
+                sb.append(": ");
+                if (spec.statusPath().isBlank()) {
+                    sb.append(detail);
+                } else {
+                    sb.append(status);
+                    if (!detail.isBlank()) {
+                        sb.append(" (").append(detail).append(')');
+                    }
+                }
+            }
+            return sb.toString();
+        }
+
+        private static String textAt(JsonNode node, String path) {
+            JsonNode found = nodeAt(node, path);
+            return found == null || found.isMissingNode() || found.isNull() ? "" : found.asText("");
+        }
+
+        private static JsonNode nodeAt(JsonNode root, String path) {
+            if (root == null) {
+                return null;
+            }
+            if (path == null || path.isBlank()) {
+                return root;
+            }
+            JsonNode current = root;
+            for (String part : path.split("\\.")) {
+                if (part.isBlank()) {
+                    return null;
+                }
+                current = current.path(part);
+                if (current.isMissingNode() || current.isNull()) {
+                    return current;
+                }
+            }
+            return current;
         }
     }
 

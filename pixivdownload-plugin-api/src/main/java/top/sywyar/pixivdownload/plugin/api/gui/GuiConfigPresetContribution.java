@@ -11,6 +11,7 @@ import java.util.Map;
  * @param labelKey i18n key for the preset label
  * @param helpKey optional i18n key for help text
  * @param i18nNamespace optional i18n namespace; blank means the plugin display namespace
+ * @param cardId optional card id for card-switcher layouts
  * @param order preset ordering hint
  * @param matchFieldKey optional field used to infer the selected preset from current values
  * @param matchValue optional value matched against {@code matchFieldKey}
@@ -21,6 +22,7 @@ public record GuiConfigPresetContribution(
         String labelKey,
         String helpKey,
         String i18nNamespace,
+        String cardId,
         int order,
         String matchFieldKey,
         String matchValue,
@@ -30,6 +32,7 @@ public record GuiConfigPresetContribution(
     public GuiConfigPresetContribution {
         helpKey = helpKey == null ? "" : helpKey;
         i18nNamespace = blankToNull(i18nNamespace);
+        cardId = blankToNull(cardId);
         matchFieldKey = blankToNull(matchFieldKey);
         matchValue = matchValue == null ? "" : matchValue;
         values = values == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(values));
@@ -37,7 +40,14 @@ public record GuiConfigPresetContribution(
 
     public GuiConfigPresetContribution(String presetId, String labelKey, int order,
                                        Map<String, String> values) {
-        this(presetId, labelKey, "", null, order, null, "", values);
+        this(presetId, labelKey, "", null, null, order, null, "", values);
+    }
+
+    public GuiConfigPresetContribution(String presetId, String labelKey, String helpKey,
+                                       String i18nNamespace, int order,
+                                       String matchFieldKey, String matchValue,
+                                       Map<String, String> values) {
+        this(presetId, labelKey, helpKey, i18nNamespace, null, order, matchFieldKey, matchValue, values);
     }
 
     private static String blankToNull(String value) {

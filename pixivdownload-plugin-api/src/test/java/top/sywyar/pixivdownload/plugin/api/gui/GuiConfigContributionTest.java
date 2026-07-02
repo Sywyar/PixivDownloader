@@ -43,6 +43,7 @@ class GuiConfigContributionTest {
         assertThat(field.enumValues()).isEmpty();
         assertThat(field.enabledWhen()).isEmpty();
         assertThat(field.visibleWhen()).isEmpty();
+        assertThat(field.contributesGroupVisibility()).isTrue();
     }
 
     @Test
@@ -79,6 +80,7 @@ class GuiConfigContributionTest {
                 new GuiConfigCondition("demo.token", GuiConfigConditionOperator.NOT_BLANK, null));
         assertThat(field.minValue()).isEqualTo(1);
         assertThat(field.maxValue()).isEqualTo(10);
+        assertThat(field.contributesGroupVisibility()).isTrue();
     }
 
     @Test
@@ -99,6 +101,8 @@ class GuiConfigContributionTest {
     void sectionActionPresetLayoutMetadataIsCarriedAsPureData() {
         GuiConfigFieldLayoutContribution layout = new GuiConfigFieldLayoutContribution(
                 "demo.token", "main", "card.main", "  ", 20);
+        GuiConfigSectionNoticeContribution notice = new GuiConfigSectionNoticeContribution(
+                "demo.notice", "section.notice", "  ", null, 5);
         GuiConfigActionPayloadField payload = new GuiConfigActionPayloadField(
                 "settings.enabled", "demo.enabled", GuiConfigActionPayloadType.BOOLEAN);
         GuiConfigActionContribution action = new GuiConfigActionContribution(
@@ -125,6 +129,11 @@ class GuiConfigContributionTest {
                 "section.title",
                 "section.help",
                 "demo",
+                "section.layout.label",
+                "section.layout.help",
+                "",
+                "",
+                List.of(notice),
                 GuiConfigSectionLayout.CARD_SWITCHER,
                 50,
                 List.of(layout),
@@ -133,13 +142,60 @@ class GuiConfigContributionTest {
 
         assertThat(layout.i18nNamespace()).isNull();
         assertThat(payload.valueType()).isEqualTo(GuiConfigActionPayloadType.BOOLEAN);
+        assertThat(payload.literalValue()).isEmpty();
         assertThat(action.payloadFields()).containsExactly(payload);
+        assertThat(action.cardId()).isNull();
+        assertThat(action.sendingNoticeKey()).isEmpty();
+        assertThat(action.resultRules()).isEmpty();
+        assertThat(action.resultSummary()).isNull();
         assertThat(preset.values()).containsEntry("demo.endpoint", "https://example.test");
+        assertThat(preset.cardId()).isNull();
         assertThat(section.sectionId()).isEqualTo("demo.main");
         assertThat(section.groupId()).isEqualTo(GuiConfigGroups.PLUGINS);
         assertThat(section.layout()).isEqualTo(GuiConfigSectionLayout.CARD_SWITCHER);
+        assertThat(section.layoutLabelKey()).isEqualTo("section.layout.label");
+        assertThat(section.presetLabelKey()).isEmpty();
+        assertThat(section.notices()).containsExactly(notice);
+        assertThat(section.mergeable()).isFalse();
+        assertThat(section.contributesGroupVisibility()).isTrue();
+        assertThat(notice.i18nNamespace()).isNull();
+        assertThat(notice.style()).isEqualTo(GuiConfigSectionNoticeStyle.HINT);
         assertThat(section.fieldLayouts()).containsExactly(layout);
         assertThat(section.actions()).containsExactly(action);
         assertThat(section.presets()).containsExactly(preset);
+    }
+
+    @Test
+    @DisplayName("action payload 支持声明字面量而不绑定配置字段")
+    void actionPayloadCanUseLiteralValue() {
+        GuiConfigActionPayloadField payload = GuiConfigActionPayloadField.literal(
+                "channel.enabled", "true", GuiConfigActionPayloadType.BOOLEAN);
+
+        assertThat(payload.payloadPath()).isEqualTo("channel.enabled");
+        assertThat(payload.fieldKey()).isNull();
+        assertThat(payload.literalValue()).isEqualTo("true");
+        assertThat(payload.valueType()).isEqualTo(GuiConfigActionPayloadType.BOOLEAN);
+    }
+
+    @Test
+    @DisplayName("action 结果规则与摘要声明保持纯数据归一化")
+    void actionResultRulesArePureData() {
+        GuiConfigActionResultCondition condition = GuiConfigActionResultCondition.jsonGreaterThan("succeeded", 0);
+        GuiConfigActionResultArgument argument = GuiConfigActionResultArgument.summary();
+        GuiConfigActionResultRule rule = new GuiConfigActionResultRule(
+                "notice.partial", "  ", 20, List.of(condition), List.of(argument));
+        GuiConfigActionResultSummary summary = GuiConfigActionResultSummary.nonSuccessItems(
+                "results", "channel", "status", "OK", "detail");
+
+        assertThat(condition.source()).isEqualTo(GuiConfigActionResultSource.JSON);
+        assertThat(condition.operator()).isEqualTo(GuiConfigActionResultOperator.GREATER_THAN);
+        assertThat(condition.value()).isEqualTo("0");
+        assertThat(argument.source()).isEqualTo(GuiConfigActionResultSource.SUMMARY);
+        assertThat(rule.i18nNamespace()).isNull();
+        assertThat(rule.conditions()).containsExactly(condition);
+        assertThat(rule.arguments()).containsExactly(argument);
+        assertThat(summary.arrayPath()).isEqualTo("results");
+        assertThat(summary.statusPath()).isEqualTo("status");
+        assertThat(summary.successStatus()).isEqualTo("OK");
     }
 }

@@ -5,6 +5,9 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigConditionOperator;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionPayloadField;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultArgument;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultCondition;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionResultRule;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldLayoutContribution;
@@ -12,6 +15,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigPresetContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -258,7 +262,8 @@ public final class GuiConfigContributionAggregator {
                 .help(help)
                 .enabledWhen(predicate(field.enabledWhen()))
                 .visibleWhen(predicate(field.visibleWhen()))
-                .validator(validator(field));
+                .validator(validator(field))
+                .contributesGroupVisibility(field.contributesGroupVisibility());
         if (field.type() == GuiConfigFieldType.ENUM) {
             builder.enumValues(field.enumValues().toArray(String[]::new));
         }
@@ -274,6 +279,7 @@ public final class GuiConfigContributionAggregator {
                                                               Map<String, GroupEntry> customGroups,
                                                               List<GuiConfigContributionDiagnostic> diagnostics) {
         Map<String, String> ownerBySectionId = new LinkedHashMap<>();
+        Map<String, GuiConfigSectionSpec> mergedBySectionId = new LinkedHashMap<>();
         List<GuiConfigSectionSpec> accepted = new ArrayList<>();
         for (PluginContributions pluginContributions : contributions) {
             PluginRegistry.RegisteredPlugin registered = pluginContributions.registered();
@@ -285,14 +291,24 @@ public final class GuiConfigContributionAggregator {
                         continue;
                     }
                     String existingOwner = ownerBySectionId.get(spec.sectionId());
+                    GuiConfigSectionSpec existingSpec = mergedBySectionId.get(spec.sectionId());
+                    if (existingOwner != null && canMerge(existingSpec, spec)) {
+                        GuiConfigSectionSpec merged = mergeSections(existingSpec, spec);
+                        mergedBySectionId.put(spec.sectionId(), merged);
+                        accepted.removeIf(item -> item.sectionId().equals(spec.sectionId()));
+                        accepted.add(merged);
+                        continue;
+                    }
                     if (existingOwner != null) {
                         diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), spec.sectionId(),
                                 "duplicate GUI config section id '" + spec.sectionId() + "' from plugin '"
                                         + registered.id() + "' conflicts with plugin '" + existingOwner + "'"));
                         accepted.removeIf(item -> item.sectionId().equals(spec.sectionId()));
+                        mergedBySectionId.remove(spec.sectionId());
                         continue;
                     }
                     ownerBySectionId.put(spec.sectionId(), registered.id());
+                    mergedBySectionId.put(spec.sectionId(), spec);
                     accepted.add(spec);
                 }
             }
@@ -303,6 +319,90 @@ public final class GuiConfigContributionAggregator {
                         .thenComparingInt(GuiConfigSectionSpec::order)
                         .thenComparing(GuiConfigSectionSpec::pluginId)
                         .thenComparing(GuiConfigSectionSpec::sectionId))
+                .toList();
+    }
+
+    private static boolean canMerge(GuiConfigSectionSpec existing, GuiConfigSectionSpec incoming) {
+        return existing != null
+                && incoming != null
+                && existing.mergeable()
+                && incoming.mergeable()
+                && existing.sectionId().equals(incoming.sectionId())
+                && existing.groupId().equals(incoming.groupId())
+                && existing.layout() == incoming.layout();
+    }
+
+    private static GuiConfigSectionSpec mergeSections(GuiConfigSectionSpec existing, GuiConfigSectionSpec incoming) {
+        List<GuiConfigFieldLayoutSpec> fieldLayouts = new ArrayList<>();
+        fieldLayouts.addAll(existing.fieldLayouts());
+        fieldLayouts.addAll(incoming.fieldLayouts());
+        List<GuiConfigActionSpec> actions = new ArrayList<>();
+        actions.addAll(existing.actions());
+        actions.addAll(incoming.actions());
+        List<GuiConfigPresetSpec> presets = new ArrayList<>();
+        presets.addAll(existing.presets());
+        presets.addAll(incoming.presets());
+        List<GuiConfigSectionNoticeSpec> notices = new ArrayList<>();
+        notices.addAll(existing.notices());
+        notices.addAll(incoming.notices());
+        return new GuiConfigSectionSpec(
+                existing.pluginId(),
+                existing.sectionId(),
+                existing.groupId(),
+                existing.group(),
+                existing.groupOrder(),
+                firstNonBlank(existing.title(), incoming.title()),
+                firstNonBlank(existing.help(), incoming.help()),
+                firstNonBlank(existing.layoutLabel(), incoming.layoutLabel()),
+                firstNonBlank(existing.layoutHelp(), incoming.layoutHelp()),
+                firstNonBlank(existing.presetLabel(), incoming.presetLabel()),
+                firstNonBlank(existing.presetHelp(), incoming.presetHelp()),
+                mergeNotices(notices),
+                existing.layout(),
+                Math.min(existing.order(), incoming.order()),
+                sortFieldLayouts(fieldLayouts),
+                sortActions(actions),
+                sortPresets(presets),
+                true,
+                existing.contributesGroupVisibility() || incoming.contributesGroupVisibility());
+    }
+
+    private static List<GuiConfigSectionNoticeSpec> mergeNotices(List<GuiConfigSectionNoticeSpec> notices) {
+        Map<String, GuiConfigSectionNoticeSpec> byId = new LinkedHashMap<>();
+        notices.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigSectionNoticeSpec::order)
+                        .thenComparing(GuiConfigSectionNoticeSpec::noticeId)
+                        .thenComparing(GuiConfigSectionNoticeSpec::text))
+                .forEach(notice -> byId.putIfAbsent(notice.noticeId(), notice));
+        return List.copyOf(byId.values());
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        return first == null || first.isBlank() ? (second == null ? "" : second) : first;
+    }
+
+    private static List<GuiConfigFieldLayoutSpec> sortFieldLayouts(List<GuiConfigFieldLayoutSpec> layouts) {
+        return layouts.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigFieldLayoutSpec::order)
+                        .thenComparing(GuiConfigFieldLayoutSpec::fieldKey))
+                .toList();
+    }
+
+    private static List<GuiConfigActionSpec> sortActions(List<GuiConfigActionSpec> actions) {
+        return actions.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigActionSpec::order)
+                        .thenComparing(GuiConfigActionSpec::actionId))
+                .toList();
+    }
+
+    private static List<GuiConfigPresetSpec> sortPresets(List<GuiConfigPresetSpec> presets) {
+        return presets.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigPresetSpec::order)
+                        .thenComparing(GuiConfigPresetSpec::presetId))
                 .toList();
     }
 
@@ -349,19 +449,88 @@ public final class GuiConfigContributionAggregator {
         if (help == null) {
             return null;
         }
+        String layoutLabel = optionalText(registered, textResolver, sectionId, "section", "layout label",
+                section.i18nNamespace(), section.layoutLabelKey(), diagnostics);
+        if (layoutLabel == null) {
+            return null;
+        }
+        String layoutHelp = optionalText(registered, textResolver, sectionId, "section", "layout help",
+                section.i18nNamespace(), section.layoutHelpKey(), diagnostics);
+        if (layoutHelp == null) {
+            return null;
+        }
+        String presetLabel = optionalText(registered, textResolver, sectionId, "section", "preset label",
+                section.i18nNamespace(), section.presetLabelKey(), diagnostics);
+        if (presetLabel == null) {
+            return null;
+        }
+        String presetHelp = optionalText(registered, textResolver, sectionId, "section", "preset help",
+                section.i18nNamespace(), section.presetHelpKey(), diagnostics);
+        if (presetHelp == null) {
+            return null;
+        }
         List<GuiConfigFieldLayoutSpec> fieldLayouts = fieldLayoutSpecs(
                 registered, textResolver, sectionId, section.fieldLayouts(), diagnostics);
         List<GuiConfigActionSpec> actions = actionSpecs(
                 registered, textResolver, sectionId, section.actions(), diagnostics);
         List<GuiConfigPresetSpec> presets = presetSpecs(
                 registered, textResolver, sectionId, section.presets(), diagnostics);
+        List<GuiConfigSectionNoticeSpec> notices = noticeSpecs(
+                registered, textResolver, sectionId, section.notices(), diagnostics);
 
         String groupLabel = ConfigFieldRegistry.groupLabel(groupId)
                 .orElseGet(() -> customGroups.get(groupId).spec().label());
         int groupOrder = ConfigFieldRegistry.groupOrder(groupId)
                 .orElseGet(() -> customGroups.get(groupId).spec().order());
         return new GuiConfigSectionSpec(registered.id(), sectionId, groupId, groupLabel,
-                groupOrder, title, help, section.layout(), section.order(), fieldLayouts, actions, presets);
+                groupOrder, title, help, layoutLabel, layoutHelp, presetLabel, presetHelp, notices,
+                section.layout(), section.order(), fieldLayouts, actions, presets,
+                section.mergeable(), section.contributesGroupVisibility());
+    }
+
+    private static List<GuiConfigSectionNoticeSpec> noticeSpecs(PluginRegistry.RegisteredPlugin registered,
+                                                                PluginTextResolver textResolver,
+                                                                String sectionId,
+                                                                List<GuiConfigSectionNoticeContribution> notices,
+                                                                List<GuiConfigContributionDiagnostic> diagnostics) {
+        Map<String, String> ownerByNoticeId = new LinkedHashMap<>();
+        List<GuiConfigSectionNoticeSpec> accepted = new ArrayList<>();
+        for (GuiConfigSectionNoticeContribution notice : notices) {
+            if (notice == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "null GUI config section notice contribution"));
+                continue;
+            }
+            String noticeId = normalize(notice.noticeId());
+            if (noticeId == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config section notice id is blank"));
+                continue;
+            }
+            String textKey = normalize(notice.textKey());
+            if (textKey == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config section notice text key is blank: " + noticeId));
+                continue;
+            }
+            String text = textResolver.sectionNoticeText(sectionId, notice.i18nNamespace(), textKey, diagnostics);
+            if (text == null) {
+                continue;
+            }
+            if (ownerByNoticeId.putIfAbsent(noticeId, registered.id()) != null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "duplicate GUI config section notice id '" + noticeId
+                                + "' in section '" + sectionId + "'"));
+                accepted.removeIf(item -> item.noticeId().equals(noticeId));
+                continue;
+            }
+            accepted.add(new GuiConfigSectionNoticeSpec(noticeId, text, notice.style(), notice.order()));
+        }
+        return accepted.stream()
+                .sorted(Comparator
+                        .comparingInt(GuiConfigSectionNoticeSpec::order)
+                        .thenComparing(GuiConfigSectionNoticeSpec::noticeId))
+                .toList();
     }
 
     private static List<GuiConfigFieldLayoutSpec> fieldLayoutSpecs(PluginRegistry.RegisteredPlugin registered,
@@ -442,15 +611,23 @@ public final class GuiConfigContributionAggregator {
             if (help == null) {
                 continue;
             }
+            String sendingNotice = optionalText(registered, textResolver, sectionId, "action", "sending notice",
+                    action.i18nNamespace(), action.sendingNoticeKey(), diagnostics);
+            if (sendingNotice == null) {
+                continue;
+            }
+            List<GuiConfigActionResultRuleSpec> resultRules =
+                    actionResultRules(registered, textResolver, sectionId, action.resultRules(), diagnostics);
             if (ownerByActionId.putIfAbsent(actionId, registered.id()) != null) {
                 diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
                         "duplicate GUI config action id '" + actionId + "' in section '" + sectionId + "'"));
                 accepted.removeIf(item -> item.actionId().equals(actionId));
                 continue;
             }
-            accepted.add(new GuiConfigActionSpec(actionId, label, help, endpoint,
+            accepted.add(new GuiConfigActionSpec(actionId, label, help, normalize(action.cardId()), endpoint,
                     action.readTimeoutMillis() <= 0 ? 30_000 : action.readTimeoutMillis(),
-                    action.order(), validPayloadFields(registered, sectionId, action.payloadFields(), diagnostics)));
+                    action.order(), validPayloadFields(registered, sectionId, action.payloadFields(), diagnostics),
+                    sendingNotice, resultRules, action.resultSummary()));
         }
         return accepted.stream()
                 .sorted(Comparator
@@ -459,15 +636,72 @@ public final class GuiConfigContributionAggregator {
                 .toList();
     }
 
+    private static List<GuiConfigActionResultRuleSpec> actionResultRules(
+            PluginRegistry.RegisteredPlugin registered,
+            PluginTextResolver textResolver,
+            String sectionId,
+            List<GuiConfigActionResultRule> rules,
+            List<GuiConfigContributionDiagnostic> diagnostics) {
+        List<GuiConfigActionResultRuleSpec> accepted = new ArrayList<>();
+        for (GuiConfigActionResultRule rule : rules) {
+            if (rule == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "null GUI config action result rule"));
+                continue;
+            }
+            String noticeKey = normalize(rule.noticeKey());
+            if (noticeKey == null) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config action result rule notice key is blank"));
+                continue;
+            }
+            if (!validActionResultConditions(rule.conditions()) || !validActionResultArguments(rule.arguments())) {
+                diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
+                        "GUI config action result rule contains an invalid condition or argument"));
+                continue;
+            }
+            String notice = textResolver.actionText(sectionId, rule.i18nNamespace(), noticeKey,
+                    "result notice", diagnostics);
+            if (notice == null) {
+                continue;
+            }
+            accepted.add(new GuiConfigActionResultRuleSpec(
+                    notice, rule.order(), rule.conditions(), rule.arguments()));
+        }
+        return accepted.stream()
+                .sorted(Comparator.comparingInt(GuiConfigActionResultRuleSpec::order))
+                .toList();
+    }
+
+    private static boolean validActionResultConditions(List<GuiConfigActionResultCondition> conditions) {
+        if (conditions == null) {
+            return true;
+        }
+        return conditions.stream()
+                .allMatch(condition -> condition != null
+                        && condition.source() != null
+                        && condition.operator() != null);
+    }
+
+    private static boolean validActionResultArguments(List<GuiConfigActionResultArgument> arguments) {
+        if (arguments == null) {
+            return true;
+        }
+        return arguments.stream()
+                .allMatch(argument -> argument != null && argument.source() != null);
+    }
+
     private static List<GuiConfigActionPayloadField> validPayloadFields(PluginRegistry.RegisteredPlugin registered,
                                                                         String sectionId,
                                                                         List<GuiConfigActionPayloadField> payloadFields,
                                                                         List<GuiConfigContributionDiagnostic> diagnostics) {
         List<GuiConfigActionPayloadField> accepted = new ArrayList<>();
         for (GuiConfigActionPayloadField field : payloadFields) {
-            if (field == null || normalize(field.payloadPath()) == null || normalize(field.fieldKey()) == null) {
+            if (field == null
+                    || normalize(field.payloadPath()) == null
+                    || (normalize(field.fieldKey()) == null && field.literalValue().isBlank())) {
                 diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), sectionId,
-                        "GUI config action payload field contains blank path or field key"));
+                        "GUI config action payload field contains blank path and no field key or literal value"));
                 continue;
             }
             accepted.add(field);
@@ -528,7 +762,7 @@ public final class GuiConfigContributionAggregator {
                 accepted.removeIf(item -> item.presetId().equals(presetId));
                 continue;
             }
-            accepted.add(new GuiConfigPresetSpec(presetId, label, help, preset.order(),
+            accepted.add(new GuiConfigPresetSpec(presetId, label, help, normalize(preset.cardId()), preset.order(),
                     normalize(preset.matchFieldKey()), preset.matchValue(), preset.values()));
         }
         return accepted.stream()
@@ -721,6 +955,11 @@ public final class GuiConfigContributionAggregator {
         String actionText(String sectionId, String explicitNamespace, String key, String role,
                           List<GuiConfigContributionDiagnostic> diagnostics) {
             return text(sectionId, "action", role, explicitNamespace, key, diagnostics);
+        }
+
+        String sectionNoticeText(String sectionId, String explicitNamespace, String key,
+                                 List<GuiConfigContributionDiagnostic> diagnostics) {
+            return text(sectionId, "section notice", "text", explicitNamespace, key, diagnostics);
         }
 
         String presetText(String sectionId, String explicitNamespace, String key, String role,

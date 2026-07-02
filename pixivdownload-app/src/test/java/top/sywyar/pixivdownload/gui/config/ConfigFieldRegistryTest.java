@@ -182,11 +182,18 @@ class ConfigFieldRegistryTest {
                 50,
                 "",
                 "",
+                "",
+                "",
+                "",
+                "",
+                List.of(),
                 GuiConfigSectionLayout.FIELD_LIST,
                 10,
                 List.of(),
                 List.of(),
-                List.of());
+                List.of(),
+                false,
+                true);
 
         ConfigFieldSnapshot snapshot = ConfigFieldRegistry.snapshot(
                 new GuiConfigContributionSnapshot(List.of(group), List.of(), List.of(section), List.of()));
@@ -253,6 +260,7 @@ class ConfigFieldRegistryTest {
                         GuiMessages.get("gui.config.group.notification"))
                 .defaultValue("true")
                 .hotReloadable()
+                .contributesGroupVisibility(false)
                 .build();
     }
 }

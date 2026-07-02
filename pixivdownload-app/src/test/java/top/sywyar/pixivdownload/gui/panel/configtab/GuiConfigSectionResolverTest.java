@@ -8,9 +8,11 @@ import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldRenderer;
 import top.sywyar.pixivdownload.gui.config.FieldType;
 import top.sywyar.pixivdownload.gui.config.GuiConfigFieldLayoutSpec;
+import top.sywyar.pixivdownload.gui.config.GuiConfigSectionNoticeSpec;
 import top.sywyar.pixivdownload.gui.config.GuiConfigSectionSpec;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
 
 import javax.swing.BoxLayout;
 import javax.swing.JComponent;
@@ -18,7 +20,11 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Font;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,7 +39,7 @@ class GuiConfigSectionResolverTest {
     Path tempDir;
 
     @Test
-    @DisplayName("没有声明式 section 时仍解析到现有过渡 adapter")
+    @DisplayName("没有声明式 section 时只为未迁移分组保留过渡 adapter")
     void transitionAdaptersRemainPlainSectionsWithoutDeclaredSections() {
         List<String> groups = List.of(
                 ConfigFieldRegistry.groupAi(),
@@ -47,75 +53,105 @@ class GuiConfigSectionResolverTest {
                 tempDir.resolve("config.yaml"),
                 path -> "http://localhost:6999" + path);
 
-        assertThat(sections).hasSize(3);
+        assertThat(sections).hasSize(2);
         assertThat(section(sections, ConfigFieldRegistry.groupAi())).isInstanceOf(AiConfigSection.class);
-        assertThat(section(sections, ConfigFieldRegistry.groupNotification()))
-                .isInstanceOf(NotificationConfigSection.class);
+        assertThat(sections).noneMatch(section -> ConfigFieldRegistry.groupNotification().equals(section.group()));
         assertThat(section(sections, ConfigFieldRegistry.groupPlugins()))
                 .isInstanceOf(PluginMarketConfigSection.class);
     }
 
     @Test
-    @DisplayName("AI 分组 adapter 与声明式 section 进入同一个组合 section")
-    void aiAdapterAndDeclaredSectionCanCoexist() {
+    @DisplayName("同一分组存在声明式 section 时优先使用声明式 section")
+    void declaredSectionTakesPrecedenceOverTransitionAdapter() {
         String group = ConfigFieldRegistry.groupAi();
         GuiConfigSectionSpec declared = section(
                 "fixture-ai", "fixture.ai.section", GuiConfigGroups.AI, group, 10, "ai.base-url");
 
         ConfigSection resolved = singleSection(group, List.of(declared));
 
-        assertThat(resolved).isInstanceOf(CompositeConfigSection.class);
-        assertThat(((CompositeConfigSection) resolved).blocks())
-                .extracting(ConfigSectionBlock::sectionId)
-                .containsExactly(
-                        GuiConfigSectionResolver.AI_TRANSITION_SECTION,
-                        "fixture.ai.section");
+        assertThat(resolved).isInstanceOf(DeclaredGuiConfigSection.class);
     }
 
     @Test
-    @DisplayName("通知分组 adapter 与声明式 section 进入同一个组合 section")
-    void notificationAdapterAndDeclaredSectionCanCoexist() {
+    @DisplayName("通知分组声明式 section 不再被过渡 adapter 挡住")
+    void notificationDeclaredSectionIsNotBlockedByAdapter() {
         String group = ConfigFieldRegistry.groupNotification();
         GuiConfigSectionSpec declared = section(
                 "fixture-notification", "fixture.notification.section",
-                GuiConfigGroups.NOTIFICATION, group, 10, "mail.host");
+                GuiConfigGroups.NOTIFICATION, group, 10, "fixture.notification.enabled");
 
         ConfigSection resolved = singleSection(group, List.of(declared));
 
-        assertThat(resolved).isInstanceOf(CompositeConfigSection.class);
-        assertThat(((CompositeConfigSection) resolved).blocks())
-                .extracting(ConfigSectionBlock::sectionId)
-                .containsExactly(
-                        GuiConfigSectionResolver.NOTIFICATION_TRANSITION_SECTION,
-                        "fixture.notification.section");
+        assertThat(resolved).isInstanceOf(DeclaredGuiConfigSection.class);
     }
 
     @Test
-    @DisplayName("同一分组多个声明式 section 按 order、pluginId、sectionId 稳定排序")
+    @DisplayName("同一分组多个声明式 section 在单个容器中按 order、pluginId、sectionId 稳定排序")
     void declaredSectionsAreSortedWithinGroup() {
         String group = "Fixture Group";
         List<GuiConfigSectionSpec> sections = List.of(
                 section("plugin-b", "section-b", "fixture.group", group, 20, "fixture.b"),
                 section("plugin-b", "section-a", "fixture.group", group, 10, "fixture.a"),
                 section("plugin-a", "section-z", "fixture.group", group, 10, "fixture.z"));
+        RecordingContext ctx = new RecordingContext(List.of(
+                field("fixture.a", group),
+                field("fixture.b", group),
+                field("fixture.z", group)));
 
         ConfigSection resolved = GuiConfigSectionResolver.createSections(
-                        new RecordingContext(List.of()),
+                        ctx,
                         List.of(group),
                         sections,
                         tempDir.resolve("config.yaml"),
                         path -> path)
                 .get(0);
 
-        assertThat(resolved).isInstanceOf(CompositeConfigSection.class);
-        assertThat(((CompositeConfigSection) resolved).blocks())
-                .extracting(ConfigSectionBlock::sectionId)
-                .containsExactly("section-z", "section-a", "section-b");
+        assertThat(resolved).isInstanceOf(DeclaredGuiConfigSection.class);
+        resolved.build();
+        assertThat(ctx.registrationOrder())
+                .containsExactly("fixture.z", "fixture.a", "fixture.b");
     }
 
     @Test
-    @DisplayName("adapter 已渲染字段不会被声明式 section 重复注册")
-    void declaredSectionSkipsFieldsRenderedByAdapter() {
+    @DisplayName("声明式 notice 渲染在 section 内容前并保留旧提示行样式")
+    void sectionNoticeRendersBeforeContentWithLegacyHintStyle() {
+        String group = "Fixture Group";
+        RecordingContext ctx = new RecordingContext(List.of(field("fixture.enabled", group)));
+        GuiConfigSectionSpec declared = section(
+                "fixture",
+                "fixture.notice",
+                "fixture.group",
+                group,
+                10,
+                List.of(new GuiConfigSectionNoticeSpec(
+                        "fixture.top",
+                        "已启用的服务会同时生效；下拉仅用于切换当前编辑的服务",
+                        GuiConfigSectionNoticeStyle.HINT,
+                        0)),
+                "fixture.enabled");
+
+        ConfigSection resolved = singleSection(ctx, group, List.of(declared));
+        JComponent built = resolved.build();
+        JPanel content = (JPanel) ((JScrollPane) built).getViewport().getView();
+        Component first = content.getComponent(0);
+
+        assertThat(first).isInstanceOf(JLabel.class);
+        JLabel notice = (JLabel) first;
+        assertThat(notice.getText()).isEqualTo("已启用的服务会同时生效；下拉仅用于切换当前编辑的服务");
+        assertThat(notice.getForeground()).isEqualTo(new Color(0, 128, 96));
+        assertThat(notice.getFont().getStyle()).isEqualTo(Font.PLAIN);
+        assertThat(notice.getFont().getSize2D()).isEqualTo(11f);
+        assertThat(notice.getClientProperty(DeclaredGuiConfigSection.NOTICE_ID_PROPERTY))
+                .isEqualTo("fixture.top");
+        assertThat(notice.getClientProperty(DeclaredGuiConfigSection.NOTICE_STYLE_PROPERTY))
+                .isEqualTo(GuiConfigSectionNoticeStyle.HINT);
+        assertThat(content.getComponentZOrder(notice))
+                .isLessThan(content.getComponentZOrder(ctx.renderedField("fixture.enabled").panel()));
+    }
+
+    @Test
+    @DisplayName("声明式 section 优先后不会额外注册过渡 adapter 字段")
+    void declaredSectionDoesNotDuplicateTransitionAdapterFields() {
         String group = ConfigFieldRegistry.groupAi();
         ConfigFieldSpec aiBaseUrl = field("ai.base-url", group);
         GuiConfigSectionSpec declared = section(
@@ -223,8 +259,13 @@ class GuiConfigSectionResolverTest {
     }
 
     private ConfigSection singleSection(String group, List<GuiConfigSectionSpec> declaredSections) {
+        return singleSection(new RecordingContext(List.of()), group, declaredSections);
+    }
+
+    private ConfigSection singleSection(RecordingContext ctx, String group,
+                                        List<GuiConfigSectionSpec> declaredSections) {
         return GuiConfigSectionResolver.createSections(
-                        new RecordingContext(List.of()),
+                        ctx,
                         List.of(group),
                         declaredSections,
                         tempDir.resolve("config.yaml"),
@@ -241,6 +282,13 @@ class GuiConfigSectionResolverTest {
 
     private static GuiConfigSectionSpec section(String pluginId, String sectionId, String groupId,
                                                 String group, int order, String... fieldKeys) {
+        return section(pluginId, sectionId, groupId, group, order, List.of(), fieldKeys);
+    }
+
+    private static GuiConfigSectionSpec section(String pluginId, String sectionId, String groupId,
+                                                String group, int order,
+                                                List<GuiConfigSectionNoticeSpec> notices,
+                                                String... fieldKeys) {
         List<GuiConfigFieldLayoutSpec> layouts = java.util.Arrays.stream(fieldKeys)
                 .map(key -> new GuiConfigFieldLayoutSpec(key, null, "", 10))
                 .toList();
@@ -252,11 +300,18 @@ class GuiConfigSectionResolverTest {
                 0,
                 "",
                 "",
+                "",
+                "",
+                "",
+                "",
+                notices,
                 GuiConfigSectionLayout.FIELD_LIST,
                 order,
                 layouts,
                 List.of(),
-                List.of());
+                List.of(),
+                false,
+                true);
     }
 
     private static ConfigFieldSpec field(String key, String group) {
@@ -287,6 +342,7 @@ class GuiConfigSectionResolverTest {
         private final List<ConfigFieldSpec> fields;
         private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
         private final Map<String, Integer> registrations = new LinkedHashMap<>();
+        private final List<String> registrationOrder = new ArrayList<>();
 
         private RecordingContext(List<ConfigFieldSpec> fields) {
             this.fields = fields == null ? List.of() : List.copyOf(fields);
@@ -309,6 +365,7 @@ class GuiConfigSectionResolverTest {
         public void registerField(ConfigFieldSpec spec, FieldRenderer.RenderedField rf) {
             registrations.merge(spec.key(), 1, Integer::sum);
             renderedFields.put(spec.key(), rf);
+            registrationOrder.add(spec.key());
         }
 
         @Override
@@ -374,6 +431,14 @@ class GuiConfigSectionResolverTest {
 
         private int registrationCount(String key) {
             return registrations.getOrDefault(key, 0);
+        }
+
+        private List<String> registrationOrder() {
+            return List.copyOf(registrationOrder);
+        }
+
+        private FieldRenderer.RenderedField renderedField(String key) {
+            return renderedFields.get(key);
         }
     }
 }

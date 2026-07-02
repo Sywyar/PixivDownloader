@@ -15,14 +15,22 @@ public record GuiConfigSectionSpec(
         int groupOrder,
         String title,
         String help,
+        String layoutLabel,
+        String layoutHelp,
+        String presetLabel,
+        String presetHelp,
+        List<GuiConfigSectionNoticeSpec> notices,
         GuiConfigSectionLayout layout,
         int order,
         List<GuiConfigFieldLayoutSpec> fieldLayouts,
         List<GuiConfigActionSpec> actions,
-        List<GuiConfigPresetSpec> presets
+        List<GuiConfigPresetSpec> presets,
+        boolean mergeable,
+        boolean contributesGroupVisibility
 ) {
 
     public GuiConfigSectionSpec {
+        notices = notices == null ? List.of() : List.copyOf(notices);
         fieldLayouts = fieldLayouts == null ? List.of() : List.copyOf(fieldLayouts);
         actions = actions == null ? List.of() : List.copyOf(actions);
         presets = presets == null ? List.of() : List.copyOf(presets);
