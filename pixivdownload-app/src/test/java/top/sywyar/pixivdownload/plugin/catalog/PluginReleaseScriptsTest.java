@@ -199,12 +199,20 @@ class PluginReleaseScriptsTest {
                 "gh secret set PLUGIN_SIGNING_PRIVATE_KEY_PEM_BASE64 --repo Sywyar/PixivDownloader --body",
                 "Prepared plugin signing private key contains '?' characters",
                 "PLUGIN_SIGNING_PRIVATE_KEY_FILE=$privateKeyFile",
+                "$publishArgs = @{",
+                "Repo = $env:PLUGINS_REPO",
+                "OfficialKeyId = $env:PLUGIN_SIGNING_KEY_ID",
+                "PrivateKeyFile = $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
+                "$publishArgs[\"Force\"] = $true",
+                ".\\scripts\\publish-plugin-releases.ps1 @publishArgs",
                 "-OfficialKeyId $env:PLUGIN_SIGNING_KEY_ID",
                 "-PrivateKeyFile $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE",
                 "Copy-Item build/manifest.json.sig plugins-repo/manifest.json.sig -Force",
                 "git add manifest.json manifest.json.sig",
                 "Cleanup plugin signing private key");
         assertThat(workflow).doesNotContain("-----BEGIN PRIVATE KEY-----");
+        assertThat(workflow).doesNotContain("\"-Repo\", $env:PLUGINS_REPO");
+        assertThat(workflow).doesNotContain("\"-PrivateKeyFile\", $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE");
     }
 
     @Test

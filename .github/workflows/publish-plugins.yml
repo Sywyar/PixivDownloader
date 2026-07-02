@@ -87,11 +87,11 @@ jobs:
           GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN }}
           PUBLISH_PLUGIN_ARGS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_args || '' }}
         run: |
-          $publishArgs = @(
-            "-Repo", $env:PLUGINS_REPO,
-            "-OfficialKeyId", $env:PLUGIN_SIGNING_KEY_ID,
-            "-PrivateKeyFile", $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
-          )
+          $publishArgs = @{
+            Repo = $env:PLUGINS_REPO
+            OfficialKeyId = $env:PLUGIN_SIGNING_KEY_ID
+            PrivateKeyFile = $env:PLUGIN_SIGNING_PRIVATE_KEY_FILE
+          }
           $inputTokens = @()
           if (-not [string]::IsNullOrWhiteSpace($env:PUBLISH_PLUGIN_ARGS)) {
             $inputTokens = @($env:PUBLISH_PLUGIN_ARGS -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -101,7 +101,7 @@ jobs:
             throw "Unsupported publish_args value(s): $($unsupportedTokens -join ', '). Only -f is supported."
           }
           if (@($inputTokens | Where-Object { $_ -in @("-f", "-Force") }).Count -gt 0) {
-            $publishArgs += "-Force"
+            $publishArgs["Force"] = $true
           }
           .\scripts\publish-plugin-releases.ps1 @publishArgs
 
