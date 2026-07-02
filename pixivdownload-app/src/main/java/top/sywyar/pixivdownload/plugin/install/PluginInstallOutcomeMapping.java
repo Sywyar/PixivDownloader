@@ -22,8 +22,8 @@ public final class PluginInstallOutcomeMapping {
 
     /**
      * 该结果分类对应的 HTTP 状态：accepted（新装 / 升级 / 降级 / 已存在）→ 200；包内容非法（空 / 损坏 / 缺描述符 /
-     * 歧义 / 描述符非法 / Zip Slip）→ 400；资源规模超限（Zip Bomb 防护）→ 413；完整性校验不通过 → 422；与核心 API
-     * 或现存更高版本冲突（不兼容 / 拒绝降级）→ 409；安装期服务端 IO 失败 → 500。
+     * 歧义 / 描述符非法 / Zip Slip）→ 400；资源规模超限（Zip Bomb 防护）→ 413；完整性校验不通过 → 422；与核心 API、
+     * 依赖或现存更高版本冲突（不兼容 / 依赖未满足 / 拒绝降级）→ 409；安装期服务端 IO 失败 → 500。
      */
     public static HttpStatus httpStatus(PluginInstallOutcome outcome) {
         return switch (outcome) {
@@ -32,7 +32,7 @@ public final class PluginInstallOutcomeMapping {
                     REJECTED_INVALID, REJECTED_UNSAFE -> HttpStatus.BAD_REQUEST;
             case REJECTED_TOO_LARGE -> HttpStatus.PAYLOAD_TOO_LARGE;
             case REJECTED_INTEGRITY -> HttpStatus.UNPROCESSABLE_ENTITY;
-            case REJECTED_INCOMPATIBLE, DOWNGRADE_REJECTED -> HttpStatus.CONFLICT;
+            case REJECTED_INCOMPATIBLE, REJECTED_DEPENDENCY, DOWNGRADE_REJECTED -> HttpStatus.CONFLICT;
             case FAILED -> HttpStatus.INTERNAL_SERVER_ERROR;
         };
     }

@@ -39,6 +39,9 @@ public enum PluginInstallOutcome {
     /** 声明的核心 API 版本要求（requires）不被当前核心满足，拒绝安装为可加载状态。 */
     REJECTED_INCOMPATIBLE(false),
 
+    /** 非可选插件依赖缺失、版本不满足、不可激活或依赖安装编排失败，拒绝安装目标插件。 */
+    REJECTED_DEPENDENCY(false),
+
     /** 含越界 entry（Zip Slip），拒绝整包。 */
     REJECTED_UNSAFE(false),
 

@@ -242,6 +242,28 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
+    @DisplayName("市场安装响应中的自动依赖结果会同步更新依赖卡片，并在安装后刷新当前 catalog")
+    void dependencyInstallResultsUpdateCardsAndRefreshCatalog() throws IOException {
+        String data = read(DATA);
+        String vue = read(VUE);
+        String fallback = read(FALLBACK);
+
+        assertThat(data).as("数据层应把后端 dependencyInstallResults 映射为普通安装结果本地模型")
+                .contains("dependencyInstallResults", "D.installResult(dependency)",
+                        "D.dependencyInstallResults = dependencyInstallResults");
+        assertThat(vue).as("Vue 主视图应按同一 repositoryId+pluginId 键写入依赖安装结果")
+                .contains("recordDependencyInstallResults", "model.dependencyInstallResults",
+                        "self.installResults[self.installKey(repositoryId, dependencyResult.pluginId)]");
+        assertThat(fallback).as("基础回退视图应按同一 repositoryId+pluginId 键写入依赖安装结果")
+                .contains("recordDependencyInstallResults", "model.dependencyInstallResults",
+                        "state.installResults[installKey(repositoryId, dependencyResult.pluginId)]");
+        assertThat(vue).as("Vue 安装完成后应重拉当前 catalog，不清掉 installResults 覆盖层")
+                .contains("refreshCatalogAfterInstall", "this.loadCatalog(repositoryId)");
+        assertThat(fallback).as("回退安装完成后应重拉当前 catalog，不清掉 installResults 覆盖层")
+                .contains("refreshCatalogAfterInstall", "loadCatalog(repositoryId).then(paint)");
+    }
+
+    @Test
     @DisplayName("仅兼容筛选按条目 compatible 判定；无可安装版本条目稳定降级为不可点击的 i18n 不可安装状态")
     void compatibilityFilterAndUnavailableDegradation() throws IOException {
         // 「仅兼容当前版本」按条目自身 compatible 标记（最新可安装版本兼容性）判定，而非派生的 installStatus。

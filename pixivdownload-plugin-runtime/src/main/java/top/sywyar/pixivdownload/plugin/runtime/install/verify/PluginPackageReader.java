@@ -305,39 +305,8 @@ public final class PluginPackageReader {
                 null, null, null, PluginKind.FEATURE);
     }
 
-    /**
-     * 解析 PF4J {@code plugin.dependencies}（逗号分隔，每项 {@code pluginId} 或 {@code pluginId@versionSupport}，
-     * pluginId 尾随 {@code ?} 表示可选），与 PF4J {@code PluginDependency} 语义一致。
-     */
     private static List<PluginDependencyRef> parseDependencies(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return List.of();
-        }
-        List<PluginDependencyRef> refs = new ArrayList<>();
-        for (String token : raw.split(",")) {
-            String dependency = token.trim();
-            if (dependency.isEmpty()) {
-                continue;
-            }
-            String pluginId;
-            String versionSupport = "*";
-            int at = dependency.indexOf('@');
-            if (at >= 0) {
-                pluginId = dependency.substring(0, at);
-                if (dependency.length() > at + 1) {
-                    versionSupport = dependency.substring(at + 1);
-                }
-            } else {
-                pluginId = dependency;
-            }
-            boolean optional = false;
-            if (pluginId.endsWith("?")) {
-                optional = true;
-                pluginId = pluginId.substring(0, pluginId.length() - 1);
-            }
-            refs.add(new PluginDependencyRef(pluginId.trim(), versionSupport.trim(), optional));
-        }
-        return refs;
+        return PluginDependencyRef.parseList(raw);
     }
 
     private static String trimToNull(String value) {

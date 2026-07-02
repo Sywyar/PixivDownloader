@@ -1,10 +1,9 @@
 package top.sywyar.pixivdownload.plugin.install;
 
 import top.sywyar.pixivdownload.plugin.management.PluginManagementService.PluginDependencyView;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 
 import java.util.List;
-import top.sywyar.pixivdownload.plugin.management.PluginManagementService;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
 
 /**
  * 本地插件包安装 API 响应体：在 {@link PluginInstallReport} 的结构化事实之外，附稳定机器码 {@code outcome}、
@@ -27,8 +26,10 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcom
  * @param runtimePhase            响应时的运行阶段
  * @param updated                 是否已从旧版本切换到目标版本并激活
  * @param dependencies            描述符声明的插件间依赖投影（依赖诊断）
- * @param unsatisfiedDependencies 当前不可达的非可选依赖 id（建议性诊断，不阻断安装）
+ * @param unsatisfiedDependencies 当前不可达的非可选依赖 id（机器可读摘要）
+ * @param dependencyProblems      未满足依赖的结构化诊断
  * @param diagnostics             安装器英文诊断说明（排错用，非用户文案）
+ * @param dependencyInstallResults 本次市场安装过程中自动安装成功的依赖插件结果
  */
 public record PluginInstallResponse(
         String outcome,
@@ -46,9 +47,11 @@ public record PluginInstallResponse(
         boolean updated,
         List<PluginDependencyView> dependencies,
         List<String> unsatisfiedDependencies,
+        List<PluginDependencyProblem> dependencyProblems,
         List<String> diagnostics,
         String transactionId,
         boolean activated,
         boolean rolledBack,
-        String rollbackVersion) {
+        String rollbackVersion,
+        List<PluginDependencyInstallResult> dependencyInstallResults) {
 }

@@ -48,11 +48,13 @@ public class PluginInstallResponseMapper {
                 report.updated(),
                 report.dependencies(),
                 report.unsatisfiedDependencies(),
+                report.dependencyProblems(),
                 report.diagnostics(),
                 report.transactionId(),
                 report.activated(),
                 report.rolledBack(),
-                report.rollbackVersion());
+                report.rollbackVersion(),
+                report.dependencyInstallResults());
         return ResponseEntity.status(httpStatus).body(body);
     }
 }

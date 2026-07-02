@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.descriptor;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -14,6 +16,41 @@ public record PluginDependencyRef(String pluginId, String versionSupport, boolea
 
     public PluginDependencyRef {
         Objects.requireNonNull(pluginId, "pluginId");
+    }
+
+    /**
+     * 解析 PF4J {@code plugin.dependencies}（逗号分隔，每项 {@code pluginId} 或 {@code pluginId@versionSupport}，
+     * pluginId 尾随 {@code ?} 表示可选）。
+     */
+    public static List<PluginDependencyRef> parseList(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        List<PluginDependencyRef> refs = new ArrayList<>();
+        for (String token : raw.split(",")) {
+            String dependency = token.trim();
+            if (dependency.isEmpty()) {
+                continue;
+            }
+            String pluginId;
+            String versionSupport = "*";
+            int at = dependency.indexOf('@');
+            if (at >= 0) {
+                pluginId = dependency.substring(0, at);
+                if (dependency.length() > at + 1) {
+                    versionSupport = dependency.substring(at + 1);
+                }
+            } else {
+                pluginId = dependency;
+            }
+            boolean optional = false;
+            if (pluginId.endsWith("?")) {
+                optional = true;
+                pluginId = pluginId.substring(0, pluginId.length() - 1);
+            }
+            refs.add(new PluginDependencyRef(pluginId.trim(), versionSupport.trim(), optional));
+        }
+        return List.copyOf(refs);
     }
 
     /** 解析 {@link #versionSupport} 为版本要求（{@code *} / 空白 → 不限版本）。 */

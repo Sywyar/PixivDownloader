@@ -221,6 +221,36 @@
         return outcome === 'DUPLICATE' ? 'info' : 'ok';
     }
 
+    function dependencyProblemLabel(problem) {
+        var reason = problem && problem.reason ? String(problem.reason).toLowerCase().replace(/_/g, '-') : 'unknown';
+        return PMK.t('install.dependency.' + reason, '{id}', {
+            id: problem && problem.pluginId ? problem.pluginId : '',
+            required: problem && problem.versionSupport ? problem.versionSupport : '*',
+            installed: problem && problem.installedVersion ? problem.installedVersion : '-',
+            status: problem && problem.status ? problem.status : '-'
+        });
+    }
+
+    function dependencyWarnings(response) {
+        if (Array.isArray(response.dependencyProblems) && response.dependencyProblems.length) {
+            return response.dependencyProblems.map(dependencyProblemLabel);
+        }
+        return Array.isArray(response.unsatisfiedDependencies) ? response.unsatisfiedDependencies : [];
+    }
+
+    function dependencyInstallResults(response) {
+        if (!Array.isArray(response.dependencyInstallResults)) {
+            return [];
+        }
+        return response.dependencyInstallResults.map(function (dependency) {
+            return D.installResult(dependency);
+        }).filter(function (result) {
+            return !!(result && result.pluginId);
+        });
+    }
+
+    D.dependencyInstallResults = dependencyInstallResults;
+
     D.installResult = function (response) {
         var r = response || {};
         var outcome = r.outcome || null;
@@ -234,7 +264,7 @@
             rollbackVersion: r.rollbackVersion || null,
             transactionId: r.transactionId || null,
             tone: installTone(outcome, accepted),
-            message: r.message || null,
+            message: r.message || outcome || null,
             pluginId: r.pluginId || null,
             version: r.version || null,
             previousVersion: r.previousVersion || null,
@@ -244,7 +274,8 @@
             runtimePhase: r.runtimePhase || null,
             updated: r.updated === true,
             errors: Array.isArray(r.diagnostics) ? r.diagnostics : [],
-            warnings: Array.isArray(r.unsatisfiedDependencies) ? r.unsatisfiedDependencies : []
+            warnings: dependencyWarnings(r),
+            dependencyInstallResults: dependencyInstallResults(r)
         };
     };
 
@@ -257,7 +288,9 @@
             outcome: code, accepted: false, effectiveAfterRestart: false, activated: false, rolledBack: false, tone: 'bad',
             message: message, pluginId: body && body.pluginId, version: body && body.version,
             previousVersion: null, packageId: null, targetVersion: null, operation: null,
-            runtimePhase: null, updated: false, errors: [], warnings: [], httpStatus: httpStatus || null
+            runtimePhase: null, updated: false, errors: [], warnings: [],
+            dependencyInstallResults: dependencyInstallResults(body || {}),
+            httpStatus: httpStatus || null
         };
     };
 })(window);

@@ -495,6 +495,7 @@
                             ? PMK.data.installResult(res.body)
                             : PMK.data.catalogError(res.body, res.httpStatus);
                         self.installResults[key] = model;
+                        self.recordDependencyInstallResults(repositoryId, model);
                         if (model.activated) {
                             PMK.toast(self.t('install.toast.activated', '已安装并激活。'), 'ok');
                         } else if (model.rolledBack) {
@@ -512,7 +513,20 @@
                         PMK.toast(self.t('error.install.generic', '安装请求失败，请重试。'), 'error');
                     }).then(function () {
                         delete self.installing[key];
+                        self.refreshCatalogAfterInstall(repositoryId);
                     });
+                },
+                recordDependencyInstallResults: function (repositoryId, model) {
+                    var self = this;
+                    (model.dependencyInstallResults || []).forEach(function (dependencyResult) {
+                        if (!dependencyResult.pluginId) return;
+                        self.installResults[self.installKey(repositoryId, dependencyResult.pluginId)] = dependencyResult;
+                    });
+                },
+                refreshCatalogAfterInstall: function (repositoryId) {
+                    if (repositoryId && repositoryId === this.activeCatalogRepositoryId) {
+                        this.loadCatalog(repositoryId);
+                    }
                 },
                 // 详情弹窗当前选中版本的安装状态（按所选版本制品兼容性 / 是否已是已安装版本派生）。
                 modalState: function () {

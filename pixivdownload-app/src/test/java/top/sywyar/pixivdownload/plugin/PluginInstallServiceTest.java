@@ -152,16 +152,43 @@ class PluginInstallServiceTest {
     }
 
     @Test
-    @DisplayName("依赖诊断：非可选依赖里非内置且未安装者列入 unsatisfiedDependencies；内置依赖不列入；声明依赖全部投影")
+    @DisplayName("依赖诊断：本地上传非可选依赖缺失时拒绝安装，返回 unsatisfiedDependencies 与结构化问题")
     void diagnosesUnsatisfiedDependencies() {
         // download-workbench 是内置（满足）；ghost-plugin 既非内置也未安装（不满足，列入诊断）。
         PluginInstallReport report = service.install(
                 explodedUpload("a.zip", "ext", "1.0.0", null, "download-workbench,ghost-plugin"), false);
 
-        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_DEPENDENCY);
+        assertThat(report.accepted()).isFalse();
         assertThat(report.dependencies()).extracting(PluginManagementService.PluginDependencyView::pluginId)
                 .containsExactlyInAnyOrder("download-workbench", "ghost-plugin");
         assertThat(report.unsatisfiedDependencies()).containsExactly("ghost-plugin");
+        assertThat(report.dependencyProblems()).singleElement()
+                .satisfies(problem -> {
+                    assertThat(problem.pluginId()).isEqualTo("ghost-plugin");
+                    assertThat(problem.reason()).isEqualTo(
+                            top.sywyar.pixivdownload.plugin.install.PluginDependencyProblem.Reason.MISSING);
+                });
+        assertThat(pluginFiles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("依赖诊断：本地上传依赖版本不满足时拒绝安装")
+    void rejectsUnsatisfiedDependencyVersion() {
+        service.install(explodedUpload("dep.zip", "dep", "1.0.0", null, null), false);
+
+        PluginInstallReport report = service.install(
+                explodedUpload("a.zip", "ext", "1.0.0", null, "dep@2.0"), false);
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_DEPENDENCY);
+        assertThat(report.accepted()).isFalse();
+        assertThat(report.unsatisfiedDependencies()).containsExactly("dep");
+        assertThat(report.dependencyProblems()).singleElement()
+                .satisfies(problem -> {
+                    assertThat(problem.pluginId()).isEqualTo("dep");
+                    assertThat(problem.installedVersion()).isEqualTo("1.0.0");
+                });
+        assertThat(pluginFiles()).containsExactly("dep-1.0.0.zip");
     }
 
     @Test

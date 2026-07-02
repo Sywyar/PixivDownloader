@@ -94,20 +94,32 @@ final class CatalogTestSupport {
 
     /** 一份合法的解压目录形态插件包字节（根 {@code plugin.properties} + {@code classes/} 负载，可被安装器接受）。 */
     static byte[] explodedPluginZip(String id, String version, String requires) {
+        return explodedPluginZip(id, version, requires, null);
+    }
+
+    /** 一份合法的解压目录形态插件包字节，可声明 PF4J {@code plugin.dependencies}。 */
+    static byte[] explodedPluginZip(String id, String version, String requires, String dependencies) {
         Map<String, byte[]> entries = new LinkedHashMap<>();
-        entries.put("plugin.properties", props(id, version, requires));
+        entries.put("plugin.properties", props(id, version, requires, dependencies));
         entries.put("classes/", new byte[0]);
         entries.put("classes/Marker.class", "fake-class".getBytes(StandardCharsets.UTF_8));
         return zipBytes(entries);
     }
 
     private static byte[] props(String id, String version, String requires) {
+        return props(id, version, requires, null);
+    }
+
+    private static byte[] props(String id, String version, String requires, String dependencies) {
         StringBuilder sb = new StringBuilder();
         sb.append("plugin.id=").append(id).append('\n');
         sb.append("plugin.version=").append(version).append('\n');
         sb.append("plugin.class=com.example.Plugin").append('\n');
         if (requires != null) {
             sb.append("plugin.requires=").append(requires).append('\n');
+        }
+        if (dependencies != null) {
+            sb.append("plugin.dependencies=").append(dependencies).append('\n');
         }
         return sb.toString().getBytes(StandardCharsets.UTF_8);
     }

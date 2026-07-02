@@ -7,6 +7,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallResponseMapper;
 import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogErrorCode;
@@ -167,18 +168,32 @@ class PluginMarketControllerTest {
     }
 
     @Test
-    @DisplayName("POST install 成功：200 + 稳定 outcome（INSTALLED）+ effectiveAfterRestart + 本地化 message")
+    @DisplayName("POST install 成功：200 + 稳定 outcome + 自动安装依赖结果 + 本地化 message")
     void installSuccess() throws Exception {
-        when(marketService.install("official", "demo", "1.0.0")).thenReturn(new PluginInstallReport(
+        PluginInstallReport report = new PluginInstallReport(
                 PluginInstallOutcome.INSTALLED, true, true, "demo", "1.0.0", null,
-                List.of(), List.of(), List.of("INSTALLED demo 1.0.0")));
+                List.of(), List.of(), List.of("INSTALLED demo 1.0.0"))
+                .withDependencyInstallResults(List.of(new PluginDependencyInstallResult(
+                        "beta", "1.0.0", null, "beta", "1.0.0",
+                        "INSTALLED", true, false, true, false, null,
+                        "INSTALLING", "STARTED", false)));
+        when(marketService.install("official", "demo", "1.0.0")).thenReturn(report);
 
         mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.outcome").value("INSTALLED"))
                 .andExpect(jsonPath("$.accepted").value(true))
                 .andExpect(jsonPath("$.effectiveAfterRestart").value(true))
-                .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.installed"));
+                .andExpect(jsonPath("$.message").value("localized:plugin.install.outcome.installed"))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].pluginId").value("beta"))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].version").value("1.0.0"))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].outcome").value("INSTALLED"))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].accepted").value(true))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].effectiveAfterRestart").value(false))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].activated").value(true))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].rolledBack").value(false))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].operation").value("INSTALLING"))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].runtimePhase").value("STARTED"));
     }
 
     @Test
@@ -257,12 +272,20 @@ class PluginMarketControllerTest {
     @Test
     @DisplayName("POST install 下载失败（网络）：502 + 稳定 code（DOWNLOAD_FAILED）")
     void installDownloadFailed() throws Exception {
-        when(marketService.install("official", "demo", "1.0.0")).thenThrow(new PluginCatalogException(
-                PluginCatalogErrorCode.DOWNLOAD_FAILED, "demo", "1.0.0", "connection reset"));
+        PluginCatalogException exception = new PluginCatalogException(
+                PluginCatalogErrorCode.DOWNLOAD_FAILED, "demo", "1.0.0", "connection reset")
+                .withDependencyInstallResults(List.of(new PluginDependencyInstallResult(
+                        "beta", "1.0.0", null, "beta", "1.0.0",
+                        "INSTALLED", true, false, true, false, null,
+                        "INSTALLING", "STARTED", false)));
+        when(marketService.install("official", "demo", "1.0.0")).thenThrow(exception);
 
         mockMvc.perform(post("/api/plugin-market/official/demo/1.0.0/install"))
                 .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.code").value("DOWNLOAD_FAILED"));
+                .andExpect(jsonPath("$.code").value("DOWNLOAD_FAILED"))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].pluginId").value("beta"))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].outcome").value("INSTALLED"))
+                .andExpect(jsonPath("$.dependencyInstallResults[0].activated").value(true));
     }
 
     @Test

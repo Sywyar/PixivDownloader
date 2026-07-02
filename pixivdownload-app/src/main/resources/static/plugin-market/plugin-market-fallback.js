@@ -236,6 +236,21 @@
         });
     }
 
+    function recordDependencyInstallResults(repositoryId, model) {
+        (model.dependencyInstallResults || []).forEach(function (dependencyResult) {
+            if (!dependencyResult.pluginId) return;
+            state.installResults[installKey(repositoryId, dependencyResult.pluginId)] = dependencyResult;
+        });
+    }
+
+    function refreshCatalogAfterInstall(repositoryId) {
+        updateGrid();
+        if (state.masterEnabled && repositoryId && repositoryId === state.activeRepositoryId) {
+            return loadCatalog(repositoryId).then(paint);
+        }
+        return Promise.resolve();
+    }
+
     // 安装请求只用展示条目同源的 repositoryId（来自卡片 data-pmk-repo），不读易变的全局 activeRepositoryId；
     // 在途与结果按 (repositoryId, pluginId) 复合键存储——切到其它仓库时本仓库的安装态不会污染同名插件。
     function doInstall(repositoryId, pluginId, version) {
@@ -250,18 +265,26 @@
                 ? PMK.data.installResult(res.body)
                 : PMK.data.catalogError(res.body, res.httpStatus);
             state.installResults[key] = model;
+            recordDependencyInstallResults(repositoryId, model);
+            var accepted = model.activated || model.accepted;
             PMK.toast(model.activated
                 ? t('install.toast.activated', '已安装并激活。')
                 : (model.rolledBack
                     ? t('install.toast.rolled-back', '激活失败，已恢复原版本。')
-                    : t('install.toast.rejected', '未安装：{message}', { message: model.message || model.outcome || '' })),
-                model.activated ? 'ok' : 'error');
+                    : (model.accepted
+                        ? t('install.toast.accepted', '已安装。')
+                        : t('install.toast.rejected', '未安装：{message}', { message: model.message || model.outcome || '' }))),
+                accepted ? 'ok' : 'error');
         }).catch(function () {
-            state.installResults[key] = { accepted: false };
+            state.installResults[key] = {
+                tone: 'bad', accepted: false, effectiveAfterRestart: false, outcome: null,
+                message: t('error.install.generic', '安装请求失败，请重试。'), warnings: [], errors: [],
+                dependencyInstallResults: []
+            };
             PMK.toast(t('error.install.generic', '安装请求失败，请重试。'), 'error');
         }).then(function () {
             delete state.installing[key];
-            updateGrid();
+            return refreshCatalogAfterInstall(repositoryId);
         });
     }
 

@@ -102,7 +102,8 @@ public class PluginMarketController {
         String message = messages.getOrDefault(localeResolver.resolveLocale(request),
                 ex.messageKey(), ex.getMessage());
         PluginCatalogErrorResponse body = new PluginCatalogErrorResponse(
-                ex.code().name(), message, ex.status().value(), ex.pluginId(), ex.version());
+                ex.code().name(), message, ex.status().value(), ex.pluginId(), ex.version(),
+                ex.dependencyInstallResults());
         return ResponseEntity.status(ex.status()).body(body);
     }
 }

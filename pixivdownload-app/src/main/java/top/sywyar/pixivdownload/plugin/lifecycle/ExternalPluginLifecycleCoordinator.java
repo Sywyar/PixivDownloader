@@ -22,6 +22,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import top.sywyar.pixivdownload.plugin.install.PluginActivationResult;
+import top.sywyar.pixivdownload.plugin.install.PluginDependencyProblem;
+import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
 import top.sywyar.pixivdownload.plugin.management.PluginManagementErrorCode;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
@@ -36,21 +38,25 @@ public class ExternalPluginLifecycleCoordinator {
     private final PluginLifecycleService lifecycleService;
     private final ExternalPluginInstaller installer;
     private final RecoveryModeService recoveryModeService;
+    private final PluginDependencyResolver dependencyResolver;
     private final Map<String, ReentrantLock> locks = new ConcurrentHashMap<>();
     private final Map<String, ExternalPluginOperationSnapshot> operations = new ConcurrentHashMap<>();
 
     public ExternalPluginLifecycleCoordinator(PluginRuntimeManager runtimeManager,
                                               PluginLifecycleService lifecycleService,
                                               ExternalPluginInstaller installer,
-                                              RecoveryModeService recoveryModeService) {
+                                              RecoveryModeService recoveryModeService,
+                                              PluginDependencyResolver dependencyResolver) {
         this.runtimeManager = runtimeManager;
         this.lifecycleService = lifecycleService;
         this.installer = installer;
         this.recoveryModeService = recoveryModeService;
+        this.dependencyResolver = dependencyResolver;
     }
 
     public void start(String packageId) {
         withLock(packageId, ExternalPluginOperation.INSTALLING, () -> {
+            requireActivationDependencies(packageId);
             startExclusive(packageId);
             recoveryModeService.refresh();
             return null;
@@ -81,6 +87,7 @@ public class ExternalPluginLifecycleCoordinator {
 
     public void load(String packageId) {
         withLock(packageId, ExternalPluginOperation.INSTALLING, () -> {
+            requireActivationDependencies(packageId);
             loadExclusive(packageId, installedArtifact(packageId));
             return null;
         });
@@ -89,6 +96,7 @@ public class ExternalPluginLifecycleCoordinator {
     /** 服务重启：保留 generation/classloader。 */
     public void restart(String packageId) {
         withLock(packageId, ExternalPluginOperation.UPDATING, () -> {
+            requireActivationDependencies(packageId);
             stopExclusive(packageId);
             startExclusive(packageId);
             return null;
@@ -98,6 +106,7 @@ public class ExternalPluginLifecycleCoordinator {
     /** 代码重载：物理 unload/load，必须产生新 generation。失败时尝试从同一磁盘包恢复。 */
     public void reload(String packageId) {
         withLock(packageId, ExternalPluginOperation.UPDATING, () -> {
+            requireActivationDependencies(packageId);
             Path artifact = runtimeManager.artifactPath(packageId).orElseGet(() -> installedArtifact(packageId));
             long previousGeneration = lifecycleService.generation(packageId).orElse(0L);
             unloadExclusive(packageId);
@@ -155,6 +164,13 @@ public class ExternalPluginLifecycleCoordinator {
                                                   PluginPackageOrigin origin) {
         PreparedPluginTransaction prepared = installer.prepareTransaction(packageFile, allowDowngrade, origin);
         PluginInstallResult stagedResult = prepared.result();
+        if (stagedResult != null && stagedResult.descriptor() != null && stagedResult.outcome().accepted()) {
+            List<PluginDependencyProblem> problems =
+                    dependencyResolver.activationProblems(stagedResult.descriptor());
+            if (!problems.isEmpty()) {
+                return dependencyRejected(prepared, problems);
+            }
+        }
         if (!prepared.readyToCommit()) {
             String packageId = stagedResult != null ? stagedResult.pluginId() : null;
             PluginRuntimePhase phase = currentPhase(packageId);
@@ -199,6 +215,22 @@ public class ExternalPluginLifecycleCoordinator {
                     rolledBack ? prepared.result().previousVersion() : null,
                     operationFor(prepared.result()), currentPhase(packageId));
         }
+    }
+
+    private PluginActivationResult dependencyRejected(PreparedPluginTransaction prepared,
+                                                      List<PluginDependencyProblem> problems) {
+        PluginInstallResult staged = prepared.result();
+        String packageId = staged != null ? staged.pluginId() : null;
+        if (prepared.readyToCommit()) {
+            installer.discardPrepared(prepared);
+        }
+        PluginInstallResult rejected = new PluginInstallResult(PluginInstallOutcome.REJECTED_DEPENDENCY,
+                staged != null ? staged.descriptor() : null, null,
+                staged != null ? staged.previousVersion() : null,
+                problems.stream().map(PluginDependencyProblem::detail).toList());
+        return new PluginActivationResult(prepared.transactionId(), rejected, false, false, null,
+                staged != null ? operationFor(staged) : ExternalPluginOperation.IDLE,
+                currentPhase(packageId), problems);
     }
 
     private PluginActivationResult activatePrepared(PreparedPluginTransaction prepared) {
@@ -258,6 +290,17 @@ public class ExternalPluginLifecycleCoordinator {
 
     private PluginRuntimePhase currentPhase(String packageId) {
         return packageId == null ? null : lifecycleService.phase(packageId).orElse(null);
+    }
+
+    private void requireActivationDependencies(String packageId) {
+        var descriptor = dependencyResolver.installedDescriptor(packageId)
+                .orElseThrow(() -> new ClassifiedPluginLifecycleException(PluginManagementErrorCode.UNKNOWN_PLUGIN,
+                        "installed artifact not found: " + packageId));
+        List<PluginDependencyProblem> problems = dependencyResolver.activationProblems(descriptor);
+        if (!problems.isEmpty()) {
+            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.DEPENDENCY_UNSATISFIED,
+                    problems.get(0).detail());
+        }
     }
 
     private void cleanupCurrentGeneration(String packageId) {

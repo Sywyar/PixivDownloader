@@ -33,6 +33,8 @@ public enum PluginManagementErrorCode {
 
     DEPENDENCY_BLOCKED(HttpStatus.CONFLICT, "plugin.manage.error.dependency-blocked"),
 
+    DEPENDENCY_UNSATISFIED(HttpStatus.CONFLICT, "plugin.manage.error.dependency-unsatisfied"),
+
     PHYSICAL_UNLOAD_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "plugin.manage.error.physical-unload-failed");
 
     private final HttpStatus status;

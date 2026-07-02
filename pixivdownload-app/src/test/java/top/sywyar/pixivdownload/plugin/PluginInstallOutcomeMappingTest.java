@@ -64,6 +64,8 @@ class PluginInstallOutcomeMappingTest {
 
         assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.REJECTED_INCOMPATIBLE))
                 .isEqualTo(HttpStatus.CONFLICT);
+        assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.REJECTED_DEPENDENCY))
+                .isEqualTo(HttpStatus.CONFLICT);
         assertThat(PluginInstallOutcomeMapping.httpStatus(PluginInstallOutcome.DOWNGRADE_REJECTED))
                 .isEqualTo(HttpStatus.CONFLICT);
 

@@ -232,6 +232,28 @@ class PluginManagementServiceTest {
     }
 
     @Test
+    @DisplayName("perform 启用类动词遇必需依赖缺失时拒绝且不委托生命周期")
+    void performRefusesStartWhenRequiredDependencyMissing() {
+        PluginStatusService status = mock(PluginStatusService.class);
+        PluginLifecycleService lifecycle = mock(PluginLifecycleService.class);
+        PluginDescriptor target = new PluginDescriptor(
+                EXTERNAL_ID, EXTERNAL_ID, "1.0.0", PluginApiRequirement.unspecified(),
+                List.of(new PluginDependencyRef("dep-ext", "1.0", false)),
+                EXTERNAL_ID + ".Plugin", EXTERNAL_ID, "nav.label", null,
+                "puzzle", "neutral", PluginKind.FEATURE);
+        when(lifecycle.managedPluginIds()).thenReturn(Set.of(EXTERNAL_ID));
+        when(lifecycle.phase(EXTERNAL_ID)).thenReturn(Optional.of(PluginRuntimePhase.STOPPED));
+        when(status.report()).thenReturn(new PluginStatusReport(List.of(
+                new PluginDiagnostic(EXTERNAL_ID, PluginStatus.STARTED, target, false, List.of()))));
+
+        assertManagementError(() -> service(status, lifecycle, RequiredPluginPolicy.empty(),
+                        mock(RecoveryModeService.class))
+                        .perform(EXTERNAL_ID, PluginManagementService.LifecycleAction.START),
+                PluginManagementErrorCode.DEPENDENCY_UNSATISFIED);
+        verify(lifecycle, never()).start(EXTERNAL_ID);
+    }
+
+    @Test
     @DisplayName("perform 对内置插件拒绝（409 built-in）：内置插件不可运行期热启停")
     void performRefusesBuiltIn() {
         PluginStatusService status = mock(PluginStatusService.class);

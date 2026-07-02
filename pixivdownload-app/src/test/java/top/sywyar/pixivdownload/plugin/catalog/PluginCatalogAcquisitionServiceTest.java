@@ -6,8 +6,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallReport;
 import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
+import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
 import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
@@ -23,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -117,6 +120,212 @@ class PluginCatalogAcquisitionServiceTest {
         assertThat(report.pluginId()).isEqualTo("ext");
         assertThat(installedFiles()).containsExactly("ext-1.0.0.zip");
         assertThat(downloadLeftovers()).as("下载临时文件应被清理").isEmpty();
+    }
+
+    @Test
+    @DisplayName("依赖闭环：安装 alpha 时从同一 catalog 自动先安装 beta")
+    void installsRequiredDependencyFromSameCatalog() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        String betaUrl = servePackage("/beta.zip", beta);
+        String alphaUrl = servePackage("/alpha.zip", alpha);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()),
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(report.pluginId()).isEqualTo("alpha");
+        assertThat(installedFiles()).containsExactly("alpha-1.0.0.zip", "beta-1.0.0.zip");
+        assertThat(report.dependencyInstallResults())
+                .extracting(PluginDependencyInstallResult::pluginId)
+                .containsExactly("beta");
+        assertThat(report.unsatisfiedDependencies()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("依赖闭环：安装 alpha 会递归自动安装 beta 依赖的 gamma")
+    void installsTransitiveRequiredDependenciesFromSameCatalog() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] gamma = CatalogTestSupport.explodedPluginZip("gamma", "1.0.0", null);
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null, "gamma@1.0");
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        String gammaUrl = servePackage("/gamma.zip", gamma);
+        String betaUrl = servePackage("/beta.zip", beta);
+        String alphaUrl = servePackage("/alpha.zip", alpha);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("gamma", "1.0.0", gammaUrl, gamma, signing, List.of()),
+                entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of("gamma@1.0")),
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(report.pluginId()).isEqualTo("alpha");
+        assertThat(installedFiles()).containsExactly(
+                "alpha-1.0.0.zip", "beta-1.0.0.zip", "gamma-1.0.0.zip");
+        assertThat(report.dependencyInstallResults())
+                .extracting(PluginDependencyInstallResult::pluginId)
+                .containsExactly("gamma", "beta");
+        assertThat(report.dependencyInstallResults())
+                .extracting(PluginDependencyInstallResult::outcome)
+                .containsExactly("INSTALLED", "INSTALLED");
+        assertThat(report.unsatisfiedDependencies()).isEmpty();
+        assertThat(report.dependencyProblems()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("依赖闭环：目标下载失败时异常仍返回已自动安装的依赖结果")
+    void targetDownloadFailureKeepsDependencyInstallResults() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        String betaUrl = servePackage("/beta.zip", beta);
+        CatalogTestSupport.serveStatus(server, "/alpha.zip", 503);
+        String alphaUrl = CatalogTestSupport.loopbackUrl(server, "/alpha.zip");
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()),
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));
+
+        PluginCatalogException ex = catchThrowableOfType(
+                () -> service.install("alpha", "1.0.0"), PluginCatalogException.class);
+
+        assertThat(ex.code()).isEqualTo(PluginCatalogErrorCode.DOWNLOAD_FAILED);
+        assertThat(installedFiles()).containsExactly("beta-1.0.0.zip");
+        assertThat(ex.dependencyInstallResults())
+                .extracting(PluginDependencyInstallResult::pluginId)
+                .containsExactly("beta");
+    }
+
+    @Test
+    @DisplayName("依赖闭环：descriptor 声明的必需依赖缺失且 catalog 无条目时阻断目标安装")
+    void blocksWhenDescriptorDependencyMissingFromCatalog() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        String alphaUrl = servePackage("/alpha.zip", alpha);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of()));
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_DEPENDENCY);
+        assertThat(report.accepted()).isFalse();
+        assertThat(report.unsatisfiedDependencies()).containsExactly("beta");
+        assertThat(report.dependencyProblems()).singleElement()
+                .satisfies(problem -> assertThat(problem.reason())
+                        .isEqualTo(top.sywyar.pixivdownload.plugin.install.PluginDependencyProblem.Reason.CATALOG_MISSING));
+        assertThat(installedFiles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("依赖闭环：beta 已安装且版本满足时安装 alpha 不重复下载依赖")
+    void installedDependencyIsNotDownloadedAgain() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        AtomicInteger betaDownloads = new AtomicInteger();
+        String betaUrl = serveCountingPackage("/beta.zip", beta, betaDownloads);
+        String alphaUrl = servePackage("/alpha.zip", alpha);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()),
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));
+        service.install("beta", "1.0.0");
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(betaDownloads).hasValue(1);
+        assertThat(report.dependencyInstallResults()).isEmpty();
+        assertThat(installedFiles()).containsExactly("alpha-1.0.0.zip", "beta-1.0.0.zip");
+    }
+
+    @Test
+    @DisplayName("依赖闭环：同仓库没有满足版本要求的依赖版本时阻断目标安装")
+    void blocksWhenCatalogDependencyVersionUnsatisfied() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] beta = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null);
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@2.0");
+        String betaUrl = servePackage("/beta.zip", beta);
+        String alphaUrl = servePackage("/alpha.zip", alpha);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("beta", "1.0.0", betaUrl, beta, signing, List.of()),
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@2.0")));
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_DEPENDENCY);
+        assertThat(report.unsatisfiedDependencies()).containsExactly("beta");
+        assertThat(report.dependencyProblems()).singleElement()
+                .satisfies(problem -> assertThat(problem.reason())
+                        .isEqualTo(top.sywyar.pixivdownload.plugin.install.PluginDependencyProblem.Reason.CATALOG_VERSION_UNSATISFIED));
+        assertThat(installedFiles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("依赖闭环：可选依赖缺失不阻断 catalog 安装")
+    void optionalDependencyMissingDoesNotBlockCatalogInstall() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta?@1.0");
+        String alphaUrl = servePackage("/alpha.zip", alpha);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta?@1.0")));
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(report.unsatisfiedDependencies()).isEmpty();
+        assertThat(installedFiles()).containsExactly("alpha-1.0.0.zip");
+    }
+
+    @Test
+    @DisplayName("依赖闭环：catalog 依赖只用于预规划，descriptor 未声明时不阻断安装")
+    void catalogDependencyDoesNotOverrideDescriptorAuthority() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] alpha = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null);
+        String alphaUrl = servePackage("/alpha.zip", alpha);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("alpha", "1.0.0", alphaUrl, alpha, signing, List.of("beta@1.0")));
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.INSTALLED);
+        assertThat(report.unsatisfiedDependencies()).isEmpty();
+        assertThat(installedFiles()).containsExactly("alpha-1.0.0.zip");
+    }
+
+    @Test
+    @DisplayName("依赖闭环：循环依赖返回明确失败且不安装半成品")
+    void dependencyCycleFailsClearly() {
+        server = CatalogTestSupport.startServer();
+        CatalogTestSupport.SigningFixture signing = CatalogTestSupport.signingFixture();
+        byte[] a = CatalogTestSupport.explodedPluginZip("alpha", "1.0.0", null, "beta@1.0");
+        byte[] b = CatalogTestSupport.explodedPluginZip("beta", "1.0.0", null, "alpha@1.0");
+        String aUrl = servePackage("/alpha.zip", a);
+        String bUrl = servePackage("/beta.zip", b);
+        PluginCatalogAcquisitionService service = setUpManifest(signing,
+                entryJson("alpha", "1.0.0", aUrl, a, signing, List.of("beta@1.0")),
+                entryJson("beta", "1.0.0", bUrl, b, signing, List.of("alpha@1.0")));
+
+        PluginInstallReport report = service.install("alpha", "1.0.0");
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_DEPENDENCY);
+        assertThat(report.dependencyProblems()).singleElement()
+                .satisfies(problem -> {
+                    assertThat(problem.reason()).isEqualTo(
+                            top.sywyar.pixivdownload.plugin.install.PluginDependencyProblem.Reason.CYCLE);
+                    assertThat(problem.status()).contains("alpha", "beta");
+                });
+        assertThat(installedFiles()).isEmpty();
     }
 
     @Test
@@ -264,9 +473,11 @@ class PluginCatalogAcquisitionServiceTest {
         PluginRepositoryRegistry registry = new PluginRepositoryRegistry(props);
         PluginCatalogService catalogService = new PluginCatalogService(registry, provider);
         PluginPackageDownloader downloader = new PluginPackageDownloader(provider, downloadTempDir);
-        PluginInstallService installService = new PluginInstallService(new ExternalPluginInstaller(
-                pluginsDir, PluginPackageLimits.defaults(), PluginCatalogTrustStores.verifierResolver(registry)));
-        return new PluginCatalogAcquisitionService(catalogService, downloader, installService);
+        ExternalPluginInstaller installer = new ExternalPluginInstaller(
+                pluginsDir, PluginPackageLimits.defaults(), PluginCatalogTrustStores.verifierResolver(registry));
+        PluginInstallService installService = new PluginInstallService(installer);
+        return new PluginCatalogAcquisitionService(catalogService, downloader, installService,
+                new PluginDependencyResolver(installer));
     }
 
     private static PluginCatalogClientProvider policyFaithful() {
@@ -311,6 +522,58 @@ class PluginCatalogAcquisitionServiceTest {
                 + "\"expectedSizeBytes\":" + size + ","
                 + "\"sha256\":\"" + sha256 + "\"" + sig
                 + "}]}]}";
+    }
+
+    private String servePackage(String path, byte[] body) {
+        CatalogTestSupport.serveBytes(server, path, body);
+        return CatalogTestSupport.loopbackUrl(server, path);
+    }
+
+    private String serveCountingPackage(String path, byte[] body, AtomicInteger downloads) {
+        server.createContext(path, exchange -> {
+            downloads.incrementAndGet();
+            try {
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            } finally {
+                exchange.close();
+            }
+        });
+        return CatalogTestSupport.loopbackUrl(server, path);
+    }
+
+    private PluginCatalogAcquisitionService setUpManifest(CatalogTestSupport.SigningFixture signing,
+                                                          String... entries) {
+        byte[] manifestBytes = ("{\"entries\":[" + String.join(",", entries) + "]}")
+                .getBytes(StandardCharsets.UTF_8);
+        CatalogTestSupport.serveBytes(server, "/catalog.json", manifestBytes);
+        CatalogTestSupport.serveBytes(server, "/catalog.json.sig",
+                signing.manifestSignatureBytes("configured", manifestBytes));
+        PluginCatalogProperties props = new PluginCatalogProperties();
+        props.setEnabled(true);
+        props.setManifestUrl(CatalogTestSupport.loopbackUrl(server, "/catalog.json"));
+        props.setTrustedKeys(List.of(signing.trustedKeyConfig()));
+        return acquisition(props);
+    }
+
+    private static String entryJson(String pluginId, String version, String pkgUrl, byte[] body,
+                                    CatalogTestSupport.SigningFixture signing,
+                                    List<String> dependencies) {
+        SignatureMetadata signature = signing.artifactSignature(pluginId, version, body);
+        return "{\"pluginId\":\"" + pluginId + "\",\"packages\":[{"
+                + "\"version\":\"" + version + "\","
+                + "\"packageUrl\":\"" + pkgUrl + "\","
+                + "\"expectedSizeBytes\":" + body.length + ","
+                + "\"sha256\":\"" + CatalogTestSupport.sha256Hex(body) + "\","
+                + "\"dependencies\":" + dependenciesJson(dependencies) + ","
+                + "\"signature\":" + signing.signatureJson(signature)
+                + "}]}";
+    }
+
+    private static String dependenciesJson(List<String> dependencies) {
+        return dependencies.stream()
+                .map(dependency -> "\"" + dependency + "\"")
+                .collect(java.util.stream.Collectors.joining(",", "[", "]"));
     }
 
     @FunctionalInterface

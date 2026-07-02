@@ -1,7 +1,9 @@
 package top.sywyar.pixivdownload.plugin.catalog;
 
 import org.springframework.http.HttpStatus;
+import top.sywyar.pixivdownload.plugin.install.PluginDependencyInstallResult;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -14,12 +16,20 @@ public class PluginCatalogException extends RuntimeException {
     private final PluginCatalogErrorCode code;
     private final String pluginId;
     private final String version;
+    private final List<PluginDependencyInstallResult> dependencyInstallResults;
 
     public PluginCatalogException(PluginCatalogErrorCode code, String pluginId, String version, String detail) {
+        this(code, pluginId, version, detail, List.of());
+    }
+
+    private PluginCatalogException(PluginCatalogErrorCode code, String pluginId, String version, String detail,
+                                   List<PluginDependencyInstallResult> dependencyInstallResults) {
         super(detail);
         this.code = Objects.requireNonNull(code, "code");
         this.pluginId = pluginId;
         this.version = version;
+        this.dependencyInstallResults = dependencyInstallResults != null
+                ? List.copyOf(dependencyInstallResults) : List.of();
     }
 
     public PluginCatalogException(PluginCatalogErrorCode code, String detail) {
@@ -49,5 +59,21 @@ public class PluginCatalogException extends RuntimeException {
     /** 目标版本（可空）。 */
     public String version() {
         return version;
+    }
+
+    /** 本次市场安装过程中已经自动安装成功的依赖插件结果。 */
+    public List<PluginDependencyInstallResult> dependencyInstallResults() {
+        return dependencyInstallResults;
+    }
+
+    public PluginCatalogException withDependencyInstallResults(
+            List<PluginDependencyInstallResult> dependencyInstallResults) {
+        if (dependencyInstallResults == null || dependencyInstallResults.isEmpty()) {
+            return this;
+        }
+        PluginCatalogException enriched = new PluginCatalogException(
+                code, pluginId, version, getMessage(), dependencyInstallResults);
+        enriched.initCause(this);
+        return enriched;
     }
 }

@@ -261,6 +261,9 @@ public class PluginManagementService {
                     pluginLifecycleService.phase(id).orElse(null),
                     "Required plugin cannot be disabled: " + id);
         }
+        if (action.isEnabling()) {
+            requireSatisfiedDependencies(id, action);
+        }
         try {
             if (coordinator != null) {
                 action.apply(coordinator, id);
@@ -307,6 +310,44 @@ public class PluginManagementService {
                 "Unknown plugin: " + id);
     }
 
+    private void requireSatisfiedDependencies(String id, LifecycleAction action) {
+        var report = pluginStatusService.report();
+        if (report == null) {
+            return;
+        }
+        PluginDiagnostic target = report.byId(id).orElse(null);
+        if (target == null || target.descriptor() == null) {
+            return;
+        }
+        for (PluginDependencyRef dependency : target.descriptor().dependencies()) {
+            if (dependency.optional()) {
+                continue;
+            }
+            PluginDiagnostic depended = report.byId(dependency.pluginId()).orElse(null);
+            if (depended == null || depended.descriptor() == null) {
+                throw dependencyUnsatisfied(id, action, "missing required dependency: " + dependency.pluginId());
+            }
+            PluginApiRequirement required = dependency.requirement();
+            PluginApiRequirement actual = PluginApiRequirement.parse(depended.descriptor().version());
+            if (!required.isSatisfiedBy(actual.major(), actual.minor())) {
+                throw dependencyUnsatisfied(id, action,
+                        "required dependency " + dependency.pluginId() + " needs version "
+                                + required.display() + ", but installed version is "
+                                + depended.descriptor().version());
+            }
+            if (depended.status() != PluginStatus.STARTED) {
+                throw dependencyUnsatisfied(id, action,
+                        "required dependency " + dependency.pluginId()
+                                + " is not available (status " + depended.status() + ")");
+            }
+        }
+    }
+
+    private PluginManagementException dependencyUnsatisfied(String id, LifecycleAction action, String detail) {
+        return new PluginManagementException(PluginManagementErrorCode.DEPENDENCY_UNSATISFIED,
+                id, action.token(), pluginLifecycleService.phase(id).orElse(null), detail);
+    }
+
     private boolean allowDisable(String id) {
         return requiredPluginPolicy.requirement(id)
                 .map(RequiredPluginPolicy.RequiredPlugin::allowDisable)
@@ -340,6 +381,11 @@ public class PluginManagementService {
         /** 是否为停用 / 降级类动词（会让插件离开 {@link PluginRuntimePhase#STARTED}）：必选插件不允许。 */
         public boolean isDisabling() {
             return disabling;
+        }
+
+        /** 是否会让插件进入或恢复可服务状态，必须先满足非可选依赖。 */
+        public boolean isEnabling() {
+            return !disabling;
         }
 
         void apply(PluginLifecycleService service, String id) {
