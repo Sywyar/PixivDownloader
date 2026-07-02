@@ -9,8 +9,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -33,27 +35,37 @@ public final class GuiConfigSectionResolver {
                                                      Function<String, String> webUrlProvider) {
         List<GuiConfigSectionSpec> safePluginSections = pluginSections == null ? List.of() : pluginSections;
         List<GuiConfigSectionSpec> transitionSpecs = transitionAdapterSpecs(visibleGroups);
-        Map<String, ConfigSection> sectionsByGroup = new LinkedHashMap<>();
+        Map<String, List<ConfigSectionBlock>> blocksByGroup = new LinkedHashMap<>();
+        Set<String> exclusiveGroups = new LinkedHashSet<>();
 
         for (GuiConfigSectionSpec spec : transitionSpecs) {
-            ConfigSection section = transitionAdapter(spec, ctx, configPath, webUrlProvider);
-            if (section != null) {
-                sectionsByGroup.put(spec.group(), section);
+            ConfigSectionBlock block = transitionBlock(spec, configPath, webUrlProvider);
+            if (block != null) {
+                blocksByGroup.computeIfAbsent(spec.group(), ignored -> new ArrayList<>()).add(block);
+                if (PLUGIN_MARKET_SECTION.equals(spec.sectionId())) {
+                    exclusiveGroups.add(spec.group());
+                }
             }
         }
 
         safePluginSections.stream()
                 .filter(spec -> spec != null)
                 .filter(spec -> visibleGroups == null || visibleGroups.contains(spec.group()))
-                .filter(spec -> !sectionsByGroup.containsKey(spec.group()))
-                .collect(java.util.stream.Collectors.groupingBy(
-                        GuiConfigSectionSpec::group,
-                        LinkedHashMap::new,
-                        java.util.stream.Collectors.toList()))
-                .forEach((group, specs) -> sectionsByGroup.put(group,
-                        new DeclaredGuiConfigSection(ctx, group, sortSpecs(specs))));
+                .filter(spec -> !exclusiveGroups.contains(spec.group()))
+                .forEach(spec -> blocksByGroup
+                        .computeIfAbsent(spec.group(), ignored -> new ArrayList<>())
+                        .add(declaredBlock(spec)));
 
-        return List.copyOf(sectionsByGroup.values());
+        List<ConfigSection> sections = new ArrayList<>();
+        for (Map.Entry<String, List<ConfigSectionBlock>> entry : blocksByGroup.entrySet()) {
+            List<ConfigSectionBlock> blocks = sortBlocks(entry.getValue());
+            if (blocks.size() == 1) {
+                sections.add(blocks.get(0).createSection(ctx));
+            } else {
+                sections.add(new CompositeConfigSection(ctx, entry.getKey(), blocks));
+            }
+        }
+        return List.copyOf(sections);
     }
 
     private static List<GuiConfigSectionSpec> transitionAdapterSpecs(List<String> visibleGroups) {
@@ -80,28 +92,51 @@ public final class GuiConfigSectionResolver {
                 "", "", GuiConfigSectionLayout.FIELD_LIST, 0, List.of(), List.of(), List.of());
     }
 
-    private static ConfigSection transitionAdapter(GuiConfigSectionSpec spec,
-                                                   ConfigSectionContext ctx,
-                                                   Path configPath,
-                                                   Function<String, String> webUrlProvider) {
-        return switch (spec.sectionId()) {
-            case AI_TRANSITION_SECTION -> new AiConfigSection(ctx);
-            case NOTIFICATION_TRANSITION_SECTION -> new NotificationConfigSection(ctx);
-            case PLUGIN_MARKET_SECTION -> new PluginMarketConfigSection(ctx, configPath, webUrlProvider);
+    private static ConfigSectionBlock transitionBlock(GuiConfigSectionSpec spec,
+                                                      Path configPath,
+                                                      Function<String, String> webUrlProvider) {
+        Function<ConfigSectionContext, ConfigSection> factory = switch (spec.sectionId()) {
+            case AI_TRANSITION_SECTION -> AiConfigSection::new;
+            case NOTIFICATION_TRANSITION_SECTION -> NotificationConfigSection::new;
+            case PLUGIN_MARKET_SECTION -> sectionContext ->
+                    new PluginMarketConfigSection(sectionContext, configPath, webUrlProvider);
             default -> null;
         };
+        if (factory == null) {
+            return null;
+        }
+        return new FactoryConfigSectionBlock(spec.pluginId(), spec.sectionId(), spec.group(), spec.order(), factory);
     }
 
-    private static List<GuiConfigSectionSpec> sortSpecs(List<GuiConfigSectionSpec> specs) {
-        return specs.stream()
+    private static ConfigSectionBlock declaredBlock(GuiConfigSectionSpec spec) {
+        return new FactoryConfigSectionBlock(spec.pluginId(), spec.sectionId(), spec.group(), spec.order(),
+                sectionContext -> new DeclaredGuiConfigSection(sectionContext, spec.group(), List.of(spec)));
+    }
+
+    private static List<ConfigSectionBlock> sortBlocks(List<ConfigSectionBlock> blocks) {
+        return blocks.stream()
                 .sorted(Comparator
-                        .comparingInt(GuiConfigSectionSpec::order)
-                        .thenComparing(GuiConfigSectionSpec::pluginId)
-                        .thenComparing(GuiConfigSectionSpec::sectionId))
+                        .comparingInt(ConfigSectionBlock::order)
+                        .thenComparing(ConfigSectionBlock::pluginId, Comparator.nullsLast(String::compareTo))
+                        .thenComparing(ConfigSectionBlock::sectionId, Comparator.nullsLast(String::compareTo)))
                 .toList();
     }
 
     private static boolean contains(List<String> values, String value) {
         return values != null && values.contains(value);
+    }
+
+    private record FactoryConfigSectionBlock(
+            String pluginId,
+            String sectionId,
+            String group,
+            int order,
+            Function<ConfigSectionContext, ConfigSection> factory
+    ) implements ConfigSectionBlock {
+
+        @Override
+        public ConfigSection createSection(ConfigSectionContext ctx) {
+            return factory.apply(ctx);
+        }
     }
 }
