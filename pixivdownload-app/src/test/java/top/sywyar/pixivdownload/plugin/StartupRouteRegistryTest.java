@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 
 import java.util.List;
 
@@ -23,8 +24,8 @@ class StartupRouteRegistryTest {
     void builtInResolvesPreferredPerMode() {
         StartupRouteRegistry registry = StartupRouteRegistry.forBuiltInPlugins();
 
-        assertThat(registry.resolvePath("download-workbench")).contains("/pixiv-batch.html");
-        assertThat(registry.resolvePath("gallery")).contains("/pixiv-gallery.html");
+        assertThat(registry.resolvePath(StartupRouteContext.MULTI)).contains("/pixiv-batch.html");
+        assertThat(registry.resolvePath(StartupRouteContext.SOLO)).contains("/pixiv-gallery.html");
     }
 
     @Test
@@ -35,31 +36,31 @@ class StartupRouteRegistryTest {
         registry.register("download-workbench",
                 List.of(new StartupRouteContribution("download-workbench", "/pixiv-batch.html", 10)));
 
-        // 未声明落点的插件 id → 回退到 order 最小者（download-workbench order=10）
-        assertThat(registry.resolvePath("stats")).contains("/pixiv-batch.html");
-        // null 首选 → 同样走回退
-        assertThat(registry.resolvePath(null)).contains("/pixiv-batch.html");
+        // 未声明首选上下文 → 回退到 order 最小者（download-workbench order=10）
+        assertThat(registry.resolvePath(StartupRouteContext.MULTI)).contains("/pixiv-batch.html");
+        // null 上下文 → 同样走回退
+        assertThat(registry.resolvePath((StartupRouteContext) null)).contains("/pixiv-batch.html");
     }
 
     @Test
     @DisplayName("禁用下载工作台（注销）后默认落点自动落到其他已启用插件（画廊）")
     void fallsBackToGalleryWhenDownloadWorkbenchUnregistered() {
         StartupRouteRegistry registry = StartupRouteRegistry.forBuiltInPlugins();
-        assertThat(registry.resolvePath("download-workbench")).contains("/pixiv-batch.html");
+        assertThat(registry.resolvePath(StartupRouteContext.MULTI)).contains("/pixiv-batch.html");
 
         registry.unregister("download-workbench");
 
-        // multi 首选下载工作台已缺失 → 回退到 order 最小的已注册落点（画廊 order=20）
-        assertThat(registry.resolvePath("download-workbench")).contains("/pixiv-gallery.html");
-        assertThat(registry.resolvePath("gallery")).contains("/pixiv-gallery.html");
+        // multi 首选上下文已缺失 → 回退到 order 最小的已注册落点（画廊 order=20）
+        assertThat(registry.resolvePath(StartupRouteContext.MULTI)).contains("/pixiv-gallery.html");
+        assertThat(registry.resolvePath(StartupRouteContext.SOLO)).contains("/pixiv-gallery.html");
     }
 
     @Test
     @DisplayName("无任何落点时解析返回空（由调用方兜底）")
     void emptyRegistryResolvesToEmpty() {
         StartupRouteRegistry registry = emptyRegistry();
-        assertThat(registry.resolvePath("download-workbench")).isEmpty();
-        assertThat(registry.resolvePath(null)).isEmpty();
+        assertThat(registry.resolvePath(StartupRouteContext.MULTI)).isEmpty();
+        assertThat(registry.resolvePath((StartupRouteContext) null)).isEmpty();
     }
 
     @Test
@@ -73,11 +74,11 @@ class StartupRouteRegistryTest {
 
         registry.unregister("download-workbench");
         assertThat(registry.startupRoutes()).isEmpty();
-        assertThat(registry.resolvePath("download-workbench")).isEmpty();
+        assertThat(registry.resolvePath(StartupRouteContext.MULTI)).isEmpty();
 
         registry.register("download-workbench", List.of(route));
         assertThat(registry.startupRoutes()).hasSize(1);
-        assertThat(registry.resolvePath("download-workbench")).contains("/pixiv-batch.html");
+        assertThat(registry.resolvePath(StartupRouteContext.MULTI)).contains("/pixiv-batch.html");
     }
 
     @Test

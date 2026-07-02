@@ -130,7 +130,7 @@ function load(opts) {
 function renderedCount(record) { return record.events.filter(e => e.type === 'pixivnav:rendered').length; }
 
 const ITEMS = [
-    { id: 'gallery', placements: ['app.top', 'gallery.sidebar'], href: '/pixiv-gallery.html?view=all', icon: 'images', labelNamespace: 'gallery', labelI18nKey: 'nav.label' },
+    { id: 'gallery', placements: ['app.top', 'gallery.sidebar'], href: '/pixiv-gallery.html?view=all', icon: 'images', labelNamespace: 'gallery', labelI18nKey: 'nav.label', markers: ['first-download-result'] },
     { id: 'monitor', placements: ['app.top'], href: '/monitor.html', icon: 'monitor', labelNamespace: 'monitor', labelI18nKey: 'nav.monitor' },
     { id: 'novel', placements: ['gallery.sidebar'], href: '/pixiv-novel-gallery.html?view=all', icon: 'book', labelNamespace: 'novel', labelI18nKey: 'nav.label' }
 ];
@@ -156,6 +156,8 @@ async function main() {
         const galleryItem = topItems.find(i => i.id === 'gallery');
         ok('1: href 由贡献方完整声明（含 ?view=all，渲染器不补默认 query）',
             topComp.hrefOf(galleryItem) === '/pixiv-gallery.html?view=all');
+        ok('1: markers 渲染为可选择的中性 data attribute',
+            topComp.markersOf(galleryItem) === 'first-download-result');
         const inner = topComp.innerOf(galleryItem);
         ok('1: 内层含图标 SVG（images token）+ i18n label span', /<svg/.test(inner) && inner.indexOf('T:gallery:nav.label') >= 0);
         const monitorItem = topItems.find(i => i.id === 'monitor');
@@ -181,6 +183,8 @@ async function main() {
         ok('2: 命令式 innerHTML 渲染了链接（含 i18n label + href）',
             top.innerHTML.indexOf('app-nav-link') >= 0 && top.innerHTML.indexOf('/pixiv-gallery.html?view=all') >= 0
             && top.innerHTML.indexOf('T:gallery:nav.label') >= 0);
+        ok('2: 命令式 innerHTML 输出 data-nav-markers',
+            top.innerHTML.indexOf('data-nav-markers="first-download-result"') >= 0);
         ok('2: 当前页 monitor 命令式渲染为 <span aria-current>（不可点击）', /<span[^>]*aria-current="page"/.test(top.innerHTML));
         ok('2: 派发 pixivnav:rendered', renderedCount(record) >= 1);
     }

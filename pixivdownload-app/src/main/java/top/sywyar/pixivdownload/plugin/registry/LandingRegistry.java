@@ -105,8 +105,8 @@ public class LandingRegistry {
      * {@link LandingContribution#priority()} 最小者（priority 相同按 id 稳定排序）；无任何匹配落点返回空，
      * 由调用方兜底（如邀请兑换回 {@code /login.html?inviteError=1}）。
      * <p>
-     * 例：受邀访客（{@link Audience#INVITED_GUEST}）落点 —— gallery（priority 20）优先于 novel（priority 30）；
-     * 禁用 gallery 后其落点不进活动快照、自动回退到 novel；两者都禁用则返回空。
+     * 例：受邀访客（{@link Audience#INVITED_GUEST}）落点按 priority 选最小值；
+     * 高优先级插件禁用后其落点不进活动快照，自动回退到下一个候选；候选都缺席则返回空。
      */
     public Optional<String> resolve(Audience audience) {
         if (audience == null) {

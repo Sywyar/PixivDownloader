@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkKind;
 import top.sywyar.pixivdownload.core.schedule.work.ScheduledWorkRunnerRegistry;
 import top.sywyar.pixivdownload.download.schedule.work.ScheduledIllustWorkRunner;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -85,7 +86,7 @@ class DownloadWorkbenchRequiredContextTest {
     @Test
     @DisplayName("/redirect 默认落点仍为下载工作台页（其落点照常注册）")
     void redirectResolvesToWorkbench() {
-        assertThat(startupRouteRegistry.resolvePath("download-workbench"))
+        assertThat(startupRouteRegistry.resolvePath(StartupRouteContext.MULTI))
                 .contains("/pixiv-batch.html");
     }
 }

@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.GuiConfigContributionSnapshot;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
+import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingSnapshot;
 import top.sywyar.pixivdownload.gui.panel.AboutPanel;
 import top.sywyar.pixivdownload.gui.panel.ConfigPanel;
 import top.sywyar.pixivdownload.gui.panel.PluginsPanel;
@@ -32,6 +35,8 @@ public class MainFrame extends JFrame {
     private final String rootFolder;
     private final Path configPath;
     private final GuiConfigContributionSnapshot guiConfigContributions;
+    private final GuiWebEntrySnapshot guiWebEntries;
+    private final GuiOnboardingSnapshot guiOnboarding;
 
     private static final int STATUS_TAB_INDEX = 1;
 
@@ -43,11 +48,20 @@ public class MainFrame extends JFrame {
     private PluginsPanel pluginsPanel;
 
     public MainFrame(int serverPort, String rootFolder, Path configPath) {
-        this(serverPort, rootFolder, configPath, GuiConfigContributionSnapshot.empty());
+        this(serverPort, rootFolder, configPath,
+                GuiConfigContributionSnapshot.empty(), GuiWebEntrySnapshot.empty(), GuiOnboardingSnapshot.empty());
     }
 
     public MainFrame(int serverPort, String rootFolder, Path configPath,
                      GuiConfigContributionSnapshot guiConfigContributions) {
+        this(serverPort, rootFolder, configPath, guiConfigContributions,
+                GuiWebEntrySnapshot.empty(), GuiOnboardingSnapshot.empty());
+    }
+
+    public MainFrame(int serverPort, String rootFolder, Path configPath,
+                     GuiConfigContributionSnapshot guiConfigContributions,
+                     GuiWebEntrySnapshot guiWebEntries,
+                     GuiOnboardingSnapshot guiOnboarding) {
         super(GuiMessages.get("app.name"));
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
@@ -55,6 +69,8 @@ public class MainFrame extends JFrame {
         this.guiConfigContributions = guiConfigContributions == null
                 ? GuiConfigContributionSnapshot.empty()
                 : guiConfigContributions;
+        this.guiWebEntries = guiWebEntries == null ? GuiWebEntrySnapshot.empty() : guiWebEntries;
+        this.guiOnboarding = guiOnboarding == null ? GuiOnboardingSnapshot.empty() : guiOnboarding;
         setSize(DEFAULT_SIZE);
         setMinimumSize(MINIMUM_SIZE);
         setLocationRelativeTo(null);
@@ -101,11 +117,12 @@ public class MainFrame extends JFrame {
                 configPanel.reloadFromDisk();
             }
         };
-        statusPanel = new StatusPanel(serverPort, rootFolder, configPath, this::reloadLocale, onConfigChanged);
+        statusPanel = new StatusPanel(serverPort, rootFolder, configPath,
+                this::reloadLocale, onConfigChanged, guiWebEntries);
 
         // 整套引导已走完后不再添加欢迎 tab，避免重复展示并消除针对后端的轮询请求。
         if (!OnboardingState.isComplete(rootFolder)) {
-            welcomePanel = new WelcomePanel(statusPanel, serverPort,
+            welcomePanel = new WelcomePanel(statusPanel, serverPort, guiOnboarding,
                     () -> {
                         showWindow();
                         if (tabs != null) {
@@ -182,8 +199,12 @@ public class MainFrame extends JFrame {
         return statusPanel.getBatchUrl();
     }
 
-    public String getGalleryUrl() {
-        return statusPanel.getGalleryUrl();
+    public String getWebUrl(String path) {
+        return statusPanel.getWebUrl(path);
+    }
+
+    public List<GuiWebEntrySpec> getTrayWebActions() {
+        return guiWebEntries.trayActions();
     }
 
     public void showWindow() {

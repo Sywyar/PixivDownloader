@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.i18n.PluginContributionText;
 import top.sywyar.pixivdownload.maintenance.MaintenanceProperties;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -11,10 +12,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.MissingResourceException;
 import java.util.Optional;
-import java.util.ResourceBundle;
 import java.util.Set;
 
 import static top.sywyar.pixivdownload.gui.config.FieldType.*;
@@ -816,13 +814,6 @@ public final class ConfigFieldRegistry {
     }
 
     /**
-     * 禁用 ResourceBundle「回退到 JVM 默认 locale」——与 {@code WebI18nService} 同款：请求 locale 找不到时
-     * 直接落到根 bundle（中文），不会在 en-US 系统上把中文界面错解析成英文。
-     */
-    private static final ResourceBundle.Control PLUGIN_BUNDLE_CONTROL =
-            ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES);
-
-    /**
      * 把插件声明的<b>纯 i18n key</b> 在指定 {@code namespace}（{@link PixivFeaturePlugin#displayNamespace()} 提供，
      * 与导航 {@code NavigationContribution.labelNamespace} 同「namespace 与 key 分离」模型）中解析为当前 GUI locale
      * 的文案：只在该 namespace（{@link PixivFeaturePlugin#i18n()} 贡献的 bundle，经插件自己的 ClassLoader 解析）中查
@@ -841,34 +832,7 @@ public final class ConfigFieldRegistry {
 
     static String pluginText(List<I18nContribution> i18nContributions, ClassLoader classLoader,
                              String namespace, String key) {
-        if (namespace == null) {
-            return key;
-        }
-        Locale locale = GuiMessages.currentLocale();
-        ClassLoader effectiveClassLoader = classLoader == null
-                ? ConfigFieldRegistry.class.getClassLoader()
-                : classLoader;
-        List<I18nContribution> safeContributions = i18nContributions == null
-                ? List.of()
-                : i18nContributions;
-        for (I18nContribution ns : safeContributions) {
-            if (ns == null) {
-                continue;
-            }
-            if (!namespace.equals(ns.namespace())) {
-                continue;
-            }
-            try {
-                ResourceBundle bundle = ResourceBundle.getBundle(
-                        ns.baseName(), locale, effectiveClassLoader, PLUGIN_BUNDLE_CONTROL);
-                if (bundle.containsKey(key)) {
-                    return bundle.getString(key);
-                }
-            } catch (MissingResourceException ignored) {
-                // 该 namespace 无对应 bundle
-            }
-        }
-        return key;
+        return PluginContributionText.resolve(i18nContributions, classLoader, namespace, key);
     }
 
     private static String validateMaintenanceTime(String value) {

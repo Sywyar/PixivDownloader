@@ -11,6 +11,8 @@ import top.sywyar.pixivdownload.gui.ExclusiveToolHolder;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
 import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.i18n.AppLocale;
@@ -36,6 +38,7 @@ import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutionException;
@@ -54,7 +57,6 @@ public class StatusPanel extends JPanel {
     private static final long PIXIV_CONNECTIVITY_AUTO_CHECK_INTERVAL_MS = 60_000L;
     private static final String BATCH_PAGE = "/pixiv-batch.html";
     private static final String MONITOR_PAGE = "/monitor.html";
-    private static final String GALLERY_PAGE = "/pixiv-gallery.html";
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final SSLContext TRUST_ALL_SSL = buildTrustAllSslContext();
 
@@ -92,6 +94,7 @@ public class StatusPanel extends JPanel {
     private final Path configPath;
     private final Runnable onLocaleChanged;
     private final Runnable onConfigChanged;
+    private final GuiWebEntrySnapshot guiWebEntries;
 
     private volatile String currentScheme = "http";
     private volatile String serverDomain = "localhost";
@@ -133,11 +136,18 @@ public class StatusPanel extends JPanel {
 
     public StatusPanel(int serverPort, String rootFolder, Path configPath,
                        Runnable onLocaleChanged, Runnable onConfigChanged) {
+        this(serverPort, rootFolder, configPath, onLocaleChanged, onConfigChanged, GuiWebEntrySnapshot.empty());
+    }
+
+    public StatusPanel(int serverPort, String rootFolder, Path configPath,
+                       Runnable onLocaleChanged, Runnable onConfigChanged,
+                       GuiWebEntrySnapshot guiWebEntries) {
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
         this.configPath = configPath;
         this.onLocaleChanged = onLocaleChanged;
         this.onConfigChanged = onConfigChanged;
+        this.guiWebEntries = guiWebEntries == null ? GuiWebEntrySnapshot.empty() : guiWebEntries;
         buildUi();
         BackendLifecycleManager.addListener(backendListener);
         startPolling();
@@ -286,9 +296,12 @@ public class StatusPanel extends JPanel {
         buttons.setLayout(new BoxLayout(buttons, BoxLayout.Y_AXIS));
         buttons.setOpaque(false);
 
-        JButton openBatch = webButton("gui.action.open-batch", BATCH_PAGE);
-        JButton openMonitor = webButton("gui.action.open-monitor", MONITOR_PAGE);
-        JButton openGallery = webButton("gui.action.open-gallery", GALLERY_PAGE);
+        List<JButton> navigationButtons = new ArrayList<>();
+        navigationButtons.add(webButton(message("gui.action.open-batch"), BATCH_PAGE));
+        navigationButtons.add(webButton(message("gui.action.open-monitor"), MONITOR_PAGE));
+        for (GuiWebEntrySpec entry : guiWebEntries.statusActions()) {
+            navigationButtons.add(webButton(entry.label(), entry.href()));
+        }
 
         JButton openFolder = new JButton(message("gui.action.open-download-directory"));
         openFolder.addActionListener(e -> openDownloadFolder());
@@ -302,7 +315,8 @@ public class StatusPanel extends JPanel {
         JButton migrateDir = new JButton(message("gui.action.migrate-directory"));
         migrateDir.addActionListener(e -> openMigrateDirectoryDialog());
 
-        buttons.add(actionGroup(message("gui.action.group.navigation"), openBatch, openMonitor, openGallery));
+        buttons.add(actionGroup(message("gui.action.group.navigation"),
+                navigationButtons.toArray(JButton[]::new)));
         buttons.add(Box.createVerticalStrut(8));
         buttons.add(actionGroup(message("gui.action.group.functions"), openFolder, restart, checkUpdate, migrateDir));
         return buttons;
@@ -428,8 +442,8 @@ public class StatusPanel extends JPanel {
         applyUpdateBannerColors();
     }
 
-    private JButton webButton(String messageCode, String path) {
-        JButton button = new JButton(message(messageCode));
+    private JButton webButton(String label, String path) {
+        JButton button = new JButton(label);
         button.addActionListener(e -> openWebPage(path));
         return button;
     }
@@ -1771,10 +1785,6 @@ public class StatusPanel extends JPanel {
 
     public String getMonitorUrl() {
         return getWebUrl(MONITOR_PAGE);
-    }
-
-    public String getGalleryUrl() {
-        return getWebUrl(GALLERY_PAGE);
     }
 
     public void dispose() {

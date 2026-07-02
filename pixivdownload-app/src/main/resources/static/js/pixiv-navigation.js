@@ -124,6 +124,15 @@
         return item.href || '#';
     }
 
+    function markersFor(item) {
+        if (!Array.isArray(item.markers)) {
+            return '';
+        }
+        return item.markers.map(function (marker) {
+            return marker == null ? '' : String(marker).trim();
+        }).filter(Boolean).join(' ');
+    }
+
     function resolveLabel(i18n, item) {
         if (i18n && typeof i18n.tns === 'function') {
             return i18n.tns(item.labelNamespace, item.labelI18nKey, item.id);
@@ -174,12 +183,15 @@
         var inner = itemInnerHtml(item, label, opt);
         var roleAttr = opt.itemRole ? ' role="' + escapeAttr(opt.itemRole) + '"' : '';
         var selectedAttr = opt.itemRole ? ' aria-selected="' + (isCurrent ? 'true' : 'false') + '"' : '';
+        var markers = markersFor(item);
+        var markersAttr = markers ? ' data-nav-markers="' + escapeAttr(markers) + '"' : '';
         if (isCurrent) {
             var curAria = opt.iconOnly ? ' aria-label="' + escapeAttr(label) + '"' : '';
-            return '<span class="' + escapeAttr(cls) + '" aria-current="page"' + roleAttr + selectedAttr + curAria + '>'
+            return '<span class="' + escapeAttr(cls) + '" aria-current="page"'
+                + markersAttr + roleAttr + selectedAttr + curAria + '>'
                 + inner + '</span>';
         }
-        var attrs = ' href="' + escapeAttr(hrefFor(item)) + '"' + roleAttr + selectedAttr;
+        var attrs = ' href="' + escapeAttr(hrefFor(item)) + '"' + markersAttr + roleAttr + selectedAttr;
         if (opt.target) attrs += ' target="' + escapeAttr(opt.target) + '"';
         if (opt.rel) attrs += ' rel="' + escapeAttr(opt.rel) + '"';
         if (opt.iconOnly) attrs += ' title="' + escapeAttr(label) + '" aria-label="' + escapeAttr(label) + '"';
@@ -214,10 +226,10 @@
     // 图标 + 文字内层经 v-html 注入（label 已 escapeText、图标为受信任 SVG）。属性为 null 时 Vue 自动省略。
     var NAV_ITEM_TEMPLATE =
         '<template v-for="it in navItems()" :key="it.id">'
-        + '<span v-if="isCur(it)" :class="clsOf(it)" aria-current="page" :role="roleAttr"'
+        + '<span v-if="isCur(it)" :class="clsOf(it)" aria-current="page" :data-nav-markers="markersOf(it)" :role="roleAttr"'
         + ' :aria-selected="selOf(it)" :aria-label="iconLabelOf(it)" v-html="innerOf(it)"></span>'
         + '<a v-else :class="clsOf(it)" :href="hrefOf(it)" :role="roleAttr" :aria-selected="selOf(it)"'
-        + ' :target="targetAttr" :rel="relAttr" :title="iconLabelOf(it)" :aria-label="iconLabelOf(it)"'
+        + ' :data-nav-markers="markersOf(it)" :target="targetAttr" :rel="relAttr" :title="iconLabelOf(it)" :aria-label="iconLabelOf(it)"'
         + ' v-html="innerOf(it)"></a>'
         + '</template>';
 
@@ -239,6 +251,7 @@
                     isCur: isCurrent,
                     clsOf: function (it) { return clsFor(opt, isCurrent(it)); },
                     hrefOf: function (it) { return hrefFor(it); },
+                    markersOf: function (it) { return markersFor(it); },
                     innerOf: function (it) { return itemInnerHtml(it, label(it), opt); },
                     selOf: function (it) { return opt.itemRole ? (isCurrent(it) ? 'true' : 'false') : null; },
                     iconLabelOf: function (it) { return opt.iconOnly ? label(it) : null; },

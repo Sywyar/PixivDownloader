@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntryContributionAggregator;
+import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingContributionAggregator;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 
@@ -55,6 +57,12 @@ class PluginDisableSemanticsTest {
         assertThat(new NavigationRegistry(disabled).navigation())
                 .extracting(NavigationRegistry.RegisteredNavigation::pluginId)
                 .doesNotContain("gallery");
+        assertThat(GuiWebEntryContributionAggregator.from(disabled).statusActions())
+                .extracting(action -> action.pluginId())
+                .doesNotContain("gallery");
+        assertThat(GuiOnboardingContributionAggregator.from(disabled).steps())
+                .extracting(step -> step.pluginId())
+                .doesNotContain("gallery");
         assertThat(routeOwners(disabled)).doesNotContain("gallery");
 
         // 受管 schema 经 allPlugins 合并，禁用功能插件不改变表集合（核心数据 schema 不丢）。
@@ -98,9 +106,28 @@ class PluginDisableSemanticsTest {
     @Test
     @DisplayName("禁用各功能插件：其导航项从 NavigationRegistry 消失（前端据此让跨插件入口自然隐藏）")
     void disablingFeaturePluginsDropsTheirNavigation() {
-        assertThat(navIds(registryDisabling("gallery"))).doesNotContain("gallery");
+        assertThat(navIds(registryDisabling("gallery")))
+                .doesNotContain("gallery", "gallery-gui-open", "gallery-invite-manage-back");
         assertThat(navIds(registryDisabling("novel"))).doesNotContain("novel");
         assertThat(navIds(registryDisabling("duplicate"))).doesNotContain("duplicate");
+    }
+
+    @Test
+    @DisplayName("禁用 gallery：其 GUI Web 入口与欢迎页步骤从聚合快照消失")
+    void disablingGalleryDropsGuiEntriesAndOnboardingSteps() {
+        assertThat(GuiWebEntryContributionAggregator.from(allEnabled()).statusActions())
+                .extracting(action -> action.id())
+                .contains("gallery-gui-open");
+        assertThat(GuiWebEntryContributionAggregator.from(registryDisabling("gallery")).statusActions())
+                .extracting(action -> action.id())
+                .doesNotContain("gallery-gui-open");
+
+        assertThat(GuiOnboardingContributionAggregator.from(allEnabled()).steps())
+                .extracting(step -> step.stepId())
+                .contains("local-gallery-guide");
+        assertThat(GuiOnboardingContributionAggregator.from(registryDisabling("gallery")).steps())
+                .extracting(step -> step.stepId())
+                .doesNotContain("local-gallery-guide");
     }
 
     private static List<String> pageSectionOwners(PluginRegistry registry) {

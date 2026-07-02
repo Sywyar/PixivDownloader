@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.QueueTypeContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.TabContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
@@ -112,8 +113,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<StartupRouteContribution> startupRoutes() {
-        // multi 模式默认落点：下载工作台页（/redirect 在 multi 模式以本插件为首选）。
-        return List.of(new StartupRouteContribution(ID, "/pixiv-batch.html", 10));
+        // multi 模式默认落点：下载工作台页。
+        return List.of(new StartupRouteContribution(ID, "/pixiv-batch.html", 10, Set.of(StartupRouteContext.MULTI)));
     }
 
     @Override

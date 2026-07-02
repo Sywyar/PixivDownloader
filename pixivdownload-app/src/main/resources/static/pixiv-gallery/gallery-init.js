@@ -44,6 +44,7 @@
         if (typeof PixivOnboarding === 'undefined') return;
         PixivOnboarding.boot({
             page: 'gallery',
+            completionStepId: 'local-gallery-guide',
             i18n: pageI18n,
             eligible: profile.eligible,
             sel: {

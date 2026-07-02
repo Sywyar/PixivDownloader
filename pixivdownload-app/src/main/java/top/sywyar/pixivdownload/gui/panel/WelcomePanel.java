@@ -12,6 +12,8 @@ import top.sywyar.pixivdownload.gui.GuiTokenHolder;
 import top.sywyar.pixivdownload.gui.OnboardingState;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingSnapshot;
+import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingStepSpec;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -28,15 +30,17 @@ import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * “首页 / 引导” 标签页：单步向导。每一步是一个独立 Panel，
  * 点击「下一步 / 完成」或后端信号自动推进时，用滑动动画切换到下一个 Panel。
  *
  * <p>七步：① 服务已就绪 → ② 在本页完成配置（管理员账号 + 模式，走 GUI 令牌通道）
- * → ③ 代理与网络设置 → ④ 启动后端服务 → ⑤ 浏览画廊（网页操作指引完成后自动推进，并把 GUI 窗口带到前台）
+ * → ③ 代理与网络设置 → ④ 启动后端服务 → ⑤ 打开插件引导入口（网页操作指引完成后自动推进，并把 GUI 窗口带到前台）
  * → ⑥ 高级功能提示 → ⑦ 完成页。引导未全部完成前每次启动都停留在首页。</p>
  */
 @Slf4j
@@ -50,12 +54,13 @@ public class WelcomePanel extends JPanel {
     private static final int STEP_CONFIG = 2;
     private static final int STEP_PROXY = 3;
     private static final int STEP_START = 4;
-    private static final int STEP_GALLERY = 5;
+    private static final int STEP_GUIDE = 5;
     private static final int STEP_ADVANCED = 6;
     private static final int STEP_DONE = 7;
 
     private final StatusPanel statusPanel;
     private final int serverPort;
+    private final GuiOnboardingStepSpec guideStep;
     private final Runnable returnToGui;
     private final Runnable openStatusTab;
 
@@ -73,14 +78,15 @@ public class WelcomePanel extends JPanel {
     private boolean setupComplete;
     private boolean proxyConfigured = OnboardingState.isSeen() || OnboardingState.isProxyConfigured();
     private boolean batchVisited;
-    private boolean galleryGuideCompleted;
+    private boolean guideStepCompleted;
+    private Set<String> completedOnboardingSteps = Set.of();
 
     // 上一次对账时的快照，用于仅在相关状态真正变化时才重建当前面板
     // （否则每次轮询重建会打断配置步骤的输入焦点）
     private boolean lastServiceReady;
     private boolean lastSetupComplete;
     private boolean lastBatchVisited;
-    private boolean lastGalleryGuideCompleted;
+    private boolean lastGuideStepCompleted;
 
     private final StatusDot statusDot = new StatusDot();
     private final JLabel statusText = new JLabel();
@@ -108,10 +114,18 @@ public class WelcomePanel extends JPanel {
 
     public WelcomePanel(StatusPanel statusPanel, int serverPort,
                         Runnable returnToGui, Runnable openStatusTab) {
+        this(statusPanel, serverPort, GuiOnboardingSnapshot.empty(), returnToGui, openStatusTab);
+    }
+
+    public WelcomePanel(StatusPanel statusPanel, int serverPort,
+                        GuiOnboardingSnapshot guiOnboarding,
+                        Runnable returnToGui, Runnable openStatusTab) {
         this.statusPanel = statusPanel;
         this.serverPort = serverPort;
+        this.guideStep = guiOnboarding == null ? null : guiOnboarding.firstStep().orElse(null);
         this.returnToGui = returnToGui;
         this.openStatusTab = openStatusTab;
+        this.guideStepCompleted = isGuideStepComplete();
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(24, 32, 24, 32));
         add(slider, BorderLayout.CENTER);
@@ -190,8 +204,8 @@ public class WelcomePanel extends JPanel {
         if (currentStep == STEP_SERVICE && serviceReady) {
             goTo(STEP_CONFIG, animated);
         } else if (currentStep == STEP_START && batchVisited) {
-            goTo(STEP_GALLERY, animated);
-        } else if (currentStep == STEP_GALLERY && galleryGuideCompleted) {
+            goTo(stepAfterStart(), animated);
+        } else if (currentStep == STEP_GUIDE && guideStepCompleted) {
             OnboardingState.markSeen();
             goTo(STEP_ADVANCED, animated);
             if (returnToGui != null) {
@@ -210,7 +224,7 @@ public class WelcomePanel extends JPanel {
         lastServiceReady = serviceReady;
         lastSetupComplete = setupComplete;
         lastBatchVisited = batchVisited;
-        lastGalleryGuideCompleted = galleryGuideCompleted;
+        lastGuideStepCompleted = guideStepCompleted;
     }
 
     private int firstIncompleteStep() {
@@ -218,8 +232,16 @@ public class WelcomePanel extends JPanel {
         if (!setupComplete) return STEP_CONFIG;
         if (!proxyConfigured) return STEP_PROXY;
         if (!batchVisited) return STEP_START;
-        if (!galleryGuideCompleted) return STEP_GALLERY;
+        if (guideStep != null && !guideStepCompleted) return STEP_GUIDE;
         return STEP_ADVANCED;
+    }
+
+    private int stepAfterStart() {
+        return guideStep == null ? STEP_ADVANCED : STEP_GUIDE;
+    }
+
+    private boolean isGuideStepComplete() {
+        return guideStep == null || completedOnboardingSteps.contains(guideStep.completionKey());
     }
 
     // ── 步骤面板构建 ─────────────────────────────────────────────────────────
@@ -229,7 +251,7 @@ public class WelcomePanel extends JPanel {
             case STEP_CONFIG -> buildConfigStep();
             case STEP_PROXY -> buildProxyStep();
             case STEP_START -> buildStartStep();
-            case STEP_GALLERY -> buildGalleryStep();
+            case STEP_GUIDE -> buildGuideStep();
             case STEP_ADVANCED -> buildAdvancedStep();
             default -> buildDoneStep();
         };
@@ -510,25 +532,31 @@ public class WelcomePanel extends JPanel {
         JLabel hint = secondary(GuiMessages.get("gui.welcome.start.waiting"));
         s.add(hint);
         s.footer(GuiMessages.get("gui.welcome.nav.next"), true,
-                () -> goTo(STEP_GALLERY, true), true);
+                () -> goTo(stepAfterStart(), true), true);
         return s.root;
     }
 
-    private JComponent buildGalleryStep() {
-        StepLayout s = new StepLayout("gui.welcome.gallery.title", "gui.welcome.gallery.body");
-        s.bullet("gui.welcome.gallery.point.search");
-        s.bullet("gui.welcome.gallery.point.collections");
-        s.bullet("gui.welcome.gallery.point.guide");
+    private JComponent buildGuideStep() {
+        if (guideStep == null) {
+            return buildAdvancedStep();
+        }
+        StepLayout s = new StepLayout(guideStep.title(), guideStep.body(), true);
+        for (String bullet : guideStep.bullets()) {
+            s.bulletText(bullet);
+        }
         s.gap(8);
-        JButton open = new JButton(GuiMessages.get("gui.welcome.gallery.button"));
-        open.addActionListener(e -> openUrl(statusPanel.getGalleryUrl()));
+        JButton open = new JButton(guideStep.actionLabel());
+        open.addActionListener(e -> openUrl(statusPanel.getWebUrl(guideStep.actionHref())));
         s.add(open);
         s.gap(8);
-        JLabel hint = secondary(GuiMessages.get("gui.welcome.gallery.waiting"));
+        JLabel hint = secondary(guideStep.waitingText());
         s.add(hint);
         s.footer(GuiMessages.get("gui.welcome.nav.finish"), true, () -> {
             OnboardingState.markSeen();
-            galleryGuideCompleted = true;
+            Set<String> next = new HashSet<>(completedOnboardingSteps);
+            next.add(guideStep.completionKey());
+            completedOnboardingSteps = Set.copyOf(next);
+            guideStepCompleted = true;
             goTo(STEP_ADVANCED, true);
         }, true);
         return s.root;
@@ -720,15 +748,27 @@ public class WelcomePanel extends JPanel {
         if (node.path("batchVisited").asBoolean(false)) {
             batchVisited = true;
         }
-        if (node.path("galleryGuideCompleted").asBoolean(false)) {
-            galleryGuideCompleted = true;
-        }
+        completedOnboardingSteps = completedSteps(node.path("completedSteps"));
+        guideStepCompleted = isGuideStepComplete();
         reconcile(true);
-        // 三个后端引导信号都已观测到之后，再轮询也只能拿到相同结果；停掉以免在后续步骤
+        // 后端引导信号都已观测到之后，再轮询也只能拿到相同结果；停掉以免在后续步骤
         // 或后端被工具栏关停时还持续刷 WARN 日志。
-        if (setupComplete && batchVisited && galleryGuideCompleted) {
+        if (setupComplete && batchVisited && guideStepCompleted) {
             stopPolling();
         }
+    }
+
+    private static Set<String> completedSteps(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return Set.of();
+        }
+        Set<String> steps = new HashSet<>();
+        for (JsonNode item : node) {
+            if (item != null && item.isTextual() && !item.asText().isBlank()) {
+                steps.add(item.asText().trim());
+            }
+        }
+        return Set.copyOf(steps);
     }
 
     private void openUrl(String url) {
@@ -868,20 +908,26 @@ public class WelcomePanel extends JPanel {
         private final JPanel south = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
 
         StepLayout(String titleKey, String bodyKey) {
+            this(titleKey, bodyKey, false);
+        }
+
+        StepLayout(String title, String body, boolean rawText) {
+            String titleText = rawText ? title : GuiMessages.get(title);
+            String bodyText = rawText ? body : GuiMessages.get(body);
             root.setOpaque(false);
             JPanel head = new JPanel();
             head.setOpaque(false);
             head.setLayout(new BoxLayout(head, BoxLayout.Y_AXIS));
             head.setBorder(BorderFactory.createEmptyBorder(8, 4, 16, 4));
-            JLabel title = new JLabel(GuiMessages.get(titleKey));
-            title.setFont(title.getFont().deriveFont(Font.BOLD, 22f));
-            title.setAlignmentX(LEFT_ALIGNMENT);
-            JLabel body = new JLabel(htmlBody(GuiMessages.get(bodyKey)));
-            body.setForeground(Color.GRAY);
-            body.setAlignmentX(LEFT_ALIGNMENT);
-            head.add(title);
+            JLabel titleLabel = new JLabel(titleText);
+            titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 22f));
+            titleLabel.setAlignmentX(LEFT_ALIGNMENT);
+            JLabel bodyLabel = new JLabel(htmlBody(bodyText));
+            bodyLabel.setForeground(Color.GRAY);
+            bodyLabel.setAlignmentX(LEFT_ALIGNMENT);
+            head.add(titleLabel);
             head.add(Box.createVerticalStrut(8));
-            head.add(body);
+            head.add(bodyLabel);
 
             content.setOpaque(false);
             content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
@@ -914,7 +960,11 @@ public class WelcomePanel extends JPanel {
 
         /** 带项目符号的要点行。 */
         void bullet(String key) {
-            JLabel l = new JLabel(htmlBullet(GuiMessages.get(key)));
+            bulletText(GuiMessages.get(key));
+        }
+
+        void bulletText(String text) {
+            JLabel l = new JLabel(htmlBullet(text));
             l.setForeground(Color.GRAY);
             l.setAlignmentX(LEFT_ALIGNMENT);
             content.add(l);

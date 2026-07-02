@@ -163,7 +163,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
                 {target: '#btn-start', titleKey: 'tour:batch.start.title', bodyKey: 'tour:batch.start.body'},
                 {target: '#status-bar', titleKey: 'tour:batch.queue.title', bodyKey: 'tour:batch.queue.body'},
                 {
-                    target: 'a.app-nav-link[href*="pixiv-gallery"]',
+                    target: 'a.app-nav-link[data-nav-markers~="first-download-result"]',
                     titleKey: 'tour:batch.gallery.title',
                     bodyKey: 'tour:batch.gallery.body'
                 }

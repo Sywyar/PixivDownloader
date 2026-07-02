@@ -276,7 +276,7 @@
                 settingsCard: '#download-settings-card',
                 startButton: '#btn-start',
                 progressArea: '#download-progress-area',
-                galleryNav: 'a.app-nav-link[href*="pixiv-gallery"]'
+                firstDownloadResultEntry: 'a.app-nav-link[data-nav-markers~="first-download-result"]'
             },
             hooks: {
                 switchToSingleImport: () => switchMode(SINGLE_IMPORT_MODE),

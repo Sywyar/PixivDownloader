@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,12 +15,13 @@ import top.sywyar.pixivdownload.common.PixivConnectivityProbe;
 import top.sywyar.pixivdownload.setup.SetupService;
 
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 /**
  * 浏览器侧引导接口。
  *
  * <p>本路径在 {@code AuthFilter.isAlwaysPublicApi} 放行（浏览器无 GUI 令牌），故每个端点都由控制器
- * 自身做权限校验：{@code gallery-guide-done} 仅限同机调用；{@code GET /profile} 用「全局可见」范围
+ * 自身做权限校验：步骤完成回调仅限同机调用；{@code GET /profile} 用「全局可见」范围
  * （solo 模式任意请求 / multi 模式登录管理员）放行，专门作为前端新手向导的资格闸（403 = 不参与向导）；
  * {@code POST /profile}（写入称呼）与 {@code GET /connectivity}（触发外部探测）必须是真正已登录的管理员
  * （{@link SetupService#isAdminLoggedIn}），不再依赖 {@code hasAdminScope} —— 否则 solo 模式下未登录请求也能
@@ -34,17 +36,22 @@ import java.io.IOException;
 public class OnboardingController {
 
     private static final int MAX_DISPLAY_NAME_LENGTH = 40;
+    private static final Pattern STEP_ID_PATTERN =
+            Pattern.compile("[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*");
 
     private final OnboardingProgressService progressService;
     private final SetupService setupService;
     private final PixivConnectivityProbe pixivConnectivityProbe;
 
-    @PostMapping("/gallery-guide-done")
-    public ResponseEntity<Void> galleryGuideDone(HttpServletRequest req) {
+    @PostMapping("/steps/{stepId}/complete")
+    public ResponseEntity<Void> completeStep(@PathVariable String stepId, HttpServletRequest req) {
         if (!NetworkUtils.isTrustedLocalRequest(req)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        progressService.markGalleryGuideCompleted();
+        if (stepId == null || !STEP_ID_PATTERN.matcher(stepId).matches()) {
+            return ResponseEntity.badRequest().build();
+        }
+        progressService.markStepCompleted(stepId);
         return ResponseEntity.ok().build();
     }
 

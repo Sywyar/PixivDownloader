@@ -51,4 +51,13 @@ public final class NavigationPlacements {
      * 禁用画廊后这些区块自然消失，统计页不需要知道画廊。集中声明此名以避免前后端字符串漂移。
      */
     public static final String STATS_SIDEBAR_SECTIONS = "stats.sidebar.sections";
+
+    /** 桌面 GUI 状态页的 Web 快捷操作入口。 */
+    public static final String GUI_STATUS_ACTIONS = "gui.status.actions";
+
+    /** 桌面 GUI 托盘菜单的 Web 快捷操作入口。 */
+    public static final String GUI_TRAY_ACTIONS = "gui.tray.actions";
+
+    /** 邀请管理页的返回入口 slot。 */
+    public static final String INVITE_MANAGE_BACK = "invite.manage.back";
 }

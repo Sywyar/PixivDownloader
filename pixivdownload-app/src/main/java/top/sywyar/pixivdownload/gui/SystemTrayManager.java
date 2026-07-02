@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui;
 
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySpec;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
@@ -104,9 +105,11 @@ public final class SystemTrayManager {
         monitorItem.addActionListener(e -> openBrowser(frame.getMonitorUrl()));
         menu.add(monitorItem);
 
-        JMenuItem galleryItem = new JMenuItem(message("gui.action.open-gallery"));
-        galleryItem.addActionListener(e -> openBrowser(frame.getGalleryUrl()));
-        menu.add(galleryItem);
+        for (GuiWebEntrySpec action : frame.getTrayWebActions()) {
+            JMenuItem item = new JMenuItem(action.label());
+            item.addActionListener(e -> openBrowser(frame.getWebUrl(action.href())));
+            menu.add(item);
+        }
 
         JMenuItem folderItem = new JMenuItem(message("gui.action.open-download-directory"));
         folderItem.addActionListener(e -> openFolder(rootFolder));

@@ -7,7 +7,7 @@
  *   welcome  —— 下载页：欢迎 + 询问称呼 + 网络可达检测
  *   download —— 下载页：先逐区域认识页面（Cookie / 油猴脚本 / Tab 下载方式 → 选用「批量导入单作品」），
  *               再引导下载第一份示例作品（粘贴示例链接 → 入队 → 介绍附加筛选/下载设置 → 开始 → 监听结果）
- *   await-gallery / gallery —— 高亮顶部「画廊」入口 → 画廊逐区域讲解（视图 / 搜索 / 筛选 / 网格）→ 高亮刚下载的作品 → 引导点进详情
+ *   await-gallery / gallery —— 高亮首个下载结果入口 → 结果页逐区域讲解 → 高亮刚下载的作品 → 引导点进详情
  *   detail   —— 详情页：逐区域讲解（作品图 / 功能区 / 简介区 / 作者区 / 系列相关）→ 完成
  *
  * 文案走 i18n（tour 命名空间，onboarding.* 前缀），同时内置中文兜底；深色模式由 pixiv-onboarding.css
@@ -331,21 +331,22 @@
         }
         overlay.destroy();
         hideFab();
-        _galleryGuideNotified = false;
+        _completionStepNotified = false;
         patchState({status: 'active', phase: 'welcome'});
         phaseWelcome();
     }
 
-    // 通知后端「画廊操作指引已完成」（GUI 引导据此推进），best-effort、每次向导仅发一次。
-    var _galleryGuideNotified = false;
+    // 通知后端当前网页操作指引已完成（GUI 引导据此推进），best-effort、每次向导仅发一次。
+    var _completionStepNotified = false;
 
-    function notifyGalleryGuideDone() {
-        if (_galleryGuideNotified) {
+    function notifyCompletionStepDone() {
+        var stepId = config && config.completionStepId;
+        if (!stepId || _completionStepNotified) {
             return;
         }
-        _galleryGuideNotified = true;
+        _completionStepNotified = true;
         try {
-            fetch('/api/onboarding/gallery-guide-done', {
+            fetch('/api/onboarding/steps/' + encodeURIComponent(stepId) + '/complete', {
                 method: 'POST',
                 credentials: 'same-origin'
             }).catch(function () { /* best-effort */ });
@@ -808,6 +809,11 @@
     }
 
     function renderMonitor() {
+        var monitorBody = findFirstDownloadResultEntry()
+            ? t('onboarding.monitor.body',
+                '正在下载，请稍候…下方的状态栏与下载队列会实时显示进度，完成后会自动带你去画廊查看。')
+            : t('onboarding.monitor.body.no-result',
+                '正在下载，请稍候…下方的状态栏与下载队列会实时显示进度，完成后会提示你查看下载结果。');
         // 高亮下载状态 + 队列区域，让用户实时看到下载进度（仅高亮、不可交互）
         overlay.render({
             targetSelector: config.sel.progressArea,
@@ -815,7 +821,7 @@
                 '<h3 class="po-pop-title">' + escapeHtml(t('onboarding.monitor.title', '⏳ 正在下载示例作品')) + '</h3>'
                 + '<div class="po-pop-body">'
                 + '<div class="po-net"><span class="po-spinner"></span><span>'
-                + escapeHtml(t('onboarding.monitor.body', '正在下载，请稍候…下方的状态栏与下载队列会实时显示进度，完成后会自动带你去画廊查看。')) + '</span></div>'
+                + escapeHtml(monitorBody) + '</span></div>'
                 + '</div>'
                 + footHtml([SKIP_BTN()])
         });
@@ -864,11 +870,75 @@
         }
     }
 
+    function firstDownloadResultEntrySelector() {
+        if (!config || !config.sel) {
+            return null;
+        }
+        return config.sel.firstDownloadResultEntry || config.sel.resultEntry || null;
+    }
+
+    function findFirstDownloadResultEntry() {
+        var sel = firstDownloadResultEntrySelector();
+        if (!sel) {
+            return null;
+        }
+        try {
+            return document.querySelector(sel);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function waitForFirstDownloadResultEntry(done) {
+        var immediate = findFirstDownloadResultEntry();
+        if (immediate || !firstDownloadResultEntrySelector()) {
+            done(immediate);
+            return;
+        }
+        var settled = false;
+        var settle = function (el) {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            done(el || findFirstDownloadResultEntry());
+        };
+        if (global.PixivNav && typeof global.PixivNav.ready === 'function') {
+            try {
+                global.PixivNav.ready().then(function () {
+                    settle(findFirstDownloadResultEntry());
+                }, function () {
+                    settle(findFirstDownloadResultEntry());
+                });
+                global.setTimeout(function () {
+                    settle(findFirstDownloadResultEntry());
+                }, 3000);
+                return;
+            } catch (e) {
+                // 回退到下方短轮询
+            }
+        }
+        waitForElement(findFirstDownloadResultEntry, settle, function () {
+            settle(null);
+        }, 3000);
+    }
+
     function monitorSucceeded() {
+        waitForFirstDownloadResultEntry(function (entry) {
+            if (entry) {
+                renderFirstDownloadResultEntryPrompt();
+            } else {
+                renderDownloadCompletedWithoutResultEntry();
+            }
+        });
+    }
+
+    function renderFirstDownloadResultEntryPrompt() {
+        var resultEntry = firstDownloadResultEntrySelector();
         patchState({phase: 'await-gallery', downloaded: true});
         overlay.render({
-            targetSelector: config.sel.galleryNav,
-            interactiveSelector: config.sel.galleryNav,
+            targetSelector: resultEntry,
+            interactiveSelector: resultEntry,
             html:
                 '<h3 class="po-pop-title">' + escapeHtml(t('onboarding.monitor.success.title', '🎉 下载成功！')) + '</h3>'
                 + '<div class="po-pop-body"><p>' + escapeHtml(t('onboarding.monitor.success.body',
@@ -877,6 +947,20 @@
         });
         bindFoot({skip: skip});
         // 画廊在新标签打开，由那边的 boot 续跑；这里点击后保持提示即可
+    }
+
+    function renderDownloadCompletedWithoutResultEntry() {
+        patchState({downloaded: true});
+        markCompleted();
+        overlay.render({
+            centered: true,
+            html:
+                '<h3 class="po-pop-title">' + escapeHtml(t('onboarding.monitor.success.title', '🎉 下载成功！')) + '</h3>'
+                + '<div class="po-pop-body"><p>' + escapeHtml(t('onboarding.monitor.success.no-result.body',
+                    '第一份作品已下载到本地。当前没有可打开的下载结果入口，指引已完成。')) + '</p></div>'
+                + footHtml([{act: 'done', label: t('onboarding.done.close', '开始使用'), variant: 'primary'}])
+        });
+        bindFoot({done: finish});
     }
 
     function monitorFailed(message) {
@@ -905,7 +989,7 @@
     function phaseGallery() {
         patchState({phase: 'gallery'});
         // 进入画廊讲解即视为「画廊操作指引」已抵达，通知后端供 GUI 引导推进（取代旧版画廊指引的信号）
-        notifyGalleryGuideDone();
+        notifyCompletionStepDone();
         // 先逐区域认识画廊（视图 / 搜索 / 筛选 / 作品网格），再高亮刚下载的作品卡片
         runGalleryRegions(highlightExampleCard);
     }

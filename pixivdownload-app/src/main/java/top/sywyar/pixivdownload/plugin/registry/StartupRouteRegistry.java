@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.registry;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -17,10 +18,8 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 读路径走不可变快照：注册变更时整体替换快照引用，读侧无锁
  * （{@code AuthFilter} 处理 {@code /redirect} 时读取）。
  * <p>
- * {@code /redirect} 的落点选择由 {@link #resolvePath(String)} 承载：先取当前模式的首选插件落点
- * （multi → 下载工作台、solo → 画廊，由 {@code AuthFilter} 按模式传入），首选插件未声明 / 未启用时
- * 回退到 {@code order} 最小的已注册落点；全部缺失返回空，由调用方兜底。这样禁用下载工作台后默认落点
- * 自动落到其他已启用插件，不再硬编码页面路径。
+ * {@code /redirect} 的落点选择由 {@link #resolvePath(StartupRouteContext)} 承载：先取当前启动上下文的
+ * 首选落点，缺失时回退到 {@code order} 最小的已注册落点；全部缺失返回空，由调用方兜底。
  */
 @Component
 public class StartupRouteRegistry {
@@ -89,6 +88,24 @@ public class StartupRouteRegistry {
     }
 
     /**
+     * 解析默认落点：优先返回匹配启动上下文的落点，当前上下文无声明时回退到 {@code order}
+     * 最小的已注册落点（order 相同按注册顺序）；无任何落点则返回空。
+     */
+    public Optional<String> resolvePath(StartupRouteContext context) {
+        List<RegisteredStartupRoute> current = snapshot;
+        if (context != null) {
+            Optional<String> preferred = current.stream()
+                    .filter(registered -> registered.route().preferredContexts().contains(context))
+                    .min(Comparator.comparingInt(registered -> registered.route().order()))
+                    .map(registered -> registered.route().path());
+            if (preferred.isPresent()) {
+                return preferred;
+            }
+        }
+        return fallback(current);
+    }
+
+    /**
      * 解析默认落点：优先返回首选插件声明的落点，首选插件未声明 / 未启用时回退到 {@code order}
      * 最小的已注册落点（order 相同按注册顺序）；无任何落点则返回空。
      *
@@ -105,6 +122,10 @@ public class StartupRouteRegistry {
                 return preferred;
             }
         }
+        return fallback(current);
+    }
+
+    private static Optional<String> fallback(List<RegisteredStartupRoute> current) {
         return current.stream()
                 .min(Comparator.comparingInt(registered -> registered.route().order()))
                 .map(registered -> registered.route().path());

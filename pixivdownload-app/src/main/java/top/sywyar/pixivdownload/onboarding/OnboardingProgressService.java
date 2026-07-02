@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.onboarding;
 
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -14,30 +17,33 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class OnboardingProgressService {
 
     private final AtomicBoolean batchVisited = new AtomicBoolean(false);
-    private final AtomicBoolean galleryVisited = new AtomicBoolean(false);
-    private final AtomicBoolean galleryGuideCompleted = new AtomicBoolean(false);
+    private final Set<String> completedSteps = ConcurrentHashMap.newKeySet();
 
     public void recordBatchVisit() {
         batchVisited.set(true);
     }
 
-    public void recordGalleryVisit() {
-        galleryVisited.set(true);
-    }
-
-    public void markGalleryGuideCompleted() {
-        galleryGuideCompleted.set(true);
+    public void markStepCompleted(String stepId) {
+        String normalized = normalize(stepId);
+        if (normalized != null) {
+            completedSteps.add(normalized);
+        }
     }
 
     public boolean isBatchVisited() {
         return batchVisited.get();
     }
 
-    public boolean isGalleryVisited() {
-        return galleryVisited.get();
+    public boolean isStepCompleted(String stepId) {
+        String normalized = normalize(stepId);
+        return normalized != null && completedSteps.contains(normalized);
     }
 
-    public boolean isGalleryGuideCompleted() {
-        return galleryGuideCompleted.get();
+    public List<String> completedSteps() {
+        return completedSteps.stream().sorted().toList();
+    }
+
+    private static String normalize(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

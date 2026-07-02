@@ -175,8 +175,7 @@ async function doInviteRedeem() {
       btn.disabled = false;
       return;
     }
-    // 后端按受邀访客可见导航解析落点（画廊优先、禁用则回退小说，详见 InviteRedeemController）；
-    // 仅当响应异常缺失 redirect 时才用公开首页兜底，绝不再硬跳可能已禁用的 /pixiv-gallery.html。
+    // 后端按受邀访客可见落点贡献解析 redirect；仅当响应异常缺失 redirect 时才用公开首页兜底。
     window.location.href = data.redirect || '/';
   } catch (e) {
     showInviteErrorKey('error.network', 'error.network', {message: e.message});

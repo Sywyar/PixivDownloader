@@ -32,6 +32,7 @@ import top.sywyar.pixivdownload.plugin.registry.StartupRouteRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.quota.RateLimitService;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
@@ -330,12 +331,9 @@ public class AuthFilter extends OncePerRequestFilter {
             if (setupService.isIntroMode()) {
                 res.sendRedirect("/intro.html");
             } else {
-                // 默认落点不再硬编码页面路径，改读 StartupRouteRegistry：multi 以下载工作台为首选、
-                // solo 以画廊为首选；首选插件未声明 / 未启用时回退到 order 最小的已启用插件落点，
-                // 全部缺失兜底到登录页（禁用下载工作台后自动落到其他已启用插件，不留坏入口）。
-                String preferredPluginId = "multi".equals(setupService.getMode())
-                        ? "download-workbench" : "gallery";
-                res.sendRedirect(startupRouteRegistry.resolvePath(preferredPluginId).orElse("/login.html"));
+                StartupRouteContext startupContext = "multi".equals(setupService.getMode())
+                        ? StartupRouteContext.MULTI : StartupRouteContext.SOLO;
+                res.sendRedirect(startupRouteRegistry.resolvePath(startupContext).orElse("/login.html"));
             }
             return;
         }

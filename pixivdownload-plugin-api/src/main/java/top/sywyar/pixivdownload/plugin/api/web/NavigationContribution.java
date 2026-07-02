@@ -26,6 +26,7 @@ import java.util.Set;
  * @param icon         图标标识（label-only 的 slot（如类型切换 tab）会忽略它）
  * @param visibleTo    可见所需的访问策略（与 {@code /api/navigation} 的可见性过滤对照）
  * @param priority     placement 内排序权重，越小越靠前（<b>不</b>跨越来源层级：第三方项不会因 priority 小而越过内置项）
+ * @param markers      中性语义标记，供前端导览等消费者定位「某类入口」；不参与渲染槽位匹配与排序
  */
 public record NavigationContribution(
         String id,
@@ -35,16 +36,24 @@ public record NavigationContribution(
         String href,
         String icon,
         AccessPolicy visibleTo,
-        int priority
+        int priority,
+        Set<String> markers
 ) {
     public NavigationContribution {
         placements = placements == null ? Set.of() : Set.copyOf(placements);
+        markers = markers == null ? Set.of() : Set.copyOf(markers);
+    }
+
+    /** 兼容构造：不声明语义标记。 */
+    public NavigationContribution(String id, Set<String> placements, String labelNamespace, String labelI18nKey,
+                                  String href, String icon, AccessPolicy visibleTo, int priority) {
+        this(id, placements, labelNamespace, labelI18nKey, href, icon, visibleTo, priority, Set.of());
     }
 
     /** 便捷构造：单一 placement 的导航项。 */
     public NavigationContribution(String id, String placement, String labelNamespace, String labelI18nKey,
                                   String href, String icon, AccessPolicy visibleTo, int priority) {
         this(id, placement == null ? Set.of() : Set.of(placement), labelNamespace, labelI18nKey,
-                href, icon, visibleTo, priority);
+                href, icon, visibleTo, priority, Set.of());
     }
 }

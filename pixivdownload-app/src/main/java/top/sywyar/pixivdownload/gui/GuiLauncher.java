@@ -11,7 +11,11 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.config.GuiConfigContributionAggregator;
 import top.sywyar.pixivdownload.gui.config.GuiConfigContributionSnapshot;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntryContributionAggregator;
+import top.sywyar.pixivdownload.gui.entry.GuiWebEntrySnapshot;
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
+import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingContributionAggregator;
+import top.sywyar.pixivdownload.gui.onboarding.GuiOnboardingSnapshot;
 import top.sywyar.pixivdownload.gui.theme.GuiThemeManager;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.SystemLocaleDetector;
@@ -255,6 +259,8 @@ public class GuiLauncher {
                 .filter(plugin -> plugin.required() || pluginSession.enabledSnapshot().isEnabled(plugin.id()))
                 .toList();
         final GuiConfigContributionSnapshot guiConfigContributions = buildGuiConfigContributionSnapshot(pluginSession);
+        final GuiWebEntrySnapshot guiWebEntries = buildGuiWebEntrySnapshot(pluginSession);
+        final GuiOnboardingSnapshot guiOnboarding = buildGuiOnboardingSnapshot(pluginSession);
         pluginSession.releaseStartupSnapshot();
 
         final int port = serverPort;
@@ -274,7 +280,8 @@ public class GuiLauncher {
         SwingUtilities.invokeLater(() -> {
             try {
                 GuiThemeManager.applyBeforeFirstWindow(configPath, theme, startupThemePlugins);
-                MainFrame frame = new MainFrame(port, root, configPath, guiConfigContributions);
+                MainFrame frame = new MainFrame(port, root, configPath,
+                        guiConfigContributions, guiWebEntries, guiOnboarding);
                 singleInstanceManager.setActivationHandler(() -> SwingUtilities.invokeLater(frame::showWindow));
                 boolean trayInstalled = SystemTrayManager.install(frame, root);
                 if (!startupLaunch || !trayInstalled) {
@@ -803,6 +810,32 @@ public class GuiLauncher {
         } catch (RuntimeException e) {
             log.warn(logMessage("gui.launcher.log.gui-config-contribution.failed", safeMessage(e)), e);
             return GuiConfigContributionSnapshot.empty();
+        }
+    }
+
+    private static GuiWebEntrySnapshot buildGuiWebEntrySnapshot(PluginBootstrapSession pluginSession) {
+        try {
+            PluginRegistry registry = new PluginRegistry(
+                    BuiltInPlugins.createAll(),
+                    togglesFromSnapshot(pluginSession.enabledSnapshot()),
+                    pluginSession.startupDiscovery());
+            return GuiWebEntryContributionAggregator.from(registry);
+        } catch (RuntimeException e) {
+            log.warn(logMessage("gui.launcher.log.gui-web-entry-contribution.failed", safeMessage(e)), e);
+            return GuiWebEntrySnapshot.empty();
+        }
+    }
+
+    private static GuiOnboardingSnapshot buildGuiOnboardingSnapshot(PluginBootstrapSession pluginSession) {
+        try {
+            PluginRegistry registry = new PluginRegistry(
+                    BuiltInPlugins.createAll(),
+                    togglesFromSnapshot(pluginSession.enabledSnapshot()),
+                    pluginSession.startupDiscovery());
+            return GuiOnboardingContributionAggregator.from(registry);
+        } catch (RuntimeException e) {
+            log.warn(logMessage("gui.launcher.log.gui-onboarding-contribution.failed", safeMessage(e)), e);
+            return GuiOnboardingSnapshot.empty();
         }
     }
 

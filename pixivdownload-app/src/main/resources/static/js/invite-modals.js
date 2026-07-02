@@ -1,7 +1,7 @@
 /* global window, document */
 /**
  * 邀请码相关的共享 modal：创建/编辑邀请、配置可见标签或作者、展示邀请链接结果、Toast。
- * 由 pixiv-gallery.html、pixiv-invite-manage.html、pixiv-invite-detail.html 复用。
+ * 由多个邀请入口页面复用。
  *
  * 可见范围按媒体类型拆分为漫画/插画侧（tag/author）与小说侧（novelTag/novelAuthor），
  * 分别独立配置；语义和取数源相互独立。

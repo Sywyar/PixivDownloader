@@ -7,6 +7,7 @@
 <script src="/js/pixiv-i18n.js"></script>
 <script src="/js/pixiv-lang-switcher.js"></script>
 <script src="/js/pixiv-theme.js"></script>
+<script src="/js/pixiv-navigation.js"></script>
 <script src="/js/invite-modals.js"></script>
 <link rel="stylesheet" href="/vendor/fonts/fonts.css">
 <link rel="stylesheet" href="/css/lang-theme-switcher.css">
@@ -15,7 +16,7 @@
 <body>
 <header class="topbar">
     <span class="brand" data-i18n="invite:page.manage.title">邀请码管理</span>
-    <a class="back-link" href="/pixiv-gallery.html?view=all" data-i18n="invite:header.back">← 返回画廊</a>
+    <span data-nav-slot="invite.manage.back" data-nav-link-class="back-link" data-nav-no-icon></span>
     <div class="topbar-actions" id="langSwitcherAnchor"></div>
 </header>
 

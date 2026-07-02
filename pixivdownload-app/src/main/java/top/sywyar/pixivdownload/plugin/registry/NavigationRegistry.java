@@ -128,6 +128,12 @@ public class NavigationRegistry {
                         + navigation.id() + " (plugin: " + pluginId + ")");
             }
         }
+        for (String marker : navigation.markers()) {
+            if (marker == null || marker.isBlank()) {
+                throw new IllegalStateException("navigation with blank marker: "
+                        + navigation.id() + " (plugin: " + pluginId + ")");
+            }
+        }
         if (navigation.labelI18nKey() == null || navigation.labelI18nKey().isBlank()) {
             throw new IllegalStateException("navigation without label i18n key: "
                     + navigation.id() + " (plugin: " + pluginId + ")");

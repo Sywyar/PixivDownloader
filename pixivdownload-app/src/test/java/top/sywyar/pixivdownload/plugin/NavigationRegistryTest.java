@@ -40,6 +40,7 @@ class NavigationRegistryTest {
                         "download-workbench", "monitor", "invite-manage", "plugin-manage", "plugin-market",
                         "gallery", "gallery-type-switch",
                         "gallery-view-all", "gallery-view-authors", "gallery-view-series",
+                        "gallery-gui-open", "gallery-invite-manage-back",
                         "novel", "novel-type-switch", "duplicate");
         // 画廊主入口归 gallery 插件、INVITED_GUEST 可见、进入顶部栏 + 中立主侧栏 + 画廊侧栏 + 疑似重复图标区四个 placement。
         assertThat(registry.navigation())
@@ -48,8 +49,30 @@ class NavigationRegistryTest {
                 .satisfies(registered -> {
                     assertThat(registered.pluginId()).isEqualTo("gallery");
                     assertThat(registered.navigation().visibleTo()).isEqualTo(AccessPolicy.INVITED_GUEST);
+                    assertThat(registered.navigation().markers()).containsExactly("first-download-result");
                     assertThat(registered.navigation().placements())
                             .containsExactlyInAnyOrder("app.top", "app.sidebar", "gallery.sidebar", "duplicates.header-icons");
+                });
+        assertThat(registry.navigation())
+                .filteredOn(registered -> registered.navigation().id().equals("gallery-gui-open"))
+                .singleElement()
+                .satisfies(registered -> {
+                    assertThat(registered.pluginId()).isEqualTo("gallery");
+                    assertThat(registered.navigation().labelNamespace()).isEqualTo("gallery");
+                    assertThat(registered.navigation().labelI18nKey()).isEqualTo("gui.action.open");
+                    assertThat(registered.navigation().href()).isEqualTo("/pixiv-gallery.html");
+                    assertThat(registered.navigation().placements())
+                            .containsExactlyInAnyOrder("gui.status.actions", "gui.tray.actions");
+                });
+        assertThat(registry.navigation())
+                .filteredOn(registered -> registered.navigation().id().equals("gallery-invite-manage-back"))
+                .singleElement()
+                .satisfies(registered -> {
+                    assertThat(registered.pluginId()).isEqualTo("gallery");
+                    assertThat(registered.navigation().labelNamespace()).isEqualTo("gallery");
+                    assertThat(registered.navigation().labelI18nKey()).isEqualTo("invite.manage.back");
+                    assertThat(registered.navigation().href()).isEqualTo("/pixiv-gallery.html?view=all");
+                    assertThat(registered.navigation().placements()).containsExactly("invite.manage.back");
                 });
         // 下载工作台导航：VISITOR（访客 / 管理员可见、受邀访客不可见），归 download-workbench 插件，进顶部栏 + 中立主侧栏 + 两家族侧栏。
         assertThat(registry.navigation())
@@ -187,7 +210,7 @@ class NavigationRegistryTest {
     }
 
     @Test
-    @DisplayName("非法输入拒绝：pluginId / id / labelI18nKey / href 非空，visibleTo 非 null，placements 非空、不含空白")
+    @DisplayName("非法输入拒绝：pluginId / id / labelI18nKey / href 非空，visibleTo 非 null，placements 和 markers 不含空白")
     void invalidInputRejected() {
         NavigationRegistry registry = emptyRegistry();
         assertThatThrownBy(() -> registry.register(" ", List.of(nav("a"))))
@@ -213,6 +236,11 @@ class NavigationRegistryTest {
         // placements 含空白项
         assertThatThrownBy(() -> registry.register("demo", List.of(
                 new NavigationContribution("a", Set.of(" "), "ns", "nav.label", "/a.html", "icon", AccessPolicy.ADMIN, 0))))
+                .isInstanceOf(IllegalStateException.class);
+        // markers 含空白项
+        assertThatThrownBy(() -> registry.register("demo", List.of(
+                new NavigationContribution("a", Set.of("app.top"), "ns", "nav.label", "/a.html", "icon",
+                        AccessPolicy.ADMIN, 0, Set.of(" ")))))
                 .isInstanceOf(IllegalStateException.class);
     }
 

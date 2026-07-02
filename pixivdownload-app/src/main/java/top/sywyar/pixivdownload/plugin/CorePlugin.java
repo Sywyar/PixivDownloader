@@ -100,7 +100,7 @@ public class CorePlugin implements PixivFeaturePlugin {
 
     @Override
     public List<WebRouteContribution> routes() {
-        // 跨页 / 横切的核心路由访问声明：功能页面与各自 API（gallery/novel/stats/duplicate）由对应功能插件
+        // 跨页 / 横切的核心路由访问声明：功能页面与各自 API 由对应功能插件
         // 声明，本清单承载未被功能插件接管的核心 / 共享路由，并把历史「未声明 API / 顶层 HTML / 静态资源」
         // 一并显式声明——AuthFilter 对未命中任何声明的请求统一 404，故每个真实 URL 都必须落在某条声明里。
         //

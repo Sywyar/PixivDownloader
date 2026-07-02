@@ -2,17 +2,20 @@ package top.sywyar.pixivdownload.gallery;
 
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.CoreColumnUsage;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.PageSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
+import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 
@@ -130,7 +133,8 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                         ID,
                         Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
                                 NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.DUPLICATES_HEADER_ICONS),
-                        "gallery", "nav.label", "/pixiv-gallery.html?view=all", "images", AccessPolicy.INVITED_GUEST, 30),
+                        "gallery", "nav.label", "/pixiv-gallery.html?view=all", "images",
+                        AccessPolicy.INVITED_GUEST, 30, Set.of(NavigationMarkers.FIRST_DOWNLOAD_RESULT)),
                 new NavigationContribution(
                         "gallery-type-switch",
                         Set.of(NavigationPlacements.NOVEL_TYPE_SWITCH),
@@ -150,6 +154,16 @@ public class GalleryPlugin implements PixivFeaturePlugin {
                         "gallery-view-series",
                         Set.of(NavigationPlacements.STATS_GALLERY_LINKS),
                         "gallery", "nav.series", "/pixiv-gallery.html?view=series", "book",
+                        AccessPolicy.INVITED_GUEST, 33),
+                new NavigationContribution(
+                        "gallery-gui-open",
+                        Set.of(NavigationPlacements.GUI_STATUS_ACTIONS, NavigationPlacements.GUI_TRAY_ACTIONS),
+                        "gallery", "gui.action.open", "/pixiv-gallery.html", "images",
+                        AccessPolicy.INVITED_GUEST, 33),
+                new NavigationContribution(
+                        "gallery-invite-manage-back",
+                        Set.of(NavigationPlacements.INVITE_MANAGE_BACK),
+                        "gallery", "invite.manage.back", "/pixiv-gallery.html?view=all", "images",
                         AccessPolicy.INVITED_GUEST, 33));
     }
 
@@ -196,9 +210,27 @@ public class GalleryPlugin implements PixivFeaturePlugin {
 
     @Override
     public List<StartupRouteContribution> startupRoutes() {
-        // solo 模式默认落点：画廊页（/redirect 在 solo 模式以本插件为首选）；
-        // 也是 multi 模式下禁用下载工作台后按 order 回退的下一落点。
-        return List.of(new StartupRouteContribution(ID, "/pixiv-gallery.html", 20));
+        // solo 模式默认落点：画廊页；也是 multi 模式下禁用下载工作台后按 order 回退的下一落点。
+        return List.of(new StartupRouteContribution(ID, "/pixiv-gallery.html", 20, Set.of(StartupRouteContext.SOLO)));
+    }
+
+    @Override
+    public List<GuiOnboardingStepContribution> guiOnboardingSteps() {
+        return List.of(new GuiOnboardingStepContribution(
+                ID,
+                "local-gallery-guide",
+                "gallery",
+                "gui.onboarding.title",
+                "gui.onboarding.body",
+                List.of(
+                        "gui.onboarding.point.search",
+                        "gui.onboarding.point.collections",
+                        "gui.onboarding.point.guide"),
+                "gui.onboarding.button",
+                "/pixiv-gallery.html",
+                "gui.onboarding.waiting",
+                "local-gallery-guide",
+                50));
     }
 
     @Override

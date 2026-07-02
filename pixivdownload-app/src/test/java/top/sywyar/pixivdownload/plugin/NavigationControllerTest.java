@@ -115,7 +115,7 @@ class NavigationControllerTest {
     }
 
     @Test
-    @DisplayName("视图只暴露渲染字段（id/placements/labelI18nKey/href/icon/priority），刻意不含 visibleTo")
+    @DisplayName("视图只暴露渲染字段（id/placements/labelI18nKey/href/icon/priority/markers），刻意不含 visibleTo")
     void viewExposesOnlyRenderFields() {
         when(setupService.hasAdminScope(any())).thenReturn(true);
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -129,9 +129,11 @@ class NavigationControllerTest {
         assertThat(first.href()).isEqualTo("/a1.html");
         assertThat(first.icon()).isEqualTo("i");
         assertThat(first.priority()).isEqualTo(5);
+        assertThat(first.markers()).isEmpty();
         assertThat(NavigationController.NavigationView.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
-                .containsExactly("id", "placements", "labelNamespace", "labelI18nKey", "href", "icon", "priority");
+                .containsExactly("id", "placements", "labelNamespace", "labelI18nKey", "href", "icon",
+                        "priority", "markers");
     }
 
     @Test

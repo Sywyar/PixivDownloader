@@ -171,8 +171,7 @@ public class GuiStatusController {
                 serverState.isSetupComplete(),
                 serverState.getMode() != null ? serverState.getMode() : "",
                 onboardingProgressService.isBatchVisited(),
-                onboardingProgressService.isGalleryVisited(),
-                onboardingProgressService.isGalleryGuideCompleted()));
+                onboardingProgressService.completedSteps()));
     }
 
     /**
@@ -247,8 +246,7 @@ public class GuiStatusController {
             boolean setupComplete,
             String mode,
             boolean batchVisited,
-            boolean galleryVisited,
-            boolean galleryGuideCompleted) {
+            List<String> completedSteps) {
     }
 
     public record GuiSetupInitRequest(String username, String password, String mode) {
